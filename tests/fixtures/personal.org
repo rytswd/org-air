@@ -5,6 +5,10 @@
 DEADLINE: <2026-06-12 Fri>
 Overdue: the reminder card arrived two weeks ago.
 
+* TODO Renew library card                                              :admin:
+DEADLINE: <2026-06-15 Mon>
+Due exactly today relative to the frozen test now.
+
 * TODO Plan summer holiday                                     :travel:family:
 SCHEDULED: <2026-07-01 Wed>
 Compare the coast and the mountains; book by end of June.

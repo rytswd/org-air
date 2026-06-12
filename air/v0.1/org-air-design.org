@@ -1,0 +1,502 @@
+#+title: org-air: visual & UX specification
+#+state: ready
+#+FILETAGS: :ui:design:emacs:
+
+* Summary
+This document is the authoritative visual and interaction specification
+for org-air. It defines the dashboard layout, the colour/typography
+language (after rougier's N Λ N O), the capture → inbox → refile flow,
+tag filtering and view scoping, the keybinding map, and every transient
+state (empty / loading / counts). The implementation tracks follow this
+document literally; the palette it describes is implemented in
+=org-air-faces.el=.
+
+The guiding principle, borrowed from N Λ N O and "On the Design of Text
+Editors" (Rougier, https://arxiv.org/abs/2008.06030): *a complete,
+legible UI needs exactly one default face plus six semantic faces.*
+Everything below is built from those seven roles. Restraint is the
+feature — generous whitespace, almost no boxes or rules, hue used only
+to carry meaning.
+
+* Motivation
+org-agenda's rendering is dense, bracket-heavy, and colour-noisy.
+org-air instead aims for a calm "dashboard" that a user can scan in two
+seconds: where are my unprocessed notes, what is due, what has gone
+stale, what is on fire. We achieve this by spending the screen's two
+scarcest resources — *contrast* and *hue* — only where they change a
+decision.
+
+** Goals
+- One screen that answers "what needs me right now?" without scrolling.
+- A capture path of two keystrokes; a refile path of three.
+- Colour that means something: hue == category of attention.
+- Identical legibility on GUI and TTY, light and dark.
+
+** Non-Goals
+- Pixel-art / graphical widgets. org-air is text with text-properties.
+- Theming the whole of Emacs. We ship faces, not a theme.
+- Configurable layouts in v0.1 (one opinionated layout; scope via views).
+
+* Design Details
+
+** 1. The palette (1 + 6 semantic faces)
+Implemented in =org-air-faces.el=. Names are frozen for round 1.
+
+| Role       | Face                   | Meaning in org-air                          |
+|------------+------------------------+---------------------------------------------|
+| default    | =org-air-face-default=   | regular item text                           |
+| faded      | =org-air-face-faded=     | dates, hints, breadcrumbs, counts, weekends |
+| subtle     | =org-air-face-subtle=    | area marker: current line, section band     |
+| salient    | =org-air-face-salient=   | links, TODO keyword, scheduled, navigation  |
+| strong     | =org-air-face-strong=    | structure: banner, section titles           |
+| popout     | =org-air-face-popout=    | needs attention: deadlines, tags, today     |
+| critical   | =org-air-face-critical=  | requires action: overdue (used scarcely)    |
+
+Concrete colour values (light Material Blue-Grey / dark Nord):
+
+| Role       | Light     | Dark      |
+|------------+-----------+-----------|
+| foreground | =#37474F=   | =#ECEFF4=   |
+| background | =#FFFFFF=   | =#2E3440=   |
+| highlight  | =#FAFAFA=   | =#3B4252=   |
+| subtle     | =#ECEFF1=   | =#434C5E=   |
+| faded      | =#90A4AE=   | =#677691=   |
+| strong     | =#263238=   | =#FFFFFF=   |
+| salient    | =#673AB7=   | =#81A1C1=   |
+| popout     | =#E0631E=   | =#D08770=   |
+| critical   | =#C62828=   | =#EBCB8B=   |
+
+*Divergence from nano (recorded deliberately).* nano-theme uses very
+light tints for popout (=#FFAB91=) and critical (=#FF6F00=/=#EBCB8B=)
+because it applies them mostly as backgrounds. org-air uses these hues as
+*foregrounds* on a white background, so light-mode popout and critical
+are darkened to =#E0631E= and =#C62828= for WCAG-legible contrast. Dark
+mode keeps the Nord values. All other roles match nano exactly.
+
+*Graceful degradation.* Every face carries explicit light + dark specs
+and a TTY/16-colour =:inherit= fallback (shadow / link / warning / error).
+The library has NO load-time dependency on nano-theme and loads under
+=emacs -Q --batch=. Users who run nano-theme may opt in with
+=(setq org-air-faces-prefer-nano t)= or =M-x org-air-faces-link-nano=,
+which relinks the seven base faces to their nano counterparts; derived
+faces follow automatically through inheritance.
+
+** 2. Typography & spacing
+- *One typeface.* The dashboard is monospaced (the buffer's =default=).
+  We never mix proportional fonts; alignment relies on it.
+- *Weight, not size, signals hierarchy.* Body is regular; section titles
+  and the banner are bold (=strong=). The banner alone is =:height 1.2=.
+  Tag chips and count badges are slightly smaller (=:height 0.85/0.9=) so
+  they read as annotations, not content.
+- *Whitespace is structural.* The layout breathes:
+  - 1 blank line of top margin above the banner.
+  - 1 blank line between the banner and the first section.
+  - 1 blank line between sections.
+  - A 2-column left margin (=org-air-margin=, default 2) on every content
+    line; section titles sit flush at column 0.
+  - Items are indented to column 4 so the section title "hangs" over them.
+- *No boxes, almost no rules.* We avoid the box-drawing frames of
+  nano-mu4e's "boxed" style by default. Sections are separated by
+  whitespace and a single faint full-width rule rendered with
+  =org-air-face-separator= (a =:height 0.3= subtle band), used only under
+  the banner and optionally under section titles
+  (=org-air-section-rule=, default nil).
+- *Right-aligned metadata.* Dates, counts and tags are flush-right using a
+  display-property space (=(space :align-to (- right N))=), the same
+  technique as =nano-mu4e-justify=. Never pad with literal spaces — it
+  must survive window resizing.
+
+** 3. Dashboard layout
+Buffer =*org-air*=, =org-air-mode= (derived from =special-mode=,
+read-only, =buffer-read-only= t, =truncate-lines= t, cursor a bar).
+
+Full layout at ~90 columns, light mode, GUI:
+
+#+begin_example
+
+  org-air                                    Thu 12 Jun · 14 items · #work ✕
+
+  ──────────────────────────────────────────────────────────────────────────
+
+  Inbox  3
+      Call dentist about reschedule                              ⌂ inbox.org
+      Idea: batch the Tuesday reports                            ⌂ inbox.org
+      Read the Rougier editor-design paper                       ⌂ inbox.org
+
+  Needs attention  2
+      TODO Submit the quarterly tax filing      OVERDUE 3d   work  ⌂ tax.org
+      TODO Reply to Sam                          no date     mail  ⌂ in.org
+
+  Upcoming  4
+      TODO [#A] Ship v0.1 release notes      Fri 13 Jun   work  ⌂ proj/air.org
+      TODO Team retro                         Mon 16 Jun   work  ⌂ proj/air.org
+      TODO Dentist                            Tue 17 Jun   life  ⌂ health.org
+      TODO Pay rent                           Thu 19 Jun   home  ⌂ money.org
+
+  High priority  1
+      TODO [#A] Ship v0.1 release notes       Fri 13 Jun   work  ⌂ proj/air.org
+
+  Stale  2
+      TODO Refactor the importer              · 24d quiet   code  ⌂ proj/x.org
+      TODO Write the onboarding doc           · 31d quiet   docs  ⌂ proj/x.org
+
+  ──────────────────────────────────────────────────────────────────────────
+
+      June 2026                 ‹ ›
+      Mo Tu We Th Fr Sa Su
+                       1  2          ● = day with items
+       3  4  5  6  7  8  9          ▮ = today
+      10 11 12 13 14 15 16
+      17 18 19 20 21 22 23
+      24 25 26 27 28 29 30
+
+  [c]apture  [g]refresh  [/]filter  [s]cope  [TAB]next  RET visit  [?]help
+
+#+end_example
+
+*** 3.1 Header / banner (line 1)
+- Left: the product mark =org-air= in =org-air-face-header=.
+- Right (flush): a faded status string built from, in order:
+  =<weekday short date>= · =<N> items= · active filters/scope as chips.
+  Active filters render as tag chips with a trailing =✕= (=×= on TTY)
+  meaning "click / press =/= again to clear".
+- A separator rule (=org-air-face-separator=) on the next line.
+- The banner is sticky via =header-line-format= so it survives scrolling
+  when the body overflows. (The first example line doubles the banner for
+  readers; in the buffer it lives in the header-line.)
+
+*** 3.2 Sections (buckets)
+Fixed order, top to bottom — most-actionable first:
+
+1. *Inbox* — unprocessed captures (=inbox= bucket).
+2. *Needs attention* — overdue or schedule-less TODOs (=attention=).
+3. *Upcoming* — scheduled/deadline within =org-air-upcoming-days= (=upcoming=).
+4. *High priority* — =[#A]= (and =[#B]= if configured) (=high-priority=).
+5. *Stale* — no activity for =org-air-stale-days= (=stale=).
+
+The bucket set and order map 1:1 to
+=org-air-classify-item= → =(inbox attention upcoming high-priority stale)=.
+
+Each section is:
+#+begin_example
+<Title>  <count-badge>            (org-air-face-section + org-air-face-count)
+    <item line>                   (indented to org-air-item-indent, default 4)
+    <item line>
+#+end_example
+
+- Title in =org-air-face-section=; an optional leading glyph
+  (=org-air-section-icons=, see §9) in =org-air-face-section-icon=.
+- Count badge in =org-air-face-count=, an inverse-video chip showing the
+  number of items in that section. For *Inbox*, *Needs attention* and any
+  section whose contents include a =critical= item, the badge uses
+  =org-air-face-count-attention= (popout/critical recolour) to pull the eye.
+- An item is one line (see §4). Items never wrap; long titles are
+  truncated with =…= and the full title is available via =help-echo= and
+  on visit.
+- A section with zero items collapses to a single faded empty-state line
+  (see §7); it is NOT omitted, so the dashboard's shape is stable.
+
+*** 3.3 Calendar pane
+A single compact month grid, rendered inline below the sections
+(=org-air-calendar-position=, default =bottom=; alt =right= splits the
+window with the calendar in a 24-col side window). See §6.
+
+*** 3.4 Footer hint line
+A faded one-line key legend (=org-air-face-faded=), toggle-able with
+=org-air-show-footer= (default t). It is informational only; =?= opens the
+full keymap.
+
+** 4. The item line
+One item == one logical line, four zones, left-to-right, with the last
+two zones flush-right:
+
+#+begin_example
+    TODO [#A] Ship v0.1 release notes      Fri 13 Jun   work  ⌂ proj/air.org
+    └┬─┘ └┬─┘ └────────┬──────────┘        └────┬───┘   └┬┘   └─────┬──────┘
+   state prio        title                    date     tags     origin
+#+end_example
+
+- *State* — TODO keyword. Active keywords use =org-air-face-todo=
+  (salient, bold); DONE-type use =org-air-face-done= (faded). Omitted for
+  plain inbox notes.
+- *Priority* — =[#A]= cookie in =org-air-face-priority= (popout, bold).
+  Hidden when absent. =[#A]= only is shown by default; lower priorities
+  are configurable via =org-air-priority-show=.
+- *Title* — =org-air-face-title= (== default). DONE items get the title in
+  =org-air-face-done=. This zone flexes; everything to its right is
+  flush-right and reserved-width.
+- *Date* — a humanised timestamp, right-aligned, faced by recency:
+  - future schedule/deadline → =org-air-face-scheduled= / =-deadline=
+  - overdue → =org-air-face-overdue= (critical) with an =OVERDUE Nd= label
+  - none, in attention bucket → faded =no date=
+  - stale marker → faded =· Nd quiet=
+  Humanisation (after nano-mu4e's date logic): =Today=, =Tomorrow=,
+  weekday name within 7 days, else =Day Mon=, else =Day Mon YY=.
+- *Tags* — up to =org-air-tags-inline-max= (default 3) tag chips, each via
+  =org-air-faces-tag-face= (§5). Overflow shows =+N=.
+- *Origin* — a breadcrumb =⌂ <file>= (=⌂= == =H= on TTY) in
+  =org-air-face-group=, the leaf file the item lives in. This is the
+  RET / =visit= target's home. With =org-air-show-group= the category/group
+  label may replace the filename.
+
+The whole line carries text-properties: =org-air-item= (the record),
+=org-air-marker= (origin marker), plus =mouse-face 'org-air-face-cursor=
+and a local keymap so =RET= / =mouse-1= visit. Navigation between items
+uses =text-property-search-forward 'org-air-item= (the nano-mu4e pattern),
+so movement skips blank lines and headers automatically.
+
+** 5. Tag colour strategy
+Tags are the primary filtering axis, so they must be *stable* and
+*distinct* without becoming a rainbow.
+
+- *Deterministic hue.* =org-air-faces-tag-face= maps a tag name to one of
+  six accent faces by hashing the name (=sxhash-equal=). The same tag is
+  always the same colour, across sessions and machines, with zero
+  configuration. Palette: blue, green, purple, orange, teal, pink — each
+  with a light and dark value (see =org-air-tag-accent-palette=).
+- *Chips, not words.* A tag renders as a small boxed chip
+  (=:box (1 . -1)=, =:height 0.85=) so it reads as metadata. On TTY the
+  box is dropped and the chip degrades to coloured text.
+- *Pinning (optional).* =org-air-tag-faces= (alist tag→face) overrides the
+  hash for tags a user wants fixed (e.g. =("urgent" . org-air-face-critical)=).
+- *Active-filter emphasis.* A tag currently used as a filter renders with
+  =org-air-face-tag-active= (bold, full box) wherever it appears, and is
+  echoed as a chip in the banner with a clear =✕= affordance.
+- *Count, don't shout.* We never colour an entire item line by its tag;
+  hue stays confined to the chip. Item-level urgency is the date's job.
+
+** 6. Calendar pane
+A minimalist month grid, Monday-first by default
+(=org-air-calendar-week-start=, default 1).
+
+- Title =Month YYYY= in =org-air-face-calendar-header=, with =‹ ›= prev/next
+  affordances (faded, clickable).
+- Weekday header row =Mo Tu We Th Fr Sa Su= in
+  =org-air-face-calendar-day-name=.
+- Day cells, 2 columns each, right-aligned:
+  - ordinary day → =org-air-face-calendar-day=
+  - weekend → =org-air-face-calendar-weekend=
+  - padding days from adjacent months → =org-air-face-calendar-outday=
+  - *today* → =org-air-face-calendar-today= (popout, bold)
+  - a day that has ≥1 dashboard item → =org-air-face-calendar-event=
+    (salient, bold); on GUI an optional =●= under-dot marks it
+  - the selected day → =org-air-face-calendar-selected= (subtle band)
+- A faded one-line legend states the two glyph conventions
+  (=●= items, =▮= today) so the colour code is self-documenting.
+- Interaction: =n/p= or arrows move the selected day; =RET= on a day
+  scopes the dashboard to that day's items (a transient date view);
+  =<= / =>= page months. Selecting a day filters; =q= within the pane
+  returns focus to the list.
+
+The calendar is a *view onto the same item set*: marking a day as an
+"event" day reuses the classified items, so it never disagrees with the
+sections above it.
+
+** 7. Empty, loading & boundary states
+- *Empty section.* Replace the item list with one indented faded-italic
+  line in =org-air-face-empty=, with a kind-specific message:
+  - Inbox → ="Inbox zero — nothing to process."=
+  - Needs attention → ="Nothing overdue. Nice."=
+  - Upcoming → ="Nothing scheduled in the next N days."=
+  - High priority → ="No #A items."=
+  - Stale → ="Nothing has gone stale."=
+- *Empty dashboard* (no items anywhere) → a single centred faded block:
+  ="Nothing here yet. Press c to capture your first note."=
+- *Loading.* The first query may be slow over many files. Render the
+  banner immediately, then a faded-italic =org-air-face-loading= line
+  ="Scanning <N> files…"= under each pending section; replace in place when
+  =org-air-query-items= returns. Never block the redisplay; query
+  asynchronously where org-ql allows, otherwise show the loading line
+  before the synchronous call so the buffer is never blank.
+- *Stale-data badge.* After refresh the banner's item count flashes
+  =org-air-face-popout= briefly (=org-air-flash-on-refresh=, default t) so
+  the user sees the data changed.
+- *Truncation.* A section longer than =org-air-section-max= (default 12)
+  shows the first N items then a faded ="… and M more — press RET on the
+  title to expand"= line. Section titles are themselves navigable and
+  =TAB= on a title folds/expands the section.
+
+** 8. Interaction flows
+*** 8.1 Capture → Inbox  (two keystrokes)
+=org-air-capture= (=c= on the dashboard, or a global binding the user
+chooses). It does NOT open org-capture's template menu by default:
+- Prompt minibuffer: ="Capture:"=. The typed line becomes a new top-level
+  entry appended to =org-air-inbox-file= (defcustom), stamped with an
+  inactive =CREATED= timestamp.
+- With a prefix arg, fall through to the user's =org-capture-templates=
+  for richer captures.
+- After capture the dashboard refreshes and point lands on the new inbox
+  item, so the user can immediately refile it (§8.2) or leave it.
+- airctl interop: =org-air-capture-use-airctl= (default nil). When t and
+  =airctl= is on =PATH=, capture shells out to =airctl= so notes created in
+  org-air share the Air note store. Otherwise we write the org file
+  directly.
+
+*** 8.2 Inbox → refile  (three keystrokes: =r= + axis + target)
+On any item, =r= (=org-air-refile-item=) opens a single
+=completing-read= whose candidates are *prefixed by axis* so one prompt
+covers all three refile dimensions:
+
+#+begin_example
+  Refile "Call dentist…" →
+    @work            (category)        ← moves under category heading
+    @home            (category)
+    >today  >week  >someday            (timeline)  ← sets SCHEDULED
+    #urgent  #errand  #calls           (tag)       ← adds :tag:
+    ⌂ health.org / Appointments        (file:heading)
+#+end_example
+
+- *Category* (=@=): move the subtree under the matching category heading
+  (in the same or a configured file). Categories come from
+  =org-air-categories= ∪ discovered group headings.
+- *Timeline* (=>=): set/replace =SCHEDULED= to a relative date
+  (=today=, =tomorrow=, =week= → next Monday, =someday= → remove schedule
+  + add =:someday:=). No subtree move.
+- *Tag* (=#=): add the tag, leave the item in place (lightweight triage).
+- *File:heading* (=⌂=): classic refile target for precise placement.
+The candidate list is ordered category → timeline → tag → file so the
+common cases are reachable with a couple of characters. Refiling an inbox
+item removes it from the Inbox section on the next (immediate) refresh.
+
+Bulk refile: mark items with =m= (toggle, =org-air-face-cursor= gains a
+gutter dot), then =r= applies one target to all marked items.
+
+*** 8.3 Tag filtering
+- =/= (=org-air-filter=) → =completing-read= over all tags currently in the
+  view (multi-select via =crm=). The dashboard re-renders to items
+  matching *any* selected tag (=org-air-filter-match=, default =any=; =all=
+  available). Active tags appear as chips in the banner.
+- =\\= clears all filters. Pressing =/= on a focused item's tag toggles
+  just that tag.
+- =mouse-1= on any tag chip toggles it as a filter (the chips are buttons,
+  like nano-mu4e's clickable tags).
+
+*** 8.4 View scoping
+=s= (=org-air-scope=) narrows the *whole dashboard* (every section + the
+calendar) to a subset, via a single prompt offering:
+- a *category* (=@work=),
+- a *tag* (=#urgent=) — distinct from a transient filter in that it
+  persists and titles the banner,
+- a *file group* (a directory or file in =org-air-files=),
+- *all* (clear scope).
+Scope is sticky and shown in the banner as the title's suffix, e.g.
+=org-air · @work=. =filter= composes on top of =scope=. =g= refreshes
+within the current scope; =G= refreshes after clearing scope+filter.
+
+*** 8.5 Navigation back to leaf files
+=RET= / =mouse-1= on an item (=org-air-visit-item=) jumps to the item's
+origin marker in its leaf file, in the other window
+(=org-air-visit-display=, default =other-window=; =same= and =frame=
+available), recentres, and momentarily pulses the heading
+(=pulse-momentary-highlight-one-line=) so the user finds it. =SPC= peeks
+(shows the origin without leaving the dashboard); =o= visits and keeps
+focus on the dashboard. =q= buries =*org-air*=.
+
+** 9. Keybinding map (=org-air-mode-map=)
+Mnemonic, single-key, non-modifier where possible (the buffer is
+read-only so letters are free).
+
+| Key            | Command                      | Action                              |
+|----------------+------------------------------+-------------------------------------|
+| =n= / =p=          | =org-air-next/prev-item=       | move between items (skips chrome)   |
+| =TAB= / =S-TAB=    | =org-air-next/prev-section=    | jump section title / fold section   |
+| =M-n= / =M-p=      | =org-air-forward/back-section= | move by whole section               |
+| =RET=            | =org-air-visit-item=           | visit origin in other window        |
+| =SPC=            | =org-air-peek-item=            | preview origin, keep focus          |
+| =o=              | =org-air-visit-item-stay=      | visit but keep focus on dashboard   |
+| =c=              | =org-air-capture=              | capture to inbox                    |
+| =r=              | =org-air-refile-item=          | refile (category/timeline/tag/file) |
+| =m=              | =org-air-toggle-mark=          | mark/unmark item for bulk action    |
+| =t=              | =org-air-set-tag=              | add/remove a tag on the item        |
+| =d=              | =org-air-set-schedule=         | set/clear SCHEDULED                  |
+| =/=              | =org-air-filter=               | filter view by tag(s)               |
+| =\\=             | =org-air-filter-clear=         | clear tag filters                   |
+| =s=              | =org-air-scope=                | scope dashboard (cat/tag/group)     |
+| =S=              | =org-air-scope-clear=          | clear scope                         |
+| =g=              | =org-air-refresh=              | re-query within scope/filter        |
+| =G=              | =org-air-refresh-all=          | clear scope+filter and re-query     |
+| =<= / =>=          | =org-air-calendar-prev/next=   | page the calendar month             |
+| =.=              | =org-air-calendar-today=       | recentre calendar on today          |
+| =?=              | =org-air-help=                 | show this keymap                    |
+| =q=              | =quit-window=                  | bury =*org-air*=                       |
+
+Entry points (from the core API contract, names frozen):
+=org-air= (open dashboard), =org-air-inbox= (open scoped to Inbox),
+=org-air-capture=.
+
+** 10. Glyphs (GUI ⁄ TTY pairs)
+All glyphs are configurable (=org-air-glyphs=) and every one has an ASCII
+fallback chosen automatically when =(display-graphic-p)= is nil or the
+font lacks the codepoint.
+
+| Meaning        | GUI | TTY |
+|----------------+-----+-----|
+| origin / home  | ⌂   | H   |
+| section: inbox | ▤   | I   |
+| attention      | ▲   | !   |
+| upcoming       | ◆   | >   |
+| high priority  | ★   | *   |
+| stale          | ◷   | ~   |
+| calendar item  | ●   | o   |
+| today          | ▮   | #   |
+| filter clear   | ✕   | x   |
+| overflow more  | …   | ... |
+
+No glyph is load-bearing: every one is paired with a text label
+(=OVERDUE 3d=, =no date=, =Inbox=, …) so the UI is fully usable in a pipe
+or a screen reader.
+
+** 11. Customisation surface (defcustoms owned by the view/faces layer)
+- =org-air-faces-prefer-nano= (faces) — opt into nano linkage.
+- =org-air-margin= (2), =org-air-item-indent= (4), =org-air-section-max= (12).
+- =org-air-upcoming-days= (7), =org-air-stale-days= (21) — bucket windows
+  (consumed by =org-air-classify-item=; surfaced here for the labels).
+- =org-air-tags-inline-max= (3), =org-air-tag-faces= (pins),
+  =org-air-priority-show= ('(?A)).
+- =org-air-calendar-position= ('bottom), =org-air-calendar-week-start= (1).
+- =org-air-show-footer= (t), =org-air-show-group= (nil),
+  =org-air-section-rule= (nil), =org-air-flash-on-refresh= (t).
+- =org-air-visit-display= ('other-window), =org-air-glyphs= (alist).
+- =org-air-capture-use-airctl= (nil).
+
+* Test Plan
+The faces library is covered directly:
+- =emacs -Q --batch -l org-air-faces.el= must exit 0 (no nano-theme).
+- Assert every named face in §1, §5, §6 satisfies =facep= after load.
+- =org-air-faces-tag-face= is deterministic: equal input → equal output;
+  inputs spread across all six accents.
+- =org-air-palette-color= returns the documented light/dark hex.
+- =org-air-faces-link-nano= is a no-op (returns gracefully) when nano
+  faces are absent.
+View-layer rendering tests (owned by the view/test tracks) assert, on a
+fixture item set: section order and presence; that each section carries
+its count badge text-property; that empty sections render the documented
+empty-state strings; that an item line exposes =org-air-item= /
+=org-air-marker= properties at point; and that =org-air-next-item= lands on
+the next item property and skips blank/header lines.
+
+* Drawbacks
+- An opinionated single layout will not satisfy every workflow in v0.1;
+  we mitigate with scoping/filtering rather than layout knobs.
+- Right-aligned metadata via display properties needs care under variable
+  pitch; org-air mandates monospaced rendering for the buffer.
+- Deterministic tag hues can collide (6 buckets); =org-air-tag-faces=
+  pinning is the escape hatch.
+
+* Alternatives
+- *Box-drawing frames* (nano-mu4e "boxed"/"compact"): rejected as default
+  — heavier and noisier than whitespace separation; available later as an
+  opt-in style if requested.
+- *Per-item background tint by tag*: rejected — turns the dashboard into a
+  rainbow and conflicts with the date-urgency colour. Hue stays in chips.
+- *org-agenda faces*: rejected with org-agenda itself (core spec).
+
+* History
+- 2026-06-12: Initial design spec drafted from the core spec and brief.
+  Studied rougier nano-theme (=nano-theme-support.el=, =nano-faces.el=)
+  and nano-mu4e (layout/justify/tag/date conventions) from upstream
+  GitHub. Adopted the 1+6 semantic-face model; documented a deliberate
+  popout/critical foreground-legibility divergence from nano. Implemented
+  the full palette in =org-air-faces.el= (batch-clean, light/dark, TTY
+  degradation, optional nano linkage, deterministic tag hashing). Set
+  =#+state: ready=.

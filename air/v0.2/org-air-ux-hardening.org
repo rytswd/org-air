@@ -1,0 +1,42 @@
+#+title: org-air v0.2.x: interactive UX hardening
+#+state: work-in-progress
+#+FILETAGS: :ui:ux:bugs:
+
+* Summary
+Punch list from the user's interactive GUI test of the v0.2 main line.
+Verbatim feedback: "It's using only vertical space, and not horizontal
+space at all. Also, when Evil binding is set, nothing actually gets
+triggered unless I prefix with \ or turn off evil. When a new item is
+added, it should automatically refresh the view. The calendar view
+actually looks nice, but it's too far to the right and it's off the
+visible area. It's all so rough, UX is horrible."
+
+* Findings / required fixes
+** U1 — Live-window width derivation is wrong [CRITICAL]
+Symptoms combine: items render vertically-stacked while the calendar
+rail sits beyond the right edge of the visible window. Hypothesis: the
+renderer composes against the wrong width in real GUI use (likely the
+selected window at render time vs the window the buffer is displayed
+in, or stale width on re-render). Required: compose against the width
+of the window actually displaying *org-air* at display time; re-render
+on window-size-change/window-configuration-change (debounced); never
+emit lines wider than the displaying window.
+** U2 — Evil compatibility [CRITICAL]
+With evil-mode active, dashboard keys do nothing without a "\" prefix.
+Required: bindings must work out of the box under evil — overriding
+keymap for org-air-view-mode (evil-make-overriding-map + motion/normal
+state handling, or documented evil-set-initial-state 'emacs) WITHOUT
+breaking non-evil users; soft dependency only (no hard require of evil).
+** U3 — Auto-refresh on data change [HIGH]
+New items (org-air-capture, refile, or edits to org-air-files saved
+from org buffers) must refresh an open dashboard automatically
+(after-save hook scoped to configured files + post-capture/refile
+refresh). Preserve point/filters across refresh.
+** U4 — General UX roughness [HIGH]
+Design track: an interactive-feel pass — real window sizes (not just
+fixture widths), spacing, first-open experience, point placement,
+visual hierarchy at common sizes (e.g. 90-110 col windows where the
+two-pane threshold sits). Concrete spec deltas, then impl.
+
+* History
+- 2026-06-12: Seeded verbatim from user interactive test of v0.2.

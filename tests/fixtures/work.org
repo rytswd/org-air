@@ -8,3 +8,7 @@ Ask about the Q3 tooling line item.
 * TODO [#A] Prep client presentation                                  :client:
 DEADLINE: <2026-06-16 Tue>
 Slides due before the Tuesday call.
+
+* DONE Submit expense report
+CLOSED: [2026-06-10 Wed 16:00] DEADLINE: <2026-06-10 Wed>
+Already done; must never appear in any bucket.

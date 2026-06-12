@@ -9,6 +9,9 @@
 #   make lint     checkdoc + package-lint vs tests/org-air-lint-baseline.el
 #                 (binary: new findings fail, stale baseline entries fail)
 #   make check    the full gate: compile + lint + test (default target)
+#   make regen-mockups  regenerate tests/fixtures/layout-mockup-*.txt from
+#                 the REAL renderer (guards active); diff + design re-bless
+#                 required before any gate verdict
 #
 # Everything runs with a repo-local `package-user-dir' (.deps/); the user's
 # ~/.emacs.d is never touched.
@@ -23,7 +26,7 @@ TEST_FILES := $(wildcard tests/*-test.el)
 MANIFEST   := tests/org-air-known-failures.el
 SRC_FILES  := $(wildcard org-air*.el)
 
-.PHONY: all check deps test compile lint clean
+.PHONY: all check deps test compile lint clean regen-mockups
 
 all: check
 
@@ -38,6 +41,9 @@ test: deps
 
 lint: deps
 	$(BATCH) -l tests/org-air-lint.el -f org-air-lint-batch
+
+regen-mockups: deps
+	$(BATCH) -l tests/org-air-regen-mockups.el -f org-air-regen-mockups
 
 compile: deps
 ifeq ($(strip $(SRC_FILES)),)

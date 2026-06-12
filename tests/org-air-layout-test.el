@@ -45,8 +45,10 @@
 ;;   100 =  65 (items) + 3 + 32 (rail)       -> divider column  66
 
 (defconst org-air-layout-test--divider-columns
-  '((100 . 66) (120 . 86) (160 . 116))
-  "Spec-locked (WIDTH . DIVIDER-COLUMN) pairs from design §3/§1.4.")
+  '((96 . 66) (100 . 70) (104 . 74) (110 . 80) (120 . 86) (160 . 116))
+  "Spec-locked (WIDTH . DIVIDER-COLUMN) pairs.
+D1 geometry: breakpoint ~95 (hysteresis 3), rail tiers 28 (≥96) /
+32 (≥120) / 42 (≥150); divider col = WIDTH - RAIL - 2.")
 
 (defun org-air-layout-test--locked-column (width)
   "Return the §3-locked divider column for WIDTH."
@@ -75,22 +77,23 @@ Spec §1.4/§3.1: item pane 115 + rail `org-air-rail-width-wide' (42)."
       (should (= (nth 0 run) (org-air-layout-test--locked-column 160))))))
 
 (ert-deftest org-air-layout-two-pane-at-threshold ()
-  "At exactly `org-air-layout-two-pane-min' (default 100) the view is
-two-pane: an unbroken divider run is present at the locked column
-(items 65 + " │ " + rail 32).  Spec §1.4."
+  "Above the D1 breakpoint (~95) the view is two-pane at the locked
+columns: rail tier 28 from 96, walking right with the width."
   (skip-unless (locate-library "org-air"))
-  (org-air-viewport-test-with-dashboard 100
-    (let ((run (org-air-viewport-test-divider-run)))
-      (should run)
-      (should (>= (nth 2 run) 10))
-      (should (= (nth 0 run) (org-air-layout-test--locked-column 100))))))
+  (dolist (width '(96 100 104 110))
+    (org-air-viewport-test-with-dashboard width
+      (let ((run (org-air-viewport-test-divider-run)))
+        (should run)
+        (should (>= (nth 2 run) 10))
+        (should (= (nth 0 run)
+                   (org-air-layout-test--locked-column width)))))))
 
 (ert-deftest org-air-layout-stacked-below-threshold ()
-  "One column below the threshold (99) the view stacks: no body-height
-divider run, yet the calendar and every section remain.  Spec §1.4/§3.3:
-the rail relocates to a top band; the item sections run full width."
+  "Below the D1 breakpoint (90, under ~95 minus hysteresis) the view
+stacks: no body-height divider run, yet the calendar and every section
+remain.  The rail relocates to a top band; items run full width."
   (skip-unless (locate-library "org-air"))
-  (org-air-viewport-test-with-dashboard 99
+  (org-air-viewport-test-with-dashboard 90
     (let ((run (org-air-viewport-test-divider-run)))
       (should (or (null run) (< (nth 2 run) 5))))
     (should (org-air-viewport-test-calendar-present-p))
@@ -121,6 +124,17 @@ the rail relocates to a top band; the item sections run full width."
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
       (org-air-viewport-test-assert-matches-mockup 160))))
+
+(ert-deftest org-air-layout-mockup-thresholds ()
+  "Renders at the breakpoint-bracketing widths equal their regenerated
+mockups byte-for-byte (right-trimmed): 90 stacked; 96/100/104/110
+two-pane on rail tier 28."
+  (skip-unless (locate-library "org-air"))
+  (dolist (width '(90 96 100 104 110))
+    (ert-info ((format "width %d" width))
+      (org-air-viewport-test-as-gui
+        (org-air-viewport-test-with-dashboard width
+          (org-air-viewport-test-assert-matches-mockup width))))))
 
 ;;;; §9.2 Calendar always present.
 

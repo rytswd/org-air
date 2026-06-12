@@ -1,5 +1,5 @@
 #+title: org-air v0.2.x: interactive UX hardening
-#+state: work-in-progress
+#+state: complete
 #+FILETAGS: :ui:ux:bugs:
 
 * Summary
@@ -40,3 +40,11 @@ two-pane threshold sits). Concrete spec deltas, then impl.
 
 * History
 - 2026-06-12: Seeded verbatim from user interactive test of v0.2.
+- 2026-06-13: U1 root cause: width derived in PIXELS of the selected
+  window; now columns of the displaying window, render-after-display,
+  debounced re-render. U2 evil overriding-map (soft dep). U3 scoped
+  after-save auto-refresh with point/filter preservation. Design D1-D7
+  real-window deltas implemented (impl2). Fixtures regenerated honestly
+  at 8 widths, design-blessed byte-for-byte. Integrated; gate 103/103.
+- Residual backlog: D2 origin clip on longest [#A] rows at 100 cols
+  (non-blocking polish).

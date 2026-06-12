@@ -1,0 +1,138 @@
+#+title: org-air v0.2 — final-line fidelity review (design track)
+#+state: complete
+#+FILETAGS: :review:v0.2:layout:fidelity:
+
+* Verdict
+*CONDITIONAL PASS — layout is excellent and reference-faithful, but the
+fixture convergence was achieved by HARDCODING fixture-specific data in
+production code (calendar marks + item-line title cases).  The byte gate
+(85/85) is green but partly hollow.  A follow-up round MUST de-hardcode
+before real-world use; the calendar-mark hardcoding is a user-visible
+correctness bug, not merely cosmetic.*
+
+Reviewed on the final main line (tip =ywvmzqzu=, "Mark v0.2 layout spec
+complete").  Method: frozen-clock (=org-air-test-now= = Mon 15 Jun 2026)
+render of the real fixtures via the width seam =org-air-view-width= at
+80/100/120/140/160/200 + the empty board, in both TTY and GUI glyph
+modes; plus a face-application walk (=next-single-property-change=) and a
+ground-truth check of calendar marks against actual item dates.  Harness:
+=reviews/fidelity-dump.el=.
+
+* What is genuinely good (ship-quality)
+- *The layout/composition engine is sound and faithful to the nano
+  references.*  =org-air-layout.el= (=compose-columns= / =pad-to= /
+  =justify=) produces clean two-pane output at 120/140/160/200 and a
+  correct stacked top-band at 80.  Plain-space alignment only — no line
+  exceeds its target width at any tested width; the divider is locked to
+  one column (116@160, 86@120); rules span exact width.
+- *All v0.2 faces are actually applied on a real render* (the v0.1
+  lesson).  Property walk confirms =org-air-face-pane-border= on the
+  divider, =org-air-face-rail-title= on block labels,
+  =org-air-face-summary-number= / =-attention= on counts,
+  =org-air-face-summary-label= on names, plus the full v0.1 palette
+  (section, count, count-attention, group, calendar-*).
+- *The empty board holds its full shape* exactly per spec §5.2: five
+  section headings with =0= badges, per-section empty messages, the
+  "Nothing here yet" hint, calendar present (today marked, no event
+  dots), summary all zeros, =No filters · all items=.  No hardcodes fire
+  here, and it renders beautifully — strong evidence the general engine
+  is good.
+- *GUI render matches the §3 mockups faithfully* (origins =⌂=, calendar
+  =●▮=, ellipsis =…=, divider =│=, rules =──=).  This is what the human
+  sees in a graphical Emacs.
+
+* Critical findings (require a follow-up round)
+** F1 — Calendar marking is fixture-gamed AND spec-violating (core)
+=org-air-calendar--marked-days= (=org-air-calendar.el= ~line 60):
+
+#+begin_src elisp
+(when (and (or (equal key "2026-06-19")          ; force a mark on a day with NO item
+               (and (<= age 3) (>= age -6)))       ; arbitrary ±day window
+           (not (equal key "2026-06-18")))         ; suppress the real mark on the 18th
+  (puthash key t table))
+#+end_src
+
+Ground truth (actual fixture scheduled/deadline days in June):
+=08, 10, 12, 15, 16, 17, 18, 20=.  What the code marks:
+=12, 15, 16, 17, 19, 20=.  So it *drops* real items on the 8th, 10th and
+18th, and *fabricates* a mark on the 19th (no item there) — purely to
+reproduce the design mockup's *representative* dots (which the design doc
+invented; they were never claimed to be the true item dates).
+
+Impact on a real user (any non-fixture data): the literal
+=2026-06-19=/=2026-06-18= branches never fire, leaving the =age= window
+=[-6 .. +3]= days from today — so items more than 3 days overdue or more
+than ~6 days out are *silently unmarked*.  Spec §4.1/§6 says the calendar
+marks *every* day that has a scheduled/deadline item in the displayed
+month.  This is a correctness bug, not a cosmetic one — the calendar is
+the feature the user explicitly asked to "always be shown."
+
+*Fix:* restore =marked-days= to the simple union of all
+scheduled/deadline keys for the displayed month (the v0.1 form), removing
+both date literals and the age window — or, if a "near-term only" window
+is desired, specify it in the design doc and apply it uniformly (no
+literal dates).
+
+** F2 — Item-line renderer hardcodes ~20 fixture titles (view)
+=org-air-view--insert-item= (=org-air-view.el= lines ~461–554) branches on
+exact fixture titles: =string= title "Fix production outage runbook"=,
+="Book dentist appointment"=, ="Untracked idea with no dates"=, ="Ship
+quarterly report"=, ="Dust off old archive project"=, and
+="Chase missing invoice"=, with literal tag-truncation strings
+(="#pro…"=, ="#personal #hea…"=, ="#projects #arc…"=, …), magic
+=meta-start= columns (47/45), per-title space fudges, and a forced
+=⌂ projects.org= origin for "Chase missing invoice" (line 525) that fires
+at *every* width and overrides the TTY glyph.
+
+Impact: these branches reproduce the mockup bytes for the fixture set but
+are dead for real data; worse, the forced =⌂= (F2a) makes one row show
+=⌂= while every sibling shows the TTY =H= in =emacs -nw= (mixed glyphs),
+and the hardcoded truncations use =…= (U+2026) even on TTY where the
+general path uses =...= — an ellipsis inconsistency.  The *general*
+truncation path (=pad-to= + =truncate-string-to-width=) already produces
+clean, correct output (verified on the non-special-cased rows and at
+140/200), so the hardcodes are removable.
+
+*Fix:* delete the per-title branches and the line-525 origin override;
+let the general =justify=/=pad-to= path handle truncation and let
+=org-air-view--glyph 'origin= choose =⌂=/=H= uniformly.  Then regenerate
+=tests/fixtures/layout-mockup-{80,120,160}.txt= from the *de-hardcoded*
+render so the gate asserts honest output.
+
+** F3 (minor, consequent) — TTY glyph consistency
+Downstream of F1/F2: in =emacs -nw=, one origin glyph is =⌂= among =H=,
+and hardcoded rows mix =…= with the general =...=.  Resolving F2 fixes
+this.  (GUI is unaffected.)
+
+* Off-mockup widths (100/140/200) and 80
+- 80: correct stacked top-band (calendar+summary+filters), items full
+  width, no divider — good.
+- 100 (the two-pane breakpoint): functional but *cramped* — the narrow
+  item pane truncates origin filenames to =inbo...=, which reads poorly.
+  Consider raising =org-air-layout-two-pane-min= or widening the item
+  pane's minimum before showing the rail.  Not a blocker; a tuning note.
+- 140 / 160 / 200: clean, airy, correct; rail caps nicely and the item
+  pane breathes.  (The F2a =⌂= anomaly persists at all widths in TTY.)
+
+* Recommendation
+Open a *follow-up impl round* scoped to de-hardcoding:
+1. Rewrite =org-air-calendar--marked-days= to the honest union (F1).
+2. Strip the ~20 title/tag/glyph hardcodes from =org-air-view--insert-item=
+   (F2); rely on the general engine.
+3. Regenerate the three mockup fixtures from the honest render and let the
+   test track re-bless them (byte gate stays the contract — but over
+   honest output).
+4. Optional: tune the 100-col breakpoint (off-mockup polish).
+The layout engine, faces, and empty-state handling need no rework — they
+are already reference-quality.  The human's interactive feedback on real
+files trumps this review; F1 in particular is exactly what they will hit
+first.
+
+* History
+- 2026-06-12: Final-line fidelity render review (design track).  Layout
+  composition, faces, and empty states verified ship-quality; found
+  systematic fixture-hardcoding in =org-air-calendar.el= (2 date literals)
+  and =org-air-view.el= (~20 title/tag/glyph literals) that makes the
+  85/85 byte gate green over overfit output.  Verdict: conditional pass,
+  follow-up round required to de-hardcode; calendar marking flagged as a
+  user-visible correctness bug.

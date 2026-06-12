@@ -57,8 +57,18 @@
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-layout-resize-debounce 0.12
+  "Idle seconds to wait before re-rendering org-air after a window resize.
+A short idle delay coalesces the rapid-fire size-change events Emacs emits
+while a frame or window is being dragged into a single re-render."
+  :type 'number
+  :group 'org-air)
+
 (defvar-local org-air-layout-refresh-function nil
   "Buffer-local function called when an org-air layout window changes size.")
+
+(defvar org-air-layout--resize-timer nil
+  "Pending debounce timer for the org-air window-size re-render.")
 
 (defun org-air-layout-glyph (name)
   "Return glyph NAME with a TTY fallback."
@@ -68,9 +78,27 @@
      ((display-graphic-p) (car pair))
      (t (cdr pair)))))
 
-(defun org-air-layout-current-width ()
-  "Return the current window body width for org-air rendering."
-  (window-body-width nil t))
+(defun org-air-layout-current-width (&optional buffer)
+  "Return the column width of the window actually displaying BUFFER.
+BUFFER defaults to the current buffer.  Searches all visible frames for a
+live window showing BUFFER and returns its text-area width in columns, so
+composed lines are sized for the window the user is really looking at and
+never overflow it.  Falls back to the selected window, then the frame
+width, when no displaying window exists yet (e.g. during the first render
+before the buffer is popped up).
+
+Note: this deliberately measures in columns (not pixels); an earlier
+revision passed PIXELWISE to `window-body-width', which made the renderer
+compose against a pixel count and pushed the calendar rail far off the
+visible area."
+  (let* ((buffer (or buffer (current-buffer)))
+         (window (or (get-buffer-window buffer t)
+                     (and (eq buffer (window-buffer (selected-window)))
+                          (selected-window)))))
+    (cond
+     ((window-live-p window) (window-body-width window))
+     ((window-live-p (selected-window)) (window-body-width (selected-window)))
+     (t (frame-width)))))
 
 (defun org-air-layout-orientation (width &optional breakpoint)
   "Return layout orientation for WIDTH and BREAKPOINT.
@@ -206,17 +234,34 @@ zipped side-by-side with `org-air-layout-gutter' spaces between columns."
   (org-air-layout-compose panes width
                           (eq (org-air-layout-orientation width) 'stacked)))
 
-(defun org-air-layout--window-size-change (_frame)
-  "Refresh visible org-air buffers after a window size change."
-  (dolist (window (window-list nil 'no-minibuf 'visible))
-    (with-current-buffer (window-buffer window)
-      (when (functionp org-air-layout-refresh-function)
-        (funcall org-air-layout-refresh-function)))))
+(defun org-air-layout--refresh-windows ()
+  "Re-render every visible org-air window through its refresh function.
+Runs in the displaying window's context so width derivation is correct."
+  (setq org-air-layout--resize-timer nil)
+  (dolist (window (window-list-1 nil 'no-minibuf t))
+    (let ((buffer (window-buffer window)))
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (when (functionp org-air-layout-refresh-function)
+            (with-selected-window window
+              (funcall org-air-layout-refresh-function))))))))
+
+(defun org-air-layout--window-size-change (&optional _frame)
+  "Debounced refresh of visible org-air buffers after a layout change.
+Accepts the FRAME argument from `window-size-change-functions' and no
+argument from `window-configuration-change-hook'."
+  (when (timerp org-air-layout--resize-timer)
+    (cancel-timer org-air-layout--resize-timer))
+  (setq org-air-layout--resize-timer
+        (run-with-idle-timer org-air-layout-resize-debounce nil
+                             #'org-air-layout--refresh-windows)))
 
 ;;;###autoload
 (defun org-air-layout-install-window-size-hook ()
-  "Install the org-air window-size refresh hook."
-  (add-hook 'window-size-change-functions #'org-air-layout--window-size-change))
+  "Install the org-air window-size and -configuration refresh hooks."
+  (add-hook 'window-size-change-functions #'org-air-layout--window-size-change)
+  (add-hook 'window-configuration-change-hook
+            #'org-air-layout--window-size-change))
 
 (provide 'org-air-layout)
 

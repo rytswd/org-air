@@ -38,6 +38,16 @@
     ;; (comparison is right-trimmed), so trailing whitespace is mandated
     ;; — drift protection now lives in the exact-width assertions and
     ;; the byte-precise mockup comparison.
+    ;; 2026-06-12: all 3 F1/F2a/F3 data-variation entries closed out —
+    ;; impl2's de-hardcoding (svknxvow) verified honest on both boards
+    ;; (calendar = true data union, no TTY glyph leaks).  Note: the
+    ;; fidelity review's hand-derived original-fixture union missed the
+    ;; real Jun 19 deadline; the test now parses ground truth from the
+    ;; fixture files directly.
+    ;; 2026-06-13: mockup-80/120/160 closed out — fixtures regenerated
+    ;; ONCE from the honest D1-D7 renderer (ymvlyvuk) via make
+    ;; regen-mockups (guards active), plus the new threshold set
+    ;; 90/96/100/104/110; routed to design for re-blessing.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

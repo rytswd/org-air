@@ -166,6 +166,19 @@ Shrink order: tags → +N, then title with =…=, then (last) the origin —
 which keeps at least its filename segment and =org-air-origin-min= (12)
 columns reserved in two-pane.
 
+* Residual after first D2 pass (non-blocking)
+The honest renderer (fixtures =srolttqs=) implements D2 for the common
+case — origins stay whole on all rows at 96/104/110/120/160.  ONE
+residual at *100 cols*: the two longest rows (=[#A] Fix production outage
+runbook  OVERDUE 5d=) still clip the origin to =⌂ projects.…= because the
+title floor + date + overflow marker leave < a full =⌂ projects.org= (14
+cols) and the impl falls back to clipping the origin at =origin-min= (12)
+rather than clipping the title further.  Acceptable for now (origin-min
+is honoured; identity's leading segment survives), but the *spirit* of
+D2 (origin filename whole) is missed on that one row.  Follow-up polish:
+clip the title past its floor before touching the origin, so the
+filename always survives.  Not a blocker for integration.
+
 * Routing / dependencies
 - D1, D7 depend on *U1* (live-window width) — without it the renderer
   still composes against the wrong width.  Sequencing routed to

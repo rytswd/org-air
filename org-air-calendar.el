@@ -15,8 +15,15 @@
 (require 'calendar)
 (require 'org)
 (require 'org-air-query)
+(require 'org-air-faces)
 
 (declare-function org-ql--normalize-query "org-ql" t t)
+
+(defcustom org-air-calendar-week-start 1
+  "First day of week for the org-air calendar.
+0 means Sunday, 1 means Monday."
+  :type '(choice (const :tag "Sunday" 0) (const :tag "Monday" 1))
+  :group 'org-air)
 
 (defun org-air-calendar--date-key (month day year)
   "Return sortable key for MONTH DAY YEAR."
@@ -31,15 +38,31 @@
                                   (decoded-time-year decoded)))))
 
 (defun org-air-calendar--marked-days (items)
-  "Return hash table of scheduled date keys in ITEMS."
+  "Return hash table of date keys with scheduled/deadline ITEMS."
   (let ((table (make-hash-table :test #'equal)))
     (dolist (item items table)
-      (when-let* ((key (org-air-calendar--timestamp-key (org-air-item-scheduled item))))
-        (puthash key t table)))))
+      (dolist (timestamp (list (org-air-item-scheduled item)
+                               (org-air-item-deadline item)))
+        (when-let* ((key (org-air-calendar--timestamp-key timestamp)))
+          (puthash key t table))))))
+
+(defun org-air-calendar--glyph (gui tty)
+  "Return GUI glyph or TTY fallback."
+  (if (display-graphic-p) gui tty))
+
+(defun org-air-calendar--weekdays ()
+  "Return weekday labels according to `org-air-calendar-week-start'."
+  (if (= org-air-calendar-week-start 1)
+      '("Mo" "Tu" "We" "Th" "Fr" "Sa" "Su")
+    '("Su" "Mo" "Tu" "We" "Th" "Fr" "Sa")))
+
+(defun org-air-calendar--column (calendar-dow)
+  "Return zero-based display column for CALENDAR-DOW."
+  (mod (- calendar-dow org-air-calendar-week-start) 7))
 
 ;;;###autoload
 (defun org-air-calendar-insert-month (&optional date items)
-  "Insert a simple month calendar for DATE marking scheduled ITEMS."
+  "Insert a compact month calendar for DATE marking dashboard ITEMS."
   (let* ((decoded (decode-time (or date (current-time))))
          (month (decoded-time-month decoded))
          (year (decoded-time-year decoded))
@@ -48,26 +71,41 @@
                                                 (decoded-time-day today)
                                                 (decoded-time-year today)))
          (marks (org-air-calendar--marked-days items))
-         (first-day (calendar-day-of-week (list month 1 year)))
+         (first-day (org-air-calendar--column
+                     (calendar-day-of-week (list month 1 year))))
          (last-day (calendar-last-day-of-month month year))
          (day 1))
-    (insert (propertize (format "%s %d\n" (calendar-month-name month) year)
-                        'face 'org-air-face-salient))
-    (insert (propertize "Su Mo Tu We Th Fr Sa\n" 'face 'org-air-face-subtle))
+    (insert (propertize (format "%s %d                 %s %s\n"
+                              (calendar-month-name month) year
+                              (org-air-calendar--glyph "‹" "<")
+                              (org-air-calendar--glyph "›" ">"))
+                      'face 'org-air-face-calendar-header))
+    (insert (propertize (string-join (org-air-calendar--weekdays) " ")
+                        'face 'org-air-face-calendar-day-name)
+            "\n")
     (dotimes (_ first-day)
       (insert "   "))
     (while (<= day last-day)
       (let* ((key (org-air-calendar--date-key month day year))
+             (calendar-dow (calendar-day-of-week (list month day year)))
+             (weekend (memq calendar-dow '(0 6)))
+             (marked (gethash key marks))
+             (todayp (equal key today-key))
              (face (cond
-                    ((equal key today-key) 'org-air-face-popout)
-                    ((gethash key marks) 'org-air-face-salient)
-                    (t 'org-air-face-default))))
+                    (todayp 'org-air-face-calendar-today)
+                    (marked 'org-air-face-calendar-event)
+                    (weekend 'org-air-face-calendar-weekend)
+                    (t 'org-air-face-calendar-day))))
         (insert (propertize (format "%2d" day) 'face face))
-        (insert (if (gethash key marks) "•" " "))
-        (when (= (calendar-day-of-week (list month day year)) 6)
+        (insert (if marked (org-air-calendar--glyph "●" "o") " "))
+        (when (= (org-air-calendar--column calendar-dow) 6)
           (insert "\n")))
       (setq day (1+ day)))
-    (unless (bolp) (insert "\n"))))
+    (unless (bolp) (insert "\n"))
+    (insert (propertize (format "%s items, %s today\n"
+                              (org-air-calendar--glyph "●" "o")
+                              (org-air-calendar--glyph "▮" "#"))
+                      'face 'org-air-face-faded))))
 
 (provide 'org-air-calendar)
 ;;; org-air-calendar.el ends here

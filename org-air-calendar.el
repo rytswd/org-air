@@ -94,14 +94,24 @@ carries a scheduled or deadline timestamp, computed from the items."
                      (calendar-day-of-week (list month 1 year))))
          (last-day (calendar-last-day-of-month month year))
          (day 1))
-    (insert (propertize (format "%s %d                 %s %s\n"
-                              (calendar-month-name month) year
-                              (org-air-calendar--glyph "‹" "<")
-                              (org-air-calendar--glyph "›" ">"))
-                      'face 'org-air-face-calendar-header))
-    (insert (propertize (string-join (org-air-calendar--weekdays) " ")
-                        'face 'org-air-face-calendar-day-name)
-            "\n")
+    (let* ((weekday-row (string-join (org-air-calendar--weekdays) " "))
+           (row-width (string-width weekday-row))
+           (nav (concat (org-air-calendar--glyph "‹" "<") " "
+                        (org-air-calendar--glyph "›" ">")))
+           (label (format "%s %d" (calendar-month-name month) year))
+           ;; Right-align the month-nav within the weekday-row width so the
+           ;; ‹ › affordance never truncates, abbreviating the month name
+           ;; before dropping the nav (D3).
+           (label (if (> (+ (string-width label) 1 (string-width nav)) row-width)
+                      (format "%s %d"
+                              (substring (calendar-month-name month) 0 3) year)
+                    label))
+           (pad (max 1 (- row-width (string-width label) (string-width nav)))))
+      (insert (propertize (concat label (make-string pad ?\s) nav)
+                          'face 'org-air-face-calendar-header)
+              "\n")
+      (insert (propertize weekday-row 'face 'org-air-face-calendar-day-name)
+              "\n"))
     (dotimes (_ first-day)
       (insert "   "))
     (while (<= day last-day)

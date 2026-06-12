@@ -44,17 +44,10 @@
     ;; fidelity review's hand-derived original-fixture union missed the
     ;; real Jun 19 deadline; the test now parses ground truth from the
     ;; fixture files directly.
-    ;;
-    ;; Stale-blessed mockups, pending the one-shot regeneration after
-    ;; impl2's D-delta round: the blessed §3 fixtures carry design's
-    ;; REPRESENTATIVE calendar dots, which the now-honest renderer
-    ;; correctly does not reproduce.  Regenerate + re-bless, then close.
-    (org-air-layout-mockup-80
-     . "stale blessed bytes: honest calendar marks differ from the representative dots; regenerate after D-deltas")
-    (org-air-layout-mockup-120
-     . "stale blessed bytes: honest calendar marks differ from the representative dots; regenerate after D-deltas")
-    (org-air-layout-mockup-160
-     . "stale blessed bytes: honest calendar marks differ from the representative dots; regenerate after D-deltas")
+    ;; 2026-06-13: mockup-80/120/160 closed out — fixtures regenerated
+    ;; ONCE from the honest D1-D7 renderer (ymvlyvuk) via make
+    ;; regen-mockups (guards active), plus the new threshold set
+    ;; 90/96/100/104/110; routed to design for re-blessing.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

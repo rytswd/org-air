@@ -73,18 +73,65 @@ batch-testable dashboard lines against exactly that display width using
   :group 'org-air)
 
 (defcustom org-air-layout-two-pane-min 100
-  "Minimum width at which org-air renders item pane and rail side by side."
+  "Legacy fixed two-pane breakpoint (superseded by the derived rule).
+Kept for back-compatibility/customisation; the live decision is made by
+`org-air-view--two-pane-p', which derives engagement from
+`org-air-item-pane-min' and the active rail tier (D1)."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-item-pane-min 64
+  "Minimum item-pane content width below which two-pane is not worth it.
+The derived two-pane breakpoint is `org-air-item-pane-min' plus the
+divider plus the narrow rail tier, about 95 columns, so threshold-zone
+windows near 100 columns stay horizontal with the calendar on-screen (D1)."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-rail-width-narrow 28
+  "Context rail content width in the threshold zone (95–119 cols).
+The narrow tier still fits the calendar grid, the longest summary row,
+and the \"No filters · all items\" line, while leaving the item pane a
+usable width (D1)."
   :type 'integer
   :group 'org-air)
 
 (defcustom org-air-rail-width 32
-  "Context rail content width in the two-pane org-air layout."
+  "Context rail content width in the mid two-pane tier (120–149 cols)."
   :type 'integer
   :group 'org-air)
 
 (defcustom org-air-rail-width-wide 42
-  "Context rail content width when the org-air view is very wide."
+  "Context rail content width in the wide two-pane tier (>= 150 cols)."
   :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-layout-hysteresis 3
+  "Column dead-band around the two-pane breakpoint (D1).
+Resizing within this many columns of the breakpoint keeps the current
+orientation, so a window dragged across the boundary does not flap
+between stacked and two-pane on every pixel."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-origin-min 12
+  "Columns reserved for the origin breadcrumb in a two-pane item row (D2).
+The origin is the item's identity and RET target; tags and then the
+title shrink before the origin, which keeps at least this many columns."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-title-min 24
+  "Floor width for a truncated item title before the origin shrinks (D2)."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-display-action nil
+  "Optional `display-buffer' ACTION used to show the org-air dashboard.
+When nil, the dashboard reuses a window or, failing that, takes the full
+frame, so a narrow vertical split never pushes the rail/calendar
+off-screen (D4)."
+  :type '(choice (const :tag "Default (full-width)" nil) sexp)
   :group 'org-air)
 
 (defcustom org-air-layout-style 'rule
@@ -126,6 +173,12 @@ Choices are `other-window', `same', and `frame'."
 (defvar-local org-air-view--line-width nil)
 (defvar-local org-air-view--rendered-width nil
   "Column width used for the most recent render of this dashboard buffer.")
+(defvar-local org-air-view--orientation nil
+  "Last chosen layout orientation, `two-pane' or `stacked' (D1 hysteresis).")
+(defvar org-air-view--pane-indented nil
+  "Non-nil while rendering the two-pane item pane (indented downstream).
+Lets headings and item rows use a consistent hanging indent regardless
+of whether the wrapping pane margin is added later (D6).")
 (defvar-local org-air-view--cal-month nil)
 
 (defconst org-air-view-buffer-name "*org-air*")
@@ -207,10 +260,15 @@ motions keep working.  Non-evil users are entirely unaffected."
   (make-string org-air-margin ?\s))
 
 (defun org-air-view--item-margin ()
-  "Return the item indentation string."
-  (make-string (if (<= (org-air-view--render-width) 80)
-                   (+ org-air-item-indent org-air-margin)
-                 org-air-item-indent)
+  "Return the item-row indentation so rows hang under their heading (D6).
+Item rows sit at the content margin plus `org-air-item-indent' (col 6);
+inside the two-pane item pane the wrapping margin is added downstream,
+so only `org-air-item-indent' is applied here.  This is width-
+independent, keeping headings (col 2) hanging over items (col 6) in both
+stacked and two-pane layouts."
+  (make-string (if org-air-view--pane-indented
+                   org-air-item-indent
+                 (+ org-air-margin org-air-item-indent))
                ?\s))
 
 (defun org-air-view--date-key (time)
@@ -451,11 +509,13 @@ When ACTIVE is non-nil, use the active-filter tag face."
   "Insert section heading for BUCKET TITLE with COUNT.
 ATTENTIONP means the count should use the attention badge face."
   (let ((start (point)))
-    (insert (if (<= (org-air-view--render-width) 80) (org-air-view--margin) "")
+    (insert (if org-air-view--pane-indented "" (org-air-view--margin))
             (propertize (org-air-view--glyph bucket) 'face 'org-air-face-section-icon)
             " "
             (propertize title 'face 'org-air-face-section)
-            "  "
+            ;; D6 — one space before the inverse count chip; never wraps
+            ;; (single heading line, `truncate-lines' is t).
+            " "
             (propertize (format "%d" count)
                         'face (if attentionp
                                   'org-air-face-count-attention
@@ -465,47 +525,79 @@ ATTENTIONP means the count should use the attention badge face."
     (when org-air-section-rule
       (org-air-view--insert-rule))))
 
+(defun org-air-view--item-tagstr (tags k total)
+  "Return inline tag chips showing K of TOTAL TAGS, with overflow marker.
+When fewer than TOTAL chips are shown the `more' glyph signals the rest."
+  (let ((shown (mapconcat (lambda (tg) (concat "#" tg)) (seq-take tags k) " "))
+        (overflow (- total k)))
+    (cond
+     ((<= total 0) "")
+     ((> overflow 0) (string-trim (concat shown " " (org-air-view--glyph 'more))))
+     (t shown))))
+
 (defun org-air-view--insert-item (item bucket)
-  "Insert ITEM as an interactive row in BUCKET."
+  "Insert ITEM as an interactive row in BUCKET.
+Composes one row that fits the pane width with an origin-protecting
+shrink order (D2): inline tags drop first (toward the overflow marker),
+then the title truncates with a floor of `org-air-title-min', and only
+last does the origin breadcrumb shrink — never below `org-air-origin-min'
+and always keeping its leading glyph.  The origin is the item's identity
+and RET target, so it is the last thing to give."
   (let* ((start (point))
+         (width (org-air-view--render-width))
          (todo (org-air-item-todo item))
-         (donep (and todo (org-air-classify--done-p item)))
          (priority (org-air-view--priority-char item))
          (date (org-air-view--date-label item bucket))
-         (origin (concat (org-air-view--glyph 'origin) " " (org-air-view--origin item)))
+         (date-str (if date (concat "  " (car date)) ""))
          (prefix (concat (org-air-view--item-margin)
                          (when todo (concat todo " "))
                          (when (and priority (member priority org-air-priority-show))
                            (format "[#%c] " priority))))
+         (prefix-w (string-width prefix))
+         (date-w (string-width date-str))
          (title (org-air-item-title item))
-         (left (concat prefix title
-                       (when date (concat "  " (car date)))))
-         (tag-limit org-air-tags-inline-max)
-         (tag-text (mapconcat (lambda (tag) (concat "#" tag))
-                              (seq-take (org-air-item-tags item) tag-limit)
-                              " "))
-         (overflow (- (length (org-air-item-tags item))
-                      (min (length (org-air-item-tags item)) tag-limit)))
-         (tag-text (if (> overflow 0)
-                       (concat tag-text " " (org-air-view--glyph 'more))
-                     tag-text))
-         (meta (unless (string-empty-p tag-text) tag-text))
-         (origin (propertize origin 'face 'org-air-face-group))
-         (meta-start (if (<= (org-air-view--render-width) 80) 47 45))
-         (line (if (string-empty-p meta)
-                   (org-air-view--justify left origin (org-air-view--render-width))
-                 (let* ((left-field (cond
-                                      ((and date
-                                            (not (string-prefix-p "OVERDUE" (car date))))
-                                       (concat left "  "))
-                                      ((>= (string-width left) meta-start)
-                                       (concat left "  "))
-                                      (t (org-air-view--pad-to left meta-start))))
-                        (right-width (max 1 (- (org-air-view--render-width)
-                                               (string-width left-field))))
-                        (right-field (org-air-view--justify meta origin right-width)))
-                   (org-air-view--pad-to (concat left-field right-field)
-                                         (org-air-view--render-width))))))
+         (tags (org-air-item-tags item))
+         (n-tags (length tags))
+         (origin-raw (concat (org-air-view--glyph 'origin) " "
+                             (org-air-view--origin item)))
+         (origin-w (string-width origin-raw))
+         (gap 2)
+         ;; Stage 1 — tags shrink first: the largest chip count whose row
+         ;; still fits with the full title and full origin (else zero).
+         (tag-k
+          (let ((k n-tags) (chosen 0) (done nil))
+            (while (and (>= k 0) (not done))
+              (let* ((ts (org-air-view--item-tagstr tags k n-tags))
+                     (rw (if (string-empty-p ts) origin-w
+                           (+ (string-width ts) gap origin-w))))
+                (if (<= (+ prefix-w (string-width title) date-w gap rw) width)
+                    (setq chosen k done t)
+                  (setq k (1- k)))))
+            chosen))
+         (tag-str (org-air-view--item-tagstr tags tag-k n-tags))
+         (right-meta-w (if (string-empty-p tag-str) 0 (+ (string-width tag-str) gap)))
+         ;; Stage 2 — title truncates next, floored at `org-air-title-min'.
+         (avail-title (- width prefix-w date-w gap right-meta-w origin-w))
+         (title (if (<= (string-width title) avail-title)
+                    title
+                  (truncate-string-to-width
+                   title (max org-air-title-min (max 1 avail-title)) nil nil
+                   (org-air-view--glyph 'more))))
+         (title-w (string-width title))
+         ;; Stage 3 — origin shrinks last, reserving `org-air-origin-min'.
+         (avail-origin (- width prefix-w title-w date-w gap right-meta-w))
+         (origin-str (if (<= origin-w avail-origin)
+                         origin-raw
+                       (truncate-string-to-width
+                        origin-raw (max org-air-origin-min (max 1 avail-origin))
+                        nil nil (org-air-view--glyph 'more))))
+         (origin-str (propertize origin-str 'face 'org-air-face-group))
+         (left (concat prefix title date-str))
+         (right (if (string-empty-p tag-str)
+                    origin-str
+                  (concat tag-str (make-string gap ?\s) origin-str)))
+         (pad (max gap (- width (string-width left) (string-width right))))
+         (line (concat left (make-string pad ?\s) right)))
     (insert line "\n")
     (add-text-properties start (point)
                          `(org-air-item ,item
@@ -614,8 +706,34 @@ The order is stable so items sharing a date keep their incoming order."
         (org-air-view--string-lines (buffer-string) width)))))
 
 (defun org-air-view--rail-width (width)
-  "Return context rail WIDTH for total WIDTH."
-  (if (>= width 150) org-air-rail-width-wide org-air-rail-width))
+  "Return the rail content width tier for total WIDTH (D1).
+Wide (>= 150) -> `org-air-rail-width-wide' (42); mid (120-149) ->
+`org-air-rail-width' (32); threshold zone (< 120) ->
+`org-air-rail-width-narrow' (28)."
+  (cond
+   ((>= width 150) org-air-rail-width-wide)
+   ((>= width 120) org-air-rail-width)
+   (t org-air-rail-width-narrow)))
+
+(defun org-air-view--two-pane-boundary ()
+  "Return the minimum total width at which two-pane engages (D1).
+Item-pane floor + divider + the narrow rail tier (≈ 95 cols)."
+  (+ org-air-item-pane-min 3 org-air-rail-width-narrow))
+
+(defun org-air-view--two-pane-p (width)
+  "Return non-nil when WIDTH should render two-pane (D1).
+Engagement is derived: two-pane iff the item pane (WIDTH minus the
+tier's rail and the 3-col divider) is at least `org-air-item-pane-min'.
+Within `org-air-layout-hysteresis' columns of the breakpoint the current
+`org-air-view--orientation' is kept to avoid flapping on resize."
+  (let* ((rail (org-air-view--rail-width width))
+         (item-pane (- width rail 3))
+         (base (>= item-pane org-air-item-pane-min)))
+    (if (and org-air-view--orientation
+             (<= (abs (- width (org-air-view--two-pane-boundary)))
+                 org-air-layout-hysteresis))
+        (eq org-air-view--orientation 'two-pane)
+      base)))
 
 (defun org-air-view--divider ()
   "Return the pane divider string for the current layout style."
@@ -715,46 +833,38 @@ The order is stable so items sharing a date keep their incoming order."
             "\n")))
 
 (defun org-air-view--insert-top-rail (items width)
-  "Insert stacked top-band rail for ITEMS at total WIDTH."
-  (let* ((cal-width (if (<= width 80) 24 25))
-         (summary-width (if (<= width 80) 21 24))
-         (filter-width (if (<= width 80) 20 (max 20 (- width cal-width summary-width 4))))
-         (calendar (org-air-view--render-lines
-                    (- cal-width (if (<= width 80) 2 0))
-                    (lambda ()
-                      (org-air-calendar-insert-month org-air-view--cal-month
-                                                     (org-air-view--visible-items items)))))
-         (calendar (if (<= width 80)
-                       (let ((lines (mapcar (lambda (line) (concat "  " line)) calendar)))
-                         (cons "  June 2026          ‹ ›" (cdr lines)))
-                     calendar))
-         (summary (org-air-view--render-lines
-                   summary-width
-                   (lambda () (org-air-view--insert-summary items summary-width))))
-         (summary (if (<= width 80)
-                      (mapcar (lambda (line)
-                                (cond
-                                 ((string-match-p "^─+$" line)
-                                  "──────────────────")
-                                 ((string-match-p "^ +[0-9]" line)
-                                  (substring line 1))
-                                 (t line)))
-                              summary)
-                    summary))
-         (filters (org-air-view--render-lines
-                   filter-width
-                   (lambda ()
-                     (org-air-view--insert-rail-filters filter-width)
-                     (insert (propertize (if (<= width 80)
-                                             "\n\nc capture · / filter\ns scope · g refresh"
-                                           "c capture · / filter\ns scope · g refresh")
-                                         'face 'org-air-face-faded))))))
-    (dolist (line (org-air-view--compose-columns
-                   (list (cons calendar cal-width)
-                         (cons summary summary-width)
-                         (cons filters filter-width))
-                   "  "))
-      (insert (org-air-view--pad-to line width) "\n"))))
+  "Insert the stacked top-band rail for ITEMS at total WIDTH (D3).
+Three fixed columns (calendar / summary / filters), left-packed with a
+2-col gutter; each labelled rule is exactly its column width so no rule
+balloons to the window edge, and the calendar month-nav never truncates.
+When the band is too narrow for three columns the blocks stack
+vertically, calendar first — always on-screen."
+  (let* ((col 24)
+         (gutter 2)
+         (visible (org-air-view--visible-items items))
+         (calendar-fn (lambda ()
+                        (org-air-calendar-insert-month org-air-view--cal-month
+                                                       visible)))
+         (summary-fn (lambda () (org-air-view--insert-summary items col)))
+         (filters-fn (lambda ()
+                       (org-air-view--insert-rail-filters col)
+                       (insert (propertize "c capture · / filter"
+                                           'face 'org-air-face-faded)))))
+    (if (>= width (+ (* 3 col) (* 2 gutter)))
+        (let ((cal-lines (org-air-view--render-lines col calendar-fn))
+              (sum-lines (org-air-view--render-lines col summary-fn))
+              (fil-lines (org-air-view--render-lines col filters-fn)))
+          (dolist (line (org-air-view--compose-columns
+                         (list (cons cal-lines col)
+                               (cons sum-lines col)
+                               (cons fil-lines col))
+                         (make-string gutter ?\s)))
+            (insert (org-air-view--pad-to line width) "\n")))
+      (let ((band (min width col)))
+        (dolist (block (list calendar-fn summary-fn filters-fn))
+          (dolist (line (org-air-view--render-lines band block))
+            (insert (org-air-view--pad-to line width) "\n"))
+          (insert "\n"))))))
 
 (defun org-air-view--insert-item-pane (items width)
   "Insert the item pane for ITEMS at WIDTH."
@@ -801,6 +911,45 @@ The order is stable so items sharing a date keep their incoming order."
         (insert (org-air-view--pad-to line width)))
       (forward-line 1))))
 
+(defun org-air-view--finalize-buffer-lines (width)
+  "Cap each line at WIDTH and strip trailing whitespace (D7/D6, live mode).
+No line may exceed the window actually displaying the dashboard so the
+rail/calendar are never pushed off-screen (D7); full-width and stacked
+rows carry no trailing whitespace (D6)."
+  (save-excursion
+    (goto-char (point-min))
+    (while (not (eobp))
+      (let* ((beg (line-beginning-position))
+             (end (line-end-position))
+             (line (buffer-substring beg end))
+             (capped (if (> (string-width line) width)
+                         (truncate-string-to-width line width nil nil
+                                                   (org-air-view--glyph 'more))
+                       line))
+             (trimmed (string-trim-right capped)))
+        (unless (string= trimmed line)
+          (delete-region beg end)
+          (insert trimmed)))
+      (forward-line 1))))
+
+(defun org-air-view--collapse-blank-lines ()
+  "Collapse two or more consecutive blank lines to a single blank line (D6).
+Keep exactly one blank line of rhythm between sections and rail blocks."
+  (save-excursion
+    (goto-char (point-min))
+    (while (re-search-forward "\n[ \t]*\n[ \t]*\n" nil t)
+      (replace-match "\n\n")
+      (goto-char (match-beginning 0)))))
+
+(defun org-air-view--goto-first-item ()
+  "Place point on the first actionable item row (D4).
+Lands on the first `org-air-item' (first non-empty section), then the
+first section heading, then `point-min' for a truly empty board — so
+n/p, RET and r work on the first keystroke instead of the banner."
+  (goto-char (or (text-property-not-all (point-min) (point-max) 'org-air-item nil)
+                 (text-property-not-all (point-min) (point-max) 'org-air-section nil)
+                 (point-min))))
+
 (defun org-air-view--render (items tag-filter)
   "Render dashboard for cached ITEMS with TAG-FILTER."
   (let* ((inhibit-read-only t)
@@ -812,7 +961,9 @@ The order is stable so items sharing a date keep their incoming order."
     (org-air-view--insert-banner items)
     (org-air-view--insert-rule)
     (insert "\n")
-    (if (>= width org-air-layout-two-pane-min)
+    (setq org-air-view--orientation
+          (if (org-air-view--two-pane-p width) 'two-pane 'stacked))
+    (if (eq org-air-view--orientation 'two-pane)
         (let* ((rail-width (org-air-view--rail-width width))
                (divider (org-air-view--divider))
                (item-width (max 20 (- width rail-width (string-width divider))))
@@ -821,7 +972,9 @@ The order is stable so items sharing a date keep their incoming order."
                (item-lines (org-air-view--indent-pane-lines
                             (org-air-view--render-lines
                              item-content-width
-                             (lambda () (org-air-view--insert-item-pane items item-content-width)))
+                             (lambda ()
+                               (let ((org-air-view--pane-indented t))
+                                 (org-air-view--insert-item-pane items item-content-width))))
                             item-width))
                (rail-lines (org-air-view--indent-pane-lines
                             (org-air-view--render-lines
@@ -842,10 +995,14 @@ The order is stable so items sharing a date keep their incoming order."
     (insert "\n")
     (org-air-view--insert-rule)
     (org-air-view--insert-footer)
-    (when (integerp org-air-view-width)
-      (org-air-view--normalize-buffer-lines org-air-view-width))
+    ;; D6 — one blank line of rhythm, never a double, at any width.
+    (org-air-view--collapse-blank-lines)
+    (if (integerp org-air-view-width)
+        (org-air-view--normalize-buffer-lines org-air-view-width)
+      ;; D7/D6 — cap every line at the displaying window and right-trim.
+      (org-air-view--finalize-buffer-lines width))
     (setq org-air-view--rendered-width width)
-    (goto-char (point-min))))
+    (org-air-view--goto-first-item)))
 
 (defun org-air-view--save-position ()
   "Return a token describing the cursor location for later restoration."
@@ -865,18 +1022,26 @@ The order is stable so items sharing a date keep their incoming order."
       found)))
 
 (defun org-air-view--restore-position (token)
-  "Restore the cursor to the location described by TOKEN.
-Prefers the same item, then the same section, falling back to the same
-line/column so point and the user's place survive a re-render."
-  (let ((target (or (org-air-view--find-property
-                     'org-air-marker (plist-get token :marker))
-                    (org-air-view--find-property
-                     'org-air-section (plist-get token :section)))))
-    (if target
-        (goto-char target)
+  "Restore the cursor to the location described by TOKEN (D5).
+Prefers the same item; if it vanished (refiled/done), lands on the
+nearest surviving item in the same section, then the section heading,
+falling back to the same line/column — never jumping to `point-min'
+unless nothing else is available."
+  (let ((marker-pos (org-air-view--find-property
+                     'org-air-marker (plist-get token :marker)))
+        (section-pos (org-air-view--find-property
+                      'org-air-section (plist-get token :section))))
+    (cond
+     (marker-pos (goto-char marker-pos))
+     (section-pos
+      ;; Nearest surviving item at/after the saved section heading.
+      (goto-char (or (text-property-not-all section-pos (point-max)
+                                            'org-air-item nil)
+                     section-pos)))
+     (t
       (goto-char (point-min))
       (forward-line (1- (or (plist-get token :line) 1)))
-      (move-to-column (or (plist-get token :column) 0)))))
+      (move-to-column (or (plist-get token :column) 0))))))
 
 (defun org-air-view--render-current ()
   "Re-render the dashboard from `org-air-view--items', preserving point.
@@ -905,8 +1070,13 @@ Called from the debounced window-size/-configuration hook."
                    (equal org-air-view--items-key (list org-air-files org-air-inbox-file)))
         (setq org-air-view--items (org-air-query-items))))
     ;; Display the buffer first so width derivation measures the window
-    ;; that actually shows the dashboard (U1), then render into it.
-    (pop-to-buffer buffer)
+    ;; that actually shows the dashboard (U1), in a full-width window so
+    ;; the rail/calendar are never pushed off-screen (D4), then render.
+    (pop-to-buffer buffer
+                   (or org-air-display-action
+                       '((display-buffer-reuse-window
+                          display-buffer-same-window
+                          display-buffer-full-frame))))
     (with-current-buffer buffer
       (org-air-view--render org-air-view--items org-air-view--tag-filter))))
 

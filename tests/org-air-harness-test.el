@@ -47,8 +47,8 @@
                    '(todo "TODO")
                    :action #'org-get-heading)))
     (should (consp results))
-    ;; projects.org has exactly 9 TODO (not DONE) headings.
-    (should (= 9 (length results)))))
+    ;; projects.org has exactly 10 TODO (not DONE) headings.
+    (should (= 10 (length results)))))
 
 (ert-deftest org-air-harness-frozen-now ()
   "The canonical fixed `now' is Mon 2026-06-15 10:00."

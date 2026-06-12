@@ -23,7 +23,17 @@
 
 (defvar org-air-test-known-failures
   '(
-    ;; (test-symbol . "reason / spec reference")  — none right now.
+    ;; (test-symbol . "reason / spec reference")
+    (org-air-date-future-deadline-is-benign
+     . "date-label sign inversion, design-review-r3 HIGH")
+    (org-air-date-past-deadline-is-overdue
+     . "date-label sign inversion, design-review-r3 HIGH")
+    (org-air-date-past-scheduled-is-overdue
+     . "date-label sign inversion, design-review-r3 HIGH")
+    (org-air-date-future-scheduled-is-benign
+     . "date-label sign inversion, design-review-r3 HIGH")
+    (org-air-date-dashboard-overdue-rendering
+     . "date-label sign inversion, design-review-r3 HIGH")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

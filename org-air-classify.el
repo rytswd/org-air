@@ -37,10 +37,23 @@
   "Return calendar days between THEN and NOW."
   (- (time-to-days now) (time-to-days then)))
 
+(defun org-air-classify--done-keywords (item)
+  "Return done TODO keywords applicable to ITEM."
+  (or (when-let* ((marker (org-air-item-marker item))
+                  (buffer (marker-buffer marker)))
+        (with-current-buffer buffer
+          (or org-done-keywords (default-value 'org-done-keywords))))
+      (when-let* ((file (org-air-item-file item))
+                  ((file-exists-p file)))
+        (with-current-buffer (find-file-noselect file)
+          (or org-done-keywords (default-value 'org-done-keywords))))
+      (default-value 'org-done-keywords)
+      '("DONE")))
+
 (defun org-air-classify--done-p (item)
   "Return non-nil if ITEM has a done TODO state."
   (when-let* ((todo (org-air-item-todo item)))
-    (member todo org-done-keywords)))
+    (member todo (org-air-classify--done-keywords item))))
 
 (defun org-air-classify--future-or-today-p (timestamp now)
   "Return non-nil when TIMESTAMP is within the upcoming window."

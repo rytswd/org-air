@@ -1,0 +1,71 @@
+#+title: org-air v0.2: full-viewport layout
+#+state: work-in-progress
+#+FILETAGS: :ui:layout:
+
+* Summary
+Rework the org-air dashboard from a vertically-stacked list into a
+full-viewport, multi-pane layout. The calendar is always visible, the
+view is useful even with zero items, and the whole window width/height
+is used deliberately.
+
+* Motivation
+Direct user feedback on v0.1: "I don't like it at all. Calendar should
+always be shown, and the view should be useful even when there is no
+item to show. The current view is only vertically stacking, but we
+should use the entire viewport instead."
+
+** Goals
+- Calendar pane ALWAYS rendered, regardless of item counts or filters.
+- A genuinely useful empty state: when a section (or the whole view)
+  has no items, the layout holds its shape and communicates calmly
+  (counts, calendar, capture hint) — never a blank or collapsed buffer.
+- Full-viewport layout: compose panes side-by-side across the window
+  width and use vertical space intentionally (column layout, aligned
+  boxes), not a single top-to-bottom stack.
+- Aesthetic direction per references: nano-mu4e look-and-feel, the
+  nano-agenda rewrite (rougier), and box-drawing layouts in terminal
+  Emacs. Boxes/rules must degrade gracefully in TTY (DEC box chars
+  with ASCII fallback via the existing glyph mechanism).
+- Responsive: layout adapts to window width (e.g. two-pane >= ~100
+  cols, stacked fallback below), reflowing on window size change.
+- Keep: all v0.1 behaviour (buckets, filtering, scoping, refile,
+  navigation) and the binary make check gate.
+
+** Non-Goals
+- Multiple Emacs windows/frames — this is one buffer rendering panes
+  internally (like nano-mu4e/nano-agenda), not window management.
+- Graphical/SVG rendering.
+
+* Proposal (to be expanded by the design track)
+Two-region composition as the starting hypothesis, to be refined:
+- Left region (~60-65%): item sections in their nano style.
+- Right region: calendar (always), followed by context blocks —
+  counts-by-bucket summary, active filter/scope chips, capture hint.
+- Header band across full width; footer/keymap hint band optional.
+- Empty sections render their header + a one-line faded placeholder;
+  fully-empty view keeps both regions with calendar + summary intact.
+- A column-composition primitive in the renderer: render panes into
+  strings/segments, then zip lines with correct display-width padding
+  (string-width, text properties preserved).
+
+* Design Details
+Authoritative spec: =air/v0.2/org-air-layout-design.org= (design track
+owns; impl follows once ready).
+
+** Test Plan
+- Batch-render at fixed widths (e.g. 80 / 120 / 160 cols) with frozen
+  clock; assert pane presence, alignment (uniform line widths), and
+  calendar always present including the zero-items case.
+- Keep 60/60 green; extend the gate, don't fork it.
+
+* History
+- 2026-06-12: Seeded from user feedback on v0.1; design-led round
+  spawned.
+
+* References
+- https://www.reddit.com/r/emacs/comments/mzgsm0/mu4e_look_and_feel/
+- https://www.reddit.com/r/emacs/comments/18umexf/nano_agenda_rewrite_wip/
+- https://www.reddit.com/r/emacs/comments/1n7dp7h/more_boxes_in_terminal/
+- https://github.com/rougier/nano-agenda (rewrite branch if present)
+- https://github.com/rougier/nano-mu4e
+- air/v0.1/org-air-design.org (visual language stays authoritative)

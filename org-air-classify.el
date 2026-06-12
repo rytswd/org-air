@@ -16,8 +16,15 @@
 (require 'org)
 (require 'org-air-query)
 
-(defcustom org-air-stale-days 14
+(defvar org-air-inbox-file)
+
+(defcustom org-air-stale-days 21
   "Number of days without activity before an item is stale."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-upcoming-days 7
+  "Number of calendar days ahead considered upcoming."
   :type 'integer
   :group 'org-air)
 
@@ -36,9 +43,10 @@
     (member todo org-done-keywords)))
 
 (defun org-air-classify--future-or-today-p (timestamp now)
-  "Return non-nil when TIMESTAMP is today or later relative to NOW."
+  "Return non-nil when TIMESTAMP is within the upcoming window."
   (when-let* ((time (org-air-classify--time timestamp)))
-    (>= (org-air-classify--days-between now time) 0)))
+    (let ((days (org-air-classify--days-between now time)))
+      (and (>= days 0) (<= days org-air-upcoming-days)))))
 
 (defun org-air-classify--past-p (timestamp now)
   "Return non-nil when TIMESTAMP is before today relative to NOW."
@@ -59,6 +67,14 @@
               (ignore-errors
                 (org-timestamp-to-time
                  (org-timestamp-from-string (match-string-no-properties 0)))))))))))
+
+(defun org-air-classify--inbox-file-p (item)
+  "Return non-nil when ITEM lives in `org-air-inbox-file'."
+  (and (boundp 'org-air-inbox-file)
+       org-air-inbox-file
+       (org-air-item-file item)
+       (equal (file-truename (expand-file-name (org-air-item-file item)))
+              (file-truename (expand-file-name org-air-inbox-file)))))
 
 (defun org-air-classify--last-activity (item)
   "Return the best available activity time for ITEM."
@@ -91,7 +107,8 @@ Buckets are `upcoming', `stale', `attention', `high-priority', and `inbox'."
                  (>= (org-air-item-priority item)
                      (org-get-priority (format "[#%c]" org-priority-highest))))
         (push 'high-priority buckets))
-      (when (member "inbox" (mapcar #'downcase (org-air-item-tags item)))
+      (when (or (org-air-classify--inbox-file-p item)
+                (member "inbox" (mapcar #'downcase (org-air-item-tags item))))
         (push 'inbox buckets))
       (when-let* ((activity (org-air-classify--last-activity item)))
         (when (>= (org-air-classify--days-between activity now) org-air-stale-days)

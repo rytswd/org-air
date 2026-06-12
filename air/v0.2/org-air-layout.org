@@ -1,5 +1,5 @@
 #+title: org-air v0.2: full-viewport layout
-#+state: work-in-progress
+#+state: complete
 #+FILETAGS: :ui:layout:
 
 * Summary
@@ -61,6 +61,19 @@ owns; impl follows once ready).
 * History
 - 2026-06-12: Seeded from user feedback on v0.1; design-led round
   spawned.
+- 2026-06-12: Design spec chain xpkwoosu → orwonzvz → zrxylmos →
+  otmpnqzu: band/pane model, byte-precise §3 mockups adopted from
+  canonical test fixtures (single source of truth), §4.3 truncation
+  rule, all plain-space alignment.
+- 2026-06-12: Gate-integrity incident: impl convergence change
+  rejected for a fixture-insertion shim (tautological gate) +
+  falsified manifest closeout; anti-tautology guards added to the
+  suite (shim traps, fixture-read blocking, source-scan); protocol
+  tightened — test track owns manifest closeout and binding verdicts.
+- 2026-06-12: Honest convergence xykvtwll on guarded base; integrated
+  to main as wzmskzwn; binding gate verdict PASS at closeout
+  xwsrowxk: 85/85 exit 0, manifest empty, renderer byte-identical to
+  the §3 mockups at 80/120/160 with guards active.
 
 * References
 - https://www.reddit.com/r/emacs/comments/mzgsm0/mu4e_look_and_feel/

@@ -293,6 +293,114 @@ section headings carry."
                     (point-max))))
     (nreverse counts)))
 
+;;;; Data-variation board — anti-hardcoding guards.
+;;
+;; Design's fidelity review (reviews/v0.2-fidelity-review.org, F1/F2)
+;; found fixture DATA hardcoded in core (calendar mark date literals +
+;; ~20 item-title branches) — invisible to the file-level render guards.
+;; Countermeasure: a SECOND board whose org files are generated at test
+;; time from the data constant below, with every expectation (calendar
+;; day union, titles, origins, total) computed from that same constant.
+;; The dates deliberately fall outside F1's [-6..+3] age window (Jun 5 =
+;; 10d overdue, Jun 25 = 10d out) and the board has no item on Jun 19
+;; (F1's fabricated literal), so any data hardcoding diverges.
+
+(defconst org-air-viewport-test-alt-items
+  '((:file "alpha.org" :todo "TODO" :title "Water the bonsai garden"
+     :scheduled "2026-06-21 Sun" :tags ("garden"))
+    (:file "alpha.org" :todo "TODO" :title "File expense reimbursement"
+     :deadline "2026-06-05 Fri" :tags ("money"))
+    ;; Far-future schedule: beyond the upcoming window, so it appears in
+    ;; NO section — but it MUST still be marked on the calendar (the
+    ;; calendar maps time, not buckets) and counted in the visible total.
+    (:file "alpha.org" :todo "TODO" :title "Plan midsummer party"
+     :scheduled "2026-06-25 Thu" :tags ("social") :sectionless t)
+    (:file "beta.org" :todo "TODO" :title "Sharpen kitchen knives"
+     :deadline "2026-06-11 Thu" :tags ("kitchen"))
+    (:file "beta.org" :title "Reference clipping without dates"
+     :tags ("note"))
+    (:file "inbox-alt.org" :todo "TODO" :title "Sort the seed packets")
+    (:file "inbox-alt.org" :title "Half-formed thought to triage"))
+  "Source of truth for the data-variation board (frozen now: Mon 15 Jun 2026).
+The org files AND every test expectation derive from this list.")
+
+(defun org-air-viewport-test-alt-titles (&optional sectioned-only)
+  "All titles on the data-variation board.
+With SECTIONED-ONLY, exclude items annotated :sectionless (they have no
+bucket row; they exist for calendar/total ground truth)."
+  (mapcar (lambda (item) (plist-get item :title))
+          (if sectioned-only
+              (seq-remove (lambda (item) (plist-get item :sectionless))
+                          org-air-viewport-test-alt-items)
+            org-air-viewport-test-alt-items)))
+
+(defun org-air-viewport-test-alt-june-days ()
+  "Sorted union of June 2026 day numbers carrying a SCHEDULED/DEADLINE."
+  (let (days)
+    (dolist (item org-air-viewport-test-alt-items)
+      (dolist (key '(:scheduled :deadline))
+        (let ((date (plist-get item key)))
+          (when (and date (string-match "\\`2026-06-\\([0-9]+\\)" date))
+            (cl-pushnew (string-to-number (match-string 1 date)) days)))))
+    (sort days #'<)))
+
+(defun org-air-viewport-test--write-alt-board (dir)
+  "Write the data-variation board org files into DIR."
+  (let ((by-file (seq-group-by (lambda (item) (plist-get item :file))
+                               org-air-viewport-test-alt-items)))
+    (pcase-dolist (`(,file . ,items) by-file)
+      (with-temp-file (expand-file-name file dir)
+        (dolist (item items)
+          (insert "* "
+                  (if-let* ((todo (plist-get item :todo))) (concat todo " ") "")
+                  (plist-get item :title))
+          (when-let* ((tags (plist-get item :tags)))
+            (insert "  :" (mapconcat #'identity tags ":") ":"))
+          (insert "\n")
+          (when-let* ((s (plist-get item :scheduled)))
+            (insert (format "SCHEDULED: <%s>\n" s)))
+          (when-let* ((d (plist-get item :deadline)))
+            (insert (format "DEADLINE: <%s>\n" d))))))))
+
+(defmacro org-air-viewport-test-with-alt-dashboard (width &rest body)
+  "Render the dashboard at WIDTH over the GENERATED data-variation board.
+Same guarantees as `org-air-viewport-test-with-dashboard' (frozen clock,
+render guards, buffer killed afterwards)."
+  (declare (indent 1) (debug t))
+  `(let ((org-air-viewport-test--dir (make-temp-file "org-air-alt-" t)))
+     (unwind-protect
+         (progn
+           (org-air-viewport-test--write-alt-board org-air-viewport-test--dir)
+           (let ((org-air-files (list org-air-viewport-test--dir))
+                 (org-air-inbox-file
+                  (expand-file-name "inbox-alt.org" org-air-viewport-test--dir)))
+             (org-air-viewport-test--with-frozen-now
+               (unwind-protect
+                   (org-air-viewport-test--with-render-guards
+                     (let ((org-air-view-width ,width))
+                       (org-air)
+                       (let ((buf (get-buffer "*org-air*")))
+                         (should buf)
+                         (with-current-buffer buf
+                           ,@body))))
+                 (when (get-buffer "*org-air*")
+                   (kill-buffer "*org-air*"))))))
+       (delete-directory org-air-viewport-test--dir t))))
+
+(defun org-air-viewport-test-calendar-marks ()
+  "Parse the rendered GUI calendar grid: return (MARKED-DAYS . TODAY-DAYS).
+MARKED-DAYS are day numbers followed by ●; TODAY-DAYS by ▮.  Sorted.
+Digit-prefixed glyphs only, so the legend line never matches."
+  (let ((text (buffer-string)) (marked ()) (today ()) (pos 0))
+    (while (string-match "\\([0-9]+\\)\\([●▮]\\)" text pos)
+      (let ((day (string-to-number (match-string 1 text)))
+            (glyph (match-string 2 text)))
+        (if (equal glyph "●")
+            (cl-pushnew day marked)
+          (cl-pushnew day today)))
+      (setq pos (match-end 0)))
+    (cons (sort marked #'<) (sort today #'<))))
+
 (defmacro org-air-viewport-test-as-gui (&rest body)
   "Run BODY with `display-graphic-p' stubbed non-nil.
 The §3 mockups use the GUI glyph set (│ ─ ‹ › ● ▮ …); --batch is a

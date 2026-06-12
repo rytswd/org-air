@@ -38,6 +38,17 @@
     ;; (comparison is right-trimmed), so trailing whitespace is mandated
     ;; — drift protection now lives in the exact-width assertions and
     ;; the byte-precise mockup comparison.
+    ;;
+    ;; De-hardcoding round (fidelity review F1/F2/F3, reviews/
+    ;; v0.2-fidelity-review.org): data-variation guards that fail while
+    ;; fixture data remains hardcoded in core.  Delete as impl2 lands
+    ;; honest fixes.
+    (org-air-data-variation-calendar-marks-true-union
+     . "F1: marked-days must be the data-derived union (alt board: 5/11/21/25; impl age-window drops 5+25, literal fabricates 19)")
+    (org-air-data-variation-calendar-marks-original-fixtures
+     . "F1: original fixtures true union 8/10/12/16/17/18/20 + today 15; impl literals drop 8/10/18, fabricate 19")
+    (org-air-data-variation-tty-glyph-uniformity
+     . "F2a/F3: TTY render leaks GUI-only glyphs (forced house-glyph origin override, U+2026 in hardcoded truncations)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

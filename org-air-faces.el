@@ -49,6 +49,8 @@
 
 ;;; Code:
 
+(require 'cl-lib)
+
 (defgroup org-air nil
   "A modern, minimalist replacement for org-agenda."
   :group 'org
@@ -294,27 +296,35 @@ Recoloured at render time via popout/critical; defined for override."
   :group 'org-air-faces)
 
 (defconst org-air-tag-accent-palette
-  '(("#1E88E5" . "#81A1C1")   ; 1 blue
-    ("#43A047" . "#A3BE8C")   ; 2 green
-    ("#8E24AA" . "#B48EAD")   ; 3 purple
-    ("#FB8C00" . "#D08770")   ; 4 orange
-    ("#00897B" . "#88C0D0")   ; 5 teal
-    ("#D81B60" . "#BF616A"))  ; 6 pink/red
-  "Accent hues for tag chips as (LIGHT . DARK) pairs.")
+  ;; (LIGHT-FG LIGHT-BG DARK-FG DARK-BG).  Chips carry a faint tinted
+  ;; background plus a high-contrast foreground so they stay legible on a
+  ;; busy item line and never collide with the popout/critical hues used
+  ;; for TODO state and overdue dates.  Foregrounds are WCAG-AA against
+  ;; their own background in both modes; dark mode elevates onto Nord1.
+  '(("#1565C0" "#E3F2FD" "#81A1C1" "#3B4252")   ; 1 blue
+    ("#2E7D32" "#E8F5E9" "#A3BE8C" "#3B4252")   ; 2 green
+    ("#6A1B9A" "#F3E5F5" "#B48EAD" "#3B4252")   ; 3 purple
+    ("#E65100" "#FFF3E0" "#D08770" "#3B4252")   ; 4 orange
+    ("#00695C" "#E0F2F1" "#88C0D0" "#3B4252")   ; 5 teal
+    ("#AD1457" "#FCE4EC" "#BF616A" "#3B4252"))  ; 6 pink/red
+  "Accent palette for tag chips.
+Each entry is (LIGHT-FG LIGHT-BG DARK-FG DARK-BG): a readable
+foreground over a faint background tint, specified per background
+mode for light/dark parity.")
 
 (defun org-air-faces--define-tag-accents ()
   "Define `org-air-face-tag-accent-N' faces from the accent palette."
   (let ((n 0))
-    (dolist (pair org-air-tag-accent-palette)
+    (dolist (spec org-air-tag-accent-palette)
       (setq n (1+ n))
-      (let ((light (car pair)) (dark (cdr pair)))
+      (cl-destructuring-bind (lfg lbg dfg dbg) spec
         (custom-declare-face (intern (format "org-air-face-tag-accent-%d" n))
           `((((class color) (min-colors 256) (background light))
-             (:foreground ,light
-              :box (:line-width (1 . -1) :color ,light) :height 0.85))
+             (:foreground ,lfg :background ,lbg
+              :box (:line-width (1 . -1) :color ,lfg) :height 0.85))
             (((class color) (min-colors 256) (background dark))
-             (:foreground ,dark
-              :box (:line-width (1 . -1) :color ,dark) :height 0.85))
+             (:foreground ,dfg :background ,dbg
+              :box (:line-width (1 . -1) :color ,dfg) :height 0.85))
             (t (:inherit org-air-face-tag)))
           (format "Tag accent face %d." n)
           :group 'org-air-faces)))))
@@ -360,8 +370,10 @@ are stable across renders and sessions."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-today
-  '((t :inherit org-air-face-popout :weight bold))
-  "Face for today's date in the calendar."
+  '((t :inherit org-air-face-popout :weight bold :underline t))
+  "Face for today's date in the calendar.
+Carries an underline as a non-colour cue so today is identifiable
+without relying on hue (colour-blind / TTY legibility)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-event

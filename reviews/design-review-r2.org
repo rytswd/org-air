@@ -1,0 +1,177 @@
+#+title: org-air — Design Fidelity Review (Round 2)
+#+author: org-air-design
+#+date: 2026-06-12
+#+state: ready
+
+* Scope & method
+
+Headless render of the trunk dashboard (~org-air-view~) against
+~tests/fixtures/~ with the clock frozen to the fixtures' reference
+instant (Mon 2026-06-15 10:00, ~org-air-test-now~), dumping both buffer
+text and per-run ~face~ text properties, then comparing against the
+authoritative spec ~air/v0.1/org-air-design.org~ and the palette in
+~org-air-faces.el~.
+
+Verdict: *CHANGES REQUESTED.* The engine, classification, and layout
+are sound and the dashboard is readable, but the round-1 visual system
+is essentially not wired in: the renderer uses six locally-defined
+fallback faces and never loads ~org-air-faces.el~, so the entire
+semantic palette (tags, calendar faces, count badges, semantic dates,
+header) is dead code. Several semantic colour roles are also mis-mapped.
+
+** Distinct faces actually used in the live render
+: org-air-face-critical  org-air-face-default  org-air-face-faded
+: org-air-face-popout     org-air-face-salient  org-air-face-subtle
+
+Six faces. The spec defines ~35. None of org-air-faces.el's semantic
+faces appear.
+
+* Findings (prioritised, severity-tagged)
+
+** [BLOCKER] Renderer does not use org-air-faces.el at all
+- *Where:* ~org-air-view.el~ (top, the six ~defface~ fallbacks) and
+  ~org-air-calendar.el~.
+- *What:* ~org-air-view.el~ defines its own ~org-air-face-default/
+  -faded/-salient/-popout/-critical/-subtle~ via ~defface~ and never
+  ~(require 'org-air-faces)~. ~org-air-calendar.el~ likewise references
+  only those six. The 1+6 palette + ~29 derived faces (tag accents,
+  calendar faces, count badges, ~org-air-face-todo/-done/-priority/
+  -scheduled/-deadline/-overdue/-title/-header/-section/-empty~) are
+  never loaded or applied.
+- *Why it matters:* every other finding below is downstream of this.
+  The round-1 design deliverable is unobserved by the running UI; tag
+  colour, light/dark parity, count badges, and semantic dates can never
+  appear until the renderer consumes the library.
+- *Fix:* delete the six fallback ~defface~ forms in ~org-air-view.el~ and
+  add ~(require 'org-air-faces)~ there and in ~org-air-calendar.el~. The
+  names already match, so wiring is mechanical; then apply the specific
+  faces called out below.
+
+** [MAJOR] TODO keyword rendered with popout (orange) instead of salient
+- *Where:* ~org-air-view.el~ ~org-air-view--insert-item~, the ~todo~ branch
+  (~'face 'org-air-face-popout~).
+- *What:* active TODO renders in popout/orange. Per the spec and
+  ~org-air-faces.el~, an active TODO is *salient* (~org-air-face-todo~
+  inherits salient); popout is reserved for "needs attention" and is
+  visually identical to overdue emphasis here.
+- *Fix:* use ~org-air-face-todo~ for active states and ~org-air-face-done~
+  for done states (see next finding), not a literal popout.
+
+** [MAJOR] DONE keywords styled as active; done items leak into sections
+- *Where:* render shows "Pay invoices DONE" inside *Needs attention* and
+  *Stale*, with ~DONE~ in ~org-air-face-popout~.
+- *What:* two problems. (1) Styling: ~DONE~ should use
+  ~org-air-face-done~ (faded), not popout. (2) Classification:
+  ~org-air-classify-item~ guards with ~org-air-classify--done-p~, yet a
+  DONE item still appears — in batch ~org-done-keywords~ is unset, so the
+  guard silently fails. (Classification belongs to the engine owner, but
+  it directly corrupts the visual result, so flagging here.)
+- *Fix (design side):* map active vs done TODO to ~-todo~ / ~-done~.
+  *Fix (engine side, refer on):* ensure ~org-done-keywords~ /
+  ~org-todo-keywords~ are established for the fixture buffers before
+  classification.
+
+** [MAJOR] No overdue distinction on dates — overdue == future
+- *Where:* ~org-air-view.el~ ~org-air-view--item-date~ / ~--insert-item~;
+  all dates use ~org-air-face-subtle~.
+- *What:* "Fix production outage runbook  D:2026-06-10" (deadline 5 days
+  past the frozen now) renders identically to "Ship quarterly report
+  D:2026-06-17" (future). The single most important planning signal —
+  overdue — is invisible.
+- *Why:* spec defines ~org-air-face-overdue~ (critical), ~-deadline~
+  (popout), ~-scheduled~ (salient), ~-date~ (faded/neutral).
+- *Fix:* compute past/future per timestamp (the logic already exists in
+  ~org-air-classify--past-p~ / ~--future-or-today-p~) and pick the matching
+  face: overdue→~-overdue~, future deadline→~-deadline~, schedule→
+  ~-scheduled~, otherwise ~-date~.
+
+** [MAJOR] Tags are flat faded; deterministic accent colouring unused
+- *Where:* ~org-air-view.el~ ~--insert-item~ tag branch
+  (~'face 'org-air-face-faded~, all tags in one string).
+- *What:* every tag renders as one dim ~:a:b:c:~ run. The spec's stable
+  per-tag hue (~org-air-faces-tag-face~, six accents) — a headline
+  round-1 feature for scannability — is absent.
+- *Fix:* split tags and propertize each with
+  ~(org-air-faces-tag-face tag)~; render as chips. The active filter tag
+  should use ~org-air-face-tag-active~.
+- *Note:* I refined the accent palette this round for legibility (see
+  "Faces refinements" below) so chips read well over a busy line in both
+  light and dark.
+
+** [MAJOR] Count "(N)" is plain text; count-badge faces unused
+- *Where:* ~org-air-view--insert-section~ formats ~"%s (%d)"~ into the
+  heading face.
+- *What:* counts inherit the heading colour; no badge. Spec defines
+  ~org-air-face-count~ and ~org-air-face-count-attention~ (inverse pill,
+  height 0.9) precisely so a section's pressure reads at a glance.
+- *Fix:* render the count as a separate run with ~org-air-face-count~
+  (or ~-count-attention~ for inbox / overdue-bearing sections).
+
+** [MINOR] Critical hue over-used on section headers
+- *Where:* ~org-air-view--render~: both *High priority* and *Needs
+  attention* headers pass ~org-air-face-critical~.
+- *What:* critical is specified as "use scarcely". Two large always-present
+  headers in critical-red desensitises the reader to genuine criticality
+  (overdue). *Inbox* meanwhile uses popout.
+- *Fix:* section headers should be ~org-air-face-section~ (strong);
+  push urgency into the *count badge* (~-count-attention~) and into the
+  per-item overdue dates, not the header text.
+
+** [MINOR] Banner uses popout instead of the header face
+- *Where:* ~org-air-view--render~, the ~"org-air"~ banner (~popout~).
+- *What:* the title bar is orange popout rather than ~org-air-face-header~
+  (strong, height 1.2). Popout on the always-present banner is noise.
+- *Fix:* use ~org-air-face-header~.
+
+** [MINOR] Calendar uses generic faces; today/marked alignment drifts
+- *Where:* ~org-air-calendar.el~ ~org-air-calendar-insert-month~.
+- *What:* (1) uses ~-default/-salient/-popout/-subtle~ rather than the
+  dedicated ~org-air-face-calendar-*~ faces; weekends, day-names, and
+  out-of-month padding are undifferentiated. (2) The marker glyph "•" is
+  printed *in place of* the trailing space after a day, so marked/today
+  cells lose their column: render shows ~14 15•16•17 18•19 20•~ — the grid
+  shears. (3) Day-name header "Su Mo Tu..." uses ~-subtle~ not
+  ~-calendar-day-name~.
+- *Fix:* swap in the calendar faces; keep a fixed-width cell (e.g. put the
+  mark *under* the day or use a same-width combining mark / colour-only
+  emphasis) so columns stay aligned. ~org-air-face-calendar-today~ now
+  carries an underline (non-colour cue) — prefer face emphasis over an
+  inline glyph.
+
+** [INFO] Priority cookie not shown on item lines
+- *Where:* ~org-air-view--insert-item~.
+- *What:* ~[#A]~ items (e.g. "Prep client presentation") show no priority
+  marker on the line; only section membership conveys it. Spec defines
+  ~org-air-face-priority~. Low priority, but a cheap scannability win.
+- *Fix:* render the priority cookie with ~org-air-face-priority~ when present.
+
+** [INFO] Light/dark parity unobservable until the library is wired
+- The fallback faces inherit from stock faces (~shadow~, ~highlight~,
+  ~error~) which adapt, so the current UI is not broken in dark mode — but
+  the *designed* parity (explicit per-mode hex in ~org-air-palette~ and the
+  accent palette) is untested in the live UI. Resolving the BLOCKER makes
+  parity real and reviewable.
+
+* Faces refinements applied this round (org-air-faces.el)
+- *Tag accent legibility:* ~org-air-tag-accent-palette~ changed from
+  foreground-only ~(LIGHT . DARK)~ to ~(LIGHT-FG LIGHT-BG DARK-FG DARK-BG)~.
+  Chips now pair a high-contrast foreground with a faint tinted
+  background (light) / Nord1-elevated background (dark), specified per
+  background mode for explicit light/dark parity. This keeps accents
+  legible on a busy item line and prevents collision with the
+  popout/critical hues used for TODO and overdue dates.
+- *Calendar today, non-colour cue:* ~org-air-face-calendar-today~ now adds
+  ~:underline t~ so today is identifiable without relying on hue
+  (colour-blind / TTY legibility), reducing the need for the alignment-
+  breaking "•" glyph.
+- *Hygiene:* added ~(require 'cl-lib)~ (now used by the accent builder).
+  Library still loads dependency-free and byte-compiles clean under
+  ~byte-compile-error-on-warn t~; ~org-air-faces-tag-face~ remains
+  deterministic/stable.
+
+* Recommended fix order
+1. BLOCKER: wire ~org-air-faces.el~ into the renderer + calendar.
+2. MAJOR: semantic dates (overdue!), TODO/DONE faces, tag accents,
+   count badges. (+ refer the done-leak classification bug to the engine.)
+3. MINOR/INFO: header face, section-header de-escalation, calendar faces
+   + alignment, priority cookie.

@@ -458,50 +458,18 @@ ATTENTIONP means the count should use the attention badge face."
                          (when todo (concat todo " "))
                          (when (and priority (member priority org-air-priority-show))
                            (format "[#%c] " priority))))
-         (title (if (equal (org-air-item-title item) "Reference notes without a todo state")
-                    "Reference notes without a todo"
-                  (org-air-item-title item)))
+         (title (org-air-item-title item))
          (left (concat prefix title
                        (when date (concat "  " (car date)))))
-         (tag-limit (if (string= title "Fix production outage runbook")
-                        (cond
-                         ((eq bucket 'attention)
-                          (if (< (org-air-view--render-width) 100) 1 org-air-tags-inline-max))
-                         ((< (org-air-view--render-width) 100) 1)
-                         (t 2))
-                      org-air-tags-inline-max))
+         (tag-limit org-air-tags-inline-max)
          (tag-text (mapconcat (lambda (tag) (concat "#" tag))
                               (seq-take (org-air-item-tags item) tag-limit)
                               " "))
-         (overflow (if (and (string= title "Fix production outage runbook")
-                            (or (>= (org-air-view--render-width) 100)
-                                (<= (org-air-view--render-width) 80)))
-                       0
-                     (- (length (org-air-item-tags item))
-                        (min (length (org-air-item-tags item)) tag-limit))))
+         (overflow (- (length (org-air-item-tags item))
+                      (min (length (org-air-item-tags item)) tag-limit)))
          (tag-text (if (> overflow 0)
                        (concat tag-text " " (org-air-view--glyph 'more))
                      tag-text))
-         (tag-text (cond
-                    ((and (string= title "Dust off old archive project")
-                          (<= (org-air-view--render-width) 80))
-                     "#project…")
-                    ((and (string= title "Dust off old archive project")
-                          (< (org-air-view--render-width) 100))
-                     "#projects #arc…")
-                    ((and (string= title "Book dentist appointment")
-                          (<= (org-air-view--render-width) 80))
-                     "#personal #hea…")
-                    ((and (string= title "Fix production outage runbook")
-                          (<= (org-air-view--render-width) 80))
-                     "#pro…")
-                    ((and (string= title "Untracked idea with no dates")
-                          (<= (org-air-view--render-width) 80))
-                     "#projects #so…")
-                    ((and (string= title "Ship quarterly report")
-                          (<= (org-air-view--render-width) 80))
-                     "#projects #work #re…")
-                    (t tag-text)))
          (meta (unless (string-empty-p tag-text) tag-text))
          (origin (propertize origin 'face 'org-air-face-group))
          (meta-start (if (<= (org-air-view--render-width) 80) 47 45))
@@ -512,31 +480,44 @@ ATTENTIONP means the count should use the attention badge face."
                                             (not (string-prefix-p "OVERDUE" (car date))))
                                        (concat left "  "))
                                       ((>= (string-width left) meta-start)
-                                       (concat left (if (string-match-p "Chase missing invoice" left) " " "  ")))
+                                       (concat left "  "))
                                       (t (org-air-view--pad-to left meta-start))))
                         (right-width (max 1 (- (org-air-view--render-width)
                                                (string-width left-field))))
                         (right-field (org-air-view--justify meta origin right-width)))
                    (org-air-view--pad-to (concat left-field right-field)
                                          (org-air-view--render-width))))))
-    (setq line (replace-regexp-in-string "OVERDUE 7d   #" "OVERDUE 7d  #" line t t))
-    (when (<= (org-air-view--render-width) 80)
-      (setq line (replace-regexp-in-string "  ⌂" " ⌂" line t t)))
-    (when (equal (org-air-item-title item) "Chase missing invoice")
-      (setq line (org-air-view--justify
-                  (if (<= (org-air-view--render-width) 80)
-                      "      TODO Chase missing invoice  OVERDUE 7d  #projects #admin"
-                    "    TODO Chase missing invoice  OVERDUE 7d  #projects #admin")
-                  "⌂ projects.org"
-                  (if (<= (org-air-view--render-width) 80)
-                      (1- (org-air-view--render-width))
-                    (org-air-view--render-width)))))
     (insert line "\n")
     (add-text-properties start (point)
                          `(org-air-item ,item
                            org-air-marker ,(org-air-item-marker item)
                            mouse-face org-air-face-cursor
                            font-lock-face org-air-face-title))))
+
+(defun org-air-view--item-sort-time (item)
+  "Return the effective deadline/scheduled time for ITEM, or nil."
+  (or (org-air-view--timestamp-time (org-air-item-deadline item))
+      (org-air-view--timestamp-time (org-air-item-scheduled item))))
+
+(defun org-air-view--sort-by-date (items)
+  "Return ITEMS ordered by effective date, undated items last.
+The order is stable so items sharing a date keep their incoming order."
+  (let ((indexed (let ((i 0))
+                   (mapcar (lambda (item) (prog1 (cons i item) (setq i (1+ i))))
+                           items))))
+    (mapcar #'cdr
+            (sort indexed
+                  (lambda (a b)
+                    (let ((ta (org-air-view--item-sort-time (cdr a)))
+                          (tb (org-air-view--item-sort-time (cdr b))))
+                      (cond
+                       ((and ta tb)
+                        (if (time-equal-p ta tb)
+                            (< (car a) (car b))
+                          (time-less-p ta tb)))
+                       (ta t)
+                       (tb nil)
+                       (t (< (car a) (car b))))))))))
 
 (defun org-air-view--insert-section (descriptor items)
   "Insert section DESCRIPTOR from ITEMS."
@@ -546,24 +527,7 @@ ATTENTIONP means the count should use the attention badge face."
                                            (memq bucket (org-air-classify-item item)))
                                          (org-air-view--visible-items items)))
            (bucket-items (if (memq bucket '(attention upcoming))
-                             (let ((order (if (eq bucket 'attention)
-                                              '("Book dentist appointment"
-                                                "Fix production outage runbook"
-                                                "Chase missing invoice"
-                                                "Untracked idea with no dates"
-                                                "Reference notes without a todo state"
-                                                "Learn lute")
-                                            '("Book dentist appointment"
-                                              "Renew library card"
-                                              "Ship quarterly report"
-                                              "Prepare standup notes"
-                                              "Review design doc"
-                                              "Prep client presentation"
-                                              "Water the garden"))))
-                               (sort bucket-items
-                                     (lambda (a b)
-                                       (< (or (cl-position (org-air-item-title a) order :test #'equal) 999)
-                                          (or (cl-position (org-air-item-title b) order :test #'equal) 999)))))
+                             (org-air-view--sort-by-date bucket-items)
                            bucket-items))
            (count (length raw-bucket-items))
            (attentionp (and (> count 0) (memq bucket '(inbox attention))))

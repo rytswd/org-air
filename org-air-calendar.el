@@ -54,17 +54,15 @@
                  (format "<%s>" (match-string-no-properties 1))))))))))
 
 (defun org-air-calendar--marked-days (items)
-  "Return hash table of date keys with scheduled/deadline ITEMS."
+  "Return hash table of date keys carrying any scheduled/deadline ITEMS.
+The marked days are the union of every calendar day on which any item
+carries a scheduled or deadline timestamp, computed from the items."
   (let ((table (make-hash-table :test #'equal)))
     (dolist (item items table)
-      (when-let* ((timestamp (or (org-air-calendar--item-deadline item)
-                                 (org-air-item-scheduled item)))
-                  (key (org-air-calendar--timestamp-key timestamp))
-                  (time (ignore-errors (org-timestamp-to-time timestamp)))
-                  (age (- (time-to-days (current-time)) (time-to-days time))))
-        (when (and (or (equal key "2026-06-19")
-                       (and (<= age 3) (>= age -6)))
-                   (not (equal key "2026-06-18")))
+      (dolist (timestamp (list (org-air-calendar--item-deadline item)
+                               (org-air-item-scheduled item)))
+        (when-let* ((ts timestamp)
+                    (key (org-air-calendar--timestamp-key ts)))
           (puthash key t table))))))
 
 (defun org-air-calendar--glyph (gui tty)

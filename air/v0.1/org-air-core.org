@@ -1,0 +1,118 @@
+#+title: org-air: modern org-agenda replacement
+#+state: work-in-progress
+#+FILETAGS: :ui:core:emacs:
+
+* Summary
+org-air is an Emacs package providing a flexible, modern replacement for
+org-agenda. It offers a beautiful, minimalist UI listing items that are
+upcoming, stale, need attention, or high priority — filtered and coloured
+by tags — with an inline calendar, an inbox-first capture workflow, and a
+dynamic combined view across many org files that links back to the
+original leaf files.
+
+* Motivation
+org-agenda is powerful but dated: rigid layouts, limiting customisation
+model, and a UX that fights modern expectations. org-air keeps org-mode
+files as the source of truth but rebuilds the viewing/planning layer from
+scratch on top of org-ql.
+
+Air / airctl proved the planning-first model for project work; org-air
+applies the same philosophy to personal planning: capture, categorise,
+prioritise, and get things done.
+
+** Goals
+- Production-ready, aesthetically pleasing, extremely friendly UX.
+- Dashboard listing items by status: upcoming, stale, needs-attention,
+  high-priority, etc.
+- Tag-based filtering with appropriate highlighting/colours.
+- Calendar pane inside the view.
+- Inbox-first capture: every new note lands in an inbox; moving it to
+  the right category / timeline / tag is easy and intuitive (refile UX).
+- Works with many small org files OR large files with many items;
+  grouping is first-class so categorisation scales.
+- Dynamic combined pane: everything aggregated in a single window, with
+  links back to the original files for navigation to leaf files.
+- View scoping: show only a certain category, tag, file group, etc.
+- airctl interop: allow using airctl for creating notes.
+- Visual design inspired by nano-theme / nano-mu4e (rougier):
+  minimalist, modern, clear UX flow, generous spacing.
+- Tests throughout to allow easy iteration.
+
+** Non-Goals
+- Reusing org-agenda internals — explicitly avoided (too limiting).
+- Replacing org-mode editing itself; org files stay the format.
+- Mobile/sync concerns.
+
+* Proposal
+** Architecture (initial)
+- =org-air.el= — entry points, customisation group, top-level commands
+  (=org-air=, =org-air-inbox=, =org-air-capture=).
+- =org-air-query.el= — data layer over org-ql: collect items across
+  configured files/directories, normalise into a plist/struct record
+  (id, file, marker, title, tags, todo state, priority, scheduled,
+  deadline, timestamps, category/group).
+- =org-air-classify.el= — derive item buckets: upcoming, stale (no
+  activity for N days), needs-attention (overdue / no schedule),
+  high-priority. Pure functions, easily testable.
+- =org-air-view.el= — the dashboard renderer: sections per bucket,
+  combined dynamic pane, navigation (RET jumps to source file/heading).
+- =org-air-calendar.el= — calendar pane component.
+- =org-air-inbox.el= — inbox capture + intuitive refile flow
+  (move to category / timeline / tag with minimal keystrokes).
+- =org-air-faces.el= — all faces; nano-theme-inspired palette and
+  spacing helpers.
+- =tests/= — ERT tests + org fixture files; run via =make test=
+  (batch emacs).
+
+** Core API contract (round 1 — keep names stable)
+- =org-air-files= (defcustom): list of files/directories to scan.
+- =org-air-query-items (&optional query)= → list of =org-air-item=
+  records.
+- =org-air-item= accessors: =org-air-item-title=, =-tags=, =-file=,
+  =-marker=, =-todo=, =-priority=, =-scheduled=, =-deadline=,
+  =-group=.
+- =org-air-classify-item (item &optional now)= → list of bucket
+  symbols: =upcoming=, =stale=, =attention=, =high-priority=,
+  =inbox=.
+- =org-air-inbox-file= (defcustom), =org-air-capture=,
+  =org-air-refile-item=.
+- =org-air= — open the dashboard buffer =*org-air*=.
+- =org-air-visit-item= — jump to the item's origin.
+
+** Dependencies
+- org-ql (hard dependency, fast lookup; no org-agenda machinery).
+- Emacs 29+ target (dev on 30.2).
+
+* Design Details
+Full visual/UX specification lives in =air/v0.1/org-air-design.org=
+(owned by the design track). Implementation tracks must follow it once
+it reaches =ready=.
+
+** Test Plan
+- ERT suite under =tests/=, fixtures as org files under
+  =tests/fixtures/=.
+- =make test= runs batch emacs with deps in =.deps/= (package-user-dir
+  inside the repo).
+- Data layer + classification covered by pure-function tests; view
+  layer covered by buffer-rendering assertions (text properties,
+  section presence, navigation).
+
+* Drawbacks
+Building a view layer from scratch is significant work; org-ql pins us
+to its query semantics.
+
+* Alternatives
+- Customising org-agenda — rejected: too many limiting factors.
+- org-super-agenda — still org-agenda underneath; rejected.
+
+* Infrastructure Needed
+- org-ql from MELPA (installed into repo-local =.deps/=).
+
+* History
+- 2026-06-12: Initial spec drafted from user brief; parallel
+  design/impl/test tracks spawned.
+
+* References
+- nano-theme, nano-mu4e (rougier) — visual inspiration.
+- org-ql — query engine.
+- Air / airctl — planning model inspiration; see =air/context/=.

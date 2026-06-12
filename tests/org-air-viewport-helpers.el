@@ -177,5 +177,90 @@ With the clock frozen to `org-air-test-now', the month header is
          (string-match-p "Mo Tu We Th Fr Sa Su\\|Su Mo Tu We Th Fr Sa" text)
          t)))
 
+;;;; Phase-2 primitives — pane geometry, rail content, face application.
+
+(defconst org-air-viewport-test-divider-regexp "[│|]"
+  "Pane divider glyph: GUI │ or its TTY fallback |.")
+
+(defconst org-air-viewport-test-section-titles
+  '((inbox . "Inbox")
+    (attention . "Needs attention")
+    (upcoming . "Upcoming")
+    (high-priority . "High priority")
+    (stale . "Stale"))
+  "Spec-frozen bucket display titles (design §3 mockups).")
+
+(defun org-air-viewport-test-divider-positions ()
+  "Return (LINENO . COLUMN) for each line containing a pane divider.
+COLUMN is the display column (`string-width' of the text before the
+first divider glyph on that line)."
+  (let ((lineno 0) (hits ()))
+    (dolist (line (org-air-viewport-test-lines))
+      (setq lineno (1+ lineno))
+      (when (string-match org-air-viewport-test-divider-regexp line)
+        (push (cons lineno
+                    (string-width (substring line 0 (match-beginning 0))))
+              hits)))
+    (nreverse hits)))
+
+(defun org-air-viewport-test-divider-run ()
+  "Return (COLUMN START-LINE LENGTH) for the longest unbroken divider run.
+A run is a maximal sequence of CONSECUTIVE lines whose first divider
+glyph sits at the SAME display column — the v0.2 body-band divider
+running unbroken through the zipped panes.  Return nil when no line
+carries a divider."
+  (let ((best nil) (cur nil))
+    (dolist (hit (org-air-viewport-test-divider-positions))
+      (pcase-let ((`(,lineno . ,col) hit))
+        (if (and cur
+                 (= col (nth 0 cur))
+                 (= lineno (+ (nth 1 cur) (nth 2 cur))))
+            (setf (nth 2 cur) (1+ (nth 2 cur)))
+          (setq cur (list col lineno 1)))
+        (when (or (null best) (> (nth 2 cur) (nth 2 best)))
+          (setq best (copy-sequence cur)))))
+    best))
+
+(defun org-air-viewport-test-face-applied-p (face)
+  "Return non-nil when FACE is actually applied somewhere in the buffer.
+Checks both `face' and `font-lock-face' properties, accepting FACE as
+the value itself or as a member of an anonymous face list."
+  (let ((pos (point-min)) found)
+    (while (and (not found) (< pos (point-max)))
+      (dolist (prop '(face font-lock-face))
+        (let ((value (get-text-property pos prop)))
+          (when (or (eq value face)
+                    (and (listp value) (memq face value)))
+            (setq found t))))
+      (setq pos (1+ pos)))
+    found))
+
+(defun org-air-viewport-test-section-counts ()
+  "Return alist of (BUCKET . COUNT) read from the rendered count badges.
+Walks the `org-air-section' / `org-air-count-badge' text properties the
+section headings carry."
+  (let ((pos (point-min)) (counts ()))
+    (while (< pos (point-max))
+      (let ((bucket (get-text-property pos 'org-air-section)))
+        (when (and bucket (not (assq bucket counts)))
+          (push (cons bucket (get-text-property pos 'org-air-count-badge))
+                counts)))
+      (setq pos (or (next-single-property-change pos 'org-air-section)
+                    (point-max))))
+    (nreverse counts)))
+
+(defun org-air-viewport-test-banner-item-count ()
+  "Return N from the banner's \"N items\" status, or nil.
+Walks the `header-line-format' construct strings directly —
+`format-mode-line' returns \"\" in --batch."
+  (let ((parts ()))
+    (cl-labels ((walk (x)
+                  (cond ((stringp x) (push x parts))
+                        ((consp x) (walk (car x)) (walk (cdr x))))))
+      (walk header-line-format))
+    (let ((text (mapconcat #'identity (nreverse parts) "")))
+      (when (string-match "\\([0-9]+\\) items" text)
+        (string-to-number (match-string 1 text))))))
+
 (provide 'org-air-viewport-helpers)
 ;;; org-air-viewport-helpers.el ends here

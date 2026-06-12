@@ -42,6 +42,24 @@
      . "v0.2: no trailing-whitespace drift (current calendar rows end in blanks)")
     (org-air-viewport-calendar-present-zero-items
      . "v0.2: calendar ALWAYS rendered, incl. fully-empty view (current empty view skips it)")
+    ;;
+    ;; v0.2 phase-2 mockup-true tests (air/v0.2/org-air-layout-design.org §9).
+    (org-air-layout-divider-unbroken-120
+     . "design §9.1: pane divider runs unbroken at one column through the 120-col body band")
+    (org-air-layout-divider-unbroken-160
+     . "design §9.1/§1.4: divider unbroken at 160; item pane flexes so it sits right of the 120-col one")
+    (org-air-layout-two-pane-at-threshold
+     . "design §1.4: two-pane layout engages at exactly org-air-layout-two-pane-min (100)")
+    (org-air-layout-calendar-survives-all-hiding-filter
+     . "design §4.1/§9.2: calendar renders even when a filter hides every item")
+    (org-air-layout-empty-board-holds-shape
+     . "design §5.2/§9.3: zero-items board keeps headings+0 badges, summary total, filters placeholder, calendar")
+    (org-air-layout-summary-counts-match-sections
+     . "design §4.2/§9.4: summary rows mirror count badges; total equals banner visible count")
+    (org-air-layout-rail-faces-applied
+     . "design §7/§9.5: pane-border, rail-title, summary-number faces applied in a real render")
+    (org-air-layout-tty-no-gui-glyph-leak
+     . "design §6.1/§9.6: no GUI box/rule glyphs in a TTY render (current rule uses ─ unconditionally)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

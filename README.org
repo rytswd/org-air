@@ -1,0 +1,212 @@
+#+title: org-air
+#+subtitle: a modern planning dashboard for Org
+#+options: toc:2
+
+org-air is a compact, read-first dashboard for your Org files. It answers
+one question well — /what deserves my attention right now?/ — and gets out
+of the way.
+
+It is a deliberate alternative to =org-agenda=: no agenda buffers, no
+custom-command DSL, no global state. org-air reads your files through
+[[https://github.com/alphapapa/org-ql][org-ql]], classifies each heading into a handful of meaningful buckets,
+and renders them with a quiet, legible visual language.
+
+* Philosophy
+
+- *A replacement, not a reskin.* org-air does not wrap =org-agenda=. It is
+  an independent view built on =org-ql=, so it carries none of agenda's
+  configuration surface or buffer machinery.
+- *Inbox-first.* Capture is one keystroke and always lands in a single
+  inbox. Processing — refile, schedule, tag — is a deliberate, separate
+  step. Nothing is lost between the two.
+- *nano-inspired.* The interface follows N Λ N O's "1 + 6" design model
+  (rougier, /On the Design of Text Editors/): one default face plus six
+  semantic roles — faded, subtle, salient, strong, popout, critical.
+  Colour is used to /mean/ something, sparingly. Overdue looks overdue;
+  everything else stays calm.
+- *Read-first.* The dashboard is the resting state. It tells you where you
+  stand at a glance and offers fast, obvious actions when you want them.
+
+* Installation
+
+org-air requires Emacs 29.1+ and =org-ql=.
+
+#+begin_src emacs-lisp
+;; org-ql is on MELPA.
+(package-install 'org-ql)
+
+;; Then put org-air's .el files on your load-path and:
+(require 'org-air)
+(setq org-air-files '("~/org/"))   ; files and/or directories to scan
+#+end_src
+
+=org-air-files= accepts any mix of files and directories; directories are
+scanned recursively for =.org= (and =.org.gpg=) files.
+
+* Quick start
+
+#+begin_src emacs-lisp
+(setq org-air-files '("~/org/"))
+#+end_src
+
+- =M-x org-air= — open the dashboard.
+- =c= — capture a note to the inbox.
+- =r= — refile/process the item at point.
+- =RET= — jump to an item's source heading.
+- =g= — refresh.
+- =?= — in-buffer help.
+
+That is the whole loop: capture into the inbox, glance at the dashboard,
+process from it.
+
+* The dashboard
+
+A sticky header shows the date, a visible-item count, and any active
+filter or scope. Below it, items are grouped into five sections, each with
+an icon and a count badge (badges turn attention-coloured for the sections
+that demand it):
+
+| Section         | What lands here                                       |
+|-----------------+------------------------------------------------------|
+| Inbox           | Anything tagged =:inbox:= — your capture queue       |
+| Needs attention | Overdue, or active with no schedule/deadline         |
+| Upcoming        | Scheduled or due within =org-air-upcoming-days=      |
+| High priority   | =[#A]= items (see =org-air-priority-show=)           |
+| Stale           | Untouched for =org-air-stale-days=                   |
+
+Each item row reads left to right: TODO state, priority cookie, title, a
+date label, tag chips, and an origin breadcrumb aligned to the right.
+
+Date labels are semantic. Overdue items read =OVERDUE 3d= in the critical
+face; near dates read =Today= / =Tomorrow= / weekday; further dates show
+=12 Jun=; stale items show =· 225d quiet=. Scheduled, due-soon, and overdue
+each get a distinct face.
+
+** Calendar
+
+Beneath the sections, a month calendar marks days that carry scheduled
+items and underlines today. Move through months without leaving the
+dashboard:
+
+- =<= / =>= — previous / next month
+- =.= — back to today
+
+** Filtering and scope
+
+- =/= — filter by tag. Multiple tags combine per =org-air-filter-match=
+  (=any= or =all=). Click a tag chip to toggle it.
+- =\\= — clear the filter.
+- =s= — scope the whole dashboard to one tag, group, or file.
+- =S= — clear the scope.
+
+A filter narrows what each section shows; a scope narrows the entire
+dataset. Both are reflected in the header.
+
+** The refile flow
+
+org-air's capture → process loop is two steps and a few keystrokes:
+
+1. =c= captures a titled note straight to =org-air-inbox-file=, tagged
+   =:inbox:=. It appears in the Inbox section on the next refresh.
+2. =r= on an inbox item opens a single completion prompt offering:
+   - =@group= — move under a category/group,
+   - =>today= / =>tomorrow= / =>week= / =>someday= — schedule,
+   - =#tag= — add a tag,
+   - =⌂file= — move to a file.
+
+   One choice does the move (and any schedule/tag change) and refreshes
+   the dashboard. The =:inbox:= item leaves the queue.
+
+You can also act on items in place: =t= set a tag, =d= set a schedule,
+=m= mark, =SPC= peek, =o= visit while staying in the dashboard.
+
+* Customisation
+
+org-air aims to be useful out of the box; everything below is optional.
+
+** Behaviour
+
+| Variable                | Default | Meaning                                  |
+|-------------------------+---------+------------------------------------------|
+| =org-air-files=         | =nil=   | Files/directories to scan                |
+| =org-air-inbox-file=    | =…=     | Where =c= captures                       |
+| =org-air-upcoming-days= | =7=     | Horizon for the Upcoming section         |
+| =org-air-stale-days=    | =21=    | Quiet-period before an item is stale     |
+| =org-air-priority-show= | =(?A)=  | Priority cookies rendered on rows        |
+| =org-air-filter-match=  | =any=   | =any= or =all= for multi-tag filters     |
+| =org-air-visit-display= | =other-window= | How =RET= shows a source heading  |
+
+** Layout & glyphs
+
+| Variable                  | Default | Meaning                              |
+|---------------------------+---------+--------------------------------------|
+| =org-air-margin=          | =2=     | Left margin of content lines         |
+| =org-air-item-indent=     | =4=     | Column where item rows start         |
+| =org-air-section-max=     | =12=    | Items shown before an overflow note  |
+| =org-air-tags-inline-max= | =3=     | Tag chips shown per row              |
+| =org-air-show-footer=     | =t=     | Show the footer key legend           |
+| =org-air-show-group=      | =nil=   | Origin shows group instead of file   |
+| =org-air-section-rule=    | =nil=   | Draw a faint rule under headings     |
+
+Glyphs degrade gracefully on the terminal. =org-air-glyphs= is an alist of
+=(GUI . TTY)= pairs for the origin, each section icon, the filter-clear
+mark, and the overflow ellipsis — so a GUI shows =▲ ★ ◆=, a TTY shows
+=! * >=.
+
+** Faces
+
+All colour lives in =org-air-faces.el= — one default plus six semantic
+faces, with everything else derived from them. Every face carries explicit
+light /and/ dark specifications and a TTY =:inherit= fallback, so the
+palette adapts per frame and degrades on low-colour terminals. There is no
+hard dependency on nano-theme.
+
+- Retint the whole UI by editing =org-air-palette= (an alist of
+  =(NAME . (LIGHT . DARK))=).
+- Tags are coloured deterministically: a given tag always gets the same
+  hue across sessions (=org-air-faces-tag-face=), drawn from a six-hue
+  accent palette tuned for legibility in both modes.
+- Already using nano-theme? Set =org-air-faces-prefer-nano= to =t= before
+  loading, or run =M-x org-air-faces-link-nano=, to inherit nano's faces
+  directly.
+
+* Interop with Air / airctl
+
+This repository is planned with [[https://github.com/rytswd/org-air][Air]]. The authoritative visual & UX
+specification lives at =air/v0.1/org-air-design.org=; design-review notes
+are under =reviews/=. Browse document state and progress with:
+
+#+begin_src sh
+airctl status
+airctl show v0.1/org-air-design.org
+#+end_src
+
+org-air the package has no runtime dependency on Air or =airctl= — the Air
+documents are the project's design record, not a runtime input.
+
+* Keybindings
+
+The full map (=org-air-mode-map=):
+
+| Key         | Action                          |
+|-------------+---------------------------------|
+| =RET=       | Visit item source              |
+| =n= / =p=   | Next / previous item           |
+| =TAB= / =S-TAB= | Next / previous section (expand) |
+| =M-n= / =M-p=   | Forward / back a section    |
+| =SPC=       | Peek at item                   |
+| =o=         | Visit, stay in dashboard       |
+| =c=         | Capture to inbox               |
+| =r=         | Refile / process item          |
+| =m=         | Toggle mark                    |
+| =t= / =d=   | Set tag / set schedule         |
+| =/= / =\\=  | Filter by tag / clear filter   |
+| =s= / =S=   | Scope / clear scope            |
+| =g= / =G=   | Refresh / refresh all          |
+| =<= / =>= / =.= | Calendar prev / next / today |
+| =?=         | Help                           |
+| =q=         | Quit window                    |
+
+* License
+
+GPL-3.0-or-later. Not part of GNU Emacs.

@@ -1,5 +1,5 @@
 #+title: org-air: visual & UX specification
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:design:emacs:
 
 * Summary
@@ -500,3 +500,10 @@ the next item property and skips blank/header lines.
   the full palette in =org-air-faces.el= (batch-clean, light/dark, TTY
   degradation, optional nano linkage, deterministic tag hashing). Set
   =#+state: ready=.
+- 2026-06-12: Implemented and verified across three review rounds (see
+  =reviews/design-review-r2.org=, =reviews/design-review-r3.org=). The
+  renderer (=org-air-view=, =org-air-calendar=, =org-air-inbox=) wires the
+  full palette; tag chips, count badges, semantic date labels, calendar
+  faces, the inbox→refile flow, filtering, and scoping all render per this
+  spec. Final design review: APPROVED on RC1. Marked =#+state: complete=.
+  User-facing docs written (=README.org=).

@@ -26,7 +26,22 @@
 (when (locate-library "org-air")
   (require 'org-air))
 
-;;;; §9.1 Geometry at each breakpoint — the divider runs unbroken.
+;;;; §9.1 Geometry at each breakpoint — column-locked per the §3 mockups.
+;;
+;; Pane arithmetic from design §3 + §1.2 (divider is " │ ", one space
+;; of breathing room either side, so the glyph sits at ITEM-PANE-WIDTH
+;; + 1, zero-indexed):
+;;   160 = 115 (items) + 3 + 42 (rail-wide)  -> divider column 116
+;;   120 =  85 (items) + 3 + 32 (rail)       -> divider column  86
+;;   100 =  65 (items) + 3 + 32 (rail)       -> divider column  66
+
+(defconst org-air-layout-test--divider-columns
+  '((100 . 66) (120 . 86) (160 . 116))
+  "Spec-locked (WIDTH . DIVIDER-COLUMN) pairs from design §3/§1.4.")
+
+(defun org-air-layout-test--locked-column (width)
+  "Return the §3-locked divider column for WIDTH."
+  (cdr (assq width org-air-layout-test--divider-columns)))
 
 (ert-deftest org-air-layout-divider-unbroken-120 ()
   "At 120 cols (two-pane) the divider sits at one column on every body row.
@@ -36,33 +51,30 @@ body band; the zipped rail is at least calendar + summary tall."
   (org-air-viewport-test-with-dashboard 120
     (let ((run (org-air-viewport-test-divider-run)))
       (should run)
-      (should (>= (nth 2 run) 10)))))
+      (should (>= (nth 2 run) 10))
+      ;; Column-locked: items 85 + " │ " + rail 32 (§3.2).
+      (should (= (nth 0 run) (org-air-layout-test--locked-column 120))))))
 
 (ert-deftest org-air-layout-divider-unbroken-160 ()
-  "At 160 cols the divider still runs unbroken, further right than at 120.
-Spec §1.4/§3.1: the item pane is flexible; the rail (widened to
-`org-air-rail-width-wide' at >= 150) stays right-anchored."
+  "At 160 cols the divider runs unbroken at the §3.1-locked column.
+Spec §1.4/§3.1: item pane 115 + rail `org-air-rail-width-wide' (42)."
   (skip-unless (locate-library "org-air"))
-  (let (col-120 col-160)
-    (org-air-viewport-test-with-dashboard 120
-      (let ((run (org-air-viewport-test-divider-run)))
-        (should run)
-        (setq col-120 (nth 0 run))))
-    (org-air-viewport-test-with-dashboard 160
-      (let ((run (org-air-viewport-test-divider-run)))
-        (should run)
-        (should (>= (nth 2 run) 10))
-        (setq col-160 (nth 0 run))))
-    (should (> col-160 col-120))))
+  (org-air-viewport-test-with-dashboard 160
+    (let ((run (org-air-viewport-test-divider-run)))
+      (should run)
+      (should (>= (nth 2 run) 10))
+      (should (= (nth 0 run) (org-air-layout-test--locked-column 160))))))
 
 (ert-deftest org-air-layout-two-pane-at-threshold ()
   "At exactly `org-air-layout-two-pane-min' (default 100) the view is
-two-pane: an unbroken divider run is present.  Spec §1.4."
+two-pane: an unbroken divider run is present at the locked column
+(items 65 + " │ " + rail 32).  Spec §1.4."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-dashboard 100
     (let ((run (org-air-viewport-test-divider-run)))
       (should run)
-      (should (>= (nth 2 run) 10)))))
+      (should (>= (nth 2 run) 10))
+      (should (= (nth 0 run) (org-air-layout-test--locked-column 100))))))
 
 (ert-deftest org-air-layout-stacked-below-threshold ()
   "One column below the threshold (99) the view stacks: no body-height

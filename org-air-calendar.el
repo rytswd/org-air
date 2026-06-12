@@ -54,17 +54,15 @@
                  (format "<%s>" (match-string-no-properties 1))))))))))
 
 (defun org-air-calendar--marked-days (items)
-  "Return hash table of date keys with scheduled/deadline ITEMS."
+  "Return hash table of date keys carrying any scheduled/deadline ITEMS.
+The marked days are the union of every calendar day on which any item
+carries a scheduled or deadline timestamp, computed from the items."
   (let ((table (make-hash-table :test #'equal)))
     (dolist (item items table)
-      (when-let* ((timestamp (or (org-air-calendar--item-deadline item)
-                                 (org-air-item-scheduled item)))
-                  (key (org-air-calendar--timestamp-key timestamp))
-                  (time (ignore-errors (org-timestamp-to-time timestamp)))
-                  (age (- (time-to-days (current-time)) (time-to-days time))))
-        (when (and (or (equal key "2026-06-19")
-                       (and (<= age 3) (>= age -6)))
-                   (not (equal key "2026-06-18")))
+      (dolist (timestamp (list (org-air-calendar--item-deadline item)
+                               (org-air-item-scheduled item)))
+        (when-let* ((ts timestamp)
+                    (key (org-air-calendar--timestamp-key ts)))
           (puthash key t table))))))
 
 (defun org-air-calendar--glyph (gui tty)
@@ -96,14 +94,24 @@
                      (calendar-day-of-week (list month 1 year))))
          (last-day (calendar-last-day-of-month month year))
          (day 1))
-    (insert (propertize (format "%s %d                 %s %s\n"
-                              (calendar-month-name month) year
-                              (org-air-calendar--glyph "‹" "<")
-                              (org-air-calendar--glyph "›" ">"))
-                      'face 'org-air-face-calendar-header))
-    (insert (propertize (string-join (org-air-calendar--weekdays) " ")
-                        'face 'org-air-face-calendar-day-name)
-            "\n")
+    (let* ((weekday-row (string-join (org-air-calendar--weekdays) " "))
+           (row-width (string-width weekday-row))
+           (nav (concat (org-air-calendar--glyph "‹" "<") " "
+                        (org-air-calendar--glyph "›" ">")))
+           (label (format "%s %d" (calendar-month-name month) year))
+           ;; Right-align the month-nav within the weekday-row width so the
+           ;; ‹ › affordance never truncates, abbreviating the month name
+           ;; before dropping the nav (D3).
+           (label (if (> (+ (string-width label) 1 (string-width nav)) row-width)
+                      (format "%s %d"
+                              (substring (calendar-month-name month) 0 3) year)
+                    label))
+           (pad (max 1 (- row-width (string-width label) (string-width nav)))))
+      (insert (propertize (concat label (make-string pad ?\s) nav)
+                          'face 'org-air-face-calendar-header)
+              "\n")
+      (insert (propertize weekday-row 'face 'org-air-face-calendar-day-name)
+              "\n"))
     (dotimes (_ first-day)
       (insert "   "))
     (while (<= day last-day)

@@ -201,10 +201,10 @@ Choices are `other-window', `same', and `frame'."
          (scheduled (org-air-view--timestamp-time (org-air-item-scheduled item)))
          (deadline (org-air-view--timestamp-time (org-air-item-deadline item))))
     (cond
-     ((and deadline (< (org-air-view--days-between deadline now) 0))
+     ((and deadline (> (org-air-view--days-between deadline now) 0))
       (cons (format "OVERDUE %dd" (abs (org-air-view--days-between deadline now)))
             'org-air-face-overdue))
-     ((and scheduled (< (org-air-view--days-between scheduled now) 0))
+     ((and scheduled (> (org-air-view--days-between scheduled now) 0))
       (cons (format "OVERDUE %dd" (abs (org-air-view--days-between scheduled now)))
             'org-air-face-overdue))
      (deadline (cons (org-air-view--human-date deadline now) 'org-air-face-deadline))

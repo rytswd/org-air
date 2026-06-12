@@ -26,6 +26,18 @@
     ;; (test-symbol . "reason / spec reference")  — none right now.
     ;; 2026-06-12: 5 date-label sign-inversion entries closed out — fix
     ;; landed on trunk3 (pwuqtvlt) and all 5 regression tests pass.
+    ;; 2026-06-12: the entire 17-entry v0.2 grind manifest closed out on
+    ;; the integrated main line (wzmskzwn) — 16 entries verified
+    ;; passed-unexpectedly through the anti-tautology render guards
+    ;; (real renderer produced the bytes: width seam, 80/120/160
+    ;; composition, byte-precise §3 mockups, divider geometry,
+    ;; persistent calendar, empty-board shape, summary integrity, rail
+    ;; faces, TTY fallback); the 17th, org-air-viewport-no-trailing-
+    ;; whitespace, was RETIRED with its test as §9.1-obsolete: spec rev
+    ;; orwonzvz makes plain-space padding to full width the contract
+    ;; (comparison is right-trimmed), so trailing whitespace is mandated
+    ;; — drift protection now lives in the exact-width assertions and
+    ;; the byte-precise mockup comparison.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

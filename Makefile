@@ -3,6 +3,8 @@
 # Targets:
 #   make deps     install org-ql + test deps into repo-local .deps/ (idempotent)
 #   make test     run the ERT suites in batch; non-zero exit on any failure
+#                 (binary gate: tests/org-air-known-failures.el marks grind
+#                 tests as expected-to-fail; a stale entry also fails)
 #   make compile  byte-compile all org-air*.el with warnings visible
 #
 # Everything runs with a repo-local `package-user-dir' (.deps/); the user's
@@ -15,6 +17,7 @@ INIT  := tests/org-air-test-init.el
 BATCH := $(EMACS) -Q --batch -l $(INIT)
 
 TEST_FILES := $(wildcard tests/*-test.el)
+MANIFEST   := tests/org-air-known-failures.el
 SRC_FILES  := $(wildcard org-air*.el)
 
 .PHONY: all deps test compile clean
@@ -25,7 +28,8 @@ deps:
 	$(BATCH) -l tests/org-air-test-deps.el
 
 test: deps
-	$(BATCH) $(patsubst %,-l %,$(TEST_FILES)) -f ert-run-tests-batch-and-exit
+	$(BATCH) $(patsubst %,-l %,$(TEST_FILES)) -l $(MANIFEST) \
+	  -f org-air-test-apply-known-failures -f ert-run-tests-batch-and-exit
 
 compile: deps
 ifeq ($(strip $(SRC_FILES)),)

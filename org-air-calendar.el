@@ -102,9 +102,8 @@
           (insert "\n")))
       (setq day (1+ day)))
     (unless (bolp) (insert "\n"))
-    (insert (propertize (format "%s items, %s today\n"
-                              (org-air-calendar--glyph "●" "o")
-                              (org-air-calendar--glyph "▮" "#"))
+    (insert (propertize (format "%s has items   today is underlined\n"
+                              (org-air-calendar--glyph "●" "o"))
                       'face 'org-air-face-faded))))
 
 (provide 'org-air-calendar)

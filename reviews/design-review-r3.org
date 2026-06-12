@@ -123,3 +123,30 @@ tag-accent chips with light/dark parity; underlined ~calendar-today~ cue;
 
 With finding #1 resolved, the dashboard meets the round-1 visual/UX spec
 and I expect to return *approved*.
+
+* Addendum — final verdict (trunk pwuqtvlt): APPROVED ✓
+
+Re-rendered the date surfaces on trunk ~pwuqtvlt~ ("Integrate round 3")
+with the frozen clock (2026-06-15). Both fixes confirmed:
+
+- *HIGH date inversion — FIXED.* ~org-air-view--date-label~ now tests
+  ~(> (org-air-view--days-between … now) 0)~ in both branches. Live render:
+  | item                          | fixture date        | now renders | face      |
+  | Fix production outage runbook  | DEADLINE 06-10 (-5) | OVERDUE 5d  | overdue   |
+  | Book dentist appointment      | DEADLINE 06-12 (-3) | OVERDUE 3d  | overdue   |
+  | Ship quarterly report         | DEADLINE 06-17 (+2) | Wed         | deadline  |
+  | Prep client presentation      | DEADLINE 06-16 (+1) | Tomorrow    | deadline  |
+  | Email finance / standup notes | SCHEDULED 06-16 (+1)| Tomorrow    | scheduled |
+  | Review design doc / cleanup   | SCHEDULED 06-18/20  | Thu / Sat   | scheduled |
+  | Dust off archive / Learn lute | stale               | 225d/273d quiet | date |
+  Overdue, due-soon, scheduled, and stale are now all correctly
+  distinguished by both label and face.
+- *MINOR calendar legend — FIXED.* Now reads
+  "~o has items   today is underlined~", matching the actual rendering.
+
+The INFO items (shared accent hues; neutral high-priority count) remain
+optional and non-blocking.
+
+*Verdict: APPROVED.* The dashboard faithfully implements the round-1
+visual/UX spec; no blocking design issues remain. Clear for the release
+candidate.

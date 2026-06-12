@@ -388,6 +388,49 @@ without relying on hue (colour-blind / TTY legibility)."
   :group 'org-air-faces)
 
 ;;;; ---------------------------------------------------------------------
+;;;; Layout / pane faces (v0.2 full-viewport composition)
+;;;;
+;;;; The v0.2 dashboard composes several panes side by side: a flexible
+;;;; item list, a persistent calendar, and a context rail (bucket summary,
+;;;; filter chips, capture hint).  These faces dress the structure that
+;;;; separates and labels those panes.  Restraint still applies: borders
+;;;; are faint, numbers carry weight not hue, and everything degrades to
+;;;; ASCII on TTY (see `org-air-glyphs' box-drawing additions).
+;;;; ---------------------------------------------------------------------
+
+(custom-declare-face 'org-air-face-pane-border
+  '((t :inherit org-air-face-faded))
+  "Face for pane borders: the vertical rule between panes and the
+box/rule glyphs that frame the calendar and rail blocks.
+Faint by design — structure should be felt, not shouted."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-rail-title
+  '((t :inherit org-air-face-faded :weight bold))
+  "Face for a rail block label (e.g. the word in \"-- Summary --\").
+Reads as a quiet section marker inside the context rail."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-summary-number
+  '((t :inherit org-air-face-strong :weight bold))
+  "Face for a bucket count in the summary block.
+Weight, not hue, gives the number presence; an all-zero board stays
+calm."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-summary-number-attention
+  '((t :inherit org-air-face-popout :weight bold))
+  "Face for a non-zero count in an attention bucket (Inbox, Needs
+attention).  This is the one place the summary spends hue, to pull
+the eye to work that is waiting."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-summary-label
+  '((t :inherit org-air-face-faded))
+  "Face for the bucket name beside a summary number."
+  :group 'org-air-faces)
+
+;;;; ---------------------------------------------------------------------
 ;;;; Optional nano-theme linkage
 ;;;; ---------------------------------------------------------------------
 

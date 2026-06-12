@@ -1,0 +1,604 @@
+#+title: org-air v0.2: full-viewport layout specification
+#+state: ready
+#+FILETAGS: :ui:layout:design:emacs:
+
+* Summary
+This is the authoritative layout specification for org-air v0.2.  It
+replaces the single top-to-bottom stack of v0.1 with a *full-viewport,
+multi-pane composition*: a flexible item list beside a persistent
+context rail whose first and largest block is the calendar.  The
+calendar is *always* rendered; the view holds its shape and stays useful
+with zero items; and the whole window — width and height — is used
+deliberately.
+
+The visual language of v0.1 (=air/v0.1/org-air-design.org=) remains
+authoritative: the 1 + 6 semantic palette, monospaced alignment,
+weight-not-size hierarchy, deterministic tag chips, and graceful TTY
+degradation all carry forward unchanged.  v0.2 adds exactly one new
+idea on top — *panes* — and the small face/glyph vocabulary needed to
+separate them.
+
+The ASCII mockups in §3 are the *contract*: the implementation renders
+against them at 80, 120, and 160 columns and a batch test asserts the
+composed geometry (pane presence, uniform line width, calendar always
+present including the empty board).
+
+* Motivation
+Direct user feedback on v0.1 (verbatim): "I don't like it at all.
+Calendar should always be shown, and the view should be useful even
+when there is no item to show.  The current view is only vertically
+stacking, but we should use the entire viewport instead."
+
+Three concrete failures of the v0.1 stack:
+1. The calendar lived at the *bottom*, after every section, so on a busy
+   board it scrolled off — it was effectively never shown.
+2. An empty board collapsed to a one-line "Nothing here yet" message:
+   the screen went blank and the calendar vanished entirely.
+3. A single narrow column wasted 60–70 % of a wide terminal; the eye
+   had nothing to rest on and no spatial map of "where things live."
+
+The references the user gave point the way:
+- *nano-mu4e* (rougier): a calm headers view with four selectable
+  separation styles — =simple= (whitespace), =regular= (full-width
+  rules), =compact= and =boxed= (box-drawing frames).  Justification is
+  done with display-property spaces, never literal padding, so it
+  survives resize.  We adopt its style ladder and its =justify= idea.
+- *nano-agenda* (rougier): "a calendar view of the current month
+  *alongside* a view of the agenda."  The calendar sits beside the
+  agenda, permanently — exactly the persistent-calendar arrangement the
+  user is asking for.
+- *"more boxes in terminal"* (r/emacs): box-drawing layouts are legible
+  and desirable in a TTY when the glyphs degrade cleanly.  We lean into
+  light framing for discrete widgets while keeping item lists airy.
+
+** Goals
+- Calendar pane ALWAYS rendered — top of the rail (wide) or top band
+  (narrow), regardless of item counts, filters, or scope.
+- A genuinely useful empty state: the layout keeps its full shape;
+  counts, calendar, and capture hint remain; nothing collapses to blank.
+- Full-viewport composition: panes side by side across the width;
+  vertical space used by aligned blocks, not one long column.
+- Responsive: two-pane at width ≥ =org-air-layout-two-pane-min=
+  (default 100), a stacked fallback below, reflowing on resize.
+- Aesthetic per the references: restrained framing — one vertical pane
+  rule, labelled block separators, a light calendar box — with a
+  =boxed= opt-in for users who want full frames.  ASCII fallback for
+  every glyph.
+- Keep ALL v0.1 behaviour (buckets, item line, filtering, scoping,
+  refile, navigation, faces) and the binary =make check= gate.
+
+** Non-Goals
+- Multiple Emacs windows or frames.  This is *one* buffer rendering
+  panes internally (the nano-mu4e / nano-agenda model), not window
+  management.  (The optional side-window calendar idea from v0.1 §3.3 is
+  dropped — the calendar is now an in-buffer pane.)
+- Graphical / SVG rendering.  Text with text-properties only.
+- User-defined pane arrangements.  One opinionated layout with a width
+  breakpoint and a style knob; scope/filter remain the customisation
+  axes.
+
+* Design Details
+
+** 1. Composition model
+The buffer is divided into *bands* stacked vertically, and the middle
+band is divided into *panes* laid out horizontally:
+
+#+begin_example
+  ┌─ header band ──────────────────────────────────────────────┐  full width
+  ├─ body band ────────────────────────┬───────────────────────┤
+  │  item pane (flexible)               │  context rail (fixed) │  zipped
+  │                                     │   · calendar (always) │  line by
+  │                                     │   · summary           │  line
+  │                                     │   · filters / scope   │
+  │                                     │   · capture hint      │
+  ├─ footer band ──────────────────────┴───────────────────────┤  full width
+  └────────────────────────────────────────────────────────────┘
+#+end_example
+
+*** 1.1 Bands
+- *Header band* — full width.  The sticky banner (=header-line-format=,
+  unchanged from v0.1 §3.1): product mark left, status string right
+  (=weekday date · N items · scope · filter chips=).  A full-width rule
+  (=org-air-face-separator=) under it.
+- *Body band* — the two-pane (or stacked) region; the variable-height
+  part of the view.
+- *Footer band* — full width.  The faded key legend
+  (=org-air-show-footer=, default t).
+
+*** 1.2 Panes (body band)
+- *Item pane* (left, flexible width).  The five sections, rendered with
+  the v0.1 item line verbatim.  Takes all width not claimed by the rail
+  and the divider.
+- *Context rail* (right, fixed width =org-air-rail-width=).  A vertical
+  stack of blocks; the *calendar block is always first and always
+  present*.  Then the summary block, the filters/scope block, and the
+  capture hint.
+- *Pane divider*: a single vertical rule =│= (glyph =vrule=) in
+  =org-air-face-pane-border=, one space of breathing room either side
+  (=" │ "=), running the full height of the body band.
+
+*** 1.3 The column-composition primitive (impl contract)
+This is the heart of v0.2 and the single most important thing the
+implementation must get right.  Render is *two-phase*:
+
+1. *Render each pane to a list of strings* (its "lines"), fully
+   propertized, each padded on the right to the pane's own fixed width
+   using =string-width= (NOT character count — chips/CJK differ).  A
+   helper =org-air-view--pad-to (string width)= appends spaces until
+   =string-width= reaches WIDTH (and truncates with =…= past it).
+2. *Zip the panes line by line*: for row =i=, take each pane's line =i=
+   (or a full-width blank line if that pane is shorter), and join with
+   the divider.  The taller pane sets the body height; shorter panes are
+   blank-padded so the divider and rail borders run unbroken.
+
+A reference shape:
+
+#+begin_src elisp
+(defun org-air-view--compose-columns (panes divider)
+  "PANES is a list of (LINES . WIDTH); zip into composed rows.
+Each row joins one line from every pane with DIVIDER, padding the
+shorter panes with blank lines and every line to its pane WIDTH."
+  (let ((height (apply #'max (mapcar (lambda (p) (length (car p))) panes))))
+    (mapconcat
+     (lambda (i)
+       (mapconcat
+        (lambda (pane)
+          (org-air-view--pad-to (or (nth i (car pane)) "") (cdr pane)))
+        panes divider))
+     (number-sequence 0 (1- height))
+     "\n")))
+#+end_src
+
+*CRITICAL CONSTRAINT — no window-relative alignment inside a pane.*
+v0.1 right-aligns metadata with =(space :align-to (- right N))=.  That
+aligns to the *window* right edge and will shoot past the divider into
+the rail.  Inside a fixed-width pane, alignment MUST be computed against
+the *pane* width, e.g. =(space :align-to (- LEFT+W N))= using an explicit
+column, or by left/right-padding the assembled string to the pane width.
+Add =org-air-view--justify (left right width)= (after nano-mu4e's
+=justify=) that returns =left= + a display-space padding to =width= +
+=right=, where the padding target is the *pane* width, never =right=.
+The header band, being full width, may keep window-relative alignment.
+
+*** 1.4 Responsive breakpoints
+| Width (cols)            | Layout                                            |
+|-------------------------+---------------------------------------------------|
+| ≥ =two-pane-min= (100)    | Two-pane: item pane (flex) │ rail (=rail-width=)    |
+| < =two-pane-min=          | Stacked: rail-as-top-band, then item pane full    |
+
+- =org-air-rail-width= (default 32) is the rail content width in the
+  two-pane layout (see the 120-col mockup §3.2).  At very wide windows
+  (≥ 150) the rail widens to =org-air-rail-width-wide= (default 42) for a
+  roomier calendar and labelled rules (see the 160-col mockup §3.1); the
+  item pane still takes the remainder.
+- *Stacked* (narrow) keeps the calendar visible by moving the rail to a
+  *top band* directly under the header: a compact calendar on the left
+  and the summary/filters to its right, then a rule, then the item
+  sections full width.  The calendar never disappears; it just relocates
+  from "side rail" to "top band."
+- Re-render on =window-size-change-functions= (debounced) so resizing a
+  frame reflows the panes.  Width is read from =window-body-width=.
+
+** 2. Header band (unchanged contract)
+Identical to v0.1 §3.1.  Product mark =org-air= left in
+=org-air-face-header=; faded status right with weekday/date, visible item
+count, scope suffix, and filter chips each carrying a clearable =✕=.
+Sticky via =header-line-format=.  A =org-air-face-separator= rule spans
+the full width on the first body line.
+
+** 3. Mockups (the contract)
+All three use the frozen test clock: *today = Mon 16 Jun 2026* (the
+=org-air-test-now= fixture), so the implementation's batch render can be
+diffed against these directly.  Sample board: Inbox 3, Needs attention
+2, Upcoming 4, High priority 1, Stale 2 — 12 items total.  Calendar
+marks (=●=) fall on days with scheduled/deadline items (12, 17, 18, 20,
+21); today (16) is reverse/under-marked (=▮=).
+
+*** 3.1 Wide — 160 columns (two-pane, item pane 115 + rail 42)
+#+begin_example
+  org-air                                                                                                                Tue 16 Jun · 12 items · #work ✕ · @work
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  ▤ Inbox  3                                                                                                        │   June 2026               ‹ ›
+      Call dentist about reschedule                                                                     ⌂ inbox.org │   Mo Tu We Th Fr Sa Su
+      Idea: batch the Tuesday reports                                                                   ⌂ inbox.org │    1  2  3  4  5  6  7
+      Read the Rougier editor-design paper                                                              ⌂ inbox.org │    8  9 10 11 12● 13 14
+                                                                                                                    │   15 16▮17● 18● 19 20● 21●
+  ▲ Needs attention  2                                                                                              │   22 23 24 25 26 27 28
+      TODO Submit the quarterly tax filing   OVERDUE 3d  work                                             ⌂ tax.org │   29 30
+      TODO Reply to Sam                         no date   mail                                          ⌂ inbox.org │   ● has items · ▮ today
+                                                                                                                    │
+  ◆ Upcoming  4                                                                                                     │   ── Summary ─────────────────────────────
+      TODO Team retro                          Today      work                                       ⌂ proj/air.org │      3  Inbox
+      TODO Dentist                             Wed 17 Jun life                                         ⌂ health.org │      2  Needs attention
+      TODO Pay rent                            Fri 19 Jun home                                          ⌂ money.org │      4  Upcoming
+      TODO Design review                       Sat 20 Jun work                                       ⌂ proj/air.org │      1  High priority
+                                                                                                                    │      2  Stale
+  ★ High priority  1                                                                                                │   ────────────────────────────────────────
+      TODO [#A] Ship v0.1 release notes        Today      work                                       ⌂ proj/air.org │     12  total
+                                                                                                                    │
+  ◷ Stale  2                                                                                                        │   ── Filters ─────────────────────────────
+      TODO Refactor the importer              · 24d quiet code                                         ⌂ proj/x.org │   #work ✕   Scope: @work
+      TODO Write the onboarding doc           · 31d quiet docs                                         ⌂ proj/x.org │
+                                                                                                                    │   c capture · / filter · s scope
+                                                                                                                    │
+
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  [c]apture  [g]refresh  [/]filter  [\]clear  [s]cope  [TAB]next  RET visit  [?]help
+#+end_example
+
+*** 3.2 Medium — 120 columns (two-pane, item pane 85 + rail 32)
+#+begin_example
+  org-air                                                                        Tue 16 Jun · 12 items · #work ✕ · @work
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  ▤ Inbox  3                                                                          │   June 2026               ‹ ›
+      Call dentist about reschedule                                       ⌂ inbox.org │   Mo Tu We Th Fr Sa Su
+      Idea: batch the Tuesday reports                                     ⌂ inbox.org │    1  2  3  4  5  6  7
+      Read the Rougier editor-design paper                                ⌂ inbox.org │    8  9 10 11 12● 13 14
+                                                                                      │   15 16▮17● 18● 19 20● 21●
+  ▲ Needs attention  2                                                                │   22 23 24 25 26 27 28
+      TODO Submit the quarterly tax filing   OVERDUE 3d  work               ⌂ tax.org │   29 30
+      TODO Reply to Sam                         no date   mail            ⌂ inbox.org │   ● has items · ▮ today
+                                                                                      │
+  ◆ Upcoming  4                                                                       │   ── Summary ───────────────────
+      TODO Team retro                          Today      work         ⌂ proj/air.org │      3  Inbox
+      TODO Dentist                             Wed 17 Jun life           ⌂ health.org │      2  Needs attention
+      TODO Pay rent                            Fri 19 Jun home            ⌂ money.org │      4  Upcoming
+      TODO Design review                       Sat 20 Jun work         ⌂ proj/air.org │      1  High priority
+                                                                                      │      2  Stale
+  ★ High priority  1                                                                  │   ──────────────────────────────
+      TODO [#A] Ship v0.1 release notes        Today      work         ⌂ proj/air.org │     12  total
+                                                                                      │
+  ◷ Stale  2                                                                          │   ── Filters ───────────────────
+      TODO Refactor the importer              · 24d quiet code           ⌂ proj/x.org │   #work ✕   Scope: @work
+      TODO Write the onboarding doc           · 31d quiet docs           ⌂ proj/x.org │
+                                                                                      │   c capture · / filter
+                                                                                      │
+
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  [c]apture  [g]refresh  [/]filter  [\]clear  [s]cope  [TAB]next  RET visit  [?]help
+#+end_example
+
+*** 3.3 Narrow — 80 columns (stacked: rail-as-top-band, items below)
+The rail relocates to a top band so the calendar stays visible; the
+item sections then run full width.
+
+#+begin_example
+  org-air                                Tue 16 Jun · 12 items · #work ✕ · @work
+  ──────────────────────────────────────────────────────────────────────────────
+
+  June 2026          ‹ ›  ── Summary ──────────  ── Filters ─────────
+  Mo Tu We Th Fr Sa Su      3  Inbox             #work ✕
+   1  2  3  4  5  6  7      2  Needs attention   Scope: @work
+   8  9 10 11 12● 13 14     4  Upcoming          
+  15 16▮17● 18● 19 20● 21●  1  High priority     c capture · / filter
+  22 23 24 25 26 27 28      2  Stale             s scope · g refresh
+  29 30                   ──────────────────     
+  ● has items · ▮ today    12  total             
+
+  ──────────────────────────────────────────────────────────────────────────────
+
+  ▤ Inbox  3
+      Call dentist about reschedule                                 ⌂ inbox.org
+      Idea: batch the Tuesday reports                               ⌂ inbox.org
+      Read the Rougier editor-design paper                          ⌂ inbox.org
+
+  ▲ Needs attention  2
+      TODO Submit the quarterly tax filing  OVERDUE 3d work           ⌂ tax.org
+      TODO Reply to Sam                        no date mail         ⌂ inbox.org
+
+  ◆ Upcoming  4
+      TODO Team retro             Today      work                ⌂ proj/air.org
+      TODO Dentist                Wed 17 Jun life                  ⌂ health.org
+      TODO Pay rent               Fri 19 Jun home                   ⌂ money.org
+      TODO Design review          Sat 20 Jun work                ⌂ proj/air.org
+
+  ★ High priority  1
+      TODO [#A] Ship v0.1 release notes  Today work              ⌂ proj/air.org
+
+  ◷ Stale  2
+      TODO Refactor the importer  · 24d quiet code                 ⌂ proj/x.org
+      TODO Write the onboarding doc · 31d quiet docs               ⌂ proj/x.org
+
+  ──────────────────────────────────────────────────────────────────────────────
+  [c]apture [g]refresh [/]filter [\]clear [s]cope [TAB]next RET visit [?]help
+#+end_example
+
+These mockups are illustrative of *geometry*, not pixel weight: in the
+buffer, dates carry their semantic faces (overdue → critical, future →
+salient/popout), tags are coloured chips, today's calendar cell is
+=org-air-face-calendar-today=, and item-bearing days use
+=org-air-face-calendar-event=.  The contract the test enforces is the
+*shape*: pane presence, uniform composed-line width per breakpoint, the
+divider running unbroken through the body, and the calendar present in
+every case (see §9 Test Plan).
+
+** 4. The context rail
+A fixed-width vertical stack.  Block order top-to-bottom is fixed; each
+block is separated from the next by one blank line (and, except the
+calendar, introduced by a labelled rule =── Label ─────=).
+
+*** 4.1 Calendar block (always first, always present)
+The v0.1 calendar (§6 of the v0.1 spec) rendered into the rail width,
+with one refinement: it is the rail's anchor and never omitted — not on
+an empty board, not under a filter that hides every item.
+
+- Title =Month YYYY= (=org-air-face-calendar-header=) with =‹ ›=
+  prev/next affordances (faded, clickable; glyphs =cal-prev= / =cal-next=).
+- Weekday header =Mo Tu We Th Fr Sa Su= (=org-air-face-calendar-day-name=),
+  Monday-first by =org-air-calendar-week-start=.
+- Day cells: =%2d= + a one-column marker slot (=●= item day / space),
+  3 columns per day, 21 columns per week row; faces exactly as v0.1 §6
+  (weekend, outday, today, event, selected).
+- A faded one-line legend =● has items · ▮ today= states both glyph
+  conventions so the colour code is self-documenting.
+- *Empty board*: the grid still renders for the current month with *no*
+  event marks; today is still highlighted.  The calendar is a map of
+  *time*, not of items, so it is meaningful even with nothing scheduled.
+
+*** 4.2 Summary block
+A compact count-by-bucket table — the spatial "scoreboard" that makes
+the board scannable and gives the empty state something to say.
+
+#+begin_example
+  ── Summary ──────────
+    3  Inbox
+    2  Needs attention
+    4  Upcoming
+    1  High priority
+    2  Stale
+  ─────────────────────
+   12  total
+#+end_example
+
+- The number is right-aligned in a 3-column gutter in
+  =org-air-face-summary-number=; the bucket name follows in
+  =org-air-face-summary-label=.
+- A *non-zero* count in an attention bucket (Inbox, Needs attention)
+  uses =org-air-face-summary-number-attention= (popout) — the only hue
+  the summary spends, mirroring the count-badge rule in v0.1 §3.2.
+- A *zero* count renders the number faded (=org-air-face-faded=) so an
+  empty bucket recedes rather than shouts.
+- The =total= row is separated by a thin labelled-less rule and counts
+  the *visible* items (after scope + filter), matching the banner.
+
+*** 4.3 Filters / scope block
+- =── Filters ──── = label, then the active filter tag chips (each with a
+  clickable =✕=), then a =Scope: <name>= line.
+- When there is no active filter and no scope, the block shows a single
+  faded line =No filters · all items= (so it keeps its height and the
+  rail does not jump when filters clear).
+
+*** 4.4 Capture hint
+A faded one-line affordance at the foot of the rail:
+=c capture · / filter · s scope= (trimmed to fit the rail width).
+Redundant with the footer legend by design — it keeps the primary verbs
+in view beside the calendar on a wide screen, and is the *only* hint in
+the stacked top band.
+
+** 5. Empty states
+The governing rule: *the layout always holds its full shape.*  No band
+or pane ever collapses; only their contents change.
+
+*** 5.1 Empty section (one bucket has no items)
+Exactly v0.1 §7: the item list is replaced by one indented faded-italic
+line (=org-air-face-empty=) with the kind-specific message ("Inbox zero
+— nothing to process.", "Nothing overdue.  Nice.", etc.).  The section
+heading and its =0= count badge still render; the count badge uses the
+faded (non-attention) face when zero.
+
+*** 5.2 Empty board (no items anywhere, or filter hides all)
+v0.1 collapsed to a single blank-screen message — *rejected.*  In v0.2:
+- The header band renders (=· 0 items=).
+- The *item pane* shows, where the sections would be, one centred faded
+  block: =Nothing here yet.= / =Press c to capture your first note.= —
+  but the five section headings with their =0= badges still render above
+  it so the board's skeleton is legible.  (Impl choice, recorded:
+  prefer "headings + zero badges + a quiet hint under them" over a bare
+  centred line, so the shape is identical to a populated board.)
+- The *context rail* renders in full: the calendar (current month, today
+  marked, no event dots), the summary (all zeros, faded), the filters
+  block (=No filters · all items=), and the capture hint.
+
+Result: an empty org-air is a calm, complete dashboard that invites a
+first capture — never a blank buffer.  This directly answers the user's
+"useful even when there is no item to show."
+
+*** 5.3 Empty rail sub-blocks
+- Calendar: never empty (always a month grid).
+- Summary: always the five rows + total (zeros faded).
+- Filters: =No filters · all items= placeholder when inactive.
+
+** 6. Box & rule treatment
+Following the nano references, framing is *graded* and mostly
+whitespace; boxes are reserved for discrete widgets.  A single knob
+selects the global treatment, mirroring nano-mu4e's style ladder.
+
+=org-air-layout-style= (defcustom, default ='rule=):
+- ='plain= — whitespace only.  Pane divider becomes two spaces; no
+  labelled rules; calendar unframed.  (nano-mu4e =simple=.)
+- ='rule= (default) — *one* vertical pane divider =│=; labelled
+  horizontal rules =── Label ─────= introduce rail blocks; full-width
+  rules under the header and above the footer; the calendar is unframed
+  but separated by whitespace.  (nano-mu4e =regular=.)  This is the
+  treatment drawn in §3.
+- ='boxed= — every pane and rail block gets a full box-drawing frame
+  (=┌─┐ │ └─┘ ├─┤=), à la nano-mu4e =boxed=.  For users who answered the
+  "more boxes in terminal" call.  Borders use =org-air-face-pane-border=.
+
+Rules of thumb baked into ='rule=:
+- *Item lists get whitespace, never boxes* — preserving the v0.1 calm
+  list.  Only their section headings and right-aligned metadata give
+  structure.
+- *The calendar and summary get light separation* (a leading labelled
+  rule), because they are discrete blocks the eye treats as objects.
+- *One vertical rule* carries the whole "two regions" idea; we resist a
+  grid of boxes by default.
+
+*** 6.1 TTY degradation
+Every box/rule glyph has an ASCII fallback, chosen automatically when
+=(display-graphic-p)= is nil (extends the v0.1 =org-air-glyphs=
+mechanism).  Additions:
+
+| Meaning            | GUI | TTY |
+|--------------------+-----+-----|
+| vertical rule      | │   | \|  |
+| horizontal rule    | ─   | -   |
+| box corner TL      | ┌   | +   |
+| box corner TR      | ┐   | +   |
+| box corner BL      | └   | +   |
+| box corner BR      | ┘   | +   |
+| box tee left       | ├   | +   |
+| box tee right      | ┤   | +   |
+| calendar prev      | ‹   | <   |
+| calendar next      | ›   | >   |
+
+The v0.1 glyphs (=⌂ ▤ ▲ ◆ ★ ◷ ● ▮ ✕ …=) keep their existing pairs.  As
+in v0.1, no glyph is load-bearing: every rule pairs with whitespace and
+every box with a labelled fallback, so the layout is fully usable in a
+pipe, =emacs -nw=, or a screen reader.
+
+** 7. Faces
+v0.2 reuses the entire v0.1 palette unchanged.  It adds five faces to
+=org-air-faces.el= for the pane structure (already added in this round):
+
+| Face                                  | Role                                  |
+|---------------------------------------+---------------------------------------|
+| =org-air-face-pane-border=              | divider =│=, box/rule frames (faded)    |
+| =org-air-face-rail-title=               | rail block label ("Summary", "Filters") |
+| =org-air-face-summary-number=           | bucket count in the summary (strong)  |
+| =org-air-face-summary-number-attention= | non-zero attention count (popout)     |
+| =org-air-face-summary-label=            | bucket name beside the number (faded) |
+
+All five are =:inherit=-based on the seven semantic roles, so they
+follow theme/nano linkage automatically and carry the same TTY
+fallbacks.  No new colour values are introduced — structure is spent in
+*weight and faintness*, not new hue, exactly as the v0.1 thesis demands.
+The =org-air-face-separator= rule and all calendar faces are reused as-is.
+
+** 8. Keybindings
+The v0.1 keymap (v0.1 §9) is unchanged.  The single-buffer pane model
+needs no window commands.  Two clarifications the layout introduces:
+
+- =< / >= page the calendar month *in place* (the rail re-renders); =.=
+  recentres on today.  (v0.1 left these as placeholders; the persistent
+  rail makes month paging meaningful, so impl should wire real prev/next
+  month state held in a buffer-local =org-air-view--cal-month=.)
+- Navigation (=n/p=, =TAB=) still walks =org-air-item= / =org-air-section=
+  text properties, which live only in the item pane, so point naturally
+  stays in the list; the calendar/rail are reached by mouse or the =< > .=
+  keys.  No pane-focus command is required.
+
+(Optional, non-binding: if a future round wants keyboard calendar
+navigation, reserve =M-<= / =M->= for day selection so it does not collide
+with month paging.  Out of scope for v0.2.)
+
+** 9. Test Plan
+Extend — do not fork — the binary =make check= gate.  Using the
+frozen-clock render recipe (=emacs -Q --batch -L tests -l
+tests/org-air-test-init.el= with =current-time= cl-letf'd to
+=org-air-test-now= inside =org-air-test-with-fixtures=):
+
+1. *Geometry at each breakpoint.*  Render with =window-body-width= forced
+   to 80, 120, 160.  Assert:
+   - every composed body line has =string-width= equal to the target
+     width (uniform geometry — the pane-zip invariant);
+   - the divider glyph =│= appears on every body row at the same column
+     (two-pane widths);
+   - at 80 the layout is stacked (rail band above, no divider in the
+     item region).
+2. *Calendar always present.*  Assert the month title =June 2026= and the
+   weekday header appear in the buffer for: a populated board, an empty
+   board (no items), and a filter that hides every item.
+3. *Empty board holds shape.*  With zero items: assert the five section
+   headings + =0= badges render, the summary shows five zero rows + a
+   =0  total=, the filters block shows =No filters · all items=, and the
+   calendar grid is present.
+4. *Summary integrity.*  The summary counts equal the per-section item
+   counts and the =total= equals the banner's visible-item count, under a
+   scope and under a filter.
+5. *Face application (the lesson from v0.1).*  Walk
+   =next-single-property-change= over a real render and assert the new
+   faces are *actually applied*: =org-air-face-pane-border= on the
+   divider, =org-air-face-summary-number=/=-attention= on the counts,
+   =org-air-face-rail-title= on the block labels.  A clean byte-compile is
+   not evidence the renderer uses them — the integrated dump is.
+6. *TTY fallback.*  With =display-graphic-p= stubbed nil, assert the
+   divider renders as =|= and rules as =-= (no multibyte box glyphs leak
+   into a TTY render).
+
+Keep the existing v0.1 assertions green; the new ones are additive.
+
+** 10. Customisation surface (new in v0.2)
+- =org-air-layout-two-pane-min= (100) — width at/above which the
+  two-pane layout is used; below it, the stacked top-band layout.
+- =org-air-rail-width= (32), =org-air-rail-width-wide= (42) — rail content
+  width in two-pane mode (wide ≥ 150 cols).
+- =org-air-layout-style= ('rule; choices 'plain 'rule 'boxed) — the
+  box/rule treatment ladder (§6).
+- =org-air-show-summary= (t), =org-air-show-rail-filters= (t) — toggle
+  rail blocks (the calendar is not toggleable — it is always shown).
+All v0.1 defcustoms (margins, glyphs, calendar week start, footer, etc.)
+are inherited unchanged.
+
+* Drawbacks
+- A fixed-width rail spends horizontal budget that, on a narrow-but-
+  ≥100 terminal, the item titles might want; mitigated by the stacked
+  fallback and by truncating item titles with =…= (v0.1 §4).
+- Two-phase pane composition is more renderer machinery than the v0.1
+  single pass; the =compose-columns= + =justify= helpers must be unit-
+  tested in isolation as well as integration-tested.
+- =boxed= style at narrow widths can feel heavy; it is opt-in, not the
+  default.
+
+* Alternatives considered
+- *Emacs side windows for the calendar* (v0.1 §3.3 alt): rejected — it is
+  window management, a Non-Goal, and breaks the single-buffer
+  text-property navigation model.
+- *Calendar on the left, items on the right*: rejected — the item list is
+  the primary content and reads better left-anchored; the calendar is a
+  reference object and sits where the eye rests after scanning, on the
+  right (matches nano-agenda's calendar-beside-agenda balance).
+- *Three columns at 160* (items │ calendar │ summary): rejected for v0.2
+  as over-engineered; the roomy two-pane (§3.1) keeps one mental model
+  across all widths.  Revisit if users ask.
+
+* Implementation notes (for the impl track)
+- Build =org-air-view--pad-to=, =org-air-view--justify=, and
+  =org-air-view--compose-columns= first; unit-test them (widths, CJK,
+  propertized input) before wiring the render.
+- Refactor =org-air-view--render= to: (a) build the header band; (b) build
+  the item-pane string list and the rail string list; (c) at width ≥
+  =two-pane-min=, =compose-columns= them with the divider; below, emit the
+  rail top-band then the item pane; (d) append the footer.
+- Render calendar and summary into rail-width strings (the calendar
+  currently inserts directly into the buffer — give it a
+  =-to-string= variant or a width argument).
+- Replace every in-pane =(space :align-to (- right N))= with pane-width
+  justification (§1.3 constraint) — this is the most likely regression
+  source; the geometry test (§9.1) guards it.
+- Hold calendar month state in =org-air-view--cal-month= so =< > .= page
+  persistently (§8).
+
+* History
+- 2026-06-12: Drafted the v0.2 full-viewport layout spec.  Studied the
+  user's references: nano-mu4e (style ladder simple/regular/compact/
+  boxed, display-space =justify=), nano-agenda (calendar *alongside* the
+  agenda — the persistent-calendar model), and the "more boxes in
+  terminal" thread (box-drawing is legible in a TTY when it degrades).
+  Defined the band/pane composition model, the column-zip primitive and
+  its window-vs-pane alignment constraint, three breakpoint mockups
+  (80/120/160) as the contract, full-shape empty states, the graded
+  box/rule treatment with TTY fallbacks, and added five inherit-based
+  pane faces to =org-air-faces.el=.  Reuses the entire v0.1 palette and
+  keymap.  Set =#+state: ready= pending impl.
+
+* References
+- air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).
+- air/v0.2/org-air-layout.org — v0.2 brief / user feedback.
+- https://github.com/rougier/nano-mu4e — style ladder, justify, count chip.
+- https://github.com/rougier/nano-agenda — calendar-beside-agenda model.
+- https://www.reddit.com/r/emacs/comments/mzgsm0/mu4e_look_and_feel/
+- https://www.reddit.com/r/emacs/comments/18umexf/nano_agenda_rewrite_wip/
+- https://www.reddit.com/r/emacs/comments/1n7dp7h/more_boxes_in_terminal/

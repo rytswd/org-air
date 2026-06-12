@@ -1,0 +1,45 @@
+#+title: Projects
+#+filetags: :projects:
+
+* TODO [#A] Ship quarterly report                                :work:report:
+DEADLINE: <2026-06-17 Wed>
+Quarterly numbers need a final pass before the board meeting.
+
+* TODO Prepare standup notes                                            :work:
+SCHEDULED: <2026-06-16 Tue 09:00>
+Collect yesterday's progress and today's plan.
+
+* TODO [#A] Fix production outage runbook                        :work:urgent:
+DEADLINE: <2026-06-10 Wed>
+Overdue: the runbook still references the decommissioned cluster.
+
+* TODO Water the garden                                                 :home:
+SCHEDULED: <2026-06-15 Mon>
+Tomatoes first, then the herb bed.
+
+* TODO Renew passport                                                  :admin:
+DEADLINE: <2026-07-30 Thu>
+Far-future deadline; needs photos and the renewal form.
+
+* TODO Dust off old archive project                                  :archive:
+Last touched ages ago.
+[2025-11-02 Sun]
+
+* DONE Pay invoices                                                    :admin:
+CLOSED: [2026-06-01 Mon 14:32]
+All supplier invoices for May are settled.
+
+* TODO Untracked idea with no dates                                  :someday:
+An idea captured without any schedule or deadline.
+
+* TODO [#C] Low priority cleanup                                        :home:
+SCHEDULED: <2026-06-20 Sat>
+Garage shelves, donate box, recycling run.
+
+* TODO [#B] Review design doc                                    :work:review:
+SCHEDULED: <2026-06-18 Thu>
+DEADLINE: <2026-06-19 Fri>
+Has both a schedule and a deadline.
+
+* Reference notes without a todo state                                  :note:
+Plain heading, no TODO keyword, no dates.

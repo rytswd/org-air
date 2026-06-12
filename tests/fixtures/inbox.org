@@ -1,0 +1,12 @@
+#+title: Inbox
+#+filetags: :inbox:
+
+* Quick note about org-air idea
+Captured in passing, not yet categorised.
+[2026-06-14 Sun]
+
+* Call plumber
+Kitchen tap drips; get a quote.
+
+* TODO Triage me later
+[2026-06-13 Sat]

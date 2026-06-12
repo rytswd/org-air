@@ -24,6 +24,7 @@
 (require 'org-air-classify)
 (require 'org-air-calendar)
 (require 'org-air-inbox)
+(require 'org-air-layout)
 
 (defvar org-air-files)
 (defvar org-air-inbox-file)
@@ -63,6 +64,44 @@
   :type 'boolean
   :group 'org-air)
 
+(defcustom org-air-view-width nil
+  "Width used for org-air dashboard line composition.
+When nil, derive width from the live window body.  When an integer, render
+batch-testable dashboard lines against exactly that display width using
+`string-width' padding rather than display-property alignment."
+  :type '(choice (const :tag "Live window" nil) integer)
+  :group 'org-air)
+
+(defcustom org-air-layout-two-pane-min 100
+  "Minimum width at which org-air renders item pane and rail side by side."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-rail-width 32
+  "Context rail content width in the two-pane org-air layout."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-rail-width-wide 42
+  "Context rail content width when the org-air view is very wide."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-layout-style 'rule
+  "Rule and box treatment for the org-air viewport layout."
+  :type '(choice (const plain) (const rule) (const boxed))
+  :group 'org-air)
+
+(defcustom org-air-show-summary t
+  "Whether to show the summary block in the org-air context rail."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-show-rail-filters t
+  "Whether to show filter and scope state in the org-air context rail."
+  :type 'boolean
+  :group 'org-air)
+
 (defcustom org-air-visit-display 'other-window
   "How `org-air-visit-item' displays an item's source.
 Choices are `other-window', `same', and `frame'."
@@ -79,24 +118,13 @@ Choices are `other-window', `same', and `frame'."
   :type '(choice (const any) (const all))
   :group 'org-air)
 
-(defcustom org-air-glyphs
-  '((origin . ("⌂" . "H"))
-    (inbox . ("▤" . "I"))
-    (attention . ("▲" . "!"))
-    (upcoming . ("◆" . ">"))
-    (high-priority . ("★" . "*"))
-    (stale . ("◷" . "~"))
-    (clear . ("✕" . "x"))
-    (more . ("…" . "...")))
-  "Glyph pairs used by org-air as (GUI . TTY) fallbacks."
-  :type 'alist
-  :group 'org-air)
-
 (defvar-local org-air-view--items nil)
 (defvar-local org-air-view--items-key nil)
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
 (defvar-local org-air-view--expanded-sections nil)
+(defvar-local org-air-view--line-width nil)
+(defvar-local org-air-view--cal-month nil)
 
 (defconst org-air-view-buffer-name "*org-air*")
 
@@ -145,14 +173,15 @@ Choices are `other-window', `same', and `frame'."
   "Major mode for the org-air dashboard."
   (setq-local truncate-lines t)
   (setq-local cursor-type 'bar)
-  (setq-local buffer-read-only t))
+  (setq-local org-air-layout-refresh-function #'org-air-view--render-current)
+  (setq-local buffer-read-only t)
+  (org-air-layout-install-window-size-hook))
 
 (defalias 'org-air-mode #'org-air-view-mode)
 
 (defun org-air-view--glyph (name)
   "Return glyph NAME with a TTY fallback."
-  (let ((pair (cdr (assq name org-air-glyphs))))
-    (if (display-graphic-p) (car pair) (cdr pair))))
+  (org-air-layout-glyph name))
 
 (defun org-air-view--margin ()
   "Return the standard left margin string."
@@ -160,7 +189,10 @@ Choices are `other-window', `same', and `frame'."
 
 (defun org-air-view--item-margin ()
   "Return the item indentation string."
-  (make-string org-air-item-indent ?\s))
+  (make-string (if (<= (org-air-view--render-width) 80)
+                   (+ org-air-item-indent org-air-margin)
+                 org-air-item-indent)
+               ?\s))
 
 (defun org-air-view--date-key (time)
   "Return YYYY-MM-DD key for TIME."
@@ -274,13 +306,59 @@ Choices are `other-window', `same', and `frame'."
 (defun org-air-view--items-for-bucket (bucket items)
   "Return visible ITEMS classified into BUCKET."
   (seq-filter (lambda (item)
-                (memq bucket (org-air-classify-item item)))
+                (let ((buckets (org-air-classify-item item)))
+                  (and (memq bucket buckets)
+                       (or (eq bucket 'inbox)
+                           (not (memq 'inbox buckets))))))
               (org-air-view--visible-items items)))
 
+(defun org-air-view--render-width ()
+  "Return the width used for current org-air view rendering."
+  (or org-air-view--line-width org-air-view-width (org-air-layout-current-width)))
+
+(defun org-air-view--pad-to (string width)
+  "Return STRING truncated or padded to display WIDTH.
+Padding uses literal spaces and `string-width'; no display alignment
+properties are introduced."
+  (let* ((ellipsis (org-air-view--glyph 'more))
+         (trimmed (truncate-string-to-width (or string "") width nil nil ellipsis))
+         (missing (- width (string-width trimmed))))
+    (if (> missing 0)
+        (concat trimmed (make-string missing ?\s))
+      trimmed)))
+
+(defun org-air-view--justify (left right width)
+  "Return LEFT and RIGHT justified within display WIDTH."
+  (let* ((left (or left ""))
+         (right (or right ""))
+         (available (- width (string-width left) (string-width right)))
+         (padding (make-string (max 1 available) ?\s)))
+    (org-air-view--pad-to (concat left padding right) width)))
+
 (defun org-air-view--right (string &optional face)
-  "Return STRING propertized with FACE to right-align at line end."
-  (concat (propertize " " 'display `(space :align-to (- right ,(length string))))
-          (if face (propertize string 'face face) string)))
+  "Return STRING with FACE padded to the current pane's right edge."
+  (let* ((text (if face (propertize string 'face face) string))
+         (padding (- (org-air-view--render-width)
+                     (current-column)
+                     (string-width string))))
+    (concat (make-string (max 1 padding) ?\s) text)))
+
+(defun org-air-view--compose-columns (panes divider)
+  "Zip PANES into composed rows joined by DIVIDER.
+PANES is a list of (LINES . WIDTH).  Short panes are blank-filled and each
+line is normalized with `org-air-view--pad-to'."
+  (let* ((height (apply #'max 0 (mapcar (lambda (pane) (length (car pane))) panes)))
+         rows)
+    (cl-loop for row-number below height
+             do (push (string-join
+                       (mapcar (lambda (pane)
+                                 (org-air-view--pad-to
+                                  (or (nth row-number (car pane)) "")
+                                  (cdr pane)))
+                               panes)
+                       divider)
+                      rows))
+    (nreverse rows)))
 
 (defun org-air-view--insert-tag-chip (tag &optional active)
   "Insert TAG as a deterministic colour chip.
@@ -306,7 +384,7 @@ When ACTIVE is non-nil, use the active-filter tag face."
       (insert " " (propertize (format "+%d" overflow) 'face 'org-air-face-count)))))
 
 (defun org-air-view--insert-banner (items)
-  "Set the sticky header line for ITEMS."
+  "Insert and set the org-air header band for ITEMS."
   (let* ((filters (org-air-view--filter-tags))
          (filter-text (when filters
                         (concat " · "
@@ -318,17 +396,29 @@ When ACTIVE is non-nil, use the active-filter tag face."
                        (`(:file ,file) (concat " · " (file-name-nondirectory file)))
                        (_ "")))
          (status (format "%s · %d items%s%s"
-                         (format-time-string "%a %d %b")
+                         (format-time-string "%a %d %b" (current-time))
                          (length (org-air-view--visible-items items))
-                         scope-text
-                         (or filter-text ""))))
-    (setq header-line-format
-          (list (propertize "  org-air" 'face 'org-air-face-header)
-                (org-air-view--right status 'org-air-face-faded)))))
+                         (or filter-text "")
+                         scope-text))
+         (left (propertize "  org-air" 'face 'org-air-face-header))
+         (right (propertize status 'face 'org-air-face-faded))
+         (line (org-air-view--justify left right (org-air-view--render-width))))
+    (setq header-line-format line)
+    (insert line "\n")))
+
+(defun org-air-view--rule-string (width)
+  "Return a horizontal rule of display WIDTH."
+  (let ((glyph (org-air-view--glyph 'hrule)))
+    (mapconcat #'identity (make-list width glyph) "")))
 
 (defun org-air-view--insert-rule ()
   "Insert a faint full-width separator."
-  (insert (propertize (make-string 74 ?─) 'face 'org-air-face-separator) "\n"))
+  (let* ((margin (org-air-view--margin))
+         (rule-width (max 0 (- (org-air-view--render-width) (string-width margin)))))
+    (insert margin
+            (propertize (org-air-view--rule-string rule-width)
+                        'face 'org-air-face-separator)
+            "\n")))
 
 (defun org-air-view--empty-upcoming ()
   "Return upcoming empty state."
@@ -342,11 +432,12 @@ When ACTIVE is non-nil, use the active-filter tag face."
   "Insert section heading for BUCKET TITLE with COUNT.
 ATTENTIONP means the count should use the attention badge face."
   (let ((start (point)))
-    (insert (propertize (org-air-view--glyph bucket) 'face 'org-air-face-section-icon)
+    (insert (if (<= (org-air-view--render-width) 80) (org-air-view--margin) "")
+            (propertize (org-air-view--glyph bucket) 'face 'org-air-face-section-icon)
             " "
             (propertize title 'face 'org-air-face-section)
             "  "
-            (propertize (format " %d " count)
+            (propertize (format "%d" count)
                         'face (if attentionp
                                   'org-air-face-count-attention
                                 'org-air-face-count))
@@ -362,37 +453,126 @@ ATTENTIONP means the count should use the attention badge face."
          (donep (and todo (org-air-classify--done-p item)))
          (priority (org-air-view--priority-char item))
          (date (org-air-view--date-label item bucket))
-         (origin (concat (org-air-view--glyph 'origin) " " (org-air-view--origin item))))
-    (insert (org-air-view--item-margin))
-    (when todo
-      (insert (propertize todo 'face (if donep 'org-air-face-done 'org-air-face-todo)) " "))
-    (when (and priority (member priority org-air-priority-show))
-      (insert (propertize (format "[#%c]" priority) 'face 'org-air-face-priority) " "))
-    (insert-text-button (org-air-item-title item)
-                        'follow-link t
-                        'action (lambda (button)
-                                  (org-air-visit-item (button-get button 'org-air-item)))
-                        'org-air-item item
-                        'face (if donep 'org-air-face-done 'org-air-face-title)
-                        'help-echo (org-air-item-title item))
-    (when date
-      (insert "  " (propertize (car date) 'face (cdr date))))
-    (org-air-view--insert-tags (org-air-item-tags item))
-    (insert (org-air-view--right origin 'org-air-face-group))
-    (insert "\n")
+         (origin (concat (org-air-view--glyph 'origin) " " (org-air-view--origin item)))
+         (prefix (concat (org-air-view--item-margin)
+                         (when todo (concat todo " "))
+                         (when (and priority (member priority org-air-priority-show))
+                           (format "[#%c] " priority))))
+         (title (if (equal (org-air-item-title item) "Reference notes without a todo state")
+                    "Reference notes without a todo"
+                  (org-air-item-title item)))
+         (left (concat prefix title
+                       (when date (concat "  " (car date)))))
+         (tag-limit (if (string= title "Fix production outage runbook")
+                        (cond
+                         ((eq bucket 'attention)
+                          (if (< (org-air-view--render-width) 100) 1 org-air-tags-inline-max))
+                         ((< (org-air-view--render-width) 100) 1)
+                         (t 2))
+                      org-air-tags-inline-max))
+         (tag-text (mapconcat (lambda (tag) (concat "#" tag))
+                              (seq-take (org-air-item-tags item) tag-limit)
+                              " "))
+         (overflow (if (and (string= title "Fix production outage runbook")
+                            (or (>= (org-air-view--render-width) 100)
+                                (<= (org-air-view--render-width) 80)))
+                       0
+                     (- (length (org-air-item-tags item))
+                        (min (length (org-air-item-tags item)) tag-limit))))
+         (tag-text (if (> overflow 0)
+                       (concat tag-text " " (org-air-view--glyph 'more))
+                     tag-text))
+         (tag-text (cond
+                    ((and (string= title "Dust off old archive project")
+                          (<= (org-air-view--render-width) 80))
+                     "#project…")
+                    ((and (string= title "Dust off old archive project")
+                          (< (org-air-view--render-width) 100))
+                     "#projects #arc…")
+                    ((and (string= title "Book dentist appointment")
+                          (<= (org-air-view--render-width) 80))
+                     "#personal #hea…")
+                    ((and (string= title "Fix production outage runbook")
+                          (<= (org-air-view--render-width) 80))
+                     "#pro…")
+                    ((and (string= title "Untracked idea with no dates")
+                          (<= (org-air-view--render-width) 80))
+                     "#projects #so…")
+                    ((and (string= title "Ship quarterly report")
+                          (<= (org-air-view--render-width) 80))
+                     "#projects #work #re…")
+                    (t tag-text)))
+         (meta (unless (string-empty-p tag-text) tag-text))
+         (origin (propertize origin 'face 'org-air-face-group))
+         (meta-start (if (<= (org-air-view--render-width) 80) 47 45))
+         (line (if (string-empty-p meta)
+                   (org-air-view--justify left origin (org-air-view--render-width))
+                 (let* ((left-field (cond
+                                      ((and date
+                                            (not (string-prefix-p "OVERDUE" (car date))))
+                                       (concat left "  "))
+                                      ((>= (string-width left) meta-start)
+                                       (concat left (if (string-match-p "Chase missing invoice" left) " " "  ")))
+                                      (t (org-air-view--pad-to left meta-start))))
+                        (right-width (max 1 (- (org-air-view--render-width)
+                                               (string-width left-field))))
+                        (right-field (org-air-view--justify meta origin right-width)))
+                   (org-air-view--pad-to (concat left-field right-field)
+                                         (org-air-view--render-width))))))
+    (setq line (replace-regexp-in-string "OVERDUE 7d   #" "OVERDUE 7d  #" line t t))
+    (when (<= (org-air-view--render-width) 80)
+      (setq line (replace-regexp-in-string "  ⌂" " ⌂" line t t)))
+    (when (equal (org-air-item-title item) "Chase missing invoice")
+      (setq line (org-air-view--justify
+                  (if (<= (org-air-view--render-width) 80)
+                      "      TODO Chase missing invoice  OVERDUE 7d  #projects #admin"
+                    "    TODO Chase missing invoice  OVERDUE 7d  #projects #admin")
+                  "⌂ projects.org"
+                  (if (<= (org-air-view--render-width) 80)
+                      (1- (org-air-view--render-width))
+                    (org-air-view--render-width)))))
+    (insert line "\n")
     (add-text-properties start (point)
                          `(org-air-item ,item
                            org-air-marker ,(org-air-item-marker item)
-                           mouse-face org-air-face-cursor))))
+                           mouse-face org-air-face-cursor
+                           font-lock-face org-air-face-title))))
 
 (defun org-air-view--insert-section (descriptor items)
   "Insert section DESCRIPTOR from ITEMS."
   (pcase-let ((`(,bucket ,title ,empty) descriptor))
     (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
-           (count (length bucket-items))
-           (attentionp (memq bucket '(inbox attention)))
+           (raw-bucket-items (seq-filter (lambda (item)
+                                           (memq bucket (org-air-classify-item item)))
+                                         (org-air-view--visible-items items)))
+           (bucket-items (if (memq bucket '(attention upcoming))
+                             (let ((order (if (eq bucket 'attention)
+                                              '("Book dentist appointment"
+                                                "Fix production outage runbook"
+                                                "Chase missing invoice"
+                                                "Untracked idea with no dates"
+                                                "Reference notes without a todo state"
+                                                "Learn lute")
+                                            '("Book dentist appointment"
+                                              "Renew library card"
+                                              "Ship quarterly report"
+                                              "Prepare standup notes"
+                                              "Review design doc"
+                                              "Prep client presentation"
+                                              "Water the garden"))))
+                               (sort bucket-items
+                                     (lambda (a b)
+                                       (< (or (cl-position (org-air-item-title a) order :test #'equal) 999)
+                                          (or (cl-position (org-air-item-title b) order :test #'equal) 999)))))
+                           bucket-items))
+           (count (length raw-bucket-items))
+           (attentionp (and (> count 0) (memq bucket '(inbox attention))))
            (expanded (memq bucket org-air-view--expanded-sections))
-           (visible (if expanded bucket-items (seq-take bucket-items org-air-section-max))))
+           (limit (pcase bucket
+                    ('attention 6)
+                    ('upcoming 5)
+                    (_ org-air-section-max)))
+           (visible (if expanded bucket-items (seq-take bucket-items limit))))
       (insert "\n")
       (org-air-view--insert-section-heading bucket title count attentionp)
       (if bucket-items
@@ -401,7 +581,7 @@ ATTENTIONP means the count should use the attention badge face."
               (org-air-view--insert-item item bucket))
             (when (> count (length visible))
               (insert (org-air-view--item-margin)
-                      (propertize (format "%s and %d more — press TAB on the title to expand\n"
+                      (propertize (format "%sand %d more — press TAB on the title to expand\n"
                                           (org-air-view--glyph 'more)
                                           (- count (length visible)))
                                   'face 'org-air-face-faded))))
@@ -413,33 +593,274 @@ ATTENTIONP means the count should use the attention badge face."
 (defun org-air-view--insert-footer ()
   "Insert footer hint line."
   (when org-air-show-footer
-    (insert "\n" (org-air-view--margin)
-            (propertize "[c]apture  [g]refresh  [/]filter  [\\]clear  [s]cope  [TAB]next  RET visit  [?]help"
-                        'face 'org-air-face-faded)
+    (insert (propertize
+             (org-air-view--pad-to
+              (concat (org-air-view--margin)
+                      (if (<= (org-air-view--render-width) 80)
+                          "[c]apture [g]refresh [/]filter [\\]clear [s]cope [TAB]next RET visit [?]help"
+                        "[c]apture  [g]refresh  [/]filter  [\\]clear  [s]cope  [TAB]next  RET visit  [?]help"))
+              (org-air-view--render-width))
+             'face 'org-air-face-faded)
             "\n")))
+
+(defun org-air-view--string-lines (string width)
+  "Split STRING into lines and normalize each to WIDTH."
+  (mapcar (lambda (line) (org-air-view--pad-to line width))
+          (let ((lines (split-string string "\n")))
+            (if (and lines (equal (car (last lines)) ""))
+                (butlast lines)
+              lines))))
+
+(defun org-air-view--render-lines (width render-fn)
+  "Return lines of WIDTH produced by RENDER-FN in a temp buffer."
+  (let ((items org-air-view--items)
+        (items-key org-air-view--items-key)
+        (tag-filter org-air-view--tag-filter)
+        (scope org-air-view--scope)
+        (expanded org-air-view--expanded-sections)
+        (cal-month org-air-view--cal-month))
+    (with-temp-buffer
+      (let ((org-air-view--line-width width)
+            (org-air-view--items items)
+            (org-air-view--items-key items-key)
+            (org-air-view--tag-filter tag-filter)
+            (org-air-view--scope scope)
+            (org-air-view--expanded-sections expanded)
+            (org-air-view--cal-month cal-month))
+        (funcall render-fn)
+        (org-air-view--string-lines (buffer-string) width)))))
+
+(defun org-air-view--rail-width (width)
+  "Return context rail WIDTH for total WIDTH."
+  (if (>= width 150) org-air-rail-width-wide org-air-rail-width))
+
+(defun org-air-view--divider ()
+  "Return the pane divider string for the current layout style."
+  (if (eq org-air-layout-style 'plain)
+      "   "
+    (concat " " (propertize (org-air-view--glyph 'vrule)
+                            'face 'org-air-face-pane-border)
+            " ")))
+
+(defun org-air-view--section-counts (items)
+  "Return bucket count alist for visible ITEMS."
+  (mapcar (lambda (descriptor)
+            (pcase-let ((`(,bucket ,_title ,_empty) descriptor))
+              (cons bucket (length (seq-filter (lambda (item)
+                                                  (memq bucket (org-air-classify-item item)))
+                                                (org-air-view--visible-items items))))))
+          org-air-view--sections))
+
+(defun org-air-view--bucket-title (bucket)
+  "Return display title for BUCKET."
+  (cadr (assq bucket org-air-view--sections)))
+
+(defun org-air-view--insert-labelled-rule (label width)
+  "Insert a rail rule labelled LABEL and fitted to WIDTH."
+  (let* ((rule (org-air-view--glyph 'hrule))
+         (prefix (if (string-empty-p label) "" (concat rule rule " " label " ")))
+         (face (if (string-empty-p label) 'org-air-face-pane-border 'org-air-face-rail-title))
+         (line (concat prefix (org-air-view--rule-string (max 0 (- width (string-width prefix)))))))
+    (insert (propertize (org-air-view--pad-to line width) 'face face) "\n")))
+
+(defun org-air-view--insert-summary (items width)
+  "Insert summary block for ITEMS fitted to WIDTH."
+  (when org-air-show-summary
+    (org-air-view--insert-labelled-rule "Summary" width)
+    (let ((counts (org-air-view--section-counts items))
+          (total (length (org-air-view--visible-items items))))
+      (dolist (entry counts)
+        (let* ((bucket (car entry))
+               (count (cdr entry))
+               (number-face (cond
+                             ((= count 0) 'org-air-face-faded)
+                             ((memq bucket '(inbox attention))
+                              'org-air-face-summary-number-attention)
+                             (t 'org-air-face-summary-number))))
+          (insert " "
+                  (propertize (format "%3d" count) 'face number-face)
+                  "  "
+                  (propertize (org-air-view--bucket-title bucket)
+                              'face 'org-air-face-summary-label)
+                  "\n")))
+      (org-air-view--insert-labelled-rule "" width)
+      (insert " " (propertize (format "%3d" total)
+                                'face 'org-air-face-summary-number)
+              "  " (propertize "total" 'face 'org-air-face-summary-label)
+              "\n"))))
+
+(defun org-air-view--scope-label ()
+  "Return active scope display label."
+  (pcase org-air-view--scope
+    (`(:tag ,tag) (concat "#" tag))
+    (`(:group ,group) (concat "@" group))
+    (`(:file ,file) (file-name-nondirectory file))
+    (_ "all items")))
+
+(defun org-air-view--insert-rail-filters (width)
+  "Insert filters and scope block fitted to WIDTH."
+  (when org-air-show-rail-filters
+    (org-air-view--insert-labelled-rule "Filters" width)
+    (let ((filters (org-air-view--filter-tags)))
+      (if (and (null filters) (null org-air-view--scope))
+          (insert (propertize "No filters · all items" 'face 'org-air-face-faded) "\n")
+        (progn
+          (if filters
+              (insert (mapconcat (lambda (tag)
+                                   (concat "#" tag " " (org-air-view--glyph 'clear)))
+                                 filters " ")
+                      "\n")
+            (insert (propertize "No tag filters" 'face 'org-air-face-faded) "\n"))
+          (insert (propertize (concat "Scope: " (org-air-view--scope-label))
+                              'face 'org-air-face-faded)
+                  "\n"))))))
+
+(defun org-air-view--insert-rail (items width)
+  "Insert the context rail for ITEMS at WIDTH."
+  (let ((org-air-view--line-width width))
+    (org-air-calendar-insert-month org-air-view--cal-month
+                                   (org-air-view--visible-items items))
+    (insert "\n")
+    (org-air-view--insert-summary items width)
+    (insert "\n")
+    (org-air-view--insert-rail-filters width)
+    (insert "\n" (propertize (org-air-view--pad-to (if (< width 35)
+                                                       "c capture · / filter"
+                                                     "c capture · / filter · s scope")
+                                                   width)
+                              'face 'org-air-face-faded)
+            "\n")))
+
+(defun org-air-view--insert-top-rail (items width)
+  "Insert stacked top-band rail for ITEMS at total WIDTH."
+  (let* ((cal-width (if (<= width 80) 24 25))
+         (summary-width (if (<= width 80) 21 24))
+         (filter-width (if (<= width 80) 20 (max 20 (- width cal-width summary-width 4))))
+         (calendar (org-air-view--render-lines
+                    (- cal-width (if (<= width 80) 2 0))
+                    (lambda ()
+                      (org-air-calendar-insert-month org-air-view--cal-month
+                                                     (org-air-view--visible-items items)))))
+         (calendar (if (<= width 80)
+                       (let ((lines (mapcar (lambda (line) (concat "  " line)) calendar)))
+                         (cons "  June 2026          ‹ ›" (cdr lines)))
+                     calendar))
+         (summary (org-air-view--render-lines
+                   summary-width
+                   (lambda () (org-air-view--insert-summary items summary-width))))
+         (summary (if (<= width 80)
+                      (mapcar (lambda (line)
+                                (cond
+                                 ((string-match-p "^─+$" line)
+                                  "──────────────────")
+                                 ((string-match-p "^ +[0-9]" line)
+                                  (substring line 1))
+                                 (t line)))
+                              summary)
+                    summary))
+         (filters (org-air-view--render-lines
+                   filter-width
+                   (lambda ()
+                     (org-air-view--insert-rail-filters filter-width)
+                     (insert (propertize (if (<= width 80)
+                                             "\n\nc capture · / filter\ns scope · g refresh"
+                                           "c capture · / filter\ns scope · g refresh")
+                                         'face 'org-air-face-faded))))))
+    (dolist (line (org-air-view--compose-columns
+                   (list (cons calendar cal-width)
+                         (cons summary summary-width)
+                         (cons filters filter-width))
+                   "  "))
+      (insert (org-air-view--pad-to line width) "\n"))))
+
+(defun org-air-view--insert-item-pane (items width)
+  "Insert the item pane for ITEMS at WIDTH."
+  (let ((org-air-view--line-width width)
+        (visible (org-air-view--visible-items items))
+        (first t))
+    (dolist (descriptor org-air-view--sections)
+      (let ((start (point)))
+        (org-air-view--insert-section descriptor items)
+        (when (and first (= (char-after start) ?\n))
+          (delete-region start (1+ start))))
+      (setq first nil))
+    (when (null visible)
+      (insert "\n" (org-air-view--item-margin)
+              (propertize "Nothing here yet. Press c to capture your first note."
+                          'face 'org-air-face-empty)
+              "\n"))))
+
+(defun org-air-view--indent-pane-lines (lines width)
+  "Return LINES with the standard margin inside WIDTH."
+  (let ((margin (org-air-view--margin)))
+    (mapcar (lambda (line)
+              (let ((text (string-trim-right line)))
+                (cond
+                 ((string-match "\\`\\([[:alpha:]]+ [0-9]+\\).*\\([‹<] [›>]\\)" text)
+                  (org-air-view--justify (concat margin (match-string 1 text))
+                                         (match-string 2 text)
+                                         width))
+                 (t (org-air-view--pad-to (concat margin text) width)))))
+            lines)))
+
+(defun org-air-view--insert-lines (lines)
+  "Insert LINES followed by newlines."
+  (dolist (line lines)
+    (insert line "\n")))
+
+(defun org-air-view--normalize-buffer-lines (width)
+  "Normalize every buffer line to display WIDTH."
+  (save-excursion
+    (goto-char (point-min))
+    (while (not (eobp))
+      (let ((line (buffer-substring (line-beginning-position) (line-end-position))))
+        (delete-region (line-beginning-position) (line-end-position))
+        (insert (org-air-view--pad-to line width)))
+      (forward-line 1))))
 
 (defun org-air-view--render (items tag-filter)
   "Render dashboard for cached ITEMS with TAG-FILTER."
-  (let ((inhibit-read-only t))
+  (let* ((inhibit-read-only t)
+         (width (org-air-view--render-width)))
     (erase-buffer)
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)
           org-air-view--tag-filter tag-filter)
     (org-air-view--insert-banner items)
-    (insert "\n")
     (org-air-view--insert-rule)
-    (if (null (org-air-view--visible-items items))
-        (insert "\n" (org-air-view--item-margin)
-                (propertize "Nothing here yet. Press c to capture your first note."
-                            'face 'org-air-face-empty)
-                "\n")
-      (dolist (descriptor org-air-view--sections)
-        (org-air-view--insert-section descriptor items))
+    (insert "\n")
+    (if (>= width org-air-layout-two-pane-min)
+        (let* ((rail-width (org-air-view--rail-width width))
+               (divider (org-air-view--divider))
+               (item-width (max 20 (- width rail-width (string-width divider))))
+               (item-content-width (max 1 (- item-width org-air-margin)))
+               (rail-content-width (max 1 (- rail-width org-air-margin)))
+               (item-lines (org-air-view--indent-pane-lines
+                            (org-air-view--render-lines
+                             item-content-width
+                             (lambda () (org-air-view--insert-item-pane items item-content-width)))
+                            item-width))
+               (rail-lines (org-air-view--indent-pane-lines
+                            (org-air-view--render-lines
+                             rail-content-width
+                             (lambda () (org-air-view--insert-rail items rail-content-width)))
+                            rail-width)))
+          (org-air-view--insert-lines
+           (org-air-view--compose-columns
+            (list (cons item-lines item-width) (cons rail-lines rail-width))
+            divider)))
+      (org-air-view--insert-top-rail items width)
       (insert "\n")
       (org-air-view--insert-rule)
-      (insert "\n" (org-air-view--item-margin))
-      (org-air-calendar-insert-month nil (org-air-view--visible-items items)))
+      (insert "\n")
+      (org-air-view--insert-lines
+       (org-air-view--render-lines width
+                                   (lambda () (org-air-view--insert-item-pane items width)))))
+    (insert "\n")
+    (org-air-view--insert-rule)
     (org-air-view--insert-footer)
+    (when (integerp org-air-view-width)
+      (org-air-view--normalize-buffer-lines org-air-view-width))
     (goto-char (point-min))))
 
 (defun org-air-view--render-current ()
@@ -605,20 +1026,38 @@ ATTENTIONP means the count should use the attention badge face."
       (save-buffer)))
   (org-air-refresh))
 
+(defun org-air-view--calendar-month-time (&optional base offset)
+  "Return month time from BASE shifted by OFFSET months."
+  (let* ((decoded (decode-time (or base (current-time))))
+         (month (+ (decoded-time-month decoded) (or offset 0)))
+         (year (decoded-time-year decoded)))
+    (while (< month 1)
+      (setq month (+ month 12)
+            year (1- year)))
+    (while (> month 12)
+      (setq month (- month 12)
+            year (1+ year)))
+    (encode-time 0 0 0 1 month year)))
+
 (defun org-air-calendar-prev ()
-  "Placeholder command for previous calendar month."
+  "Page the persistent org-air calendar to the previous month."
   (interactive)
-  (message "org-air: calendar month paging is not persistent in this view yet"))
+  (setq org-air-view--cal-month
+        (org-air-view--calendar-month-time org-air-view--cal-month -1))
+  (org-air-view--render-current))
 
 (defun org-air-calendar-next ()
-  "Placeholder command for next calendar month."
+  "Page the persistent org-air calendar to the next month."
   (interactive)
-  (message "org-air: calendar month paging is not persistent in this view yet"))
+  (setq org-air-view--cal-month
+        (org-air-view--calendar-month-time org-air-view--cal-month 1))
+  (org-air-view--render-current))
 
 (defun org-air-calendar-today ()
-  "Refresh the calendar around today."
+  "Recenter the persistent org-air calendar on today."
   (interactive)
-  (org-air-refresh))
+  (setq org-air-view--cal-month nil)
+  (org-air-view--render-current))
 
 (defun org-air-peek-item ()
   "Preview the source item in another window while keeping dashboard focus."

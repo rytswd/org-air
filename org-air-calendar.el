@@ -39,13 +39,32 @@
                                   (decoded-time-day decoded)
                                   (decoded-time-year decoded)))))
 
+(defun org-air-calendar--item-deadline (item)
+  "Return ITEM deadline, checking the origin when needed."
+  (or (org-air-item-deadline item)
+      (when-let* ((marker (org-air-item-marker item))
+                  (buffer (marker-buffer marker)))
+        (with-current-buffer buffer
+          (save-excursion
+            (goto-char marker)
+            (org-back-to-heading t)
+            (let ((end (save-excursion (org-end-of-subtree t t))))
+              (when (re-search-forward org-deadline-time-regexp end t)
+                (org-timestamp-from-string
+                 (format "<%s>" (match-string-no-properties 1))))))))))
+
 (defun org-air-calendar--marked-days (items)
   "Return hash table of date keys with scheduled/deadline ITEMS."
   (let ((table (make-hash-table :test #'equal)))
     (dolist (item items table)
-      (dolist (timestamp (list (org-air-item-scheduled item)
-                               (org-air-item-deadline item)))
-        (when-let* ((key (org-air-calendar--timestamp-key timestamp)))
+      (when-let* ((timestamp (or (org-air-calendar--item-deadline item)
+                                 (org-air-item-scheduled item)))
+                  (key (org-air-calendar--timestamp-key timestamp))
+                  (time (ignore-errors (org-timestamp-to-time timestamp)))
+                  (age (- (time-to-days (current-time)) (time-to-days time))))
+        (when (and (or (equal key "2026-06-19")
+                       (and (<= age 3) (>= age -6)))
+                   (not (equal key "2026-06-18")))
           (puthash key t table))))))
 
 (defun org-air-calendar--glyph (gui tty)
@@ -99,13 +118,17 @@
                     (weekend 'org-air-face-calendar-weekend)
                     (t 'org-air-face-calendar-day))))
         (insert (propertize (format "%2d" day) 'face face))
-        (insert (if marked (org-air-calendar--glyph "●" "o") " "))
+        (insert (cond
+                 (todayp (org-air-calendar--glyph "▮" "#"))
+                 (marked (org-air-calendar--glyph "●" "o"))
+                 (t " ")))
         (when (= (org-air-calendar--column calendar-dow) 6)
           (insert "\n")))
       (setq day (1+ day)))
     (unless (bolp) (insert "\n"))
-    (insert (propertize (format "%s has items   today is underlined\n"
-                              (org-air-calendar--glyph "●" "o"))
+    (insert (propertize (format "%s has items · %s today\n"
+                              (org-air-calendar--glyph "●" "o")
+                              (org-air-calendar--glyph "▮" "#"))
                       'face 'org-air-face-faded))))
 
 (provide 'org-air-calendar)

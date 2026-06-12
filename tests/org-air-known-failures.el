@@ -23,9 +23,25 @@
 
 (defvar org-air-test-known-failures
   '(
-    ;; (test-symbol . "reason / spec reference")  — none right now.
+    ;; (test-symbol . "reason / spec reference")
     ;; 2026-06-12: 5 date-label sign-inversion entries closed out — fix
     ;; landed on trunk3 (pwuqtvlt) and all 5 regression tests pass.
+    ;;
+    ;; v0.2 full-viewport layout grind tests (air/v0.2/org-air-layout.org).
+    ;; Expected to fail until the v0.2 renderer lands; delete each entry
+    ;; as impl satisfies it.
+    (org-air-viewport-render-honours-width-seam
+     . "v0.2: renderer must consult the org-air-view-width seam (responsive layout)")
+    (org-air-viewport-lines-compose-to-width-80
+     . "v0.2: full-width composition — every non-blank line exactly 80 cols")
+    (org-air-viewport-lines-compose-to-width-120
+     . "v0.2: full-width composition — every non-blank line exactly 120 cols")
+    (org-air-viewport-lines-compose-to-width-160
+     . "v0.2: full-width composition — every non-blank line exactly 160 cols")
+    (org-air-viewport-no-trailing-whitespace
+     . "v0.2: no trailing-whitespace drift (current calendar rows end in blanks)")
+    (org-air-viewport-calendar-present-zero-items
+     . "v0.2: calendar ALWAYS rendered, incl. fully-empty view (current empty view skips it)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

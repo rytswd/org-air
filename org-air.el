@@ -6,6 +6,8 @@
 ;; Keywords: outlines, calendar
 ;; Package-Requires: ((emacs "29.1") (org "9.6") (org-ql "0.8"))
 ;; Version: 0.1.0
+;; URL: https://github.com/rytswd/org-air
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 

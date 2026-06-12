@@ -1,5 +1,5 @@
 #+title: org-air: modern org-agenda replacement
-#+state: work-in-progress
+#+state: complete
 #+FILETAGS: :ui:core:emacs:
 
 * Summary
@@ -110,7 +110,21 @@ to its query semantics.
 
 * History
 - 2026-06-12: Initial spec drafted from user brief; parallel
-  design/impl/test tracks spawned.
+  design/impl/test tracks spawned (Opus 4.8 design, GPT 5.5 impl,
+  Fable 5 test).
+- 2026-06-12: Round 1 integrated (pywloool): design spec + faces,
+  core engine, test harness. 36/36.
+- 2026-06-12: Round 2 integrated (xqknmpoy): design-fidelity view,
+  faces wiring (review BLOCKER), DONE-classification fix, 17 UX
+  tests with 7 grind signals.
+- 2026-06-12: Round 3 integrated (pwuqtvlt): binary test gate
+  (known-failures manifest), overdue sign-inversion fix (design
+  review HIGH), calendar legend.
+- 2026-06-12: RC1 cut (ykymmmuy): design APPROVED, 58/58.
+- 2026-06-12: v0.1 final (rqtrqmslwrwt): README, packaging hygiene,
+  make check gate (compile + checkdoc/package-lint + 60/60 tests),
+  perf budgets (query 0.15s / render 0.91s on 1000 headings), lint
+  baseline empty. Final gate green; test track signed off.
 
 * References
 - nano-theme, nano-mu4e (rougier) — visual inspiration.

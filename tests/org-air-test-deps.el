@@ -9,7 +9,7 @@
 
 (require 'package)
 
-(defconst org-air-test-deps '(org-ql)
+(defconst org-air-test-deps '(org-ql package-lint)
   "Packages required to run the org-air test suites.")
 
 (let ((missing (seq-remove #'package-installed-p org-air-test-deps)))

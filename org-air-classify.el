@@ -4,7 +4,9 @@
 
 ;; Author: org-air contributors
 ;; Keywords: outlines, calendar
-;; Package-Requires: ((emacs "29.1") (org "9.6"))
+;; Version: 0.1.0
+;; URL: https://github.com/rytswd/org-air
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 
@@ -56,7 +58,7 @@
     (member todo (org-air-classify--done-keywords item))))
 
 (defun org-air-classify--future-or-today-p (timestamp now)
-  "Return non-nil when TIMESTAMP is within the upcoming window."
+  "Return non-nil when TIMESTAMP is within the upcoming window from NOW."
   (when-let* ((time (org-air-classify--time timestamp)))
     (let ((days (org-air-classify--days-between now time)))
       (and (>= days 0) (<= days org-air-upcoming-days)))))
@@ -129,4 +131,8 @@ Buckets are `upcoming', `stale', `attention', `high-priority', and `inbox'."
     (nreverse buckets)))
 
 (provide 'org-air-classify)
+
+;; Local Variables:
+;; package-lint-main-file: "org-air.el"
+;; End:
 ;;; org-air-classify.el ends here

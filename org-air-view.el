@@ -4,7 +4,9 @@
 
 ;; Author: org-air contributors
 ;; Keywords: outlines, calendar
-;; Package-Requires: ((emacs "29.1") (org "9.6") (org-ql "0.8"))
+;; Version: 0.1.0
+;; URL: https://github.com/rytswd/org-air
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 
@@ -22,6 +24,9 @@
 (require 'org-air-classify)
 (require 'org-air-calendar)
 (require 'org-air-inbox)
+
+(defvar org-air-files)
+(defvar org-air-inbox-file)
 
 (defcustom org-air-margin 2
   "Left margin for org-air content lines."
@@ -88,6 +93,7 @@ Choices are `other-window', `same', and `frame'."
   :group 'org-air)
 
 (defvar-local org-air-view--items nil)
+(defvar-local org-air-view--items-key nil)
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
 (defvar-local org-air-view--expanded-sections nil)
@@ -272,12 +278,13 @@ Choices are `other-window', `same', and `frame'."
               (org-air-view--visible-items items)))
 
 (defun org-air-view--right (string &optional face)
-  "Return STRING propertized to right-align at line end."
+  "Return STRING propertized with FACE to right-align at line end."
   (concat (propertize " " 'display `(space :align-to (- right ,(length string))))
           (if face (propertize string 'face face) string)))
 
 (defun org-air-view--insert-tag-chip (tag &optional active)
-  "Insert TAG as a deterministic colour chip."
+  "Insert TAG as a deterministic colour chip.
+When ACTIVE is non-nil, use the active-filter tag face."
   (let ((start (point))
         (face (if active 'org-air-face-tag-active (org-air-faces-tag-face tag))))
     (insert-text-button (concat "#" tag)
@@ -332,7 +339,8 @@ Choices are `other-window', `same', and `frame'."
   (if (functionp message) (funcall message) message))
 
 (defun org-air-view--insert-section-heading (bucket title count attentionp)
-  "Insert section heading for BUCKET TITLE with COUNT."
+  "Insert section heading for BUCKET TITLE with COUNT.
+ATTENTIONP means the count should use the attention badge face."
   (let ((start (point)))
     (insert (propertize (org-air-view--glyph bucket) 'face 'org-air-face-section-icon)
             " "
@@ -351,7 +359,7 @@ Choices are `other-window', `same', and `frame'."
   "Insert ITEM as an interactive row in BUCKET."
   (let* ((start (point))
          (todo (org-air-item-todo item))
-         (donep (and todo (member todo org-done-keywords)))
+         (donep (and todo (org-air-classify--done-p item)))
          (priority (org-air-view--priority-char item))
          (date (org-air-view--date-label item bucket))
          (origin (concat (org-air-view--glyph 'origin) " " (org-air-view--origin item))))
@@ -411,10 +419,11 @@ Choices are `other-window', `same', and `frame'."
             "\n")))
 
 (defun org-air-view--render (items tag-filter)
-  "Render dashboard for ITEMS with TAG-FILTER."
+  "Render dashboard for cached ITEMS with TAG-FILTER."
   (let ((inhibit-read-only t))
     (erase-buffer)
     (setq org-air-view--items items
+          org-air-view--items-key (list org-air-files org-air-inbox-file)
           org-air-view--tag-filter tag-filter)
     (org-air-view--insert-banner items)
     (insert "\n")
@@ -433,6 +442,11 @@ Choices are `other-window', `same', and `frame'."
     (org-air-view--insert-footer)
     (goto-char (point-min))))
 
+(defun org-air-view--render-current ()
+  "Re-render the dashboard from `org-air-view--items' without re-querying."
+  (org-air-view--render (or org-air-view--items (org-air-query-items))
+                        org-air-view--tag-filter))
+
 ;;;###autoload
 (defun org-air-view ()
   "Open the org-air dashboard buffer."
@@ -440,14 +454,18 @@ Choices are `other-window', `same', and `frame'."
   (let ((buffer (get-buffer-create org-air-view-buffer-name)))
     (with-current-buffer buffer
       (org-air-view-mode)
-      (org-air-view--render (org-air-query-items) org-air-view--tag-filter))
+      (unless (and org-air-view--items
+                   (equal org-air-view--items-key (list org-air-files org-air-inbox-file)))
+        (setq org-air-view--items (org-air-query-items)))
+      (org-air-view--render org-air-view--items org-air-view--tag-filter))
     (pop-to-buffer buffer)))
 
 (defun org-air-refresh ()
-  "Refresh the current org-air dashboard."
+  "Re-query files and refresh the current org-air dashboard."
   (interactive)
   (let ((filter org-air-view--tag-filter))
-    (org-air-view--render (org-air-query-items) filter)))
+    (setq org-air-view--items (org-air-query-items))
+    (org-air-view--render org-air-view--items filter)))
 
 (defun org-air-refresh-all ()
   "Clear scope and filters, then refresh."
@@ -464,13 +482,13 @@ Choices are `other-window', `same', and `frame'."
           (choice (completing-read-multiple "Tags: " tags nil nil)))
      (list choice)))
   (setq org-air-view--tag-filter (unless (null tags) tags))
-  (org-air-refresh))
+  (org-air-view--render-current))
 
 (defun org-air-filter-by-tag (tag)
   "Compatibility wrapper: filter dashboard to TAG."
   (interactive (list (read-string "Tag filter (empty clears): ")))
   (setq org-air-view--tag-filter (unless (string-empty-p tag) (list tag)))
-  (org-air-refresh))
+  (org-air-view--render-current))
 
 (defun org-air-filter-toggle (tag)
   "Toggle TAG in the active filter list."
@@ -480,13 +498,13 @@ Choices are `other-window', `same', and `frame'."
           (if (member tag filters)
               (delete tag filters)
             (cons tag filters))))
-  (org-air-refresh))
+  (org-air-view--render-current))
 
 (defun org-air-filter-clear ()
   "Clear tag filters."
   (interactive)
   (setq org-air-view--tag-filter nil)
-  (org-air-refresh))
+  (org-air-view--render-current))
 
 (defun org-air-scope (scope)
   "Scope dashboard to SCOPE."
@@ -511,13 +529,13 @@ Choices are `other-window', `same', and `frame'."
                                     (equal name (file-name-nondirectory file)))
                                   (mapcar #'org-air-item-file org-air-view--items)))))
          (t nil)))
-  (org-air-refresh))
+  (org-air-view--render-current))
 
 (defun org-air-scope-clear ()
   "Clear active dashboard scope."
   (interactive)
   (setq org-air-view--scope nil)
-  (org-air-refresh))
+  (org-air-view--render-current))
 
 (defun org-air-next-item ()
   "Move point to the next item row."
@@ -645,4 +663,8 @@ controls window choice and defaults to `org-air-visit-display'."
         (pulse-momentary-highlight-one-line (point))))))
 
 (provide 'org-air-view)
+
+;; Local Variables:
+;; package-lint-main-file: "org-air.el"
+;; End:
 ;;; org-air-view.el ends here

@@ -24,6 +24,8 @@
 (defvar org-air-test-known-failures
   '(
     ;; (test-symbol . "reason / spec reference")  — none right now.
+    ;; 2026-06-12: 5 date-label sign-inversion entries closed out — fix
+    ;; landed on trunk3 (pwuqtvlt) and all 5 regression tests pass.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -41,5 +41,9 @@ SCHEDULED: <2026-06-18 Thu>
 DEADLINE: <2026-06-19 Fri>
 Has both a schedule and a deadline.
 
+* TODO Chase missing invoice                                           :admin:
+SCHEDULED: <2026-06-08 Mon>
+Slipped by a week relative to the frozen test now.
+
 * Reference notes without a todo state                                  :note:
 Plain heading, no TODO keyword, no dates.

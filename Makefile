@@ -6,6 +6,9 @@
 #                 (binary gate: tests/org-air-known-failures.el marks grind
 #                 tests as expected-to-fail; a stale entry also fails)
 #   make compile  byte-compile all org-air*.el with warnings visible
+#   make lint     checkdoc + package-lint vs tests/org-air-lint-baseline.el
+#                 (binary: new findings fail, stale baseline entries fail)
+#   make check    the full gate: compile + lint + test (default target)
 #
 # Everything runs with a repo-local `package-user-dir' (.deps/); the user's
 # ~/.emacs.d is never touched.
@@ -20,9 +23,11 @@ TEST_FILES := $(wildcard tests/*-test.el)
 MANIFEST   := tests/org-air-known-failures.el
 SRC_FILES  := $(wildcard org-air*.el)
 
-.PHONY: all deps test compile clean
+.PHONY: all check deps test compile lint clean
 
-all: test
+all: check
+
+check: compile lint test
 
 deps:
 	$(BATCH) -l tests/org-air-test-deps.el
@@ -30,6 +35,9 @@ deps:
 test: deps
 	$(BATCH) $(patsubst %,-l %,$(TEST_FILES)) -l $(MANIFEST) \
 	  -f org-air-test-apply-known-failures -f ert-run-tests-batch-and-exit
+
+lint: deps
+	$(BATCH) -l tests/org-air-lint.el -f org-air-lint-batch
 
 compile: deps
 ifeq ($(strip $(SRC_FILES)),)

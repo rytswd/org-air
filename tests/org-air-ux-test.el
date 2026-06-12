@@ -50,6 +50,13 @@
       (org-air-filter-clear)
     (org-air-ux-test--filter "")))
 
+(defun org-air-ux-test--mode-line-text (construct)
+  "Return all literal strings inside mode-line CONSTRUCT, concatenated."
+  (cond ((stringp construct) (substring-no-properties construct))
+        ((consp construct)
+         (mapconcat #'org-air-ux-test--mode-line-text construct ""))
+        (t "")))
+
 (defun org-air-ux-test--classify (title)
   "Classify the fixture item whose title contains TITLE at the frozen now."
   (let* ((items (org-air-query-items))
@@ -113,14 +120,14 @@
                             (buffer-string)))))
 
 (ert-deftest org-air-ux-calendar-today-marked ()
-  "Today's cell carries a distinct (popout) face in the current month."
+  "Today's cell carries the spec \=`org-air-face-calendar-today' face (§6)."
   (skip-unless (locate-library "org-air"))
   (org-air-ux-test--with-month (current-time) nil
     (let* ((today (format "%2d" (decoded-time-day (decode-time (current-time)))))
            (found nil)
            (pos (point-min)))
       (while (and (not found) (setq pos (next-single-property-change pos 'face)))
-        (when (and (eq (get-text-property pos 'face) 'org-air-face-popout)
+        (when (and (eq (get-text-property pos 'face) 'org-air-face-calendar-today)
                    (equal (buffer-substring-no-properties
                            pos (min (point-max) (+ pos 2)))
                           today))
@@ -161,8 +168,11 @@
     (let ((text (buffer-string)))
       (should (string-match-p "Prepare standup notes" text))
       (should-not (string-match-p "Book dentist appointment" text))
-      ;; The active filter is echoed in the banner.
-      (should (string-match-p "work" (car (split-string text "\n\n")))))))
+      ;; §3.1: the banner lives in `header-line-format' and echoes the
+      ;; active filter as a chip.  `format-mode-line' returns "" in batch,
+      ;; so collect the strings of the header-line construct directly.
+      (should (string-match-p "work" (org-air-ux-test--mode-line-text
+                                      header-line-format))))))
 
 (ert-deftest org-air-ux-filter-clear-restores-view ()
   "Clearing the tag filter brings hidden items back."

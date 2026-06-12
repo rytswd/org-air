@@ -321,7 +321,7 @@ item sections then run full width.
       TODO Untracked idea with no dates  no date  #projects #so… ⌂ projects.org
       Reference notes without a todo  no date  #projects #note   ⌂ projects.org
       TODO Learn lute  no date  #someday #hobby                   ⌂ someday.org
-      …and 5 more — press TAB on the title to expand                           
+      …and 5 more — press TAB on the title to expand
 
   ◆ Upcoming  8
       TODO Renew library card  Today  #personal #admin           ⌂ personal.org
@@ -329,7 +329,7 @@ item sections then run full width.
       TODO Prepare standup notes  Tomorrow  #projects #work      ⌂ projects.org
       TODO Review design doc  Thu  #projects #work #review       ⌂ projects.org
       TODO [#A] Prep client presentation  Tomorrow  #work #client    ⌂ work.org
-      …and 3 more — press TAB on the title to expand                           
+      …and 3 more — press TAB on the title to expand
 
   ★ High priority  3
       TODO [#A] Ship quarterly report  Wed  #projects #work #re… ⌂ projects.org
@@ -344,7 +344,11 @@ item sections then run full width.
   [c]apture [g]refresh [/]filter [\]clear [s]cope [TAB]next RET visit [?]help
 #+end_example
 
-These mockups are *byte-precise geometry* and are asserted literally by
+These three blocks are adopted *byte-for-byte* from the canonical
+fixtures =tests/fixtures/layout-mockup-{80,120,160}.txt= (the test
+track's normalised, geometry-verified source of truth) — they ARE the
+asserted strings; treat the fixture files as authoritative if this doc
+ever drifts.  They are *byte-precise geometry*, asserted literally by
 the gate (the width seam renders the buffer at exactly 80/120/160 cols):
 every composed body line is padded to the full target width with plain
 spaces, the divider =│= sits at one fixed column throughout the body, the
@@ -677,6 +681,12 @@ are inherited unchanged.
   in the 20-col stacked column) — and added a normative truncation rule
   to §4.3 so impl and test derive identical strings.  Geometry unchanged
   (divider column-locked, rules exact).
+- 2026-06-12: Adopted the test track's canonical fixtures
+  =tests/fixtures/layout-mockup-{80,120,160}.txt= (change tvxnquwx)
+  *byte-for-byte* as the §3 blocks (verified MATCH for all three widths),
+  ending the normalisation loop: the fixture files are now the single
+  source of truth and the doc quotes them verbatim.  Geometry re-checked
+  (rules 80/120/160, divider 86@120 / 116@160, no line over target).
 
 * References
 - air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).

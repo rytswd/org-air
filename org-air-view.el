@@ -124,6 +124,8 @@ Choices are `other-window', `same', and `frame'."
 (defvar-local org-air-view--scope nil)
 (defvar-local org-air-view--expanded-sections nil)
 (defvar-local org-air-view--line-width nil)
+(defvar-local org-air-view--rendered-width nil
+  "Column width used for the most recent render of this dashboard buffer.")
 (defvar-local org-air-view--cal-month nil)
 
 (defconst org-air-view-buffer-name "*org-air*")
@@ -173,11 +175,28 @@ Choices are `other-window', `same', and `frame'."
   "Major mode for the org-air dashboard."
   (setq-local truncate-lines t)
   (setq-local cursor-type 'bar)
-  (setq-local org-air-layout-refresh-function #'org-air-view--render-current)
+  (setq-local org-air-layout-refresh-function #'org-air-view--resize-refresh)
   (setq-local buffer-read-only t)
+  (org-air-view--setup-evil)
   (org-air-layout-install-window-size-hook))
 
 (defalias 'org-air-mode #'org-air-view-mode)
+
+(declare-function evil-set-initial-state "evil-core")
+(declare-function evil-make-overriding-map "evil-common")
+
+(defun org-air-view--setup-evil ()
+  "Integrate the dashboard keymap with evil, when evil is loaded.
+U2: under evil, single-key dashboard bindings are otherwise shadowed by
+evil's motion/normal state maps and only fire after a \\=`\\\=' prefix.
+This is a soft dependency — evil is never required.  When evil is
+available we place the buffer in motion state and make the org-air keymap
+an overriding map so the dashboard keys win, while evil's own scrolling
+motions keep working.  Non-evil users are entirely unaffected."
+  (when (fboundp 'evil-make-overriding-map)
+    (evil-make-overriding-map org-air-view-mode-map 'motion))
+  (when (fboundp 'evil-set-initial-state)
+    (evil-set-initial-state 'org-air-view-mode 'motion)))
 
 (defun org-air-view--glyph (name)
   "Return glyph NAME with a TTY fallback."
@@ -861,12 +880,55 @@ ATTENTIONP means the count should use the attention badge face."
     (org-air-view--insert-footer)
     (when (integerp org-air-view-width)
       (org-air-view--normalize-buffer-lines org-air-view-width))
+    (setq org-air-view--rendered-width width)
     (goto-char (point-min))))
 
+(defun org-air-view--save-position ()
+  "Return a token describing the cursor location for later restoration."
+  (list :marker (get-text-property (point) 'org-air-marker)
+        :section (get-text-property (point) 'org-air-section)
+        :line (line-number-at-pos)
+        :column (current-column)))
+
+(defun org-air-view--find-property (prop value)
+  "Return the first position where text PROP equals VALUE, or nil."
+  (when value
+    (let ((pos (point-min)) (found nil))
+      (while (and (not found) pos (< pos (point-max)))
+        (if (equal (get-text-property pos prop) value)
+            (setq found pos)
+          (setq pos (next-single-property-change pos prop nil (point-max)))))
+      found)))
+
+(defun org-air-view--restore-position (token)
+  "Restore the cursor to the location described by TOKEN.
+Prefers the same item, then the same section, falling back to the same
+line/column so point and the user's place survive a re-render."
+  (let ((target (or (org-air-view--find-property
+                     'org-air-marker (plist-get token :marker))
+                    (org-air-view--find-property
+                     'org-air-section (plist-get token :section)))))
+    (if target
+        (goto-char target)
+      (goto-char (point-min))
+      (forward-line (1- (or (plist-get token :line) 1)))
+      (move-to-column (or (plist-get token :column) 0)))))
+
 (defun org-air-view--render-current ()
-  "Re-render the dashboard from `org-air-view--items' without re-querying."
-  (org-air-view--render (or org-air-view--items (org-air-query-items))
-                        org-air-view--tag-filter))
+  "Re-render the dashboard from `org-air-view--items', preserving point.
+Filters, scope and the calendar month are buffer-local and survive; the
+cursor is restored to the same item (or section, or line) afterwards."
+  (let ((token (org-air-view--save-position)))
+    (org-air-view--render (or org-air-view--items (org-air-query-items))
+                          org-air-view--tag-filter)
+    (org-air-view--restore-position token)))
+
+(defun org-air-view--resize-refresh ()
+  "Re-render only when the displaying window's width has actually changed.
+Called from the debounced window-size/-configuration hook."
+  (let ((width (org-air-view--render-width)))
+    (unless (eql width org-air-view--rendered-width)
+      (org-air-view--render-current))))
 
 ;;;###autoload
 (defun org-air-view ()
@@ -877,16 +939,50 @@ ATTENTIONP means the count should use the attention badge face."
       (org-air-view-mode)
       (unless (and org-air-view--items
                    (equal org-air-view--items-key (list org-air-files org-air-inbox-file)))
-        (setq org-air-view--items (org-air-query-items)))
-      (org-air-view--render org-air-view--items org-air-view--tag-filter))
-    (pop-to-buffer buffer)))
+        (setq org-air-view--items (org-air-query-items))))
+    ;; Display the buffer first so width derivation measures the window
+    ;; that actually shows the dashboard (U1), then render into it.
+    (pop-to-buffer buffer)
+    (with-current-buffer buffer
+      (org-air-view--render org-air-view--items org-air-view--tag-filter))))
 
 (defun org-air-refresh ()
-  "Re-query files and refresh the current org-air dashboard."
+  "Re-query files and refresh the current org-air dashboard.
+Preserves the active filter and the cursor's place."
   (interactive)
-  (let ((filter org-air-view--tag-filter))
+  (let ((token (org-air-view--save-position))
+        (filter org-air-view--tag-filter))
     (setq org-air-view--items (org-air-query-items))
-    (org-air-view--render org-air-view--items filter)))
+    (org-air-view--render org-air-view--items filter)
+    (org-air-view--restore-position token)))
+
+(defun org-air--relevant-file-p (file)
+  "Return non-nil when FILE is one of the configured org-air files."
+  (and file
+       (let ((truename (ignore-errors (file-truename file)))
+              (candidates (delq nil (cons (and (boundp 'org-air-inbox-file)
+                                               org-air-inbox-file)
+                                          (and (boundp 'org-air-files)
+                                               org-air-files)))))
+         (and truename
+              (seq-some (lambda (f)
+                          (and f (equal (ignore-errors (file-truename f))
+                                        truename)))
+                        candidates)))))
+
+(defun org-air-view--after-save-refresh ()
+  "Refresh an open org-air dashboard after a configured file is saved.
+Scoped to `org-air-files'/`org-air-inbox-file'; this covers capture,
+refile, and any manual edit saved from an Org buffer (U3).  Point and
+filters are preserved by `org-air-refresh'."
+  (when (and buffer-file-name (org-air--relevant-file-p buffer-file-name))
+    (let ((buffer (get-buffer org-air-view-buffer-name)))
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (when (derived-mode-p 'org-air-view-mode)
+            (org-air-refresh)))))))
+
+(add-hook 'after-save-hook #'org-air-view--after-save-refresh)
 
 (defun org-air-refresh-all ()
   "Clear scope and filters, then refresh."

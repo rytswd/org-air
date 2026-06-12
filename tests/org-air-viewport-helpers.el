@@ -249,18 +249,60 @@ section headings carry."
                     (point-max))))
     (nreverse counts)))
 
-(defun org-air-viewport-test-banner-item-count ()
-  "Return N from the banner's \"N items\" status, or nil.
-Walks the `header-line-format' construct strings directly —
-`format-mode-line' returns \"\" in --batch."
-  (let ((parts ()))
-    (cl-labels ((walk (x)
-                  (cond ((stringp x) (push x parts))
-                        ((consp x) (walk (car x)) (walk (cdr x))))))
-      (walk header-line-format))
-    (let ((text (mapconcat #'identity (nreverse parts) "")))
-      (when (string-match "\\([0-9]+\\) items" text)
-        (string-to-number (match-string 1 text))))))
+(defmacro org-air-viewport-test-as-gui (&rest body)
+  "Run BODY with `display-graphic-p' stubbed non-nil.
+The §3 mockups use the GUI glyph set (│ ─ ‹ › ● ▮ …); --batch is a
+TTY, so byte-precise mockup comparisons stub the display check while
+the dedicated TTY-fallback test keeps the real (nil) answer."
+  (declare (indent 0) (debug t))
+  `(cl-letf (((symbol-function 'display-graphic-p)
+              (lambda (&optional _display) t)))
+     ,@body))
+
+(defun org-air-viewport-test-mockup-lines (width)
+  "Return the embedded §3 mockup for WIDTH as right-trimmed lines.
+The mockups live in tests/fixtures/layout-mockup-WIDTH.txt, extracted
+verbatim from air/v0.2/org-air-layout-design.org §3 (with the
+filter/scope chips normalised to the spec'd no-filter state — the
+asserted board is the unfiltered fixture set)."
+  (let ((file (expand-file-name (format "layout-mockup-%d.txt" width)
+                                org-air-test-fixture-dir)))
+    (unless (file-readable-p file)
+      (error "Missing mockup fixture: %s" file))
+    (let ((lines (split-string
+                  (with-temp-buffer
+                    (insert-file-contents file)
+                    (buffer-string))
+                  "\n")))
+      (mapcar #'string-trim-right lines))))
+
+(defun org-air-viewport-test--drop-trailing-blanks (lines)
+  "Return LINES without trailing empty strings."
+  (let ((lines (copy-sequence lines)))
+    (while (and lines (string-empty-p (car (last lines))))
+      (setq lines (butlast lines)))
+    lines))
+
+(defun org-air-viewport-test-assert-matches-mockup (width)
+  "Assert the current buffer equals the §3 mockup for WIDTH, line for line.
+Both sides are right-trimmed per line and stripped of trailing blank
+lines, per design §3/§9.1.  On mismatch, fail with the first divergent
+line so the impl grind gets a precise punch list."
+  (let ((expected (org-air-viewport-test--drop-trailing-blanks
+                   (org-air-viewport-test-mockup-lines width)))
+        (actual (org-air-viewport-test--drop-trailing-blanks
+                 (mapcar (lambda (line)
+                           (string-trim-right (substring-no-properties line)))
+                         (org-air-viewport-test-lines)))))
+    (unless (equal actual expected)
+      (let ((i 0))
+        (while (and (< i (length expected)) (< i (length actual))
+                    (equal (nth i expected) (nth i actual)))
+          (setq i (1+ i)))
+        (ert-fail
+         (format "render diverges from the %d-col mockup at line %d (%d expected / %d actual lines)\nexpected: %S\nactual:   %S"
+                 width (1+ i) (length expected) (length actual)
+                 (nth i expected) (nth i actual)))))))
 
 (provide 'org-air-viewport-helpers)
 ;;; org-air-viewport-helpers.el ends here

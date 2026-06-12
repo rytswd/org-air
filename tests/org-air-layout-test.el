@@ -11,7 +11,16 @@
 ;; All renders run in --batch where `display-graphic-p' is nil, so the
 ;; expected glyphs are the TTY fallbacks of design §6.1 (divider "|",
 ;; rules "-"); geometry helpers accept either form where presence (not
-;; degradation) is being asserted.
+;; degradation) is being asserted.  The byte-precise mockup tests stub
+;; `display-graphic-p' to t (`org-air-viewport-test-as-gui') since the
+;; §3 mockups use the GUI glyph set.
+;;
+;; Spec rev orwonzvz: the header band is IN-BUFFER text (plain-space
+;; justified) — header assertions read the buffer, never
+;; `header-line-format'; and the §3 mockups are byte-precise renders of
+;; THIS fixture set (frozen clock Mon 15 Jun 2026; buckets 3/11/8/3/2,
+;; 23 visible), asserted line-for-line right-trimmed via the embedded
+;; copies in tests/fixtures/layout-mockup-{80,120,160}.txt.
 ;;
 ;; Tests the current implementation does not satisfy are listed in
 ;; tests/org-air-known-failures.el — the grind punch list for impl.
@@ -90,6 +99,29 @@ the rail relocates to a top band; the item sections run full width."
                      org-air-viewport-test-section-titles)
         (should (string-match-p (regexp-quote title) text))))))
 
+;;;; §9.1 Byte-precise mockup comparison — the §3 contract, line for line.
+
+(ert-deftest org-air-layout-mockup-80 ()
+  "The 80-col render equals the §3.3 stacked mockup, right-trimmed."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 80
+      (org-air-viewport-test-assert-matches-mockup 80))))
+
+(ert-deftest org-air-layout-mockup-120 ()
+  "The 120-col render equals the §3.2 two-pane mockup, right-trimmed."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 120
+      (org-air-viewport-test-assert-matches-mockup 120))))
+
+(ert-deftest org-air-layout-mockup-160 ()
+  "The 160-col render equals the §3.1 wide mockup, right-trimmed."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (org-air-viewport-test-assert-matches-mockup 160))))
+
 ;;;; §9.2 Calendar always present.
 
 (ert-deftest org-air-layout-calendar-survives-all-hiding-filter ()
@@ -99,7 +131,8 @@ under a filter that hides every item."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-dashboard 120
     (org-air-filter '("org-air-no-such-tag"))
-    (should (= (or (org-air-viewport-test-banner-item-count) -1) 0))
+    ;; Header band is in-buffer text (spec rev §1.1/§2).
+    (should (string-match-p "· 0 items" (buffer-string)))
     (should (org-air-viewport-test-calendar-present-p))))
 
 ;;;; §9.3 Empty board holds shape.
@@ -123,6 +156,8 @@ calendar grid all render."
       ;; Kind-specific empty placeholders (spec §5.1, v0.1 §7 wording).
       (should (string-match-p "Inbox zero — nothing to process\\." text))
       (should (string-match-p "Nothing overdue\\.\\s-+Nice\\.\\|Nothing overdue\\. Nice\\." text))
+      ;; In-buffer header band reports an empty board (§5.2).
+      (should (string-match-p "· 0 items" text))
       ;; Rail: summary total, filters placeholder, calendar grid.
       (should (string-match-p "0\\s-+total" text))
       (should (string-match-p "No filters · all items" text))
@@ -142,8 +177,9 @@ the banner's visible-item count.  Spec §4.2/§9.4."
         (let ((title (cdr (assq bucket org-air-viewport-test-section-titles))))
           ;; Summary row: right-aligned NUMBER then the bucket label.
           (should (string-match-p (format "%d\\s-+%s" count title) text))))
-      (let ((banner (org-air-viewport-test-banner-item-count)))
-        (should banner)
+      ;; In-buffer header band (spec rev §2): total mirrors "N items".
+      (should (string-match "\\([0-9]+\\) items" text))
+      (let ((banner (string-to-number (match-string 1 text))))
         (should (string-match-p (format "%d\\s-+total" banner) text))))))
 
 ;;;; §9.5 Face application — integrated render, not byte-compile faith.

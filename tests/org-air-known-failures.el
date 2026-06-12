@@ -43,6 +43,16 @@
     (org-air-viewport-calendar-present-zero-items
      . "v0.2: calendar ALWAYS rendered, incl. fully-empty view (current empty view skips it)")
     ;;
+    ;; v0.2 spec rev orwonzvz: byte-precise §3 mockup comparison
+    ;; (right-trimmed line-for-line; embedded copies in
+    ;; tests/fixtures/layout-mockup-{80,120,160}.txt).
+    (org-air-layout-mockup-80
+     . "design §3.3/§9.1: 80-col render equals the stacked mockup line for line")
+    (org-air-layout-mockup-120
+     . "design §3.2/§9.1: 120-col render equals the two-pane mockup line for line")
+    (org-air-layout-mockup-160
+     . "design §3.1/§9.1: 160-col render equals the wide mockup line for line")
+    ;;
     ;; v0.2 phase-2 mockup-true tests (air/v0.2/org-air-layout-design.org §9).
     (org-air-layout-divider-unbroken-120
      . "design §9.1: pane divider runs unbroken at one column through the 120-col body band")

@@ -212,7 +212,7 @@ marks (=●=) fall on days with scheduled/deadline items (12, 17, 18, 20,
 
 *** 3.1 Wide — 160 columns (two-pane, item pane 115 + rail 42)
 #+begin_example
-  org-air                                                                                                                Mon 15 Jun · 23 items · #work ✕ · @work
+  org-air                                                                                                                                  Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   ▤ Inbox  3                                                                                                        │   June 2026                            ‹ ›
@@ -234,7 +234,7 @@ marks (=●=) fall on days with scheduled/deadline items (12, 17, 18, 20,
       TODO [#A] Ship quarterly report  Wed  #projects #work #report                                  ⌂ projects.org │     23  total
       TODO Prepare standup notes  Tomorrow  #projects #work                                          ⌂ projects.org │
       TODO Review design doc  Thu  #projects #work #review                                           ⌂ projects.org │   ── Filters ─────────────────────────────
-      TODO [#A] Prep client presentation  Tomorrow  #work #client                                        ⌂ work.org │   #work ✕   Scope: @work
+      TODO [#A] Prep client presentation  Tomorrow  #work #client                                        ⌂ work.org │   No filters · all items
       …and 3 more — press TAB on the title to expand                                                                │
                                                                                                                     │   c capture · / filter · s scope
   ★ High priority  3                                                                                                │
@@ -252,7 +252,7 @@ marks (=●=) fall on days with scheduled/deadline items (12, 17, 18, 20,
 
 *** 3.2 Medium — 120 columns (two-pane, item pane 85 + rail 32)
 #+begin_example
-  org-air                                                                        Mon 15 Jun · 23 items · #work ✕ · @work
+  org-air                                                                                          Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   ▤ Inbox  3                                                                          │   June 2026                  ‹ ›
@@ -274,7 +274,7 @@ marks (=●=) fall on days with scheduled/deadline items (12, 17, 18, 20,
       TODO [#A] Ship quarterly report  Wed  #projects #work #report    ⌂ projects.org │     23  total
       TODO Prepare standup notes  Tomorrow  #projects #work            ⌂ projects.org │
       TODO Review design doc  Thu  #projects #work #review             ⌂ projects.org │   ── Filters ───────────────────
-      TODO [#A] Prep client presentation  Tomorrow  #work #client          ⌂ work.org │   #work ✕   Scope: @work
+      TODO [#A] Prep client presentation  Tomorrow  #work #client          ⌂ work.org │   No filters · all items
       …and 3 more — press TAB on the title to expand                                  │
                                                                                       │   c capture · / filter
   ★ High priority  3                                                                  │
@@ -295,12 +295,12 @@ The rail relocates to a top band so the calendar stays visible; the
 item sections then run full width.
 
 #+begin_example
-  org-air                                Mon 15 Jun · 23 items · #work ✕ · @work
+  org-air                                                  Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────
 
   June 2026          ‹ ›  ── Summary ──────────  ── Filters ─────────
-  Mo Tu We Th Fr Sa Su      3  Inbox             #work ✕
-   1  2  3  4  5  6  7     11  Needs attention   Scope: @work
+  Mo Tu We Th Fr Sa Su      3  Inbox             No filters · all it…
+   1  2  3  4  5  6  7     11  Needs attention
    8  9 10 11 12●13 14      8  Upcoming
   15▮16●17●18 19●20●21      3  High priority     c capture · / filter
   22 23 24 25 26 27 28      2  Stale             s scope · g refresh
@@ -321,7 +321,7 @@ item sections then run full width.
       TODO Untracked idea with no dates  no date  #projects #so… ⌂ projects.org
       Reference notes without a todo  no date  #projects #note   ⌂ projects.org
       TODO Learn lute  no date  #someday #hobby                   ⌂ someday.org
-      …and 5 more — press TAB on the title to expand                           
+      …and 5 more — press TAB on the title to expand
 
   ◆ Upcoming  8
       TODO Renew library card  Today  #personal #admin           ⌂ personal.org
@@ -329,7 +329,7 @@ item sections then run full width.
       TODO Prepare standup notes  Tomorrow  #projects #work      ⌂ projects.org
       TODO Review design doc  Thu  #projects #work #review       ⌂ projects.org
       TODO [#A] Prep client presentation  Tomorrow  #work #client    ⌂ work.org
-      …and 3 more — press TAB on the title to expand                           
+      …and 3 more — press TAB on the title to expand
 
   ★ High priority  3
       TODO [#A] Ship quarterly report  Wed  #projects #work #re… ⌂ projects.org
@@ -344,7 +344,11 @@ item sections then run full width.
   [c]apture [g]refresh [/]filter [\]clear [s]cope [TAB]next RET visit [?]help
 #+end_example
 
-These mockups are *byte-precise geometry* and are asserted literally by
+These three blocks are adopted *byte-for-byte* from the canonical
+fixtures =tests/fixtures/layout-mockup-{80,120,160}.txt= (the test
+track's normalised, geometry-verified source of truth) — they ARE the
+asserted strings; treat the fixture files as authoritative if this doc
+ever drifts.  They are *byte-precise geometry*, asserted literally by
 the gate (the width seam renders the buffer at exactly 80/120/160 cols):
 every composed body line is padded to the full target width with plain
 spaces, the divider =│= sits at one fixed column throughout the body, the
@@ -417,7 +421,16 @@ the board scannable and gives the empty state something to say.
   clickable =✕=), then a =Scope: <name>= line.
 - When there is no active filter and no scope, the block shows a single
   faded line =No filters · all items= (so it keeps its height and the
-  rail does not jump when filters clear).
+  rail does not jump when filters clear).  This is the state the §3
+  mockups depict (the fixture board carries no active filter/scope — all
+  23 items visible).
+- *Truncation rule (normative).*  Any rail/block text wider than its
+  column is truncated to the column width by keeping characters until
+  =string-width= reaches =width - 1=, then appending =…= (one column).
+  Concretely, in the 80-col stacked layout the Filters column is 20
+  columns, so =No filters · all items= (22) renders as =No filters · all
+  it…= (20).  Impl and test derive the same string from this rule; it is
+  the same truncation v0.1 §4 uses for long item titles.
 
 *** 4.4 Capture hint
 A faded one-line affordance at the foot of the rail:
@@ -658,6 +671,22 @@ are inherited unchanged.
   23 visible) with byte-precise geometry: divider column-locked,
   rules exact width, long titles truncated with =…= to fit the pane — the
   mockups are now asserted literally (right-trimmed comparison).
+- 2026-06-12: Fixed a state inconsistency flagged by the test track
+  (their change tvxnquwx): the mockups showed an active =#work= filter +
+  =@work= scope in the header/rail while the BODY was the unfiltered
+  fixture board (the =#inbox= rows would be hidden under a =#work=
+  filter).  Normalised all three §3 mockups to the *no-filter* state —
+  header status =Mon 15 Jun · 23 items=, rail Filters block
+  =No filters · all items= per §4.3 (truncated to =No filters · all it…=
+  in the 20-col stacked column) — and added a normative truncation rule
+  to §4.3 so impl and test derive identical strings.  Geometry unchanged
+  (divider column-locked, rules exact).
+- 2026-06-12: Adopted the test track's canonical fixtures
+  =tests/fixtures/layout-mockup-{80,120,160}.txt= (change tvxnquwx)
+  *byte-for-byte* as the §3 blocks (verified MATCH for all three widths),
+  ending the normalisation loop: the fixture files are now the single
+  source of truth and the doc quotes them verbatim.  Geometry re-checked
+  (rules 80/120/160, divider 86@120 / 116@160, no line over target).
 
 * References
 - air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).

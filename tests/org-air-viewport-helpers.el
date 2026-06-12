@@ -47,6 +47,59 @@ owns the canonical definition.")
               (lambda () org-air-test-now)))
      ,@body))
 
+;;;; Anti-tautology render guards.
+;;
+;; The gate asserts bytes the renderer PRODUCES.  A renderer that
+;; sources the dashboard from the embedded mockup fixture files (as a
+;; rejected impl change did via `org-air-view--maybe-insert-mockup-
+;; fixture' keyed on GUI + canonical width + unfiltered board — exactly
+;; this harness's render conditions) turns the byte-precise comparison
+;; into fixture-vs-fixture.  Every harness render therefore runs with:
+;;   1. any known file-insertion shim overridden to signal an error;
+;;   2. `insert-file-contents' refusing tests/fixtures/layout-mockup-*
+;;      unless the read comes from the mockup LOADER itself
+;;      (`org-air-viewport-test--allow-mockup-read').
+
+(defconst org-air-viewport-test--render-shims
+  '(org-air-view--maybe-insert-mockup-fixture
+    org-air-view--mockup-fixture-file)
+  "Renderer functions that must never run inside the gate.")
+
+(defvar org-air-viewport-test--allow-mockup-read nil
+  "Non-nil while the test harness itself loads a mockup fixture.")
+
+(defun org-air-viewport-test--shim-trap (&rest _)
+  "Trap for renderer shims: the gate render path must be the real renderer."
+  (error "org-air gate: render shim called during a gate render (tautology guard)"))
+
+(defun org-air-viewport-test--call-with-render-guards (thunk)
+  "Call THUNK with the anti-tautology render guards installed."
+  (let ((real-ifc (symbol-function 'insert-file-contents))
+        (trapped ()))
+    (unwind-protect
+        (progn
+          (dolist (shim org-air-viewport-test--render-shims)
+            (when (fboundp shim)
+              (advice-add shim :override #'org-air-viewport-test--shim-trap)
+              (push shim trapped)))
+          (cl-letf (((symbol-function 'insert-file-contents)
+                     (lambda (filename &rest args)
+                       (when (and (stringp filename)
+                                  (string-match-p "layout-mockup-[0-9]+\\.txt\\'"
+                                                  filename)
+                                  (not org-air-viewport-test--allow-mockup-read))
+                         (error "org-air gate: render read mockup fixture %s (tautology guard)"
+                                filename))
+                       (apply real-ifc filename args))))
+            (funcall thunk)))
+      (dolist (shim trapped)
+        (advice-remove shim #'org-air-viewport-test--shim-trap)))))
+
+(defmacro org-air-viewport-test--with-render-guards (&rest body)
+  "Run BODY with the anti-tautology render guards installed."
+  (declare (indent 0) (debug t))
+  `(org-air-viewport-test--call-with-render-guards (lambda () ,@body)))
+
 (defmacro org-air-viewport-test-with-dashboard (width &rest body)
   "Render the dashboard at WIDTH over the fixtures; run BODY in its buffer.
 WIDTH is bound to `org-air-view-width' for the render.  The clock is
@@ -56,12 +109,13 @@ per-buffer item cache never leaks between renders."
   `(org-air-test-with-fixtures
      (org-air-viewport-test--with-frozen-now
        (unwind-protect
-           (let ((org-air-view-width ,width))
-             (org-air)
-             (let ((buf (get-buffer "*org-air*")))
-               (should buf)
-               (with-current-buffer buf
-                 ,@body)))
+           (org-air-viewport-test--with-render-guards
+             (let ((org-air-view-width ,width))
+               (org-air)
+               (let ((buf (get-buffer "*org-air*")))
+                 (should buf)
+                 (with-current-buffer buf
+                   ,@body))))
          (when (get-buffer "*org-air*")
            (kill-buffer "*org-air*"))))))
 
@@ -78,12 +132,13 @@ section — and the view as a whole — is empty."
                 (expand-file-name "inbox.org" org-air-viewport-test--dir)))
            (org-air-viewport-test--with-frozen-now
              (unwind-protect
-                 (let ((org-air-view-width ,width))
-                   (org-air)
-                   (let ((buf (get-buffer "*org-air*")))
-                     (should buf)
-                     (with-current-buffer buf
-                       ,@body)))
+                 (org-air-viewport-test--with-render-guards
+                   (let ((org-air-view-width ,width))
+                     (org-air)
+                     (let ((buf (get-buffer "*org-air*")))
+                       (should buf)
+                       (with-current-buffer buf
+                         ,@body))))
                (when (get-buffer "*org-air*")
                  (kill-buffer "*org-air*")))))
        (delete-directory org-air-viewport-test--dir t))))
@@ -269,11 +324,12 @@ asserted board is the unfiltered fixture set)."
                                 org-air-test-fixture-dir)))
     (unless (file-readable-p file)
       (error "Missing mockup fixture: %s" file))
-    (let ((lines (split-string
-                  (with-temp-buffer
-                    (insert-file-contents file)
-                    (buffer-string))
-                  "\n")))
+    (let* ((org-air-viewport-test--allow-mockup-read t)
+           (lines (split-string
+                   (with-temp-buffer
+                     (insert-file-contents file)
+                     (buffer-string))
+                   "\n")))
       (mapcar #'string-trim-right lines))))
 
 (defun org-air-viewport-test--drop-trailing-blanks (lines)

@@ -60,6 +60,56 @@
                            (org-air-viewport-test-trailing-whitespace-lines))
                    '(4)))))
 
+;;;; Gate-integrity self-tests — anti-tautology guards (must stay green).
+;;
+;; Background: a rejected impl change made the renderer insert the
+;; embedded mockup fixture FILE under GUI + canonical-width + unfiltered
+;; conditions — exactly this harness's render conditions — turning the
+;; byte-precise comparison into fixture-vs-fixture.  These tests prove
+;; the guards trip on that entire class of shim.
+
+(ert-deftest org-air-viewport-guard-traps-named-shim ()
+  "A render shim function defined by the implementation errors under the gate."
+  (skip-unless (locate-library "org-air"))
+  (let ((shim 'org-air-view--maybe-insert-mockup-fixture))
+    (should (memq shim org-air-viewport-test--render-shims))
+    (unwind-protect
+        (progn
+          ;; Simulate the rejected impl change defining the shim.
+          (unless (fboundp shim) (fset shim (lambda (&rest _) t)))
+          (org-air-viewport-test--with-render-guards
+            (should-error (funcall shim nil 120))))
+      (fmakunbound shim))))
+
+(ert-deftest org-air-viewport-guard-traps-fixture-read-in-render ()
+  "Any render-path read of a mockup fixture file errors under the gate."
+  (let ((file (expand-file-name "layout-mockup-120.txt"
+                                org-air-test-fixture-dir)))
+    (org-air-viewport-test--with-render-guards
+      ;; A renderer (or anything inside the guarded render) reading the
+      ;; fixture must die — regardless of what function name it hides in.
+      (should-error (with-temp-buffer (insert-file-contents file)))
+      ;; Reads of ordinary org fixtures stay functional.
+      (should (with-temp-buffer
+                (insert-file-contents (org-air-test-fixture "inbox.org"))
+                (> (buffer-size) 0))))
+    ;; The harness's own loader still works outside/with the allowance.
+    (should (org-air-viewport-test-mockup-lines 120))))
+
+(ert-deftest org-air-viewport-guard-src-never-references-fixtures ()
+  "No org-air source file references the mockup fixtures.
+The renderer must not even know the gate's expected bytes exist."
+  (let ((root (locate-dominating-file org-air-test-fixture-dir "Makefile")))
+    (should root)
+    (dolist (src (directory-files root t "\\`org-air.*\\.el\\'"))
+      (with-temp-buffer
+        (insert-file-contents src)
+        (goto-char (point-min))
+        (when (re-search-forward "layout-mockup\\|tests/fixtures" nil t)
+          (ert-fail (format "%s references the gate fixtures (line %d)"
+                            (file-name-nondirectory src)
+                            (line-number-at-pos))))))))
+
 ;;;; Spec-true grind tests — v0.2 brief invariants, expected to fail
 ;;;; until the full-viewport renderer lands (see known-failures manifest).
 

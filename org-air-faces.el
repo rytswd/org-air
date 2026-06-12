@@ -4,8 +4,9 @@
 
 ;; Author: org-air contributors
 ;; Keywords: faces, calendar, outlines
-;; Package-Requires: ((emacs "29.1"))
 ;; Version: 0.1.0
+;; URL: https://github.com/rytswd/org-air
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is not part of GNU Emacs.
 
@@ -36,7 +37,7 @@
 ;;   - carry explicit light AND dark colour specs (auto-adapt per frame);
 ;;   - degrade gracefully on TTY / 16-colour terminals via :inherit;
 ;;   - load cleanly in batch with NO dependency on nano-theme:
-;;        emacs -Q --batch -l org-air-faces.el
+;;        Emacs -Q --batch -l org-air-faces.el
 ;;   - can OPT-IN to inherit a present nano-theme via
 ;;        (setq org-air-faces-prefer-nano t)        ;; before load, or
 ;;        M-x org-air-faces-link-nano               ;; at any time.
@@ -52,7 +53,7 @@
 (require 'cl-lib)
 
 (defgroup org-air nil
-  "A modern, minimalist replacement for org-agenda."
+  "A modern, minimalist replacement for `org-agenda'."
   :group 'org
   :prefix "org-air-")
 
@@ -424,4 +425,8 @@ faces follow automatically because they inherit the base faces."
   (org-air-faces-link-nano))
 
 (provide 'org-air-faces)
+
+;; Local Variables:
+;; package-lint-main-file: "org-air.el"
+;; End:
 ;;; org-air-faces.el ends here

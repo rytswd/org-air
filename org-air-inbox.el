@@ -4,7 +4,9 @@
 
 ;; Author: org-air contributors
 ;; Keywords: outlines, calendar
-;; Package-Requires: ((emacs "29.1") (org "9.6"))
+;; Version: 0.1.0
+;; URL: https://github.com/rytswd/org-air
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 
@@ -166,4 +168,8 @@ clears the schedule."
       (org-air-refresh))))
 
 (provide 'org-air-inbox)
+
+;; Local Variables:
+;; package-lint-main-file: "org-air.el"
+;; End:
 ;;; org-air-inbox.el ends here

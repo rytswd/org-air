@@ -1,10 +1,12 @@
-;;; org-air-query.el --- org-ql data layer for org-air -*- lexical-binding: t; -*-
+;;; org-air-query.el --- Org-QL data layer for org-air -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026
 
 ;; Author: org-air contributors
 ;; Keywords: outlines, calendar
-;; Package-Requires: ((emacs "29.1") (org "9.6") (org-ql "0.8"))
+;; Version: 0.1.0
+;; URL: https://github.com/rytswd/org-air
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;;; Commentary:
 
@@ -86,4 +88,8 @@ single `org-ql-select' pass over the configured files."
         :action #'org-air-query--item-at-point))))
 
 (provide 'org-air-query)
+
+;; Local Variables:
+;; package-lint-main-file: "org-air.el"
+;; End:
 ;;; org-air-query.el ends here

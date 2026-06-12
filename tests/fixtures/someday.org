@@ -1,0 +1,9 @@
+#+title: Someday
+#+filetags: :someday:
+
+* TODO Learn lute                                                      :hobby:
+Stale: noted last autumn, untouched since.
+[2025-09-15 Mon]
+
+* TODO Read Structure and Interpretation                             :reading:
+No dates at all; pure someday/maybe.

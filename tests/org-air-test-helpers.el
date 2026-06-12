@@ -1,0 +1,85 @@
+;;; org-air-test-helpers.el --- shared helpers for org-air test suites -*- lexical-binding: t; -*-
+
+;;; Commentary:
+;; Common helpers used by all org-air test suites.  Defines the canonical
+;; fixed `now' used for deterministic classification tests, fixture path
+;; helpers, and a macro that runs a test body against a scratch copy of
+;; the fixtures.
+;;
+;; The fixture set is anchored on a frozen reference time,
+;; `org-air-test-now' = Monday 2026-06-15 10:00 (local).  Relative to it:
+;;
+;;   upcoming      "Prepare standup notes"          SCHEDULED 2026-06-16
+;;                 "Email finance about budget"     SCHEDULED 2026-06-16
+;;   overdue       "Fix production outage runbook"  DEADLINE  2026-06-10
+;;                 "Book dentist appointment"       DEADLINE  2026-06-12
+;;   stale         "Dust off old archive project"   last activity 2025-11-02
+;;                 "Learn lute"                     last activity 2025-09-15
+;;   no schedule   "Untracked idea with no dates"
+;;   high priority "Ship quarterly report" / "Fix production outage
+;;                 runbook" / "Prep client presentation"  ([#A])
+;;   inbox         everything in inbox.org
+
+;;; Code:
+
+(require 'ert)
+(require 'cl-lib)
+
+;; Mark the org-air customisation variables special so that `let'-binding
+;; them in `org-air-test-with-fixtures' is dynamic even when these test
+;; files are loaded before (or without) org-air itself.
+(defvar org-air-files)
+(defvar org-air-inbox-file)
+
+(defconst org-air-test-now (encode-time '(0 0 10 15 6 2026 nil -1 nil))
+  "Frozen reference time for classification tests: Mon 2026-06-15 10:00.")
+
+(defconst org-air-test-fixture-dir
+  (expand-file-name "fixtures"
+                    (file-name-directory
+                     (or load-file-name buffer-file-name default-directory)))
+  "Directory containing the canonical org fixture files.")
+
+(defun org-air-test-fixture (name)
+  "Return the absolute path of fixture NAME (e.g. \"projects.org\")."
+  (expand-file-name name org-air-test-fixture-dir))
+
+(defun org-air-test-fixture-files ()
+  "Return all .org fixture files, sorted."
+  (directory-files org-air-test-fixture-dir t "\\.org\\'"))
+
+(defmacro org-air-test-with-fixtures (&rest body)
+  "Run BODY against a scratch copy of the fixtures.
+Copies every fixture into a fresh temporary directory and dynamically
+binds `org-air-files' to the copies and `org-air-inbox-file' to the
+copied inbox.org, so tests may mutate files freely.  Buffers visiting
+the scratch files are killed afterwards and the directory removed."
+  (declare (indent 0) (debug t))
+  `(let* ((org-air-test--dir (make-temp-file "org-air-fixtures-" t)))
+     (unwind-protect
+         (progn
+           (dolist (f (org-air-test-fixture-files))
+             (copy-file f (file-name-as-directory org-air-test--dir)))
+           (let ((org-air-files
+                  (directory-files org-air-test--dir t "\\.org\\'"))
+                 (org-air-inbox-file
+                  (expand-file-name "inbox.org" org-air-test--dir)))
+             ,@body))
+       (let ((kill-buffer-query-functions nil))
+         (dolist (buf (buffer-list))
+           (let ((fn (buffer-file-name buf)))
+             (when (and fn (string-prefix-p org-air-test--dir fn))
+               (with-current-buffer buf (set-buffer-modified-p nil))
+               (kill-buffer buf)))))
+       (delete-directory org-air-test--dir t))))
+
+(defun org-air-test-find-item (title items)
+  "Return the first item in ITEMS whose title contains TITLE, else nil.
+Uses `org-air-item-title'; only call when org-air is available."
+  (cl-find-if (lambda (item)
+                (string-match-p (regexp-quote title)
+                                (or (org-air-item-title item) "")))
+              items))
+
+(provide 'org-air-test-helpers)
+;;; org-air-test-helpers.el ends here

@@ -1,0 +1,10 @@
+#+title: Work
+#+filetags: :work:
+
+* TODO Email finance about budget
+SCHEDULED: <2026-06-16 Tue 09:00>
+Ask about the Q3 tooling line item.
+
+* TODO [#A] Prep client presentation                                  :client:
+DEADLINE: <2026-06-16 Tue>
+Slides due before the Tuesday call.

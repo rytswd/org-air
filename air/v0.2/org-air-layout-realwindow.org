@@ -1,0 +1,190 @@
+#+title: org-air v0.2.x — U4: real-window UX spec deltas
+#+state: ready
+#+FILETAGS: :ui:ux:layout:u4:
+
+* Summary
+Concrete design deltas for the real-window experience, answering U4 of
+=org-air-ux-hardening.org= and the user's verdict ("It's all so rough,
+UX is horrible … the calendar … is too far to the right and it's off
+the visible area").  These deltas amend =org-air-layout-design.org=; they
+target the *threshold zone* (≈ 90–119 cols, where most GUI windows sit),
+first-open, point placement, and spacing/hierarchy *outside* the three
+fixture widths (80/120/160).
+
+These are *design* deltas with parameter values + illustrative mockups.
+The byte contract remains the regenerated fixtures (test track,
+post-de-hardcode) — the illustrative mockups here are NOT byte fixtures.
+
+Dependency: D1/D7 assume U1 (live-window width derivation) is fixed so
+the renderer composes against the width of the window actually showing
+=*org-air*=.  Without U1 these deltas cannot land cleanly — routed to
+org-air-main.
+
+* Evidence (final-line render, frozen clock, GUI glyphs)
+Rendered the real fixtures at threshold widths via =org-air-view-width=:
+
+- *100 / 104 / 110 (current two-pane):* the item pane is too narrow, so
+  the renderer truncates the *origin breadcrumb* — the item's identity
+  and RET target:
+  : 100  …#inbox ⌂ inbox.…        (origin truncated)
+  : 104  …#personal #hea… ⌂…      (origin reduced to "⌂…")
+  : 110  …#personal #hea… ⌂ perso… (origin truncated)
+  Truncating the origin is the single worst call: the user can no longer
+  see which file an item lives in.
+- *90 / 96 (current stacked top-band):* two defects —
+  1. the calendar header's =‹ ›= month-nav *truncates to =…=* (=June
+     2026               …=), so the nav affordance disappears;
+  2. the =── Filters ─────…= rule *balloons* to the window's right edge
+     while its content is a 22-col =No filters · all items=, and the
+     filters column eats all slack — unbalanced, "empty horizontal".
+
+* Deltas
+
+** D1 — Two-pane engagement & rail tiers in the threshold zone [HIGH]
+Replace the single =org-air-layout-two-pane-breakpoint= (100) with a
+*derived* rule that guarantees a usable item pane, and tier the rail so
+the threshold zone keeps two-pane (the user wants horizontal use) without
+crushing the item pane.
+
+- New defcustom =org-air-item-pane-min= (default 64): the minimum item-
+  pane *content* width below which two-pane is not worth it.
+- Rail width *tiers* (=org-air-rail-width= becomes the mid tier):
+  | Window width | Rail content | Item pane (approx) |
+  |--------------+--------------+--------------------|
+  | 95–119       | 28 (narrow)  | width − 3 − 28     |
+  | 120–149      | 32 (mid)     | width − 3 − 32     |
+  | ≥ 150        | 42 (wide)    | width − 3 − 42     |
+  The narrow rail (28) still fits everything: calendar grid (21),
+  =11  Needs attention= (19), =No filters · all items= (22).
+- Two-pane iff =item-pane ≥ org-air-item-pane-min= using the tier's rail;
+  i.e. effective breakpoint ≈ =64 + 3 + 28 = 95=.  Below 95 → stacked.
+  So a common ~100-col window renders *two-pane with a 28-col rail and a
+  ~69-col item pane* — horizontal, and the rail/calendar stay on-screen.
+- *Hysteresis:* keep a ±3-col dead-band around the breakpoint
+  (=org-air-layout-hysteresis=, default 3) so resizing across it does not
+  flap stacked↔two-pane on every pixel.
+- The 120 and 160 fixtures are unchanged (mid/wide tiers = 32/42).
+
+** D2 — Item-line shrink priority: PROTECT THE ORIGIN [CRITICAL]
+The origin breadcrumb is the item's identity and =RET= target; it must
+never be the thing that gets truncated while anything else can give.
+Define the shrink order when an item line exceeds the pane width:
+
+1. *Tags* shrink first — drop inline chips toward the =+N= overflow
+   marker (already supported) until they fit, or to zero.
+2. *Title* truncates next — with =…=, down to a floor of ~24 cols.
+3. *Origin* shrinks *last and only if unavoidable*, and even then keeps
+   the filename's last segment; reserve =org-air-origin-min= (default 12)
+   columns for it in two-pane.
+
+So at 100 cols the line reads
+=TODO [#A] Fix production outag…   work  ⌂ projects.org= — title clipped,
+origin *intact*.  This is the biggest single feel win in the zone.
+
+** D3 — Stacked top-band balance [HIGH]
+In stacked mode the rail relocates to a top band of *three fixed
+columns* (calendar / summary / filters), left-packed with a 2-col gutter
+— never one column ballooning to the window edge.
+
+- Column widths fixed: calendar 24, summary 24, filters 24 (each holds
+  its content; total 24·3 + gutters ≈ 76, then trailing space to width).
+- Labelled rules (=── Summary ──=, =── Filters ──=) are exactly the
+  *column* width, not the window-remaining width (fixes the ballooning
+  =── Filters ─────────…= rule).
+- *Calendar nav must never truncate:* reserve width for =‹ ›= in the
+  calendar column so =June 2026 … ‹ ›= renders the arrows, not =…=.  If
+  the column cannot fit =Month YYYY  ‹ ›=, abbreviate the month
+  (=Jun 2026  ‹ ›=) before dropping the nav.
+- If the window is too narrow for three columns (< ~76), stack the band
+  *vertically* (calendar, then summary, then filters), each full-band —
+  still calendar-first, still on-screen.
+
+** D4 — First-open experience [HIGH]
+- =M-x org-air= opens the dashboard in a window spanning the *full
+  available width* — never a narrow vertical split that pushes the rail
+  off-screen.  Recommended =display-buffer= action: reuse the selected
+  window if it is already full-frame width, else
+  =display-buffer-full-frame= / =(window-width . full)=; document
+  =org-air-display-action= so users can override.  Compose against that
+  window's =window-body-width= (U1).
+- *Point placement on open:* land point on the *first actionable item* —
+  the first =org-air-item= of the first non-empty section (Inbox → Needs
+  attention → Upcoming → …), NOT =point-min= (the banner) and NOT the
+  calendar.  So =n/p=, =RET=, =r= work on the first keystroke.
+  Replace the trailing =(goto-char (point-min))= in =org-air-view--render=
+  with =org-air-view--goto-first-item= (fallback to first heading, then
+  point-min for a truly empty board).
+- *Cursor visibility:* ensure the cursor sits on a real item line; keep
+  the bar cursor; optionally enable =hl-line= on the item rows so the
+  current item is obvious.
+
+** D5 — Point & scroll preservation across refresh [HIGH] (with U3)
+On any refresh (auto or =g=), preserve the user's place: record the item
+at point (by =org-air-marker= / file+heading), re-render, then restore
+point to that same item; if it vanished (refiled/done), land on the
+nearest surviving item in the same section, else the section heading.
+Never jump point to =point-min= on refresh — that is a large part of the
+"rough" feel when capture/refile re-renders.
+
+** D6 — Spacing & visual hierarchy (real widths) [MEDIUM]
+- *Top breathing room:* one blank line between the header rule and the
+  first section (present at fixture widths — keep it at all widths).
+- *Hanging headings:* section heading at the content margin (col 2),
+  item rows indented +4 (col 6) so headings hang over their items;
+  consistent in both stacked and two-pane.
+- *Section rhythm:* exactly one blank line between sections; one blank
+  line between rail blocks.  No double blanks at any width.
+- *No trailing whitespace in the single-pane / stacked item region.*
+  Only the two-pane composed rows pad to the divider; full-width item
+  lines must be right-trimmed (trailing spaces read as grime in a real
+  GUI buffer and on yank).
+- *Count badge:* keep the inverse =count= / =count-attention= chip; ensure
+  one space before it and that it never wraps.
+
+** D7 — Hard invariant: never exceed the displaying window [CRITICAL] (with U1)
+No emitted line may be wider than the window actually displaying
+=*org-air*=.  Truncate the composed row to =window-body-width= as the
+final step.  This is what directly fixes "the calendar … is off the
+visible area": the rail can never be pushed beyond the right edge.
+
+* D2 illustration — origin protection (item pane ≈ 56 cols)
+The failure today vs the intended behaviour for the same two rows in a
+narrow item pane (illustrative, not a byte fixture).  Column ruler shows
+the pane's right edge:
+#+begin_example
+  pane edge ───────────────────────────────────────────┐
+                                                        ▼
+  NOW  (origin truncated — identity lost):
+      TODO Book dentist appointment  OVERDUE 3d  #pe… ⌂ pe…
+      TODO [#A] Fix production outage runbook  OVE…  ⌂…
+
+  D2  (title/tags clip first; origin stays WHOLE):
+      TODO Book dentist appointment  OVERDUE 3d   ⌂ personal.org
+      TODO [#A] Fix production outage runb…  OVE…  ⌂ projects.org
+#+end_example
+Shrink order: tags → +N, then title with =…=, then (last) the origin —
+which keeps at least its filename segment and =org-air-origin-min= (12)
+columns reserved in two-pane.
+
+* Routing / dependencies
+- D1, D7 depend on *U1* (live-window width) — without it the renderer
+  still composes against the wrong width.  Sequencing routed to
+  org-air-main: land U1 first, then D1/D7.
+- D5 composes with *U3* (auto-refresh): refresh must call the
+  point-preserving path.
+- These deltas change rendered output at threshold widths and add
+  fixture widths (e.g. 100); the *test track* should add/​regenerate
+  fixtures from the honest (de-hardcoded) render — coordinated in
+  parallel with the fixture re-blessing already in flight.
+
+* History
+- 2026-06-12: Authored U4 real-window deltas from the user's interactive
+  verdict + a threshold-zone render audit (90/96/100/104/110).  Found
+  origin-breadcrumb truncation in two-pane (95–110) and calendar-nav
+  truncation + filter-rule ballooning in stacked (90–96).  Specified:
+  derived two-pane engagement with rail tiers + hysteresis (D1), an
+  origin-protecting shrink order (D2), stacked top-band balance with
+  always-visible month nav (D3), full-width first-open + first-item point
+  placement (D4), point preservation across refresh (D5), spacing/
+  hierarchy + no-trailing-whitespace (D6), and a hard "never exceed the
+  window" invariant (D7).  Set =#+state: ready=.

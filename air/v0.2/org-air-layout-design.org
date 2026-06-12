@@ -691,6 +691,11 @@ are inherited unchanged.
 * References
 - air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).
 - air/v0.2/org-air-layout.org — v0.2 brief / user feedback.
+- air/v0.2/org-air-layout-realwindow.org — U4 real-window UX deltas
+  (threshold zone 90–119, first-open, point placement, origin-protecting
+  truncation, stacked top-band balance).  Amends this spec for real GUI
+  windows; read alongside it.
+- air/v0.2/org-air-ux-hardening.org — v0.2.x interactive UX punch list.
 - https://github.com/rougier/nano-mu4e — style ladder, justify, count chip.
 - https://github.com/rougier/nano-agenda — calendar-beside-agenda model.
 - https://www.reddit.com/r/emacs/comments/mzgsm0/mu4e_look_and_feel/

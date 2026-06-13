@@ -63,14 +63,15 @@ is no longer scope (it is the schedule disposition)."
 
 ;;;; Graduation semantics (classification level).
 
-(ert-deftest org-air-triage-dated-inbox-item-graduates ()
-  "An inbox-file item WITH a SCHEDULED date is not in the Inbox bucket.
-Triage spec: Inbox == unprocessed == inbox-home AND no SCHEDULED, no
-DEADLINE.  The dated item joins its date bucket instead."
+(ert-deftest org-air-triage-dated-inbox-dual-membership ()
+  "A dated inbox capture has DUAL membership: Inbox AND its date bucket.
+Design ruling xsqrnoyn (real-signal, option a): dating an inbox item
+does NOT graduate it — graduation is filing only (refile/archive/done/
+delete); the item shows in Inbox and in its real date bucket."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
-    ;; Date an existing inbox capture: tomorrow relative to the frozen
-    ;; clock (Mon 15 Jun 2026), squarely inside the upcoming window.
+    ;; Date an inbox capture: tomorrow relative to the frozen clock
+    ;; (Mon 15 Jun 2026), squarely inside the upcoming window.
     (with-current-buffer (find-file-noselect org-air-inbox-file)
       (goto-char (point-max))
       (insert "\n* TODO Dated capture under test\nSCHEDULED: <2026-06-16 Tue>\n")
@@ -79,39 +80,82 @@ DEADLINE.  The dated item joins its date bucket instead."
            (item (org-air-test-find-item "Dated capture under test" items)))
       (should item)
       (let ((buckets (org-air-classify-item item org-air-test-now)))
-        (should-not (memq 'inbox buckets))
+        (should (memq 'inbox buckets))
         (should (memq 'upcoming buckets))))))
 
-;;;; Render-level consistency target (screenshot-3 finding 1).
+;;;; Render-level consistency (screenshot-3 finding 1, ruling xsqrnoyn).
 
-(ert-deftest org-air-triage-inbox-section-only-undated ()
-  "The rendered Inbox section contains only undated items.
-This is the calendar-vs-bucket consistency resolution: dated captures
-graduate out of Inbox, so every calendar dot belongs to an item visible
-in a date-driven section.  Exercised on the data-variation board, whose
-'Dated inbox capture' (SCHEDULED Jun 23) must NOT appear under Inbox."
+(defun org-air-triage-test--section-rows ()
+  "Line-walk the render: alist of (BUCKET . ITEMS) actually rendered."
+  (let ((current nil) (rows ()))
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (let* ((bol (line-beginning-position))
+               (section (get-text-property bol 'org-air-section))
+               (item (get-text-property bol 'org-air-item)))
+          (when section (setq current section))
+          (when (and current item)
+            (push (cons current item) rows)))
+        (forward-line 1)))
+    (nreverse rows)))
+
+(ert-deftest org-air-triage-dated-inbox-row-in-both-sections ()
+  "The variation board's dated capture renders under Inbox AND Upcoming.
+Dual membership made visible (ruling xsqrnoyn); S4 suppression narrows
+to the no-date attention default only."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-alt-dashboard 120
-    (let ((in-inbox nil) (saw-inbox nil) (dated-in-inbox ()))
-      ;; Walk line by line: section headings and item rows are lines.
+    (let* ((rows (org-air-triage-test--section-rows))
+           (sections (cl-loop for (bucket . item) in rows
+                              when (string-match-p
+                                    "Dated inbox capture"
+                                    (or (org-air-item-title item) ""))
+                              collect bucket)))
+      (should (memq 'inbox sections))
+      (should (memq 'upcoming sections)))))
+
+(ert-deftest org-air-triage-calendar-marks-have-date-bucket-rows ()
+  "Every calendar mark corresponds to a visible row in some DATE bucket.
+The ruled calendar↔bucket consistency invariant (xsqrnoyn): a dotted
+day must be backed by an item rendered under Upcoming/Needs attention,
+never by a row-less phantom.  Data-variation board, GUI glyphs."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-alt-dashboard 120
+      (pcase-let ((`(,marked . ,_today)
+                   (org-air-viewport-test-calendar-marks)))
+        (let* ((rows (org-air-triage-test--section-rows))
+               (bucket-days ()))
+          ;; June days of items actually rendered in a date bucket.
+          (pcase-dolist (`(,bucket . ,item) rows)
+            (when (memq bucket '(upcoming attention))
+              (dolist (ts (list (org-air-item-scheduled item)
+                                (org-air-item-deadline item)))
+                (when ts
+                  (let ((time (ignore-errors (org-timestamp-to-time ts))))
+                    (when time
+                      (let ((d (decode-time time)))
+                        (when (and (= (decoded-time-year d) 2026)
+                                   (= (decoded-time-month d) 6))
+                          (cl-pushnew (decoded-time-day d) bucket-days)))))))))
+          (dolist (day marked)
+            (ert-info ((format "calendar mark on June %d" day))
+              (should (memq day bucket-days)))))))))
+
+(ert-deftest org-air-triage-dated-inbox-row-carries-file-hint ()
+  "Dated-unfiled inbox rows carry the 'scheduled · file with r' hint
+(ruling xsqrnoyn) so the user knows dating did not file the item."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-with-alt-dashboard 160
+    (let ((found nil))
       (save-excursion
         (goto-char (point-min))
-        (while (not (eobp))
-          (let* ((bol (line-beginning-position))
-                 (section (get-text-property bol 'org-air-section))
-                 (item (get-text-property bol 'org-air-item)))
-            (when section
-              (setq in-inbox (eq section 'inbox))
-              (when in-inbox (setq saw-inbox t)))
-            (when (and in-inbox item
-                       (or (org-air-item-scheduled item)
-                           (org-air-item-deadline item)))
-              (cl-pushnew (org-air-item-title item) dated-in-inbox
-                          :test #'equal)))
-          (forward-line 1)))
-      ;; Guard against vacuity: the Inbox section must have been seen.
-      (should saw-inbox)
-      (should (null dated-in-inbox)))))
+        (when (search-forward "Dated inbox capture" nil t)
+          (setq found (buffer-substring-no-properties
+                       (line-beginning-position) (line-end-position)))))
+      (should found)
+      (should (string-match-p "file with r" found)))))
 
 ;;;; Process-inbox entry point.
 

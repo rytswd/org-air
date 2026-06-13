@@ -15,29 +15,57 @@ Both share one disposition vocabulary and one rule: *a disposition that
 adds a plan or a home graduates the item out of Inbox*, so every action
 visibly shrinks the inbox.
 
-* Inbox membership (graduation semantics)
-*Refinement to classification (impl: =org-air-classify=).*  Today
-"inbox" == "lives in =org-air-inbox-file=".  Make it *unprocessed*:
-an item is in *Inbox* when it lives in =org-air-inbox-file= (or carries
-=:inbox:=) AND has *no* =SCHEDULED=, *no* =DEADLINE=, and has *not* been
-refiled out.  The moment a triage action gives it a date or a home, it
-leaves Inbox and appears in its proper section (Upcoming / its file).
-This is what makes triage feel like progress — each disposition drops
-the Inbox count by one.  (Tagging and TODO-promotion are *refinements*,
-not graduations; they keep the item in Inbox.)
+* Bucket membership ruling (screenshot 3)
+*Symptom:* a user scheduled inbox notes for 16/17 Jun; the calendar
+dutifully dots them, but *Upcoming 0 / "Nothing scheduled in the next 7
+days"* — because S4's dedup hid inbox-dwellers from *every* non-inbox
+bucket.  The calendar and the sections disagree.
+
+*RULING — real-signal membership.*  An inbox item participates in *every
+bucket it genuinely qualifies for*: scheduled within the window →
+*Upcoming*; overdue → *Needs attention*; =[#A]= → *High priority*; and it
+*also remains in Inbox until it is filed*.  So a scheduled inbox note
+appears in *both* Inbox and Upcoming, and the calendar, Upcoming and
+Inbox tell *one* story (the calendar dot now has a matching Upcoming
+row).  Real schedule/deadline/priority is signal — honour it everywhere;
+the summary =total= stays the *unique* count, so overlapping badges are
+expected and honest.
+
+*S4 narrowing (impl: =org-air-classify=).*  S4's dedup must suppress
+*only* the *no-date DEFAULT* attention classification for inbox-dwellers
+(the original bug: schedule-less inbox notes spuriously "needs
+attention").  It must NOT suppress real scheduled / deadline / priority
+membership.  Concretely: an inbox-dweller is excluded from the *no-date
+attention fallback* but included wherever it carries a real timestamp or
+priority.
+
+*Graduation = FILING only.*  An item leaves Inbox only when it is given
+a *home or removed* — refiled, filed-under-group, archived, marked DONE,
+or deleted.  Scheduling, deadline, tagging and TODO-promotion are
+*refinements*: they add signal (and bucket membership) but the item
+stays in Inbox because it is still an *unfiled capture*.  The
+process-inbox count-down therefore decrements on *filing* dispositions,
+not on scheduling.
+
+*Inbox affordance (the triage nudge).*  A dated-but-unfiled inbox row
+carries a quiet trailing hint — e.g. =scheduled · file with r= in
+=org-air-face-faded= — and the Inbox heading may note =N scheduled, still
+unfiled=.  This keeps the "give it a home" nudge *inside Inbox* (where
+the work is) instead of as an apologetic Upcoming empty-state, and ties
+directly into the dispositions below.
 
 * Pattern 1 — inline per-item triage (dashboard)
 Keys active on the item at point; read-only buffer, so single letters
 are free.  Additions to the v0.1 map (existing: =r= refile, =t= tag,
 =d= schedule, =m= mark):
-| Key | Command                  | Action                                   | Graduates? |
-|-----+--------------------------+------------------------------------------+------------|
-| =s=   | =org-air-item-schedule=    | set =SCHEDULED= (quick-date sub-prompt)    | yes        |
-| =d=   | =org-air-item-deadline=    | set =DEADLINE= (quick-date sub-prompt)     | yes        |
-| =r=   | =org-air-refile-item=      | refile subtree to file/heading           | yes        |
-| =f=   | =org-air-item-file-group=  | fast refile under a category/group (=@…=)  | yes        |
-| =t=   | =org-air-set-tag=          | add/remove tags (=#…=)                      | no         |
-| =T=   | =org-air-item-todo=        | cycle/promote TODO state                 | no         |
+| Key | Command                  | Action                                   | Files out of Inbox?              |
+|-----+--------------------------+------------------------------------------+----------------------------------|
+| =s=   | =org-air-item-schedule=    | set =SCHEDULED= (quick-date sub-prompt)    | no — adds to Upcoming, stays      |
+| =d=   | =org-air-item-deadline=    | set =DEADLINE= (quick-date sub-prompt)     | no — adds to Upcoming/attn, stays |
+| =r=   | =org-air-refile-item=      | refile subtree to file/heading           | yes                              |
+| =f=   | =org-air-item-file-group=  | fast refile under a category/group (=@…=)  | yes                              |
+| =t=   | =org-air-set-tag=          | add/remove tags (=#…=)                      | no — refine, stays                |
+| =T=   | =org-air-item-todo=        | cycle/promote TODO state                 | no — refine, stays                |
 | =a=   | =org-air-item-archive=     | =org-archive-subtree= (to archive file)    | yes (out)  |
 | =D=   | =org-air-item-done=        | mark DONE (optionally archive)           | yes (out)  |
 | =k=   | =org-air-item-kill=        | delete the subtree (confirm)             | yes (out)  |
@@ -80,29 +108,39 @@ autoload).  A focused loop over the current Inbox items:
   item set; =q= / =RET= exit the loop at any time (partial progress kept).
 
 ** Keys (transient map, single key, no modifier)
-| Key   | Disposition                                  | Graduates |
-|-------+----------------------------------------------+-----------|
-| =s=     | schedule (quick-date sub-prompt)             | yes       |
-| =d=     | deadline (quick-date sub-prompt)             | yes       |
-| =r=     | refile to file/heading (=completing-read=)     | yes       |
-| =f=     | file under category/group (=@…= fast path)     | yes       |
-| =t=     | add tags (refine; stays)                     | no        |
-| =T=     | promote/cycle TODO state (refine; stays)     | no        |
-| =a=     | archive subtree                              | out       |
-| =D=     | mark DONE                                    | out       |
-| =k=     | delete subtree (confirm =y=)                   | out       |
-| =SPC=/=n= | skip to next (leave in inbox)                | —         |
-| =p=     | previous item                                | —         |
-| =u=     | undo last disposition (=org-air--triage-undo=) | —         |
-| =g=     | re-query inbox                               | —         |
-| =q=/=RET= | quit process mode                            | —         |
+The *Files out?* column drives the count-down: only filing dispositions
+decrement the Inbox counter (per the membership ruling above).
+Schedule/deadline/tag are refinements — they add real bucket membership
+(Upcoming, attention, …) but the item stays in Inbox until filed.
+| Key   | Disposition                                  | Files out? / advances |
+|-------+----------------------------------------------+-----------------------|
+| =s=     | schedule (quick-date sub-prompt)             | no — refine; advance   |
+| =d=     | deadline (quick-date sub-prompt)             | no — refine; advance   |
+| =r=     | refile to file/heading (=completing-read=)     | yes — decrement        |
+| =f=     | file under category/group (=@…= fast path)     | yes — decrement        |
+| =t=     | add tags (refine)                            | no — stay on item      |
+| =T=     | promote/cycle TODO state (refine)            | no — stay on item      |
+| =a=     | archive subtree                              | yes — decrement        |
+| =D=     | mark DONE                                    | yes — decrement        |
+| =k=     | delete subtree (confirm =y=)                   | yes — decrement        |
+| =SPC=/=n= | skip to next (leave in inbox)                | —                     |
+| =p=     | previous item                                | —                     |
+| =u=     | undo last disposition (=org-air--triage-undo=) | —                     |
+| =g=     | re-query inbox                               | —                     |
+| =q=/=RET= | quit process mode                            | —                     |
+A pragmatic flow: =s= to schedule (it now shows in Upcoming + calendar),
+then =r= to file it — the =r= is what empties it from Inbox.
 
 ** Echo feedback (examples)
-- =Scheduled "Idea: weekly review automation" → Mon 16 Jun.  Inbox 4 left.=
+- =Scheduled "Idea: weekly review automation" → Mon 16 Jun.  Now in
+  Upcoming; still in inbox — file with r.=   (refinement, no decrement)
 - =Refiled "Read the Rougier paper" → learning.org.  Inbox 3 left.=
 - =Archived "Cancel the SaaS subscription".  Inbox 2 left.=
 - =Tagged "Follow up with Sam" #work #client.  (still in inbox)=
 - =Inbox zero — nice work.=
+Note how scheduling does NOT drop the count (it is a refinement that adds
+the item to Upcoming + the calendar) — only filing does.  This is what
+keeps the calendar, Upcoming and Inbox in agreement (screenshot 3).
 
 ** State preservation
 The loop preserves filters/scope and, on quit, returns point to the
@@ -128,10 +166,18 @@ the overriding map (U2); none require a modifier.
 * Test plan
 - Each inline disposition mutates the source file correctly and the
   dashboard reflects it on the next (auto) refresh.
-- Graduation: an inbox item given a schedule/deadline/home leaves the
-  Inbox bucket and joins the right section; the Inbox count drops.
-- Process-inbox walks N items, single keys advance, the counter reaches
-  zero, and the loop exits cleanly with the "Inbox zero" message.
+- Real-signal membership: a *scheduled* inbox item appears in *both*
+  Inbox and Upcoming and dots the calendar (Upcoming != 0 — the
+  screenshot-3 contradiction is gone); a no-date inbox TODO is NOT in
+  Needs attention (S4 narrowing holds); an =[#A]= inbox item shows in High
+  priority.  The summary =total= equals the *unique* item count even when
+  badges overlap.
+- Filing graduates: only refile / file-under-group / archive / done /
+  delete remove an item from Inbox and drop the Inbox count; scheduling,
+  deadline and tagging do NOT.
+- Process-inbox walks N items, single keys advance, the counter drops on
+  *filing* dispositions, reaches zero, and the loop exits cleanly with
+  the "Inbox zero" message.
 - =u= undoes the last disposition and restores the count.
 - Runs headless via the fixture inbox with a frozen clock.
 
@@ -141,3 +187,13 @@ the overriding map (U2); none require a modifier.
   single-key disposition map (with the =s=→schedule / scope→=S= remap),
   and a guided process-inbox mode (mu4e/dired-style loop, count-down to
   Inbox zero, undo, echo feedback).  Set =#+state: ready=.
+- 2026-06-13: RULING on the screenshot-3 contradiction (scheduled inbox
+  items dotted the calendar but Upcoming read 0).  Chose *real-signal
+  membership* (option a, refined): a dated inbox item appears in *both*
+  Inbox and its date bucket so the calendar/Upcoming/Inbox tell one
+  story; S4's dedup narrows to suppress only the *no-date attention
+  default* for inbox-dwellers; graduation out of Inbox = *filing only*
+  (refile/archive/done/delete), with schedule/deadline/tag as
+  refinements; added the in-Inbox "scheduled · file with r" nudge.  Revised
+  the disposition tables (=Files out?= column) and echo examples
+  accordingly.

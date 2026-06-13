@@ -74,10 +74,16 @@
      . "triage: disposition keys s/d/r/f/t/T/a/D/k/I bound to spec'd commands")
     (org-air-triage-keymap-scope-remap
      . "triage: scope remap — S=scope, M-s=scope-clear, s freed for schedule")
-    (org-air-triage-dated-inbox-item-graduates
-     . "triage graduation: inbox-file item WITH a date is not Inbox; joins its date bucket (classify)")
-    (org-air-triage-inbox-section-only-undated
-     . "triage graduation, render level: Inbox section holds only undated items (calendar-vs-bucket consistency)")
+    ;; (Two earlier entries rewritten to design ruling xsqrnoyn: dual
+    ;; membership, graduation = filing only.)
+    ;; (dual-membership at classify level already holds — green, not
+    ;; manifested; the S4 suppression was render-level only.)
+    (org-air-triage-dated-inbox-row-in-both-sections
+     . "ruling xsqrnoyn: dated capture renders under Inbox AND Upcoming (S4 suppression narrowed)")
+    (org-air-triage-calendar-marks-have-date-bucket-rows
+     . "ruling xsqrnoyn: every calendar mark backed by a visible date-bucket row (alt board: Jun 23 + far-future Jun 25)")
+    (org-air-triage-dated-inbox-row-carries-file-hint
+     . "ruling xsqrnoyn: dated-unfiled inbox row shows the 'scheduled · file with r' hint")
     (org-air-triage-process-inbox-command-exists
      . "triage: org-air-process-inbox guided mode entry point")
     (org-air-s7-header-status-ends-at-w-minus-1

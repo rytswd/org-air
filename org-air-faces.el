@@ -388,6 +388,22 @@ without relying on hue (colour-blind / TTY legibility)."
   "Face for the currently selected calendar day."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-calendar-legend
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#546E7A"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#B0BCCE"))
+    (t (:inherit default)))
+  "Face for the calendar legend TEXT (\"has items\", \"today\").
+Quiet but *legible* — `org-air-face-faded' fails WCAG AA on both
+backgrounds for this small key line (2.7:1 dark / 2.6:1 light), so the
+legend uses a mid-contrast grey that passes AA (5.4:1 light #546E7A /
+6.5:1 dark #B0BCCE).  The marker SAMPLES in the legend are propertized
+in their real cell faces (`org-air-face-calendar-event' for the
+has-items dot, `org-air-face-calendar-today' for the today marker) so
+the legend doubles as a key."
+  :group 'org-air-faces)
+
 ;;;; ---------------------------------------------------------------------
 ;;;; Layout / pane faces (v0.2 full-viewport composition)
 ;;;;

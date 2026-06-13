@@ -232,6 +232,32 @@ column); the gaps are purely vertical metrics.
   cleanly.  (If a user *wants* line-spacing globally, =line-spacing 0=
   buffer-local still wins for =*org-air*=.)
 
+* S9 — Calendar legend is illegible
+*Pixel symptom (user, screenshot 2):* "The has-items and today legends
+are extremely difficult to read" — the line =● has items · ■ today=.
+*Root cause:* the whole legend is propertized =org-air-face-faded=, which
+fails WCAG AA against both backgrounds for this small key line:
+*2.72:1* on dark (=#677691= on =#2E3440=) and *2.59:1* on light (=#90A4AE=
+on =#FFFFFF=).  =faded= is for de-emphasis, not illegibility.  The S5b
+=■= is also chunkier than the old =▮=, widening the dim/sharp gap.
+*Delta (face-only; legend TEXT byte-identical → fixtures safe):*
+- New face =org-air-face-calendar-legend= (added to =org-air-faces.el=) for
+  the legend *text* — a mid-contrast grey that *passes AA*: =#546E7A=
+  (5.4:1) light, =#B0BCCE= (6.5:1) dark.  Quiet, but readable.
+- *Markers shown in their REAL faces so the legend doubles as a key:*
+  the renderer propertizes the =●= sample with =org-air-face-calendar-
+  event= (salient) and the =■= sample with =org-air-face-calendar-today=
+  (popout), splitting the one =faded= propertize into three segments
+  (=●=event / " has items · " legend / =■=today / " today" legend).
+- *Source the legend markers from the SAME glyph as the day cells*
+  (=org-air-layout--glyph 'calendar-item= / ='today=), so the sample =■=
+  matches the cell =■= (today the legend hardcodes its own glyph in
+  =org-air-calendar.el=, risking a =▮=/=■= mismatch — fix that).
+The legend text is unchanged (=● has items · ■ today=); only the faces
+on its segments change, so the frozen fixtures are unaffected.  The
+re-propertization lives in =org-air-calendar.el= (impl2); the face is in
+=org-air-faces.el= (this round).
+
 * Faces changed in this round (=org-air-faces.el=)
 Applied now (face-only, fixtures safe): =org-air-face-separator=,
 =org-air-face-count=, =org-air-face-count-attention= per S2/S3 above.
@@ -265,3 +291,10 @@ rule as a faded hairline and the counts as quiet faded/popout numbers
   (ragged-dash divider: set =line-spacing 0= buffer-local in
   =org-air-view-mode= so =│= glyphs touch into a continuous frame; divider
   stays one faded face, no height shrink).
+- 2026-06-13: S9 calendar-legend legibility (user: "extremely difficult
+  to read").  Diagnosed the =faded= legend as WCAG-AA-failing (2.7:1 dark
+  / 2.6:1 light); added =org-air-face-calendar-legend= (AA-passing
+  =#546E7A= light / =#B0BCCE= dark) and specified the markers be shown in
+  their real cell faces (event/today) so the legend doubles as a key.
+  Face-only — legend text byte-identical, fixtures unaffected; gate
+  103/103.

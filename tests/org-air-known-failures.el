@@ -67,6 +67,23 @@
     ;; Screenshot-3 round:
     (org-air-s5a-point-on-visible-char-all-paths
      . "S5a gap: filter that hides the anchored item drops point onto fill whitespace (restore-position line/column fallback); all other paths pass")
+    ;;
+    ;; Triage round (air/v0.2/org-air-triage.org, ready) + S7/S8 tuning
+    ;; (air/v0.2/org-air-aesthetics.org) — impl2 punch list:
+    (org-air-triage-keymap-dispositions
+     . "triage: disposition keys s/d/r/f/t/T/a/D/k/I bound to spec'd commands")
+    (org-air-triage-keymap-scope-remap
+     . "triage: scope remap — S=scope, M-s=scope-clear, s freed for schedule")
+    (org-air-triage-dated-inbox-item-graduates
+     . "triage graduation: inbox-file item WITH a date is not Inbox; joins its date bucket (classify)")
+    (org-air-triage-inbox-section-only-undated
+     . "triage graduation, render level: Inbox section holds only undated items (calendar-vs-bucket consistency)")
+    (org-air-triage-process-inbox-command-exists
+     . "triage: org-air-process-inbox guided mode entry point")
+    (org-air-s7-header-status-ends-at-w-minus-1
+     . "S7: header reserves one right-margin column — status ends at W-1, never W (byte-affecting: regen later)")
+    (org-air-s8-line-spacing-zero-buffer-local
+     . "S8 mechanism: line-spacing buffer-locally 0 in org-air-view-mode (pixel effect GUI-only, documented)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

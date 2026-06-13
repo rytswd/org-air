@@ -1,0 +1,143 @@
+#+title: org-air — inbox triage flow
+#+state: ready
+#+FILETAGS: :ui:ux:inbox:triage:
+
+* Summary
+The user wants "more clear patterns to move items out of inbox."  This
+spec defines two complementary patterns:
+1. *Inline per-item triage* — single-key dispositions on any item row
+   (and especially Inbox rows) without leaving the dashboard.
+2. *Process-inbox mode* — a guided, mu4e/dired-style loop that walks the
+   Inbox one item at a time with single-key dispositions and a live
+   count-down to *Inbox zero*.
+
+Both share one disposition vocabulary and one rule: *a disposition that
+adds a plan or a home graduates the item out of Inbox*, so every action
+visibly shrinks the inbox.
+
+* Inbox membership (graduation semantics)
+*Refinement to classification (impl: =org-air-classify=).*  Today
+"inbox" == "lives in =org-air-inbox-file=".  Make it *unprocessed*:
+an item is in *Inbox* when it lives in =org-air-inbox-file= (or carries
+=:inbox:=) AND has *no* =SCHEDULED=, *no* =DEADLINE=, and has *not* been
+refiled out.  The moment a triage action gives it a date or a home, it
+leaves Inbox and appears in its proper section (Upcoming / its file).
+This is what makes triage feel like progress — each disposition drops
+the Inbox count by one.  (Tagging and TODO-promotion are *refinements*,
+not graduations; they keep the item in Inbox.)
+
+* Pattern 1 — inline per-item triage (dashboard)
+Keys active on the item at point; read-only buffer, so single letters
+are free.  Additions to the v0.1 map (existing: =r= refile, =t= tag,
+=d= schedule, =m= mark):
+| Key | Command                  | Action                                   | Graduates? |
+|-----+--------------------------+------------------------------------------+------------|
+| =s=   | =org-air-item-schedule=    | set =SCHEDULED= (quick-date sub-prompt)    | yes        |
+| =d=   | =org-air-item-deadline=    | set =DEADLINE= (quick-date sub-prompt)     | yes        |
+| =r=   | =org-air-refile-item=      | refile subtree to file/heading           | yes        |
+| =f=   | =org-air-item-file-group=  | fast refile under a category/group (=@…=)  | yes        |
+| =t=   | =org-air-set-tag=          | add/remove tags (=#…=)                      | no         |
+| =T=   | =org-air-item-todo=        | cycle/promote TODO state                 | no         |
+| =a=   | =org-air-item-archive=     | =org-archive-subtree= (to archive file)    | yes (out)  |
+| =D=   | =org-air-item-done=        | mark DONE (optionally archive)           | yes (out)  |
+| =k=   | =org-air-item-kill=        | delete the subtree (confirm)             | yes (out)  |
+*Note the remap:* =s= becomes item-schedule (was =scope=); move =scope= to
+=S= and =scope-clear= to =M-s= so the high-frequency triage verb gets the
+short key.  (Flag for impl + the keybindings doc; non-breaking for evil
+via the overriding map.)
+
+*Quick-date sub-prompt* (shared by =s= / =d= and process mode), a single
+keypress:
+| Key | Meaning              |
+|-----+----------------------|
+| =t=   | today                |
+| =m=   | tomorrow             |
+| =w=   | next Monday (week)   |
+| =e=   | this weekend (Sat)   |
+| =+=   | +1 day (repeatable)  |
+| =.=   | pick a date (=org-read-date=) |
+| =0=   | clear the date       |
+Echo after: =Scheduled "Call the plumber" → Tue 17 Jun.=
+
+* Pattern 2 — process-inbox mode (guided)
+=org-air-process-inbox= (bind =I= on the dashboard, and a global
+autoload).  A focused loop over the current Inbox items:
+
+** Behaviour
+- Enter: point lands on the *first* Inbox item; the rest of the
+  dashboard dims (=org-air-face-faded= overlay) so focus is on the item;
+  a transient one-line *disposition bar* shows in the echo area / a
+  header-line:
+  : Inbox 5 ┆ [s]chedule [d]eadline [r]efile [f]ile [t]ag [a]rchive [D]one [k]ill ┆ [SPC]skip [q]uit
+- Each disposition acts on the *current* item, echoes a one-line result,
+  and *auto-advances* to the next Inbox item.
+- The counter decrements on every *graduating* disposition; the bar
+  updates: =Inbox 4 ┆ …=.
+- When the Inbox reaches zero: clear the loop, restore the dashboard,
+  and echo =Inbox zero — nice work.= with a brief popout flash on the
+  Inbox count.
+- =SPC= / =n= skip (leave in inbox, advance); =p= back; =g= refresh the
+  item set; =q= / =RET= exit the loop at any time (partial progress kept).
+
+** Keys (transient map, single key, no modifier)
+| Key   | Disposition                                  | Graduates |
+|-------+----------------------------------------------+-----------|
+| =s=     | schedule (quick-date sub-prompt)             | yes       |
+| =d=     | deadline (quick-date sub-prompt)             | yes       |
+| =r=     | refile to file/heading (=completing-read=)     | yes       |
+| =f=     | file under category/group (=@…= fast path)     | yes       |
+| =t=     | add tags (refine; stays)                     | no        |
+| =T=     | promote/cycle TODO state (refine; stays)     | no        |
+| =a=     | archive subtree                              | out       |
+| =D=     | mark DONE                                    | out       |
+| =k=     | delete subtree (confirm =y=)                   | out       |
+| =SPC=/=n= | skip to next (leave in inbox)                | —         |
+| =p=     | previous item                                | —         |
+| =u=     | undo last disposition (=org-air--triage-undo=) | —         |
+| =g=     | re-query inbox                               | —         |
+| =q=/=RET= | quit process mode                            | —         |
+
+** Echo feedback (examples)
+- =Scheduled "Idea: weekly review automation" → Mon 16 Jun.  Inbox 4 left.=
+- =Refiled "Read the Rougier paper" → learning.org.  Inbox 3 left.=
+- =Archived "Cancel the SaaS subscription".  Inbox 2 left.=
+- =Tagged "Follow up with Sam" #work #client.  (still in inbox)=
+- =Inbox zero — nice work.=
+
+** State preservation
+The loop preserves filters/scope and, on quit, returns point to the
+dashboard's first remaining Inbox item (or the Inbox heading when
+empty).  Each disposition is a normal Org edit on the source file, so
+=u= (undo) and the auto-refresh hook (U3) keep the dashboard consistent.
+
+* Faces / visual
+- No new faces required.  The disposition bar uses
+  =org-air-face-faded= for the legend and =org-air-face-salient= for the
+  active key letters in brackets.
+- The dimming overlay reuses =org-air-face-faded=; the focused item keeps
+  the normal palette so it stands out.
+- Count-down uses the existing =org-air-face-count-attention= (popout)
+  flash on decrement (reuse =org-air-flash-on-refresh=).
+
+* Keybinding summary (delta to v0.1 §9)
+Added: =s= schedule, =d= deadline (re-mapped), =f= file-under-group, =T=
+todo, =a= archive, =D= done, =k= kill, =I= process-inbox, =u= undo.
+Re-mapped: =s= scope → =S=; =S= scope-clear → =M-s=.  All work under evil via
+the overriding map (U2); none require a modifier.
+
+* Test plan
+- Each inline disposition mutates the source file correctly and the
+  dashboard reflects it on the next (auto) refresh.
+- Graduation: an inbox item given a schedule/deadline/home leaves the
+  Inbox bucket and joins the right section; the Inbox count drops.
+- Process-inbox walks N items, single keys advance, the counter reaches
+  zero, and the loop exits cleanly with the "Inbox zero" message.
+- =u= undoes the last disposition and restores the count.
+- Runs headless via the fixture inbox with a frozen clock.
+
+* History
+- 2026-06-13: Authored from user feedback ("more clear patterns to move
+  items out of inbox").  Defined inbox graduation semantics, an inline
+  single-key disposition map (with the =s=→schedule / scope→=S= remap),
+  and a guided process-inbox mode (mu4e/dired-style loop, count-down to
+  Inbox zero, undo, echo feedback).  Set =#+state: ready=.

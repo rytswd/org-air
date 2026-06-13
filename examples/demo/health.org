@@ -1,0 +1,12 @@
+#+TITLE: Health
+
+* TODO Morning run — 5k  :health:fitness:
+  SCHEDULED: <2026-06-14 Sun>
+* TODO Meal-prep for the week  :health:food:
+  SCHEDULED: <2026-06-13 Sat>
+* TODO Schedule the annual check-up  :health:
+  :PROPERTIES:
+  :CREATED:  [2026-05-19 Tue]
+  :END:
+* TODO Physio exercises  :health:fitness:
+  SCHEDULED: <2026-06-28 Sun>

@@ -1,0 +1,47 @@
+#+TITLE: org-air demo dataset
+
+A showcase dataset that exercises every part of the org-air dashboard:
+all five buckets populated, six origin files for breadcrumb variety, a
+broad tag spread for chip colours, and ~15 dated items so the calendar
+shows a constellation of marks.
+
+* Use it
+The committed =*.org= files here are a snapshot with dates relative to
+their generation day.  *Dates are relative to "today"*, so for a live
+demo regenerate them first:
+
+#+begin_src sh
+python3 examples/demo/generate.py /tmp/org-air
+#+end_src
+
+Then point org-air at the output and open the dashboard:
+
+#+begin_src elisp
+(setq org-air-files (directory-files "/tmp/org-air" t "\\.org\\'")
+      org-air-inbox-file "/tmp/org-air/inbox.org")
+(org-air)
+#+end_src
+
+(=generate.py= with no argument rewrites the files in this directory.)
+
+* What it shows
+| File          | Flavour / tags                                |
+|---------------+-----------------------------------------------|
+| =inbox.org=     | unprocessed captures (=#inbox=)                 |
+| =work.org=      | =#work #client #report #meeting #finance=       |
+| =projects.org=  | =#projects #urgent #infra #design #release=     |
+| =home.org=      | =#home #finance #family #chores=                |
+| =health.org=    | =#health #fitness #food=                         |
+| =learning.org=  | =#reading #course #notes #emacs=                 |
+
+- *Inbox* — five quick captures to triage (see the triage flow:
+  =air/v0.2/org-air-triage.org=).
+- *Needs attention* — overdue deadlines (board report, outage runbook,
+  rent) plus schedule-less TODOs.
+- *Upcoming* — items scheduled today through next week.
+- *High priority* — the =[#A]= items.
+- *Stale* — long-untouched TODOs with no plan.
+- *Calendar* — deadlines/schedules spread across the month so the grid
+  shows a constellation, including a couple in the next month.
+
+Regenerate any day and it stays demonstrative.

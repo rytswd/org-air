@@ -1,0 +1,23 @@
+#+TITLE: Inbox
+#+FILETAGS: :inbox:
+
+* Call the plumber back about the leak
+  :PROPERTIES:
+  :CREATED:  [2026-06-12 Fri]
+  :END:
+* Idea: weekly review automation
+  :PROPERTIES:
+  :CREATED:  [2026-06-11 Thu]
+  :END:
+* TODO Read the Rougier text-editor design paper
+  :PROPERTIES:
+  :CREATED:  [2026-06-10 Wed]
+  :END:
+* TODO Follow up with Sam on the proposal
+  :PROPERTIES:
+  :CREATED:  [2026-06-13 Sat]
+  :END:
+* Cancel the unused SaaS subscription
+  :PROPERTIES:
+  :CREATED:  [2026-06-09 Tue]
+  :END:

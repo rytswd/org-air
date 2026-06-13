@@ -1,0 +1,19 @@
+#+TITLE: Home
+
+* TODO Pay the rent  :home:finance:
+  DEADLINE: <2026-06-12 Fri>
+  :PROPERTIES:
+  :CREATED:  [2026-06-07 Sun]
+  :END:
+* TODO Water the garden  :home:chores:
+  SCHEDULED: <2026-06-13 Sat>
+* TODO Book the dentist appointment  :home:health:
+  SCHEDULED: <2026-06-15 Mon>
+* TODO Call mum  :home:family:
+  SCHEDULED: <2026-06-18 Thu>
+* TODO Renew the car insurance  :home:finance:
+  SCHEDULED: <2026-06-23 Tue>
+* TODO Sort the garage  :home:chores:
+  :PROPERTIES:
+  :CREATED:  [2026-05-04 Mon]
+  :END:

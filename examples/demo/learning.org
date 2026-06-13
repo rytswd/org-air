@@ -1,0 +1,14 @@
+#+TITLE: Learning
+
+* TODO Finish the Rust ownership chapter  :reading:course:
+  SCHEDULED: <2026-06-17 Wed>
+* TODO Watch the distributed-systems lecture  :reading:course:
+  :PROPERTIES:
+  :CREATED:  [2026-05-14 Thu]
+  :END:
+* TODO Notes: structure & interpretation  :reading:notes:
+  :PROPERTIES:
+  :CREATED:  [2026-04-29 Wed]
+  :END:
+* TODO Practice keyboard shortcuts  :reading:emacs:
+  SCHEDULED: <2026-07-01 Wed>

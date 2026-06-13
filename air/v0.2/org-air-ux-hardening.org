@@ -65,3 +65,14 @@ User verdict: "It looks very broken, not sophisticated and modern at all."
    cursor-on-tofu; verify GUI font coverage for chosen glyphs).
 ** S6 [HIGH/design] Vertical composition: content top 40%, floating footer,
    dead void below — design the intentional full-height behaviour.
+
+* Round 3 closeout (2026-06-13)
+- Demo dataset (examples/demo + /tmp/org-air). Triage: dual-membership
+  classify (dated inbox items appear in Inbox AND their date bucket;
+  summary total = unique), inline dispositions, guided process-inbox
+  (I, count-down to inbox zero), s/S keymap remap, 'scheduled · file
+  with r' nudge. S7 header W-1 margin + global usable-columns clip fix.
+  S8 line-spacing 0. S9 AA-legible calendar legend (samples in real
+  cell faces). Cursor-on-visible-char across all point-moving paths.
+- Integrated rwoskzmn; gate 121/121. Test seat reassigned Fable→Opus.
+- Backlog: D2 origin clip @100 (non-blocking).

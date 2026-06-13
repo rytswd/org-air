@@ -47,7 +47,39 @@
     ;; 2026-06-13: mockup-80/120/160 closed out — fixtures regenerated
     ;; ONCE from the honest D1-D7 renderer (ymvlyvuk) via make
     ;; regen-mockups (guards active), plus the new threshold set
-    ;; 90/96/100/104/110; routed to design for re-blessing.
+    ;; 90/96/100/104/110; design FINAL-blessed at rpuxmmlz.
+    ;;
+    ;; Screenshot round (GUI bugs the byte gate missed; impl2 punch
+    ;; list — delete as fixes land):
+    ;; 2026-06-13: S1 entry closed — impl2 nnoosnpn removed the
+    ;; header-line path; verified header-line-format nil on both glyph
+    ;; paths, and the v0.1 filter-chip test rewritten to read the
+    ;; in-buffer band.
+    ;; 2026-06-13: 4 stale-mockup entries closed — S-round one-shot
+    ;; regen executed against impl2 nnoosnpn@addb0c59 (widths ×
+    ;; {natural,24,50} + empty-board@120x50); routed to design for
+    ;; re-blessing.
+    ;; 2026-06-13: S5/S6 entries closed — impl2 nnoosnpn@addb0c59
+    ;; verified honest: 3-tier glyph table complete incl. tees (ASCII
+    ;; final fallback), org-air-view-height defcustom adopted per the
+    ;; proposed contract, 120x50 fill + empty-board sparse fill exact.
+    ;;
+    ;; 2026-06-13: triage-round closeout (impl2 wrqpvwzt + test-track
+    ;; reconciliation).  All 9 grind entries closed:
+    ;;  - 6 verified passed-unexpectedly on impl2 wrqpvwzt: S7 right-
+    ;;    margin (status ends at W-1), S8 buffer-local line-spacing,
+    ;;    triage scope remap (S/M-s), process-inbox entry point, the
+    ;;    dated-inbox 'file with r' hint, and S5a point-on-visible across
+    ;;    all point-moving paths.
+    ;;  - 3 fixed on the TEST track (orchestrator ruling; impl frozen):
+    ;;    keymap-dispositions T-row now expects org-air-item-cycle-todo
+    ;;    (org-air-item-todo stays the cl-defstruct accessor); and the
+    ;;    data-variation board's dated items were re-dated inside the
+    ;;    upcoming window (dated-inbox 23->17 Jun, midsummer 25->22 Jun)
+    ;;    so every calendar mark is backed by a visible date-bucket row
+    ;;    (ruling xsqrnoyn consistency invariant).  The section-rows test
+    ;;    helper now scans each line for the org-air-section/org-air-item
+    ;;    properties (they sit past the left margin), not just column 0.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

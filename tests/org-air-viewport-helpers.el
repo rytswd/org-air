@@ -27,9 +27,20 @@
 (require 'org-air-test-helpers)
 
 (defvar org-air-view-width nil
-  "Proposed width seam: explicit render width for the org-air dashboard.
+  "Width seam: explicit render width for the org-air dashboard.
 Declared in the test harness so suites can bind it; the implementation
 owns the canonical definition.")
+
+(defvar org-air-view-height nil
+  "HEIGHT seam (S6 full-height composition; contract impl-accepted),
+mirroring the width seam: nil (default) = derive ROWS from the
+displaying window (`window-body-height'); integer = compose the buffer
+to exactly that many rows in batch — header band first, footer band
+pinned to the last row, the body band fill-padded in between.  Fill
+rows are full-width: plain spaces in the STACKED layout (right-trim to
+empty), but in TWO-PANE they carry the framed divider on every body
+row (a framed sidebar, not a void).  Canonical definition is owned by
+the implementation; declared special here for binding.")
 
 (defconst org-air-viewport-test-widths '(80 120 160)
   "Canonical render widths exercised by the viewport suites.")
@@ -102,7 +113,8 @@ owns the canonical definition.")
 
 (defmacro org-air-viewport-test-with-dashboard (width &rest body)
   "Render the dashboard at WIDTH over the fixtures; run BODY in its buffer.
-WIDTH is bound to `org-air-view-width' for the render.  The clock is
+WIDTH is bound to `org-air-view-width' for the render; WIDTH may also be
+a cons (WIDTH . HEIGHT) to bind the height seam too.  The clock is
 frozen to `org-air-test-now'.  The buffer is killed afterwards so the
 per-buffer item cache never leaks between renders."
   (declare (indent 1) (debug t))
@@ -110,7 +122,13 @@ per-buffer item cache never leaks between renders."
      (org-air-viewport-test--with-frozen-now
        (unwind-protect
            (org-air-viewport-test--with-render-guards
-             (let ((org-air-view-width ,width))
+             (let* ((org-air-viewport-test--size ,width)
+                    (org-air-view-width (if (consp org-air-viewport-test--size)
+                                            (car org-air-viewport-test--size)
+                                          org-air-viewport-test--size))
+                    (org-air-view-height (if (consp org-air-viewport-test--size)
+                                             (cdr org-air-viewport-test--size)
+                                           org-air-view-height)))
                (org-air)
                (let ((buf (get-buffer "*org-air*")))
                  (should buf)
@@ -133,7 +151,15 @@ section — and the view as a whole — is empty."
            (org-air-viewport-test--with-frozen-now
              (unwind-protect
                  (org-air-viewport-test--with-render-guards
-                   (let ((org-air-view-width ,width))
+                   (let* ((org-air-viewport-test--size ,width)
+                          (org-air-view-width
+                           (if (consp org-air-viewport-test--size)
+                               (car org-air-viewport-test--size)
+                             org-air-viewport-test--size))
+                          (org-air-view-height
+                           (if (consp org-air-viewport-test--size)
+                               (cdr org-air-viewport-test--size)
+                             org-air-view-height)))
                      (org-air)
                      (let ((buf (get-buffer "*org-air*")))
                        (should buf)
@@ -301,26 +327,34 @@ section headings carry."
 ;; Countermeasure: a SECOND board whose org files are generated at test
 ;; time from the data constant below, with every expectation (calendar
 ;; day union, titles, origins, total) computed from that same constant.
-;; The dates deliberately fall outside F1's [-6..+3] age window (Jun 5 =
-;; 10d overdue, Jun 25 = 10d out) and the board has no item on Jun 19
-;; (F1's fabricated literal), so any data hardcoding diverges.
+;; The dates deliberately diverge from F1's fabricated literals (Jun 5 =
+;; 10d overdue, no item on Jun 19), so any data hardcoding diverges.
+;; Ruling xsqrnoyn: every calendar mark is backed by a visible date-bucket
+;; row, so each dated item also lands in a section (none are marked-but-
+;; row-less).
 
 (defconst org-air-viewport-test-alt-items
   '((:file "alpha.org" :todo "TODO" :title "Water the bonsai garden"
      :scheduled "2026-06-21 Sun" :tags ("garden"))
     (:file "alpha.org" :todo "TODO" :title "File expense reimbursement"
      :deadline "2026-06-05 Fri" :tags ("money"))
-    ;; Far-future schedule: beyond the upcoming window, so it appears in
-    ;; NO section — but it MUST still be marked on the calendar (the
-    ;; calendar maps time, not buckets) and counted in the visible total.
+    ;; Window-edge schedule (Mon 22 Jun, 7d out): inside the upcoming
+    ;; window, so it carries BOTH a calendar mark and an Upcoming row
+    ;; (ruling xsqrnoyn — no marked-but-row-less day).
     (:file "alpha.org" :todo "TODO" :title "Plan midsummer party"
-     :scheduled "2026-06-25 Thu" :tags ("social") :sectionless t)
+     :scheduled "2026-06-22 Mon" :tags ("social"))
     (:file "beta.org" :todo "TODO" :title "Sharpen kitchen knives"
      :deadline "2026-06-11 Thu" :tags ("kitchen"))
     (:file "beta.org" :title "Reference clipping without dates"
      :tags ("note"))
     (:file "inbox-alt.org" :todo "TODO" :title "Sort the seed packets")
-    (:file "inbox-alt.org" :title "Half-formed thought to triage"))
+    (:file "inbox-alt.org" :title "Half-formed thought to triage")
+    ;; DATED INBOX item — the dual-membership surface (screenshot-3
+    ;; finding 1, ruling xsqrnoyn): scheduled inside the upcoming window
+    ;; (Wed 17 Jun), it appears in BOTH Inbox and Upcoming and dots its
+    ;; calendar day, so calendar / Upcoming / Inbox tell one story.
+    (:file "inbox-alt.org" :todo "TODO" :title "Dated inbox capture"
+     :scheduled "2026-06-17 Wed"))
   "Source of truth for the data-variation board (frozen now: Mon 15 Jun 2026).
 The org files AND every test expectation derive from this list.")
 
@@ -387,19 +421,49 @@ render guards, buffer killed afterwards)."
                    (kill-buffer "*org-air*"))))))
        (delete-directory org-air-viewport-test--dir t))))
 
+(defun org-air-viewport-test--glyph (name which)
+  "Return the WHICH (`gui' or `tty') variant of glyph NAME from the table.
+Derived from `org-air-glyphs' so glyph-default respecs (e.g. S5) never
+break the parsers.  Understands the 3-tier (NAME PREFERRED SAFE ASCII)
+format (gui -> PREFERRED, tty -> ASCII) and the legacy (GUI . TTY)
+cons; falls back to historical defaults when the entry is absent."
+  (let ((entry (and (boundp 'org-air-glyphs)
+                    (cdr (assq name org-air-glyphs)))))
+    (or (cond
+         ((and (consp entry) (stringp (cdr entry)))   ; legacy cons
+          (if (eq which 'gui) (car entry) (cdr entry)))
+         ((consp entry)                               ; 3-tier list
+          (if (eq which 'gui) (nth 0 entry) (car (last entry)))))
+        (cdr (assq name '((calendar-item . "●") (today . "▮")))))))
+
 (defun org-air-viewport-test-calendar-marks ()
   "Parse the rendered GUI calendar grid: return (MARKED-DAYS . TODAY-DAYS).
-MARKED-DAYS are day numbers followed by ●; TODAY-DAYS by ▮.  Sorted.
-Digit-prefixed glyphs only, so the legend line never matches."
-  (let ((text (buffer-string)) (marked ()) (today ()) (pos 0))
-    (while (string-match "\\([0-9]+\\)\\([●▮]\\)" text pos)
+MARKED-DAYS are day numbers followed by the `calendar-item' glyph;
+TODAY-DAYS by the `today' glyph (both read from the live glyph table,
+GUI variants).  Sorted.  Digit-prefixed glyphs only, so the legend line
+never matches."
+  (let* ((mark (org-air-viewport-test--glyph 'calendar-item 'gui))
+         (today-glyph (org-air-viewport-test--glyph 'today 'gui))
+         (rx (format "\\([0-9]+\\)\\(%s\\|%s\\)"
+                     (regexp-quote mark) (regexp-quote today-glyph)))
+         (text (buffer-string)) (marked ()) (today ()) (pos 0))
+    (while (string-match rx text pos)
       (let ((day (string-to-number (match-string 1 text)))
             (glyph (match-string 2 text)))
-        (if (equal glyph "●")
+        (if (equal glyph mark)
             (cl-pushnew day marked)
           (cl-pushnew day today)))
       (setq pos (match-end 0)))
     (cons (sort marked #'<) (sort today #'<))))
+
+(defun org-air-viewport-test-assert-fills-height (height)
+  "Assert the buffer composes to exactly HEIGHT rows (S6 contract).
+Fill rows count: full-width plain-space rows in the stacked layout
+(right-trim to empty), divider-framed rows in two-pane."
+  (let ((lines (org-air-viewport-test-lines)))
+    (unless (= (length lines) height)
+      (ert-fail (format "composed to %d rows, expected exactly %d"
+                        (length lines) height)))))
 
 (defmacro org-air-viewport-test-as-gui (&rest body)
   "Run BODY with `display-graphic-p' stubbed non-nil.
@@ -417,8 +481,12 @@ The mockups live in tests/fixtures/layout-mockup-WIDTH.txt, extracted
 verbatim from air/v0.2/org-air-layout-design.org §3 (with the
 filter/scope chips normalised to the spec'd no-filter state — the
 asserted board is the unfiltered fixture set)."
-  (let ((file (expand-file-name (format "layout-mockup-%d.txt" width)
-                                org-air-test-fixture-dir)))
+  (let ((file (expand-file-name
+               (cond ((stringp width) (format "layout-mockup-%s.txt" width))
+                     ((consp width) (format "layout-mockup-%dx%d.txt"
+                                            (car width) (cdr width)))
+                     (t (format "layout-mockup-%d.txt" width)))
+               org-air-test-fixture-dir)))
     (unless (file-readable-p file)
       (error "Missing mockup fixture: %s" file))
     (let* ((org-air-viewport-test--allow-mockup-read t)
@@ -437,7 +505,9 @@ asserted board is the unfiltered fixture set)."
     lines))
 
 (defun org-air-viewport-test-assert-matches-mockup (width)
-  "Assert the current buffer equals the §3 mockup for WIDTH, line for line.
+  "Assert the current buffer equals the mockup for WIDTH, line for line.
+WIDTH may be an integer (natural height), a (WIDTH . HEIGHT) cons, or a
+string fixture suffix such as \"empty-120x50\".
 Both sides are right-trimmed per line and stripped of trailing blank
 lines, per design §3/§9.1.  On mismatch, fail with the first divergent
 line so the impl grind gets a precise punch list."
@@ -453,7 +523,7 @@ line so the impl grind gets a precise punch list."
                     (equal (nth i expected) (nth i actual)))
           (setq i (1+ i)))
         (ert-fail
-         (format "render diverges from the %d-col mockup at line %d (%d expected / %d actual lines)\nexpected: %S\nactual:   %S"
+         (format "render diverges from the %s mockup at line %d (%d expected / %d actual lines)\nexpected: %S\nactual:   %S"
                  width (1+ i) (length expected) (length actual)
                  (nth i expected) (nth i actual)))))))
 

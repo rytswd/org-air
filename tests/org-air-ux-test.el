@@ -168,11 +168,10 @@
     (let ((text (buffer-string)))
       (should (string-match-p "Prepare standup notes" text))
       (should-not (string-match-p "Book dentist appointment" text))
-      ;; §3.1: the banner lives in `header-line-format' and echoes the
-      ;; active filter as a chip.  `format-mode-line' returns "" in batch,
-      ;; so collect the strings of the header-line construct directly.
-      (should (string-match-p "work" (org-air-ux-test--mode-line-text
-                                      header-line-format))))))
+      ;; S1: the header band is IN-BUFFER text (header-line-format is
+      ;; gone — see org-air-s1-no-header-line-in-dashboard); the active
+      ;; filter chip is echoed in the band, so read the buffer.
+      (should (string-match-p "#work" text)))))
 
 (ert-deftest org-air-ux-filter-clear-restores-view ()
   "Clearing the tag filter brings hidden items back."

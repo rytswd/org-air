@@ -109,21 +109,28 @@ Buckets are `upcoming', `stale', `attention', `high-priority', and `inbox'."
   (let* ((now (or now (current-time)))
          (buckets nil)
          (scheduled (org-air-item-scheduled item))
-         (deadline (org-air-item-deadline item)))
+         (deadline (org-air-item-deadline item))
+         (inbox-p (or (org-air-classify--inbox-file-p item)
+                      (member "inbox"
+                              (mapcar #'downcase (org-air-item-tags item))))))
     (unless (org-air-classify--done-p item)
       (when (or (org-air-classify--future-or-today-p scheduled now)
                 (org-air-classify--future-or-today-p deadline now))
         (push 'upcoming buckets))
+      ;; Real-signal membership ruling (xsqrnoyn): an overdue item needs
+      ;; attention, but the NO-DATE attention default is suppressed for
+      ;; inbox-dwellers — a schedule-less inbox capture is unfiled, not
+      ;; "needs attention" (it stays in Inbox).  Real scheduled/deadline/
+      ;; priority membership is still honoured everywhere.
       (when (or (org-air-classify--past-p scheduled now)
                 (org-air-classify--past-p deadline now)
-                (and (null scheduled) (null deadline)))
+                (and (null scheduled) (null deadline) (not inbox-p)))
         (push 'attention buckets))
       (when (and (org-air-item-priority item)
                  (>= (org-air-item-priority item)
                      (org-get-priority (format "[#%c]" org-priority-highest))))
         (push 'high-priority buckets))
-      (when (or (org-air-classify--inbox-file-p item)
-                (member "inbox" (mapcar #'downcase (org-air-item-tags item))))
+      (when inbox-p
         (push 'inbox buckets))
       (when-let* ((activity (org-air-classify--last-activity item)))
         (when (>= (org-air-classify--days-between activity now) org-air-stale-days)

@@ -14,8 +14,9 @@
 ;; (real June days 8/10/12/15/16/17/18/20 vs rendered 12/15/16/17/19/20).
 ;;
 ;; The alt board's dates are chosen adversarially: Jun 5 (10d overdue)
-;; and Jun 25 (10d out) fall outside F1's [-6..+3] age window, and no
-;; item exists on Jun 19 (F1's fabricated mark).
+;; diverges from F1's [-6..+3] age window, and no item exists on Jun 19
+;; (F1's fabricated mark).  Per ruling xsqrnoyn every dated item also
+;; carries a visible date-bucket row (no marked-but-row-less day).
 
 ;;; Code:
 

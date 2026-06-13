@@ -1,5 +1,5 @@
 #+title: org-air — inbox triage flow
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:ux:inbox:triage:
 
 * Summary
@@ -186,7 +186,7 @@ the overriding map (U2); none require a modifier.
   items out of inbox").  Defined inbox graduation semantics, an inline
   single-key disposition map (with the =s=→schedule / scope→=S= remap),
   and a guided process-inbox mode (mu4e/dired-style loop, count-down to
-  Inbox zero, undo, echo feedback).  Set =#+state: ready=.
+  Inbox zero, undo, echo feedback).  Set =#+state: complete=.
 - 2026-06-13: RULING on the screenshot-3 contradiction (scheduled inbox
   items dotted the calendar but Upcoming read 0).  Chose *real-signal
   membership* (option a, refined): a dated inbox item appears in *both*

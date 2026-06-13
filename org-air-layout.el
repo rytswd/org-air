@@ -24,13 +24,13 @@
 
 (defcustom org-air-glyphs
   '((origin . ("⌂" . "H"))
-    (inbox . ("▤" . "I"))
+    (inbox . ("□" . "I"))
     (attention . ("▲" . "!"))
     (upcoming . ("◆" . ">"))
     (high-priority . ("★" . "*"))
-    (stale . ("◷" . "~"))
+    (stale . ("○" . "~"))
     (calendar-item . ("●" . "o"))
-    (today . ("▮" . "#"))
+    (today . ("■" . "#"))
     (clear . ("✕" . "x"))
     (more . ("…" . "..."))
     (box-horizontal . ("─" . "-"))
@@ -42,9 +42,27 @@
     (box-top-left . ("┌" . "+"))
     (box-top-right . ("┐" . "+"))
     (box-bottom-left . ("└" . "+"))
-    (box-bottom-right . ("┘" . "+")))
-  "Glyph pairs used by org-air as (GUI . TTY) fallbacks."
-  :type 'alist
+    (box-bottom-right . ("┘" . "+"))
+    (box-tee-left . ("├" . "+"))
+    (box-tee-right . ("┤" . "+")))
+  "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
+PREFERRED is the GUI glyph (already the safer S5b default: stale ○, today
+■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate
+SAFE tier for thin GUI fonts lives in `org-air-layout-safe-glyphs'.
+Selection is `org-air-layout-glyph'.  User-overridable."
+  :type '(alist :key-type symbol
+                :value-type (cons string string))
+  :group 'org-air)
+
+(defcustom org-air-layout-safe-glyphs
+  '((origin . "·")
+    (clear . "×"))
+  "Intermediate SAFE glyphs for thin GUI fonts (S5b middle tier).
+When a glyph's PREFERRED form is not `char-displayable-p' in a graphical
+frame, `org-air-layout-glyph' tries the SAFE form here before the ASCII
+fallback.  Names absent here degrade straight from PREFERRED to ASCII,
+their PREFERRED already being a widely-covered default."
+  :type '(alist :key-type symbol :value-type string)
   :group 'org-air)
 
 (defcustom org-air-layout-gutter 2
@@ -70,13 +88,40 @@ while a frame or window is being dragged into a single re-render."
 (defvar org-air-layout--resize-timer nil
   "Pending debounce timer for the org-air window-size re-render.")
 
+(defun org-air-layout--displayable-p (string)
+  "Return non-nil when every character of STRING is displayable now."
+  (and (stringp string)
+       (> (length string) 0)
+       (seq-every-p #'char-displayable-p (append string nil))))
+
 (defun org-air-layout-glyph (name)
-  "Return glyph NAME with a TTY fallback."
+  "Return the best displayable glyph for NAME (S5b 3-tier selection).
+Graphical frame: PREFERRED if `char-displayable-p', else the SAFE tier
+\(`org-air-layout-safe-glyphs') if displayable, else the ASCII fallback.
+A TTY always gets ASCII."
   (let ((pair (cdr (assq name org-air-glyphs))))
     (cond
-     ((not pair) "")
-     ((display-graphic-p) (car pair))
-     (t (cdr pair)))))
+     ((null pair) "")
+     ((not (display-graphic-p)) (cdr pair))
+     ((org-air-layout--displayable-p (car pair)) (car pair))
+     (t (let ((safe (cdr (assq name org-air-layout-safe-glyphs))))
+          (if (and safe (org-air-layout--displayable-p safe))
+              safe
+            (cdr pair)))))))
+
+(defun org-air-layout-current-height (&optional buffer)
+  "Return the body height in lines of the window displaying BUFFER.
+The vertical analogue of `org-air-layout-current-width' (S6): measures
+the window actually showing BUFFER so the dashboard can fill its full
+height.  Falls back to the selected window, then a sane default."
+  (let* ((buffer (or buffer (current-buffer)))
+         (window (or (get-buffer-window buffer t)
+                     (and (eq buffer (window-buffer (selected-window)))
+                          (selected-window)))))
+    (cond
+     ((window-live-p window) (window-body-height window))
+     ((window-live-p (selected-window)) (window-body-height (selected-window)))
+     (t 24))))
 
 (defun org-air-layout-current-width (&optional buffer)
   "Return the column width of the window actually displaying BUFFER.
@@ -96,9 +141,24 @@ visible area."
                      (and (eq buffer (window-buffer (selected-window)))
                           (selected-window)))))
     (cond
-     ((window-live-p window) (window-body-width window))
-     ((window-live-p (selected-window)) (window-body-width (selected-window)))
+     ((window-live-p window) (org-air-layout--usable-columns window))
+     ((window-live-p (selected-window))
+      (org-air-layout--usable-columns (selected-window)))
      (t (frame-width)))))
+
+(defun org-air-layout--usable-columns (window)
+  "Return the columns usable for a full line in WINDOW.
+In a real graphical window this is `window-max-chars-per-line', which
+reserves the column the continuation/truncation glyph occupies when the
+right fringe is absent (common in minimal GUI configs) — so no composed
+line (not just the S7-margined header) can clip off the right edge.  In a
+terminal or a non-window mock it is the plain `window-body-width' in
+columns (keeping the U1 width-derivation tests green)."
+  (if (and (windowp window)
+           (display-graphic-p (window-frame window))
+           (fboundp 'window-max-chars-per-line))
+      (window-max-chars-per-line window)
+    (window-body-width window)))
 
 (defun org-air-layout-orientation (width &optional breakpoint)
   "Return layout orientation for WIDTH and BREAKPOINT.

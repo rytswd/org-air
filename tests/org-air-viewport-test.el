@@ -157,6 +157,36 @@ Spec: calendar ALWAYS rendered (air/v0.2/org-air-layout.org, Goals)."
   (org-air-viewport-test-with-dashboard 120
     (should (org-air-viewport-test-calendar-present-p))))
 
+(ert-deftest org-air-viewport-render-honours-height-seam ()
+  "The renderer consults `org-air-view-height': different heights,
+different composition (S6 full-height contract — body band fill-padded,
+stacked: plain-space rows / two-pane: divider-framed rows, footer pinned
+to the last row)."
+  (skip-unless (locate-library "org-air"))
+  (let (natural tall)
+    (org-air-viewport-test-with-dashboard 120
+      (setq natural (substring-no-properties (buffer-string))))
+    (org-air-viewport-test-with-dashboard (cons 120 50)
+      (setq tall (substring-no-properties (buffer-string))))
+    (should-not (equal natural tall))))
+
+(ert-deftest org-air-viewport-fills-height ()
+  "At 120×50 (blessed fill-branch height) the buffer composes to exactly
+50 rows, every non-blank row 120 cols (S6 contract)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-with-dashboard (cons 120 50)
+    (org-air-viewport-test-assert-fills-height 50)
+    (org-air-viewport-test-assert-aligned 120)))
+
+(ert-deftest org-air-viewport-fills-height-empty-board ()
+  "The SPARSE board fills the tall window: empty board at 120×50 is
+exactly 50 rows — the user's actual complaint surface (design note:
+~30-line empty board + ~15 framed fill rows + pinned footer)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-with-empty-dashboard (cons 120 50)
+    (org-air-viewport-test-assert-fills-height 50)
+    (org-air-viewport-test-assert-aligned 120)))
+
 (ert-deftest org-air-viewport-calendar-present-zero-items ()
   "Calendar pane is rendered even when there are NO items at all.
 Spec: calendar ALWAYS rendered, regardless of item counts or filters;

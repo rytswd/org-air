@@ -318,5 +318,114 @@ tier's full legend never appears.  Asserted on GUI and TTY glyph sets."
             (org-air-viewport-test-as-gui (funcall run))
           (funcall run))))))
 
+;;;; Round-6 restraint (design ssyrlulw): de-boxed faces, inline tags, no frame.
+
+(defconst org-air-v1--tag-faces
+  '(org-air-face-tag org-air-face-tag-active
+    org-air-face-tag-accent-1 org-air-face-tag-accent-2 org-air-face-tag-accent-3
+    org-air-face-tag-accent-4 org-air-face-tag-accent-5 org-air-face-tag-accent-6)
+  "Tag faces that V1a strips of box vocabulary.")
+
+(defconst org-air-v1--accent-faces
+  '(org-air-face-tag-accent-1 org-air-face-tag-accent-2 org-air-face-tag-accent-3
+    org-air-face-tag-accent-4 org-air-face-tag-accent-5 org-air-face-tag-accent-6)
+  "The six tag accent hues — foreground-only after V1a.")
+
+(defconst org-air-v2--priority-faces
+  '(org-air-face-priority-a org-air-face-priority-b org-air-face-priority-c)
+  "Priority cookie faces that V2 strips of the pill.")
+
+(ert-deftest org-air-v1a-v2-tag-priority-faces-deboxed ()
+  "V1a/V2 restraint: tag and priority faces carry NO box vocabulary.
+Every tag/priority face has :box, :background and :height `unspecified'
+(the effective face, resolving inheritance) — colour is foreground only.
+:box is GUI-invisible to the byte gate, so the face spec is the only
+place de-boxing is testable.  The six accent hues keep a real
+:foreground clause in their defface spec (the hue is the whole point)."
+  (skip-unless (locate-library "org-air"))
+  (dolist (f (append org-air-v1--tag-faces org-air-v2--priority-faces))
+    (ert-info ((format "face %s" f))
+      (should (facep f))
+      (dolist (attr '(:box :background :height))
+        (should (eq (face-attribute f attr nil t) 'unspecified)))))
+  (dolist (f org-air-v1--accent-faces)
+    (ert-info ((format "accent hue kept: %s" f))
+      ;; The hue lives in the defface spec's colour clauses (batch has no
+      ;; 256-colour display, so the effective :foreground falls back; the
+      ;; spec is the display-independent source of truth).
+      (should (memq :foreground (flatten-tree (get f 'face-defface-spec)))))))
+
+(defun org-air-v1b--item-leftpane (title)
+  "Return the rendered item row's LEFT pane (pre-divider) for TITLE.
+Nil if TITLE is not on screen.  Right-trimmed; the rail/calendar pane
+after the divider is dropped so only the item line is inspected."
+  (save-excursion
+    (goto-char (point-min))
+    (when (search-forward title nil t)
+      (let* ((bol (line-beginning-position)) (eol (line-end-position))
+             (line (buffer-substring-no-properties bol eol)))
+        (string-trim-right (car (split-string line "[│|]")))))))
+
+(ert-deftest org-air-v1b-inline-tag-placement ()
+  "V1b: tags sit INLINE right after the date (single space), and the
+single flex gap is between the tag cluster and the flush-right origin —
+the round-5 title->tags void is gone.  Reading order:
+<state> [<prio>] <title>  <date>  <#tags>  <flex>  ⌂ <origin>."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 120
+      (let ((lp (org-air-v1b--item-leftpane "Chase missing invoice")))
+        (should lp)
+        ;; Tags immediately follow the date, single space — no void.
+        (should (string-match-p "OVERDUE 7d #projects #admin" lp))
+        ;; The origin is flush-right, reached across the flex gap (>=2
+        ;; spaces) that now sits AFTER the tags, not before them.
+        (should (string-match-p "#admin \\{2,\\}⌂ projects\\.org\\'" lp))
+        ;; No large whitespace run between the date and the tags.
+        (should-not (string-match-p "OVERDUE 7d \\{2,\\}#" lp))))))
+
+(ert-deftest org-air-v1b-origin-protected-on-overflow ()
+  "D2 + V1b overflow: when the row cannot fit, the inline tags drop
+first toward a faded overflow marker and the title truncates, but the
+origin is NEVER dropped — it stays intact and flush-right.  (Impl emits
+the `more' glyph for the tag overflow, width-driven, rather than the
+spec's static +N-at-inline-max; flagged for a doc reconcile.)"
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 120
+      ;; This row has 3 tags and a long title; at 120 it overflows.
+      (let ((lp (org-air-v1b--item-leftpane "Fix production outage runbook"))
+            (more (org-air-viewport-test--glyph 'more 'gui)))
+        (should lp)
+        ;; Origin intact and flush-right despite the overflow (D2).
+        (should (string-suffix-p "⌂ projects.org" lp))
+        ;; A faded overflow marker shows content was dropped before it.
+        (should (string-match-p (regexp-quote more) lp))))))
+
+(ert-deftest org-air-v3-frame-chrome-removed ()
+  "V3: the round-4 buffer-box outer frame is GONE — a half-drawn frame is
+a regression, so this pins its absence.  A rendered dashboard sets no
+frame margins, no line-prefix/wrap-prefix side border, and no
+header-line frame border; the in-buffer hairline rules + single rail
+divider carry all the structure (and stay byte-tested elsewhere)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-with-dashboard 120
+    ;; No outer-frame margins.
+    (should (= (or left-margin-width 0) 0))
+    (should (= (or right-margin-width 0) 0))
+    ;; No side border carried by the line/wrap prefixes.
+    (should (null line-prefix))
+    (should (null wrap-prefix))
+    ;; No header-line frame border (V3 removed it; S1 allows nil).
+    (should (null header-line-format)))
+  ;; The GUI glyph path must not re-introduce frame chrome either.
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 120
+      (should (= (or left-margin-width 0) 0))
+      (should (= (or right-margin-width 0) 0))
+      (should (null line-prefix))
+      (should (null wrap-prefix))
+      (should (null header-line-format)))))
+
 (provide 'org-air-screenshot-regression-test)
 ;;; org-air-screenshot-regression-test.el ends here

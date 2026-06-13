@@ -1,5 +1,5 @@
 #+title: org-air v0.3: modern visual identity + interaction
-#+state: work-in-progress
+#+state: complete
 #+FILETAGS: :ui:ux:visual:
 
 * Summary
@@ -61,3 +61,16 @@ byte gate must see content).
 - https://github.com/rougier/buffer-box  (/tmp/org-air-ace/buffer-box-reference.png)
 - org-modern (coloured keywords / svg-ish tags inspiration)
 - /tmp/org-air-ace/user-screenshot-4.png
+
+* Round-5 closeout (2026-06-14)
+- T1 coloured TODO keywords + boxed priority pills + tag chips (hue via
+  fg+box, no shared dark bg). T2 TAB expand/collapse sections (motion on
+  M-TAB/M-n/M-p). T3a responsive calendar (3-col <120 / 4-col >=120,
+  defcustom org-air-calendar-day-spacing). T3b ◆ deadline / ● scheduled /
+  · created / ■ today + per-tier single-line legend (18c/27c). T4
+  org-air-visit-display (other-window/same/side/frame) + org-air-return
+  (restores captured window-config, C-c b). T5 trailing-row fix. T6
+  re-fit on text-scale/font change. T7 buffer-box outer frame (window
+  chrome: header/mode-line/margins/line-prefix; in-buffer divider kept).
+- Integrated uqspoznu; gate 122/122. Backlog: T7 right-edge overlay,
+  T4 dashboard peek-region, D2 origin clip @100.

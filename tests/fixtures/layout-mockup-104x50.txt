@@ -4,11 +4,11 @@
   □ Inbox 3                                                               │   June 2026              ‹ ›
       Quick note about org-air idea                   #inbox  ⌂ inbox.org │   Mo Tu We Th Fr Sa Su
       Call plumber                                    #inbox  ⌂ inbox.org │    1  2  3  4  5  6  7
-      TODO Triage me later                            #inbox  ⌂ inbox.org │    8● 9 10●11 12●13 14
-                                                                          │   15■16●17●18●19●20●21
+      TODO Triage me later                            #inbox  ⌂ inbox.org │    8● 9 10◆11 12◆13 14
+                                                                          │   15■16◆17◆18●19◆20●21
   ▲ Needs attention 8                                                     │   22 23 24 25 26 27 28
       TODO Chase missing invoice  OVERDUE 7d  #projects …  ⌂ projects.org │   29 30
-      TODO [#A] Fix production outage run…  OVERDUE 5d  …  ⌂ projects.org │   ● has items · ■ today
+      TODO [#A] Fix production outage run…  OVERDUE 5d  …  ⌂ projects.org │   ◆due ●sched ■today
       TODO Book dentist appointment  OVERDUE 3d         …  ⌂ personal.org │
       TODO Dust off old archive project  no date        …  ⌂ projects.org │   ── Summary ───────────────
       TODO Untracked idea with no dates  no date        …  ⌂ projects.org │      3  Inbox

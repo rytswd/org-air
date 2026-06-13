@@ -4,10 +4,16 @@
 ;; Regression surface for the GUI-screenshot bugs the byte gate missed
 ;; (screenshot round):
 ;;
-;;   S1 — duplicate header: the header-line path was still active in
-;;        GUI.  Batch cannot RENDER a header-line, but it CAN assert the
-;;        variable: `header-line-format' must be nil in a rendered
-;;        dashboard — the in-buffer header band is the only header.
+;;   S1 — duplicate header: the GUI header-line must never DUPLICATE the
+;;        in-buffer banner.  Original intent was "no second banner", first
+;;        encoded as `header-line-format' nil.  T7 (buffer-box, design
+;;        ytvztszk option A) may legitimately put the frame's TOP BORDER
+;;        in `header-line-format' — chrome, not a banner.  So S1 now
+;;        asserts: the in-buffer banner exists exactly once, and the
+;;        header-line, IF set, is the frame border (box chrome), never a
+;;        banner duplicate.  Batch cannot RENDER a header-line, so the
+;;        construct is walked structurally (format-mode-line is empty in
+;;        --batch).
 ;;   S4 — badge/section count disagreement: for every section, the
 ;;        count badge must equal the item rows actually rendered (plus
 ;;        any "…and K more" remainder), and the empty-state line may
@@ -30,20 +36,91 @@
 (when (locate-library "org-air")
   (require 'org-air))
 
-;;;; S1 — single header surface.
+;;;; S1 — single header surface (no DUPLICATE banner; T7 border allowed).
 
-(ert-deftest org-air-s1-no-header-line-in-dashboard ()
-  "A rendered dashboard never sets `header-line-format'.
-The in-buffer header band (design §1.1/§2) is the only header; a
-non-nil header-line duplicates it in GUI (invisible to batch renders,
-hence this variable-level assertion)."
+(defun org-air-s1--construct-atoms (construct)
+  "Return a flat list of every string and symbol inside mode-line CONSTRUCT.
+Descends conses, `:eval'/`:propertize' forms and lists alike — used to
+inspect `header-line-format' structurally (format-mode-line yields the
+empty string in --batch)."
+  (cond
+   ((stringp construct) (list (substring-no-properties construct)))
+   ((symbolp construct) (if construct (list construct) nil))
+   ((consp construct)
+    (append (org-air-s1--construct-atoms (car construct))
+            (org-air-s1--construct-atoms (cdr construct))))
+   (t nil)))
+
+(defun org-air-s1--banner-count ()
+  "Number of in-buffer banner bands in the current dashboard.
+The banner carries the unique \"· N items\" count badge (the filter line
+reads \"· all items\", never a digit), so this counts true banners only."
+  (let ((n 0) (case-fold-search nil))
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward "·[[:space:]]*[0-9]+[[:space:]]+items\\b" nil t)
+        (setq n (1+ n))))
+    n))
+
+(defun org-air-s1--header-line-duplicates-banner-p ()
+  "Non-nil when `header-line-format' re-states the banner (the S1 bug).
+True if any atom is a banner-builder symbol (name contains \"banner\")
+or any literal string carries the \"N items\" count signature."
+  (let ((atoms (org-air-s1--construct-atoms header-line-format)))
+    (cl-some
+     (lambda (a)
+       (or (and (symbolp a)
+                (string-match-p "banner" (symbol-name a)))
+           (and (stringp a)
+                (string-match-p "[0-9]+[[:space:]]+items\\b" a))))
+     atoms)))
+
+(defun org-air-s1--header-line-is-frame-border-p ()
+  "Non-nil when `header-line-format' is the T7 frame border (chrome).
+True if any atom is a frame/border builder symbol or any literal string
+carries a box-drawing horizontal glyph (GUI ─ or its ASCII fallback)."
+  (let ((atoms (org-air-s1--construct-atoms header-line-format)))
+    (cl-some
+     (lambda (a)
+       (or (and (symbolp a)
+                (string-match-p "frame\\|border" (symbol-name a)))
+           (and (stringp a)
+                (string-match-p "[─━╌┄+]" a))))
+     atoms)))
+
+(defun org-air-s1--line1 ()
+  "Return the buffer's first line, properties stripped."
+  (save-excursion
+    (goto-char (point-min))
+    (buffer-substring-no-properties
+     (line-beginning-position) (line-end-position))))
+
+(defun org-air-s1--assert-single-header ()
+  "Assert the S1 contract (design pxvlzyov) in the current dashboard."
+  ;; Title + status appear EXACTLY ONCE, and on buffer LINE 1.
+  (should (= (org-air-s1--banner-count) 1))
+  (let ((line1 (org-air-s1--line1)))
+    (should (string-match-p "org-air" line1))
+    (should (string-match-p "·[[:space:]]*[0-9]+[[:space:]]+items\\b" line1)))
+  ;; The header-line never duplicates that banner/status...
+  (should-not (org-air-s1--header-line-duplicates-banner-p))
+  ;; ...and IF it is set, it is the frame border (T7 chrome), not a banner.
+  (when header-line-format
+    (should (org-air-s1--header-line-is-frame-border-p))))
+
+(ert-deftest org-air-s1-no-duplicate-banner-in-header-line ()
+  "The title+status banner appears exactly once, on buffer line 1; the
+header-line, if set, is the T7 frame border (design pxvlzyov /
+ytvztszk option A), never a banner/status duplicate.  Asserted on both
+the ASCII and GUI glyph paths.  (Was s1-no-header-line-in-dashboard:
+header-line nil was over-strict once T7 put the frame top border there.)"
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-dashboard 120
-    (should (null header-line-format)))
-  ;; The GUI glyph path must not re-introduce it either.
+    (org-air-s1--assert-single-header))
+  ;; The GUI glyph path must not re-introduce a duplicate banner either.
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 120
-      (should (null header-line-format)))))
+      (org-air-s1--assert-single-header))))
 
 ;;;; S4 — badge/rows consistency invariant.
 
@@ -206,6 +283,40 @@ spec'd set with non-empty string values."
         (should (memq name org-air-screenshot-test--spec-glyphs))
         (should (stringp safe))
         (should (> (length safe) 0))))))
+
+;;;; T3b — responsive single-line calendar legend (design tynxttsz).
+
+(defun org-air-t3b--legend-tier-for-width (width)
+  "Expected legend TIER for WIDTH: `wide' at >=120, else `narrow'."
+  (if (>= width 120) 'wide 'narrow))
+
+(ert-deftest org-air-t3b-calendar-legend-per-tier ()
+  "The calendar legend is single-line and tier-dependent (tynxttsz,
+superseding the 2-line wrap): narrow (95-119 / stacked) reads
+\"◆due ●sched ■today\" — no `created' word, though · still marks the
+grid; wide (>=120) reads \"◆due ●sched ·created ■today\".  The opposite
+tier's full legend never appears.  Asserted on GUI and TTY glyph sets."
+  (skip-unless (locate-library "org-air"))
+  (dolist (which '(gui tty))
+    (dolist (width '(100 119 120 160))
+      (let* ((tier (org-air-t3b--legend-tier-for-width width))
+             (this (org-air-viewport-test-calendar-legend-expected tier which))
+             (other (org-air-viewport-test-calendar-legend-expected
+                     (if (eq tier 'wide) 'narrow 'wide) which))
+             (run (lambda ()
+                    (org-air-viewport-test-with-dashboard width
+                      (let ((text (buffer-string)))
+                        (ert-info ((format "width %d (%s, %s): legend %S"
+                                           width tier which this))
+                          (should (string-match-p (regexp-quote this) text))
+                          ;; The other tier's COMPLETE legend must be absent
+                          ;; (narrow vs wide are mutually exclusive strings).
+                          (should-not
+                           (string-match-p (regexp-quote other) text))))))))
+        ;; GUI uses ◆ ● · ■; --batch is a real TTY for the ! o . # path.
+        (if (eq which 'gui)
+            (org-air-viewport-test-as-gui (funcall run))
+          (funcall run))))))
 
 (provide 'org-air-screenshot-regression-test)
 ;;; org-air-screenshot-regression-test.el ends here

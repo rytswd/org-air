@@ -68,14 +68,17 @@
      . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
     (org-air-glyph-coverage-complete-with-ascii-fallbacks
      . "design §6.1: glyph table missing box-tee-left/box-tee-right fallbacks")
-    ;; S6 height seam (contract proposed to impl2 as code, mirroring
-    ;; the width seam): org-air-view-height — nil = displaying window
-    ;; height, integer = compose exactly that many rows (footer on the
-    ;; last row, body blank-padded).
+    ;; S6 height seam (contract proposed to impl2 as code; heights
+    ;; blessed by design/orchestrator: 24 overflow branch + 50 fill
+    ;; branch + empty-board@120x50): org-air-view-height — nil =
+    ;; displaying window height, integer = compose exactly that many
+    ;; rows (footer on the last row, body blank-padded).
     (org-air-viewport-render-honours-height-seam
      . "S6: renderer must consult the org-air-view-height seam (full-height composition)")
     (org-air-viewport-fills-height
-     . "S6: 120x45 render composes to exactly 45 rows, all 120 cols wide")
+     . "S6 fill branch: 120x50 render composes to exactly 50 rows, all 120 cols wide")
+    (org-air-viewport-fills-height-empty-board
+     . "S6 sparse surface: empty board at 120x50 fills to exactly 50 rows (the user complaint)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

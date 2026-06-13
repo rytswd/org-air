@@ -149,7 +149,15 @@ section — and the view as a whole — is empty."
            (org-air-viewport-test--with-frozen-now
              (unwind-protect
                  (org-air-viewport-test--with-render-guards
-                   (let ((org-air-view-width ,width))
+                   (let* ((org-air-viewport-test--size ,width)
+                          (org-air-view-width
+                           (if (consp org-air-viewport-test--size)
+                               (car org-air-viewport-test--size)
+                             org-air-viewport-test--size))
+                          (org-air-view-height
+                           (if (consp org-air-viewport-test--size)
+                               (cdr org-air-viewport-test--size)
+                             org-air-view-height)))
                      (org-air)
                      (let ((buf (get-buffer "*org-air*")))
                        (should buf)

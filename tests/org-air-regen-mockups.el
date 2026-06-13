@@ -26,28 +26,57 @@
 (defconst org-air-regen-widths '(80 90 96 100 104 110 120 160)
   "Widths to regenerate: canonical 80/120/160 + breakpoint bracket.")
 
-(defun org-air-regen--write (width)
-  "Render the canonical board at WIDTH and write its mockup fixture."
-  (let ((out (expand-file-name (format "layout-mockup-%d.txt" width)
-                               org-air-test-fixture-dir)))
+(defconst org-air-regen-heights '(nil 24 50)
+  "Heights per width: natural (nil), overflow branch (24), fill (50).
+Blessed by design/orchestrator for the S6 regen.")
+
+(defun org-air-regen--lines ()
+  "Right-trimmed, trailing-blank-stripped lines of the current buffer."
+  (org-air-viewport-test--drop-trailing-blanks
+   (mapcar (lambda (line)
+             (string-trim-right (substring-no-properties line)))
+           (org-air-viewport-test-lines))))
+
+(defun org-air-regen--emit (out lines)
+  "Write LINES to OUT and report."
+  (with-temp-file out
+    (insert (mapconcat #'identity lines "\n") "\n"))
+  (message "regen: %s (%d lines, max width %d)"
+           (file-name-nondirectory out)
+           (length lines)
+           (apply #'max (cons 0 (mapcar #'string-width lines)))))
+
+(defun org-air-regen--write (width height)
+  "Render the canonical board at WIDTH×HEIGHT and write its fixture.
+HEIGHT nil renders at natural height (layout-mockup-WIDTH.txt);
+otherwise layout-mockup-WIDTHxHEIGHT.txt."
+  (let ((out (expand-file-name
+              (if height
+                  (format "layout-mockup-%dx%d.txt" width height)
+                (format "layout-mockup-%d.txt" width))
+              org-air-test-fixture-dir)))
     (org-air-viewport-test-as-gui
-      (org-air-viewport-test-with-dashboard width
-        (let ((lines (org-air-viewport-test--drop-trailing-blanks
-                      (mapcar (lambda (line)
-                                (string-trim-right
-                                 (substring-no-properties line)))
-                              (org-air-viewport-test-lines)))))
-          (with-temp-file out
-            (insert (mapconcat #'identity lines "\n") "\n"))
-          (message "regen: %s (%d lines, max width %d)"
-                   (file-name-nondirectory out)
-                   (length lines)
-                   (apply #'max (cons 0 (mapcar #'string-width lines)))))))))
+      (org-air-viewport-test-with-dashboard (if height
+                                                (cons width height)
+                                              width)
+        (org-air-regen--emit out (org-air-regen--lines))))))
+
+(defun org-air-regen--write-empty (width height)
+  "Render the EMPTY board at WIDTH×HEIGHT (the sparse S6 surface)."
+  (let ((out (expand-file-name
+              (format "layout-mockup-empty-%dx%d.txt" width height)
+              org-air-test-fixture-dir)))
+    (org-air-viewport-test-as-gui
+      (org-air-viewport-test-with-empty-dashboard (cons width height)
+        (org-air-regen--emit out (org-air-regen--lines))))))
 
 (defun org-air-regen-mockups ()
-  "Regenerate every mockup fixture from the honest renderer."
+  "Regenerate every mockup fixture from the honest renderer.
+Matrix: widths × {natural, 24, 50} + the empty board at 120×50."
   (dolist (width org-air-regen-widths)
-    (org-air-regen--write width))
+    (dolist (height org-air-regen-heights)
+      (org-air-regen--write width height)))
+  (org-air-regen--write-empty 120 50)
   (message "regen: done — diff fixtures and route to design for re-blessing"))
 
 (provide 'org-air-regen-mockups)

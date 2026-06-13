@@ -1,0 +1,195 @@
+#+title: org-air v0.2.x — aesthetic hardening (S2/S3/S5/S6)
+#+state: ready
+#+FILETAGS: :ui:ux:visual:faces:
+
+* Summary
+Design deltas + exact face specs from the user's GUI screenshot
+(=/tmp/org-air-ace/user-screenshot-1.png=), verdict: "very broken, not
+sophisticated and modern at all."  The geometry is right; the *pixels*
+are wrong.  This doc owns the aesthetic items S2 (rules-as-bars), S3
+(count chips), S5 (glyph coverage), S6 (full-height composition).  impl2
+owns the bugs S1 (double header) and S4 (count vs empty-state).
+
+*Fixture impact, stated up front:*
+- *S2 and S3 are FACE-ONLY* — the rendered text is byte-identical (a row
+  of =─=, a bare =3=); only the face attributes change.  The frozen
+  =layout-mockup-*.txt= fixtures are UNAFFECTED.  Applied directly to
+  =org-air-faces.el= in this round.
+- *S5 default-glyph swaps and S6 height-fill DO change rendered bytes* →
+  they need a fixture regen; flagged for impl2 + test, not silently
+  applied.
+
+* S2 — Horizontal rules render as solid filled bars
+*Pixel symptom:* the rules under the header and above the footer are
+thick light-grey filled blocks, not hairlines.
+*Root cause:* =org-air-face-separator= inherits =org-air-face-subtle=
+(which sets a =:background=) and adds =:height 0.3=.  A row of =─= then
+paints the subtle *background* across the cell at 0.3 line-height → a
+filled bar.  The =─= glyph's own foreground is irrelevant; the eye sees
+the background block.
+*Delta:* a rule is a *foreground hairline*, never a background fill.
+Drop the background and the height shrink; colour the =─= glyphs with a
+faded *foreground* at normal height so they connect into one thin line.
+Keep it faint (this is N Λ N O restraint — structure felt, not shouted).
+#+begin_src elisp
+(custom-declare-face 'org-air-face-separator
+  '((t :inherit org-air-face-faded :weight normal))
+  "Face for thin horizontal rules.  Foreground hairline only — no
+background fill, normal height, so a row of `─' reads as one faint
+line, not a bar.")
+#+end_src
+(=:inherit org-air-face-faded= gives the palette faded grey as a
+*foreground*; no =:background=, no =:height=.)  The pane divider
+=org-air-face-pane-border= is already foreground-faded and renders
+correctly — leave it.  Optional follow-up if even a faded full-width
+line feels heavy: shorten rules to the content width or drop them under
+the footer entirely (whitespace).  Default keeps a faded full-width
+hairline.
+
+* S3 — Count badges are illegible inverse-video chips
+*Pixel symptom:* the per-section count (the =3= next to "Inbox") is a
+tiny dark-on-grey filled chip — unreadable; reads as visual noise / a
+broken box.
+*Root cause:* =org-air-face-count= paints white-on-faded with
+=:inverse-video= and =:height 0.9= → a small low-contrast block.  This is
+the one place the design spent an inverse chip, and at GUI scale it
+fails.  nano-agenda uses *quiet faded numbers*, not chips.
+*Delta:* drop the chip entirely.  The section count is a *bare number*
+in a quiet face — faded for ordinary buckets, popout (bold) for a
+non-zero attention bucket (Inbox / Needs attention) — exactly mirroring
+the already-legible *summary* numbers in the rail (=org-air-face-summary-
+number= / =-attention=, which the screenshot shows reading fine).  This
+also unifies the two count treatments.
+#+begin_src elisp
+(custom-declare-face 'org-air-face-count
+  '((t :inherit org-air-face-faded))
+  "Quiet faded section count (the N in \"Inbox  N\").  No chip, no
+inverse, no height shrink — a plain faded number, nano-agenda style.")
+
+(custom-declare-face 'org-air-face-count-attention
+  '((t :inherit org-air-face-popout :weight bold))
+  "Section count for a non-zero attention bucket (Inbox, Needs
+attention): a bold popout number that pulls the eye without a chip.")
+#+end_src
+The rendered text is unchanged (still a bare =3=), so the byte fixtures
+hold; only the colour/weight change.  *Zero* counts already use the
+faded path and recede — keep that.  (Render note for impl: the heading
+already emits a bare number; no =" %d "= chip padding should be
+re-introduced.)
+
+* S5 — Glyph coverage audit + tofu before first item
+*Pixel symptom:* a hollow box sits before the first item ("TODO Test").
+Two distinct causes, both fixed here:
+
+** S5a — The "tofu before first item" is the cursor on whitespace
+With D4, point lands on the first item's *line*; if it lands on the
+leading indent (a space), a GUI bar cursor — or the *hollow box* cursor
+an unfocused frame draws (exactly what a screenshot captures) — sits on
+a blank cell and reads as tofu.
+*Delta:* place point on the first *visible character* of the first item
+(the TODO keyword / title), not the indent whitespace.  =org-air-view--
+goto-first-item= must =goto-char= the item's =org-air-item= text start,
+not =line-beginning-position=.  (Pairs with D4 / S6 point placement.)
+
+** S5b — Audit chosen glyphs for common-font coverage; 3-tier fallback
+Several spec'd glyphs are absent from common programming monospace fonts
+(DejaVu Sans Mono, Menlo, Cascadia, JetBrains Mono, Fira Code) and will
+*tofu* on a user whose font lacks them — independent of TTY.  Today the
+selector only switches on =(display-graphic-p)=; it must also check
+=char-displayable-p= in GUI and degrade.
+
+Risk audit (✓ widely covered · ⚠ spotty · ✗ rare):
+| Glyph | Code   | Use            | Risk | Safer default | ASCII |
+|-------+--------+----------------+------+---------------+-------|
+| ⌂     | U+2302 | origin         | ⚠    | =·= or keep ⌂   | H     |
+| ▤     | U+25A4 | inbox icon     | ⚠    | □ (U+25A1)     | I     |
+| ▲     | U+25B2 | attention      | ✓    | ▲             | !     |
+| ◆     | U+25C6 | upcoming       | ✓    | ◆             | >     |
+| ★     | U+2605 | high priority  | ✓    | ★             | *     |
+| ◷     | U+25F7 | stale          | ✗    | ○ (U+25CB)     | ~     |
+| ●     | U+25CF | calendar item  | ✓    | ●             | o     |
+| ▮     | U+25AE | today marker   | ⚠    | ■ (U+25A0)     | #     |
+| ✕     | U+2715 | filter clear   | ⚠    | × (U+00D7)     | x     |
+| ‹ ›   | U+2039 | calendar nav   | ✓    | ‹ ›           | < >   |
+| …     | U+2026 | overflow       | ✓    | …             | ...   |
+| │ ─   | box    | divider/rule   | ✓    | │ ─           | \| -  |
+
+*Delta — 3-tier glyph selection.*  Each glyph entry becomes
+=(PREFERRED SAFE ASCII)=.  Selection: in GUI return PREFERRED if
+=char-displayable-p=, else SAFE if =char-displayable-p=, else ASCII; in a
+TTY (=(not (display-graphic-p))=) return ASCII.  Add
+=org-air-layout--glyph= doing exactly this; keep =org-air-glyphs=
+user-overridable.  *Recommended default swaps* (more sophisticated AND
+better-covered): stale =◷ → ○= (a quiet hollow ring reads as "idle"),
+today-marker =▮ → ■=, inbox =▤ → □=.  These three change rendered bytes →
+*fixture regen required* (impl2 + test); the fallback mechanism itself
+is additive.  =⌂= and =✕= keep their defaults but gain the SAFE tier
+(=·=, =×=) so a thin font degrades gracefully instead of tofu.
+
+Note: the calendar *today* cell already carries =:underline t= (a
+non-glyph cue), so even if the today marker degrades, today stays
+identifiable — keep that underline.
+
+* S6 — Vertical composition: full-height, no floating footer / void
+*Pixel symptom:* content occupies the top ~40 % of the window; the key
+legend floats right under it; the bottom ~55 % is dead void.  Reads as a
+half-finished buffer, not an app.
+*Design — the dashboard fills its window deliberately.*  Three bands:
+1. *Header band* — top, fixed height (banner + rule).  (Remove the
+   duplicate sticky header-line entirely — that is S1, impl2.)
+2. *Body band* — fills the middle, height = =window-body-height= − header
+   − footer.  Panes are blank-padded to this full body height.
+   - *Two-pane:* the divider =│= runs *every* body row, top to the line
+     above the footer.  The empty lower region becomes framed sidebar
+     space — intentional, modern, calm — not a void.  The rail's blank
+     space below the calendar is part of that frame.
+   - *Stacked:* top-band + items, then blank fill down to the footer.
+3. *Footer band* — *pinned to the last body line(s)* of the window: a
+   faded hairline rule (S2) + the key legend.  No more floating footer.
+
+So: =render to window-body-height=, not just content height.  This is the
+vertical analogue of U1/D7 (render to the displaying window) and depends
+on the same window-aware render path; impl2 reads =window-body-height= of
+the window showing =*org-air*= and re-pads on
+=window-size-change-functions=.
+
+*Why framed empty space reads better than a void:* a sidebar divider
+that runs the full height (like a file-tree or mail app) signals "this
+is the layout," whereas content-then-nothing signals "it stopped."  With
+sparse data (e.g. 3 items) the calm framed whitespace is the point — N Λ
+N O breathes — but it must be *bounded* (divider + bottom footer), not
+open.
+
+*Fixture impact:* height-fill changes the rendered line count / trailing
+blanks and pins the footer → the =layout-mockup-*.txt= fixtures (which
+capture natural content height) must be regenerated with a fixed test
+=window-body-height= seam, mirroring the existing =org-air-view-width=
+seam.  Flagged for impl2 + test; add =org-air-view-height= (nil = live
+window) so the gate can render deterministically.
+
+* Faces changed in this round (=org-air-faces.el=)
+Applied now (face-only, fixtures safe): =org-air-face-separator=,
+=org-air-face-count=, =org-air-face-count-attention= per S2/S3 above.
+Verified: byte-compile clean, =facep= holds, and a real render shows the
+rule as a faded hairline and the counts as quiet faded/popout numbers
+(no inverse chips).
+
+* Routing / sequencing
+- S1 (double header), S4 (count vs empty-state) → impl2 bugs; S6 and the
+  S5 point-placement depend on S1's single-header + window-aware render.
+- S5 default-glyph swaps (◷→○, ▮→■, ▤→□) + S6 height-fill → fixture
+  regen; coordinate impl2 + test (new =org-air-view-height= seam), then a
+  design re-bless.  S2/S3 need no regen.
+
+* History
+- 2026-06-13: Authored from the user GUI screenshot.  Diagnosed S2
+  (separator inherits a background + 0.3 height → filled bar) and S3
+  (count is inverse-video 0.9 chip) as face-only; respecified both to
+  foreground-hairline rule and quiet faded/popout numbers and applied to
+  =org-air-faces.el= (fixtures unaffected).  Specified S5 (cursor-on-
+  whitespace tofu → point on first visible char; a 3-tier
+  char-displayable-p glyph fallback + safer defaults for ◷/▮/▤/⌂/✕) and
+  S6 (render to =window-body-height=: header top, full-height framed
+  body with the divider running full height, footer pinned bottom).
+  Flagged S5-default + S6 as fixture-regen items for impl2/test.  Set
+  =#+state: ready=.

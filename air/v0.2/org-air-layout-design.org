@@ -725,6 +725,10 @@ are inherited unchanged.
   truncation, stacked top-band balance).  Amends this spec for real GUI
   windows; read alongside it.
 - air/v0.2/org-air-ux-hardening.org — v0.2.x interactive UX punch list.
+- air/v0.2/org-air-aesthetics.org — GUI aesthetic deltas + exact face
+  specs (S2 hairline rules, S3 quiet count numbers, S5 glyph fallbacks,
+  S6 full-height composition).  Supersedes the inverse-chip count and
+  the 0.3-height separator from this spec.
 - https://github.com/rougier/nano-mu4e — style ladder, justify, count chip.
 - https://github.com/rougier/nano-agenda — calendar-beside-agenda model.
 - https://www.reddit.com/r/emacs/comments/mzgsm0/mu4e_look_and_feel/

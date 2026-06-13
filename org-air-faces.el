@@ -183,25 +183,26 @@ Use scarcely (overdue items, errors)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-count
-  `((((class color) (min-colors 256) (background light))
-     (:foreground "#FFFFFF" :background ,(org-air-palette-color 'faded 'light)
-      :weight bold :height 0.9))
-    (((class color) (min-colors 256) (background dark))
-     (:foreground "#2E3440" :background ,(org-air-palette-color 'faded 'dark)
-      :weight bold :height 0.9))
-    (t (:inherit org-air-face-faded :inverse-video t :weight bold)))
-  "Face for an inline item-count badge, e.g. the 7 in \"Inbox  7\"."
+  '((t :inherit org-air-face-faded))
+  "Quiet faded section count (the N in \"Inbox  N\").
+A plain faded number — no chip, no inverse-video, no height shrink
+(nano-agenda style).  The illegible inverse-video chip was replaced
+after the GUI screenshot (S3); the rendered text is unchanged."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-count-attention
-  '((t :inherit org-air-face-count))
-  "Count badge for a section that needs attention.
-Recoloured at render time via popout/critical; defined for override."
+  '((t :inherit org-air-face-popout :weight bold))
+  "Section count for a non-zero attention bucket (Inbox, Needs attention).
+A bold popout number that pulls the eye without a chip — mirrors
+`org-air-face-summary-number-attention' in the rail."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-separator
-  '((t :inherit org-air-face-subtle :height 0.3))
-  "Face for thin horizontal rule / separator lines."
+  '((t :inherit org-air-face-faded :weight normal))
+  "Face for thin horizontal rules.
+Foreground hairline only — no background fill and no height shrink, so a
+row of `─' reads as one faint connected line rather than a solid bar
+(fixed after the GUI screenshot, S2)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-cursor

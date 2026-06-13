@@ -48,3 +48,20 @@ two-pane threshold sits). Concrete spec deltas, then impl.
   at 8 widths, design-blessed byte-for-byte. Integrated; gate 103/103.
 - Residual backlog: D2 origin clip on longest [#A] rows at 100 cols
   (non-blocking polish).
+
+* Round 2 findings — user screenshot (2026-06-13, /tmp/org-air-ace/user-screenshot-1.png)
+User verdict: "It looks very broken, not sophisticated and modern at all."
+** S1 [CRIT/bug] Header rendered TWICE (header-line + in-buffer band); second
+   right-aligned status clipped off-screen (live D7 violation). Old
+   header-line path must be fully removed; right-status composed to the
+   displaying window width.
+** S2 [HIGH/visual] Horizontal rules render as solid filled bars (face
+   background bleeding full-width), not thin faded rules.
+** S3 [HIGH/visual] Count badges are illegible inverse-video chips; need the
+   quiet nano-style treatment (design to respecify against GUI reality).
+** S4 [CRIT/bug] Needs-attention count=3 (badge + summary) while the section
+   body shows the empty state — classification vs section-render disagree.
+** S5 [MED/visual] Tofu/missing glyph before first item (glyph fallback or
+   cursor-on-tofu; verify GUI font coverage for chosen glyphs).
+** S6 [HIGH/design] Vertical composition: content top 40%, floating footer,
+   dead void below — design the intentional full-height behaviour.

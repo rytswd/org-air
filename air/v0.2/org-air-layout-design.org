@@ -203,12 +203,13 @@ rule spans the full width on the next line.  (Optional non-asserted
 sticky =header-line-format= duplicate — see §1.1.)
 
 ** 3. Mockups (the contract)
-All three use the frozen test clock: *today = Mon 16 Jun 2026* (the
+All three use the frozen test clock: *today = Mon 15 Jun 2026* (the
 =org-air-test-now= fixture), so the implementation's batch render can be
-diffed against these directly.  Sample board: Inbox 3, Needs attention
-2, Upcoming 4, High priority 1, Stale 2 — 12 items total.  Calendar
-marks (=●=) fall on days with scheduled/deadline items (12, 17, 18, 20,
-21); today (16) is reverse/under-marked (=▮=).
+diffed against these directly.  Real fixture board (no active filter):
+Inbox 3, Needs attention 11, Upcoming 8, High priority 3, Stale 2 — 23
+items visible.  Calendar marks (=●=) are the honest union of every day
+with a scheduled/deadline item — 08, 10, 12, 16, 17, 18, 19, 20 — and
+today (15) is reverse/under-marked (=▮=, superseding its event glyph).
 
 *** 3.1 Wide — 160 columns (two-pane, item pane 115 + rail 42)
 #+begin_example

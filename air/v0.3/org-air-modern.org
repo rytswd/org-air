@@ -1,0 +1,63 @@
+#+title: org-air v0.3: modern visual identity + interaction
+#+state: work-in-progress
+#+FILETAGS: :ui:ux:visual:
+
+* Summary
+Round-4 punch list from the user's demo-data screenshots
+(/tmp/org-air-ace/user-screenshot-4.png) + the buffer-box reference
+(/tmp/org-air-ace/buffer-box-reference.png). The dashboard is now
+functionally rich; this round gives it a modern, coloured, boxed
+identity and fixes interaction/layout mechanics.
+
+* Findings
+** T1 [HIGH/visual] Colour & Org-aware styling
+Items render monochrome. Bring a modern coloured look — not full
+org-agenda parity, but: coloured TODO keywords (TODO/DONE/etc. in
+distinct faces, org-modern-ish), coloured/boxed priority cookies
+([#A] etc.), and tags as coloured chips (the org-air tag-accent
+palette exists — apply it; consider an org-modern/svg-tag-like pill).
+Take inspiration from org-modern. User: "a bit more coloured to give
+modern look and feel"; full Org consistency NOT required.
+** T2 [HIGH/bug] TAB expand does nothing
+Sections show "…and N more — press TAB on the title to expand" but TAB
+only moves to the next section. Implement real expand/collapse of the
+per-section overflow (TAB on a section header toggles showing all its
+items vs the capped preview); keep a separate next-section motion key.
+** T3 [MED/visual] Calendar spacing + multi-date legend
+(a) Add one extra space between day columns (breathing room).
+(b) Distinguish CREATED / SCHEDULED / DEADLINE in the calendar with
+distinct mark colours + a legend that names all three (currently only
+"has items / today").
+** T4 [HIGH/ux] Return-to-dashboard after RET
+RET opens the item (side window in the user's config); getting back is
+painful — delete-window keeps the buffer; kill-buffer breaks the split.
+Provide a clean path: a command to restore/return to the dashboard,
+and/or an option to reuse the dashboard window. User suggests possibly
+showing the item in the dashboard buffer/window itself. Spec the
+display + return contract (defcustom for display strategy; a
+bury-and-return key).
+** T5 [HIGH/bug] Bottom extra line + mode-line/viewport height
+The full-height fill leaves an extra blank line at the bottom and does
+not account for the mode-line height — window-body-height off-by-one /
+pixel-vs-row. Fill must end exactly at the last text row above the
+mode-line, no trailing blank.
+** T6 [MED/bug] Re-fit on font/text-scale change
+When the font/text size changes, the view must re-render to the new
+viewport (hook text-scale + face-remap + pixel size changes, debounced
+like the width re-render).
+** T7 [HIGH/visual] Boxed frame (buffer-box inspiration)
+The single vertical │ rail divider "looks not great". Move toward a
+proper box treatment inspired by rougier/buffer-box
+(/tmp/org-air-ace/buffer-box-reference.png): single-char border via
+margins + header-line/mode-line/line-prefix/wrap-prefix, graceful TTY
+fallback. Design the framed look for the whole dashboard and/or the
+rail, keeping batch-testability (no unmeasurable display props where a
+byte gate must see content).
+
+* History
+- 2026-06-13: Seeded from round-4 demo-data screenshots + buffer-box ref.
+
+* References
+- https://github.com/rougier/buffer-box  (/tmp/org-air-ace/buffer-box-reference.png)
+- org-modern (coloured keywords / svg-ish tags inspiration)
+- /tmp/org-air-ace/user-screenshot-4.png

@@ -141,9 +141,24 @@ visible area."
                      (and (eq buffer (window-buffer (selected-window)))
                           (selected-window)))))
     (cond
-     ((window-live-p window) (window-body-width window))
-     ((window-live-p (selected-window)) (window-body-width (selected-window)))
+     ((window-live-p window) (org-air-layout--usable-columns window))
+     ((window-live-p (selected-window))
+      (org-air-layout--usable-columns (selected-window)))
      (t (frame-width)))))
+
+(defun org-air-layout--usable-columns (window)
+  "Return the columns usable for a full line in WINDOW.
+In a real graphical window this is `window-max-chars-per-line', which
+reserves the column the continuation/truncation glyph occupies when the
+right fringe is absent (common in minimal GUI configs) — so no composed
+line (not just the S7-margined header) can clip off the right edge.  In a
+terminal or a non-window mock it is the plain `window-body-width' in
+columns (keeping the U1 width-derivation tests green)."
+  (if (and (windowp window)
+           (display-graphic-p (window-frame window))
+           (fboundp 'window-max-chars-per-line))
+      (window-max-chars-per-line window)
+    (window-body-width window)))
 
 (defun org-air-layout-orientation (width &optional breakpoint)
   "Return layout orientation for WIDTH and BREAKPOINT.

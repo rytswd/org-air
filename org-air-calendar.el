@@ -134,10 +134,18 @@ carries a scheduled or deadline timestamp, computed from the items."
           (insert "\n")))
       (setq day (1+ day)))
     (unless (bolp) (insert "\n"))
-    (insert (propertize (format "%s has items · %s today\n"
-                              (org-air-calendar--glyph "●" "o")
-                              (org-air-calendar--glyph "■" "#"))
-                      'face 'org-air-face-faded))))
+    ;; S9: legend doubles as a key.  The TEXT uses the AA-passing
+    ;; `org-air-face-calendar-legend' (not the faint faded face), and each
+    ;; marker SAMPLE renders in its real cell face — so the swatch matches
+    ;; what the grid shows.  Markers come from `org-air-calendar--glyph',
+    ;; the same source as the cells, so they can never drift (e.g. ▮/■).
+    (insert (propertize (org-air-calendar--glyph "●" "o")
+                        'face 'org-air-face-calendar-event)
+            (propertize " has items · " 'face 'org-air-face-calendar-legend)
+            (propertize (org-air-calendar--glyph "■" "#")
+                        'face 'org-air-face-calendar-today)
+            (propertize " today" 'face 'org-air-face-calendar-legend)
+            "\n")))
 
 (provide 'org-air-calendar)
 

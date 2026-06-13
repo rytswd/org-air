@@ -214,14 +214,24 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "SPC") #'org-air-peek-item)
     (define-key map (kbd "o") #'org-air-visit-item-stay)
     (define-key map (kbd "c") #'org-air-capture)
-    (define-key map (kbd "r") #'org-air-refile-item)
     (define-key map (kbd "m") #'org-air-toggle-mark)
+    ;; Triage disposition vocabulary (air/v0.2/org-air-triage.org).
+    (define-key map (kbd "s") #'org-air-item-schedule)
+    (define-key map (kbd "d") #'org-air-item-deadline)
+    (define-key map (kbd "r") #'org-air-refile-item)
+    (define-key map (kbd "f") #'org-air-item-file-group)
     (define-key map (kbd "t") #'org-air-set-tag)
-    (define-key map (kbd "d") #'org-air-set-schedule)
+    (define-key map (kbd "T") #'org-air-item-cycle-todo)
+    (define-key map (kbd "a") #'org-air-item-archive)
+    (define-key map (kbd "D") #'org-air-item-done)
+    (define-key map (kbd "k") #'org-air-item-kill)
+    (define-key map (kbd "u") #'org-air-triage-undo)
+    (define-key map (kbd "I") #'org-air-process-inbox)
     (define-key map (kbd "/") #'org-air-filter)
     (define-key map (kbd "\\") #'org-air-filter-clear)
-    (define-key map (kbd "s") #'org-air-scope)
-    (define-key map (kbd "S") #'org-air-scope-clear)
+    ;; Scope moves off the prime key so s = schedule (the triage verb).
+    (define-key map (kbd "S") #'org-air-scope)
+    (define-key map (kbd "M-s") #'org-air-scope-clear)
     (define-key map (kbd "g") #'org-air-refresh)
     (define-key map (kbd "G") #'org-air-refresh-all)
     (define-key map (kbd "<") #'org-air-calendar-prev)
@@ -239,6 +249,10 @@ of whether the wrapping pane margin is added later (D6).")
   (setq-local truncate-lines t)
   ;; S1: the header band is in-buffer text only; never a header line.
   (setq-local header-line-format nil)
+  ;; S8: zero line-spacing so adjacent box-drawing glyphs (the full-height
+  ;; pane divider, calendar grid, rules) touch top-to-bottom and read as
+  ;; one unbroken rule; any positive line-spacing leaves a ragged gap.
+  (setq-local line-spacing 0)
   (setq-local cursor-type 'bar)
   (setq-local org-air-layout-refresh-function #'org-air-view--resize-refresh)
   (setq-local buffer-read-only t)
@@ -393,12 +407,13 @@ stacked and two-pane layouts."
               items))
 
 (defun org-air-view--items-for-bucket (bucket items)
-  "Return visible ITEMS classified into BUCKET."
+  "Return visible ITEMS classified into BUCKET.
+Real-signal membership (ruling xsqrnoyn): an item appears in every bucket
+it genuinely qualifies for, so a dated inbox capture shows in BOTH Inbox
+and its date bucket.  The no-date attention default for inbox-dwellers is
+suppressed in `org-air-classify-item', not here, so no dedup is needed."
   (seq-filter (lambda (item)
-                (let ((buckets (org-air-classify-item item)))
-                  (and (memq bucket buckets)
-                       (or (eq bucket 'inbox)
-                           (not (memq 'inbox buckets))))))
+                (memq bucket (org-air-classify-item item)))
               (org-air-view--visible-items items)))
 
 (defun org-air-view--render-width ()
@@ -477,28 +492,46 @@ When ACTIVE is non-nil, use the active-filter tag face."
       (insert " " (propertize (format "+%d" overflow) 'face 'org-air-face-count)))))
 
 (defun org-air-view--insert-banner (items)
-  "Insert and set the org-air header band for ITEMS."
-  (let* ((filters (org-air-view--filter-tags))
-         (filter-text (when filters
-                        (concat " · "
-                                (mapconcat (lambda (tag) (concat "#" tag)) filters " ")
-                                " " (org-air-view--glyph 'clear))))
+  "Insert the org-air header band for ITEMS (S1 single in-buffer band).
+The right status is justified to the displaying window width W with a
+reserved one-column right margin: its last visible glyph sits at column
+W-1, never W, so a zero-fringe GUI never draws a continuation glyph over
+it (S7).  When the window is too narrow the status sheds tokens in
+priority order — filter chips, then scope, then the item count — always
+keeping the date."
+  (let* ((w (org-air-view--render-width))
+         (left (propertize "  org-air" 'face 'org-air-face-header))
+         (date (format-time-string "%a %d %b" (current-time)))
+         (count (format " · %d items" (length (org-air-view--visible-items items))))
+         (filter-text (let ((filters (org-air-view--filter-tags)))
+                        (when filters
+                          (concat " · "
+                                  (mapconcat (lambda (tag) (concat "#" tag)) filters " ")
+                                  " " (org-air-view--glyph 'clear)))))
          (scope-text (pcase org-air-view--scope
                        (`(:tag ,tag) (concat " · #" tag))
                        (`(:group ,group) (concat " · @" group))
                        (`(:file ,file) (concat " · " (file-name-nondirectory file)))
-                       (_ "")))
-         (status (format "%s · %d items%s%s"
-                         (format-time-string "%a %d %b" (current-time))
-                         (length (org-air-view--visible-items items))
-                         (or filter-text "")
-                         scope-text))
-         (left (propertize "  org-air" 'face 'org-air-face-header))
+                       (_ nil)))
+         ;; Budget for the status: window minus the left token, a >=2-col
+         ;; gap, and the reserved one-column right margin.
+         (budget (- w (string-width left) 2 1))
+         (assemble (lambda (shed)
+                     (concat date
+                             (unless (memq :count shed) count)
+                             (unless (memq :filter shed) (or filter-text ""))
+                             (unless (memq :scope shed) (or scope-text "")))))
+         (status (catch 'fit
+                   (dolist (shed '(() (:filter) (:filter :scope)
+                                   (:filter :scope :count))
+                                 date)
+                     (let ((s (funcall assemble shed)))
+                       (when (<= (string-width s) budget)
+                         (throw 'fit s))))))
          (right (propertize status 'face 'org-air-face-faded))
-         ;; S1: the header is the IN-BUFFER band only.  Compose the
-         ;; right-aligned status to the displaying window width so it
-         ;; never spills past the right edge (no `header-line-format').
-         (line (org-air-view--justify left right (org-air-view--render-width))))
+         ;; Justify with a trailing space so the status ends at W-1 and the
+         ;; final column W is always blank (the reserved margin).
+         (line (org-air-view--justify left (concat right " ") w)))
     (insert line "\n")))
 
 (defun org-air-view--rule-string (width)
@@ -566,7 +599,15 @@ and RET target, so it is the last thing to give."
          (todo (org-air-item-todo item))
          (priority (org-air-view--priority-char item))
          (date (org-air-view--date-label item bucket))
-         (date-str (if date (concat "  " (car date)) ""))
+         ;; Triage nudge (ruling xsqrnoyn): a dated-but-unfiled Inbox row
+         ;; carries a quiet "· file with r" hint so the user knows that
+         ;; dating it did not file it out of Inbox.
+         (inbox-hint (and (eq bucket 'inbox)
+                          (or (org-air-item-scheduled item)
+                              (org-air-item-deadline item))
+                          (propertize " · file with r" 'face 'org-air-face-faded)))
+         (date-str (concat (if date (concat "  " (car date)) "")
+                           (or inbox-hint "")))
          (prefix (concat (org-air-view--item-margin)
                          (when todo (concat todo " "))
                          (when (and priority (member priority org-air-priority-show))
@@ -1110,9 +1151,12 @@ unless nothing else is available."
                      section-pos))
       (org-air-view--beginning-of-visible))
      (t
+      ;; Item vanished and its marker no longer matches (a re-query after
+      ;; auto-refresh rebuilds markers): land on the saved line but on its
+      ;; first VISIBLE char, never the indent whitespace (S5a regression).
       (goto-char (point-min))
       (forward-line (1- (or (plist-get token :line) 1)))
-      (move-to-column (or (plist-get token :column) 0))))))
+      (org-air-view--beginning-of-visible)))))
 
 (defun org-air-view--render-current ()
   "Re-render the dashboard from `org-air-view--items', preserving point.
@@ -1268,7 +1312,9 @@ filters are preserved by `org-air-refresh'."
   (let ((pos (next-single-property-change (point) 'org-air-item nil (point-max))))
     (while (and pos (not (get-text-property pos 'org-air-item)) (< pos (point-max)))
       (setq pos (next-single-property-change pos 'org-air-item nil (point-max))))
-    (when pos (goto-char pos))))
+    (when pos
+      (goto-char pos)
+      (org-air-view--beginning-of-visible))))
 
 (defun org-air-prev-item ()
   "Move point to the previous item row."
@@ -1276,19 +1322,25 @@ filters are preserved by `org-air-refresh'."
   (let ((pos (previous-single-property-change (point) 'org-air-item nil (point-min))))
     (while (and pos (not (get-text-property (max (point-min) (1- pos)) 'org-air-item)) (> pos (point-min)))
       (setq pos (previous-single-property-change pos 'org-air-item nil (point-min))))
-    (when pos (goto-char (max (point-min) (1- pos))))))
+    (when pos
+      (goto-char (max (point-min) (1- pos)))
+      (org-air-view--beginning-of-visible))))
 
 (defun org-air-next-section ()
   "Move point to the next section heading."
   (interactive)
   (let ((pos (next-single-property-change (point) 'org-air-section nil (point-max))))
-    (when pos (goto-char pos))))
+    (when pos
+      (goto-char pos)
+      (org-air-view--beginning-of-visible))))
 
 (defun org-air-prev-section ()
   "Move point to the previous section heading."
   (interactive)
   (let ((pos (previous-single-property-change (point) 'org-air-section nil (point-min))))
-    (when pos (goto-char (max (point-min) (1- pos))))))
+    (when pos
+      (goto-char (max (point-min) (1- pos)))
+      (org-air-view--beginning-of-visible))))
 
 (defalias 'org-air-forward-section #'org-air-next-section)
 (defalias 'org-air-back-section #'org-air-prev-section)
@@ -1329,6 +1381,203 @@ filters are preserved by `org-air-refresh'."
       (org-schedule nil (unless (string-empty-p date) date))
       (save-buffer)))
   (org-air-refresh))
+
+;;;; Inbox triage — inline dispositions + process-inbox (org-air-triage.org)
+
+(defvar org-air-view--triage-source-buffer nil
+  "Source buffer of the most recent triage disposition (for `u' undo).")
+
+(defun org-air-view--item-at-point ()
+  "Return the org-air item at point, or signal a `user-error'."
+  (or (get-text-property (point) 'org-air-item)
+      (user-error "No org-air item at point")))
+
+(defmacro org-air-view--at-item-source (item &rest body)
+  "At ITEM's heading in its source buffer run BODY, save, and remember it."
+  (declare (indent 1) (debug t))
+  (let ((buf (make-symbol "buf")) (it (make-symbol "it")))
+    `(let* ((,it ,item)
+            (,buf (find-file-noselect (org-air-item-file ,it))))
+       (with-current-buffer ,buf
+         (save-excursion
+           (goto-char (org-air-item-marker ,it))
+           (org-back-to-heading t)
+           ,@body)
+         (save-buffer))
+       (setq org-air-view--triage-source-buffer ,buf)
+       ,buf)))
+
+(defun org-air-view--next-dow (target)
+  "Return YYYY-MM-DD of the next day-of-week TARGET (0=Sun..6=Sat)."
+  (let* ((now (current-time))
+         (today (string-to-number (format-time-string "%w" now)))
+         (delta (mod (- target today) 7))
+         (delta (if (= delta 0) 7 delta)))
+    (format-time-string "%Y-%m-%d" (time-add now (* delta 86400)))))
+
+(defun org-air-view--quick-date-string (key)
+  "Return a date for quick-date KEY: a YYYY-MM-DD string, `clear', or nil."
+  (let ((now (current-time)))
+    (pcase key
+      (?t (format-time-string "%Y-%m-%d" now))
+      ((or ?m ?+) (format-time-string "%Y-%m-%d" (time-add now 86400)))
+      (?w (org-air-view--next-dow 1))
+      (?e (org-air-view--next-dow 6))
+      (?. (org-read-date nil nil))
+      (?0 'clear)
+      (_ nil))))
+
+(defun org-air-view--read-quick-date (verb)
+  "Prompt VERB and return a date string, or `clear' to remove the date."
+  (let* ((key (read-char-exclusive
+               (format (concat "%s: [t]oday [m]orrow [w]eek [e]weekend "
+                               "[+]1d [.]pick [0]clear ")
+                       verb)))
+         (spec (org-air-view--quick-date-string key)))
+    (or spec (user-error "Unknown quick-date key: %c" key))))
+
+(defun org-air-view--apply-date (kind date)
+  "Set KIND (`scheduled' or `deadline') to DATE on the item at point.
+DATE is a date string or `clear'.  Refinement only — stays in Inbox."
+  (let* ((item (org-air-view--item-at-point))
+         (clearp (eq date 'clear))
+         (setter (if (eq kind 'deadline) #'org-deadline #'org-schedule)))
+    (org-air-view--at-item-source item
+      (if clearp (funcall setter '(4)) (funcall setter nil date)))
+    (org-air-refresh)
+    (message "%s \"%s\"%s"
+             (if (eq kind 'deadline) "Deadline" "Scheduled")
+             (org-air-item-title item)
+             (if clearp " cleared" (format " → %s" date)))))
+
+;;;###autoload
+(defun org-air-item-schedule (&optional date)
+  "Set SCHEDULED on the item at point via the quick-date sub-prompt.
+DATE may be supplied non-interactively.  A refinement: the item gains
+Upcoming membership and a calendar dot but stays in Inbox until filed."
+  (interactive)
+  (org-air-view--apply-date 'scheduled
+                            (or date (org-air-view--read-quick-date "Schedule"))))
+
+;;;###autoload
+(defun org-air-item-deadline (&optional date)
+  "Set DEADLINE on the item at point via the quick-date sub-prompt.
+DATE may be supplied non-interactively.  A refinement: stays in Inbox."
+  (interactive)
+  (org-air-view--apply-date 'deadline
+                            (or date (org-air-view--read-quick-date "Deadline"))))
+
+;;;###autoload
+(defun org-air-item-file-group ()
+  "Fast-refile the item at point under a category/group (graduates it)."
+  (interactive)
+  (call-interactively #'org-air-refile-item))
+
+;;;###autoload
+(defun org-air-item-cycle-todo ()
+  "Cycle/promote the TODO state of the item at point (a refinement).
+Named -cycle-todo to avoid colliding with the `org-air-item-todo' struct
+accessor; the triage spec's `T' key maps here."
+  (interactive)
+  (let ((item (org-air-view--item-at-point)))
+    (org-air-view--at-item-source item (org-todo))
+    (org-air-refresh)))
+
+;;;###autoload
+(defun org-air-item-archive ()
+  "Archive the item at point's subtree (graduates it out of Inbox)."
+  (interactive)
+  (let ((item (org-air-view--item-at-point)))
+    (org-air-view--at-item-source item (org-archive-subtree))
+    (org-air-refresh)
+    (message "Archived \"%s\"" (org-air-item-title item))))
+
+;;;###autoload
+(defun org-air-item-done ()
+  "Mark the item at point DONE (graduates it out of Inbox)."
+  (interactive)
+  (let ((item (org-air-view--item-at-point)))
+    (org-air-view--at-item-source item (org-todo 'done))
+    (org-air-refresh)
+    (message "Marked DONE \"%s\"" (org-air-item-title item))))
+
+;;;###autoload
+(defun org-air-item-kill ()
+  "Delete the item at point's subtree, with confirmation (graduates it)."
+  (interactive)
+  (let ((item (org-air-view--item-at-point)))
+    (when (yes-or-no-p (format "Delete \"%s\"? " (org-air-item-title item)))
+      (org-air-view--at-item-source item (org-cut-subtree))
+      (org-air-refresh)
+      (message "Deleted \"%s\"" (org-air-item-title item)))))
+
+(defun org-air-triage-undo ()
+  "Undo the last triage disposition in its source buffer."
+  (interactive)
+  (if (buffer-live-p org-air-view--triage-source-buffer)
+      (progn
+        (with-current-buffer org-air-view--triage-source-buffer
+          (undo)
+          (save-buffer))
+        (org-air-refresh)
+        (message "Undid last disposition"))
+    (user-error "No triage disposition to undo")))
+
+(defun org-air-view--goto-first-inbox-item ()
+  "Move point to the first Inbox item row, if any."
+  (goto-char (point-min))
+  (let (found)
+    (while (and (not found) (not (eobp)))
+      (if (and (eq (get-text-property (line-beginning-position) 'org-air-section)
+                   nil)
+               (get-text-property (line-beginning-position) 'org-air-item)
+               (memq 'inbox (org-air-classify-item
+                             (get-text-property (line-beginning-position)
+                                                'org-air-item))))
+          (setq found t)
+        (forward-line 1)))
+    (when found (org-air-view--beginning-of-visible))
+    found))
+
+;;;###autoload
+(defun org-air-process-inbox ()
+  "Walk the Inbox one item at a time with single-key dispositions.
+A guided loop (mu4e/dired style) that counts down to Inbox zero: filing
+dispositions (refile/file/archive/done/kill) shrink the Inbox; schedule/
+deadline/tag/todo are refinements that keep the item in Inbox.  Filters
+and scope are preserved; `q'/`RET' exits with partial progress kept."
+  (interactive)
+  (unless (derived-mode-p 'org-air-view-mode)
+    (org-air-view))
+  (let ((quit nil))
+    (while (not quit)
+      (org-air-refresh)
+      (let* ((inbox (org-air-view--items-for-bucket 'inbox org-air-view--items))
+             (n (length inbox)))
+        (if (zerop n)
+            (progn (message "Inbox zero — nice work.") (setq quit t))
+          (org-air-view--goto-first-inbox-item)
+          (let ((key (read-char-exclusive
+                      (format (concat "Inbox %d ┆ [s]chedule [d]eadline [r]efile "
+                                      "[f]ile [t]ag [T]odo [a]rchive [D]one [k]ill "
+                                      "┆ [SPC]skip [p]rev [u]ndo [g]refresh [q]uit ")
+                              n))))
+            (pcase key
+              (?s (call-interactively #'org-air-item-schedule))
+              (?d (call-interactively #'org-air-item-deadline))
+              (?r (call-interactively #'org-air-refile-item))
+              (?f (call-interactively #'org-air-item-file-group))
+              (?t (call-interactively #'org-air-set-tag))
+              (?T (org-air-item-cycle-todo))
+              (?a (org-air-item-archive))
+              (?D (org-air-item-done))
+              (?k (org-air-item-kill))
+              (?u (org-air-triage-undo))
+              (?g nil)
+              ((or ?\s ?n) (org-air-next-item))
+              (?p (org-air-prev-item))
+              ((or ?q ?\r ?\e) (setq quit t))
+              (_ (message "Unknown key: %c" key)))))))))
 
 (defun org-air-view--calendar-month-time (&optional base offset)
   "Return month time from BASE shifted by OFFSET months."

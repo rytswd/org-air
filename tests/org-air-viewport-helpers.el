@@ -27,9 +27,18 @@
 (require 'org-air-test-helpers)
 
 (defvar org-air-view-width nil
-  "Proposed width seam: explicit render width for the org-air dashboard.
+  "Width seam: explicit render width for the org-air dashboard.
 Declared in the test harness so suites can bind it; the implementation
 owns the canonical definition.")
+
+(defvar org-air-view-height nil
+  "Proposed HEIGHT seam (S6 full-height composition), mirroring the
+width seam: nil (default) = derive from the displaying window
+(`window-body-height'); integer = compose the buffer to exactly that
+many rows in batch — header band first, footer band on the last row,
+the body band blank-padded (full-width plain-space rows) in between.
+Declared special here so suites can bind it before the implementation
+defines the canonical defcustom.")
 
 (defconst org-air-viewport-test-widths '(80 120 160)
   "Canonical render widths exercised by the viewport suites.")
@@ -102,7 +111,8 @@ owns the canonical definition.")
 
 (defmacro org-air-viewport-test-with-dashboard (width &rest body)
   "Render the dashboard at WIDTH over the fixtures; run BODY in its buffer.
-WIDTH is bound to `org-air-view-width' for the render.  The clock is
+WIDTH is bound to `org-air-view-width' for the render; WIDTH may also be
+a cons (WIDTH . HEIGHT) to bind the height seam too.  The clock is
 frozen to `org-air-test-now'.  The buffer is killed afterwards so the
 per-buffer item cache never leaks between renders."
   (declare (indent 1) (debug t))
@@ -110,7 +120,13 @@ per-buffer item cache never leaks between renders."
      (org-air-viewport-test--with-frozen-now
        (unwind-protect
            (org-air-viewport-test--with-render-guards
-             (let ((org-air-view-width ,width))
+             (let* ((org-air-viewport-test--size ,width)
+                    (org-air-view-width (if (consp org-air-viewport-test--size)
+                                            (car org-air-viewport-test--size)
+                                          org-air-viewport-test--size))
+                    (org-air-view-height (if (consp org-air-viewport-test--size)
+                                             (cdr org-air-viewport-test--size)
+                                           org-air-view-height)))
                (org-air)
                (let ((buf (get-buffer "*org-air*")))
                  (should buf)
@@ -387,19 +403,44 @@ render guards, buffer killed afterwards)."
                    (kill-buffer "*org-air*"))))))
        (delete-directory org-air-viewport-test--dir t))))
 
+(defun org-air-viewport-test--glyph (name which)
+  "Return the WHICH (`gui' or `tty') variant of glyph NAME from the table.
+Derived from `org-air-glyphs' so glyph-default respecs (e.g. S5) never
+break the parsers; falls back to historical defaults when the table or
+entry is absent."
+  (let ((pair (and (boundp 'org-air-glyphs)
+                   (cdr (assq name org-air-glyphs)))))
+    (or (if (eq which 'gui) (car pair) (cdr pair))
+        (cdr (assq name '((calendar-item . "●") (today . "▮")))))))
+
 (defun org-air-viewport-test-calendar-marks ()
   "Parse the rendered GUI calendar grid: return (MARKED-DAYS . TODAY-DAYS).
-MARKED-DAYS are day numbers followed by ●; TODAY-DAYS by ▮.  Sorted.
-Digit-prefixed glyphs only, so the legend line never matches."
-  (let ((text (buffer-string)) (marked ()) (today ()) (pos 0))
-    (while (string-match "\\([0-9]+\\)\\([●▮]\\)" text pos)
+MARKED-DAYS are day numbers followed by the `calendar-item' glyph;
+TODAY-DAYS by the `today' glyph (both read from the live glyph table,
+GUI variants).  Sorted.  Digit-prefixed glyphs only, so the legend line
+never matches."
+  (let* ((mark (org-air-viewport-test--glyph 'calendar-item 'gui))
+         (today-glyph (org-air-viewport-test--glyph 'today 'gui))
+         (rx (format "\\([0-9]+\\)\\(%s\\|%s\\)"
+                     (regexp-quote mark) (regexp-quote today-glyph)))
+         (text (buffer-string)) (marked ()) (today ()) (pos 0))
+    (while (string-match rx text pos)
       (let ((day (string-to-number (match-string 1 text)))
             (glyph (match-string 2 text)))
-        (if (equal glyph "●")
+        (if (equal glyph mark)
             (cl-pushnew day marked)
           (cl-pushnew day today)))
       (setq pos (match-end 0)))
     (cons (sort marked #'<) (sort today #'<))))
+
+(defun org-air-viewport-test-assert-fills-height (height)
+  "Assert the buffer composes to exactly HEIGHT rows (S6 contract).
+Blank padding rows count; they are full-width plain-space rows that
+right-trim to empty in the line list."
+  (let ((lines (org-air-viewport-test-lines)))
+    (unless (= (length lines) height)
+      (ert-fail (format "composed to %d rows, expected exactly %d"
+                        (length lines) height)))))
 
 (defmacro org-air-viewport-test-as-gui (&rest body)
   "Run BODY with `display-graphic-p' stubbed non-nil.

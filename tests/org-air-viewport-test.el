@@ -157,6 +157,25 @@ Spec: calendar ALWAYS rendered (air/v0.2/org-air-layout.org, Goals)."
   (org-air-viewport-test-with-dashboard 120
     (should (org-air-viewport-test-calendar-present-p))))
 
+(ert-deftest org-air-viewport-render-honours-height-seam ()
+  "The renderer consults `org-air-view-height': different heights,
+different composition (S6 full-height contract — body band blank-padded
+so the footer sits on the last row)."
+  (skip-unless (locate-library "org-air"))
+  (let (short tall)
+    (org-air-viewport-test-with-dashboard (cons 120 30)
+      (setq short (substring-no-properties (buffer-string))))
+    (org-air-viewport-test-with-dashboard (cons 120 50)
+      (setq tall (substring-no-properties (buffer-string))))
+    (should-not (equal short tall))))
+
+(ert-deftest org-air-viewport-fills-height ()
+  "At 120×45 the buffer composes to exactly 45 rows (S6 contract)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-with-dashboard (cons 120 45)
+    (org-air-viewport-test-assert-fills-height 45)
+    (org-air-viewport-test-assert-aligned 120)))
+
 (ert-deftest org-air-viewport-calendar-present-zero-items ()
   "Calendar pane is rendered even when there are NO items at all.
 Spec: calendar ALWAYS rendered, regardless of item counts or filters;

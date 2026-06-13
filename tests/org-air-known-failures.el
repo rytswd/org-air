@@ -55,6 +55,14 @@
      . "S1: header-line path still active (org-air-view.el sets header-line-format) — duplicate header in GUI; in-buffer band is the only header")
     (org-air-glyph-coverage-complete-with-ascii-fallbacks
      . "design §6.1: glyph table missing box-tee-left/box-tee-right fallbacks")
+    ;; S6 height seam (contract proposed to impl2 as code, mirroring
+    ;; the width seam): org-air-view-height — nil = displaying window
+    ;; height, integer = compose exactly that many rows (footer on the
+    ;; last row, body blank-padded).
+    (org-air-viewport-render-honours-height-seam
+     . "S6: renderer must consult the org-air-view-height seam (full-height composition)")
+    (org-air-viewport-fills-height
+     . "S6: 120x45 render composes to exactly 45 rows, all 120 cols wide")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

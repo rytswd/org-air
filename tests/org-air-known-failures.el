@@ -51,8 +51,21 @@
     ;;
     ;; Screenshot round (GUI bugs the byte gate missed; impl2 punch
     ;; list — delete as fixes land):
-    (org-air-s1-no-header-line-in-dashboard
-     . "S1: header-line path still active (org-air-view.el sets header-line-format) — duplicate header in GUI; in-buffer band is the only header")
+    ;; 2026-06-13: S1 entry closed — impl2 nnoosnpn removed the
+    ;; header-line path; verified header-line-format nil on both glyph
+    ;; paths, and the v0.1 filter-chip test rewritten to read the
+    ;; in-buffer band.
+    ;;
+    ;; Stale-blessed mockups pending the S-round one-shot regen (after
+    ;; impl2's S5/S6 done): S4 changed the badge bytes.
+    (org-air-layout-mockup-80
+     . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
+    (org-air-layout-mockup-120
+     . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
+    (org-air-layout-mockup-160
+     . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
+    (org-air-layout-mockup-thresholds
+     . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
     (org-air-glyph-coverage-complete-with-ascii-fallbacks
      . "design §6.1: glyph table missing box-tee-left/box-tee-right fallbacks")
     ;; S6 height seam (contract proposed to impl2 as code, mirroring

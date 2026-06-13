@@ -127,7 +127,7 @@ carries a scheduled or deadline timestamp, computed from the items."
                     (t 'org-air-face-calendar-day))))
         (insert (propertize (format "%2d" day) 'face face))
         (insert (cond
-                 (todayp (org-air-calendar--glyph "▮" "#"))
+                 (todayp (org-air-calendar--glyph "■" "#"))
                  (marked (org-air-calendar--glyph "●" "o"))
                  (t " ")))
         (when (= (org-air-calendar--column calendar-dow) 6)
@@ -136,7 +136,7 @@ carries a scheduled or deadline timestamp, computed from the items."
     (unless (bolp) (insert "\n"))
     (insert (propertize (format "%s has items · %s today\n"
                               (org-air-calendar--glyph "●" "o")
-                              (org-air-calendar--glyph "▮" "#"))
+                              (org-air-calendar--glyph "■" "#"))
                       'face 'org-air-face-faded))))
 
 (provide 'org-air-calendar)

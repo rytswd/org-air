@@ -72,6 +72,14 @@ batch-testable dashboard lines against exactly that display width using
   :type '(choice (const :tag "Live window" nil) integer)
   :group 'org-air)
 
+(defcustom org-air-view-height nil
+  "Total body height used for org-air full-height composition (S6).
+When nil, derive the height from the live window body.  When an integer,
+fill the dashboard to exactly that many lines (the vertical analogue of
+`org-air-view-width', for deterministic batch rendering)."
+  :type '(choice (const :tag "Live window" nil) integer)
+  :group 'org-air)
+
 (defcustom org-air-layout-two-pane-min 100
   "Legacy fixed two-pane breakpoint (superseded by the derived rule).
 Kept for back-compatibility/customisation; the live decision is made by
@@ -173,6 +181,8 @@ Choices are `other-window', `same', and `frame'."
 (defvar-local org-air-view--line-width nil)
 (defvar-local org-air-view--rendered-width nil
   "Column width used for the most recent render of this dashboard buffer.")
+(defvar-local org-air-view--rendered-height nil
+  "Body height used for the most recent render of this dashboard buffer.")
 (defvar-local org-air-view--orientation nil
   "Last chosen layout orientation, `two-pane' or `stacked' (D1 hysteresis).")
 (defvar org-air-view--pane-indented nil
@@ -227,6 +237,8 @@ of whether the wrapping pane margin is added later (D6).")
 (define-derived-mode org-air-view-mode special-mode "org-air"
   "Major mode for the org-air dashboard."
   (setq-local truncate-lines t)
+  ;; S1: the header band is in-buffer text only; never a header line.
+  (setq-local header-line-format nil)
   (setq-local cursor-type 'bar)
   (setq-local org-air-layout-refresh-function #'org-air-view--resize-refresh)
   (setq-local buffer-read-only t)
@@ -393,6 +405,10 @@ stacked and two-pane layouts."
   "Return the width used for current org-air view rendering."
   (or org-air-view--line-width org-air-view-width (org-air-layout-current-width)))
 
+(defun org-air-view--render-height ()
+  "Return the total body height for full-height composition (S6)."
+  (or org-air-view-height (org-air-layout-current-height)))
+
 (defun org-air-view--pad-to (string width)
   "Return STRING truncated or padded to display WIDTH.
 Padding uses literal spaces and `string-width'; no display alignment
@@ -479,8 +495,10 @@ When ACTIVE is non-nil, use the active-filter tag face."
                          scope-text))
          (left (propertize "  org-air" 'face 'org-air-face-header))
          (right (propertize status 'face 'org-air-face-faded))
+         ;; S1: the header is the IN-BUFFER band only.  Compose the
+         ;; right-aligned status to the displaying window width so it
+         ;; never spills past the right edge (no `header-line-format').
          (line (org-air-view--justify left right (org-air-view--render-width))))
-    (setq header-line-format line)
     (insert line "\n")))
 
 (defun org-air-view--rule-string (width)
@@ -634,13 +652,13 @@ The order is stable so items sharing a date keep their incoming order."
   "Insert section DESCRIPTOR from ITEMS."
   (pcase-let ((`(,bucket ,title ,empty) descriptor))
     (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
-           (raw-bucket-items (seq-filter (lambda (item)
-                                           (memq bucket (org-air-classify-item item)))
-                                         (org-air-view--visible-items items)))
            (bucket-items (if (memq bucket '(attention upcoming))
                              (org-air-view--sort-by-date bucket-items)
                            bucket-items))
-           (count (length raw-bucket-items))
+           ;; S4: the badge counts exactly what the section renders
+           ;; (`items-for-bucket', which keeps inbox items out of the
+           ;; other buckets), so badge/summary/body always agree.
+           (count (length bucket-items))
            (attentionp (and (> count 0) (memq bucket '(inbox attention))))
            (expanded (memq bucket org-air-view--expanded-sections))
            (limit (pcase bucket
@@ -744,12 +762,13 @@ Within `org-air-layout-hysteresis' columns of the breakpoint the current
             " ")))
 
 (defun org-air-view--section-counts (items)
-  "Return bucket count alist for visible ITEMS."
+  "Return bucket count alist for visible ITEMS.
+Counts use `org-air-view--items-for-bucket' so the summary mirrors the
+section badges and bodies exactly (S4) — inbox items are not also tallied
+under the other buckets."
   (mapcar (lambda (descriptor)
             (pcase-let ((`(,bucket ,_title ,_empty) descriptor))
-              (cons bucket (length (seq-filter (lambda (item)
-                                                  (memq bucket (org-air-classify-item item)))
-                                                (org-air-view--visible-items items))))))
+              (cons bucket (length (org-air-view--items-for-bucket bucket items)))))
           org-air-view--sections))
 
 (defun org-air-view--bucket-title (bucket)
@@ -941,67 +960,116 @@ Keep exactly one blank line of rhythm between sections and rail blocks."
       (replace-match "\n\n")
       (goto-char (match-beginning 0)))))
 
+(defun org-air-view--beginning-of-visible ()
+  "Move point to the first visible (non-whitespace) char of the line (S5a).
+An unfocused frame draws a hollow-box cursor; on leading indent
+whitespace it reads as tofu, so park point on the first real glyph."
+  (beginning-of-line)
+  (skip-chars-forward " \t" (line-end-position)))
+
 (defun org-air-view--goto-first-item ()
-  "Place point on the first actionable item row (D4).
+  "Place point on the first actionable item row (D4 / S5a).
 Lands on the first `org-air-item' (first non-empty section), then the
 first section heading, then `point-min' for a truly empty board — so
-n/p, RET and r work on the first keystroke instead of the banner."
+n/p, RET and r work on the first keystroke instead of the banner — and on
+the first VISIBLE character of that row, never the indent whitespace."
   (goto-char (or (text-property-not-all (point-min) (point-max) 'org-air-item nil)
                  (text-property-not-all (point-min) (point-max) 'org-air-section nil)
-                 (point-min))))
+                 (point-min)))
+  (org-air-view--beginning-of-visible))
+
+(defun org-air-view--collapse-line-list (lines)
+  "Collapse two or more consecutive blank LINES to a single blank line (D6)."
+  (let (out (prev-blank nil))
+    (dolist (l lines (nreverse out))
+      (let ((blank (and (string-match-p "\\`[ \t]*\\'" l) t)))
+        (unless (and blank prev-blank)
+          (push l out))
+        (setq prev-blank blank)))))
+
+(defun org-air-view--pad-line-list (lines target fill-row)
+  "Return LINES extended to TARGET rows by appending FILL-ROW (S6)."
+  (if (>= (length lines) target)
+      lines
+    (append lines (make-list (- target (length lines)) fill-row))))
+
+(defun org-air-view--two-pane-body (items width)
+  "Return (BODY-LINES . FILL-ROW) for ITEMS in the two-pane layout at WIDTH.
+FILL-ROW is a full-width blank row carrying the divider, so the divider
+spans the full body height when the body is padded out (S6)."
+  (let* ((rail-width (org-air-view--rail-width width))
+         (divider (org-air-view--divider))
+         (item-width (max 20 (- width rail-width (string-width divider))))
+         (item-content-width (max 1 (- item-width org-air-margin)))
+         (rail-content-width (max 1 (- rail-width org-air-margin)))
+         (item-lines (org-air-view--indent-pane-lines
+                      (org-air-view--render-lines
+                       item-content-width
+                       (lambda ()
+                         (let ((org-air-view--pane-indented t))
+                           (org-air-view--insert-item-pane items item-content-width))))
+                      item-width))
+         (rail-lines (org-air-view--indent-pane-lines
+                      (org-air-view--render-lines
+                       rail-content-width
+                       (lambda () (org-air-view--insert-rail items rail-content-width)))
+                      rail-width)))
+    (cons (org-air-view--compose-columns
+           (list (cons item-lines item-width) (cons rail-lines rail-width))
+           divider)
+          (concat (make-string item-width ?\s) divider
+                  (make-string rail-width ?\s)))))
 
 (defun org-air-view--render (items tag-filter)
-  "Render dashboard for cached ITEMS with TAG-FILTER."
+  "Render the dashboard for cached ITEMS with TAG-FILTER, filling the window.
+Three bands (S6): a fixed header (banner + rule), a body that fills the
+full `org-air-view--render-height' (two-pane keeps the divider down
+every body row; stacked blank-fills), and a footer pinned to the bottom."
   (let* ((inhibit-read-only t)
-         (width (org-air-view--render-width)))
+         (width (org-air-view--render-width))
+         (height (org-air-view--render-height)))
     (erase-buffer)
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)
           org-air-view--tag-filter tag-filter)
-    (org-air-view--insert-banner items)
-    (org-air-view--insert-rule)
-    (insert "\n")
     (setq org-air-view--orientation
           (if (org-air-view--two-pane-p width) 'two-pane 'stacked))
-    (if (eq org-air-view--orientation 'two-pane)
-        (let* ((rail-width (org-air-view--rail-width width))
-               (divider (org-air-view--divider))
-               (item-width (max 20 (- width rail-width (string-width divider))))
-               (item-content-width (max 1 (- item-width org-air-margin)))
-               (rail-content-width (max 1 (- rail-width org-air-margin)))
-               (item-lines (org-air-view--indent-pane-lines
-                            (org-air-view--render-lines
-                             item-content-width
-                             (lambda ()
-                               (let ((org-air-view--pane-indented t))
-                                 (org-air-view--insert-item-pane items item-content-width))))
-                            item-width))
-               (rail-lines (org-air-view--indent-pane-lines
-                            (org-air-view--render-lines
-                             rail-content-width
-                             (lambda () (org-air-view--insert-rail items rail-content-width)))
-                            rail-width)))
-          (org-air-view--insert-lines
-           (org-air-view--compose-columns
-            (list (cons item-lines item-width) (cons rail-lines rail-width))
-            divider)))
-      (org-air-view--insert-top-rail items width)
-      (insert "\n")
-      (org-air-view--insert-rule)
-      (insert "\n")
-      (org-air-view--insert-lines
-       (org-air-view--render-lines width
-                                   (lambda () (org-air-view--insert-item-pane items width)))))
-    (insert "\n")
-    (org-air-view--insert-rule)
-    (org-air-view--insert-footer)
-    ;; D6 — one blank line of rhythm, never a double, at any width.
-    (org-air-view--collapse-blank-lines)
+    (let* ((header (org-air-view--render-lines
+                    width
+                    (lambda ()
+                      (org-air-view--insert-banner items)
+                      (org-air-view--insert-rule)
+                      (insert "\n"))))
+           (footer (org-air-view--render-lines
+                    width
+                    (lambda ()
+                      (org-air-view--insert-rule)
+                      (org-air-view--insert-footer))))
+           (fill-row "")
+           (body-content
+            (if (eq org-air-view--orientation 'two-pane)
+                (let ((pair (org-air-view--two-pane-body items width)))
+                  (setq fill-row (cdr pair))
+                  (car pair))
+              (org-air-view--render-lines
+               width
+               (lambda ()
+                 (org-air-view--insert-top-rail items width)
+                 (insert "\n")
+                 (org-air-view--insert-rule)
+                 (insert "\n")
+                 (org-air-view--insert-item-pane items width)))))
+           (body-content (org-air-view--collapse-line-list body-content))
+           (body-target (max (length body-content)
+                             (- height (length header) (length footer))))
+           (body (org-air-view--pad-line-list body-content body-target fill-row)))
+      (org-air-view--insert-lines (append header body footer)))
     (if (integerp org-air-view-width)
         (org-air-view--normalize-buffer-lines org-air-view-width)
       ;; D7/D6 — cap every line at the displaying window and right-trim.
       (org-air-view--finalize-buffer-lines width))
-    (setq org-air-view--rendered-width width)
+    (setq org-air-view--rendered-width width
+          org-air-view--rendered-height height)
     (org-air-view--goto-first-item)))
 
 (defun org-air-view--save-position ()
@@ -1032,12 +1100,15 @@ unless nothing else is available."
         (section-pos (org-air-view--find-property
                       'org-air-section (plist-get token :section))))
     (cond
-     (marker-pos (goto-char marker-pos))
+     (marker-pos
+      (goto-char marker-pos)
+      (org-air-view--beginning-of-visible))
      (section-pos
       ;; Nearest surviving item at/after the saved section heading.
       (goto-char (or (text-property-not-all section-pos (point-max)
                                             'org-air-item nil)
-                     section-pos)))
+                     section-pos))
+      (org-air-view--beginning-of-visible))
      (t
       (goto-char (point-min))
       (forward-line (1- (or (plist-get token :line) 1)))
@@ -1053,10 +1124,13 @@ cursor is restored to the same item (or section, or line) afterwards."
     (org-air-view--restore-position token)))
 
 (defun org-air-view--resize-refresh ()
-  "Re-render only when the displaying window's width has actually changed.
-Called from the debounced window-size/-configuration hook."
-  (let ((width (org-air-view--render-width)))
-    (unless (eql width org-air-view--rendered-width)
+  "Re-render only when the displaying window's width or height changed.
+Called from the debounced window-size/-configuration hook (S6 makes the
+body fill the height, so a height change must re-pad too)."
+  (let ((width (org-air-view--render-width))
+        (height (org-air-view--render-height)))
+    (unless (and (eql width org-air-view--rendered-width)
+                 (eql height org-air-view--rendered-height))
       (org-air-view--render-current))))
 
 ;;;###autoload

@@ -203,48 +203,49 @@ rule spans the full width on the next line.  (Optional non-asserted
 sticky =header-line-format= duplicate — see §1.1.)
 
 ** 3. Mockups (the contract)
-All three use the frozen test clock: *today = Mon 16 Jun 2026* (the
+All three use the frozen test clock: *today = Mon 15 Jun 2026* (the
 =org-air-test-now= fixture), so the implementation's batch render can be
-diffed against these directly.  Sample board: Inbox 3, Needs attention
-2, Upcoming 4, High priority 1, Stale 2 — 12 items total.  Calendar
-marks (=●=) fall on days with scheduled/deadline items (12, 17, 18, 20,
-21); today (16) is reverse/under-marked (=▮=).
+diffed against these directly.  Real fixture board (no active filter):
+Inbox 3, Needs attention 11, Upcoming 8, High priority 3, Stale 2 — 23
+items visible.  Calendar marks (=●=) are the honest union of every day
+with a scheduled/deadline item — 08, 10, 12, 16, 17, 18, 19, 20 — and
+today (15) is reverse/under-marked (=▮=, superseding its event glyph).
 
 *** 3.1 Wide — 160 columns (two-pane, item pane 115 + rail 42)
 #+begin_example
   org-air                                                                                                                                  Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  ▤ Inbox  3                                                                                                        │   June 2026                            ‹ ›
-      Quick note about org-air idea            #inbox                                                   ⌂ inbox.org │   Mo Tu We Th Fr Sa Su
-      Call plumber                             #inbox                                                   ⌂ inbox.org │    1  2  3  4  5  6  7
-      TODO Triage me later                     #inbox                                                   ⌂ inbox.org │    8  9 10 11 12●13 14
-                                                                                                                    │   15▮16●17●18 19●20●21
-  ▲ Needs attention  11                                                                                             │   22 23 24 25 26 27 28
-      TODO Book dentist appointment  OVERDUE 3d  #personal #health                                   ⌂ personal.org │   29 30
-      TODO [#A] Fix production outage runbook  OVERDUE 5d  #projects #work #urgent                   ⌂ projects.org │   ● has items · ▮ today
-      TODO Chase missing invoice  OVERDUE 7d  #projects #admin                                       ⌂ projects.org │
-      TODO Untracked idea with no dates  no date  #projects #someday                                 ⌂ projects.org │   ── Summary ─────────────────────────────
-      Reference notes without a todo  no date  #projects #note                                       ⌂ projects.org │      3  Inbox
-      TODO Learn lute  no date  #someday #hobby                                                       ⌂ someday.org │     11  Needs attention
+  ▤ Inbox 3                                                                                                         │   June 2026                            ‹ ›
+      Quick note about org-air idea                                                             #inbox  ⌂ inbox.org │   Mo Tu We Th Fr Sa Su
+      Call plumber                                                                              #inbox  ⌂ inbox.org │    1  2  3  4  5  6  7
+      TODO Triage me later                                                                      #inbox  ⌂ inbox.org │    8● 9 10●11 12●13 14
+                                                                                                                    │   15▮16●17●18●19●20●21
+  ▲ Needs attention 11                                                                                              │   22 23 24 25 26 27 28
+      TODO Chase missing invoice  OVERDUE 7d                                       #projects #admin  ⌂ projects.org │   29 30
+      TODO [#A] Fix production outage runbook  OVERDUE 5d                   #projects #work #urgent  ⌂ projects.org │   ● has items · ▮ today
+      TODO Book dentist appointment  OVERDUE 3d                                   #personal #health  ⌂ personal.org │
+      TODO Dust off old archive project  no date                                 #projects #archive  ⌂ projects.org │   ── Summary ─────────────────────────────
+      TODO Untracked idea with no dates  no date                                 #projects #someday  ⌂ projects.org │      3  Inbox
+      Reference notes without a todo state  no date                                 #projects #note  ⌂ projects.org │     11  Needs attention
       …and 5 more — press TAB on the title to expand                                                                │      8  Upcoming
                                                                                                                     │      3  High priority
-  ◆ Upcoming  8                                                                                                     │      2  Stale
-      TODO Renew library card  Today  #personal #admin                                               ⌂ personal.org │   ────────────────────────────────────────
-      TODO [#A] Ship quarterly report  Wed  #projects #work #report                                  ⌂ projects.org │     23  total
-      TODO Prepare standup notes  Tomorrow  #projects #work                                          ⌂ projects.org │
-      TODO Review design doc  Thu  #projects #work #review                                           ⌂ projects.org │   ── Filters ─────────────────────────────
-      TODO [#A] Prep client presentation  Tomorrow  #work #client                                        ⌂ work.org │   No filters · all items
+  ◆ Upcoming 8                                                                                                      │      2  Stale
+      TODO Renew library card  Today                                               #personal #admin  ⌂ personal.org │   ────────────────────────────────────────
+      TODO Water the garden  Today                                                  #projects #home  ⌂ projects.org │     23  total
+      TODO [#A] Prep client presentation  Tomorrow                                        #work #client  ⌂ work.org │
+      TODO Prepare standup notes  Tomorrow                                          #projects #work  ⌂ projects.org │   ── Filters ─────────────────────────────
+      TODO Email finance about budget  Tomorrow                                                   #work  ⌂ work.org │   No filters · all items
       …and 3 more — press TAB on the title to expand                                                                │
                                                                                                                     │   c capture · / filter · s scope
-  ★ High priority  3                                                                                                │
-      TODO [#A] Ship quarterly report  Wed  #projects #work #report                                  ⌂ projects.org │
-      TODO [#A] Fix production outage runbook  OVERDUE 5d  #projects #work                           ⌂ projects.org │
-      TODO [#A] Prep client presentation  Tomorrow  #work #client                                        ⌂ work.org │
+  ★ High priority 3                                                                                                 │
+      TODO [#A] Ship quarterly report  Wed                                  #projects #work #report  ⌂ projects.org │
+      TODO [#A] Fix production outage runbook  OVERDUE 5d                   #projects #work #urgent  ⌂ projects.org │
+      TODO [#A] Prep client presentation  Tomorrow                                        #work #client  ⌂ work.org │
                                                                                                                     │
-  ◷ Stale  2                                                                                                        │
-      TODO Dust off old archive project  · 225d quiet  #projects #archive                            ⌂ projects.org │
-      TODO Learn lute  · 273d quiet  #someday #hobby                                                  ⌂ someday.org │
+  ◷ Stale 2                                                                                                         │
+      TODO Dust off old archive project  · 225d quiet                            #projects #archive  ⌂ projects.org │
+      TODO Learn lute  · 273d quiet                                                  #someday #hobby  ⌂ someday.org │
 
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   [c]apture  [g]refresh  [/]filter  [\]clear  [s]cope  [TAB]next  RET visit  [?]help
@@ -255,97 +256,102 @@ marks (=●=) fall on days with scheduled/deadline items (12, 17, 18, 20,
   org-air                                                                                          Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  ▤ Inbox  3                                                                          │   June 2026                  ‹ ›
-      Quick note about org-air idea            #inbox                     ⌂ inbox.org │   Mo Tu We Th Fr Sa Su
-      Call plumber                             #inbox                     ⌂ inbox.org │    1  2  3  4  5  6  7
-      TODO Triage me later                     #inbox                     ⌂ inbox.org │    8  9 10 11 12●13 14
-                                                                                      │   15▮16●17●18 19●20●21
-  ▲ Needs attention  11                                                               │   22 23 24 25 26 27 28
-      TODO Book dentist appointment  OVERDUE 3d  #personal #health     ⌂ personal.org │   29 30
-      TODO [#A] Fix production outage runbook  OVERDUE 5d  #projects … ⌂ projects.org │   ● has items · ▮ today
-      TODO Chase missing invoice  OVERDUE 7d  #projects #admin         ⌂ projects.org │
-      TODO Untracked idea with no dates  no date  #projects #someday   ⌂ projects.org │   ── Summary ───────────────────
-      Reference notes without a todo  no date  #projects #note         ⌂ projects.org │      3  Inbox
-      TODO Learn lute  no date  #someday #hobby                         ⌂ someday.org │     11  Needs attention
+  ▤ Inbox 3                                                                           │   June 2026                  ‹ ›
+      Quick note about org-air idea                               #inbox  ⌂ inbox.org │   Mo Tu We Th Fr Sa Su
+      Call plumber                                                #inbox  ⌂ inbox.org │    1  2  3  4  5  6  7
+      TODO Triage me later                                        #inbox  ⌂ inbox.org │    8● 9 10●11 12●13 14
+                                                                                      │   15▮16●17●18●19●20●21
+  ▲ Needs attention 11                                                                │   22 23 24 25 26 27 28
+      TODO Chase missing invoice  OVERDUE 7d         #projects #admin  ⌂ projects.org │   29 30
+      TODO [#A] Fix production outage runbook  OVERDUE 5d           …  ⌂ projects.org │   ● has items · ▮ today
+      TODO Book dentist appointment  OVERDUE 3d     #personal #health  ⌂ personal.org │
+      TODO Dust off old archive project  no date   #projects #archive  ⌂ projects.org │   ── Summary ───────────────────
+      TODO Untracked idea with no dates  no date   #projects #someday  ⌂ projects.org │      3  Inbox
+      Reference notes without a todo state  no date   #projects #note  ⌂ projects.org │     11  Needs attention
       …and 5 more — press TAB on the title to expand                                  │      8  Upcoming
                                                                                       │      3  High priority
-  ◆ Upcoming  8                                                                       │      2  Stale
-      TODO Renew library card  Today  #personal #admin                 ⌂ personal.org │   ──────────────────────────────
-      TODO [#A] Ship quarterly report  Wed  #projects #work #report    ⌂ projects.org │     23  total
-      TODO Prepare standup notes  Tomorrow  #projects #work            ⌂ projects.org │
-      TODO Review design doc  Thu  #projects #work #review             ⌂ projects.org │   ── Filters ───────────────────
-      TODO [#A] Prep client presentation  Tomorrow  #work #client          ⌂ work.org │   No filters · all items
+  ◆ Upcoming 8                                                                        │      2  Stale
+      TODO Renew library card  Today                 #personal #admin  ⌂ personal.org │   ──────────────────────────────
+      TODO Water the garden  Today                    #projects #home  ⌂ projects.org │     23  total
+      TODO [#A] Prep client presentation  Tomorrow          #work #client  ⌂ work.org │
+      TODO Prepare standup notes  Tomorrow            #projects #work  ⌂ projects.org │   ── Filters ───────────────────
+      TODO Email finance about budget  Tomorrow                     #work  ⌂ work.org │   No filters · all items
       …and 3 more — press TAB on the title to expand                                  │
                                                                                       │   c capture · / filter
-  ★ High priority  3                                                                  │
-      TODO [#A] Ship quarterly report  Wed  #projects #work #report    ⌂ projects.org │
-      TODO [#A] Fix production outage runbook  OVERDUE 5d  #projects … ⌂ projects.org │
-      TODO [#A] Prep client presentation  Tomorrow  #work #client          ⌂ work.org │
+  ★ High priority 3                                                                   │
+      TODO [#A] Ship quarterly report  Wed    #projects #work #report  ⌂ projects.org │
+      TODO [#A] Fix production outage runbook  OVERDUE 5d           …  ⌂ projects.org │
+      TODO [#A] Prep client presentation  Tomorrow          #work #client  ⌂ work.org │
                                                                                       │
-  ◷ Stale  2                                                                          │
-      TODO Dust off old archive project  · 225d quiet  #projects #arc… ⌂ projects.org │
-      TODO Learn lute  · 273d quiet  #someday #hobby                    ⌂ someday.org │
+  ◷ Stale 2                                                                           │
+      TODO Dust off old archive project  · 225d quiet     #projects …  ⌂ projects.org │
+      TODO Learn lute  · 273d quiet                    #someday #hobby  ⌂ someday.org │
 
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   [c]apture  [g]refresh  [/]filter  [\]clear  [s]cope  [TAB]next  RET visit  [?]help
 #+end_example
 
 *** 3.3 Narrow — 80 columns (stacked: rail-as-top-band, items below)
-The rail relocates to a top band so the calendar stays visible; the
-item sections then run full width.
-
 #+begin_example
   org-air                                                  Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────
 
-  June 2026          ‹ ›  ── Summary ──────────  ── Filters ─────────
-  Mo Tu We Th Fr Sa Su      3  Inbox             No filters · all it…
-   1  2  3  4  5  6  7     11  Needs attention
-   8  9 10 11 12●13 14      8  Upcoming
-  15▮16●17●18 19●20●21      3  High priority     c capture · / filter
-  22 23 24 25 26 27 28      2  Stale             s scope · g refresh
-  29 30                   ──────────────────
-  ● has items · ▮ today    23  total
+June 2026        ‹ ›      ── Summary ─────────────  ── Filters ─────────────
+Mo Tu We Th Fr Sa Su         3  Inbox               No filters · all items
+ 1  2  3  4  5  6  7        11  Needs attention     c capture · / filter
+ 8● 9 10●11 12●13 14         8  Upcoming
+15▮16●17●18●19●20●21         3  High priority
+22 23 24 25 26 27 28         2  Stale
+29 30                     ────────────────────────
+● has items · ▮ today       23  total
 
   ──────────────────────────────────────────────────────────────────────────────
 
-  ▤ Inbox  3
-      Quick note about org-air idea            #inbox               ⌂ inbox.org
-      Call plumber                             #inbox               ⌂ inbox.org
-      TODO Triage me later                     #inbox               ⌂ inbox.org
+  ▤ Inbox 3
+      Quick note about org-air idea                          #inbox  ⌂ inbox.org
+      Call plumber                                           #inbox  ⌂ inbox.org
+      TODO Triage me later                                   #inbox  ⌂ inbox.org
 
-  ▲ Needs attention  11
-      TODO Book dentist appointment  OVERDUE 3d  #personal #hea… ⌂ personal.org
-      TODO [#A] Fix production outage runbook  OVERDUE 5d  #pro… ⌂ projects.org
-      TODO Chase missing invoice  OVERDUE 7d  #projects #admin   ⌂ projects.org
-      TODO Untracked idea with no dates  no date  #projects #so… ⌂ projects.org
-      Reference notes without a todo  no date  #projects #note   ⌂ projects.org
-      TODO Learn lute  no date  #someday #hobby                   ⌂ someday.org
+  ▲ Needs attention 11
+      TODO Chase missing invoice  OVERDUE 7d    #projects #admin  ⌂ projects.org
+      TODO [#A] Fix production outage runbook  OVERDUE 5d      …  ⌂ projects.org
+      TODO Book dentist appointment  OVERDUE 3d      #personal …  ⌂ personal.org
+      TODO Dust off old archive project  no date     #projects …  ⌂ projects.org
+      TODO Untracked idea with no dates  no date     #projects …  ⌂ projects.org
+      Reference notes without a todo state  no date  #projects …  ⌂ projects.org
       …and 5 more — press TAB on the title to expand
 
-  ◆ Upcoming  8
-      TODO Renew library card  Today  #personal #admin           ⌂ personal.org
-      TODO [#A] Ship quarterly report  Wed  #projects #work #re… ⌂ projects.org
-      TODO Prepare standup notes  Tomorrow  #projects #work      ⌂ projects.org
-      TODO Review design doc  Thu  #projects #work #review       ⌂ projects.org
-      TODO [#A] Prep client presentation  Tomorrow  #work #client    ⌂ work.org
+  ◆ Upcoming 8
+      TODO Renew library card  Today            #personal #admin  ⌂ personal.org
+      TODO Water the garden  Today               #projects #home  ⌂ projects.org
+      TODO [#A] Prep client presentation  Tomorrow     #work #client  ⌂ work.org
+      TODO Prepare standup notes  Tomorrow       #projects #work  ⌂ projects.org
+      TODO Email finance about budget  Tomorrow                #work  ⌂ work.org
       …and 3 more — press TAB on the title to expand
 
-  ★ High priority  3
-      TODO [#A] Ship quarterly report  Wed  #projects #work #re… ⌂ projects.org
-      TODO [#A] Fix production outage runbook  OVERDUE 5d  #pro… ⌂ projects.org
-      TODO [#A] Prep client presentation  Tomorrow  #work #client    ⌂ work.org
+  ★ High priority 3
+      TODO [#A] Ship quarterly report  Wed     #projects #work …  ⌂ projects.org
+      TODO [#A] Fix production outage runbook  OVERDUE 5d      …  ⌂ projects.org
+      TODO [#A] Prep client presentation  Tomorrow     #work #client  ⌂ work.org
 
-  ◷ Stale  2
-      TODO Dust off old archive project  · 225d quiet  #project… ⌂ projects.org
-      TODO Learn lute  · 273d quiet  #someday #hobby              ⌂ someday.org
+  ◷ Stale 2
+      TODO Dust off old archive project  · 225d quiet          …  ⌂ projects.org
+      TODO Learn lute  · 273d quiet               #someday #hobby  ⌂ someday.org
 
   ──────────────────────────────────────────────────────────────────────────────
   [c]apture [g]refresh [/]filter [\]clear [s]cope [TAB]next RET visit [?]help
 #+end_example
 
+*** 3.4 Threshold set — 90 / 96 / 100 / 104 / 110 columns
+The real-window threshold fixtures (U4 / D1) live in
+=tests/fixtures/layout-mockup-{90,96,100,104,110}.txt= and are the byte
+authority alongside the three above.  Geometry: 90 stacked (no divider);
+96/100/104/110 two-pane with rail tier 28 (divider display-cols
+66/70/74/80); 120 rail 32 (col 86); 160 rail 42 (col 116).  Honest
+renders of the de-hardcoded D1–D7 renderer (change rpuxmmlz).
+
 These three blocks are adopted *byte-for-byte* from the canonical
-fixtures =tests/fixtures/layout-mockup-{80,120,160}.txt= (the test
+fixtures =tests/fixtures/layout-mockup-{80,90,96,100,104,110,120,160}.txt= (the test
 track's normalised, geometry-verified source of truth) — they ARE the
 asserted strings; treat the fixture files as authoritative if this doc
 ever drifts.  They are *byte-precise geometry*, asserted literally by
@@ -687,10 +693,38 @@ are inherited unchanged.
   ending the normalisation loop: the fixture files are now the single
   source of truth and the doc quotes them verbatim.  Geometry re-checked
   (rules 80/120/160, divider 86@120 / 116@160, no line over target).
+- 2026-06-12: RE-BLESSED after the honest de-hardcoded renderer (impl2
+  =ymvlyvuk=, fixtures =srolttqs=).  Adopted the regenerated 80/120/160
+  byte-for-byte (verified MATCH) and added the U4/D1 threshold set
+  (90/96/100/104/110, §3.4).  Verified the deltas vs the prior blessed
+  bytes are *only* honest consequences of F1/F2 + D1–D7: calendar marks
+  are the true item-date union (08●10●18● now appear; 19● is backed by a
+  real DEADLINE 2026-06-19 added to the fixtures; none fabricated; the
+  F1 date literals are gone, =marked-days= is a plain union), tags are
+  right-justified toward the origin (D6), attention is most-overdue-first
+  and upcoming is by date (honest ordering; the F2 title hardcodes are
+  gone — full "Reference notes without a todo state"), and the threshold
+  geometry is divider-locked per tier.  No spurious changes; gate green
+  103/103.  One non-blocking residual logged in
+  =org-air-layout-realwindow.org= (D2 origin clip on the longest [#A]
+  row at 100).
+- 2026-06-12: FINAL bless against =rpuxmmlz= (impl2 amended =ymvlyvuk= →
+  =102a8e13= with the last D6 bullet: ONE space before the section count
+  badge, was two).  Diffed all 8 fixtures srolttqs→rpuxmmlz: the delta is
+  *exactly* the 5 section-heading lines per file (=▤ Inbox  3= → =▤ Inbox
+  3=, re-padded), ZERO non-heading changes, geometry identical (divider
+  cols 66/70/74/80/86/116, rules exact, no over-width).  Re-adopted
+  80/120/160 byte-for-byte into §3 (MATCH ×3).  Bytes frozen; this is the
+  one-and-only blessing gating final integration.  Gate 103/103.
 
 * References
 - air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).
 - air/v0.2/org-air-layout.org — v0.2 brief / user feedback.
+- air/v0.2/org-air-layout-realwindow.org — U4 real-window UX deltas
+  (threshold zone 90–119, first-open, point placement, origin-protecting
+  truncation, stacked top-band balance).  Amends this spec for real GUI
+  windows; read alongside it.
+- air/v0.2/org-air-ux-hardening.org — v0.2.x interactive UX punch list.
 - https://github.com/rougier/nano-mu4e — style ladder, justify, count chip.
 - https://github.com/rougier/nano-agenda — calendar-beside-agenda model.
 - https://www.reddit.com/r/emacs/comments/mzgsm0/mu4e_look_and_feel/

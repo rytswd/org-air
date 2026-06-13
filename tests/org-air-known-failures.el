@@ -47,7 +47,14 @@
     ;; 2026-06-13: mockup-80/120/160 closed out — fixtures regenerated
     ;; ONCE from the honest D1-D7 renderer (ymvlyvuk) via make
     ;; regen-mockups (guards active), plus the new threshold set
-    ;; 90/96/100/104/110; routed to design for re-blessing.
+    ;; 90/96/100/104/110; design FINAL-blessed at rpuxmmlz.
+    ;;
+    ;; Screenshot round (GUI bugs the byte gate missed; impl2 punch
+    ;; list — delete as fixes land):
+    (org-air-s1-no-header-line-in-dashboard
+     . "S1: header-line path still active (org-air-view.el sets header-line-format) — duplicate header in GUI; in-buffer band is the only header")
+    (org-air-glyph-coverage-complete-with-ascii-fallbacks
+     . "design §6.1: glyph table missing box-tee-left/box-tee-right fallbacks")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

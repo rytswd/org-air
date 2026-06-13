@@ -1,0 +1,39 @@
+#+title: org-air v0.3 round-6: visual restraint correction
+#+state: work-in-progress
+#+FILETAGS: :ui:visual:
+
+* Summary
+User verdict on the round-5 colour build (/tmp/org-air-ace/user-screenshot-5.png):
+"Looks so broken, horrible look." The colour landed but the EXECUTION is
+heavy-handed and cluttered. Pull back to nano restraint.
+
+* Findings
+** V1 [CRIT/visual] Tag chips are boxed pills floating in a disconnected column
+Every #tag is rendered as a :box rectangle, right-aligned in a column far
+from its item title, with a large empty gap between title (left) and tags
+(right). Reads as cluttered + broken. FIX DIRECTION: drop the per-chip :box;
+use quiet coloured TEXT (subtle hue, maybe a faint single accent, NO
+rectangles). Reconsider placement — the title→tags void is the worst part;
+either tuck tags closer after the title, or keep the right column but make it
+quiet (no boxes) so it reads as calm metadata, not a wall of pills.
+** V2 [HIGH/visual] Priority cookies over-boxed
+[#A] etc. are filled/boxed pills adding to the box noise. Lighter touch —
+coloured text or a single subtle accent, not a heavy pill on every row.
+** V3 [HIGH/bug] T7 top frame border is broken / half-drawn
+The header-line top border renders as a partial horizontal line that does
+not span the width (gap near the calendar; no clean ┌───┐). Either fix it to
+a clean full-width top rule or drop the top border and keep the side/bottom.
+The right border is already deferred — a half-frame looks worse than none.
+** V4 [MED/visual] Overall: too much boxing, lost the nano calm
+Round-5 added colour by ADDING chrome (boxes). The earlier rounds' restraint
+(quiet faded + a few salient/popout accents) is what looked good. Re-achieve
+"modern coloured" through FACE COLOUR, not borders/pills. Keep coloured TODO
+keywords (those read fine) but strip the box vocabulary.
+
+* History
+- 2026-06-14: Seeded from round-5 colour screenshot — "horrible, boxed clutter".
+
+* References
+- /tmp/org-air-ace/user-screenshot-5.png  (the problem)
+- /tmp/org-air-ace/buffer-box-reference.png (frame done right — OUTER only)
+- earlier blessed look: pre-T1 monochrome was calm; goal = calm + colour

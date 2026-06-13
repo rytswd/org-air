@@ -1,0 +1,235 @@
+#+title: org-air v0.3 — modern visual identity (design)
+#+state: ready
+#+FILETAGS: :ui:visual:faces:v0.3:
+
+* Summary
+Design deltas + exact face specs for the visual half of round 4
+(=org-air-modern.org=): T1 colour & Org-aware styling, T3 calendar
+spacing + multi-date legend, T7 boxed frame (buffer-box), and the visual
+half of T4 (return-to-dashboard display contract).  impl2 takes the
+interaction bugs (T2/T4-logic/T5/T6).
+
+*Measurability contract (read first).*  The byte gate asserts *buffer
+text*.  Three kinds of change here:
+- *Face-only* (text byte-identical) \u2014 safe, fixtures unaffected.  Applied
+  now to =org-air-faces.el=: T1 keyword/priority colour, T3 mark faces,
+  T7 frame-border face.
+- *Buffer-text* (glyph/spacing) \u2014 needs a fixture regen; *flagged*, not
+  silently applied: T3a column spacing, T3b mark glyphs, T1 chip padding
+  if any.
+- *Window chrome / display props* (margins, header-line, mode-line,
+  line-prefix, wrap-prefix, =:box=) \u2014 *NOT visible to =buffer-substring=*;
+  the gate cannot assert them.  Every such prop is flagged =[non-byte]=.
+
+* T1 — Colour & Org-aware styling
+*Symptom (screenshot 4):* TODO keywords, =[#A]= cookies and =#tags= all
+render monochrome grey; the accent palette is dead on screen.  User: "a
+bit more coloured to give modern look and feel" (org-modern-ish, NOT
+full Org parity).
+
+** T1a — Coloured TODO keywords (keyword \u2192 face map)
+Map keywords to faces (org-modern style); render the keyword in its
+face.  Default map =org-air-todo-keyword-faces= (defcustom):
+| Keyword(s)            | Face                         | Colour role        |
+|-----------------------+------------------------------+--------------------|
+| TODO                  | =org-air-face-todo=            | salient (active)   |
+| NEXT / STARTED        | =org-air-face-todo-next=       | popout (hot)       |
+| WAIT / HOLD / BLOCKED | =org-air-face-todo-wait=       | faded-warm         |
+| DONE                  | =org-air-face-done=            | faded green/quiet  |
+| CANCELLED / KILL      | =org-air-face-done=            | faded, strike      |
+Unknown keywords fall back to =org-air-face-todo=.  Faces (added to
+=org-air-faces.el=):
+#+begin_src elisp
+(custom-declare-face 'org-air-face-todo-next
+  '((t :inherit org-air-face-popout :weight bold))
+  "Active 'hot' keyword (NEXT/STARTED).")
+(custom-declare-face 'org-air-face-todo-wait
+  '((((class color)(min-colors 256)(background light)) (:foreground "#B26A00" :weight bold))
+    (((class color)(min-colors 256)(background dark))  (:foreground "#D8A657" :weight bold))
+    (t (:inherit org-air-face-faded :weight bold)))
+  "Waiting/blocked keyword \u2014 a muted amber, distinct from active.")
+#+end_src
+(=org-air-face-todo= stays salient-bold; for a punchier active colour the
+user can remap it.)  *Render note:* the keyword text is unchanged
+(\"TODO\"), so this is *face-only* \u2014 fixtures hold.
+
+** T1b — Boxed priority cookies (=[#A]= = a coloured pill)
+Priority cookies become small coloured boxes, per level.  =:box= is a
+*GUI display attribute* (TTY ignores it gracefully \u2014 the cookie stays
+coloured text), so this is *face-only for the byte gate* (text =[#A]=
+unchanged).  Per-level faces:
+#+begin_src elisp
+(custom-declare-face 'org-air-face-priority-a
+  '((((class color)(min-colors 256)(background light))
+     (:foreground "#FFFFFF" :background "#C62828" :weight bold :box (:line-width (1 . -1) :color "#C62828")))
+    (((class color)(min-colors 256)(background dark))
+     (:foreground "#2E3440" :background "#EBCB8B" :weight bold :box (:line-width (1 . -1) :color "#EBCB8B")))
+    (t (:inherit org-air-face-critical :weight bold)))
+  "[#A] cookie: a filled critical pill.")
+(custom-declare-face 'org-air-face-priority-b
+  '((t :inherit org-air-face-popout :weight bold :box (:line-width (1 . -1))))
+  "[#B] cookie: popout, lightly boxed.")
+(custom-declare-face 'org-air-face-priority-c
+  '((t :inherit org-air-face-faded :box (:line-width (1 . -1))))
+  "[#C] cookie: faded, lightly boxed.")
+#+end_src
+=org-air-face-priority= remains the fallback.  Map by char in the render
+(=?A \u2192 -a=, =?B \u2192 -b=, else =-c=).  [non-byte for the =:box= pixels; the
+text and the foreground colour are testable.]
+
+** T1c — Tag chips actually use the accent palette
+The accent faces (=org-air-face-tag-accent-1..6=) and
+=org-air-faces-tag-face= already exist but the screen shows grey \u2014 the
+renderer must call =(org-air-faces-tag-face tag)= per chip (it may be
+applying a flat =org-air-face-tag=).  *Fix in render* (impl): each =#tag=
+gets its deterministic accent face.  *Face tune (this round):* the
+dark-mode accents share one background (=#3B4252=), so chips read as
+\"grey with faint colour\" against the dark dashboard; raise dark-mode
+*foreground* vividness and drop the shared bg to transparent so the hue
+carries.  Revised dark tier per accent = a saturated foreground, no
+background (light mode keeps the tinted pill):
+#+begin_src elisp
+;; org-air-tag-accent-palette dark FG bumped to Nord-bright; dark BG -> unspecified
+;; 1 blue  #88C0D0 · 2 green #A3BE8C · 3 purple #B48EAD
+;; 4 orange #D08770 · 5 teal #8FBCBB · 6 pink #BF616A   (no dark bg fill)
+#+end_src
+*Render note:* tag text unchanged \u2192 *face-only*, fixtures hold; only the
+chip colours change.
+
+* T3 — Calendar spacing + multi-date legend
+** T3a — One extra space between day columns  [BYTE \u2192 regen]
+Day cells are =%2d= + 1 marker col = 3 cols, packed; add *one space*
+between columns for breathing room (=%2d= + marker + =" \"= = 4 cols/day;
+weekday header padded to match).  Row width 7\u00d74 = 28.  This changes the
+calendar block bytes \u2192 *flag for fixture regen* (the rail/divider columns
+shift only inside the rail; the pane divider position is unaffected
+because the rail content width already absorbs it \u2014 confirm at regen).
+** T3b — Distinguish CREATED / SCHEDULED / DEADLINE  [BYTE \u2192 regen]
+Today every dated day uses one =\u25cf= in =org-air-face-calendar-event=.
+Split by the *strongest* timestamp on that day, by colour (and a distinct
+glyph for colour-blind / TTY safety):
+| Kind      | Mark | Face                            | Colour   |
+|-----------+------+---------------------------------+----------|
+| deadline  | =\u25c6=    | =org-air-face-calendar-deadline=  | popout   |
+| scheduled | =\u25cf=    | =org-air-face-calendar-scheduled= | salient  |
+| created   | =\u00b7=    | =org-air-face-calendar-created=   | faded    |
+| today     | =\u25a0=    | =org-air-face-calendar-today=     | popout+ul |
+Precedence on a day with several: deadline > scheduled > created.
+Faces (added now, face-only until the render uses them):
+#+begin_src elisp
+(custom-declare-face 'org-air-face-calendar-scheduled
+  '((t :inherit org-air-face-salient :weight bold)) "Calendar day with a scheduled item.")
+(custom-declare-face 'org-air-face-calendar-deadline
+  '((t :inherit org-air-face-popout :weight bold)) "Calendar day with a deadline.")
+(custom-declare-face 'org-air-face-calendar-created
+  '((t :inherit org-air-face-faded)) "Calendar day with only a created/activity stamp.")
+#+end_src
+*3-way legend* (replaces =\u25cf has items \u00b7 \u25a0 today=), markers shown in their
+real faces so the legend doubles as a key (cf. S9):
+: \u25c6 deadline \u00b7 \u25cf scheduled \u00b7 \u00b7 created \u00b7 \u25a0 today
+Legend text *changes* \u2192 *flag for regen*; uses =org-air-face-calendar-
+legend= (S9) for the words, mark faces for the samples.
+
+* T7 — Boxed frame (buffer-box)
+*Goal:* replace the lone =\u2502= rail divider with a proper framed dashboard,
+after rougier/buffer-box: a *one-character border on all sides* drawn in
+*window chrome*, not buffer text.
+
+** Mechanism (per buffer-box) \u2014 all [non-byte]
+- *Left/right borders:* =left-margin-width = right-margin-width = 1=; put
+  the border glyph in =line-prefix= and =wrap-prefix= (left =\u2502=) and a
+  right-edge overlay / =:align-to right= space carrying =\u2502= for the right.
+- *Top border:* =header-line-format= styled as =\u250c\u2500\u2500\u2026\u2500\u2500\u2510=.
+- *Bottom border:* =mode-line-format= (a minimal line) styled as
+  =\u2514\u2500\u2500\u2026\u2500\u2500\u2518=.
+- *Border face:* new =org-air-face-frame-border= (faded foreground; the
+  buffer-box look is a quiet 1px rule).
+- *TTY fallback:* margins still work; border glyphs degrade =\u2502\u2192|=,
+  =\u2500\u2192-=, corners =\u2192+= (existing glyph table); if margins are unavailable
+  the frame is simply dropped (whitespace) \u2014 no content lost.
+#+begin_src elisp
+(custom-declare-face 'org-air-face-frame-border
+  '((t :inherit org-air-face-faded))
+  "Face for the buffer-box outer frame (margins/header-line/mode-line).")
+#+end_src
+
+** What stays in-buffer (byte-tested)
+- The header band (line 1: =org-air \u2026 status=), rules, item pane, rail,
+  the *internal* rail divider =\u2502=, and the footer remain buffer text and
+  keep their byte fixtures.  The outer frame wraps *around* them.
+- So the composed look = a thin outer box (chrome) containing the
+  existing two-pane content with its internal =\u2502= sidebar split \u2014 an
+  \"app with a sidebar,\" which is exactly what the lone divider was
+  reaching for.  The divider no longer looks lonely because it is now
+  one line of a frame bounded top/bottom/left/right.
+
+** Decision: outer-box + retained internal divider (option A)
+Chosen over (B) boxing only the rail, or (C) boxing both panes in-buffer,
+because A: (1) applies buffer-box directly, (2) preserves byte-testability
+of ALL content, (3) confines the unmeasurable parts to clearly-flagged
+chrome.  (B)/(C) noted as alternatives if a discrete boxed rail widget is
+later preferred; those would put =\u250c\u2500\u2510= in buffer text (byte-tested) at the
+cost of content columns.
+
+** Header/mode-line content
+Keep the *measurable* title+status on buffer line 1 (S1/S7).  The
+header-line top border may ALSO carry a faint repeat of =org-air= at its
+left (buffer-box puts the filename in the header) \u2014 optional, non-byte.
+The bottom mode-line border can host the key legend (moving it out of the
+buffer), OR keep the footer in-buffer and let the mode-line be a bare
+=\u2514\u2500\u2518=.  *Recommendation:* keep the footer legend in-buffer (tested);
+mode-line = bare bottom border.
+
+* T4 (visual half) — return-to-dashboard display contract
+The interaction logic is impl2's; the *display contract* is here.
+- =org-air-visit-display= (existing) gains a documented set:
+  ='other-window= (default), ='same= (reuse the dashboard window),
+  ='side= (a reusable side window the dashboard owns), ='dashboard=
+  (render the item *inside* a peek region of the dashboard buffer).
+- *Return contract:* binding =q= in the visited Org buffer (when reached
+  via org-air) runs =org-air-return= \u2014 restores the *exact* window
+  configuration captured at visit time (store it in a buffer-local /
+  ring), landing point back on the originating item row.  Never
+  =kill-buffer= the user's Org file; never leave a broken split.
+- =org-air-visit-item-stay= / =SPC= peek keeps focus on the dashboard
+  (already specced); =RET= follows =org-air-visit-display=.
+- *Display-action defcustom* =org-air-display-action= for =org-air= itself
+  (round-3 D4): full-width reuse so the rail never lands off-screen.
+- Faces: none new; the peek region (='dashboard= strategy) dims the
+  dashboard with =org-air-face-faded= and shows the item in normal faces,
+  reusing the process-inbox dimming pattern.
+
+* Faces added/changed this round (=org-air-faces.el=, face-only)
+=org-air-face-todo-next=, =org-air-face-todo-wait=,
+=org-air-face-priority-a/-b/-c=, =org-air-face-calendar-scheduled/
+-deadline/-created=, =org-air-face-frame-border=; and the dark-mode tag
+accent foregrounds bumped (no dark bg).  All additive or face-only \u2014
+=facep= verified, byte-compile clean, gate green; the *byte* changes
+(T3a spacing, T3b glyphs+legend) are flagged for a fixture regen, not
+applied here.
+
+* Mockup delta (illustrative, two-pane @120, modern)
+Colour cannot show in ASCII; this marks WHERE colour/box land:
+#+begin_example
+  ┌─ outer frame (chrome, non-byte) ─────────────────────────────────────────────┐
+  │ ▤ Inbox 5                                                  │  June 2026   ‹ › │
+  │     Call the plumber back about the leak       #inbox  ⌂ inbox.org │ Mo Tu We…│
+  │     TODO Read the Rougier paper                #reading ⌂ learn.org│  8◆ … 16●│
+  │ ▲ Needs attention 11                                              │ ◆ deadline│
+  │     TODO [#A] Ship the quarterly board report  OVERDUE 5d  …       │ ● sched … │
+  └───────────────────────────────────────────────────────────────────────────────┘
+#+end_example
+- =TODO= coloured (salient), =[#A]= a red/amber pill, =#inbox/#reading=
+  accent chips (blue/green/\u2026), calendar marks =\u25c6= deadline (popout) /
+  =\u25cf= scheduled (salient); the =\u250c\u2500\u2510= frame is chrome.
+
+* History
+- 2026-06-13: Authored the visual round-4 deltas from screenshot 4 +
+  the buffer-box reference.  T1 (keyword faces, boxed priority pills,
+  accent tag chips \u2014 face-only), T3 (column spacing + 3-way
+  created/scheduled/deadline marks & legend \u2014 byte, flagged for regen),
+  T7 (buffer-box outer frame via margins/header-line/mode-line/line-
+  prefix, retained in-buffer divider \u2014 chrome flagged non-byte), T4
+  display+return contract.  Added the face-only specs to
+  =org-air-faces.el=; flagged the byte items for impl2 + a regen.  Set
+  =#+state: ready=.

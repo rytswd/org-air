@@ -229,9 +229,44 @@ row of `─' reads as one faint connected line rather than a solid bar
   "Face for a DONE keyword and completed items."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-todo-next
+  '((t :inherit org-air-face-popout :weight bold))
+  "Face for a hot active keyword (NEXT/STARTED) — modern coloured look."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-todo-wait
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#B26A00" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#D8A657" :weight bold))
+    (t (:inherit org-air-face-faded :weight bold)))
+  "Face for a waiting/blocked keyword (WAIT/HOLD/BLOCKED) — muted amber."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-priority
   '((t :inherit org-air-face-popout :weight bold))
-  "Face for a priority cookie, e.g. [#A]."
+  "Face for a priority cookie, e.g. [#A] (fallback)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-priority-a
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#FFFFFF" :background "#C62828" :weight bold
+      :box (:line-width (1 . -1) :color "#C62828")))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#2E3440" :background "#EBCB8B" :weight bold
+      :box (:line-width (1 . -1) :color "#EBCB8B")))
+    (t (:inherit org-air-face-critical :weight bold)))
+  "[#A] cookie: a filled critical pill (`:box' is GUI-only)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-priority-b
+  '((t :inherit org-air-face-popout :weight bold :box (:line-width (1 . -1))))
+  "[#B] cookie: popout, lightly boxed."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-priority-c
+  '((t :inherit org-air-face-faded :box (:line-width (1 . -1))))
+  "[#C] cookie: faded, lightly boxed."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-date
@@ -303,12 +338,16 @@ row of `─' reads as one faint connected line rather than a solid bar
   ;; busy item line and never collide with the popout/critical hues used
   ;; for TODO state and overdue dates.  Foregrounds are WCAG-AA against
   ;; their own background in both modes; dark mode elevates onto Nord1.
-  '(("#1565C0" "#E3F2FD" "#81A1C1" "#3B4252")   ; 1 blue
-    ("#2E7D32" "#E8F5E9" "#A3BE8C" "#3B4252")   ; 2 green
-    ("#6A1B9A" "#F3E5F5" "#B48EAD" "#3B4252")   ; 3 purple
-    ("#E65100" "#FFF3E0" "#D08770" "#3B4252")   ; 4 orange
-    ("#00695C" "#E0F2F1" "#88C0D0" "#3B4252")   ; 5 teal
-    ("#AD1457" "#FCE4EC" "#BF616A" "#3B4252"))  ; 6 pink/red
+  ;; Dark tier (T1c): saturated Nord-bright FOREGROUNDS, and the dark
+  ;; background dropped to the dashboard bg (#2E3440) so the hue carries
+  ;; via the foreground + box outline instead of a uniform grey fill that
+  ;; washed every chip to look the same on the dark dashboard.
+  '(("#1565C0" "#E3F2FD" "#88C0D0" "#2E3440")   ; 1 blue
+    ("#2E7D32" "#E8F5E9" "#A3BE8C" "#2E3440")   ; 2 green
+    ("#6A1B9A" "#F3E5F5" "#B48EAD" "#2E3440")   ; 3 purple
+    ("#E65100" "#FFF3E0" "#D08770" "#2E3440")   ; 4 orange
+    ("#00695C" "#E0F2F1" "#8FBCBB" "#2E3440")   ; 5 teal
+    ("#AD1457" "#FCE4EC" "#BF616A" "#2E3440"))  ; 6 pink/red
   "Accent palette for tag chips.
 Each entry is (LIGHT-FG LIGHT-BG DARK-FG DARK-BG): a readable
 foreground over a faint background tint, specified per background
@@ -388,6 +427,21 @@ without relying on hue (colour-blind / TTY legibility)."
   "Face for the currently selected calendar day."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-calendar-scheduled
+  '((t :inherit org-air-face-salient :weight bold))
+  "Calendar day carrying a scheduled item (T3b: distinct from deadline)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-calendar-deadline
+  '((t :inherit org-air-face-popout :weight bold))
+  "Calendar day carrying a deadline (T3b: strongest, popout hue)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-calendar-created
+  '((t :inherit org-air-face-faded))
+  "Calendar day carrying only a created/activity stamp (T3b: quiet)."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-calendar-legend
   '((((class color) (min-colors 256) (background light))
      (:foreground "#546E7A"))
@@ -420,6 +474,13 @@ the legend doubles as a key."
   "Face for pane borders: the vertical rule between panes and the
 box/rule glyphs that frame the calendar and rail blocks.
 Faint by design — structure should be felt, not shouted."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-frame-border
+  '((t :inherit org-air-face-faded))
+  "Face for the buffer-box outer frame (T7): the one-character border
+drawn in window chrome (margins / header-line / mode-line / line-prefix
+/ wrap-prefix).  A quiet 1px rule, like rougier/buffer-box."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-rail-title

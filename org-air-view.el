@@ -159,14 +159,14 @@ off-screen (D4)."
 
 (defcustom org-air-visit-display 'other-window
   "How `org-air-visit-item' displays an item's source (T4).
-Choices: `other-window' (keep the dashboard visible alongside),
-`same' (replace the current window), `frame' (a new frame), and
-`reuse' (open the item in the dashboard's own window — the lightest
-workflow, with `org-air-return-to-dashboard' bringing the dashboard
-back).  Whatever the choice, the visited buffer gets a buffer-local
-`org-air-return-key' bound to `org-air-return-to-dashboard'."
-  :type '(choice (const other-window) (const same) (const frame)
-                 (const reuse))
+Choices (design contract): `other-window' (default — keep the dashboard
+visible alongside), `same' (reuse the dashboard's own window), `side' (a
+reusable side window), `frame' (a new frame).  Whatever the choice, the
+exact window configuration is captured at visit time and `org-air-return'
+restores it, landing point back on the originating item row; the visited
+buffer also gets a buffer-local `org-air-return-key'."
+  :type '(choice (const other-window) (const same) (const side)
+                 (const frame))
   :group 'org-air)
 
 (defcustom org-air-return-key "C-c b"
@@ -178,6 +178,23 @@ Set via `kbd' syntax.  Kept out of the way of normal Org editing (T4)."
 (defcustom org-air-priority-show '(?A)
   "Priority cookies shown in item rows."
   :type '(repeat character)
+  :group 'org-air)
+
+(defcustom org-air-todo-keyword-faces
+  '(("TODO" . org-air-face-todo)
+    ("NEXT" . org-air-face-todo-next)
+    ("STARTED" . org-air-face-todo-next)
+    ("WAIT" . org-air-face-todo-wait)
+    ("WAITING" . org-air-face-todo-wait)
+    ("HOLD" . org-air-face-todo-wait)
+    ("BLOCKED" . org-air-face-todo-wait)
+    ("DONE" . org-air-face-done)
+    ("CANCELLED" . org-air-face-done)
+    ("CANCELED" . org-air-face-done)
+    ("KILL" . org-air-face-done))
+  "Map TODO keyword strings to faces for coloured rendering (T1a).
+Unknown keywords fall back to `org-air-face-todo'."
+  :type '(alist :key-type string :value-type face)
   :group 'org-air)
 
 (defcustom org-air-filter-match 'any
@@ -274,8 +291,50 @@ of whether the wrapping pane margin is added later (D6).")
   ;; T6: re-fit when the font/text size changes (text-scale alters how many
   ;; columns/rows fit), debounced through the same window-size path.
   (add-hook 'text-scale-mode-hook #'org-air-view--text-scale-refresh nil t)
+  ;; T7: the buffer-box outer frame lives in window chrome, never buffer
+  ;; text (option A) — the in-buffer rail divider is retained.
+  (org-air-view--install-frame)
   (org-air-view--setup-evil)
   (org-air-layout-install-window-size-hook))
+
+(defun org-air-view--frame-edge-string (left right)
+  "Return a horizontal frame border spanning the window, LEFT..RIGHT corners."
+  (let ((h (org-air-layout-glyph 'box-horizontal))
+        (w (max 2 (window-width))))
+    (propertize (concat left (make-string (- w 2) (string-to-char h)) right)
+                'face 'org-air-face-frame-border)))
+
+(defun org-air-view--frame-top-string ()
+  "Return the header-line TOP border of the buffer-box frame (T7)."
+  (org-air-view--frame-edge-string (org-air-layout-glyph 'box-top-left)
+                                   (org-air-layout-glyph 'box-top-right)))
+
+(defun org-air-view--frame-bottom-string ()
+  "Return the mode-line bottom border of the buffer-box frame (T7)."
+  (org-air-view--frame-edge-string (org-air-layout-glyph 'box-bottom-left)
+                                   (org-air-layout-glyph 'box-bottom-right)))
+
+(defun org-air-view--install-frame ()
+  "Install the buffer-box outer frame in window chrome (T7, non-byte).
+Left border: a 1-column left margin carrying the vertical glyph via
+`line-prefix'/`wrap-prefix'.  Top border: `header-line-format' = a
+┌──┐ rule (this is a frame border, NOT the in-buffer banner, so the S1
+no-duplicate-banner intent still holds — but the literal S1 test asserts
+a nil `header-line-format' and must be relaxed).  Bottom border:
+`mode-line-format' = └──┘.  Right-edge overlay deferred.  All chrome; no
+buffer text changes."
+  (setq-local left-margin-width 1)
+  (setq-local right-margin-width 1)
+  (setq-local line-prefix
+              (propertize " " 'display
+                          `((margin left-margin)
+                            ,(propertize (org-air-layout-glyph 'box-vertical)
+                                         'face 'org-air-face-frame-border))))
+  (setq-local wrap-prefix line-prefix)
+  (setq-local header-line-format
+              '((:eval (org-air-view--frame-top-string))))
+  (setq-local mode-line-format
+              '((:eval (org-air-view--frame-bottom-string)))))
 
 (defun org-air-view--text-scale-refresh ()
   "Re-fit the dashboard after a text-scale/font-size change (T6).
@@ -600,10 +659,28 @@ ATTENTIONP means the count should use the attention badge face."
     (when org-air-section-rule
       (org-air-view--insert-rule))))
 
+(defun org-air-view--todo-face (keyword)
+  "Return the face for TODO KEYWORD (T1a), defaulting to `org-air-face-todo'."
+  (or (cdr (assoc keyword org-air-todo-keyword-faces))
+      'org-air-face-todo))
+
+(defun org-air-view--priority-face (char)
+  "Return the boxed-pill face for priority CHAR (T1b)."
+  (pcase char
+    (?A 'org-air-face-priority-a)
+    (?B 'org-air-face-priority-b)
+    (_ 'org-air-face-priority-c)))
+
 (defun org-air-view--item-tagstr (tags k total)
   "Return inline tag chips showing K of TOTAL TAGS, with overflow marker.
-When fewer than TOTAL chips are shown the `more' glyph signals the rest."
-  (let ((shown (mapconcat (lambda (tg) (concat "#" tg)) (seq-take tags k) " "))
+When fewer than TOTAL chips are shown the `more' glyph signals the rest.
+Each chip carries its deterministic accent face (T1c) — face-only, so the
+chip text and width are unchanged."
+  (let ((shown (mapconcat
+                (lambda (tg)
+                  (propertize (concat "#" tg)
+                              'face (org-air-faces-tag-face tg)))
+                (seq-take tags k) " "))
         (overflow (- total k)))
     (cond
      ((<= total 0) "")
@@ -633,9 +710,16 @@ and RET target, so it is the last thing to give."
          (date-str (concat (if date (concat "  " (car date)) "")
                            (or inbox-hint "")))
          (prefix (concat (org-air-view--item-margin)
-                         (when todo (concat todo " "))
+                         ;; T1a/T1b: colour the keyword and box the priority
+                         ;; cookie (face-only — the text is unchanged).
+                         (when todo
+                           (concat (propertize todo 'face
+                                               (org-air-view--todo-face todo))
+                                   " "))
                          (when (and priority (member priority org-air-priority-show))
-                           (format "[#%c] " priority))))
+                           (concat (propertize (format "[#%c]" priority) 'face
+                                               (org-air-view--priority-face priority))
+                                   " "))))
          (prefix-w (string-width prefix))
          (date-w (string-width date-str))
          (title (org-air-item-title item))
@@ -904,7 +988,8 @@ under the other buckets."
   "Insert the context rail for ITEMS at WIDTH."
   (let ((org-air-view--line-width width))
     (org-air-calendar-insert-month org-air-view--cal-month
-                                   (org-air-view--visible-items items))
+                                   (org-air-view--visible-items items)
+                                   width)
     (insert "\n")
     (org-air-view--insert-summary items width)
     (insert "\n")
@@ -928,7 +1013,7 @@ vertically, calendar first — always on-screen."
          (visible (org-air-view--visible-items items))
          (calendar-fn (lambda ()
                         (org-air-calendar-insert-month org-air-view--cal-month
-                                                       visible)))
+                                                       visible col)))
          (summary-fn (lambda () (org-air-view--insert-summary items col)))
          (filters-fn (lambda ()
                        (org-air-view--insert-rail-filters col)
@@ -1710,48 +1795,83 @@ controls window choice and defaults to `org-air-visit-display'."
                        (find-file-noselect (org-air-item-file item))))
            (display (or display org-air-visit-display))
            (dash-window (get-buffer-window
-                         (get-buffer org-air-view-buffer-name) t)))
+                         (get-buffer org-air-view-buffer-name) t))
+           ;; T4: capture the exact window configuration and the
+           ;; originating item marker so `org-air-return' can restore them.
+           (config (current-window-configuration))
+           (origin (and (get-text-property (point) 'org-air-item)
+                        (copy-marker (point)))))
       (pcase display
         ('other-window (switch-to-buffer-other-window buffer))
         ('frame (switch-to-buffer-other-frame buffer))
-        ('reuse (if (window-live-p dash-window)
-                    (progn (select-window dash-window)
-                           (switch-to-buffer buffer))
-                  (switch-to-buffer buffer)))
+        ('side (pop-to-buffer
+                buffer '((display-buffer-in-side-window)
+                         (side . right) (window-width . 0.5)
+                         (dedicated . t))))
+        ('same (if (window-live-p dash-window)
+                   (progn (select-window dash-window)
+                          (switch-to-buffer buffer))
+                 (switch-to-buffer buffer)))
         (_ (switch-to-buffer buffer)))
       (goto-char marker)
       (funcall (if (fboundp 'org-fold-show-context)
                    #'org-fold-show-context
                  (intern "org-show-context")))
       (recenter)
-      ;; T4: make returning to the dashboard one key away.
-      (org-air-view--enable-return)
+      ;; T4: arm the captured return contract in the visited buffer.
+      (org-air-view--enable-return config origin)
       (when (fboundp 'pulse-momentary-highlight-one-line)
         (pulse-momentary-highlight-one-line (point))))))
 
 (defvar org-air-return-mode-map (make-sparse-keymap)
   "Keymap for `org-air-return-mode'.")
 
+(defvar-local org-air-view--visit-config nil
+  "Window configuration captured when this buffer was visited from org-air.")
+(defvar-local org-air-view--visit-origin nil
+  "Marker on the originating dashboard item row, for `org-air-return'.")
+
 (define-minor-mode org-air-return-mode
   "Buffer-local mode in an item buffer visited from the org-air dashboard.
-Binds `org-air-return-key' to `org-air-return-to-dashboard' so returning
-is one key away, without disturbing normal Org editing (T4)."
+Binds `org-air-return-key' to `org-air-return' so the captured window
+configuration is restored with one key (T4)."
   :lighter " ↳org-air"
   :keymap org-air-return-mode-map)
 
-(defun org-air-view--enable-return ()
-  "Enable `org-air-return-mode' in the current buffer, binding the key (T4)."
+(defun org-air-view--enable-return (config origin)
+  "Enable `org-air-return-mode', recording window CONFIG and ORIGIN (T4)."
+  (setq org-air-view--visit-config config
+        org-air-view--visit-origin origin)
   (when (and (stringp org-air-return-key)
              (not (string-empty-p org-air-return-key)))
     (define-key org-air-return-mode-map (kbd org-air-return-key)
-                #'org-air-return-to-dashboard))
+                #'org-air-return))
   (org-air-return-mode 1))
 
 ;;;###autoload
+(defun org-air-return ()
+  "Restore the window configuration captured when this item was visited (T4).
+Lands point back on the originating dashboard item row.  The user's Org
+buffer is never killed and no split is left broken."
+  (interactive)
+  (let ((config org-air-view--visit-config)
+        (origin org-air-view--visit-origin))
+    (cond
+     ((window-configuration-p config)
+      (set-window-configuration config)
+      (when (and (markerp origin) (marker-buffer origin))
+        (let ((win (get-buffer-window (marker-buffer origin) t)))
+          (when (window-live-p win)
+            (select-window win)
+            (goto-char origin)
+            (org-air-view--beginning-of-visible)))))
+     (t (org-air-return-to-dashboard)))))
+
+;;;###autoload
 (defun org-air-return-to-dashboard ()
-  "Return to the org-air dashboard window, leaving this buffer behind (T4).
-If the dashboard is still on screen, select its window; otherwise (the
-`reuse' display strategy replaced it) show it in the current window."
+  "Return to the org-air dashboard window (T4 fallback).
+If the dashboard is on screen, select its window; otherwise show it in
+the current window.  Used when no captured configuration is available."
   (interactive)
   (let ((dashboard (get-buffer org-air-view-buffer-name)))
     (unless (buffer-live-p dashboard)

@@ -45,7 +45,7 @@
                    ("r" . org-air-refile-item)
                    ("f" . org-air-item-file-group)
                    ("t" . org-air-set-tag)
-                   ("T" . org-air-item-todo)
+                   ("T" . org-air-item-cycle-todo)
                    ("a" . org-air-item-archive)
                    ("D" . org-air-item-done)
                    ("k" . org-air-item-kill)
@@ -86,14 +86,25 @@ delete); the item shows in Inbox and in its real date bucket."
 ;;;; Render-level consistency (screenshot-3 finding 1, ruling xsqrnoyn).
 
 (defun org-air-triage-test--section-rows ()
-  "Line-walk the render: alist of (BUCKET . ITEMS) actually rendered."
+  "Line-walk the render: alist of (BUCKET . ITEM) actually rendered.
+The heading carries `org-air-section' and item rows carry `org-air-item',
+but both sit past the left margin (and the item hint trails on the
+right), so each line is scanned for the properties rather than read at
+its first column only."
   (let ((current nil) (rows ()))
     (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
-        (let* ((bol (line-beginning-position))
-               (section (get-text-property bol 'org-air-section))
-               (item (get-text-property bol 'org-air-item)))
+        (let ((bol (line-beginning-position))
+              (eol (line-end-position))
+              (section nil) (item nil))
+          (let ((p bol))
+            (while (< p eol)
+              (let ((s (get-text-property p 'org-air-section))
+                    (it (get-text-property p 'org-air-item)))
+                (when (and s (not section)) (setq section s))
+                (when (and it (not item)) (setq item it)))
+              (setq p (1+ p))))
           (when section (setq current section))
           (when (and current item)
             (push (cons current item) rows)))
@@ -156,6 +167,43 @@ never by a row-less phantom.  Data-variation board, GUI glyphs."
                        (line-beginning-position) (line-end-position)))))
       (should found)
       (should (string-match-p "file with r" found)))))
+
+;;;; Consistency invariant (ruling xsqrnoyn): calendar <-> buckets <-> total.
+
+(ert-deftest org-air-triage-consistency-summary-total-is-unique-count ()
+  "The summary =total= is the UNIQUE item count, even under dual
+membership (ruling xsqrnoyn): the dated inbox capture renders in BOTH
+Inbox and Upcoming, yet it is counted once.  So the rendered total
+equals the number of distinct items, never the sum of section badges."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-alt-dashboard 120
+      (let* ((rows (org-air-triage-test--section-rows))
+             ;; Distinct items actually rendered, keyed by title.
+             (titles (delete-dups
+                      (delq nil (mapcar (lambda (r) (org-air-item-title (cdr r)))
+                                        rows))))
+             ;; A title that shows up under more than one bucket proves
+             ;; dual membership is live (not just classified).
+             (dual (cl-remove-if-not
+                    (lambda (title)
+                      (> (length (delete-dups
+                                  (cl-loop for (b . it) in rows
+                                           when (equal (org-air-item-title it) title)
+                                           collect b)))
+                         1))
+                    titles)))
+        ;; Dual membership is visible on this board.
+        (should (member "Dated inbox capture" dual))
+        ;; The summary total equals the unique item count, NOT the sum
+        ;; of the per-section badges (which over-counts the dual item).
+        (should (string-match-p
+                 (format "%d\\s-+total"
+                         (length org-air-viewport-test-alt-items))
+                 (buffer-string)))
+        ;; And the distinct rendered titles never exceed that total.
+        (should (<= (length titles)
+                    (length org-air-viewport-test-alt-items)))))))
 
 ;;;; Process-inbox entry point.
 

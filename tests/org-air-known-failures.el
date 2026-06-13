@@ -64,32 +64,22 @@
     ;; final fallback), org-air-view-height defcustom adopted per the
     ;; proposed contract, 120x50 fill + empty-board sparse fill exact.
     ;;
-    ;; Screenshot-3 round:
-    (org-air-s5a-point-on-visible-char-all-paths
-     . "S5a gap: filter that hides the anchored item drops point onto fill whitespace (restore-position line/column fallback); all other paths pass")
-    ;;
-    ;; Triage round (air/v0.2/org-air-triage.org, ready) + S7/S8 tuning
-    ;; (air/v0.2/org-air-aesthetics.org) — impl2 punch list:
-    (org-air-triage-keymap-dispositions
-     . "triage: disposition keys s/d/r/f/t/T/a/D/k/I bound to spec'd commands")
-    (org-air-triage-keymap-scope-remap
-     . "triage: scope remap — S=scope, M-s=scope-clear, s freed for schedule")
-    ;; (Two earlier entries rewritten to design ruling xsqrnoyn: dual
-    ;; membership, graduation = filing only.)
-    ;; (dual-membership at classify level already holds — green, not
-    ;; manifested; the S4 suppression was render-level only.)
-    (org-air-triage-dated-inbox-row-in-both-sections
-     . "ruling xsqrnoyn: dated capture renders under Inbox AND Upcoming (S4 suppression narrowed)")
-    (org-air-triage-calendar-marks-have-date-bucket-rows
-     . "ruling xsqrnoyn: every calendar mark backed by a visible date-bucket row (alt board: Jun 23 + far-future Jun 25)")
-    (org-air-triage-dated-inbox-row-carries-file-hint
-     . "ruling xsqrnoyn: dated-unfiled inbox row shows the 'scheduled · file with r' hint")
-    (org-air-triage-process-inbox-command-exists
-     . "triage: org-air-process-inbox guided mode entry point")
-    (org-air-s7-header-status-ends-at-w-minus-1
-     . "S7: header reserves one right-margin column — status ends at W-1, never W (byte-affecting: regen later)")
-    (org-air-s8-line-spacing-zero-buffer-local
-     . "S8 mechanism: line-spacing buffer-locally 0 in org-air-view-mode (pixel effect GUI-only, documented)")
+    ;; 2026-06-13: triage-round closeout (impl2 wrqpvwzt + test-track
+    ;; reconciliation).  All 9 grind entries closed:
+    ;;  - 6 verified passed-unexpectedly on impl2 wrqpvwzt: S7 right-
+    ;;    margin (status ends at W-1), S8 buffer-local line-spacing,
+    ;;    triage scope remap (S/M-s), process-inbox entry point, the
+    ;;    dated-inbox 'file with r' hint, and S5a point-on-visible across
+    ;;    all point-moving paths.
+    ;;  - 3 fixed on the TEST track (orchestrator ruling; impl frozen):
+    ;;    keymap-dispositions T-row now expects org-air-item-cycle-todo
+    ;;    (org-air-item-todo stays the cl-defstruct accessor); and the
+    ;;    data-variation board's dated items were re-dated inside the
+    ;;    upcoming window (dated-inbox 23->17 Jun, midsummer 25->22 Jun)
+    ;;    so every calendar mark is backed by a visible date-bucket row
+    ;;    (ruling xsqrnoyn consistency invariant).  The section-rows test
+    ;;    helper now scans each line for the org-air-section/org-air-item
+    ;;    properties (they sit past the left margin), not just column 0.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

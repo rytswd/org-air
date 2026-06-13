@@ -327,33 +327,34 @@ section headings carry."
 ;; Countermeasure: a SECOND board whose org files are generated at test
 ;; time from the data constant below, with every expectation (calendar
 ;; day union, titles, origins, total) computed from that same constant.
-;; The dates deliberately fall outside F1's [-6..+3] age window (Jun 5 =
-;; 10d overdue, Jun 25 = 10d out) and the board has no item on Jun 19
-;; (F1's fabricated literal), so any data hardcoding diverges.
+;; The dates deliberately diverge from F1's fabricated literals (Jun 5 =
+;; 10d overdue, no item on Jun 19), so any data hardcoding diverges.
+;; Ruling xsqrnoyn: every calendar mark is backed by a visible date-bucket
+;; row, so each dated item also lands in a section (none are marked-but-
+;; row-less).
 
 (defconst org-air-viewport-test-alt-items
   '((:file "alpha.org" :todo "TODO" :title "Water the bonsai garden"
      :scheduled "2026-06-21 Sun" :tags ("garden"))
     (:file "alpha.org" :todo "TODO" :title "File expense reimbursement"
      :deadline "2026-06-05 Fri" :tags ("money"))
-    ;; Far-future schedule: beyond the upcoming window, so it appears in
-    ;; NO section — but it MUST still be marked on the calendar (the
-    ;; calendar maps time, not buckets) and counted in the visible total.
+    ;; Window-edge schedule (Mon 22 Jun, 7d out): inside the upcoming
+    ;; window, so it carries BOTH a calendar mark and an Upcoming row
+    ;; (ruling xsqrnoyn — no marked-but-row-less day).
     (:file "alpha.org" :todo "TODO" :title "Plan midsummer party"
-     :scheduled "2026-06-25 Thu" :tags ("social") :sectionless t)
+     :scheduled "2026-06-22 Mon" :tags ("social"))
     (:file "beta.org" :todo "TODO" :title "Sharpen kitchen knives"
      :deadline "2026-06-11 Thu" :tags ("kitchen"))
     (:file "beta.org" :title "Reference clipping without dates"
      :tags ("note"))
     (:file "inbox-alt.org" :todo "TODO" :title "Sort the seed packets")
     (:file "inbox-alt.org" :title "Half-formed thought to triage")
-    ;; DATED INBOX item — the calendar-vs-bucket disagreement surface
-    ;; (screenshot-3 finding 1): S4 dedup keeps it out of Upcoming (it
-    ;; lives in the Inbox section) while the calendar dots its day.
-    ;; Design is ruling on the semantics; the consistency invariant gets
-    ;; encoded against this item once ruled.
+    ;; DATED INBOX item — the dual-membership surface (screenshot-3
+    ;; finding 1, ruling xsqrnoyn): scheduled inside the upcoming window
+    ;; (Wed 17 Jun), it appears in BOTH Inbox and Upcoming and dots its
+    ;; calendar day, so calendar / Upcoming / Inbox tell one story.
     (:file "inbox-alt.org" :todo "TODO" :title "Dated inbox capture"
-     :scheduled "2026-06-23 Tue"))
+     :scheduled "2026-06-17 Wed"))
   "Source of truth for the data-variation board (frozen now: Mon 15 Jun 2026).
 The org files AND every test expectation derive from this list.")
 

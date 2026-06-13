@@ -97,13 +97,28 @@ background (light mode keeps the tinted pill):
 chip colours change.
 
 * T3 — Calendar spacing + multi-date legend
-** T3a — One extra space between day columns  [BYTE \u2192 regen]
-Day cells are =%2d= + 1 marker col = 3 cols, packed; add *one space*
-between columns for breathing room (=%2d= + marker + =" \"= = 4 cols/day;
-weekday header padded to match).  Row width 7\u00d74 = 28.  This changes the
-calendar block bytes \u2192 *flag for fixture regen* (the rail/divider columns
-shift only inside the rail; the pane divider position is unaffected
-because the rail content width already absorbs it \u2014 confirm at regen).
+** T3a — One extra space between day columns (RESPONSIVE)  [BYTE → regen]
+The user asked for breathing room: a 4-col day cell (%2d + marker +
+space) instead of the packed 3-col cell.  *Conflict (impl2 ozysznst):*
+the narrow rail tier holds only ~26 cols of calendar at 95–119-col
+windows, so a 28-wide (4-col) calendar truncates Sunday (…Sa  S…).
+
+*RULING — responsive calendar (option B).*  Day spacing depends on the
+rail tier; do NOT widen the rail or shift the breakpoint:
+| Window width | Rail content | Calendar | Day cell             | Row |
+|--------------+--------------+----------+----------------------+-----|
+| 95–119       | 28 (narrow)  | compact  | %2d + marker         |  21 |
+| ≥ 120        | 32 / 42      | spaced   | %2d + marker + space | ~28 |
+Rule: use the 4-col *spaced* calendar when rail content width ≥ 30 (the
+mid/wide tiers, windows ≥ 120); else the 3-col *compact* calendar.  Both
+fit their tier (compact 21 ≤ 26; spaced ≤ ~28 ≤ 30) — no Sunday
+truncation, no breakpoint change.  The weekday header pads to the active
+cell width.  The user's wide GUI windows (the screenshots) get the
+requested spacing; narrow laptops stay compact rather than clip.  Expose
+=org-air-calendar-day-spacing= (default 'auto; 0/1 to force).  Changes
+the calendar bytes in the ≥120 tiers → *fixture regen*; the pane-divider
+column is unaffected (the rail content width absorbs it — confirm at
+regen).
 ** T3b — Distinguish CREATED / SCHEDULED / DEADLINE  [BYTE \u2192 regen]
 Today every dated day uses one =\u25cf= in =org-air-face-calendar-event=.
 Split by the *strongest* timestamp on that day, by colour (and a distinct
@@ -170,6 +185,19 @@ of ALL content, (3) confines the unmeasurable parts to clearly-flagged
 chrome.  (B)/(C) noted as alternatives if a discrete boxed rail widget is
 later preferred; those would put =\u250c\u2500\u2510= in buffer text (byte-tested) at the
 cost of content columns.
+
+** T7 vs S1 (ruling)
+S1 removed a *duplicate banner*: the title+status was rendered twice
+(header-line AND buffer line 1), and the header-line copy clipped
+off-screen.  *S1's intent is "no duplicate banner in the header-line,"
+NOT "header-line-format must be nil."*  The single source of the
+title+status is buffer line 1 (measurable).  A header-line used purely
+as the buffer-box *top border* (=┌─…─┐= frame chrome, carrying no
+duplicate title/status text) is therefore *allowed and faithful to S1*.
+Test should relax the invariant from =header-line-format= is nil to:
+*the title+status string appears exactly once in the buffer (line 1),
+and the header-line contains no banner/status duplicate* — a frame border
+is fine.  Confirmed faithful to the S1 design.
 
 ** Header/mode-line content
 Keep the *measurable* title+status on buffer line 1 (S1/S7).  The

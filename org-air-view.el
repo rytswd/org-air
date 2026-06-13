@@ -158,9 +158,21 @@ off-screen (D4)."
   :group 'org-air)
 
 (defcustom org-air-visit-display 'other-window
-  "How `org-air-visit-item' displays an item's source.
-Choices are `other-window', `same', and `frame'."
-  :type '(choice (const other-window) (const same) (const frame))
+  "How `org-air-visit-item' displays an item's source (T4).
+Choices: `other-window' (keep the dashboard visible alongside),
+`same' (replace the current window), `frame' (a new frame), and
+`reuse' (open the item in the dashboard's own window — the lightest
+workflow, with `org-air-return-to-dashboard' bringing the dashboard
+back).  Whatever the choice, the visited buffer gets a buffer-local
+`org-air-return-key' bound to `org-air-return-to-dashboard'."
+  :type '(choice (const other-window) (const same) (const frame)
+                 (const reuse))
+  :group 'org-air)
+
+(defcustom org-air-return-key "C-c b"
+  "Key bound (buffer-locally) in a visited buffer to return to the dashboard.
+Set via `kbd' syntax.  Kept out of the way of normal Org editing (T4)."
+  :type 'string
   :group 'org-air)
 
 (defcustom org-air-priority-show '(?A)
@@ -207,8 +219,11 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "<mouse-1>") #'org-air-visit-item)
     (define-key map (kbd "n") #'org-air-next-item)
     (define-key map (kbd "p") #'org-air-prev-item)
-    (define-key map (kbd "TAB") #'org-air-next-section)
+    ;; T2: TAB toggles expand/collapse of the section at point; section
+    ;; MOTION lives on M-n/M-p (and M-TAB) so both verbs are reachable.
+    (define-key map (kbd "TAB") #'org-air-toggle-section)
     (define-key map (kbd "<backtab>") #'org-air-prev-section)
+    (define-key map (kbd "M-TAB") #'org-air-next-section)
     (define-key map (kbd "M-n") #'org-air-forward-section)
     (define-key map (kbd "M-p") #'org-air-back-section)
     (define-key map (kbd "SPC") #'org-air-peek-item)
@@ -256,8 +271,17 @@ of whether the wrapping pane margin is added later (D6).")
   (setq-local cursor-type 'bar)
   (setq-local org-air-layout-refresh-function #'org-air-view--resize-refresh)
   (setq-local buffer-read-only t)
+  ;; T6: re-fit when the font/text size changes (text-scale alters how many
+  ;; columns/rows fit), debounced through the same window-size path.
+  (add-hook 'text-scale-mode-hook #'org-air-view--text-scale-refresh nil t)
   (org-air-view--setup-evil)
   (org-air-layout-install-window-size-hook))
+
+(defun org-air-view--text-scale-refresh ()
+  "Re-fit the dashboard after a text-scale/font-size change (T6).
+Routes through the debounced resize handler so a rapid sequence of scale
+changes coalesces into a single re-render."
+  (org-air-layout--window-size-change))
 
 (defalias 'org-air-mode #'org-air-view-mode)
 
@@ -1109,6 +1133,12 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
         (org-air-view--normalize-buffer-lines org-air-view-width)
       ;; D7/D6 — cap every line at the displaying window and right-trim.
       (org-air-view--finalize-buffer-lines width))
+    ;; T5: drop the trailing newline so the buffer is EXACTLY the filled
+    ;; line count — otherwise the final \n renders one phantom blank row
+    ;; below the footer, overrunning the body height by one.
+    (goto-char (point-max))
+    (when (and (bolp) (> (point-max) (point-min)))
+      (delete-char -1))
     (setq org-air-view--rendered-width width
           org-air-view--rendered-height height)
     (org-air-view--goto-first-item)))
@@ -1325,6 +1355,43 @@ filters are preserved by `org-air-refresh'."
     (when pos
       (goto-char (max (point-min) (1- pos)))
       (org-air-view--beginning-of-visible))))
+
+(defun org-air-view--line-section ()
+  "Return the `org-air-section' bucket anywhere on the current line, or nil.
+In two-pane mode the heading sits past the indent margin (and the
+composed row also carries rail text), so scan the whole line rather than
+only its first column."
+  (let ((pos (line-beginning-position))
+        (eol (line-end-position))
+        (found nil))
+    (while (and (not found) (<= pos eol))
+      (setq found (get-text-property pos 'org-air-section))
+      (setq pos (or (next-single-property-change pos 'org-air-section nil eol)
+                    (1+ eol))))
+    found))
+
+(defun org-air-view--section-at-point ()
+  "Return the bucket of the section containing point, or nil."
+  (save-excursion
+    (let ((bucket (org-air-view--line-section)))
+      (while (and (not bucket) (not (bobp)))
+        (forward-line -1)
+        (setq bucket (org-air-view--line-section)))
+      bucket)))
+
+(defun org-air-toggle-section ()
+  "Toggle expand/collapse of the section at point (T2).
+Expanding shows every item in the section; collapsing restores the capped
+preview with its \"…and N more\" overflow.  Point is preserved."
+  (interactive)
+  (let ((bucket (org-air-view--section-at-point)))
+    (unless bucket
+      (user-error "Point is not in an org-air section"))
+    (setq org-air-view--expanded-sections
+          (if (memq bucket org-air-view--expanded-sections)
+              (delq bucket org-air-view--expanded-sections)
+            (cons bucket org-air-view--expanded-sections)))
+    (org-air-view--render-current)))
 
 (defun org-air-next-section ()
   "Move point to the next section heading."
@@ -1641,18 +1708,58 @@ controls window choice and defaults to `org-air-visit-display'."
     (let* ((marker (org-air-item-marker item))
            (buffer (or (marker-buffer marker)
                        (find-file-noselect (org-air-item-file item))))
-           (display (or display org-air-visit-display)))
+           (display (or display org-air-visit-display))
+           (dash-window (get-buffer-window
+                         (get-buffer org-air-view-buffer-name) t)))
       (pcase display
         ('other-window (switch-to-buffer-other-window buffer))
         ('frame (switch-to-buffer-other-frame buffer))
+        ('reuse (if (window-live-p dash-window)
+                    (progn (select-window dash-window)
+                           (switch-to-buffer buffer))
+                  (switch-to-buffer buffer)))
         (_ (switch-to-buffer buffer)))
       (goto-char marker)
       (funcall (if (fboundp 'org-fold-show-context)
                    #'org-fold-show-context
                  (intern "org-show-context")))
       (recenter)
+      ;; T4: make returning to the dashboard one key away.
+      (org-air-view--enable-return)
       (when (fboundp 'pulse-momentary-highlight-one-line)
         (pulse-momentary-highlight-one-line (point))))))
+
+(defvar org-air-return-mode-map (make-sparse-keymap)
+  "Keymap for `org-air-return-mode'.")
+
+(define-minor-mode org-air-return-mode
+  "Buffer-local mode in an item buffer visited from the org-air dashboard.
+Binds `org-air-return-key' to `org-air-return-to-dashboard' so returning
+is one key away, without disturbing normal Org editing (T4)."
+  :lighter " ↳org-air"
+  :keymap org-air-return-mode-map)
+
+(defun org-air-view--enable-return ()
+  "Enable `org-air-return-mode' in the current buffer, binding the key (T4)."
+  (when (and (stringp org-air-return-key)
+             (not (string-empty-p org-air-return-key)))
+    (define-key org-air-return-mode-map (kbd org-air-return-key)
+                #'org-air-return-to-dashboard))
+  (org-air-return-mode 1))
+
+;;;###autoload
+(defun org-air-return-to-dashboard ()
+  "Return to the org-air dashboard window, leaving this buffer behind (T4).
+If the dashboard is still on screen, select its window; otherwise (the
+`reuse' display strategy replaced it) show it in the current window."
+  (interactive)
+  (let ((dashboard (get-buffer org-air-view-buffer-name)))
+    (unless (buffer-live-p dashboard)
+      (user-error "No org-air dashboard to return to"))
+    (let ((win (get-buffer-window dashboard t)))
+      (if (window-live-p win)
+          (select-window win)
+        (switch-to-buffer dashboard)))))
 
 (provide 'org-air-view)
 

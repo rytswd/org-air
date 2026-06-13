@@ -125,6 +125,54 @@ filters, including a filter that hides everything."
         (when filter (org-air-filter filter))
         (org-air-s4--assert-consistent)))))
 
+;;;; S5a — point lands on a visible character on EVERY point-moving path.
+
+(defun org-air-s5a--point-on-visible-char-p ()
+  "Non-nil when point sits somewhere meaningful for a user:
+on an item/section property, or on a non-whitespace character."
+  (or (get-text-property (point) 'org-air-item)
+      (get-text-property (point) 'org-air-section)
+      (let ((c (char-after)))
+        (and c (not (memq c '(?\s ?\t ?\n)))))))
+
+(ert-deftest org-air-s5a-point-on-visible-char-all-paths ()
+  "Point ends on a visible char after EVERY point-moving path — first
+open, refresh, item-anchored refresh, filter apply/clear, and a resize
+re-render — not just the first open (screenshot-3 finding 2)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-with-dashboard 120
+    ;; (a) first open.
+    (ert-info ("first open")
+      (should (org-air-s5a--point-on-visible-char-p)))
+    ;; (b) plain refresh from wherever point starts.
+    (ert-info ("refresh from initial point")
+      (org-air-refresh)
+      (should (org-air-s5a--point-on-visible-char-p)))
+    ;; (c) refresh anchored on an item row.
+    (ert-info ("refresh anchored on item")
+      (goto-char (point-min))
+      (should (search-forward "Prepare standup notes" nil t))
+      (goto-char (match-beginning 0))
+      (org-air-refresh)
+      (should (org-air-s5a--point-on-visible-char-p)))
+    ;; (d) filter apply: the anchored item survives the narrowing.
+    (ert-info ("filter apply")
+      (org-air-filter '("work"))
+      (should (org-air-s5a--point-on-visible-char-p)))
+    ;; (e) filter apply that HIDES the anchored item.
+    (ert-info ("filter hides anchor")
+      (org-air-filter '("org-air-no-such-tag"))
+      (should (org-air-s5a--point-on-visible-char-p)))
+    ;; (f) filter clear.
+    (ert-info ("filter clear")
+      (org-air-filter-clear)
+      (should (org-air-s5a--point-on-visible-char-p)))
+    ;; (g) resize re-render (width change path).
+    (ert-info ("resize re-render")
+      (let ((org-air-view-width 100))
+        (org-air-view--resize-refresh))
+      (should (org-air-s5a--point-on-visible-char-p)))))
+
 ;;;; Glyph coverage.
 
 (defconst org-air-screenshot-test--spec-glyphs

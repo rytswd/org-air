@@ -63,6 +63,10 @@
     ;; verified honest: 3-tier glyph table complete incl. tees (ASCII
     ;; final fallback), org-air-view-height defcustom adopted per the
     ;; proposed contract, 120x50 fill + empty-board sparse fill exact.
+    ;;
+    ;; Screenshot-3 round:
+    (org-air-s5a-point-on-visible-char-all-paths
+     . "S5a gap: filter that hides the anchored item drops point onto fill whitespace (restore-position line/column fallback); all other paths pass")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

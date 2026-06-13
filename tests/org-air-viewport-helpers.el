@@ -346,7 +346,14 @@ section headings carry."
     (:file "beta.org" :title "Reference clipping without dates"
      :tags ("note"))
     (:file "inbox-alt.org" :todo "TODO" :title "Sort the seed packets")
-    (:file "inbox-alt.org" :title "Half-formed thought to triage"))
+    (:file "inbox-alt.org" :title "Half-formed thought to triage")
+    ;; DATED INBOX item — the calendar-vs-bucket disagreement surface
+    ;; (screenshot-3 finding 1): S4 dedup keeps it out of Upcoming (it
+    ;; lives in the Inbox section) while the calendar dots its day.
+    ;; Design is ruling on the semantics; the consistency invariant gets
+    ;; encoded against this item once ruled.
+    (:file "inbox-alt.org" :todo "TODO" :title "Dated inbox capture"
+     :scheduled "2026-06-23 Tue"))
   "Source of truth for the data-variation board (frozen now: Mon 15 Jun 2026).
 The org files AND every test expectation derive from this list.")
 

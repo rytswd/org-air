@@ -114,12 +114,20 @@ Risk audit (✓ widely covered · ⚠ spotty · ✗ rare):
 | …     | U+2026 | overflow       | ✓    | …             | ...   |
 | │ ─   | box    | divider/rule   | ✓    | │ ─           | \| -  |
 
-*Delta — 3-tier glyph selection.*  Each glyph entry becomes
-=(PREFERRED SAFE ASCII)=.  Selection: in GUI return PREFERRED if
-=char-displayable-p=, else SAFE if =char-displayable-p=, else ASCII; in a
-TTY (=(not (display-graphic-p))=) return ASCII.  Add
-=org-air-layout--glyph= doing exactly this; keep =org-air-glyphs=
-user-overridable.  *Recommended default swaps* (more sophisticated AND
+*Delta — 3-tier glyph degradation (PREFERRED → SAFE → ASCII).*  The
+selection BEHAVIOUR is normative: in GUI return PREFERRED if
+=char-displayable-p=, else the SAFE Unicode alternative if
+=char-displayable-p=, else the ASCII fallback; in a TTY
+(=(not (display-graphic-p))=) return ASCII.  Keep the glyphs
+user-overridable.
+
+*Data shape is an impl/test contract detail, not mandated here.*  The
+shipped structure is a =(PREFERRED . ASCII)= cons in =org-air-glyphs= plus
+a separate =org-air-layout-safe-glyphs= table for the SAFE tier (this
+satisfies the test parser contract); an earlier draft of this spec wrote
+a literal =(PREFERRED SAFE ASCII)= 3-element list — either shape is fine
+so long as the degradation behaviour above holds.  *Recommended default
+swaps* (more sophisticated AND
 better-covered): stale =◷ → ○= (a quiet hollow ring reads as "idle"),
 today-marker =▮ → ■=, inbox =▤ → □=.  These three change rendered bytes →
 *fixture regen required* (impl2 + test); the fallback mechanism itself

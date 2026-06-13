@@ -116,8 +116,10 @@
   (skip-unless (locate-library "org-air"))
   (org-air-ux-test--with-month (encode-time 0 0 0 1 6 2026) nil
     (should (search-forward "June 2026" nil t))
-    (should (string-match-p "\\(Mo Tu We Th Fr Sa Su\\|Su Mo Tu We Th Fr Sa\\)"
-                            (buffer-string)))))
+    ;; T3a: weekday labels are "%-4s"-padded (4 cols/day) -> >1 space gap.
+    (should (string-match-p
+             "\\(Mo +Tu +We +Th +Fr +Sa +Su\\|Su +Mo +Tu +We +Th +Fr +Sa\\)"
+             (buffer-string)))))
 
 (ert-deftest org-air-ux-calendar-today-marked ()
   "Today's cell carries the spec \=`org-air-face-calendar-today' face (§6)."
@@ -168,8 +170,8 @@
     (let ((text (buffer-string)))
       (should (string-match-p "Prepare standup notes" text))
       (should-not (string-match-p "Book dentist appointment" text))
-      ;; S1: the header band is IN-BUFFER text (header-line-format is
-      ;; gone — see org-air-s1-no-header-line-in-dashboard); the active
+      ;; S1: the header band is IN-BUFFER text (the only banner — see
+      ;; org-air-s1-no-duplicate-banner-in-header-line); the active
       ;; filter chip is echoed in the band, so read the buffer.
       (should (string-match-p "#work" text)))))
 

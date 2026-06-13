@@ -185,6 +185,53 @@ capture natural content height) must be regenerated with a fixed test
 seam.  Flagged for impl2 + test; add =org-air-view-height= (nil = live
 window) so the gate can render deterministically.
 
+* S7 — Right-edge status still clips a few columns (D7 residual)
+*Pixel symptom (screenshot 2):* the header's right status reads
+=Sat 13 Jun · 3 item‥→= — the trailing =s= of "items" is lost and a
+line-wrap/continuation glyph shows: the header line is a few columns
+*wider* than the window body, so Emacs wraps the last cell.
+*Root cause:* the header is justified to a width 1–2 columns greater than
+the true =window-body-width= (the same off-by-a-few as D7), and even at
+exactly =window-body-width= a glyph landing in the *final* column triggers
+the continuation indicator.
+*Exact expected composition (for impl2):*
+- Let =W = (window-body-width WIN)= of the window WIN actually displaying
+  =*org-air*= (not the selected window).
+- Header line = =org-air-view--justify(LEFT, RIGHT, W)= where
+  LEFT = ="  org-air"=, RIGHT = the status string.
+- *Reserve a one-column right margin*: the status's last visible glyph
+  must sit at column =W-1=, never =W=.  Implement by justifying to =W= with
+  a single trailing space appended to RIGHT (=RIGHT · " "=), or by
+  justifying LEFT/RIGHT to width =W-1= then padding one space.  Net:
+  =string-width(header-line) = W= and the last *non-space* cell is ≤ =W-1=.
+- If =string-width(LEFT)+1+string-width(RIGHT) > W= (very narrow window),
+  *truncate the status from the LEFT-most droppable token*, in priority
+  order: drop the filter chips, then the scope suffix, then =· N items=,
+  keeping the date — never let it overflow =W=.
+The gate's geometry assertion already forbids any line wider than the
+target width; extend it to the header band so this cannot regress.
+
+* S8 — Full-height divider renders as ragged dashes
+*Pixel symptom (screenshot 2):* below the rail content the vertical
+divider =│= reads as a *dashed/ragged* line — the glyphs do not touch
+top-to-bottom, so the "continuous frame" looks broken.
+*Root cause:* non-zero =line-spacing=.  A box-drawing =│= spans the full
+*font* cell, but any positive =line-spacing= (frame default or the user's)
+inserts blank pixels *between* lines, leaving a gap above each glyph —
+the ragged-dash effect.  The fill rows are correct (=│= at the locked
+column); the gaps are purely vertical metrics.
+*Delta — continuous frame treatment:*
+- =org-air-view-mode= sets =line-spacing= to =0= buffer-locally (and
+  =cursor-type= already a bar) so adjacent =│= glyphs touch and read as one
+  unbroken rule.  Document that the framed look depends on zero
+  line-spacing.
+- Keep the divider in a *single* face (=org-air-face-pane-border=, faded
+  foreground, no =:height= shrink — a shrunk height would re-open the
+  gap).  Do not mix the divider face between content rows and fill rows.
+- The same fix makes the calendar grid and the box-drawing rules read
+  cleanly.  (If a user *wants* line-spacing globally, =line-spacing 0=
+  buffer-local still wins for =*org-air*=.)
+
 * Faces changed in this round (=org-air-faces.el=)
 Applied now (face-only, fixtures safe): =org-air-face-separator=,
 =org-air-face-count=, =org-air-face-count-attention= per S2/S3 above.
@@ -211,3 +258,10 @@ rule as a faded hairline and the counts as quiet faded/popout numbers
   body with the divider running full height, footer pinned bottom).
   Flagged S5-default + S6 as fixture-regen items for impl2/test.  Set
   =#+state: ready=.
+- 2026-06-13: Screenshot-2 tuning — added S7 (right-edge status clip:
+  justify the header to the *displaying* window's =window-body-width=
+  with a reserved one-column right margin so the status ends at =W-1=,
+  never =W=; left-token truncation order when too narrow) and S8
+  (ragged-dash divider: set =line-spacing 0= buffer-local in
+  =org-air-view-mode= so =│= glyphs touch into a continuous frame; divider
+  stays one faded face, no height shrink).

@@ -745,6 +745,10 @@ are inherited unchanged.
   truncation, stacked top-band balance).  Amends this spec for real GUI
   windows; read alongside it.
 - air/v0.2/org-air-ux-hardening.org — v0.2.x interactive UX punch list.
+- air/v0.2/org-air-triage.org — inbox triage flow (inline single-key
+  dispositions + guided process-inbox mode, count-down to Inbox zero).
+- examples/demo/ — showcase dataset (=generate.py= writes relative-to-today
+  org files; populates every section + a calendar constellation).
 - air/v0.2/org-air-aesthetics.org — GUI aesthetic deltas + exact face
   specs (S2 hairline rules, S3 quiet count numbers, S5 glyph fallbacks,
   S6 full-height composition).  Supersedes the inverse-chip count and

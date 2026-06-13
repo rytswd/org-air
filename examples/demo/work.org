@@ -1,0 +1,21 @@
+#+TITLE: Work
+
+* TODO [#A] Ship the quarterly board report  :work:report:
+  DEADLINE: <2026-06-08 Mon>
+  :PROPERTIES:
+  :CREATED:  [2026-06-01 Mon]
+  :END:
+* TODO Reply to the client escalation  :work:client:
+  :PROPERTIES:
+  :CREATED:  [2026-06-12 Fri]
+  :END:
+* TODO Stand-up notes for the team  :work:meeting:
+  SCHEDULED: <2026-06-13 Sat>
+* TODO [#A] Prep the client demo deck  :work:client:
+  SCHEDULED: <2026-06-14 Sun>
+* TODO Submit the expense report  :work:finance:
+  DEADLINE: <2026-06-15 Mon>
+* TODO 1:1 with manager  :work:meeting:
+  SCHEDULED: <2026-06-17 Wed>
+* TODO Draft the OKRs for next quarter  :work:planning:
+  SCHEDULED: <2026-06-21 Sun>

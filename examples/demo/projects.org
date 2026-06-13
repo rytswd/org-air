@@ -1,0 +1,25 @@
+#+TITLE: Projects
+
+* TODO [#A] Fix the production outage runbook  :projects:urgent:infra:
+  DEADLINE: <2026-06-11 Thu>
+  :PROPERTIES:
+  :CREATED:  [2026-06-04 Thu]
+  :END:
+* TODO Design review: new onboarding flow  :projects:design:
+  SCHEDULED: <2026-06-16 Tue>
+* TODO [#A] Cut the v2 release branch  :projects:release:
+  SCHEDULED: <2026-06-19 Fri>
+* TODO Triage the bug backlog  :projects:infra:
+  :PROPERTIES:
+  :CREATED:  [2026-06-12 Fri]
+  :END:
+* TODO Refactor the importer module  :projects:code:
+  :PROPERTIES:
+  :CREATED:  [2026-05-10 Sun]
+  :END:
+* TODO Write the architecture decision record  :projects:docs:
+  :PROPERTIES:
+  :CREATED:  [2026-05-16 Sat]
+  :END:
+* TODO Plan the offsite agenda  :projects:planning:
+  SCHEDULED: <2026-06-26 Fri>

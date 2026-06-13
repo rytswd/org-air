@@ -139,11 +139,23 @@ Faces (added now, face-only until the render uses them):
 (custom-declare-face 'org-air-face-calendar-created
   '((t :inherit org-air-face-faded)) "Calendar day with only a created/activity stamp.")
 #+end_src
-*3-way legend* (replaces =\u25cf has items \u00b7 \u25a0 today=), markers shown in their
-real faces so the legend doubles as a key (cf. S9):
-: \u25c6 deadline \u00b7 \u25cf scheduled \u00b7 \u00b7 created \u00b7 \u25a0 today
-Legend text *changes* \u2192 *flag for regen*; uses =org-air-face-calendar-
-legend= (S9) for the words, mark faces for the samples.
+*3-way legend — RESPONSIVE, single-line, never wrap* (ruling, tied to
+T3a/B).  The airy form (~46 cols) overflows even the wide rail, and a
+2-line wrap is rejected; instead the legend follows the same tier split
+as the calendar, in a *tight* form (glyph hugs its short label):
+| Tier (rail)        | Legend                          | Cols |
+|--------------------+---------------------------------+------|
+| narrow 28 (95–119) | =◆due ●sched ■today=             |  18  |
+| mid/wide ≥ 32      | =◆due ●sched ·created ■today=     |  27  |
+The narrow tier drops the =·created= token (low-signal; the faded created
+mark still renders on the grid, just not legended in the cramped key);
+≥120 windows (the user's wide GUI) get the full three-way.  Both fit on
+ONE line (18 ≤ 26 narrow cal-area; 27 ≤ 32 mid).  Markers shown in their
+real mark faces so the legend doubles as a key (cf. S9); short labels in
+=org-air-face-calendar-legend= (S9).  Legend text *changes* → *flag for
+regen*.  This makes rail width, breakpoint, calendar columns and legend
+all resolve as one: *narrow = compact-everything; ≥120 = spaced-
+everything*.
 
 * T7 — Boxed frame (buffer-box)
 *Goal:* replace the lone =\u2502= rail divider with a proper framed dashboard,

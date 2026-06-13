@@ -216,7 +216,7 @@ superseding its event glyph).  Section icons after S5b: =□= inbox,
 
 *** 3.1 Wide — 160 columns (two-pane, item pane 115 + rail 42)
 #+begin_example
-  org-air                                                                                                                                  Mon 15 Jun · 23 items
+  org-air                                                                                                                                 Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3                                                                                                         │   June 2026                            ‹ ›
@@ -255,7 +255,7 @@ superseding its event glyph).  Section icons after S5b: =□= inbox,
 
 *** 3.2 Medium — 120 columns (two-pane, item pane 85 + rail 32)
 #+begin_example
-  org-air                                                                                          Mon 15 Jun · 23 items
+  org-air                                                                                         Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3                                                                           │   June 2026                  ‹ ›
@@ -294,7 +294,7 @@ superseding its event glyph).  Section icons after S5b: =□= inbox,
 
 *** 3.3 Narrow — 80 columns (stacked: rail-as-top-band, items below)
 #+begin_example
-  org-air                                                  Mon 15 Jun · 23 items
+  org-air                                                 Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────
 
 June 2026        ‹ ›      ── Summary ─────────────  ── Filters ─────────────
@@ -736,6 +736,18 @@ are inherited unchanged.
   rules exact, zero over-width).  Adopted 80/120/160 natural
   byte-for-byte into §3 (MATCH ×3); §3.4 documents the 25-file set.
   Gate 110/110.  The S-round bless gating integration.
+- 2026-06-13: RE-BLESSED the 25 sized fixtures after S7/S9 + the
+  membership ruling (impl2 =wrqpvwzt=, fixtures =nqtmnnyy=).  Per-file
+  delta vs the S-round bytes is *exactly one line* — line 1 (header band):
+  the S7 right-margin fix shifts the right-justified status 1 column left
+  so it ends at =W-1=, not =W= (line 1 is now =W-1= wide; no glyph in the
+  final column → no more =3 item‥→= clip).  Verified 0 non-line-1 changes,
+  geometry untouched (divider 86/116, rules exact, zero over-width).  The
+  dual-membership ruling is *zero-byte here* (canonical =inbox.org= has no
+  scheduled capture; exercised + verified live on the generated
+  data-variation board: a dated inbox item under Inbox AND Upcoming,
+  summary total unique) and S9 legend faces are non-byte.  Adopted
+  80/120/160 byte-for-byte into §3 (MATCH ×3).  Gate 121/121.
 
 * References
 - air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).

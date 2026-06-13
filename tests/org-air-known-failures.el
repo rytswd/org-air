@@ -55,30 +55,14 @@
     ;; header-line path; verified header-line-format nil on both glyph
     ;; paths, and the v0.1 filter-chip test rewritten to read the
     ;; in-buffer band.
-    ;;
-    ;; Stale-blessed mockups pending the S-round one-shot regen (after
-    ;; impl2's S5/S6 done): S4 changed the badge bytes.
-    (org-air-layout-mockup-80
-     . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
-    (org-air-layout-mockup-120
-     . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
-    (org-air-layout-mockup-160
-     . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
-    (org-air-layout-mockup-thresholds
-     . "stale blessed bytes: S4 badge byte changes; regen after impl2 S5/S6 done")
-    (org-air-glyph-coverage-complete-with-ascii-fallbacks
-     . "design §6.1: glyph table missing box-tee-left/box-tee-right fallbacks")
-    ;; S6 height seam (contract proposed to impl2 as code; heights
-    ;; blessed by design/orchestrator: 24 overflow branch + 50 fill
-    ;; branch + empty-board@120x50): org-air-view-height — nil =
-    ;; displaying window height, integer = compose exactly that many
-    ;; rows (footer on the last row, body blank-padded).
-    (org-air-viewport-render-honours-height-seam
-     . "S6: renderer must consult the org-air-view-height seam (full-height composition)")
-    (org-air-viewport-fills-height
-     . "S6 fill branch: 120x50 render composes to exactly 50 rows, all 120 cols wide")
-    (org-air-viewport-fills-height-empty-board
-     . "S6 sparse surface: empty board at 120x50 fills to exactly 50 rows (the user complaint)")
+    ;; 2026-06-13: 4 stale-mockup entries closed — S-round one-shot
+    ;; regen executed against impl2 nnoosnpn@addb0c59 (widths ×
+    ;; {natural,24,50} + empty-board@120x50); routed to design for
+    ;; re-blessing.
+    ;; 2026-06-13: S5/S6 entries closed — impl2 nnoosnpn@addb0c59
+    ;; verified honest: 3-tier glyph table complete incl. tees (ASCII
+    ;; final fallback), org-air-view-height defcustom adopted per the
+    ;; proposed contract, 120x50 fill + empty-board sparse fill exact.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

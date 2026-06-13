@@ -31,5 +31,20 @@
   ○ Stale 2                                                                     │
       TODO Dust off old archive project  · 225d quiet         …  ⌂ projects.org │
       TODO Learn lute  · 273d quiet              #someday #hobby  ⌂ someday.org │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────
   [c]apture  [g]refresh  [/]filter  [\]clear  [s]cope  [TAB]next  RET visit  [?]help

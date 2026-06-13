@@ -125,6 +125,23 @@ remain.  The rail relocates to a top band; items run full width."
     (org-air-viewport-test-with-dashboard 160
       (org-air-viewport-test-assert-matches-mockup 160))))
 
+(ert-deftest org-air-layout-mockup-heights ()
+  "S6 sized renders equal their fixtures byte-for-byte: every width at
+the blessed heights (24 overflow / 50 fill) plus the sparse empty board
+at 120×50."
+  (skip-unless (locate-library "org-air"))
+  (dolist (width '(80 90 96 100 104 110 120 160))
+    (dolist (height '(24 50))
+      (ert-info ((format "%dx%d" width height))
+        (org-air-viewport-test-as-gui
+          (org-air-viewport-test-with-dashboard (cons width height)
+            (org-air-viewport-test-assert-matches-mockup
+             (cons width height)))))))
+  (ert-info ("empty board 120x50")
+    (org-air-viewport-test-as-gui
+      (org-air-viewport-test-with-empty-dashboard (cons 120 50)
+        (org-air-viewport-test-assert-matches-mockup "empty-120x50")))))
+
 (ert-deftest org-air-layout-mockup-thresholds ()
   "Renders at the breakpoint-bracketing widths equal their regenerated
 mockups byte-for-byte (right-trimmed): 90 stacked; 96/100/104/110

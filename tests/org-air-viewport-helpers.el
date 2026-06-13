@@ -414,11 +414,16 @@ render guards, buffer killed afterwards)."
 (defun org-air-viewport-test--glyph (name which)
   "Return the WHICH (`gui' or `tty') variant of glyph NAME from the table.
 Derived from `org-air-glyphs' so glyph-default respecs (e.g. S5) never
-break the parsers; falls back to historical defaults when the table or
-entry is absent."
-  (let ((pair (and (boundp 'org-air-glyphs)
-                   (cdr (assq name org-air-glyphs)))))
-    (or (if (eq which 'gui) (car pair) (cdr pair))
+break the parsers.  Understands the 3-tier (NAME PREFERRED SAFE ASCII)
+format (gui -> PREFERRED, tty -> ASCII) and the legacy (GUI . TTY)
+cons; falls back to historical defaults when the entry is absent."
+  (let ((entry (and (boundp 'org-air-glyphs)
+                    (cdr (assq name org-air-glyphs)))))
+    (or (cond
+         ((and (consp entry) (stringp (cdr entry)))   ; legacy cons
+          (if (eq which 'gui) (car entry) (cdr entry)))
+         ((consp entry)                               ; 3-tier list
+          (if (eq which 'gui) (nth 0 entry) (car (last entry)))))
         (cdr (assq name '((calendar-item . "●") (today . "▮")))))))
 
 (defun org-air-viewport-test-calendar-marks ()
@@ -466,8 +471,12 @@ The mockups live in tests/fixtures/layout-mockup-WIDTH.txt, extracted
 verbatim from air/v0.2/org-air-layout-design.org §3 (with the
 filter/scope chips normalised to the spec'd no-filter state — the
 asserted board is the unfiltered fixture set)."
-  (let ((file (expand-file-name (format "layout-mockup-%d.txt" width)
-                                org-air-test-fixture-dir)))
+  (let ((file (expand-file-name
+               (cond ((stringp width) (format "layout-mockup-%s.txt" width))
+                     ((consp width) (format "layout-mockup-%dx%d.txt"
+                                            (car width) (cdr width)))
+                     (t (format "layout-mockup-%d.txt" width)))
+               org-air-test-fixture-dir)))
     (unless (file-readable-p file)
       (error "Missing mockup fixture: %s" file))
     (let* ((org-air-viewport-test--allow-mockup-read t)
@@ -486,7 +495,9 @@ asserted board is the unfiltered fixture set)."
     lines))
 
 (defun org-air-viewport-test-assert-matches-mockup (width)
-  "Assert the current buffer equals the §3 mockup for WIDTH, line for line.
+  "Assert the current buffer equals the mockup for WIDTH, line for line.
+WIDTH may be an integer (natural height), a (WIDTH . HEIGHT) cons, or a
+string fixture suffix such as \"empty-120x50\".
 Both sides are right-trimmed per line and stripped of trailing blank
 lines, per design §3/§9.1.  On mismatch, fail with the first divergent
 line so the impl grind gets a precise punch list."
@@ -502,7 +513,7 @@ line so the impl grind gets a precise punch list."
                     (equal (nth i expected) (nth i actual)))
           (setq i (1+ i)))
         (ert-fail
-         (format "render diverges from the %d-col mockup at line %d (%d expected / %d actual lines)\nexpected: %S\nactual:   %S"
+         (format "render diverges from the %s mockup at line %d (%d expected / %d actual lines)\nexpected: %S\nactual:   %S"
                  width (1+ i) (length expected) (length actual)
                  (nth i expected) (nth i actual)))))))
 

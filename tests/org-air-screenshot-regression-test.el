@@ -136,18 +136,19 @@ filters, including a filter that hides everything."
   "Every glyph name the design spec requires (v0.1 set + §6.1 table).")
 
 (ert-deftest org-air-glyph-coverage-complete-with-ascii-fallbacks ()
-  "Every spec'd glyph exists with a GUI char and a pure-ASCII TTY fallback."
+  "Every spec'd glyph exists in the 3-tier (PREFERRED SAFE ASCII) format
+with three non-empty strings and a pure-ASCII final fallback (S5b)."
   (skip-unless (boundp 'org-air-glyphs))
   (dolist (name org-air-screenshot-test--spec-glyphs)
     (ert-info ((format "glyph %s" name))
-      (let ((pair (cdr (assq name org-air-glyphs))))
-        (should pair)
-        (should (stringp (car pair)))
-        (should (> (length (car pair)) 0))
-        (should (stringp (cdr pair)))
-        (should (> (length (cdr pair)) 0))
-        ;; TTY fallback must be ASCII-only: safe in every terminal.
-        (should (string-match-p "\\`[[:ascii:]]+\\'" (cdr pair)))))))
+      (let ((entry (cdr (assq name org-air-glyphs))))
+        (should entry)
+        (should (= (length entry) 3))
+        (dolist (tier entry)
+          (should (stringp tier))
+          (should (> (length tier) 0)))
+        ;; The final tier must be ASCII-only: safe in every terminal.
+        (should (string-match-p "\\`[[:ascii:]]+\\'" (nth 2 entry)))))))
 
 (provide 'org-air-screenshot-regression-test)
 ;;; org-air-screenshot-regression-test.el ends here

@@ -1,0 +1,133 @@
+#+title: org-air v0.3 round-6 — visual restraint (design)
+#+state: ready
+#+FILETAGS: :ui:visual:faces:v0.3:
+
+* Summary
+Correction of my own round-5 over-design.  User: "Looks so broken,
+horrible look."  Round 5 added colour by *adding chrome* \u2014 a =:box= pill
+on every tag and priority cookie, plus a half-drawn outer frame, with the
+tags floating in a right-aligned column disconnected from their titles.
+This round strips the box vocabulary and re-achieves "modern coloured"
+through *face colour only* (V4), keeping the calm of the earlier rounds.
+
+*The coloured TODO keywords read fine \u2014 keep them.*  Everything else
+boxed gets unboxed.
+
+*Measurability:* V1/V2 face changes are *face-only* (text byte-identical,
+applied now to =org-air-faces.el=, gate 122/122).  The V1 *tag placement*
+change (right-column \u2192 inline) moves bytes \u2192 *flagged for regen*.  V3
+removes window chrome (non-byte).
+
+* V1 \u2014 Tag chips: drop the box, fix the placement
+** V1a \u2014 Quiet coloured text, no rectangles  [face-only]
+Strip =:box=, =:background= and =:height= from every tag face.  A tag is
+now just its name in a quiet accent *foreground* \u2014 hue, not a pill.
+Applied:
+- =org-air-face-tag= \u2192 =:inherit org-air-face-faded= (no box/bg/height).
+- =org-air-face-tag-accent-1..6= \u2192 foreground-only (the six accent hues);
+  =org-air-faces--define-tag-accents= rewritten to emit just =:foreground=.
+- =org-air-face-tag-active= \u2192 =:inherit tag :weight bold :underline t=
+  (active state via weight+underline, not a box).
+The deterministic =org-air-faces-tag-face= mapping is unchanged \u2014 same
+tag, same hue, now as calm text.
+
+** V1b \u2014 Fix the title\u2192tags disconnect (placement)  [BYTE \u2192 regen]
+*The worst part:* tags were right-aligned in a column far from the
+title, leaving a large void between title (left) and tags (right) that
+reads as a broken table.  *Fix:* tuck the tags *inline, right after the
+title + date*, as quiet coloured text; keep the origin flush-right.  One
+gap only \u2014 before the flush-right origin.  Item line order (restores the
+v0.1 reading order):
+: <state> [<prio>] <title>  <date>  <#tag #tag>            \u2302 <origin>
+- =<#tags>= follow the date with a single space, each tag in its accent
+  text face, separated by a space (no chips, no commas).
+- The *single* flex gap sits between the tag cluster and the flush-right
+  origin (D2 origin-protection still applies: truncate the title with
+  =\u2026= before the origin, never drop the origin).
+- Overflow beyond =org-air-tags-inline-max= (3) stays =+N= (faded), as
+  v0.1 \u2014 but now plain text, no chip.
+This changes item-row bytes (tags relocate from the right column to the
+title cluster) \u2192 *fixture regen* (item rows change; calendar/summary/
+divider unaffected; pane-divider column unchanged \u2014 confirm at regen).
+*Alternative kept on the table:* a calm right metadata column (date+tags)
+with NO boxes is acceptable too, but inline-after-title is the
+recommended default because it removes the void entirely.
+
+* V2 \u2014 Priority cookies: coloured text, no pill  [face-only]
+Strip the filled pill / box from =[#A]= etc.  Coloured *text* only, one
+hue per level (mirrors the date-urgency palette):
+- =org-air-face-priority-a= \u2192 =:inherit org-air-face-critical :weight bold=
+  (=[#A]= = critical-hue bold text).
+- =org-air-face-priority-b= \u2192 =:inherit org-air-face-popout :weight bold=.
+- =org-air-face-priority-c= \u2192 =:inherit org-air-face-faded=.
+Applied to =org-air-faces.el= (text =[#A]= unchanged \u2192 face-only).  The
+cookie now reads like the coloured keyword next to it \u2014 calm and legible,
+no box noise on every row.
+
+* V3 \u2014 T7 frame: a half-frame is worse than none \u2014 drop it
+The buffer-box outer frame (round-4 T7) shipped *half-drawn*: the
+header-line top border is a partial horizontal line that does not span
+the width (a gap by the calendar, no clean =\u250c\u2500\u2500\u2510=), and the right border
+was already deferred.  *Decision: remove the outer-frame chrome
+entirely* for now.
+- Drop the header-line top border and the mode-line bottom border and
+  the margin/line-prefix side borders (the T7 chrome).  [non-byte]
+- Rely on what already reads well: the in-buffer full-width *hairline
+  rules* (S2) under the header and above the footer, and the *single
+  internal rail divider* =\u2502=.  That divider + the two hairlines already
+  give the dashboard structure \u2014 calm, complete, nano.
+- *If a frame is ever revisited* it must be a *complete, clean box* on
+  all four sides (no partial edges) and proven on the user's window
+  before shipping; a partial frame is a regression.  Until then: no
+  outer box.
+Net: the lone divider was never the problem \u2014 the *broken half-box* was.
+Removing it restores a clean look without adding chrome.
+
+* V4 \u2014 Principle: colour via FACE, not chrome
+The modern-coloured goal is met with *foreground hue* on the elements
+that carry meaning, and nothing else:
+- *Keep:* coloured TODO keywords (=org-air-face-todo= salient, =-todo-next=
+  popout, =-todo-wait= amber, DONE faded) \u2014 they read well.
+- *Keep:* semantic date colours (overdue critical, scheduled salient,
+  deadline popout), the typed calendar marks (T3b), the popout attention
+  counts.
+- *Keep as quiet text:* tag accent hues, priority hues.
+- *Drop entirely:* every =:box=, every chip =:background=, the =:height=
+  shrink on chips, and the outer frame chrome.
+Restraint is the feature (v0.1 thesis): generous whitespace, hue used
+only where it changes a decision, *no rectangles*.
+
+* Faces changed this round (=org-air-faces.el=, face-only)
+=org-air-face-tag= (faded text), =-tag-active= (bold+underline),
+=-tag-accent-1..6= (foreground-only), =-priority-a/-b/-c= (coloured text,
+no pill).  Verified: =:box= and =:background= now =unspecified= on all of
+them; strict byte-compile clean; gate 122/122 (text byte-identical \u2014
+fixtures hold).
+
+* Mockup delta (illustrative \u2014 inline tags, no boxes)
+#+begin_example
+  ▤ Inbox 5
+      TODO Read the Rougier text-editor design paper  #inbox        ⌂ inbox.org
+  ▲ Needs attention 14
+      TODO [#A] Ship the quarterly board report  OVERDUE 6d  #work #report  ⌂ work.org
+      TODO [#A] Fix the production outage runbook  OVERDUE 3d  #projects #urgent +1  ⌂ projects.org
+#+end_example
+=[#A]= = critical-red text (no pill); =#work #report #projects #urgent= =
+quiet accent text right after the date (no void, no boxes); =+1= overflow
+faded; origin flush-right.
+
+* Routing
+- impl2: V1b inline tag placement (byte \u2192 triggers a fixture regen with
+  test) + remove the T7 frame chrome (V3); V1a/V2 face changes already
+  land via =org-air-faces.el=.
+- test: re-classify after the V1b placement regen (item rows change;
+  calendar/summary/header/divider stay put).
+
+* History
+- 2026-06-14: Restraint correction of round-5.  Stripped the box
+  vocabulary from tag faces (foreground-only accents, no box/bg/height),
+  the tag base/active faces, and priority cookies (coloured text, no
+  pill) \u2014 all face-only, gate 122/122.  Specified V1b inline tag
+  placement (byte \u2192 regen) to kill the title\u2192tags void, and V3 removal of
+  the half-drawn T7 outer frame (keep the in-buffer hairlines + single
+  divider).  V4: colour via face, not chrome.  Set =#+state: ready=.

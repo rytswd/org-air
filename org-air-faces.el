@@ -249,24 +249,18 @@ row of `─' reads as one faint connected line rather than a solid bar
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-priority-a
-  '((((class color) (min-colors 256) (background light))
-     (:foreground "#FFFFFF" :background "#C62828" :weight bold
-      :box (:line-width (1 . -1) :color "#C62828")))
-    (((class color) (min-colors 256) (background dark))
-     (:foreground "#2E3440" :background "#EBCB8B" :weight bold
-      :box (:line-width (1 . -1) :color "#EBCB8B")))
-    (t (:inherit org-air-face-critical :weight bold)))
-  "[#A] cookie: a filled critical pill (`:box' is GUI-only)."
+  '((t :inherit org-air-face-critical :weight bold))
+  "[#A] cookie: critical-hue bold TEXT (round-6 restraint: no pill/box)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-priority-b
-  '((t :inherit org-air-face-popout :weight bold :box (:line-width (1 . -1))))
-  "[#B] cookie: popout, lightly boxed."
+  '((t :inherit org-air-face-popout :weight bold))
+  "[#B] cookie: popout bold text (no box)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-priority-c
-  '((t :inherit org-air-face-faded :box (:line-width (1 . -1))))
-  "[#C] cookie: faded, lightly boxed."
+  '((t :inherit org-air-face-faded))
+  "[#C] cookie: faded text (no box)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-date
@@ -313,35 +307,26 @@ row of `─' reads as one faint connected line rather than a solid bar
 ;;;; ---------------------------------------------------------------------
 
 (custom-declare-face 'org-air-face-tag
-  `((((class color) (min-colors 256) (background light))
-     (:foreground ,(org-air-palette-color 'strong 'light)
-      :background ,(org-air-palette-color 'subtle 'light)
-      :box (:line-width (1 . -1) :color ,(org-air-palette-color 'faded 'light))
-      :height 0.85))
-    (((class color) (min-colors 256) (background dark))
-     (:foreground ,(org-air-palette-color 'strong 'dark)
-      :background ,(org-air-palette-color 'subtle 'dark)
-      :box (:line-width (1 . -1) :color ,(org-air-palette-color 'faded 'dark))
-      :height 0.85))
-    (t (:inherit org-air-face-faded)))
-  "Base face for a tag chip (used when no accent hue is assigned)."
+  '((t :inherit org-air-face-faded))
+  "Base face for a tag (used when no accent hue is assigned).
+Round-6 restraint: quiet faded TEXT — no box, no background fill, no
+height shrink.  Hue (not a rectangle) carries the tag; the accent faces
+add the colour."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-tag-active
-  '((t :inherit org-air-face-tag :weight bold :box t))
-  "Face for a tag chip that is the currently active filter."
+  '((t :inherit org-air-face-tag :weight bold :underline t))
+  "Face for a tag that is the currently active filter — bold + underline
+(no box), so the active state reads without adding chrome."
   :group 'org-air-faces)
 
 (defconst org-air-tag-accent-palette
-  ;; (LIGHT-FG LIGHT-BG DARK-FG DARK-BG).  Chips carry a faint tinted
-  ;; background plus a high-contrast foreground so they stay legible on a
-  ;; busy item line and never collide with the popout/critical hues used
-  ;; for TODO state and overdue dates.  Foregrounds are WCAG-AA against
-  ;; their own background in both modes; dark mode elevates onto Nord1.
-  ;; Dark tier (T1c): saturated Nord-bright FOREGROUNDS, and the dark
-  ;; background dropped to the dashboard bg (#2E3440) so the hue carries
-  ;; via the foreground + box outline instead of a uniform grey fill that
-  ;; washed every chip to look the same on the dark dashboard.
+  ;; (LIGHT-FG LIGHT-BG DARK-FG DARK-BG).  Round-6 restraint uses only the
+  ;; FOREGROUNDS — tags are quiet coloured text, no boxes or background
+  ;; fills (the *-BG columns are retained for reference / future opt-in
+  ;; tinting but are no longer applied).  The foregrounds are WCAG-legible
+  ;; on their dashboard background and never collide with the popout/
+  ;; critical hues used for TODO state and overdue dates.
   '(("#1565C0" "#E3F2FD" "#88C0D0" "#2E3440")   ; 1 blue
     ("#2E7D32" "#E8F5E9" "#A3BE8C" "#2E3440")   ; 2 green
     ("#6A1B9A" "#F3E5F5" "#B48EAD" "#2E3440")   ; 3 purple
@@ -358,16 +343,16 @@ mode for light/dark parity.")
   (let ((n 0))
     (dolist (spec org-air-tag-accent-palette)
       (setq n (1+ n))
-      (cl-destructuring-bind (lfg lbg dfg dbg) spec
+      (cl-destructuring-bind (lfg _lbg dfg _dbg) spec
         (custom-declare-face (intern (format "org-air-face-tag-accent-%d" n))
+          ;; Round-6 restraint: quiet coloured TEXT only — the accent hue
+          ;; as a foreground, no box / no background / no height shrink.
           `((((class color) (min-colors 256) (background light))
-             (:foreground ,lfg :background ,lbg
-              :box (:line-width (1 . -1) :color ,lfg) :height 0.85))
+             (:foreground ,lfg))
             (((class color) (min-colors 256) (background dark))
-             (:foreground ,dfg :background ,dbg
-              :box (:line-width (1 . -1) :color ,dfg) :height 0.85))
+             (:foreground ,dfg))
             (t (:inherit org-air-face-tag)))
-          (format "Tag accent face %d." n)
+          (format "Tag accent face %d (quiet coloured text)." n)
           :group 'org-air-faces)))))
 
 (org-air-faces--define-tag-accents)

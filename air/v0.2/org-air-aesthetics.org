@@ -147,6 +147,14 @@ half-finished buffer, not an app.
 3. *Footer band* — *pinned to the last body line(s)* of the window: a
    faded hairline rule (S2) + the key legend.  No more floating footer.
 
+*Fill-row composition (clarification).*  The blank fill rows differ by
+layout: in the *stacked* layout they are *plain-space* rows (full width,
+no divider); in the *two-pane* layout each fill row carries the *framed
+divider* =│= at its locked column (the rail/item panes are blank-padded on
+either side), so the frame runs unbroken to the footer.  This is what
+makes the empty lower region read as intentional sidebar space rather
+than a void.
+
 So: =render to window-body-height=, not just content height.  This is the
 vertical analogue of U1/D7 (render to the displaying window) and depends
 on the same window-aware render path; impl2 reads =window-body-height= of

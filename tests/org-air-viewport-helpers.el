@@ -32,13 +32,15 @@ Declared in the test harness so suites can bind it; the implementation
 owns the canonical definition.")
 
 (defvar org-air-view-height nil
-  "Proposed HEIGHT seam (S6 full-height composition), mirroring the
-width seam: nil (default) = derive from the displaying window
-(`window-body-height'); integer = compose the buffer to exactly that
-many rows in batch — header band first, footer band on the last row,
-the body band blank-padded (full-width plain-space rows) in between.
-Declared special here so suites can bind it before the implementation
-defines the canonical defcustom.")
+  "HEIGHT seam (S6 full-height composition; contract impl-accepted),
+mirroring the width seam: nil (default) = derive ROWS from the
+displaying window (`window-body-height'); integer = compose the buffer
+to exactly that many rows in batch — header band first, footer band
+pinned to the last row, the body band fill-padded in between.  Fill
+rows are full-width: plain spaces in the STACKED layout (right-trim to
+empty), but in TWO-PANE they carry the framed divider on every body
+row (a framed sidebar, not a void).  Canonical definition is owned by
+the implementation; declared special here for binding.")
 
 (defconst org-air-viewport-test-widths '(80 120 160)
   "Canonical render widths exercised by the viewport suites.")
@@ -448,8 +450,8 @@ never matches."
 
 (defun org-air-viewport-test-assert-fills-height (height)
   "Assert the buffer composes to exactly HEIGHT rows (S6 contract).
-Blank padding rows count; they are full-width plain-space rows that
-right-trim to empty in the line list."
+Fill rows count: full-width plain-space rows in the stacked layout
+(right-trim to empty), divider-framed rows in two-pane."
   (let ((lines (org-air-viewport-test-lines)))
     (unless (= (length lines) height)
       (ert-fail (format "composed to %d rows, expected exactly %d"

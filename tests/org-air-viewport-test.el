@@ -159,8 +159,9 @@ Spec: calendar ALWAYS rendered (air/v0.2/org-air-layout.org, Goals)."
 
 (ert-deftest org-air-viewport-render-honours-height-seam ()
   "The renderer consults `org-air-view-height': different heights,
-different composition (S6 full-height contract — body band blank-padded
-so the footer sits on the last row)."
+different composition (S6 full-height contract — body band fill-padded,
+stacked: plain-space rows / two-pane: divider-framed rows, footer pinned
+to the last row)."
   (skip-unless (locate-library "org-air"))
   (let (natural tall)
     (org-air-viewport-test-with-dashboard 120

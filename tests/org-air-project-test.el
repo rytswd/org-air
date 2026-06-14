@@ -173,9 +173,9 @@ stability; --batch renders the TTY [D]/[R]/[W]/[C]/[X] badge forms."
   (skip-unless (locate-library "org-air"))
   (should (fboundp 'org-air-project))
   (pcase-dolist (`(,label . ,group-fn)
-                 '(("state" . org-air-project-group-state)
-                   ("dir"   . org-air-project-group-directory)
-                   ("tag"   . org-air-project-group-tag)))
+                 '(("state" . org-air-project-group-by-state)
+                   ("dir"   . org-air-project-group-by-directory)
+                   ("tag"   . org-air-project-group-by-tag)))
     (let* ((file (expand-file-name (format "project-view-%s.txt" label)
                                    org-air-test-fixture-dir))
            (expected (and (file-readable-p file)
@@ -202,11 +202,11 @@ can never pass here.  Plus: dir grouping heads its boxes with a version
 folder, tag grouping with a #tag (not a state badge)."
   (skip-unless (locate-library "org-air"))
   (let ((state (org-air-project-test--render-lines
-                'org-air-project-group-state 100))
+                'org-air-project-group-by-state 100))
         (dir   (org-air-project-test--render-lines
-                'org-air-project-group-directory 100))
+                'org-air-project-group-by-directory 100))
         (tag   (org-air-project-test--render-lines
-                'org-air-project-group-tag 100)))
+                'org-air-project-group-by-tag 100)))
     (should state) (should dir) (should tag)
     ;; Pairwise distinct — no grouping falls back to another.
     (should-not (equal state dir))

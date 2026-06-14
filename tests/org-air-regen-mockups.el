@@ -71,9 +71,9 @@ otherwise layout-mockup-WIDTHxHEIGHT.txt."
         (org-air-regen--emit out (org-air-regen--lines))))))
 
 (defconst org-air-regen-project-groupings
-  '(("state" . org-air-project-group-state)
-    ("dir"   . org-air-project-group-directory)
-    ("tag"   . org-air-project-group-tag))
+  '(("state" . org-air-project-group-by-state)
+    ("dir"   . org-air-project-group-by-directory)
+    ("tag"   . org-air-project-group-by-tag))
   "Project-view groupings → fixture suffix + grouping command (F5).")
 
 (defun org-air-regen--write-project (label group-fn width)

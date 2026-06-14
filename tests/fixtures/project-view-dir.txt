@@ -2,35 +2,19 @@
 
   [D] 2   [R] 1   [W] 1   [C] 1   [X] 1
 
-+- [D] Draft (2)
++- v0.1/   [D] Draft (1)    [R] Ready (1)    [C] Complete (1)
 |
-|+- v0.1/    0 (+1)
+|+- v0.1/    2 (+1)
+|   Alpha feature                                              [R] Ready    ~ 2026-05-01   #ui #core
+|   Beta CLI                                                    [C] Complete    ~ 2026-05-01   #core
 |  +- air-context/    1
-|      Gamma context                                                         ~ 2026-05-01   #context
-|+- v0.2/    1
-|   Epsilon plan                                                         ~ 2026-05-01   #context #ui
+|      Gamma context                                            [D] Draft    ~ 2026-05-01   #context
 +---------------------------------------------------------------------------------------------------
 
-+- [R] Ready (1)
++- v0.2/   [D] Draft (1)    [W] Work In Progress (1)    [X] Dropped (1)
 |
-|+- v0.1/    1
-|   Alpha feature                                                           ~ 2026-05-01   #ui #core
-+---------------------------------------------------------------------------------------------------
-
-+- [W] Work In Progress (1)
-|
-|+- v0.2/    1
-|   Zeta work in progress                                                   ~ 2026-05-01   #core #ui
-+---------------------------------------------------------------------------------------------------
-
-+- [C] Complete (1)
-|
-|+- v0.1/    1
-|   Beta CLI                                                                    ~ 2026-05-01   #core
-+---------------------------------------------------------------------------------------------------
-
-+- [X] Dropped (1)
-|
-|+- v0.2/    1
-|   Delta UI exploration                                                          ~ 2026-05-01   #ui
+|+- v0.2/    3
+|   Delta UI exploration                                           [X] Dropped    ~ 2026-05-01   #ui
+|   Epsilon plan                                            [D] Draft    ~ 2026-05-01   #context #ui
+|   Zeta work in progress                           [W] Work In Progress    ~ 2026-05-01   #core #ui
 +---------------------------------------------------------------------------------------------------

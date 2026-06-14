@@ -96,15 +96,12 @@
     ;; wide (160) or switched to org-air-item-property lookups, and the
     ;; v1b inline tests were reworked to the V6 column order.
     ;;
-    ;; 2026-06-14: f5-grouping-toggle STRENGTHENED + re-opened as grind
-    ;; (design caught the gap): the old test only asserted each grouping
-    ;; command runs, so impl2's fallback-to-state for dir/tag passed
-    ;; (project-view-dir/-tag byte-identical to -state).  Now it asserts
-    ;; the three renders are pairwise BYTE-DIFFERENT; red until impl2
-    ;; lands the real directory/tag groupings, then regen -dir/-tag.
-    ;; ([W] WIP badge already asserted in f5-tree-structure.)
-    (org-air-f5-grouping-toggle
-     . "F5c: state/dir/tag groupings must render DISTINCT trees (no fallback-to-state)")
+    ;; 2026-06-14: f5-grouping-toggle distinctness grind CLOSED — impl2
+    ;; yxvztrsy landed genuinely distinct dir/tag groupings (commands
+    ;; renamed to org-air-project-group-by-{state,directory,tag}); the
+    ;; three renders are now pairwise byte-different.  project-view-dir/
+    ;; -tag regenerated to the distinct trees; state-view + V6 dashboard
+    ;; stay blessed.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

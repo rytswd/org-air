@@ -55,15 +55,17 @@ list missed the Jun 19 deadline on \"Review design doc\")."
     (sort days #'<)))
 
 (ert-deftest org-air-data-variation-calendar-marks-original-fixtures ()
-  "Calendar ● days on the ORIGINAL fixtures equal their true June union.
-Ground truth parsed from the fixture files themselves; today (15) shows
-▮, every other scheduled/deadline June day shows ●, nothing else does."
+  "Calendar mark days on the ORIGINAL fixtures equal their true June union.
+Ground truth parsed from the fixture files themselves.  R7: today is a
+background HIGHLIGHT, not a glyph that replaces the cell, so a day that
+is BOTH today AND carries a deadline/scheduled still shows its mark —
+today (15 has a deadline) is therefore IN the marked union now, and
+also reported as today."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 120
       (pcase-let ((`(,marked . ,today) (org-air-viewport-test-calendar-marks)))
-        (should (equal marked
-                       (remove 15 (org-air-data-variation--fixture-june-days))))
+        (should (equal marked (org-air-data-variation--fixture-june-days)))
         (should (equal today '(15)))))))
 
 (ert-deftest org-air-data-variation-titles-render ()

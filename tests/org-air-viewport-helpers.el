@@ -456,39 +456,63 @@ cons; falls back to historical defaults when the entry is absent."
   (org-air-viewport-test--glyph 'today which))
 
 (defun org-air-viewport-test-calendar-legend-expected (tier &optional which)
-  "Return the expected calendar legend string for TIER (design tynxttsz).
-TIER is `narrow' (the 95-119 / stacked 18c form, no `created' word) or
-`wide' (the >=120 27c form).  WHICH selects the glyph set (`gui',
-default, or `tty').  The frozen WORDS come from the design ruling; the
-GLYPHS are derived from the mark table so a glyph respec never rots the
-assertion.  Format: GLYPH+word joined, single-space separated."
+  "Return the expected calendar legend string for TIER.
+TIER is `narrow' (the 95-119 / stacked form, no `created' word) or
+`wide' (the >=120 form).  WHICH selects the glyph set (`gui', default,
+or `tty').  R7 (design vlpzyquw) drops the today token — today is a
+background highlight on its cell, so the legend needs no entry for it:
+narrow ◆due ●sched / wide ◆due ●sched ·created.  GLYPHS are derived from
+the mark table so a respec never rots the assertion.  Format:
+GLYPH+word joined, single-space separated."
   (let* ((which (or which 'gui))
          (g (lambda (kind)
               (let ((cell (cdr (assq kind
                                      org-air-viewport-test-calendar-mark-glyphs))))
                 (if (eq which 'tty) (cdr cell) (car cell)))))
-         (today (org-air-viewport-test--calendar-today-glyph which))
          (parts (append (list (concat (funcall g 'deadline) "due")
                               (concat (funcall g 'scheduled) "sched"))
                         (when (eq tier 'wide)
-                          (list (concat (funcall g 'created) "created")))
-                        (list (concat today "today")))))
+                          (list (concat (funcall g 'created) "created"))))))
     (mapconcat #'identity parts " ")))
+
+(defun org-air-viewport-test--face-list-at (pos)
+  "Return the `face' property at POS as a list (it may be a symbol)."
+  (let ((f (get-text-property pos 'face)))
+    (cond ((null f) nil) ((listp f) f) (t (list f)))))
+
+(defun org-air-viewport-test--calendar-today-days ()
+  "Return day numbers whose cell carries `org-air-face-calendar-today'.
+FACE-based, not glyph-based: round-7 (R7) drops the ■ today marker and
+highlights the today cell with a background face instead, so the only
+durable signal is the face on the day-number digits.  Works on round-6
+too (the ■ cell already carries the face on its digits)."
+  (let ((days ()) (pos (point-min)) (end (point-max)))
+    (save-excursion
+      (while (< pos end)
+        (when (and (<= ?0 (or (char-after pos) 0) ?9)
+                   (memq 'org-air-face-calendar-today
+                         (org-air-viewport-test--face-list-at pos))
+                   ;; start of the number (previous char is not a digit)
+                   (not (and (> pos (point-min))
+                             (<= ?0 (or (char-before pos) 0) ?9))))
+          (goto-char pos)
+          (when (looking-at "[0-9]+")
+            (cl-pushnew (string-to-number (match-string 0)) days)))
+        (setq pos (1+ pos))))
+    (sort days #'<)))
 
 (defun org-air-viewport-test-calendar-marks-by-kind (&optional which)
   "Parse the calendar grid into an alist of KIND -> sorted day numbers.
-KIND is one of `deadline', `scheduled', `created' (T3b mark kinds) or
-`today'.  WHICH selects the glyph set (`gui', default, or `tty').
-Digit-prefixed glyphs only, so the legend line never matches."
+KIND is one of `deadline', `scheduled', `created' (T3b mark kinds, by
+glyph) or `today' (by the `org-air-face-calendar-today' text property,
+so it survives R7's removal of the ■ today glyph).  WHICH selects the
+glyph set (`gui', default, or `tty').  Digit-prefixed glyphs only, so
+the legend line never matches."
   (let* ((which (or which 'gui))
-         (specs (append
-                 (mapcar (lambda (e)
-                           (cons (car e)
-                                 (if (eq which 'tty) (cddr e) (cadr e))))
-                         org-air-viewport-test-calendar-mark-glyphs)
-                 (list (cons 'today
-                             (org-air-viewport-test--calendar-today-glyph
-                              which)))))
+         (specs (mapcar (lambda (e)
+                          (cons (car e)
+                                (if (eq which 'tty) (cddr e) (cadr e))))
+                        org-air-viewport-test-calendar-mark-glyphs))
          (alt (mapconcat (lambda (s) (regexp-quote (cdr s))) specs "\\|"))
          (rx (format "\\([0-9]+\\)\\(%s\\)" alt))
          (text (buffer-string)) (acc ()) (pos 0))
@@ -498,13 +522,16 @@ Digit-prefixed glyphs only, so the legend line never matches."
              (kind (car (cl-find glyph specs :key #'cdr :test #'equal))))
         (when kind (cl-pushnew day (alist-get kind acc))))
       (setq pos (match-end 0)))
+    (let ((today (org-air-viewport-test--calendar-today-days)))
+      (when today (setf (alist-get 'today acc) today)))
     (mapcar (lambda (cell) (cons (car cell) (sort (cdr cell) #'<))) acc)))
 
 (defun org-air-viewport-test-calendar-marks (&optional which)
   "Parse the rendered calendar grid: return (MARKED-DAYS . TODAY-DAYS).
 MARKED-DAYS are day numbers carrying ANY date mark (deadline ◆,
-scheduled ● or created · — T3b); TODAY-DAYS carry the today glyph (■).
-WHICH selects the glyph set (`gui', default, or `tty').  Sorted."
+scheduled ● or created · — T3b); TODAY-DAYS carry the
+`org-air-face-calendar-today' face (R7: the ■ glyph is gone, today is a
+background highlight).  WHICH selects the glyph set (`gui'/`tty').  Sorted."
   (let* ((by-kind (org-air-viewport-test-calendar-marks-by-kind which))
          (today (alist-get 'today by-kind))
          (marked (cl-loop for (kind . days) in by-kind

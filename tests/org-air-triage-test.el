@@ -37,29 +37,35 @@
 ;;;; Keymap — disposition vocabulary + the s/S remap.
 
 (ert-deftest org-air-triage-keymap-dispositions ()
-  "Every triage disposition key is bound to its spec'd command."
+  "Every top-level disposition key is bound to its spec'd command.
+Round-7 (R3/R5) reclaimed two prime keys: `s' is now scope (schedule
+moved into the process-inbox guided flow) and `k' is now a motion key
+(kill relocated to the guarded `x').  The remaining dispositions keep
+their keys."
   (skip-unless (locate-library "org-air"))
   (pcase-dolist (`(,key . ,command)
-                 '(("s" . org-air-item-schedule)
-                   ("d" . org-air-item-deadline)
+                 '(("d" . org-air-item-deadline)
                    ("r" . org-air-refile-item)
                    ("f" . org-air-item-file-group)
                    ("t" . org-air-set-tag)
                    ("T" . org-air-item-cycle-todo)
                    ("a" . org-air-item-archive)
                    ("D" . org-air-item-done)
-                   ("k" . org-air-item-kill)
+                   ("x" . org-air-item-kill)
                    ("I" . org-air-process-inbox)))
     (ert-info ((format "key %s -> %s" key command))
-      (should (eq (lookup-key org-air-view-mode-map (kbd key)) command)))))
+      (should (eq (lookup-key org-air-view-mode-map (kbd key)) command))))
+  ;; `k' must NOT be the kill key any more (R3 safety: it is a motion).
+  (should-not (eq (lookup-key org-air-view-mode-map (kbd "k"))
+                  'org-air-item-kill)))
 
 (ert-deftest org-air-triage-keymap-scope-remap ()
-  "Scope moves off the prime key: S = scope, M-s = scope-clear, and s
-is no longer scope (it is the schedule disposition)."
+  "Round-7 R5: scope is back on the prime key — s = scope, S = scope-clear
+(the round-4 s→S remap is superseded; schedule now lives in the
+process-inbox flow)."
   (skip-unless (locate-library "org-air"))
-  (should (eq (lookup-key org-air-view-mode-map (kbd "S")) 'org-air-scope))
-  (should (eq (lookup-key org-air-view-mode-map (kbd "M-s")) 'org-air-scope-clear))
-  (should-not (eq (lookup-key org-air-view-mode-map (kbd "s")) 'org-air-scope)))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "s")) 'org-air-scope))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "S")) 'org-air-scope-clear)))
 
 ;;;; Graduation semantics (classification level).
 

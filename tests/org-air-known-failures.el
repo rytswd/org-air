@@ -80,6 +80,13 @@
     ;;    (ruling xsqrnoyn consistency invariant).  The section-rows test
     ;;    helper now scans each line for the org-air-section/org-air-item
     ;;    properties (they sit past the left margin), not just column 0.
+    ;;
+    ;; v0.3 ROUND-7 closeout (impl2 rlqqoumn): all 9 grind entries
+    ;; verified passed-unexpectedly and deleted — R3 k≠kill+j/k scroll,
+    ;; R7 today-cell-no-glyph + legend-drops-today, R8 Sunday-first, R10
+    ;; tags-max-2 + right-cluster, R6 day-view-command + clickable-cells,
+    ;; R4 footer-removed (the rail-hint expansion landed in impl2's amend,
+    ;; so the verbs are no longer lost).
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

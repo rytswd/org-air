@@ -242,6 +242,14 @@ of whether the wrapping pane margin is added later (D6).")
     (stale "Stale" "Nothing has gone stale."))
   "Section descriptors in display order.")
 
+(defvar org-air-g-prefix-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "r") #'org-air-refresh)
+    (define-key map (kbd "g") #'org-air-goto-top)
+    (define-key map (kbd "R") #'org-air-refresh-all)
+    map)
+  "Transient g-prefix map (B4): r refresh, g top of pane, R refresh+clear.")
+
 (defvar org-air-view-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'org-air-visit-item)
@@ -283,8 +291,10 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "\\") #'org-air-filter-clear)
     ;; Scope moves off the prime key so s = schedule (the triage verb).
     (define-key map (kbd "S") #'org-air-scope-clear)
-    (define-key map (kbd "g") #'org-air-refresh)
-    (define-key map (kbd "G") #'org-air-refresh-all)
+    ;; B4: vim/evil g-prefix — "g r" refresh, "g g" top of pane, "g R"
+    ;; refresh+clear; "G" jumps to the bottom of the pane.
+    (define-key map (kbd "g") org-air-g-prefix-map)
+    (define-key map (kbd "G") #'org-air-goto-bottom)
     (define-key map (kbd "<") #'org-air-calendar-prev)
     (define-key map (kbd ">") #'org-air-calendar-next)
     (define-key map (kbd ".") #'org-air-calendar-today)
@@ -994,7 +1004,7 @@ under the other buckets."
                                               width)
                         'face 'org-air-face-faded)
             "\n"
-            (propertize (org-air-view--pad-to "g refresh · TAB expand · ? help"
+            (propertize (org-air-view--pad-to "gr refresh · TAB expand · ? help"
                                               width)
                         'face 'org-air-face-faded)
             "\n")))
@@ -1414,6 +1424,17 @@ filters are preserved by `org-air-refresh'."
         org-air-view--scope nil)
   (org-air-refresh))
 
+(defun org-air-goto-top ()
+  "Move point to the top of the pane (B4): the first actionable item."
+  (interactive)
+  (org-air-view--goto-first-item))
+
+(defun org-air-goto-bottom ()
+  "Move point to the bottom of the pane (B4): the last item row."
+  (interactive)
+  (goto-char (point-max))
+  (org-air-prev-item))
+
 (defun org-air-filter (tags)
   "Filter dashboard to TAGS, a comma-separated or list value."
   (interactive
@@ -1514,13 +1535,15 @@ filters are preserved by `org-air-refresh'."
 In two-pane mode the heading sits past the indent margin (and the
 composed row also carries rail text), so scan the whole line rather than
 only its first column."
+  ;; B1: `next-single-property-change' returns LIMIT (not nil) when no
+  ;; change is found before it, so guard with `< pos eol' — the old
+  ;; `<= pos eol' + `(or ... (1+ eol))' parked pos at eol forever (hang).
   (let ((pos (line-beginning-position))
         (eol (line-end-position))
         (found nil))
-    (while (and (not found) (<= pos eol))
+    (while (and (not found) (< pos eol))
       (setq found (get-text-property pos 'org-air-section))
-      (setq pos (or (next-single-property-change pos 'org-air-section nil eol)
-                    (1+ eol))))
+      (setq pos (next-single-property-change pos 'org-air-section nil eol)))
     found))
 
 (defun org-air-view--section-at-point ()
@@ -1533,18 +1556,25 @@ only its first column."
       bucket)))
 
 (defun org-air-toggle-section ()
-  "Toggle expand/collapse of the section at point (T2).
-Expanding shows every item in the section; collapsing restores the capped
-preview with its \"…and N more\" overflow.  Point is preserved."
+  "Toggle expand/collapse of the section HEADER at point (T2/B1).
+On a section header, toggle its full vs capped preview and KEEP POINT ON
+THE HEADER so it can be re-collapsed immediately.  On any non-header line
+TAB is safe — it moves to the next section header and never toggles or
+hangs."
   (interactive)
-  (let ((bucket (org-air-view--section-at-point)))
-    (unless bucket
-      (user-error "Point is not in an org-air section"))
-    (setq org-air-view--expanded-sections
-          (if (memq bucket org-air-view--expanded-sections)
-              (delq bucket org-air-view--expanded-sections)
-            (cons bucket org-air-view--expanded-sections)))
-    (org-air-view--render-current)))
+  (let ((bucket (org-air-view--line-section)))
+    (if (not bucket)
+        (org-air-next-section)
+      (setq org-air-view--expanded-sections
+            (if (memq bucket org-air-view--expanded-sections)
+                (delq bucket org-air-view--expanded-sections)
+              (cons bucket org-air-view--expanded-sections)))
+      (org-air-view--render (or org-air-view--items (org-air-query-items))
+                            org-air-view--tag-filter)
+      (let ((pos (org-air-view--find-property 'org-air-section bucket)))
+        (when pos
+          (goto-char pos)
+          (org-air-view--beginning-of-visible))))))
 
 (defun org-air-next-section ()
   "Move point to the next section heading."
@@ -1897,11 +1927,13 @@ controls window choice and defaults to `org-air-visit-display'."
            (display (or display org-air-visit-display))
            (dash-window (get-buffer-window
                          (get-buffer org-air-view-buffer-name) t))
-           ;; T4: capture the exact window configuration and the
-           ;; originating item marker so `org-air-return' can restore them.
+           ;; T4/B2: capture the window configuration and the originating
+           ;; item's SOURCE marker (stable across a dashboard re-render — a
+           ;; dashboard-buffer position marker collapses to point-min when
+           ;; the buffer is re-rendered).  `org-air-return' re-locates the
+           ;; row by this marker.
            (config (current-window-configuration))
-           (origin (and (get-text-property (point) 'org-air-item)
-                        (copy-marker (point)))))
+           (origin (org-air-item-marker item)))
       (pcase display
         ('other-window (switch-to-buffer-other-window buffer))
         ('frame (switch-to-buffer-other-frame buffer))
@@ -1957,16 +1989,22 @@ buffer is never killed and no split is left broken."
   (interactive)
   (let ((config org-air-view--visit-config)
         (origin org-air-view--visit-origin))
-    (cond
-     ((window-configuration-p config)
-      (set-window-configuration config)
-      (when (and (markerp origin) (marker-buffer origin))
-        (let ((win (get-buffer-window (marker-buffer origin) t)))
-          (when (window-live-p win)
-            (select-window win)
-            (goto-char origin)
-            (org-air-view--beginning-of-visible)))))
-     (t (org-air-return-to-dashboard)))))
+    (when (window-configuration-p config)
+      (set-window-configuration config))
+    (let* ((dashboard (get-buffer org-air-view-buffer-name))
+           (win (and (buffer-live-p dashboard)
+                     (get-buffer-window dashboard t))))
+      (cond
+       ((window-live-p win)
+        (select-window win)
+        ;; B2: re-locate the originating row by its (stable) source marker
+        ;; — the dashboard may have re-rendered while the item was visited.
+        (when (markerp origin)
+          (let ((pos (org-air-view--find-property 'org-air-marker origin)))
+            (when pos
+              (goto-char pos)
+              (org-air-view--beginning-of-visible)))))
+       (t (org-air-return-to-dashboard))))))
 
 ;;;###autoload
 (defun org-air-return-to-dashboard ()

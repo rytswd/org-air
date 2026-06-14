@@ -505,6 +505,45 @@ the eye to work that is waiting."
   :group 'org-air-faces)
 
 ;;;; ---------------------------------------------------------------------
+;;;; Air-docs project view (F5) — state badges + tree
+;;;;
+;;;; org-air can render an Air-managed doc tree (like `airctl status'),
+;;;; grouped by state / directory / tag.  Docs carry a state
+;;;; (draft/ready/complete/dropped); these faces colour the state badge,
+;;;; and `org-air-face-air-tree' draws the box/branch glyphs.
+;;;; ---------------------------------------------------------------------
+
+(custom-declare-face 'org-air-face-air-state-draft
+  '((t :inherit org-air-face-faded))
+  "Air doc state badge: Draft (📝) — quiet/faded (unstarted)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-air-state-ready
+  '((t :inherit org-air-face-popout :weight bold))
+  "Air doc state badge: Ready (🎯) — popout (actionable)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-air-state-complete
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#2E7D32" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#A3BE8C" :weight bold))
+    (t (:inherit success)))
+  "Air doc state badge: Complete (✅) — a calm green."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-air-state-dropped
+  '((t :inherit org-air-face-faded :strike-through t))
+  "Air doc state badge: Dropped (🗑) — faded + struck through."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-air-tree
+  '((t :inherit org-air-face-pane-border))
+  "Face for the Air project-view box/branch glyphs (┌ │ ├─ └─).
+Faint, like the dashboard pane border."
+  :group 'org-air-faces)
+
+;;;; ---------------------------------------------------------------------
 ;;;; Optional nano-theme linkage
 ;;;; ---------------------------------------------------------------------
 

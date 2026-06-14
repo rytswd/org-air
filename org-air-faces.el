@@ -523,6 +523,12 @@ the eye to work that is waiting."
   "Air doc state badge: Ready (🎯) — popout (actionable)."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-air-state-wip
+  '((t :inherit org-air-face-salient :weight bold))
+  "Air doc state badge: Work In Progress ([W]) — salient (actively worked).
+The 5th Air state (between Ready and Complete)."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-air-state-complete
   '((((class color) (min-colors 256) (background light))
      (:foreground "#2E7D32" :weight bold))

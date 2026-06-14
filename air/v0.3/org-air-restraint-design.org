@@ -44,8 +44,13 @@ v0.1 reading order):
 - The *single* flex gap sits between the tag cluster and the flush-right
   origin (D2 origin-protection still applies: truncate the title with
   =\u2026= before the origin, never drop the origin).
-- Overflow beyond =org-air-tags-inline-max= (3) stays =+N= (faded), as
-  v0.1 \u2014 but now plain text, no chip.
+- Tag overflow is *width-driven* and uniform with D2: show as many tags
+  as fit and shrink with a trailing =…= before the origin when the line
+  is too narrow (same truncation D2 applies to the title).  A 4-tag item
+  at a wide width shows all four; it only drops via =…= when cramped.
+  (Supersedes the earlier =+N= note — =…= is simpler and uniform with D2;
+  the impl's =org-air-view--item-tagstr= already does this, confirmed at
+  the round-6 regen.)
 This changes item-row bytes (tags relocate from the right column to the
 title cluster) \u2192 *fixture regen* (item rows change; calendar/summary/
 divider unaffected; pane-divider column unchanged \u2014 confirm at regen).
@@ -110,11 +115,11 @@ fixtures hold).
       TODO Read the Rougier text-editor design paper  #inbox        ⌂ inbox.org
   ▲ Needs attention 14
       TODO [#A] Ship the quarterly board report  OVERDUE 6d  #work #report  ⌂ work.org
-      TODO [#A] Fix the production outage runbook  OVERDUE 3d  #projects #urgent +1  ⌂ projects.org
+      TODO [#A] Fix the production outage runbook  OVERDUE 3d  #projects #urgent…  ⌂ projects.org
 #+end_example
 =[#A]= = critical-red text (no pill); =#work #report #projects #urgent= =
-quiet accent text right after the date (no void, no boxes); =+1= overflow
-faded; origin flush-right.
+quiet accent text right after the date (no void, no boxes); at a cramped
+width the tag run shrinks with a trailing =…= (D2); origin flush-right.
 
 * Routing
 - impl2: V1b inline tag placement (byte \u2192 triggers a fixture regen with

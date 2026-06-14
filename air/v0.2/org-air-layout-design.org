@@ -221,35 +221,35 @@ grid).  Section icons (S5b): =□= inbox, =○= stale.
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3                                                                                                         │   June 2026                            ‹ ›
-      Quick note about org-air idea                                                             #inbox  ⌂ inbox.org │   Mo  Tu  We  Th  Fr  Sa  Su
-      Call plumber                                                                              #inbox  ⌂ inbox.org │    1   2   3   4   5   6   7
-      TODO Triage me later                                                                      #inbox  ⌂ inbox.org │    8●  9  10◆ 11  12◆ 13  14
+      Quick note about org-air idea #inbox                                                              ⌂ inbox.org │   Mo  Tu  We  Th  Fr  Sa  Su
+      Call plumber #inbox                                                                               ⌂ inbox.org │    1   2   3   4   5   6   7
+      TODO Triage me later #inbox                                                                       ⌂ inbox.org │    8●  9  10◆ 11  12◆ 13  14
                                                                                                                     │   15■ 16◆ 17◆ 18● 19◆ 20● 21
   ▲ Needs attention 8                                                                                               │   22  23  24  25  26  27  28
-      TODO Chase missing invoice  OVERDUE 7d                                       #projects #admin  ⌂ projects.org │   29  30
-      TODO [#A] Fix production outage runbook  OVERDUE 5d                   #projects #work #urgent  ⌂ projects.org │   ◆due ●sched ·created ■today
-      TODO Book dentist appointment  OVERDUE 3d                                   #personal #health  ⌂ personal.org │
-      TODO Dust off old archive project  no date                                 #projects #archive  ⌂ projects.org │   ── Summary ─────────────────────────────
-      TODO Untracked idea with no dates  no date                                 #projects #someday  ⌂ projects.org │      3  Inbox
-      Reference notes without a todo state  no date                                 #projects #note  ⌂ projects.org │      8  Needs attention
+      TODO Chase missing invoice  OVERDUE 7d #projects #admin                                        ⌂ projects.org │   29  30
+      TODO [#A] Fix production outage runbook  OVERDUE 5d #projects #work #urgent                    ⌂ projects.org │   ◆due ●sched ·created ■today
+      TODO Book dentist appointment  OVERDUE 3d #personal #health                                    ⌂ personal.org │
+      TODO Dust off old archive project  no date #projects #archive                                  ⌂ projects.org │   ── Summary ─────────────────────────────
+      TODO Untracked idea with no dates  no date #projects #someday                                  ⌂ projects.org │      3  Inbox
+      Reference notes without a todo state  no date #projects #note                                  ⌂ projects.org │      8  Needs attention
       …and 2 more — press TAB on the title to expand                                                                │      8  Upcoming
                                                                                                                     │      3  High priority
   ◆ Upcoming 8                                                                                                      │      2  Stale
-      TODO Renew library card  Today                                               #personal #admin  ⌂ personal.org │   ────────────────────────────────────────
-      TODO Water the garden  Today                                                  #projects #home  ⌂ projects.org │     23  total
-      TODO [#A] Prep client presentation  Tomorrow                                        #work #client  ⌂ work.org │
-      TODO Prepare standup notes  Tomorrow                                          #projects #work  ⌂ projects.org │   ── Filters ─────────────────────────────
-      TODO Email finance about budget  Tomorrow                                                   #work  ⌂ work.org │   No filters · all items
+      TODO Renew library card  Today #personal #admin                                                ⌂ personal.org │   ────────────────────────────────────────
+      TODO Water the garden  Today #projects #home                                                   ⌂ projects.org │     23  total
+      TODO [#A] Prep client presentation  Tomorrow #work #client                                         ⌂ work.org │
+      TODO Prepare standup notes  Tomorrow #projects #work                                           ⌂ projects.org │   ── Filters ─────────────────────────────
+      TODO Email finance about budget  Tomorrow #work                                                    ⌂ work.org │   No filters · all items
       …and 3 more — press TAB on the title to expand                                                                │
                                                                                                                     │   c capture · / filter · s scope
   ★ High priority 3                                                                                                 │
-      TODO [#A] Ship quarterly report  Wed                                  #projects #work #report  ⌂ projects.org │
-      TODO [#A] Fix production outage runbook  OVERDUE 5d                   #projects #work #urgent  ⌂ projects.org │
-      TODO [#A] Prep client presentation  Tomorrow                                        #work #client  ⌂ work.org │
+      TODO [#A] Ship quarterly report  Wed #projects #work #report                                   ⌂ projects.org │
+      TODO [#A] Fix production outage runbook  OVERDUE 5d #projects #work #urgent                    ⌂ projects.org │
+      TODO [#A] Prep client presentation  Tomorrow #work #client                                         ⌂ work.org │
                                                                                                                     │
   ○ Stale 2                                                                                                         │
-      TODO Dust off old archive project  · 225d quiet                            #projects #archive  ⌂ projects.org │
-      TODO Learn lute  · 273d quiet                                                  #someday #hobby  ⌂ someday.org │
+      TODO Dust off old archive project  · 225d quiet #projects #archive                             ⌂ projects.org │
+      TODO Learn lute  · 273d quiet #someday #hobby                                                   ⌂ someday.org │
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   [c]apture  [g]refresh  [/]filter  [\]clear  [s]cope  [TAB]next  RET visit  [?]help
 #+end_example
@@ -260,35 +260,35 @@ grid).  Section icons (S5b): =□= inbox, =○= stale.
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3                                                                           │   June 2026                  ‹ ›
-      Quick note about org-air idea                               #inbox  ⌂ inbox.org │   Mo  Tu  We  Th  Fr  Sa  Su
-      Call plumber                                                #inbox  ⌂ inbox.org │    1   2   3   4   5   6   7
-      TODO Triage me later                                        #inbox  ⌂ inbox.org │    8●  9  10◆ 11  12◆ 13  14
+      Quick note about org-air idea #inbox                                ⌂ inbox.org │   Mo  Tu  We  Th  Fr  Sa  Su
+      Call plumber #inbox                                                 ⌂ inbox.org │    1   2   3   4   5   6   7
+      TODO Triage me later #inbox                                         ⌂ inbox.org │    8●  9  10◆ 11  12◆ 13  14
                                                                                       │   15■ 16◆ 17◆ 18● 19◆ 20● 21
   ▲ Needs attention 8                                                                 │   22  23  24  25  26  27  28
-      TODO Chase missing invoice  OVERDUE 7d         #projects #admin  ⌂ projects.org │   29  30
-      TODO [#A] Fix production outage runbook  OVERDUE 5d           …  ⌂ projects.org │   ◆due ●sched ·created ■today
-      TODO Book dentist appointment  OVERDUE 3d     #personal #health  ⌂ personal.org │
-      TODO Dust off old archive project  no date   #projects #archive  ⌂ projects.org │   ── Summary ───────────────────
-      TODO Untracked idea with no dates  no date   #projects #someday  ⌂ projects.org │      3  Inbox
-      Reference notes without a todo state  no date   #projects #note  ⌂ projects.org │      8  Needs attention
+      TODO Chase missing invoice  OVERDUE 7d #projects #admin          ⌂ projects.org │   29  30
+      TODO [#A] Fix production outage runbook  OVERDUE 5d #projects …  ⌂ projects.org │   ◆due ●sched ·created ■today
+      TODO Book dentist appointment  OVERDUE 3d #personal #health      ⌂ personal.org │
+      TODO Dust off old archive project  no date #projects #archive    ⌂ projects.org │   ── Summary ───────────────────
+      TODO Untracked idea with no dates  no date #projects #someday    ⌂ projects.org │      3  Inbox
+      Reference notes without a todo state  no date #projects #note    ⌂ projects.org │      8  Needs attention
       …and 2 more — press TAB on the title to expand                                  │      8  Upcoming
                                                                                       │      3  High priority
   ◆ Upcoming 8                                                                        │      2  Stale
-      TODO Renew library card  Today                 #personal #admin  ⌂ personal.org │   ──────────────────────────────
-      TODO Water the garden  Today                    #projects #home  ⌂ projects.org │     23  total
-      TODO [#A] Prep client presentation  Tomorrow          #work #client  ⌂ work.org │
-      TODO Prepare standup notes  Tomorrow            #projects #work  ⌂ projects.org │   ── Filters ───────────────────
-      TODO Email finance about budget  Tomorrow                     #work  ⌂ work.org │   No filters · all items
+      TODO Renew library card  Today #personal #admin                  ⌂ personal.org │   ──────────────────────────────
+      TODO Water the garden  Today #projects #home                     ⌂ projects.org │     23  total
+      TODO [#A] Prep client presentation  Tomorrow #work #client           ⌂ work.org │
+      TODO Prepare standup notes  Tomorrow #projects #work             ⌂ projects.org │   ── Filters ───────────────────
+      TODO Email finance about budget  Tomorrow #work                      ⌂ work.org │   No filters · all items
       …and 3 more — press TAB on the title to expand                                  │
                                                                                       │   c capture · / filter
   ★ High priority 3                                                                   │
-      TODO [#A] Ship quarterly report  Wed    #projects #work #report  ⌂ projects.org │
-      TODO [#A] Fix production outage runbook  OVERDUE 5d           …  ⌂ projects.org │
-      TODO [#A] Prep client presentation  Tomorrow          #work #client  ⌂ work.org │
+      TODO [#A] Ship quarterly report  Wed #projects #work #report     ⌂ projects.org │
+      TODO [#A] Fix production outage runbook  OVERDUE 5d #projects …  ⌂ projects.org │
+      TODO [#A] Prep client presentation  Tomorrow #work #client           ⌂ work.org │
                                                                                       │
   ○ Stale 2                                                                           │
-      TODO Dust off old archive project  · 225d quiet     #projects …  ⌂ projects.org │
-      TODO Learn lute  · 273d quiet                    #someday #hobby  ⌂ someday.org │
+      TODO Dust off old archive project  · 225d quiet #projects …      ⌂ projects.org │
+      TODO Learn lute  · 273d quiet #someday #hobby                     ⌂ someday.org │
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   [c]apture  [g]refresh  [/]filter  [\]clear  [s]cope  [TAB]next  RET visit  [?]help
 #+end_example
@@ -310,35 +310,35 @@ Mo Tu We Th Fr Sa Su         3  Inbox               No filters · all items
   ──────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3
-      Quick note about org-air idea                          #inbox  ⌂ inbox.org
-      Call plumber                                           #inbox  ⌂ inbox.org
-      TODO Triage me later                                   #inbox  ⌂ inbox.org
+      Quick note about org-air idea #inbox                           ⌂ inbox.org
+      Call plumber #inbox                                            ⌂ inbox.org
+      TODO Triage me later #inbox                                    ⌂ inbox.org
 
   ▲ Needs attention 8
-      TODO Chase missing invoice  OVERDUE 7d    #projects #admin  ⌂ projects.org
-      TODO [#A] Fix production outage runbook  OVERDUE 5d      …  ⌂ projects.org
-      TODO Book dentist appointment  OVERDUE 3d      #personal …  ⌂ personal.org
-      TODO Dust off old archive project  no date     #projects …  ⌂ projects.org
-      TODO Untracked idea with no dates  no date     #projects …  ⌂ projects.org
-      Reference notes without a todo state  no date  #projects …  ⌂ projects.org
+      TODO Chase missing invoice  OVERDUE 7d #projects #admin     ⌂ projects.org
+      TODO [#A] Fix production outage runbook  OVERDUE 5d …       ⌂ projects.org
+      TODO Book dentist appointment  OVERDUE 3d #personal …       ⌂ personal.org
+      TODO Dust off old archive project  no date #projects …      ⌂ projects.org
+      TODO Untracked idea with no dates  no date #projects …      ⌂ projects.org
+      Reference notes without a todo state  no date #projects …   ⌂ projects.org
       …and 2 more — press TAB on the title to expand
 
   ◆ Upcoming 8
-      TODO Renew library card  Today            #personal #admin  ⌂ personal.org
-      TODO Water the garden  Today               #projects #home  ⌂ projects.org
-      TODO [#A] Prep client presentation  Tomorrow     #work #client  ⌂ work.org
-      TODO Prepare standup notes  Tomorrow       #projects #work  ⌂ projects.org
-      TODO Email finance about budget  Tomorrow                #work  ⌂ work.org
+      TODO Renew library card  Today #personal #admin             ⌂ personal.org
+      TODO Water the garden  Today #projects #home                ⌂ projects.org
+      TODO [#A] Prep client presentation  Tomorrow #work #client      ⌂ work.org
+      TODO Prepare standup notes  Tomorrow #projects #work        ⌂ projects.org
+      TODO Email finance about budget  Tomorrow #work                 ⌂ work.org
       …and 3 more — press TAB on the title to expand
 
   ★ High priority 3
-      TODO [#A] Ship quarterly report  Wed     #projects #work …  ⌂ projects.org
-      TODO [#A] Fix production outage runbook  OVERDUE 5d      …  ⌂ projects.org
-      TODO [#A] Prep client presentation  Tomorrow     #work #client  ⌂ work.org
+      TODO [#A] Ship quarterly report  Wed #projects #work …      ⌂ projects.org
+      TODO [#A] Fix production outage runbook  OVERDUE 5d …       ⌂ projects.org
+      TODO [#A] Prep client presentation  Tomorrow #work #client      ⌂ work.org
 
   ○ Stale 2
-      TODO Dust off old archive project  · 225d quiet          …  ⌂ projects.org
-      TODO Learn lute  · 273d quiet               #someday #hobby  ⌂ someday.org
+      TODO Dust off old archive project  · 225d quiet …           ⌂ projects.org
+      TODO Learn lute  · 273d quiet #someday #hobby                ⌂ someday.org
   ──────────────────────────────────────────────────────────────────────────────
   [c]apture [g]refresh [/]filter [\]clear [s]cope [TAB]next RET visit [?]help
 #+end_example
@@ -761,6 +761,16 @@ are inherited unchanged.
   (no border chars in the buffer).  T5 −1 row is invisible at the fixture
   layer (trailing-blank normalisation; lives in the green height tests).
   Adopted 80/120/160 byte-for-byte (MATCH ×3).  Gate 122/122.
+- 2026-06-14: RE-BLESSED after round-6 restraint (V1b inline tags, impl2
+  =rsqpuntt=, fixtures =nuvlpyks=, 24 files).  Delta = V1b only: tags move
+  from the right column to *inline right after title+date*; the flex gap
+  moves to AFTER the tags, before the flush-right origin — the round-5
+  void is gone.  Verified RIGHT-of-divider (calendar, summary, legend,
+  header) byte-identical (0 changed rows @120/160), divider cols
+  unchanged (80/86/116), no over-width; overflow shrinks with =…= before
+  the origin (D2-protected, width-driven).  V1a/V2 de-box = face-only;
+  V3 frame removal = chrome/non-byte.  Adopted 80/120/160 byte-for-byte
+  (MATCH ×3).  Gate 126/126.
 
 * References
 - air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).

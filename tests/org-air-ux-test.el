@@ -90,7 +90,8 @@ to the board, else quits the window."
   (skip-unless (locate-library "org-air"))
   (org-air-ux-test--with-dashboard
     (should (eq (key-binding (kbd "RET")) 'org-air-visit-item))
-    (should (eq (key-binding (kbd "g")) 'org-air-refresh))
+    ;; Round-8 B4: g is a prefix map now — refresh is `g r'.
+    (should (eq (key-binding (kbd "g r")) 'org-air-refresh))
     (should (eq (key-binding (kbd "q")) 'org-air-quit))))
 
 (ert-deftest org-air-ux-keys-filter-spec-name ()

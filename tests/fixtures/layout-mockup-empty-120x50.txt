@@ -23,7 +23,7 @@
                                                                                       │   No filters · all items
                                                                                       │
                                                                                       │   c capture · / filter · s scope
-                                                                                      │   g refresh · TAB expand · ? he…
+                                                                                      │   gr refresh · TAB expand · ? h…
                                                                                       │
                                                                                       │
                                                                                       │

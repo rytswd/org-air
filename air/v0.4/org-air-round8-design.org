@@ -1,0 +1,187 @@
+#+title: org-air v0.4 round-8 — Air-project mode, svg tags, date alignment (design)
+#+state: ready
+#+FILETAGS: :ui:ux:feature:visual:v0.4:
+
+* Summary
+Design for the round-8 *visual/feature* items: F5 Air-docs project mode
+(render an Air doc tree like =airctl status=) + configurable sources, V3
+svg tag/date pills, V6 fixed date column.  impl2 takes the bugs
+(B1/B2/B4).
+
+*Measurability tags:* =[byte]= buffer text (fixture); =[face]= face-only;
+=[gui]= GUI-only display prop (non-byte; text fallback is asserted).
+
+* V6 \u2014 Fixed date column (read dates down the list)  [byte]
+*Symptom (screenshot 7):* the date token (=OVERDUE 6d= / =no date= / =Today=
+/ =Fri= / =\u00b7 273d quiet=) right-aligns as part of the cluster, so it lands
+at a different column on every row and the eye can't scan it.
+*Fix:* make the item-row metadata a *fixed-width right-aligned TABLE*, so
+date / tags / origin each occupy aligned columns down the whole list:
+: <state> [<prio>] <title>  \u2026flex\u2026  [date:Wd][tags:Wt][\u2302 origin:Wo]
+- =date= \u2014 *left-justified* in a fixed width =Wd= (=org-air-date-column=,
+  default *12*; fits =OVERDUE 12d=, =\u00b7 273d quiet=, =Tomorrow=, =no date=).
+  All dates start at the same column \u2192 they line up vertically.
+- =tags= \u2014 left-justified in =Wt= (cap 2, =\u2026= overflow, quiet accent text).
+- =origin= \u2014 right-justified in =Wo= (=\u2302 <file>=, always whole \u2014 D2).
+- The whole table is right-aligned (fixed total width =Wd+Wt+Wo+gaps=), so
+  the columns are at fixed positions; the *title* flexes/truncates in the
+  space before it (single title\u2192table gap, as today \u2014 no second void).
+- Faces unchanged (semantic date faces, accent tags); only *placement*
+  (padding the date to =Wd=) changes \u2192 *fixture regen*.
+*Why a table, not just a fixed date offset:* fixing all three fields keeps
+date, tags AND origin aligned (the airctl look), and avoids re-opening
+the round-5 disconnected void (one gap only, before the aligned block).
+
+* V3 \u2014 SVG tag + date pills (rougier svg-tag-mode style)  [gui + face]
+The user wants *real* svg pills (nano-* / svg-tag-mode), not the crude
+round-5 text =:box=.  Crisp rounded anti-aliased pills, GUI-only, with the
+quiet coloured TEXT as the byte-testable fallback.
+- Render each tag (and the R10/V6 date) as an *SVG image* via a =display=
+  property over the underlying text.  Draw with built-in =svg.el= \u2014 *no
+  hard dependency*; soft-detect =svg-tag-mode= and use it if present, else
+  our own minimal pill.  Degrade to text when =(display-graphic-p)= is nil
+  or svg is unavailable.
+- *Colour:* the pill uses the element's existing face foreground (the
+  deterministic tag accent; the semantic date face) as the pill's text/
+  border; a very light tint fill (or none) \u2014 quiet, not the heavy fill of
+  round-5.
+- *CRITICAL for V6:* size each pill's SVG to the *column width of its
+  underlying text* so the pill overlays exactly the text cells \u2014 the V6
+  text-layer alignment (=Wd/Wt/Wo=) is preserved; the pill never shifts the
+  columns.  The byte/fixture layer is pure text; the gate asserts the
+  text, the pill is a GUI overlay.
+- defcustoms: =org-air-tag-style= (='pill on GUI when svg, else 'text),
+  =org-air-date-style= (exists; same choices).  =[gui]= non-byte; =[face]=
+  no new face (reuse accents + semantic date faces).
+
+* F5 \u2014 Air-docs project mode + configurable sources
+org-air should render an *Air-managed doc tree* like =airctl status= \u2014 a
+separate view from the GTD task board, grouped by state / directory /
+tag, with the box-tree, state-emoji badges, version/folder nesting,
+=name \u21bb date #tags=, and =(+N)= roll-up counts.
+
+** F5a \u2014 Configurable sources  [defcustom]
+One simple knob to point org-air at content:
+#+begin_src elisp
+(defcustom org-air-sources nil
+  "Where org-air finds content.  A list of entries, each either:
+ - a STRING directory of org files (GTD task board), or
+ - (:air ROOT)  an Air project root (rendered as a doc tree), or
+ - (:files (F...)) explicit files.
+Air projects are also AUTO-DETECTED: any source dir containing
+`air-config.toml' or an `air/' subdir is treated as (:air ...)."
+  :type '(repeat sexp) :group 'org-air)
+#+end_src
+- =org-air-detect-air-project= (ROOT) \u2192 non-nil when =air-config.toml= or
+  =air/= exists under ROOT.
+- The existing =org-air-files= / =org-air-inbox-file= remain (the GTD
+  board); =org-air-sources= is the new unified, simpler entry point and
+  feeds *both* the task board (org dirs) and the project view (Air roots).
+- =org-air-projects= \u2014 derived (or explicit) list of Air roots for
+  =org-air-project='s picker.
+
+** F5b \u2014 The Air project view (a separate mode/command)
+- =org-air-project= (command): open the Air doc-tree view; with several
+  configured projects, =completing-read= to pick one.  =org-air-projects=
+  lists them.
+- A distinct major mode =org-air-project-mode= (derived from the same
+  =special-mode= base) \u2014 the renderer is the *tree*, NOT the GTD
+  bucket/calendar layout.  Coexists cleanly: =org-air= = task board,
+  =org-air-project= = doc tree; a key (=P=) on the board opens the project
+  view, =q= returns.
+- *Data model* \u2014 an Air doc is read from its =.org=: =#+state:= \u2192 state
+  (draft/ready/complete/dropped), =#+FILETAGS:= \u2192 tags, the doc =#+title=
+  or filename \u2192 name, and =\u21bb date= = the doc's last-updated date (Air's
+  modified stamp, else file mtime).  The *version folder* (=v0.1/=, =v0.2/=)
+  and any subfolders come from the path under the Air root.  (org-air's
+  own =air/= tree is itself a valid Air project \u2014 dogfood target.)
+
+** F5c \u2014 Groupings (mirror airctl -a / -Da / -Ta)
+A grouping toggle in the project view (single keys, fresh keymap):
+| Key | Grouping       | Top-level box       | Per-doc shows           |
+|-----+----------------+---------------------+-------------------------|
+| =s=   | by STATE (-a)  | a state (\ud83d\udcdd Draft) | =\u21bb date  #tags=          |
+| =d=   | by DIRECTORY   | a directory (v0.1/) | =<state badge>  \u21bb  #tags= |
+| =t=   | by TAG (-Ta)   | a tag (#ai)         | =<state badge>  \u21bb  #tags= |
+Default = by STATE.  Within a top box, docs nest by version/subfolder
+with =(+N)= roll-ups (direct count + descendants), exactly as the
+reference.
+
+** F5d \u2014 Render (box-tree, byte-testable)  [byte]
+The tree is buffer TEXT \u2192 fully byte-testable.  Structure per the
+reference =airctl-status-a.txt=:
+#+begin_example
+\u250c\u2500 \ud83d\udcdd Draft (19)
+\u2502
+\u2502  v0.1/    2 (+8)
+\u2502  \u2502    ambiguous-path-interactive-selection.org    \u21bb 2026-06-11   #airctl
+\u2502  \u251c\u2500 air-context/    1
+\u2502  \u2502       dynamic-context-generation.org           \u21bb 2026-02-27   #context #airctl
+\u2502  \u251c\u2500 air-template/    0 (+2)
+\u2502  \u2502  \u2514\u2500 references/    2
+\u2502  \u2502          template-with-kep.org                 \u21bb 2026-02-27   #airctl #template
+\u2502  \u2514\u2500 pre-release/    1
+\u2502          context-review.org                       \u21bb 2026-03-18   #pre-release
+\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+#+end_example
+- *Box:* =\u250c\u2500 <badge> <group> (<count>)= top, =\u2502= left border, =\u2514\u2500\u2026\u2500= bottom
+  rule \u2014 in =org-air-face-air-tree= (= pane-border, faded).  These are the
+  v0.1-style boxes (org-air-layout-style =boxed=) reused for the tree.
+- *Tree:* =\u251c\u2500= / =\u2514\u2500= folder branches, =\u2502= continuation; nesting indent =3=.
+- *State badge:* emoji per state, with a =[byte]= TTY/text fallback:
+  | State    | GUI | TTY |
+  |----------+-----+-----|
+  | Draft    | \ud83d\udcdd  | [D] |
+  | Ready    | \ud83c\udfaf  | [R] |
+  | Complete | \u2705  | [C] |
+  | Dropped  | \ud83d\uddd1\ufe0f  | [X] |
+  (emoji via =org-air-glyphs=; the gate renders the TTY text form \u2014
+  byte-stable \u2014 and a GUI snapshot shows the emoji.)
+- =\u21bb date= (=\u21bb= \u2192 ASCII =~= on TTY) in =org-air-face-faded=; =#tags= in
+  accent text (V3 pill on GUI).  =(+N)= roll-up in =org-air-face-count=.
+- Doc rows carry =org-air-doc= / =org-air-marker= text-props; =RET= visits
+  the doc, =n/p= move docs, =TAB= folds a version/subfolder, =q= returns.
+- *Width:* the tree right-justifies =\u21bb date #tags= to the window width
+  (plain-space, like the board) \u2014 byte-testable at fixed widths; an
+  =org-air-project-view-width= seam mirrors =org-air-view-width=.
+
+** F5e \u2014 Coexistence + summary
+- The project view may carry a compact *state-count summary* header
+  (=\ud83d\udcdd 19  \ud83c\udfaf 5  \u2705 29  \ud83d\uddd1\ufe0f 11=) under the banner, mirroring the GTD rail
+  summary idea but inline.
+- The GTD calendar/buckets do not apply to docs; the project view is its
+  own thing.  Switching =P= \u2194 =q= preserves each view's point.
+
+** F5f \u2014 Faces (added now, face-only)
+=org-air-face-air-state-draft= (faded), =-ready= (popout), =-complete=
+(green), =-dropped= (faded + strike); =org-air-face-air-tree= (= pane-
+border) for box/branch glyphs; doc name = default, =\u21bb date= = faded,
+counts = =org-air-face-count=, tags = accents.
+
+* Faces added this round (=org-air-faces.el=, face-only)
+=org-air-face-air-state-draft/-ready/-complete/-dropped=,
+=org-air-face-air-tree=.  =facep= verified, strict byte-compile clean,
+gate green.  V6 (date column), F5d (tree text + emoji fallback) are
+=[byte]= \u2192 new project-view fixtures at regen; V3 pills are =[gui]=
+non-byte (text fallback asserted).
+
+* Routing
+- impl2: V6 fixed metadata table (regen GTD fixtures); V3 svg pill render
+  (svg.el, soft svg-tag-mode, text fallback); F5 sources defcustom +
+  detection, =org-air-project= command + =org-air-project-mode= tree
+  renderer + groupings + doc data model + keymap; bugs B1/B2/B4.
+- test: regen GTD fixtures after V6; add *project-view* fixtures (the
+  tree at fixed widths, TTY badge fallback) for the new mode.
+
+* History
+- 2026-06-14: Authored round-8 visual/feature design.  V6 fixed-width
+  right-aligned metadata table (date column left-justified, =Wd=12, so
+  dates line up; tags/origin aligned too) \u2014 byte/regen.  V3 svg tag+date
+  pills via svg.el (soft svg-tag-mode), GUI-only sized to the text so V6
+  alignment holds, text fallback asserted \u2014 gui/face.  F5 Air-docs
+  project mode: =org-air-sources= config + Air-project auto-detection
+  (=air-config.toml=/=air/=), a separate =org-air-project= command + tree
+  renderer mirroring =airctl status= (-a state / -Da directory / -Ta tag),
+  state-emoji badges with TTY text fallback, box-tree byte-testable,
+  version/(+N) nesting, coexisting with the GTD board.  Added the air
+  state-badge + tree faces (face-only).  Set =#+state: ready=.

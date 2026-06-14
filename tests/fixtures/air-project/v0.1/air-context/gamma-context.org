@@ -1,0 +1,4 @@
+#+title: Gamma context
+#+state: draft
+#+FILETAGS: :context:
+* Notes

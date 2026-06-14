@@ -44,7 +44,8 @@
     (box-bottom-left . ("└" . "+"))
     (box-bottom-right . ("┘" . "+"))
     (box-tee-left . ("├" . "+"))
-    (box-tee-right . ("┤" . "+")))
+    (box-tee-right . ("┤" . "+"))
+    (updated . ("↻" . "~")))
   "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
 PREFERRED is the GUI glyph (already the safer S5b default: stale ○, today
 ■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate

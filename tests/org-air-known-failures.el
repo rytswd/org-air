@@ -87,6 +87,21 @@
     ;; tags-max-2 + right-cluster, R6 day-view-command + clickable-cells,
     ;; R4 footer-removed (the rail-hint expansion landed in impl2's amend,
     ;; so the verbs are no longer lost).
+    ;;
+    ;; v0.4 ROUND-8 closeout (impl2 ysmvqzto): all 9 F5/V6/V3 grind
+    ;; entries verified passed-unexpectedly and deleted — F5 sources/
+    ;; detect/command/mode/P/tree-structure/grouping, V6 date-column +
+    ;; dates-align, V3 tag-style.  The V6 metadata table truncated long
+    ;; titles at narrow widths, so the title-search helpers were rendered
+    ;; wide (160) or switched to org-air-item-property lookups, and the
+    ;; v1b inline tests were reworked to the V6 column order.
+    ;;
+    ;; 2026-06-14: f5-grouping-toggle distinctness grind CLOSED — impl2
+    ;; yxvztrsy landed genuinely distinct dir/tag groupings (commands
+    ;; renamed to org-air-project-group-by-{state,directory,tag}); the
+    ;; three renders are now pairwise byte-different.  project-view-dir/
+    ;; -tag regenerated to the distinct trees; state-view + V6 dashboard
+    ;; stay blessed.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

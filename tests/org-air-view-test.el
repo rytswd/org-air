@@ -16,18 +16,21 @@
   (require 'org-air))
 
 (defmacro org-air-view-test--with-dashboard (&rest body)
-  "Open the dashboard over the scratch fixtures and run BODY in it."
+  "Open the dashboard over the scratch fixtures and run BODY in it.
+Renders wide (160) so V6's fixed metadata table leaves the full title
+untruncated for title-based item lookups."
   (declare (indent 0) (debug t))
   `(org-air-test-with-fixtures
-     (unwind-protect
-         (progn
-           (org-air)
-           (let ((buf (get-buffer "*org-air*")))
-             (should buf)
-             (with-current-buffer buf
-               ,@body)))
-       (when (get-buffer "*org-air*")
-         (kill-buffer "*org-air*")))))
+     (let ((org-air-view-width 160))
+       (unwind-protect
+           (progn
+             (org-air)
+             (let ((buf (get-buffer "*org-air*")))
+               (should buf)
+               (with-current-buffer buf
+                 ,@body)))
+         (when (get-buffer "*org-air*")
+           (kill-buffer "*org-air*"))))))
 
 (ert-deftest org-air-view-api-present ()
   "The frozen view API exists and `org-air' is interactive."

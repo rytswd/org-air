@@ -25,18 +25,21 @@
 ;;; Helpers
 
 (defmacro org-air-ux-test--with-dashboard (&rest body)
-  "Open the dashboard over the scratch fixtures and run BODY in it."
+  "Open the dashboard over the scratch fixtures and run BODY in it.
+Renders wide (160) so V6's fixed metadata table leaves the full title
+untruncated for title-based item lookups."
   (declare (indent 0) (debug t))
   `(org-air-test-with-fixtures
-     (unwind-protect
-         (progn
-           (org-air)
-           (let ((buf (get-buffer "*org-air*")))
-             (should buf)
-             (with-current-buffer buf
-               ,@body)))
-       (when (get-buffer "*org-air*")
-         (kill-buffer "*org-air*")))))
+     (let ((org-air-view-width 160))
+       (unwind-protect
+           (progn
+             (org-air)
+             (let ((buf (get-buffer "*org-air*")))
+               (should buf)
+               (with-current-buffer buf
+                 ,@body)))
+         (when (get-buffer "*org-air*")
+           (kill-buffer "*org-air*"))))))
 
 (defun org-air-ux-test--filter (tag)
   "Apply TAG as the dashboard tag filter via whatever command exists."
@@ -90,7 +93,8 @@ to the board, else quits the window."
   (skip-unless (locate-library "org-air"))
   (org-air-ux-test--with-dashboard
     (should (eq (key-binding (kbd "RET")) 'org-air-visit-item))
-    (should (eq (key-binding (kbd "g")) 'org-air-refresh))
+    ;; Round-8 B4: g is a prefix map now — refresh is `g r'.
+    (should (eq (key-binding (kbd "g r")) 'org-air-refresh))
     (should (eq (key-binding (kbd "q")) 'org-air-quit))))
 
 (ert-deftest org-air-ux-keys-filter-spec-name ()

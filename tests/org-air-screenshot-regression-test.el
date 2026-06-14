@@ -376,34 +376,31 @@ after the divider is dropped so only the item line is inspected."
         (string-trim-right (car (split-string line "[│|]")))))))
 
 (ert-deftest org-air-v1b-inline-tag-placement ()
-  "V1b: tags sit INLINE right after the date (single space), and the
-single flex gap is between the tag cluster and the flush-right origin —
-the round-5 title->tags void is gone.  Reading order:
-<state> [<prio>] <title>  <date>  <#tags>  <flex>  ⌂ <origin>."
+  "V6 metadata table (supersedes the round-6/7 inline cluster): the
+title is LEFT & clean, then a fixed-column right cluster in the order
+[date] [tags] [⌂ origin]; the origin is flush-right and whole (D2).
+Rendered wide so the full row fits without truncation."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-dashboard 120
+    (org-air-viewport-test-with-dashboard 160
       (let ((lp (org-air-v1b--item-leftpane "Chase missing invoice")))
         (should lp)
-        ;; Tags immediately follow the date, single space — no void.
-        (should (string-match-p "OVERDUE 7d #projects #admin" lp))
-        ;; The origin is flush-right, reached across the flex gap (>=2
-        ;; spaces) that now sits AFTER the tags, not before them.
-        (should (string-match-p "#admin \\{2,\\}⌂ projects\\.org\\'" lp))
-        ;; No large whitespace run between the date and the tags.
-        (should-not (string-match-p "OVERDUE 7d \\{2,\\}#" lp))))))
+        ;; Cluster order: date, then tags, then the flush-right origin.
+        (should (string-match-p
+                 "OVERDUE 7d.*#projects #admin.*⌂ projects\\.org\\'" lp))
+        ;; The title is clean on the left, a flex gap before the cluster.
+        (should (string-match-p "Chase missing invoice  +" lp))))))
 
 (ert-deftest org-air-v1b-origin-protected-on-overflow ()
-  "D2 + V1b overflow: when the row cannot fit, the inline tags drop
-first toward a faded overflow marker and the title truncates, but the
-origin is NEVER dropped — it stays intact and flush-right.  (Impl emits
-the `more' glyph for the tag overflow, width-driven, rather than the
-spec's static +N-at-inline-max; flagged for a doc reconcile.)"
+  "D2 + V6 overflow: at a narrow width the title/tags truncate toward the
+`more' (…) marker, but the origin is NEVER dropped — it stays whole and
+flush-right."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 120
-      ;; This row has 3 tags and a long title; at 120 it overflows.
-      (let ((lp (org-air-v1b--item-leftpane "Fix production outage runbook"))
+      ;; The runbook row is long; at 120 the title truncates.  Search a
+      ;; prefix that survives V6's title truncation.
+      (let ((lp (org-air-v1b--item-leftpane "Fix produc"))
             (more (org-air-viewport-test--glyph 'more 'gui)))
         (should lp)
         ;; Origin intact and flush-right despite the overflow (D2).

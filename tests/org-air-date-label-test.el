@@ -96,7 +96,9 @@ frozen now."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     (unwind-protect
-        (progn
+        ;; Render wide so V6's fixed metadata table leaves the full title
+        ;; (and its OVERDUE token) on one untruncated line.
+        (let ((org-air-view-width 160))
           (org-air-date-test--frozen (org-air))
           (with-current-buffer "*org-air*"
             (let ((text (buffer-string)))

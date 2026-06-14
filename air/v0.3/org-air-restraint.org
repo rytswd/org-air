@@ -1,5 +1,5 @@
 #+title: org-air v0.3 round-6: visual restraint correction
-#+state: work-in-progress
+#+state: complete
 #+FILETAGS: :ui:visual:
 
 * Summary

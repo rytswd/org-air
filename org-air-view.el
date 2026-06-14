@@ -291,50 +291,14 @@ of whether the wrapping pane margin is added later (D6).")
   ;; T6: re-fit when the font/text size changes (text-scale alters how many
   ;; columns/rows fit), debounced through the same window-size path.
   (add-hook 'text-scale-mode-hook #'org-air-view--text-scale-refresh nil t)
-  ;; T7: the buffer-box outer frame lives in window chrome, never buffer
-  ;; text (option A) — the in-buffer rail divider is retained.
-  (org-air-view--install-frame)
+  ;; V3: the round-4/T7 buffer-box outer frame is DROPPED — it shipped
+  ;; half-drawn (partial top edge, deferred right) and a half-box reads
+  ;; worse than none.  Structure comes from the in-buffer full-width
+  ;; hairline rules (S2) and the single internal rail divider; no chrome
+  ;; frame, so `header-line-format' stays nil (S1) and the mode-line is
+  ;; the default.
   (org-air-view--setup-evil)
   (org-air-layout-install-window-size-hook))
-
-(defun org-air-view--frame-edge-string (left right)
-  "Return a horizontal frame border spanning the window, LEFT..RIGHT corners."
-  (let ((h (org-air-layout-glyph 'box-horizontal))
-        (w (max 2 (window-width))))
-    (propertize (concat left (make-string (- w 2) (string-to-char h)) right)
-                'face 'org-air-face-frame-border)))
-
-(defun org-air-view--frame-top-string ()
-  "Return the header-line TOP border of the buffer-box frame (T7)."
-  (org-air-view--frame-edge-string (org-air-layout-glyph 'box-top-left)
-                                   (org-air-layout-glyph 'box-top-right)))
-
-(defun org-air-view--frame-bottom-string ()
-  "Return the mode-line bottom border of the buffer-box frame (T7)."
-  (org-air-view--frame-edge-string (org-air-layout-glyph 'box-bottom-left)
-                                   (org-air-layout-glyph 'box-bottom-right)))
-
-(defun org-air-view--install-frame ()
-  "Install the buffer-box outer frame in window chrome (T7, non-byte).
-Left border: a 1-column left margin carrying the vertical glyph via
-`line-prefix'/`wrap-prefix'.  Top border: `header-line-format' = a
-┌──┐ rule (this is a frame border, NOT the in-buffer banner, so the S1
-no-duplicate-banner intent still holds — but the literal S1 test asserts
-a nil `header-line-format' and must be relaxed).  Bottom border:
-`mode-line-format' = └──┘.  Right-edge overlay deferred.  All chrome; no
-buffer text changes."
-  (setq-local left-margin-width 1)
-  (setq-local right-margin-width 1)
-  (setq-local line-prefix
-              (propertize " " 'display
-                          `((margin left-margin)
-                            ,(propertize (org-air-layout-glyph 'box-vertical)
-                                         'face 'org-air-face-frame-border))))
-  (setq-local wrap-prefix line-prefix)
-  (setq-local header-line-format
-              '((:eval (org-air-view--frame-top-string))))
-  (setq-local mode-line-format
-              '((:eval (org-air-view--frame-bottom-string)))))
 
 (defun org-air-view--text-scale-refresh ()
   "Re-fit the dashboard after a text-scale/font-size change (T6).
@@ -731,20 +695,25 @@ and RET target, so it is the last thing to give."
          (gap 2)
          ;; Stage 1 — tags shrink first: the largest chip count whose row
          ;; still fits with the full title and full origin (else zero).
+         ;; V1b: tags now sit INLINE after the title+date (one space after
+         ;; the date), each in its accent text face; the origin is alone,
+         ;; flush-right, with a single flex gap before it.  Shrink order is
+         ;; unchanged (tags first -> +N, then title, then origin last).
          (tag-k
           (let ((k n-tags) (chosen 0) (done nil))
             (while (and (>= k 0) (not done))
               (let* ((ts (org-air-view--item-tagstr tags k n-tags))
-                     (rw (if (string-empty-p ts) origin-w
-                           (+ (string-width ts) gap origin-w))))
-                (if (<= (+ prefix-w (string-width title) date-w gap rw) width)
+                     (tw (if (string-empty-p ts) 0 (+ 1 (string-width ts)))))
+                (if (<= (+ prefix-w (string-width title) date-w tw gap origin-w)
+                        width)
                     (setq chosen k done t)
                   (setq k (1- k)))))
             chosen))
          (tag-str (org-air-view--item-tagstr tags tag-k n-tags))
-         (right-meta-w (if (string-empty-p tag-str) 0 (+ (string-width tag-str) gap)))
+         (tag-block (if (string-empty-p tag-str) "" (concat " " tag-str)))
+         (tag-block-w (string-width tag-block))
          ;; Stage 2 — title truncates next, floored at `org-air-title-min'.
-         (avail-title (- width prefix-w date-w gap right-meta-w origin-w))
+         (avail-title (- width prefix-w date-w tag-block-w gap origin-w))
          (title (if (<= (string-width title) avail-title)
                     title
                   (truncate-string-to-width
@@ -752,17 +721,15 @@ and RET target, so it is the last thing to give."
                    (org-air-view--glyph 'more))))
          (title-w (string-width title))
          ;; Stage 3 — origin shrinks last, reserving `org-air-origin-min'.
-         (avail-origin (- width prefix-w title-w date-w gap right-meta-w))
+         (avail-origin (- width prefix-w title-w date-w tag-block-w gap))
          (origin-str (if (<= origin-w avail-origin)
                          origin-raw
                        (truncate-string-to-width
                         origin-raw (max org-air-origin-min (max 1 avail-origin))
                         nil nil (org-air-view--glyph 'more))))
          (origin-str (propertize origin-str 'face 'org-air-face-group))
-         (left (concat prefix title date-str))
-         (right (if (string-empty-p tag-str)
-                    origin-str
-                  (concat tag-str (make-string gap ?\s) origin-str)))
+         (left (concat prefix title date-str tag-block))
+         (right origin-str)
          (pad (max gap (- width (string-width left) (string-width right))))
          (line (concat left (make-string pad ?\s) right)))
     (insert line "\n")

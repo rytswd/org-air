@@ -106,6 +106,15 @@ A grouping toggle in the project view (single keys, fresh keymap):
 Default = by STATE.  Within a top box, docs nest by version/subfolder
 with =(+N)= roll-ups (direct count + descendants), exactly as the
 reference.
+*The three groupings MUST render DIFFERENT trees* (top boxes = states vs
+directories vs tags), per airctl-status-{a,Da,Ta}: in -Da each top box
+is a directory with a per-state count summary (docs show their state
+badge); in -Ta each top box is a #tag, likewise.
+*Round-8 regen DISPUTE:* the shipped =project-view-dir.txt= and
+=project-view-tag.txt= are BYTE-IDENTICAL to =project-view-state.txt= —
+-Da/-Ta are not yet implemented (both fall back to the state tree).  The
+STATE view is correct (blessed); the dir/tag views must be re-rendered
+to group by directory / tag before those two fixtures are blessed.
 
 ** F5d \u2014 Render (box-tree, byte-testable)  [byte]
 The tree is buffer TEXT \u2192 fully byte-testable.  Structure per the
@@ -133,8 +142,10 @@ reference =airctl-status-a.txt=:
   |----------+-----+-----|
   | Draft    | \ud83d\udcdd  | [D] |
   | Ready    | \ud83c\udfaf  | [R] |
+  | Work In Progress | 🔨 | [W] |
   | Complete | \u2705  | [C] |
   | Dropped  | \ud83d\uddd1\ufe0f  | [X] |
+  (Air has FIVE states; org-air-face-air-state-wip added for [W].)
   (emoji via =org-air-glyphs=; the gate renders the TTY text form \u2014
   byte-stable \u2014 and a GUI snapshot shows the emoji.)
 - =\u21bb date= (=\u21bb= \u2192 ASCII =~= on TTY) in =org-air-face-faded=; =#tags= in

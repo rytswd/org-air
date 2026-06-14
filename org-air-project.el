@@ -73,7 +73,7 @@ Mirrors `airctl status' -a / -Da / -Ta; toggled in-view with s / d / t."
 (defcustom org-air-project-state-badges
   '(("draft"            . ("\N{MEMO}"               . "[D]"))
     ("ready"            . ("\N{DIRECT HIT}"         . "[R]"))
-    ("work-in-progress" . ("\N{CONSTRUCTION SIGN}"  . "[W]"))
+    ("work-in-progress" . ("\N{GEAR}"               . "[W]"))
     ("complete"         . ("\N{WHITE HEAVY CHECK MARK}" . "[C]"))
     ("dropped"          . ("\N{WASTEBASKET}"        . "[X]")))
   "Per-state badge as (STATE . (EMOJI . TTY)).
@@ -183,7 +183,7 @@ Point-independent; scans from the top of the current buffer."
   (pcase state
     ("draft" 'org-air-face-air-state-draft)
     ("ready" 'org-air-face-air-state-ready)
-    ("work-in-progress" 'org-air-face-air-state-ready)
+    ("work-in-progress" 'org-air-face-air-state-wip)
     ("complete" 'org-air-face-air-state-complete)
     ("dropped" 'org-air-face-air-state-dropped)
     (_ 'org-air-face-faded)))
@@ -244,41 +244,71 @@ Point-independent; scans from the top of the current buffer."
            (org-air-layout-current-width (current-buffer)))
       80))
 
-(defun org-air-project--doc-meta (doc)
-  "Return the right-hand \"<updated>  #tags\" metadata string for DOC."
-  (let* ((upd (concat (org-air-project--tree 'updated) " "
+(defun org-air-project--state-summary (docs)
+  "Return a per-state count summary string for DOCS (airctl -Da/-Ta header).
+Each state present shows \"<badge> <State> (<n>)\" in state order."
+  (mapconcat
+   (lambda (state)
+     (let ((n (seq-count (lambda (d) (equal (org-air-doc-state d) state)) docs)))
+       (when (> n 0)
+         (concat (propertize (org-air-project--state-badge state)
+                             'face (org-air-project--state-face state))
+                 " "
+                 (propertize (org-air-project--state-title state)
+                             'face (org-air-project--state-face state))
+                 " "
+                 (propertize (format "(%d)" n) 'face 'org-air-face-count)))))
+   (seq-filter
+    (lambda (s) (seq-some (lambda (d) (equal (org-air-doc-state d) s)) docs))
+    (append org-air-project-states
+            (seq-remove (lambda (s) (member s org-air-project-states))
+                        (seq-uniq (mapcar #'org-air-doc-state docs)))))
+   "    "))
+
+(defun org-air-project--doc-meta (doc with-state)
+  "Return the right-hand metadata string for DOC.
+With WITH-STATE (directory/tag views) it leads with the doc's own state
+badge + label column (airctl -Da/-Ta); the state view omits it (the box
+is the state).  Always ends with the updated stamp and the #tags."
+  (let* ((state-col (when with-state
+                      (concat (propertize (org-air-project--state-badge
+                                           (org-air-doc-state doc))
+                                          'face (org-air-project--state-face
+                                                 (org-air-doc-state doc)))
+                              " "
+                              (propertize (org-air-project--state-title
+                                           (org-air-doc-state doc))
+                                          'face (org-air-project--state-face
+                                                 (org-air-doc-state doc)))
+                              "    ")))
+         (upd (concat (org-air-project--tree 'updated) " "
                       (format-time-string "%F" (org-air-doc-updated doc))))
          (tags (mapconcat (lambda (tg)
                             (propertize (concat "#" tg)
                                         'face (org-air-faces-tag-face tg)))
                           (org-air-doc-tags doc) " ")))
-    (concat (propertize upd 'face 'org-air-face-faded)
+    (concat (or state-col "")
+            (propertize upd 'face 'org-air-face-faded)
             (if (string-empty-p tags) "" "   ")
             tags)))
 
 (defun org-air-project--insert-doc-row (doc indent show-badge)
-  "Insert DOC as a row at INDENT columns; SHOW-BADGE prefixes the state."
+  "Insert DOC as a row at INDENT columns.
+SHOW-BADGE (directory/tag views) adds the doc's state badge + label as a
+metadata column; the name always stays on the left."
   (let* ((start (point))
          (width org-air-project--width)
          (lead (concat (org-air-project--tree 'box-vertical)
                        (make-string (max 0 (1- indent)) ?\s)))
-         (badge (when show-badge
-                  (concat (propertize (org-air-project--state-badge
-                                       (org-air-doc-state doc))
-                                      'face (org-air-project--state-face
-                                             (org-air-doc-state doc)))
-                          " ")))
-         (name (concat (or badge "") (org-air-doc-name doc)))
-         (meta (org-air-project--doc-meta doc))
+         (name (org-air-doc-name doc))
+         (meta (org-air-project--doc-meta doc show-badge))
          (meta-w (string-width meta))
          (left (concat (propertize lead 'face 'org-air-face-air-tree) name))
          (avail (- width (string-width left) 2 meta-w))
          (name (if (>= avail 0) name
-                 (concat (or badge "")
-                         (truncate-string-to-width
-                          (org-air-doc-name doc)
-                          (max 1 (+ (string-width (org-air-doc-name doc)) avail))
-                          nil nil (org-air-project--tree 'more)))))
+                 (truncate-string-to-width
+                  name (max 1 (+ (string-width name) avail))
+                  nil nil (org-air-project--tree 'more))))
          (left (concat (propertize lead 'face 'org-air-face-air-tree) name))
          (pad (max 2 (- width (string-width left) meta-w)))
          (line (concat left (make-string pad ?\s) meta)))
@@ -322,19 +352,22 @@ groupings, where a box mixes states)."
 
 (defun org-air-project--insert-group-box (title badge badge-face docs show-badge)
   "Insert one grouping box titled TITLE for DOCS (F5d).
-BADGE (in BADGE-FACE) prefixes the title; SHOW-BADGE prefixes each doc
-row with its own state badge."
+BADGE (in BADGE-FACE) prefixes the title.  In the state view the header
+ends with a plain (count); in the directory/tag views (SHOW-BADGE) it
+ends with a per-state count summary, and each doc row carries its own
+state badge column (airctl -Da/-Ta)."
   (let* ((width org-air-project--width)
-         (count (length docs))
          (header (concat (org-air-project--tree 'box-top-left)
                          (org-air-project--tree 'box-horizontal) " "
                          (if badge
                              (concat (propertize badge 'face badge-face) " ")
                            "")
                          (propertize title 'face 'org-air-face-section)
-                         " "
-                         (propertize (format "(%d)" count)
-                                     'face 'org-air-face-count)))
+                         "   "
+                         (if show-badge
+                             (org-air-project--state-summary docs)
+                           (propertize (format "(%d)" (length docs))
+                                       'face 'org-air-face-count))))
          (tree (org-air-project--build-dir-tree docs)))
     (insert header "\n")
     (insert (propertize (org-air-project--tree 'box-vertical)

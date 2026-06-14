@@ -1,0 +1,148 @@
+#+title: org-air v0.4 round-9 — svg pill refinement + subtler calendar + Denote (design)
+#+state: ready
+#+FILETAGS: :ui:visual:faces:v0.4:
+
+* Summary
+Visual refinement for round 9: D1 svg pill spacing, D2 more colour, D3
+modern/refined pill, D4 subtler calendar marks, + the C2 svg-alignment
+contract and F1 Denote origin names.  impl2 fixes the *critical layout
+regressions* C1 (split/narrow re-render) and C3 (text-scale re-fit) in
+parallel — those are bugs, not visual spec.
+
+*Measurability:* =[gui]= GUI-only svg overlay (non-byte; the byte/fixture
+layer is the text fallback); =[face]= face-only (applied now); =[byte]=
+buffer-text (fixture regen).
+
+* C2 (CRITICAL CONTRACT) — a pill is a cosmetic overlay, never geometry
+This governs D1–D3.  *Each pill SVG MUST occupy exactly its underlying
+text cell's pixel box* — width = =Ncols × (frame-char-width)=, height =
+the line's pixel height — where =Ncols= is the column width the label
+already occupies in the buffer (the same N the V6 table reserved).  So:
+- The pill is a =display= property over a run of =Ncols= characters; the
+  SVG image is sized to =Ncols × char-px= × =line-px=.  It draws *inside*
+  that box — it MUST NOT add any external width.
+- *V6 alignment therefore holds at any width*: turning pills on/off
+  changes zero column positions; the date/tag/origin columns are decided
+  entirely by the text layer.
+- *Recompute on font / text-scale / width change* (ties to C1/C3): the
+  pill width is =char-px(current metrics) × Ncols=; re-render the svgs
+  whenever =char-px= or the layout width changes, so pills track the text.
+- *Fallback is mandatory:* when =(not (display-graphic-p))=, svg is
+  unavailable, OR the pill cannot be guaranteed to fit its cell, render
+  the plain *coloured text* (no pill).  The gate always asserts the text.
+This is also the answer to "8a pills look slightly misaligned": size the
+pill to the *cell*, not to the glyph run's natural pixel width.
+
+* D1 — Pill spacing  [gui]
+*Symptom (8a):* uneven gaps, pills feel cramped/ragged.
+- *Internal padding:* inset the rounded rect inside the cell box by a
+  fixed =org-air-pill-inset= (default ~2px L/R, 1px T/B); draw the label
+  centred vertically with a small left pad.  Because the box is fixed to
+  =Ncols= cells, the inset gives consistent breathing room without
+  changing width.
+- *Gap between pills:* the inter-pill gap is the *single space* between
+  labels in the text layer (e.g. =#work␣#report=).  That one cell is left
+  *unpilled* (plain), giving an even, predictable gap; never draw a pill
+  over the separator space.
+- *Baseline:* set the image =:ascent= so the pill is vertically centred on
+  the text line (not floating high/low); pill height ≤ line height so it
+  never increases line spacing.
+- defcustoms: =org-air-pill-inset=, =org-air-pill-radius= (D3).
+
+* D2 — More colour  [gui + face]
+*Symptom (8a):* pills are mono/outline grey — the accent + semantic
+colour was lost when text became pills.
+- *Tags:* each pill carries its *deterministic accent hue*
+  (=org-air-faces-tag-face=): coloured *label text* + a thin coloured
+  *border* in that hue, over a *very light tint* fill of the same hue
+  (=org-air-pill-fill-alpha=, default ~0.12; 0 = no fill for a pure
+  outline look).  Six hues → the board reads coloured again, calmly.
+- *Dates:* the pill is coloured by date *semantics* — overdue =critical=,
+  deadline =popout=, scheduled =salient=, neutral/quiet =faded=,
+  =· Nd quiet= =faded=.  Same border+text+tint treatment.
+- This is the modern-coloured look done as a *crisp svg* (unlike the
+  rejected round-5 text =:box=): the hue lives in the pill, the layout
+  stays a quiet text table underneath.
+- defcustom =org-air-pill-fill-alpha=.  Colours come from the existing
+  accent + semantic date faces (no new face).
+
+* D3 — Modern / refined pill (rougier svg-tag-mode quality)  [gui]
+- *Rounded corners* radius =org-air-pill-radius= (default = line-height/3,
+  svg-tag-mode-like).
+- *Typography:* draw the label in the frame's font at the cell metrics so
+  it is crisp; render the SVG at the display's device-pixel ratio (no
+  blur); vertical-centre the text.
+- *Weight:* thin 1px border, light tint (D2) — restraint, not the heavy
+  filled chip.  Subtle but unmistakably a pill.
+- *Soft dependency:* prefer our own =svg.el= pill (no external dep);
+  optionally use =svg-tag-mode= if present.  defcustoms =org-air-tag-style=
+  / =org-air-date-style= (='pill on capable GUI, else 'text).
+- Re-render on theme change so the pill border/tint follow light/dark.
+
+* D4 — Subtler calendar marks  [face; applied now]
+*Symptom (8a/8b):* the =◆due / ●sched / ·created= dots read noisy.
+- *Quieter hues, no bold* (applied to =org-air-faces.el=): the
+  scheduled/deadline mark faces drop =:weight bold= and use *muted* tones
+  (deadline a muted terracotta =#C2724E= / =#C49079=; scheduled a muted
+  =#7D6BA5= / =#8891AE=); created stays =faded=.  Still three distinct
+  hues, much quieter.
+- *Shape stays distinct* for colour-blind/TTY: =◆= deadline, =●=
+  scheduled, =·= created (the glyphs are unchanged → *face-only, fixtures
+  hold*).
+- *Optional (byte, flagged):* a *smaller* deadline mark (=◆ → a small
+  diamond/dot=) if still too heavy — would change the grid bytes → a
+  regen; not applied, offered if the muted hue isn't enough.
+- The today *background highlight* (R7) is unchanged — it carries today,
+  so the marks don't have to shout.
+
+* F1 — Denote-style origin names  [byte; new fixtures]
+*Goal:* the origin column shows the human *title*, not Denote's
+timestamp/tag machinery, for names like
+=20260614T170000--my-note-title__tag1_tag2.org=.
+- *Parse Denote:* strip the =YYYYMMDDT HHMMSS--= identifier prefix, the
+  =__tag_tag= signature suffix, and =.org=; the middle slug
+  (=my-note-title=) is the title → display de-slugified =my-note-title=
+  (hyphens kept, or spaces via =org-air-origin-deslugify=, default keep
+  hyphens for compactness).
+- *Detection:* a filename matches the Denote regexp
+  (=\\`[0-9]\\{8\\}T[0-9]\\{6\\}--=); otherwise fall back to the plain
+  filename (today's behaviour).  defcustom =org-air-origin-style=
+  (='auto Denote-aware / 'filename / 'title-from-org).
+- *Truncation:* the origin column is fixed-width =Wo= (V6); a long Denote
+  title truncates with =…= like any origin — but the origin is still
+  *protected last* (D2): tags/title give way first.
+- The Denote tags (=__tag_tag=) are NOT shown in the origin (the item's
+  own =#tags= column already carries tags); origin = =⌂ <title>= only.
+- =[byte]=: changes the origin text for Denote-named files → add Denote
+  test fixtures (long names) for the regen, per the brief.
+
+* Q1 (input) — scope reset discoverability
+=S= already clears scope (=org-air-scope-clear=); the issue is
+discoverability.  Surface it: when a scope is active, the rail's Filters
+block shows =Scope: <name>  (S clears)= and the rail hint adds =S reset=;
+=g r= refresh keeps scope, =G= (or =g R=) refreshes after clearing scope +
+filter.  (Verification that =S= actually fires is impl2/Q1-bug.)
+
+* Faces changed this round (=org-air-faces.el=, face-only)
+=org-air-face-calendar-scheduled= / =-deadline= — muted, de-bolded (D4).
+No new faces (D2 reuses accent + semantic date faces; the pill is an svg
+overlay).  Strict byte-compile clean; gate 156/156 (face-only, fixtures
+hold).
+
+* Routing
+- impl2: C1 (re-render to the displaying-window width on split/resize —
+  the #1 fix), C3 (consistent text-scale re-fit), C2 pill sizing
+  (=Ncols × char-px=, recompute, text fallback), D1–D3 svg pill draw
+  (svg.el, soft svg-tag-mode), F1 Denote origin parse + fixtures, Q1
+  scope-reset surfacing.  D4 faces already land via =org-air-faces.el=.
+- test: D4 = face-only (no regen); F1 = new Denote fixtures; pills =
+  =[gui]= non-byte (text fallback asserted, unchanged).
+
+* History
+- 2026-06-14: Authored round-9 visual refinement.  C2 contract: pill svg
+  = exactly =Ncols × char-px= cell box, recompute on font/width, text
+  fallback — pills never change geometry so V6 alignment holds at any
+  width.  D1 spacing (cell-inset padding, single-space unpilled gaps,
+  centred baseline).  D2 colour (per-tag accent hue + semantic date hue:
+  coloured text+border + light tint).  D3 refined (rounded, crisp at
+  device-pixel ratio, thin border).  D4 subtler calendar marks (muted, de-bolded scheduled/deadline faces — applied; glyphs unchanged, fixtures hold).  F1 Denote origin (strip id/tag machinery, show the title slug, truncate; new fixtures).  Q1 scope-reset surfacing.  Set =#+state: ready=.

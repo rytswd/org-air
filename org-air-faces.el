@@ -418,13 +418,25 @@ inverse-video.  Replaces the old underline+marker treatment."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-scheduled
-  '((t :inherit org-air-face-salient :weight bold))
-  "Calendar day carrying a scheduled item (T3b: distinct from deadline)."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#7D6BA5"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#8891AE"))
+    (t (:inherit org-air-face-salient)))
+  "Calendar day carrying a scheduled item.
+D4 (round-9): a *muted* hue, no bold — distinguishable from deadline but
+quiet (the saturated salient+bold read as noise on the small marks)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-deadline
-  '((t :inherit org-air-face-popout :weight bold))
-  "Calendar day carrying a deadline (T3b: strongest, popout hue)."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#C2724E"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#C49079"))
+    (t (:inherit org-air-face-popout)))
+  "Calendar day carrying a deadline (the strongest mark).
+D4 (round-9): a *muted* terracotta, no bold — still the warmest of the
+three but quieter than the full popout."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-created

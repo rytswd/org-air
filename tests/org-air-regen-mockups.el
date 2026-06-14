@@ -70,13 +70,47 @@ otherwise layout-mockup-WIDTHxHEIGHT.txt."
       (org-air-viewport-test-with-empty-dashboard (cons width height)
         (org-air-regen--emit out (org-air-regen--lines))))))
 
+(defconst org-air-regen-project-groupings
+  '(("state" . org-air-project-group-state)
+    ("dir"   . org-air-project-group-directory)
+    ("tag"   . org-air-project-group-tag))
+  "Project-view groupings → fixture suffix + grouping command (F5).")
+
+(defun org-air-regen--write-project (label group-fn width)
+  "Render the F5 project view of the ./air fixture in GROUP-FN at WIDTH;
+write project-view-LABEL.txt.  Honest org-air-project render (TTY badges
+in --batch), right-trimmed."
+  (let* ((root (expand-file-name "air-project" org-air-test-fixture-dir))
+         (out (expand-file-name (format "project-view-%s.txt" label)
+                                org-air-test-fixture-dir))
+         (org-air-sources (list (list :air root)))
+         (org-air-project-view-width width))
+    (org-air-viewport-test--with-frozen-now
+     (org-air-project-test--with-frozen-mtime
+      (save-window-excursion
+        (org-air-project)
+        (let ((buf (seq-find
+                    (lambda (b) (with-current-buffer b
+                                  (derived-mode-p 'org-air-project-mode)))
+                    (buffer-list))))
+          (with-current-buffer buf
+            (when (and group-fn (commandp group-fn))
+              (call-interactively group-fn))
+            (org-air-regen--emit out (org-air-regen--lines)))
+          (when (buffer-live-p buf) (kill-buffer buf))))))))
+
 (defun org-air-regen-mockups ()
   "Regenerate every mockup fixture from the honest renderer.
-Matrix: widths × {natural, 24, 50} + the empty board at 120×50."
+GTD board: widths × {natural, 24, 50} + the empty board at 120×50.
+F5 project view: the ./air fixture in each grouping (state/dir/tag)."
   (dolist (width org-air-regen-widths)
     (dolist (height org-air-regen-heights)
       (org-air-regen--write width height)))
   (org-air-regen--write-empty 120 50)
+  ;; F5 project-view fixture family (one width, all three groupings).
+  (when (fboundp 'org-air-project)
+    (pcase-dolist (`(,label . ,group-fn) org-air-regen-project-groupings)
+      (org-air-regen--write-project label group-fn 100)))
   (message "regen: done — diff fixtures and route to design for re-blessing"))
 
 (provide 'org-air-regen-mockups)

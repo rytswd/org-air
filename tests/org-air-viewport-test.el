@@ -32,8 +32,11 @@
   (dolist (width org-air-viewport-test-widths)
     (org-air-viewport-test-with-dashboard width
       (should (> (buffer-size) 0))
-      ;; Representative fixture items survive the width binding.
-      (should (string-match-p "Prepare standup notes" (buffer-string))))))
+      ;; Representative item rows survive the width binding.  (V6 truncates
+      ;; long TITLES at narrow widths, so locate items by their
+      ;; `org-air-item' text property rather than a full-title search.)
+      (should (text-property-not-all (point-min) (point-max)
+                                     'org-air-item nil)))))
 
 (ert-deftest org-air-viewport-harness-zero-items-renders ()
   "The dashboard renders in batch with an entirely empty file set."

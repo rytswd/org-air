@@ -110,7 +110,8 @@ visits the item — no backslash prefix needed."
           (evil-change-state 'motion)
           ;; Every dashboard key must resolve to exactly what the mode
           ;; map binds — evil's motion-state map must not shadow it.
-          (dolist (key (list (kbd "RET") "g" "n" "p" "/" "c"))
+          ;; Round-8 B4: g is a prefix map, so probe its sub-binding `g r'.
+          (dolist (key (list (kbd "RET") (kbd "g r") "n" "p" "/" "c"))
             (let ((own (lookup-key org-air-view-mode-map key)))
               (should (commandp own))
               (should (eq (key-binding key) own)))))

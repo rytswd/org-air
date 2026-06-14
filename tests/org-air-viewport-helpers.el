@@ -58,6 +58,29 @@ the implementation; declared special here for binding.")
               (lambda () org-air-test-now)))
      ,@body))
 
+(defconst org-air-project-test-frozen-mtime
+  (encode-time 0 0 12 1 5 2026)
+  "Frozen file modification time (2026-05-01) for project-view fixtures.
+The F5 doc ↻ date is the file mtime, which a jj checkout resets to the
+checkout time — pinning it keeps the project-view fixtures byte-stable.")
+
+(defmacro org-air-project-test--with-frozen-mtime (&rest body)
+  "Run BODY with every file's modification-time pinned (deterministic ↻).
+Mocks `file-attributes' (a C subr, so the override survives byte-
+compilation — unlike `file-attribute-modification-time', which the
+compiler inlines) and rewrites the mtime slot (index 5)."
+  (declare (indent 0) (debug t))
+  `(let ((org-air-project-test--orig-file-attributes
+          (symbol-function 'file-attributes)))
+     (cl-letf (((symbol-function 'file-attributes)
+                (lambda (file &rest args)
+                  (let ((attrs (apply org-air-project-test--orig-file-attributes
+                                      file args)))
+                    (when (and attrs (> (length attrs) 5))
+                      (setf (nth 5 attrs) org-air-project-test-frozen-mtime))
+                    attrs))))
+       ,@body)))
+
 ;;;; Anti-tautology render guards.
 ;;
 ;; The gate asserts bytes the renderer PRODUCES.  A renderer that

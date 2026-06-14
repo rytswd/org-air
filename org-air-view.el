@@ -26,6 +26,13 @@
 (require 'org-air-inbox)
 (require 'org-air-layout)
 
+;; V3 svg pills are GUI-only and soft-loaded at render time (`require 'svg').
+(declare-function svg-create "svg")
+(declare-function svg-rectangle "svg")
+(declare-function svg-text "svg")
+(declare-function svg-image "svg")
+(declare-function svg-tag-make "svg-tag")
+
 (defvar org-air-files)
 (defvar org-air-inbox-file)
 
@@ -57,6 +64,33 @@ property), so fixtures are unaffected by this choice."
   "Maximum number of tag chips to render on an item line."
   :type 'integer
   :group 'org-air)
+
+(defcustom org-air-tag-style 'pill
+  "How tags (and the R10/V6 date) render (V3).
+`pill' draws a rounded svg-tag-style pill on a graphical frame when SVG is
+available (soft-using `svg-tag-mode' if loaded, else a minimal built-in
+pill), degrading to the quiet coloured text; `text' is always the text.
+The pill is sized to the underlying text's column width so it never
+shifts the V6 columns, and the byte gate only ever sees the text."
+  :type '(choice (const pill) (const text))
+  :group 'org-air)
+
+(defcustom org-air-date-column 12
+  "Fixed width of the date cell in the item-row metadata table (V6).
+The date is left-justified in this many columns so every row's date
+starts at the same position and the eye can scan the column down the
+list.  Fits the longest tokens (e.g. \"OVERDUE 12d\", \"· 273d quiet\")."
+  :type 'integer
+  :group 'org-air)
+
+(defvar org-air-view--meta-date-w nil
+  "Computed width of the date column for the current render (V6), or nil.")
+
+(defvar org-air-view--meta-tags-w nil
+  "Computed width of the tags column for the current render (V6), or nil.")
+
+(defvar org-air-view--meta-origin-w nil
+  "Computed width of the origin column for the current render (V6), or nil.")
 
 (defcustom org-air-show-footer nil
   "Whether to show the bottom footer key-legend band (R4: default nil).
@@ -242,6 +276,14 @@ of whether the wrapping pane margin is added later (D6).")
     (stale "Stale" "Nothing has gone stale."))
   "Section descriptors in display order.")
 
+(defvar org-air-g-prefix-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "r") #'org-air-refresh)
+    (define-key map (kbd "g") #'org-air-goto-top)
+    (define-key map (kbd "R") #'org-air-refresh-all)
+    map)
+  "Transient g-prefix map (B4): r refresh, g top of pane, R refresh+clear.")
+
 (defvar org-air-view-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'org-air-visit-item)
@@ -283,8 +325,12 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "\\") #'org-air-filter-clear)
     ;; Scope moves off the prime key so s = schedule (the triage verb).
     (define-key map (kbd "S") #'org-air-scope-clear)
-    (define-key map (kbd "g") #'org-air-refresh)
-    (define-key map (kbd "G") #'org-air-refresh-all)
+    ;; B4: vim/evil g-prefix — "g r" refresh, "g g" top of pane, "g R"
+    ;; refresh+clear; "G" jumps to the bottom of the pane.
+    (define-key map (kbd "g") org-air-g-prefix-map)
+    (define-key map (kbd "G") #'org-air-goto-bottom)
+    ;; F5: open the Air-docs project tree view.
+    (define-key map (kbd "P") #'org-air-project)
     (define-key map (kbd "<") #'org-air-calendar-prev)
     (define-key map (kbd ">") #'org-air-calendar-next)
     (define-key map (kbd ".") #'org-air-calendar-today)
@@ -654,6 +700,41 @@ ATTENTIONP means the count should use the attention badge face."
     (?B 'org-air-face-priority-b)
     (_ 'org-air-face-priority-c)))
 
+(defun org-air-view--svg-pills-available-p ()
+  "Return non-nil when V3 svg pills should be drawn now."
+  (and (eq org-air-tag-style 'pill)
+       (display-graphic-p)
+       (require 'svg nil t)))
+
+(defun org-air-view--svg-pillify (text face)
+  "Return TEXT carrying a rounded svg-pill `display' overlay (V3).
+The pill is sized to TEXT's column width (so it never shifts the V6
+columns) and drawn in FACE's foreground; on a non-graphical frame, when
+SVG is unavailable, or when `svg-tag-mode' style is off, TEXT is returned
+unchanged so the byte/TTY layer keeps the plain coloured text.  Soft-uses
+`svg-tag-mode' when it is loaded, else draws a minimal built-in pill."
+  (if (or (not (org-air-view--svg-pills-available-p))
+          (string-empty-p (string-trim text)))
+      text
+    (or (ignore-errors
+          (if (fboundp 'svg-tag-make)
+              (propertize text 'display
+                          (svg-tag-make (string-trim text)))
+            (let* ((cw (frame-char-width))
+                   (ch (frame-char-height))
+                   (w (* (max 1 (string-width text)) cw))
+                   (fg (or (face-foreground face nil t) "gray"))
+                   (svg (svg-create w ch)))
+              (svg-rectangle svg 0.5 0.5 (- w 1.0) (- ch 1.0)
+                             :rx (/ ch 3.0) :ry (/ ch 3.0)
+                             :fill "none" :stroke fg :stroke-width 1)
+              (svg-text svg (string-trim text)
+                        :x (/ w 2.0) :y (- ch (max 3 (/ ch 4)))
+                        :text-anchor "middle" :fill fg
+                        :font-size (max 8 (- ch 4)))
+              (propertize text 'display (svg-image svg :ascent 'center)))))
+        text)))
+
 (defun org-air-view--item-tagstr (tags k total)
   "Return inline tag chips showing K of TOTAL TAGS, with overflow marker.
 When fewer than TOTAL chips are shown the `more' glyph signals the rest.
@@ -661,8 +742,10 @@ Each chip carries its deterministic accent face (T1c) — face-only, so the
 chip text and width are unchanged."
   (let ((shown (mapconcat
                 (lambda (tg)
-                  (propertize (concat "#" tg)
-                              'face (org-air-faces-tag-face tg)))
+                  (org-air-view--svg-pillify
+                   (propertize (concat "#" tg)
+                               'face (org-air-faces-tag-face tg))
+                   (org-air-faces-tag-face tg)))
                 (seq-take tags k) " "))
         (overflow (- total k)))
     (cond
@@ -670,31 +753,64 @@ chip text and width are unchanged."
      ((> overflow 0) (string-trim (concat shown " " (org-air-view--glyph 'more))))
      (t shown))))
 
+(defun org-air-view--item-origin-raw (item)
+  "Return the origin breadcrumb \"⌂ FILE\" for ITEM (unfaced)."
+  (concat (org-air-view--glyph 'origin) " " (org-air-view--origin item)))
+
+(defun org-air-view--item-date-text (item bucket)
+  "Return the propertized date text for ITEM in BUCKET (V6/R10), or nil.
+The date is coloured TEXT in its semantic face; a dated-but-unfiled Inbox
+row also carries the quiet \"· file with r\" triage nudge (ruling
+xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
+  (let* ((date (org-air-view--date-label item bucket))
+         (inbox-hint (and (eq bucket 'inbox)
+                          (or (org-air-item-scheduled item)
+                              (org-air-item-deadline item))
+                          (propertize " · file with r" 'face 'org-air-face-faded))))
+    (when date
+      (concat (org-air-view--svg-pillify
+               (propertize (car date) 'face (or (cdr date) 'org-air-face-date))
+               (or (cdr date) 'org-air-face-date))
+              (or inbox-hint "")))))
+
+(defun org-air-view--compute-meta-widths (items)
+  "Set the V6 metadata column widths over the rendered ITEMS.
+Walks the same section buckets the pane renders and records the widest
+date label (bare, no Inbox nudge), tag string and origin so date / tags /
+origin each occupy a fixed-width column down the whole list and line up
+vertically.  The date floor is `org-air-date-column'."
+  (let ((dw org-air-date-column) (tw 0) (ow 0))
+    (dolist (descriptor org-air-view--sections)
+      (let* ((bucket (car descriptor))
+             (bucket-items (org-air-view--items-for-bucket bucket items)))
+        (dolist (item bucket-items)
+          (let* ((date (org-air-view--date-label item bucket))
+                 (tags (org-air-item-tags item))
+                 (n (length tags))
+                 (ts (org-air-view--item-tagstr
+                      tags (min org-air-tags-inline-max n) n)))
+            (when date (setq dw (max dw (string-width (car date)))))
+            (setq tw (max tw (string-width ts)))
+            (setq ow (max ow (string-width
+                              (org-air-view--item-origin-raw item))))))))
+    (setq org-air-view--meta-date-w dw
+          org-air-view--meta-tags-w tw
+          org-air-view--meta-origin-w ow)))
+
 (defun org-air-view--insert-item (item bucket &optional omit-date)
-  "Insert ITEM as an interactive row in BUCKET (R10 layout).
-The title owns the LEFT and stays clean; a single quiet right cluster
-holds the date (coloured text in its semantic face), up to
-`org-air-tags-inline-max' accent-text tags, and the flush-right origin.
-One flex gap separates the title from the cluster.  Shrink order keeps
-the origin and date, drops tags toward the ellipsis, and truncates the
-title LAST (D2).  OMIT-DATE drops the date (R6 day view)."
+  "Insert ITEM as an interactive row in BUCKET (V6 fixed-column table).
+The title owns the LEFT and stays clean; the metadata is a fixed-width
+right-aligned TABLE — date (left-justified in `org-air-view--meta-date-w'),
+tags (left-justified, cap `org-air-tags-inline-max'), origin (right-
+justified, whole).  Because every cell is fixed width the date / tags /
+origin columns line up vertically down the list (V6).  The title flexes
+and truncates LAST (D2) in the single gap before the table.  OMIT-DATE
+drops the date column (R6 day view)."
   (let* ((start (point))
          (width (org-air-view--render-width))
          (todo (org-air-item-todo item))
          (priority (org-air-view--priority-char item))
-         (date (unless omit-date (org-air-view--date-label item bucket)))
-         ;; Triage nudge (ruling xsqrnoyn): a dated-but-unfiled Inbox row
-         ;; carries a quiet "· file with r" hint.
-         (inbox-hint (and (not omit-date) (eq bucket 'inbox)
-                          (or (org-air-item-scheduled item)
-                              (org-air-item-deadline item))
-                          (propertize " · file with r" 'face 'org-air-face-faded)))
-         ;; R10: the date is coloured TEXT in its semantic face (the GUI
-         ;; pill is a non-byte display overlay over this same text).
-         (date-text (when date
-                      (concat (propertize (car date)
-                                          'face (or (cdr date) 'org-air-face-date))
-                              (or inbox-hint ""))))
+         (date-text (unless omit-date (org-air-view--item-date-text item bucket)))
          (prefix (concat (org-air-view--item-margin)
                          (when todo
                            (concat (propertize todo 'face
@@ -708,52 +824,44 @@ title LAST (D2).  OMIT-DATE drops the date (R6 day view)."
          (title (org-air-item-title item))
          (tags (org-air-item-tags item))
          (n-tags (length tags))
-         (cap (min org-air-tags-inline-max n-tags))
-         (origin-raw (concat (org-air-view--glyph 'origin) " "
-                             (org-air-view--origin item)))
-         (origin-w (string-width origin-raw))
+         (tagstr (org-air-view--item-tagstr
+                  tags (min org-air-tags-inline-max n-tags) n-tags))
+         (origin-raw (org-air-view--item-origin-raw item))
          (gap 2)
-         ;; meta = date + (space + ≤cap tags); cluster = meta + "  " + origin.
-         (meta-of (lambda (k)
-                    (let ((ts (org-air-view--item-tagstr tags k n-tags)))
-                      (concat (or date-text "")
-                              (if (and date-text (not (string-empty-p ts))) " " "")
-                              ts))))
-         (cluster-w (lambda (m)
-                      (+ (string-width m) (if (string-empty-p m) 0 2) origin-w)))
-         ;; Stage 1 — tags (capped) drop toward the ellipsis.
-         (tag-k (let ((k cap) (chosen 0) (done nil))
-                  (while (and (>= k 0) (not done))
-                    (if (<= (+ prefix-w (string-width title) gap
-                              (funcall cluster-w (funcall meta-of k)))
-                            width)
-                        (setq chosen k done t)
-                      (setq k (1- k))))
-                  chosen))
-         (meta (funcall meta-of tag-k))
-         (meta-w (string-width meta))
-         ;; Stage 2 — title truncates next, floored at `org-air-title-min'.
-         (avail-title (- width prefix-w gap (funcall cluster-w meta)))
+         ;; V6 fixed column widths (computed over the whole list; fall back
+         ;; to this single row when unset, e.g. the day pane).
+         (dcol (if omit-date 0 (or org-air-view--meta-date-w org-air-date-column)))
+         (tcol (or org-air-view--meta-tags-w (string-width tagstr)))
+         (ocol (or org-air-view--meta-origin-w (string-width origin-raw)))
+         ;; date cell: left-justified; expands locally for the Inbox nudge
+         ;; so the hint is never clipped (its row alone widens).
+         (date-cell (when (> dcol 0)
+                      (org-air-view--pad-to
+                       (or date-text "")
+                       (max dcol (string-width (or date-text ""))))))
+         (tags-cell (when (> tcol 0) (org-air-view--pad-to tagstr tcol)))
+         (origin-cell (when (> ocol 0)
+                        (let ((w (string-width origin-raw)))
+                          (concat (make-string (max 0 (- ocol w)) ?\s)
+                                  (propertize origin-raw
+                                              'face 'org-air-face-group)))))
+         (cluster (mapconcat #'identity
+                             (delq nil (list date-cell tags-cell origin-cell))
+                             " "))
+         (cluster-w (string-width cluster))
+         ;; title flexes/truncates in the space before the fixed table.
+         ;; V6: it floors at 1 (not `org-air-title-min') so the table stays
+         ;; at a fixed column — a long title or wide prefix must not push
+         ;; the date/tags/origin columns out of alignment.
+         (avail-title (- width prefix-w gap cluster-w))
          (title (if (<= (string-width title) avail-title)
                     title
                   (truncate-string-to-width
-                   title (max org-air-title-min (max 1 avail-title)) nil nil
+                   title (max 1 avail-title) nil nil
                    (org-air-view--glyph 'more))))
-         (title-w (string-width title))
-         ;; Stage 3 — origin shrinks last, reserving `org-air-origin-min'.
-         (avail-origin (- width prefix-w title-w gap meta-w
-                          (if (string-empty-p meta) 0 2)))
-         (origin-str (if (<= origin-w avail-origin)
-                         origin-raw
-                       (truncate-string-to-width
-                        origin-raw (max org-air-origin-min (max 1 avail-origin))
-                        nil nil (org-air-view--glyph 'more))))
-         (origin-str (propertize origin-str 'face 'org-air-face-group))
-         (right (if (string-empty-p meta) origin-str
-                  (concat meta "  " origin-str)))
          (left (concat prefix title))
-         (pad (max gap (- width (string-width left) (string-width right))))
-         (line (concat left (make-string pad ?\s) right)))
+         (pad (max gap (- width (string-width left) cluster-w)))
+         (line (concat left (make-string pad ?\s) cluster)))
     (insert line "\n")
     (add-text-properties start (point)
                          `(org-air-item ,item
@@ -994,7 +1102,7 @@ under the other buckets."
                                               width)
                         'face 'org-air-face-faded)
             "\n"
-            (propertize (org-air-view--pad-to "g refresh · TAB expand · ? help"
+            (propertize (org-air-view--pad-to "gr refresh · TAB expand · ? help"
                                               width)
                         'face 'org-air-face-faded)
             "\n")))
@@ -1059,6 +1167,11 @@ The day is `org-air-view--day'; its items are grouped Deadline >
 Scheduled > Logged/created and rendered with the R10 item line minus its
 now-redundant date."
   (let* ((org-air-view--line-width width)
+         ;; Day view omits the date column; let the tags/origin columns
+         ;; size to this focused list rather than the (stale) board.
+         (org-air-view--meta-date-w nil)
+         (org-air-view--meta-tags-w nil)
+         (org-air-view--meta-origin-w nil)
          (day org-air-view--day)
          (groups (org-air-view--day-groups items day))
          (total (apply #'+ (mapcar (lambda (g) (length (cdr g))) groups))))
@@ -1089,6 +1202,7 @@ now-redundant date."
   (when org-air-view--day
     (org-air-view--insert-day-pane items width))
   (unless org-air-view--day
+  (org-air-view--compute-meta-widths items)
   (let ((org-air-view--line-width width)
         (visible (org-air-view--visible-items items))
         (first t))
@@ -1414,6 +1528,17 @@ filters are preserved by `org-air-refresh'."
         org-air-view--scope nil)
   (org-air-refresh))
 
+(defun org-air-goto-top ()
+  "Move point to the top of the pane (B4): the first actionable item."
+  (interactive)
+  (org-air-view--goto-first-item))
+
+(defun org-air-goto-bottom ()
+  "Move point to the bottom of the pane (B4): the last item row."
+  (interactive)
+  (goto-char (point-max))
+  (org-air-prev-item))
+
 (defun org-air-filter (tags)
   "Filter dashboard to TAGS, a comma-separated or list value."
   (interactive
@@ -1514,13 +1639,15 @@ filters are preserved by `org-air-refresh'."
 In two-pane mode the heading sits past the indent margin (and the
 composed row also carries rail text), so scan the whole line rather than
 only its first column."
+  ;; B1: `next-single-property-change' returns LIMIT (not nil) when no
+  ;; change is found before it, so guard with `< pos eol' — the old
+  ;; `<= pos eol' + `(or ... (1+ eol))' parked pos at eol forever (hang).
   (let ((pos (line-beginning-position))
         (eol (line-end-position))
         (found nil))
-    (while (and (not found) (<= pos eol))
+    (while (and (not found) (< pos eol))
       (setq found (get-text-property pos 'org-air-section))
-      (setq pos (or (next-single-property-change pos 'org-air-section nil eol)
-                    (1+ eol))))
+      (setq pos (next-single-property-change pos 'org-air-section nil eol)))
     found))
 
 (defun org-air-view--section-at-point ()
@@ -1533,18 +1660,25 @@ only its first column."
       bucket)))
 
 (defun org-air-toggle-section ()
-  "Toggle expand/collapse of the section at point (T2).
-Expanding shows every item in the section; collapsing restores the capped
-preview with its \"…and N more\" overflow.  Point is preserved."
+  "Toggle expand/collapse of the section HEADER at point (T2/B1).
+On a section header, toggle its full vs capped preview and KEEP POINT ON
+THE HEADER so it can be re-collapsed immediately.  On any non-header line
+TAB is safe — it moves to the next section header and never toggles or
+hangs."
   (interactive)
-  (let ((bucket (org-air-view--section-at-point)))
-    (unless bucket
-      (user-error "Point is not in an org-air section"))
-    (setq org-air-view--expanded-sections
-          (if (memq bucket org-air-view--expanded-sections)
-              (delq bucket org-air-view--expanded-sections)
-            (cons bucket org-air-view--expanded-sections)))
-    (org-air-view--render-current)))
+  (let ((bucket (org-air-view--line-section)))
+    (if (not bucket)
+        (org-air-next-section)
+      (setq org-air-view--expanded-sections
+            (if (memq bucket org-air-view--expanded-sections)
+                (delq bucket org-air-view--expanded-sections)
+              (cons bucket org-air-view--expanded-sections)))
+      (org-air-view--render (or org-air-view--items (org-air-query-items))
+                            org-air-view--tag-filter)
+      (let ((pos (org-air-view--find-property 'org-air-section bucket)))
+        (when pos
+          (goto-char pos)
+          (org-air-view--beginning-of-visible))))))
 
 (defun org-air-next-section ()
   "Move point to the next section heading."
@@ -1897,11 +2031,13 @@ controls window choice and defaults to `org-air-visit-display'."
            (display (or display org-air-visit-display))
            (dash-window (get-buffer-window
                          (get-buffer org-air-view-buffer-name) t))
-           ;; T4: capture the exact window configuration and the
-           ;; originating item marker so `org-air-return' can restore them.
+           ;; T4/B2: capture the window configuration and the originating
+           ;; item's SOURCE marker (stable across a dashboard re-render — a
+           ;; dashboard-buffer position marker collapses to point-min when
+           ;; the buffer is re-rendered).  `org-air-return' re-locates the
+           ;; row by this marker.
            (config (current-window-configuration))
-           (origin (and (get-text-property (point) 'org-air-item)
-                        (copy-marker (point)))))
+           (origin (org-air-item-marker item)))
       (pcase display
         ('other-window (switch-to-buffer-other-window buffer))
         ('frame (switch-to-buffer-other-frame buffer))
@@ -1957,16 +2093,22 @@ buffer is never killed and no split is left broken."
   (interactive)
   (let ((config org-air-view--visit-config)
         (origin org-air-view--visit-origin))
-    (cond
-     ((window-configuration-p config)
-      (set-window-configuration config)
-      (when (and (markerp origin) (marker-buffer origin))
-        (let ((win (get-buffer-window (marker-buffer origin) t)))
-          (when (window-live-p win)
-            (select-window win)
-            (goto-char origin)
-            (org-air-view--beginning-of-visible)))))
-     (t (org-air-return-to-dashboard)))))
+    (when (window-configuration-p config)
+      (set-window-configuration config))
+    (let* ((dashboard (get-buffer org-air-view-buffer-name))
+           (win (and (buffer-live-p dashboard)
+                     (get-buffer-window dashboard t))))
+      (cond
+       ((window-live-p win)
+        (select-window win)
+        ;; B2: re-locate the originating row by its (stable) source marker
+        ;; — the dashboard may have re-rendered while the item was visited.
+        (when (markerp origin)
+          (let ((pos (org-air-view--find-property 'org-air-marker origin)))
+            (when pos
+              (goto-char pos)
+              (org-air-view--beginning-of-visible)))))
+       (t (org-air-return-to-dashboard))))))
 
 ;;;###autoload
 (defun org-air-return-to-dashboard ()

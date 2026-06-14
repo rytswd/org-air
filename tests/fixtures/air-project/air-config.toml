@@ -1,0 +1,3 @@
+# org-air test fixture — a tiny Air project for project-view tests.
+[air]
+name = "test-project"

@@ -1,0 +1,59 @@
+#+title: org-air v0.3 round-7: readability, calendar focus, interaction
+#+state: work-in-progress
+#+FILETAGS: :ui:ux:bugs:
+
+* Summary
+Round-7 punch list from the user (no screenshot, itemised). Mix of
+bugs, interaction features, and a readability rethink that partly
+reverses round-6's inline tags.
+
+* Findings
+** R1 [info] "How does viewing an item look now?" — answered
+RET visits source heading via org-air-visit-display (default
+other-window); org-air-return / C-c b restores captured window-config.
+No in-dashboard preview yet. Consider whether the viewing UX needs more
+(ties to R6 single-day view).
+** R2 [BUG] Viewport still one row too many
+The round-5 trailing-row fix didn't fully land — still renders one row
+past the usable area. Re-derive: usable rows = window-body-height minus
+mode-line, fill ends exactly there, zero overflow.
+** R3 [BUG/keys] k must not delete; j/k = scrolling
+k is currently the kill/delete disposition — dangerous as a motion key.
+Rebind: j/k scroll (line/visual-line down/up); move kill off k (e.g. a
+guarded key or the triage flow only). Vim-ish j/k navigation.
+** R4 [visual] Remove the bottom legend/footer; use the right side
+The bottom "[c]apture [g]refresh …" footer bar should be removed
+entirely; the action hints already live in the rail (right side). Drop
+the footer band, keep/expand the rail hints. (Removes footer rows →
+byte + height.)
+** R5 [BUG] "s" scope does nothing
+The scope command (s) appears to no-op. Fix; verify scope actually
+narrows the board and the rail reflects it.
+** R6 [interaction] Calendar must be focusable per-day (mouse + key)
+Clicking (or keying) a calendar date focuses that day → a single-day
+view showing that day's items, in whatever layout makes most sense for
+one day. Calendar cells get mouse-face/keymap; design the day view.
+** R7 [visual] Today marker is odd → use a BACKGROUND colour
+Replace the ■ today glyph with a background highlight on the today
+cell — so obvious the legend doesn't need a "today" entry. (Byte: today
+cell rendering changes.)
+** R8 [visual] Calendar must start from SUNDAY
+Currently Monday-first (Mo…Su). Make Sunday-first (Su Mo…Sa).
+defcustom org-air-calendar-week-start (user wants Sunday). (Byte.)
+** R9 [BUG] Top-right "33 items" is truncated
+Header right-status clips again at the demo width. Re-check GUI
+usable-columns / W-1 reserve so the full "· N items" shows.
+** R10 [visual/READABILITY] Title buried by inline date+tags — rethink
+Round-6 put tags inline after title+date; now the title is hard to
+read. New direction: keep the TITLE clean and prominent; RIGHT-ALIGN a
+compact metadata cluster (limit to a FEW tags, like the origin
+filename), and make the DATE easier to read — consider Rougier's SVG
+pill trick (svg-tag style) for dates (GUI-only, text fallback for TTY/
+batch). Net: title left & clear, quiet right cluster [date] [≤N tags]
+⌂origin.
+
+* History
+- 2026-06-14: Seeded from round-7 itemised feedback.
+
+* References
+- /tmp/org-air-ace/buffer-box-reference.png, rougier svg-tag-mode (date pills)

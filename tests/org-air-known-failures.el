@@ -87,6 +87,32 @@
     ;; tags-max-2 + right-cluster, R6 day-view-command + clickable-cells,
     ;; R4 footer-removed (the rail-hint expansion landed in impl2's amend,
     ;; so the verbs are no longer lost).
+    ;;
+    ;; v0.4 ROUND-8 F5/V6/V3 GRIND PUNCH LIST (design tstqmmxm, #ready) —
+    ;; staged on the design tip (air faces present; the renderer/feature
+    ;; pending impl2).  Each flips to passed-unexpectedly when built;
+    ;; delete its entry to close out.  (B1/B2/B4 bug-batch + the air
+    ;; faces + V3 text-fallback already pass — not listed.  Exact byte
+    ;; project-view fixtures are pinned at the regen after impl2's tree
+    ;; renderer lands.)
+    (org-air-f5-sources-defcustom
+     . "F5a: org-air-sources defcustom (unified content entry point)")
+    (org-air-f5-detect-air-project
+     . "F5a: org-air-detect-air-project (air-config.toml / air/ dir)")
+    (org-air-f5-project-command-and-mode
+     . "F5b: org-air-project command + org-air-project-mode major mode")
+    (org-air-f5-board-P-opens-project
+     . "F5b: P on the board opens the project view")
+    (org-air-f5-tree-structure
+     . "F5d: box-tree + state badges + version groups + date/tags + (+N) roll-ups")
+    (org-air-f5-grouping-toggle
+     . "F5c: state/directory/tag grouping toggle")
+    (org-air-v6-date-column-defcustom
+     . "V6: org-air-date-column defcustom = 12")
+    (org-air-v6-dates-align-in-column
+     . "V6: item-row dates align in a fixed left-justified column")
+    (org-air-v3-tag-style-defcustom
+     . "V3: org-air-tag-style defcustom (svg pill on GUI else text)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

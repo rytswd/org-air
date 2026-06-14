@@ -396,10 +396,15 @@ are stable across renders and sessions."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-today
-  '((t :inherit org-air-face-popout :weight bold :underline t))
-  "Face for today's date in the calendar.
-Carries an underline as a non-colour cue so today is identifiable
-without relying on hue (colour-blind / TTY legibility)."
+  '((((class color) (min-colors 256) (background light))
+     (:background "#E0631E" :foreground "#FFFFFF" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:background "#D08770" :foreground "#2E3440" :weight bold))
+    (t (:inverse-video t :weight bold)))
+  "Today's calendar cell (R7): a filled background highlight, not a glyph.
+So obvious the legend needs no \"today\" entry.  The day number sits on a
+popout-hue fill (white/dark fg for contrast); TTY falls back to
+inverse-video.  Replaces the old underline+marker treatment."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-event
@@ -425,6 +430,12 @@ without relying on hue (colour-blind / TTY legibility)."
 (custom-declare-face 'org-air-face-calendar-created
   '((t :inherit org-air-face-faded))
   "Calendar day carrying only a created/activity stamp (T3b: quiet)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-day-header
+  '((t :inherit org-air-face-strong))
+  "Face for the single-day focus-view title (R6), e.g. the
+\"Tuesday 17 June 2026\" header of `org-air-view-day'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-legend

@@ -1,0 +1,178 @@
+#+title: org-air v0.3 round-7 — readability, calendar focus, footer (design)
+#+state: ready
+#+FILETAGS: :ui:ux:visual:v0.3:
+
+* Summary
+Visual/interaction design for round 7: R10 readability rethink (the
+balance between round-5's disconnected void and round-6's buried title),
+R7 today-as-background, R8 Sunday-first calendar, R4 remove the bottom
+footer, R6 single-day focus view.  impl2 takes the bugs (R2/R3/R5/R9).
+
+*Measurability tags per item:* =[face]= face-only (fixtures hold),
+=[byte]= changes buffer text \u2192 fixture regen, =[gui]= GUI-only display
+prop (non-byte; text fallback is what the gate sees).
+
+* R10 \u2014 Readability: title left & prominent, quiet right cluster  [byte]
+*The journey:* round-5 right-aligned BOXED tags in a column far from the
+title (disconnected void); round-6 tucked tags inline after title+date
+(title buried).  *The balance:* the title owns the LEFT and stays clean;
+a *single compact metadata cluster* is right-aligned; the date \u2014 the most
+decision-relevant field \u2014 gets readable weight via an SVG pill (GUI),
+with a plain-text fallback.
+
+** Item line shape
+: <state> [<prio>] <title>            \u2026clean flex gap\u2026   [date] <\u2264N tags>  \u2302 <origin>
+- *Left:* =<state>= (coloured keyword), optional =[<prio>]= (coloured text,
+  no pill \u2014 round-6), then the *title* in the default/title face.  The
+  title is followed by clean space \u2014 *nothing is crammed against it*.
+- *Right cluster* (right-aligned as ONE unit, so it never splits the way
+  round-6 split date-left / tags-right):
+  - =[date]= \u2014 the humanised date, see R10-date below.
+  - =<\u2264N tags>= \u2014 at most =org-air-tags-inline-max= (default *2*) tags as
+    quiet accent TEXT (de-boxed, round-6), capped like the origin is one
+    filename; overflow elides with =\u2026= (width-driven, D2).
+  - =\u2302 <origin>= \u2014 flush-right, always whole (D2).
+- *One* flex gap, between the title and the right cluster \u2014 the normal
+  "name \u2026\u2026 metadata" rhythm of a file listing, NOT a wall of pills.
+
+*Why this avoids both failures:* the date is now PART of the right
+cluster (not left-attached, so no round-6 split); the cluster is quiet
+de-boxed text (not round-5 pills); tags are capped (not a column of 4\u20135);
+and the title has clean trailing space (not buried).
+
+** Shrink priority (narrow widths, D2-consistent)
+Keep =\u2302 origin= and =[date]= always (identity + decision); then drop tags
+toward =\u2026=; then, last, truncate the *title* with =\u2026=.  The title is
+prominent but yields last, only when the minimal cluster won't fit.
+
+** R10-date \u2014 readable date  [gui pill + text fallback]
+GUI: render the date as an *svg-tag-style pill* (rougier svg-tag-mode
+trick) \u2014 a rounded rectangle drawn as an SVG image via a =display=
+property, coloured by the date's *semantic* face (overdue=critical,
+deadline=popout, scheduled=salient, neutral=faded).  The pill gives the
+date crisp readable weight without a text =:box= rectangle.
+- =[gui]= the SVG =display= property is *not* in buffer text \u2014 the byte
+  gate sees the *text fallback*: the same humanised date string
+  (=Today=, =Tue 17 Jun=, =OVERDUE 3d=) propertized with the semantic date
+  face.  Fixtures assert the text; the pill is a GUI overlay.
+- defcustom =org-air-date-style= ('pill on GUI when svg available, else
+  'text).  No hard dep on svg-tag-mode; degrade to coloured text.
+- The pill's colour = the semantic date face's foreground; on TTY/batch
+  it is exactly today's coloured date text \u2192 byte-identical to current,
+  so the *text* is unchanged and only the GUI gains the pill.
+
+*Byte note:* the cluster *reordering/cap* (tags \u2264 2, date joins the
+right cluster) changes item-row bytes \u2192 *regen*.  The svg pill itself is
+=[gui]= non-byte.
+
+* R7 \u2014 Today = background highlight, drop the glyph  [face + byte]
+Replace the =\u25a0= today marker with a *filled background* on the today
+cell \u2014 so obvious that the legend needs no "today" entry.
+- =[face]= =org-air-face-calendar-today= gains a =:background= (clear
+  today highlight) + bold; drop the underline (the fill is the cue); TTY
+  falls back to =:inverse-video=.  Applied to =org-air-faces.el= now.
+- =[byte]= the today *cell* no longer prints the =\u25a0= marker \u2014 it is the
+  day number on the highlight (=15\u25a0= \u2192 =15= on a filled cell) \u2192 regen.
+- =[byte]= the legend drops its today token: =\u25c6due \u25cfsched \u00b7created= (wide)
+  / =\u25c6due \u25cfsched= (narrow) \u2014 \u2192 regen.
+
+* R8 \u2014 Calendar starts Sunday  [byte]
+Flip the default: =org-air-calendar-week-start= defaults to *0 (Sunday)*;
+weekday header becomes =Su Mo Tu We Th Fr Sa= and the grid re-lays from
+Sunday.  The existing week-start machinery already supports this \u2014 only
+the default changes (users can set 1 for Monday).  =[byte]= header + grid
+columns shift \u2192 regen.
+
+* R4 \u2014 Remove the bottom footer band; hints live in the rail  [byte + height]
+Drop the bottom =[c]apture [g]refresh \u2026= legend band and its rule
+entirely.  The verbs already live in the rail; *expand* the rail hint
+block to carry the full set so nothing is lost:
+#+begin_example
+  c capture · / filter · s scope
+  g refresh · TAB expand · ? help
+#+end_example
+(two quiet =org-air-face-faded= lines at the foot of the rail; the narrow
+top-band keeps a single condensed line).
+- =[byte + height]= removing the footer drops ~2 rows; the full-height
+  fill now extends to the last usable row (ties to R2: usable rows =
+  =window-body-height= \u2212 mode-line, no trailing overflow) \u2192 regen.
+- defcustom =org-air-show-footer= defaults to *nil* (the band is gone;
+  kept as an opt-in for anyone who wants it back).
+
+* R6 \u2014 Single-day focus view  [interaction + byte; new view]
+Clicking or keying a calendar day focuses it and shows *that day's
+items*.
+
+** Entry
+- Each calendar day cell carries =mouse-face= (=org-air-face-calendar-
+  selected=) + a keymap: =mouse-1= / =RET= on a day \u2192 =org-air-view-day=
+  for that date.  =n/p= (or arrows) move the selected day; the selected
+  cell uses =org-air-face-calendar-selected= (subtle band).
+- A board-level key (=d= is taken by deadline; use =RET= on the calendar,
+  or =.= already recenters \u2014 bind =f= "focus day" or reuse =RET= on a
+  cell) opens the day view for the selected day.
+
+** Layout (best for ONE day)
+Keep the two-pane frame (calendar rail stays, the focused day highlighted
+via =-calendar-selected=), and the *item pane* becomes the day view:
+#+begin_example
+  ‹  Tuesday 17 June 2026  ›                      3 items
+
+  Deadline
+      TODO [#A] Ship the quarterly board report        #work  ⌂ work.org
+  Scheduled
+      TODO Prep the client demo deck                   #work  ⌂ work.org
+  Logged / created
+      Idea: weekly review automation                   #inbox ⌂ inbox.org
+#+end_example
+- A day header =‹ Weekday D Month YYYY ›= (=org-air-face-day-header=, new)
+  with prev/next-day affordances; =N items= count right-aligned.
+- Items grouped by their relation to *that day*: *Deadline* (due that
+  day) \u2192 *Scheduled* (scheduled that day) \u2192 *Logged/created* (created/
+  activity that day).  Empty groups omitted; an empty day shows
+  =Nothing on this day.= (=org-air-face-empty=).
+- The item line is the *same* R10 line (title left, quiet right cluster)
+  minus the now-redundant date (the whole view IS one date) \u2014 so the
+  right cluster is just =<\u2264N tags>  \u2302 origin=.
+- *Nav:* =\u2039/\u203a= or =n/p= move to the adjacent day (re-querying); =RET=
+  visits the item; =q= / =g= returns to the full board (restores the prior
+  view).  The rail calendar follows the selected day.
+- This is a *scoped* render (a new =org-air-view--scope= variant
+  =(:day DATE)=), reusing the existing classify/query + the R10 item
+  line; =[byte]= new view but it composes from existing primitives.
+
+** Faces
+- New =org-air-face-day-header= (=:inherit org-air-face-strong=) for the
+  day title.  =-calendar-selected= (exists) marks the focused day.
+
+* R9 (note) \u2014 header clip is the S7 W-1 reserve, live-width
+Not my lead item, but: the truncated =33 items= is the S7 contract not
+holding at the live demo width (the displaying window's
+=window-body-width= must be used and the status reserved to =W-1=).  Defer
+to impl2 (live-width/U1); the spec already mandates W-1 (S7).
+
+* Faces added/changed this round (=org-air-faces.el=, face-only)
+=org-air-face-calendar-today= gains a today-highlight background (R7);
+new =org-air-face-day-header= (R6).  Verified =facep=, strict byte-compile
+clean, gate green; the *byte* items (R10 cluster/cap, R7 glyph+legend,
+R8 Sunday, R4 footer removal, R6 day view) are flagged for impl2 + a
+fixture regen, and the svg date pill is =[gui]= non-byte with a text
+fallback.
+
+* Routing
+- impl2: R10 right-cluster placement + tag cap + svg date pill (text
+  fallback); R7 today-cell render (drop glyph, apply bg) + legend; R8
+  week-start default; R4 footer removal + rail-hint expansion + R2 height;
+  R6 day view + calendar cell keymaps.  Bugs R2/R3/R5/R9.
+- test: regen the sized fixtures after R7/R8/R4/R10 land together (one
+  regen); the svg pill and today bg are non-byte / face.
+
+* History
+- 2026-06-14: Authored round-7 visual/interaction design.  R10 readability
+  balance (title left & clean, quiet right metadata cluster, capped tags,
+  svg date pill GUI + text fallback); R7 today background (drop \u25a0, legend
+  loses today); R8 Sunday-first default; R4 remove footer band, expand
+  rail hints; R6 single-day focus view (grouped by deadline/scheduled/
+  created, day-nav, scoped render).  Added the face-only bits (today bg,
+  day-header) to =org-air-faces.el=; flagged byte/gui per item.  Set
+  =#+state: ready=.

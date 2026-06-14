@@ -45,8 +45,8 @@ never clips the Sunday column.  An integer 3 or 4 forces that cell width."
            4
          3))))
 
-(defcustom org-air-calendar-week-start 1
-  "First day of week for the org-air calendar.
+(defcustom org-air-calendar-week-start 0
+  "First day of week for the org-air calendar (R8: default Sunday).
 0 means Sunday, 1 means Monday."
   :type '(choice (const :tag "Sunday" 0) (const :tag "Monday" 1))
   :group 'org-air)
@@ -101,6 +101,15 @@ so a day carrying both reads as a deadline."
     ('created (cons (org-air-calendar--glyph "·" ".")
                     'org-air-face-calendar-created))
     (_ nil)))
+
+(declare-function org-air-view-day "org-air-view")
+
+(defvar org-air-calendar-day-keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'org-air-view-day)
+    (define-key map [mouse-1] #'org-air-view-day)
+    map)
+  "Keymap active on a calendar day cell to focus its single-day view (R6).")
 
 (defun org-air-calendar--glyph (gui tty)
   "Return GUI glyph or TTY fallback."
@@ -173,12 +182,15 @@ width (3 vs 4 columns) when `org-air-calendar-day-spacing' is `auto'."
                     (mark (cdr mark))
                     (weekend 'org-air-face-calendar-weekend)
                     (t 'org-air-face-calendar-day))))
-        (insert (propertize (format "%2d" day) 'face face))
-        (insert (cond
-                 (todayp (propertize (org-air-calendar--glyph "■" "#")
-                                     'face 'org-air-face-calendar-today))
-                 (mark (propertize (car mark) 'face (cdr mark)))
-                 (t " "))
+        ;; R6: each day cell carries its date + a click/RET keymap so it
+        ;; can be focused into the single-day view.
+        (insert (propertize (format "%2d" day)
+                            'face face
+                            'org-air-day (encode-time 0 0 0 day month year)
+                            'mouse-face 'org-air-face-calendar-selected
+                            'keymap org-air-calendar-day-keymap))
+        ;; R7: today is a filled background on the day number — no ■ glyph.
+        (insert (if mark (propertize (car mark) 'face (cdr mark)) " ")
                 gap)
         (when (= (org-air-calendar--column calendar-dow) 6)
           (insert "\n")))
@@ -197,18 +209,18 @@ width (3 vs 4 columns) when `org-air-calendar-day-spacing' is `auto'."
           (propertize word 'face 'org-air-face-calendar-legend)))
 
 (defun org-air-calendar--legend (wide)
-  "Return the single-line calendar legend; WIDE names `created' too (T3b)."
+  "Return the single-line calendar legend; WIDE names `created' too (T3b).
+R7: today no longer appears in the legend — the filled today cell is its
+own unmistakable cue."
   (let ((due (org-air-calendar--legend-entry
               "◆" "!" 'org-air-face-calendar-deadline "due"))
         (sched (org-air-calendar--legend-entry
                 "●" "o" 'org-air-face-calendar-scheduled "sched"))
         (created (org-air-calendar--legend-entry
-                  "·" "." 'org-air-face-calendar-created "created"))
-        (today (org-air-calendar--legend-entry
-                "■" "#" 'org-air-face-calendar-today "today")))
+                  "·" "." 'org-air-face-calendar-created "created")))
     (if wide
-        (string-join (list due sched created today) " ")
-      (string-join (list due sched today) " "))))
+        (string-join (list due sched created) " ")
+      (string-join (list due sched) " "))))
 
 (provide 'org-air-calendar)
 

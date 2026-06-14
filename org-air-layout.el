@@ -119,9 +119,26 @@ height.  Falls back to the selected window, then a sane default."
                      (and (eq buffer (window-buffer (selected-window)))
                           (selected-window)))))
     (cond
-     ((window-live-p window) (window-body-height window))
-     ((window-live-p (selected-window)) (window-body-height (selected-window)))
+     ((window-live-p window) (org-air-layout--usable-rows window))
+     ((window-live-p (selected-window))
+      (org-air-layout--usable-rows (selected-window)))
      (t 24))))
+
+(defun org-air-layout--usable-rows (window)
+  "Return the number of FULL text rows usable in WINDOW (R2).
+Derived by flooring the body pixel height by the line pixel height
+\(font height plus `line-spacing'), so a fractional final row — which
+`window-body-height' rounds into its count but which cannot actually
+hold a complete line above the mode-line — never causes a one-row
+overflow.  Falls back to `window-body-height' when pixels are
+unavailable (e.g. a TTY/batch frame)."
+  (let* ((px (ignore-errors (window-body-height window t)))
+         (lh (with-selected-window window
+               (+ (frame-char-height (window-frame window))
+                  (if (numberp line-spacing) line-spacing 0)))))
+    (if (and (integerp px) (integerp lh) (> lh 0))
+        (max 1 (/ px lh))
+      (window-body-height window))))
 
 (defun org-air-layout-current-width (&optional buffer)
   "Return the column width of the window actually displaying BUFFER.

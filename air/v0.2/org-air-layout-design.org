@@ -792,6 +792,16 @@ are inherited unchanged.
   80/120/160 byte-for-byte (MATCH ×3).  (The NEW F5 project-view family
   is in air/v0.4 — state view blessed, dir/tag grouping fixtures disputed
   pending impl.)  Gate 156/156.
+- 2026-06-14: F5 DISPUTE RESOLVED (final pass, impl2 =yxvztrsy=, fixtures
+  =rrymmxtwns=).  The dir/tag fallback was a command-rename mismatch
+  (=group-{state,directory,tag}= → =group-by-*=); fixed.  The three
+  project-view groupings are now genuinely distinct and blessed:
+  =project-view-dir.txt= (directory boxes + per-state summaries + per-doc
+  state column, =(+N)= nesting), =project-view-tag.txt= (=#tag= boxes
+  likewise), =project-view-state.txt= (state boxes, count spacing aligned
+  =[D] Draft   (2)=) — all with the [W] Work In Progress badge, matching
+  airctl =-a/-Da/-Ta=.  V6 GTD fixtures unchanged.  Gate 156/156.  Round-8
+  feature integration cleared.
 
 * References
 - air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).

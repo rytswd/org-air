@@ -110,11 +110,15 @@ reference.
 directories vs tags), per airctl-status-{a,Da,Ta}: in -Da each top box
 is a directory with a per-state count summary (docs show their state
 badge); in -Ta each top box is a #tag, likewise.
-*Round-8 regen DISPUTE:* the shipped =project-view-dir.txt= and
-=project-view-tag.txt= are BYTE-IDENTICAL to =project-view-state.txt= —
--Da/-Ta are not yet implemented (both fall back to the state tree).  The
-STATE view is correct (blessed); the dir/tag views must be re-rendered
-to group by directory / tag before those two fixtures are blessed.
+*Round-8 RESOLVED (final F5 pass):* the earlier dir/tag fallback was a
+command-name mismatch — impl2 renamed =org-air-project-group-{state,
+directory,tag}= to =-group-by-*=, so the old names were unbound and all
+three defaulted to state.  Fixed; the three groupings are now GENUINELY
+DISTINCT and blessed (=project-view-{state,dir,tag}.txt= @ =rrymmxtwns=):
+-Da top boxes = directories with per-state summaries + a per-doc state
+column; -Ta top boxes = =#tags= likewise; -a state boxes with the count
+spacing aligned (=[D] Draft   (2)=).  All carry the [W] Work In Progress
+badge.  These three fixture files are the byte authority for F5.
 
 ** F5d \u2014 Render (box-tree, byte-testable)  [byte]
 The tree is buffer TEXT \u2192 fully byte-testable.  Structure per the

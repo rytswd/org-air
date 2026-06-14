@@ -1,0 +1,58 @@
+#+title: org-air v0.4 round-9: layout robustness + svg refinement + Denote
+#+state: work-in-progress
+#+FILETAGS: :ui:visual:bugs:
+
+* Summary
+Round-9 from screenshots: full-width board (8a) is OK, but the SPLIT
+view (8b, org-air at half width with a file open) is BADLY BROKEN —
+columns + svg pills overflow, calendar overlaps origins, titles render
+huge. Plus svg-pill refinement, subtler calendar, Denote filenames, and
+a scope-reset question.
+
+* Findings
+** C1 [CRIT/regression] Layout breaks when the window narrows / splits
+8b: opening a file split the window; org-air at ~half width kept the
+fixed-width columns computed for full width → date/tag/origin overflow,
+the calendar pane overlaps the origin column, everything misaligns.
+The view MUST recompute and re-render to the ACTUAL displaying-window
+width on split/resize, never overflow. This is the #1 fix (opening a
+file is constant).
+** C2 [CRIT] SVG pills break V6 column alignment
+With svg tag/date pills ON, the pills' pixel widths don't match the
+underlying text-cell widths, so V6's column alignment falls apart
+(visible even at full width, catastrophic when narrow). Contract: each
+pill SVG must occupy EXACTLY its text cell's pixel box (char-width ×
+Ncols, recomputed on font/width change) so columns stay aligned at any
+width. If that can't be guaranteed, alignment must fall back to text.
+** C3 [BUG] text-scale / font re-fit produces inconsistent render
+8b shows some titles huge, others normal (user was mid text-scale-
+adjust). The R6/T6 re-fit must re-render consistently (all elements at
+the new scale) and not leave mixed sizes / broken layout.
+** Q1 [question] How to reset scope to default?
+Answer in-product: ensure a clear, discoverable scope-reset. Currently
+S = scope-clear; verify it works and surface it (rail hint).
+** D1 [visual] SVG pill spacing is odd / looks bad
+Pills have uneven spacing and a plain-rectangle look. Refine: padding,
+shape (rounded), baseline, gap between pills.
+** D2 [visual] SVG should use more colour
+The pills are mostly outline/mono. Use the semantic/accent colours more
+(filled-tint or coloured text+border per tag hue / date semantics).
+** D3 [visual] SVG icon should look more modern / refined
+Rougier nano-* / svg-tag-mode refinement — modern rounded pills, good
+typography, crisp at the user's scale.
+** D4 [visual] Calendar colours are noisy → subtler
+The coloured dots (◆due/●sched/·created) read as noisy. Make subtler
+(quieter hues / smaller marks) while still distinguishing the three.
+** F1 [feature] Denote-style long filenames
+User wants Denote support. The origin column must handle long Denote
+names (e.g. 20260614T170000--my-note-title__tag1_tag2.org) gracefully —
+show the human title part, not the timestamp/tag machinery; truncate
+sensibly. Test fixtures with long filenames.
+
+* History
+- 2026-06-14: Seeded from round-9 screenshots (8a board, 8b split-broken).
+
+* References
+- /tmp/org-air-ace/user-screenshot-8a-board.png (full-width, OK-ish)
+- /tmp/org-air-ace/user-screenshot-8b-split-broken.png (split, BROKEN)
+- rougier svg-tag-mode / nano-*; Denote naming scheme

@@ -84,12 +84,14 @@
 ;;; Keybindings (design spec §9; names frozen there)
 
 (ert-deftest org-air-ux-keys-core ()
-  "RET visits, g refreshes, q quits — the core §9 bindings."
+  "RET visits, g refreshes, q quits — the core §9 bindings.
+Round-7 R6: q is `org-air-quit', which returns from the single-day view
+to the board, else quits the window."
   (skip-unless (locate-library "org-air"))
   (org-air-ux-test--with-dashboard
     (should (eq (key-binding (kbd "RET")) 'org-air-visit-item))
     (should (eq (key-binding (kbd "g")) 'org-air-refresh))
-    (should (eq (key-binding (kbd "q")) 'quit-window))))
+    (should (eq (key-binding (kbd "q")) 'org-air-quit))))
 
 (ert-deftest org-air-ux-keys-filter-spec-name ()
   "\"/\" is bound to `org-air-filter' (§9 frozen command name)."

@@ -1,5 +1,5 @@
 #+title: org-air v0.3 round-7: readability, calendar focus, interaction
-#+state: work-in-progress
+#+state: complete
 #+FILETAGS: :ui:ux:bugs:
 
 * Summary

@@ -291,29 +291,38 @@ spec'd set with non-empty string values."
   (if (>= width 120) 'wide 'narrow))
 
 (ert-deftest org-air-t3b-calendar-legend-per-tier ()
-  "The calendar legend is single-line and tier-dependent (tynxttsz,
-superseding the 2-line wrap): narrow (95-119 / stacked) reads
-\"◆due ●sched ■today\" — no `created' word, though · still marks the
-grid; wide (>=120) reads \"◆due ●sched ·created ■today\".  The opposite
-tier's full legend never appears.  Asserted on GUI and TTY glyph sets."
+  "The calendar legend is single-line and tier-dependent (tynxttsz +
+R7): narrow (95-119 / stacked) reads \"◆due ●sched\"; wide (>=120) reads
+\"◆due ●sched ·created\".  R7 drops the today token entirely (today is a
+background highlight, self-evident).  The wide tier names `created',
+the narrow tier does not.  Asserted on GUI and TTY glyph sets."
   (skip-unless (locate-library "org-air"))
   (dolist (which '(gui tty))
     (dolist (width '(100 119 120 160))
       (let* ((tier (org-air-t3b--legend-tier-for-width width))
              (this (org-air-viewport-test-calendar-legend-expected tier which))
-             (other (org-air-viewport-test-calendar-legend-expected
-                     (if (eq tier 'wide) 'narrow 'wide) which))
+             (created (let ((cell (cdr (assq 'created
+                                             org-air-viewport-test-calendar-mark-glyphs))))
+                        (concat (if (eq which 'tty) (cdr cell) (car cell))
+                                "created")))
+             (today-glyph (org-air-viewport-test--calendar-today-glyph which))
              (run (lambda ()
                     (org-air-viewport-test-with-dashboard width
                       (let ((text (buffer-string)))
                         (ert-info ((format "width %d (%s, %s): legend %S"
                                            width tier which this))
                           (should (string-match-p (regexp-quote this) text))
-                          ;; The other tier's COMPLETE legend must be absent
-                          ;; (narrow vs wide are mutually exclusive strings).
+                          ;; R7: the legend names no today token.
                           (should-not
-                           (string-match-p (regexp-quote other) text))))))))
-        ;; GUI uses ◆ ● · ■; --batch is a real TTY for the ! o . # path.
+                           (string-match-p
+                            (concat (regexp-quote today-glyph) "today") text))
+                          ;; Tier distinguisher: wide names `created',
+                          ;; narrow does not.
+                          (if (eq tier 'wide)
+                              (should (string-match-p (regexp-quote created) text))
+                            (should-not
+                             (string-match-p (regexp-quote created) text)))))))))
+        ;; GUI uses ◆ ● ·; --batch is a real TTY for the ! o . path.
         (if (eq which 'gui)
             (org-air-viewport-test-as-gui (funcall run))
           (funcall run))))))

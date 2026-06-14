@@ -44,13 +44,23 @@
   :type 'integer
   :group 'org-air)
 
-(defcustom org-air-tags-inline-max 3
+(defcustom org-air-date-style 'pill
+  "How the item-row date renders (R10).
+`pill' draws an svg-tag-style rounded pill on a graphical frame when SVG
+is available, degrading to coloured text; `text' is always coloured text.
+The byte gate only ever sees the coloured text (the pill is a GUI display
+property), so fixtures are unaffected by this choice."
+  :type '(choice (const pill) (const text))
+  :group 'org-air)
+
+(defcustom org-air-tags-inline-max 2
   "Maximum number of tag chips to render on an item line."
   :type 'integer
   :group 'org-air)
 
-(defcustom org-air-show-footer t
-  "Whether to show the footer key legend."
+(defcustom org-air-show-footer nil
+  "Whether to show the bottom footer key-legend band (R4: default nil).
+The verbs live in the rail hint block now; the footer band is opt-in."
   :type 'boolean
   :group 'org-air)
 
@@ -206,6 +216,8 @@ Unknown keywords fall back to `org-air-face-todo'."
 (defvar-local org-air-view--items-key nil)
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
+(defvar-local org-air-view--day nil
+  "When non-nil, an Emacs time focusing the single-day view (R6).")
 (defvar-local org-air-view--expanded-sections nil)
 (defvar-local org-air-view--line-width nil)
 (defvar-local org-air-view--rendered-width nil
@@ -236,6 +248,9 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "<mouse-1>") #'org-air-visit-item)
     (define-key map (kbd "n") #'org-air-next-item)
     (define-key map (kbd "p") #'org-air-prev-item)
+    ;; R3: vim-ish line navigation; j/k are NOT destructive.
+    (define-key map (kbd "j") #'org-air-next-line)
+    (define-key map (kbd "k") #'org-air-prev-line)
     ;; T2: TAB toggles expand/collapse of the section at point; section
     ;; MOTION lives on M-n/M-p (and M-TAB) so both verbs are reachable.
     (define-key map (kbd "TAB") #'org-air-toggle-section)
@@ -248,7 +263,10 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "c") #'org-air-capture)
     (define-key map (kbd "m") #'org-air-toggle-mark)
     ;; Triage disposition vocabulary (air/v0.2/org-air-triage.org).
-    (define-key map (kbd "s") #'org-air-item-schedule)
+    ;; R5: `s' is board SCOPE again (the user-facing mnemonic; the
+    ;; round-5 schedule-on-s remap is reverted).  Inline scheduling lives
+    ;; in the process-inbox flow.
+    (define-key map (kbd "s") #'org-air-scope)
     (define-key map (kbd "d") #'org-air-item-deadline)
     (define-key map (kbd "r") #'org-air-refile-item)
     (define-key map (kbd "f") #'org-air-item-file-group)
@@ -256,21 +274,22 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "T") #'org-air-item-cycle-todo)
     (define-key map (kbd "a") #'org-air-item-archive)
     (define-key map (kbd "D") #'org-air-item-done)
-    (define-key map (kbd "k") #'org-air-item-kill)
+    ;; R3: the kill/delete disposition moves OFF the motion key `k' onto
+    ;; the guarded `x' (it still confirms); `k' is now line-up.
+    (define-key map (kbd "x") #'org-air-item-kill)
     (define-key map (kbd "u") #'org-air-triage-undo)
     (define-key map (kbd "I") #'org-air-process-inbox)
     (define-key map (kbd "/") #'org-air-filter)
     (define-key map (kbd "\\") #'org-air-filter-clear)
     ;; Scope moves off the prime key so s = schedule (the triage verb).
-    (define-key map (kbd "S") #'org-air-scope)
-    (define-key map (kbd "M-s") #'org-air-scope-clear)
+    (define-key map (kbd "S") #'org-air-scope-clear)
     (define-key map (kbd "g") #'org-air-refresh)
     (define-key map (kbd "G") #'org-air-refresh-all)
     (define-key map (kbd "<") #'org-air-calendar-prev)
     (define-key map (kbd ">") #'org-air-calendar-next)
     (define-key map (kbd ".") #'org-air-calendar-today)
     (define-key map (kbd "?") #'org-air-help)
-    (define-key map (kbd "q") #'quit-window)
+    (define-key map (kbd "q") #'org-air-quit)
     map)
   "Keymap for `org-air-view-mode'.")
 
@@ -651,31 +670,32 @@ chip text and width are unchanged."
      ((> overflow 0) (string-trim (concat shown " " (org-air-view--glyph 'more))))
      (t shown))))
 
-(defun org-air-view--insert-item (item bucket)
-  "Insert ITEM as an interactive row in BUCKET.
-Composes one row that fits the pane width with an origin-protecting
-shrink order (D2): inline tags drop first (toward the overflow marker),
-then the title truncates with a floor of `org-air-title-min', and only
-last does the origin breadcrumb shrink — never below `org-air-origin-min'
-and always keeping its leading glyph.  The origin is the item's identity
-and RET target, so it is the last thing to give."
+(defun org-air-view--insert-item (item bucket &optional omit-date)
+  "Insert ITEM as an interactive row in BUCKET (R10 layout).
+The title owns the LEFT and stays clean; a single quiet right cluster
+holds the date (coloured text in its semantic face), up to
+`org-air-tags-inline-max' accent-text tags, and the flush-right origin.
+One flex gap separates the title from the cluster.  Shrink order keeps
+the origin and date, drops tags toward the ellipsis, and truncates the
+title LAST (D2).  OMIT-DATE drops the date (R6 day view)."
   (let* ((start (point))
          (width (org-air-view--render-width))
          (todo (org-air-item-todo item))
          (priority (org-air-view--priority-char item))
-         (date (org-air-view--date-label item bucket))
+         (date (unless omit-date (org-air-view--date-label item bucket)))
          ;; Triage nudge (ruling xsqrnoyn): a dated-but-unfiled Inbox row
-         ;; carries a quiet "· file with r" hint so the user knows that
-         ;; dating it did not file it out of Inbox.
-         (inbox-hint (and (eq bucket 'inbox)
+         ;; carries a quiet "· file with r" hint.
+         (inbox-hint (and (not omit-date) (eq bucket 'inbox)
                           (or (org-air-item-scheduled item)
                               (org-air-item-deadline item))
                           (propertize " · file with r" 'face 'org-air-face-faded)))
-         (date-str (concat (if date (concat "  " (car date)) "")
-                           (or inbox-hint "")))
+         ;; R10: the date is coloured TEXT in its semantic face (the GUI
+         ;; pill is a non-byte display overlay over this same text).
+         (date-text (when date
+                      (concat (propertize (car date)
+                                          'face (or (cdr date) 'org-air-face-date))
+                              (or inbox-hint ""))))
          (prefix (concat (org-air-view--item-margin)
-                         ;; T1a/T1b: colour the keyword and box the priority
-                         ;; cookie (face-only — the text is unchanged).
                          (when todo
                            (concat (propertize todo 'face
                                                (org-air-view--todo-face todo))
@@ -685,35 +705,35 @@ and RET target, so it is the last thing to give."
                                                (org-air-view--priority-face priority))
                                    " "))))
          (prefix-w (string-width prefix))
-         (date-w (string-width date-str))
          (title (org-air-item-title item))
          (tags (org-air-item-tags item))
          (n-tags (length tags))
+         (cap (min org-air-tags-inline-max n-tags))
          (origin-raw (concat (org-air-view--glyph 'origin) " "
                              (org-air-view--origin item)))
          (origin-w (string-width origin-raw))
          (gap 2)
-         ;; Stage 1 — tags shrink first: the largest chip count whose row
-         ;; still fits with the full title and full origin (else zero).
-         ;; V1b: tags now sit INLINE after the title+date (one space after
-         ;; the date), each in its accent text face; the origin is alone,
-         ;; flush-right, with a single flex gap before it.  Shrink order is
-         ;; unchanged (tags first -> +N, then title, then origin last).
-         (tag-k
-          (let ((k n-tags) (chosen 0) (done nil))
-            (while (and (>= k 0) (not done))
-              (let* ((ts (org-air-view--item-tagstr tags k n-tags))
-                     (tw (if (string-empty-p ts) 0 (+ 1 (string-width ts)))))
-                (if (<= (+ prefix-w (string-width title) date-w tw gap origin-w)
-                        width)
-                    (setq chosen k done t)
-                  (setq k (1- k)))))
-            chosen))
-         (tag-str (org-air-view--item-tagstr tags tag-k n-tags))
-         (tag-block (if (string-empty-p tag-str) "" (concat " " tag-str)))
-         (tag-block-w (string-width tag-block))
+         ;; meta = date + (space + ≤cap tags); cluster = meta + "  " + origin.
+         (meta-of (lambda (k)
+                    (let ((ts (org-air-view--item-tagstr tags k n-tags)))
+                      (concat (or date-text "")
+                              (if (and date-text (not (string-empty-p ts))) " " "")
+                              ts))))
+         (cluster-w (lambda (m)
+                      (+ (string-width m) (if (string-empty-p m) 0 2) origin-w)))
+         ;; Stage 1 — tags (capped) drop toward the ellipsis.
+         (tag-k (let ((k cap) (chosen 0) (done nil))
+                  (while (and (>= k 0) (not done))
+                    (if (<= (+ prefix-w (string-width title) gap
+                              (funcall cluster-w (funcall meta-of k)))
+                            width)
+                        (setq chosen k done t)
+                      (setq k (1- k))))
+                  chosen))
+         (meta (funcall meta-of tag-k))
+         (meta-w (string-width meta))
          ;; Stage 2 — title truncates next, floored at `org-air-title-min'.
-         (avail-title (- width prefix-w date-w tag-block-w gap origin-w))
+         (avail-title (- width prefix-w gap (funcall cluster-w meta)))
          (title (if (<= (string-width title) avail-title)
                     title
                   (truncate-string-to-width
@@ -721,15 +741,17 @@ and RET target, so it is the last thing to give."
                    (org-air-view--glyph 'more))))
          (title-w (string-width title))
          ;; Stage 3 — origin shrinks last, reserving `org-air-origin-min'.
-         (avail-origin (- width prefix-w title-w date-w tag-block-w gap))
+         (avail-origin (- width prefix-w title-w gap meta-w
+                          (if (string-empty-p meta) 0 2)))
          (origin-str (if (<= origin-w avail-origin)
                          origin-raw
                        (truncate-string-to-width
                         origin-raw (max org-air-origin-min (max 1 avail-origin))
                         nil nil (org-air-view--glyph 'more))))
          (origin-str (propertize origin-str 'face 'org-air-face-group))
-         (left (concat prefix title date-str tag-block))
-         (right origin-str)
+         (right (if (string-empty-p meta) origin-str
+                  (concat meta "  " origin-str)))
+         (left (concat prefix title))
          (pad (max gap (- width (string-width left) (string-width right))))
          (line (concat left (make-string pad ?\s) right)))
     (insert line "\n")
@@ -827,7 +849,8 @@ The order is stable so items sharing a date keep their incoming order."
         (tag-filter org-air-view--tag-filter)
         (scope org-air-view--scope)
         (expanded org-air-view--expanded-sections)
-        (cal-month org-air-view--cal-month))
+        (cal-month org-air-view--cal-month)
+        (day org-air-view--day))
     (with-temp-buffer
       (let ((org-air-view--line-width width)
             (org-air-view--items items)
@@ -835,7 +858,8 @@ The order is stable so items sharing a date keep their incoming order."
             (org-air-view--tag-filter tag-filter)
             (org-air-view--scope scope)
             (org-air-view--expanded-sections expanded)
-            (org-air-view--cal-month cal-month))
+            (org-air-view--cal-month cal-month)
+            (org-air-view--day day))
         (funcall render-fn)
         (org-air-view--string-lines (buffer-string) width)))))
 
@@ -961,11 +985,18 @@ under the other buckets."
     (org-air-view--insert-summary items width)
     (insert "\n")
     (org-air-view--insert-rail-filters width)
-    (insert "\n" (propertize (org-air-view--pad-to (if (< width 35)
-                                                       "c capture · / filter"
-                                                     "c capture · / filter · s scope")
-                                                   width)
-                              'face 'org-air-face-faded)
+    ;; R4: the full verb set lives in the rail now (footer band removed) —
+    ;; two quiet faded lines, ALWAYS (the single condensed line belongs to
+    ;; the stacked top-band, not the two-pane rail).  At a narrow rail the
+    ;; lines elide with … rather than dropping verbs.
+    (insert "\n"
+            (propertize (org-air-view--pad-to "c capture · / filter · s scope"
+                                              width)
+                        'face 'org-air-face-faded)
+            "\n"
+            (propertize (org-air-view--pad-to "g refresh · TAB expand · ? help"
+                                              width)
+                        'face 'org-air-face-faded)
             "\n")))
 
 (defun org-air-view--insert-top-rail (items width)
@@ -1002,8 +1033,62 @@ vertically, calendar first — always on-screen."
             (insert (org-air-view--pad-to line width) "\n"))
           (insert "\n"))))))
 
+(defun org-air-view--day-key (time)
+  "Return the YYYY-MM-DD key for TIME."
+  (format-time-string "%Y-%m-%d" time))
+
+(defun org-air-view--day-groups (items day)
+  "Return ((LABEL . ITEMS)...) grouping ITEMS by relation to DAY (R6)."
+  (let ((key (org-air-view--day-key day))
+        (deadline nil) (scheduled nil) (created nil))
+    (dolist (item (org-air-view--visible-items items))
+      (let ((d (org-air-view--timestamp-time (org-air-item-deadline item)))
+            (s (org-air-view--timestamp-time (org-air-item-scheduled item)))
+            (a (org-air-view--marker-timestamp-time item)))
+        (cond
+         ((and d (equal (org-air-view--day-key d) key)) (push item deadline))
+         ((and s (equal (org-air-view--day-key s) key)) (push item scheduled))
+         ((and a (equal (org-air-view--day-key a) key)) (push item created)))))
+    (list (cons "Deadline" (nreverse deadline))
+          (cons "Scheduled" (nreverse scheduled))
+          (cons "Logged / created" (nreverse created)))))
+
+(defun org-air-view--insert-day-pane (items width)
+  "Insert the single-day focus view (R6) of ITEMS, fitted to WIDTH.
+The day is `org-air-view--day'; its items are grouped Deadline >
+Scheduled > Logged/created and rendered with the R10 item line minus its
+now-redundant date."
+  (let* ((org-air-view--line-width width)
+         (day org-air-view--day)
+         (groups (org-air-view--day-groups items day))
+         (total (apply #'+ (mapcar (lambda (g) (length (cdr g))) groups))))
+    (insert (org-air-view--justify
+             (concat (org-air-view--margin)
+                     (propertize (format "%s  %s  %s"
+                                         (org-air-view--glyph 'cal-prev)
+                                         (format-time-string "%A %-d %B %Y" day)
+                                         (org-air-view--glyph 'cal-next))
+                                 'face 'org-air-face-day-header))
+             (propertize (format "%d items" total) 'face 'org-air-face-faded)
+             width)
+            "\n\n")
+    (dolist (g groups)
+      (when (cdr g)
+        (insert (org-air-view--margin)
+                (propertize (car g) 'face 'org-air-face-section) "\n")
+        (dolist (item (cdr g))
+          (org-air-view--insert-item item 'upcoming t))
+        (insert "\n")))
+    (when (zerop total)
+      (insert "\n" (org-air-view--item-margin)
+              (propertize "Nothing on this day." 'face 'org-air-face-empty)
+              "\n"))))
+
 (defun org-air-view--insert-item-pane (items width)
-  "Insert the item pane for ITEMS at WIDTH."
+  "Insert the item pane for ITEMS at WIDTH (or the day view when focused)."
+  (when org-air-view--day
+    (org-air-view--insert-day-pane items width))
+  (unless org-air-view--day
   (let ((org-air-view--line-width width)
         (visible (org-air-view--visible-items items))
         (first t))
@@ -1017,7 +1102,7 @@ vertically, calendar first — always on-screen."
       (insert "\n" (org-air-view--item-margin)
               (propertize "Nothing here yet. Press c to capture your first note."
                           'face 'org-air-face-empty)
-              "\n"))))
+              "\n")))))
 
 (defun org-air-view--indent-pane-lines (lines width)
   "Return LINES with the standard margin inside WIDTH."
@@ -1157,11 +1242,15 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
                       (org-air-view--insert-banner items)
                       (org-air-view--insert-rule)
                       (insert "\n"))))
-           (footer (org-air-view--render-lines
-                    width
-                    (lambda ()
-                      (org-air-view--insert-rule)
-                      (org-air-view--insert-footer))))
+           ;; R4: with the footer band off (default), there is no bottom
+           ;; rule/legend at all — the body fills to the last usable row.
+           (footer (if org-air-show-footer
+                       (org-air-view--render-lines
+                        width
+                        (lambda ()
+                          (org-air-view--insert-rule)
+                          (org-air-view--insert-footer)))
+                     nil))
            (fill-row "")
            (body-content
             (if (eq org-air-view--orientation 'two-pane)
@@ -1387,6 +1476,18 @@ filters are preserved by `org-air-refresh'."
   (interactive)
   (setq org-air-view--scope nil)
   (org-air-view--render-current))
+
+(defun org-air-next-line ()
+  "Move point down one line, landing on its first visible char (R3, vim j)."
+  (interactive)
+  (forward-line 1)
+  (org-air-view--beginning-of-visible))
+
+(defun org-air-prev-line ()
+  "Move point up one line, landing on its first visible char (R3, vim k)."
+  (interactive)
+  (forward-line -1)
+  (org-air-view--beginning-of-visible))
 
 (defun org-air-next-item ()
   "Move point to the next item row."
@@ -1712,18 +1813,51 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
     (encode-time 0 0 0 1 month year)))
 
 (defun org-air-calendar-prev ()
-  "Page the persistent org-air calendar to the previous month."
+  "Page to the previous month, or the previous day in the day view (R6)."
   (interactive)
-  (setq org-air-view--cal-month
-        (org-air-view--calendar-month-time org-air-view--cal-month -1))
-  (org-air-view--render-current))
+  (if org-air-view--day
+      (org-air-view-day (time-subtract org-air-view--day (days-to-time 1)))
+    (setq org-air-view--cal-month
+          (org-air-view--calendar-month-time org-air-view--cal-month -1))
+    (org-air-view--render-current)))
 
 (defun org-air-calendar-next ()
-  "Page the persistent org-air calendar to the next month."
+  "Page to the next month, or the next day in the day view (R6)."
   (interactive)
-  (setq org-air-view--cal-month
-        (org-air-view--calendar-month-time org-air-view--cal-month 1))
-  (org-air-view--render-current))
+  (if org-air-view--day
+      (org-air-view-day (time-add org-air-view--day (days-to-time 1)))
+    (setq org-air-view--cal-month
+          (org-air-view--calendar-month-time org-air-view--cal-month 1))
+    (org-air-view--render-current)))
+
+;;;###autoload
+(defun org-air-view-day (&optional date)
+  "Focus the single-day view (R6) on DATE, the calendar day at point, or today.
+The item pane becomes that day's items grouped Deadline / Scheduled /
+Logged.  `q' or `g' returns to the full board; `<'/`>' move to the
+adjacent day; the rail calendar re-centres on the focused month."
+  (interactive)
+  (let ((day (or date
+                 (get-text-property (point) 'org-air-day)
+                 org-air-view--day
+                 (current-time))))
+    (setq org-air-view--day day
+          org-air-view--cal-month day)
+    (org-air-view--render-current)))
+
+(defun org-air-view-board ()
+  "Leave the single-day view and return to the full board (R6)."
+  (interactive)
+  (when org-air-view--day
+    (setq org-air-view--day nil)
+    (org-air-view--render-current)))
+
+(defun org-air-quit ()
+  "Return to the full board from the single-day view, else quit the window."
+  (interactive)
+  (if org-air-view--day
+      (org-air-view-board)
+    (quit-window)))
 
 (defun org-air-calendar-today ()
   "Recenter the persistent org-air calendar on today."

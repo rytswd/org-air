@@ -1,0 +1,57 @@
+#+title: org-air v0.4 round-8: Air-project mode, svg tags, alignment, key map, bugs
+#+state: work-in-progress
+#+FILETAGS: :ui:ux:feature:bugs:
+
+* Summary
+Round-8 from the user (screenshot /tmp/org-air-ace/user-screenshot-7.png).
+Two critical bugs, a key-map refinement, two visual upgrades, and a big
+new feature: org-air should support Air-docs PROJECTS rendered like
+airctl status (tree by state / directory / tag).
+
+* Findings
+** B1 [CRIT/bug] TAB on a non-header item HANGS the UI
+TAB on a random item line hangs Emacs. Must never hang. Desired TAB:
+on a section HEADER, toggle expand/collapse AND KEEP POINT ON THE
+HEADER (do not jump to the first item — user wants to collapse again
+immediately). Prefer the simplest TAB: header-only toggle, point
+stays. On non-header lines TAB must be safe (no-op or move to next
+header) — never hang.
+** B2 [BUG] org-air-return loses point, jumps to top
+Returning to the dashboard puts point at the top instead of the
+originating item. Restore point to the item RET was invoked from.
+** B4 [keys] g-prefix map: g r refresh, g g top, G bottom
+Rework: "g r" = refresh, "g g" = top of pane, "G" = bottom of pane
+(vim/evil-style g-prefix). Update the rail hint accordingly.
+** V3 [visual] SVG tags (Rougier nano-* / svg-tag-mode style)
+The user wants real SVG tag pills like rougier's nano packages /
+svg-tag-mode — a much more modern look. Apply to tags (and tie in the
+date pill from R10). GUI-only via svg; clean TEXT fallback for TTY/
+batch (gate sees the fallback). Soft dependency, no hard svg require.
+** F5 [FEATURE] Air-docs project support + configurable sources
+(a) An easy way to define where org-air looks for docs (sources /
+project roots config — defcustom, simple to set).
+(b) Support Air-docs PROJECTS rendered DIFFERENTLY — like airctl
+status. Reference outputs captured:
+  /tmp/org-air-ace/airctl-status-a.txt  (group by STATE)
+  /tmp/org-air-ace/airctl-status-Da.txt (group by DIRECTORY)
+  /tmp/org-air-ace/airctl-status-Ta.txt (group by TAG)
+Box-drawing tree (┌─ │ ├─ └─), state-emoji badges (📝 Draft / 🎯 Ready
+/ ✅ Complete / 🗑️ Dropped), version/folder nesting, doc name + ↻ date
++ #tags, aggregate counts with (+N) roll-ups. Design how an Air
+project renders as an org-air view (separate command/mode/scope), and
+how org-air detects an Air project (air-config.toml / ./air dir).
+** V6 [visual] Vertical alignment of date/overdue/today info
+Currently the date token (OVERDUE Nd / no date / Today / Tomorrow /
+Fri) right-aligns as part of the cluster, so it does not line up
+column-wise down the list. The user wants the date info to ALIGN
+VERTICALLY (a fixed date column) so it reads cleanly down all items.
+Likely: a fixed-width left-justified date column within the right
+cluster, tags then origin after.
+
+* History
+- 2026-06-14: Seeded from round-8 feedback + airctl status reference.
+
+* References
+- /tmp/org-air-ace/airctl-status-{a,Da,Ta}.txt  (Air project render target)
+- rougier svg-tag-mode / nano-* (svg tag pills)
+- /tmp/org-air-ace/user-screenshot-7.png

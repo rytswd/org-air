@@ -306,6 +306,25 @@ dead-face / sign-inversion bugs in prior rounds — render the integrated
 rail, never the face artifact alone.)
 
 * History
+- 2026-06-15: RULING on impl =rskvknsz= (flush-col-0 rules) — *rskvknsz
+  is CORRECT per this spec; ship it, drop the margin-inset render.*  The
+  question: should the rail's labelled RULES (=╶─= caps, =────= ledger,
+  the section rule lines) sit flush at *rail col 0* (full-width
+  separators, content indented on the spine) or be inset with the
+  content?  D5b is unambiguous: “labelled rules still start at col 0 so
+  the rule reaches the full rail width.  The inset is *content only*.”
+  =rskvknsz= drops the redundant outer =org-air-margin= the rail was
+  carrying so the rules render at the full =rail-width= from col 0 (with
+  the divider's own 1-space gutter — =│ ╶─ Summary …=, not cramped) while
+  the content keeps the =org-air-rail-content-inset= spine.  The version
+  I blessed in =vxmtqvqm= had the margin pushing *both* rules and content
+  right (rule at rail col 2, not 0), so the rules were *not* full-width —
+  a deviation from this spec I missed during the first bless.  Full-width
+  section rules with indented content is the intended rougier-nano look
+  and is what D5b always specified, so =rskvknsz='s “correctness fix” is
+  ratified.  Re-bless the rule-position delta after test regenerates on
+  =rskvknsz= (only the rail rules' left edge / right extent moves; caps,
+  legend spacing, ledger, spine content, rail-key faces all unchanged).
 - 2026-06-15: Re-bless ratification.  Verified the regenerated rail
   (impl =ysvynsyl=, test tip =vxmtqvqm=) against this spec via the
   frozen-clock *integrated* render face-run dump + the regenerated

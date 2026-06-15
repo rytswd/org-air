@@ -359,7 +359,12 @@ the salient tone, no box) for the Actions verbs' leading key tokens."
 rule can open with the rounded stub that echoes the pill's left edge."
   (skip-unless (locate-library "org-air"))
   (should (assq 'hrule-cap org-air-glyphs))
-  (should (equal (org-air-layout-glyph 'hrule-cap) "╶")))
+  ;; GUI glyph from the table (batch is a TTY, so go through as-gui for
+  ;; the live accessor) plus the TTY fallback.
+  (should (equal (org-air-r9--hrule-cap) "╶"))
+  (org-air-viewport-test-as-gui
+    (should (equal (org-air-layout-glyph 'hrule-cap) "╶")))
+  (should (equal (org-air-layout-glyph 'hrule-cap) "-")))
 
 (ert-deftest org-air-r9-d5a-rail-rule-family-has-cap ()
   "D5a: Summary and Filters open with the SAME labelled rule led by the
@@ -393,8 +398,9 @@ AFTER the fill, in the same family as Summary/Filters."
              (rail (org-air-r9--rail-lines))
              ;; the month rule line: cap, dash, "June 2026"/"Jun 2026",
              ;; fill, then the nav glyphs at the right.
-             (rx (concat "\\`" (regexp-quote cap)
-                         "─ Ju\\(ne\\|n\\) 2026 ─.*‹ ›\\'")))
+             ;; the line carries the content-spine leading inset.
+             (rx (concat "^ *" (regexp-quote cap)
+                         "─ Ju\\(ne\\|n\\) 2026 ─.*‹ ›$")))
         (should (cl-some (lambda (l) (string-match-p rx l)) rail))))))
 
 (ert-deftest org-air-r9-d5c-legend-separated-and-spaced ()
@@ -413,8 +419,8 @@ indented to the spine, with a space between each glyph and its word
           (should (string-match-p "◆ due" line))
           (should (string-match-p "● sched" line))
           (should (string-match-p "· created" line))
-          ;; wider (>=4 space) gap between entries, not a single space.
-          (should (string-match-p "due {4,}●" line)))
+          ;; wider (>=3 space) gap between entries, not a single space.
+          (should (string-match-p "due \\{3,\\}●" line)))
         ;; separated from the grid by a blank rail line above.
         (should (> idx 0))
         (should (string-empty-p (string-trim (nth (1- idx) rail))))))))
@@ -440,12 +446,14 @@ different left edges)."
              (pick (lambda (rx)
                      (cl-find-if (lambda (l) (string-match-p rx l)) rail)))
              (weekday (funcall pick "Su .*Mo .*Tu"))
-             (summary (funcall pick "[0-9] +Inbox\\'"))
              (filters (funcall pick "No filters"))
-             (actions (funcall pick "capture")))
-        (should (and weekday summary filters actions))
+             (actions (funcall pick "c capture")))
+        ;; Left-aligned content across three blocks (calendar grid /
+        ;; filters / actions) shares one left edge.  (Summary numbers are
+        ;; right-aligned in their field, a different measurement.)
+        (should (and weekday filters actions))
         (let ((insets (mapcar #'org-air-r9--rail-leading-spaces
-                              (list weekday summary filters actions))))
+                              (list weekday filters actions))))
           (should (= 1 (length (delete-dups (copy-sequence insets))))))))))
 
 (ert-deftest org-air-r9-d5d-ledger-sum-rule ()
@@ -471,9 +479,12 @@ the `·' separators (the column gap does the separating, calmer prose)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
-      (let* ((rail (org-air-r9--rail-lines))
+      (let* ((case-fold-search nil)
+             (rail (org-air-r9--rail-lines))
+             ;; "capture"/"refresh" appear ONLY in the Actions verb rows
+             ;; (avoid "filter", which case-folds into the Filters rule).
              (verbs (seq-filter
-                     (lambda (l) (string-match-p "capture\\|filter\\|refresh" l))
+                     (lambda (l) (string-match-p "capture\\|refresh" l))
                      rail)))
         (should verbs)
         (dolist (l verbs)

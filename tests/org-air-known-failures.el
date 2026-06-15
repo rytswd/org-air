@@ -103,29 +103,19 @@
     ;; -tag regenerated to the distinct trees; state-view + V6 dashboard
     ;; stay blessed.
     ;;
-    ;; v0.4 ROUND-9 grind punch list (design ymroopnp — delete each as
-    ;; impl2 lands the fix):
-    ;;  F1 Denote origin (strip the id/__tag/.org machinery, show the
-    ;;     title slug) — needs `org-air-origin-style' (default `auto') and
-    ;;     a Denote-aware `org-air-view--origin'.
-    (org-air-r9-f1-origin-style-defcustom
-     . "F1: org-air-origin-style defcustom (auto Denote-aware) not added yet")
-    (org-air-r9-f1-denote-origin-shows-title-slug
-     . "F1: org-air-view--origin does not yet strip Denote id/tag/.org to the title slug")
-    (org-air-r9-f1-denote-origin-rendered-and-truncates
-     . "F1: rendered origin still shows the raw Denote filename, not the de-slugged title")
-    ;;  Q1 scope-reset discoverability — rail must surface an `S clears'/
-    ;;     `S reset' cue when a scope is active (S already fires; the
-    ;;     org-air-r9-q1-S-clears-active-scope guard passes).
-    (org-air-r9-q1-rail-advertises-scope-reset
-     . "Q1: rail does not yet advertise the scope-reset (S clears/S reset) cue")
+    ;; v0.4 ROUND-9 C1-Q1 closeout (impl sxyxrpzk, verified on impl's
+    ;; tip): all C1/C2/C3 guards pass and F1 (×3) + Q1 scope-reset closed
+    ;; — impl landed `org-air-origin-style' (auto Denote-aware), the
+    ;; Denote-aware `org-air-view--origin' (strip id/__tag/.org), and the
+    ;; rail `(S clears)' scope-reset hint; the D5 `org-air-face-rail-key'
+    ;; face also landed via design utwrpzmx.  Five manifest entries
+    ;; deleted here as passed-unexpectedly.
     ;;
     ;; v0.4 ROUND-9 D5 grind punch list (design utwrpzmx,
     ;; air/v0.4/org-air-round9-design-d5.org — sidebar/context-rail
-    ;; refinement; delete each as the D5 face/glyph + impl byte parts
-    ;; integrate):
-    (org-air-r9-d5-rail-key-face-defined
-     . "D5f: org-air-face-rail-key (keycap face) not added yet")
+    ;; refinement, byte rail; impl is landing it now).  The rail-key FACE
+    ;; landed, but it is not yet APPLIED and the byte rail structure is
+    ;; still the round-8 rail — delete each as the D5 byte parts land:
     (org-air-r9-d5-hrule-cap-glyph-defined
      . "D5a: hrule-cap glyph (╶ . -) not registered in org-air-glyphs yet")
     (org-air-r9-d5a-rail-rule-family-has-cap

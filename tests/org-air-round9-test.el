@@ -301,19 +301,20 @@ the full board."
 
 (ert-deftest org-air-r9-q1-rail-advertises-scope-reset ()
   "Q1: the scope reset is discoverable.  When a scope is active the rail
-surfaces a reset cue tying the S key to clearing scope (design: the
-Filters block shows `Scope: <name>  (S clears)' and the rail hint adds
-`S reset')."
+surfaces the reset cue in BOTH places the design/impl specify: the
+Filters block shows the literal `Scope: <name>  (S clears)' (D5e) and the
+Actions block surfaces the literal `S reset' cue (impl qqpuoqlv, swapping
+in for `TAB expand' while scoped)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
       (setq org-air-view--scope '(:tag "work"))
       (org-air-view--render-current)
       (let ((text (substring-no-properties (buffer-string))))
-        ;; the active scope is shown,
-        (should (string-match-p "Scope: #work" text))
-        ;; and a discoverable S-clears-scope cue is present.
-        (should (string-match-p "S[^\n]*\\(clear\\|reset\\)" text))))))
+        ;; the active scope + its in-place (S clears) hint (D5e),
+        (should (string-match-p "Scope: #work  (S clears)" text))
+        ;; and the literal `S reset' cue in the Actions block (qqpuoqlv).
+        (should (string-match-p "S reset" text))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D5 — sidebar / context-rail refinement

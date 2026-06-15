@@ -1276,8 +1276,9 @@ the quiet keycap face; the columns do the separating (no dotted prose)."
   (org-air-view--insert-labelled-rule "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
          ;; Round-9 Q1: when a scope is active the second row's middle verb
-         ;; surfaces the scope reset right where the user acts.
-         (mid2 (if org-air-view--scope '("S" . "scope-reset") '("TAB" . "expand")))
+         ;; surfaces the scope reset (the literal "S reset" cue the design
+         ;; and grind ask for) right where the user acts.
+         (mid2 (if org-air-view--scope '("S" . "reset") '("TAB" . "expand")))
          ;; Column field widths = the widest "KEY DESC" cell in each column.
          (c1 (max (+ 2 (length "capture")) (+ 2 (length "refresh"))))
          (c2 (max (+ 2 (length "filter"))

@@ -419,6 +419,35 @@ indented to the spine, with a space between each glyph and its word
         (should (> idx 0))
         (should (string-empty-p (string-trim (nth (1- idx) rail))))))))
 
+(defun org-air-r9--rail-leading-spaces (rail-line)
+  "Return the count of leading spaces of RAIL-LINE (its content inset)."
+  (if (string-match "\\`\\( *\\)" rail-line)
+      (length (match-string 1 rail-line))
+    0))
+
+(ert-deftest org-air-r9-d5b-content-spine ()
+  "D5b: every block's content snaps to ONE left-edge spine
+(`org-air-rail-content-inset', default 3 at the wide/mid tiers).  The
+calendar weekday row, a Summary row, the Filters text and an Actions
+verb row all begin at the SAME rail column (the old rail had three
+different left edges)."
+  (skip-unless (locate-library "org-air"))
+  (should (boundp 'org-air-rail-content-inset))
+  (should (= org-air-rail-content-inset 3))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (let* ((rail (org-air-r9--rail-lines))
+             (pick (lambda (rx)
+                     (cl-find-if (lambda (l) (string-match-p rx l)) rail)))
+             (weekday (funcall pick "Su .*Mo .*Tu"))
+             (summary (funcall pick "[0-9] +Inbox\\'"))
+             (filters (funcall pick "No filters"))
+             (actions (funcall pick "capture")))
+        (should (and weekday summary filters actions))
+        (let ((insets (mapcar #'org-air-r9--rail-leading-spaces
+                              (list weekday summary filters actions))))
+          (should (= 1 (length (delete-dups (copy-sequence insets))))))))))
+
 (ert-deftest org-air-r9-d5d-ledger-sum-rule ()
   "D5d: `total' sits under a SHORT ledger rule (a 4-char ──── over the
 number field), not the old full-width empty hairline that read as debris."

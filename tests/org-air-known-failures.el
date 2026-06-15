@@ -118,6 +118,8 @@
     ;; still the round-8 rail — delete each as the D5 byte parts land:
     (org-air-r9-d5-hrule-cap-glyph-defined
      . "D5a: hrule-cap glyph (╶ . -) not registered in org-air-glyphs yet")
+    (org-air-r9-d5b-content-spine
+     . "D5b: org-air-rail-content-inset spine not applied to all rail blocks yet")
     (org-air-r9-d5a-rail-rule-family-has-cap
      . "D5a: rail rules (Summary/Filters) do not yet open with the ╶ hrule-cap")
     (org-air-r9-d5a-actions-block-named

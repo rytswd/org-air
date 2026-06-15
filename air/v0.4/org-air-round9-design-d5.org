@@ -136,6 +136,35 @@ col 0 — three different left edges.
   (today =" %3d"=, i.e. inset already ~1); the change is the *uniform*
   application, not the summary alone.
 
+** D5b emergent consequence — mid-tier =created= legend (RATIFIED as-is)
+The inset (3) at the *mid* rail tier (120–149, rail 32) drops the
+calendar's grid =avail= from 32 → 29.  The spaced 4-col grid needs 28
+cols and the full three-entry legend =◆ due␣␣␣␣● sched␣␣␣␣· created= needs
+29, but =org-air-calendar--spacing-threshold= is 30 (a ~1-col safety
+margin over the legend), so at avail 29 the calendar falls to the
+*compact* cell tier and the legend drops its =· created= key — i.e. the
+spaced grid + =created= legend now appear only at the *wide* tier
+(≥150).  *Decision: ratify — the cleaner spine wins.*  Rationale:
+- The =·= created *marks still render on the grid* (precedence
+  deadline>scheduled>created); only the legend *key* drops — no calendar
+  information is lost, just the reminder glyph.  Created is the quietest,
+  lowest-precedence mark; the today-bg + =due/sched= keys carry the
+  calendar.
+- The *narrow* tier already drops =created= from the legend, so mid
+  matching narrow is *consistent*, not a new wart; a mid-tier-only inset
+  exception (e.g. 2) would make the spine inconsistent *across* tiers —
+  worse than a clean 3/3/1 rule with this documented consequence.
+- Compact cells at mid read fine (=7  8● 9 10◆11=) — that was the
+  pre-T3a / round-8 narrow default.
+- *Escape hatches (no code change):* a user who wants the spaced grid +
+  =created= at mid can set =org-air-calendar-day-spacing= to =4=, or lower
+  =org-air-rail-content-inset= to 2 (mid avail → 30 ≥ threshold).  Both
+  are existing defcustoms, so the consequence is fully user-tunable.
+- *If ever revisited:* the minimal non-fragile fix is mid-tier inset 2
+  (avail 30, keeps the 1-col legend margin) — NOT lowering the threshold
+  to 29 (that leaves zero slack and risks edge truncation).  Not done;
+  recorded for the next round if mid-tier feedback warrants it.
+
 * D5c — Calendar grid framing + legend  [byte + face]
 - *Header → grid gap:* keep the weekday row immediately under the rule
   (no blank), but the grid reads better with the legend *separated*.
@@ -277,6 +306,18 @@ dead-face / sign-inversion bugs in prior rounds — render the integrated
 rail, never the face artifact alone.)
 
 * History
+- 2026-06-15: Re-bless ratification.  Verified the regenerated rail
+  (impl =ysvynsyl=, test tip =vxmtqvqm=) against this spec via the
+  frozen-clock *integrated* render face-run dump + the regenerated
+  mockups (90/96/110/120/160).  RATIFIED all flagged deltas as spec
+  consequences: (1) =gr refresh=→=g refresh= (D5f); (2) legend
+  glyph-spacing =◆ due …= (D5c); (3) created-tier 120→150 (D5b emergent
+  consequence above — ratified as-is, cleaner spine wins, marks still on
+  grid, user-tunable).  Confirmed =org-air-face-rail-key= lands on every
+  Actions key token (=c / s g S ?=) with faded descriptions (integrated
+  render, not the artifact); =S reset= + =Scope: … (S clears)= surface
+  when scoped (Q1); rounded =╶= hrule-cap + single spine + ledger =────=
+  total all match.  Blessed 25 layout-mockup fixtures.
 - 2026-06-15: Authored D5 sidebar/context-rail refinement.  Re-thought
   the rail from 8a as a polished nano-* sidebar: D5a one labelled-rule
   family (calendar + Actions adopt Summary/Filters' rule + a =╶= rounded

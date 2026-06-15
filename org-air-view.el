@@ -1533,7 +1533,11 @@ spans the full body height when the body is padded out (S6)."
          (divider (org-air-view--divider))
          (item-width (max 20 (- width rail-width (string-width divider))))
          (item-content-width (max 1 (- item-width org-air-margin)))
-         (rail-content-width (max 1 (- rail-width org-air-margin)))
+         ;; D5b: the rail carries NO extra left margin — its labelled rules
+         ;; sit flush at rail column 0 and the single content spine
+         ;; (`org-air-rail-content-inset') is the only inset, aligning the
+         ;; grid/summary/filters/actions under the rule labels.
+         (rail-content-width rail-width)
          (item-lines (org-air-view--indent-pane-lines
                       (org-air-view--render-lines
                        item-content-width
@@ -1541,11 +1545,11 @@ spans the full body height when the body is padded out (S6)."
                          (let ((org-air-view--pane-indented t))
                            (org-air-view--insert-item-pane items item-content-width))))
                       item-width))
-         (rail-lines (org-air-view--indent-pane-lines
+         (rail-lines (mapcar
+                      (lambda (line) (org-air-view--pad-to line rail-width))
                       (org-air-view--render-lines
                        rail-content-width
-                       (lambda () (org-air-view--insert-rail items rail-content-width)))
-                      rail-width)))
+                       (lambda () (org-air-view--insert-rail items rail-content-width))))))
     (cons (org-air-view--compose-columns
            (list (cons item-lines item-width) (cons rail-lines rail-width))
            divider)

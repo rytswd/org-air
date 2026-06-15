@@ -306,6 +306,19 @@ dead-face / sign-inversion bugs in prior rounds — render the integrated
 rail, never the face artifact alone.)
 
 * History
+- 2026-06-15: Round-9 INTEGRATED to main with the *flush-col-0* rail
+  (=rskvknsz= impl + =ryqqlzwp= fixtures + this doc): the rail labelled
+  rules sit flush at rail col 0 and span the full rail width, content on
+  the =org-air-rail-content-inset= spine — exactly D5b's intent.  Re-bless
+  diff confirmed: =ryqqlzwp= vs the earlier spine =vxmtqvqm= is a *pure
+  uniform 2-col left shift* (rule cap col 3→1, rule grows 2 =─= to keep
+  =‹ ›= right-anchored = full width; content Su col 6→4), spine gap
+  (rule↔content = 3) preserved, caps/legend/ledger/day-cells/=rail-key=
+  faces all identical — no content or face change, so every prior
+  ratification carries (created-tier 120→150, =gr=→=g refresh=, legend
+  spacing, ledger sum, =rail-key= keycaps, Q1 =S reset=).  This SUPERSEDES
+  the provisionally-shipped spine variant and the dead spine-reconcile
+  doc note.  =#+state: complete= (UI integrated + verified).
 - 2026-06-15: BLESS — flush-col-0 fixtures =ryqqlzwprtux= (GREEN on the
   frozen flush tip =rskvknsz=, 177/177, 19 two-pane mockups re-regen).
   Compared the rendered flush rail against the prior spine-aligned bless:
@@ -367,4 +380,4 @@ rail, never the face artifact alone.)
   defcustom); D5g calm single-line rhythm with the one new legend blank.
   Layers flagged: mostly =[byte]= (rail text → fixture regen),
   =[face]= for =org-air-face-rail-key= + the D4-quieted marks, new glyph
-  =hrule-cap=.  No new hue spent.  Set =#+state: complete=.
+  =hrule-cap=.  No new hue spent.  Set =#+state: ready=.

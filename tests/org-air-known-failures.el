@@ -102,6 +102,23 @@
     ;; three renders are now pairwise byte-different.  project-view-dir/
     ;; -tag regenerated to the distinct trees; state-view + V6 dashboard
     ;; stay blessed.
+    ;;
+    ;; v0.4 ROUND-9 grind punch list (design ymroopnp — delete each as
+    ;; impl2 lands the fix):
+    ;;  F1 Denote origin (strip the id/__tag/.org machinery, show the
+    ;;     title slug) — needs `org-air-origin-style' (default `auto') and
+    ;;     a Denote-aware `org-air-view--origin'.
+    (org-air-r9-f1-origin-style-defcustom
+     . "F1: org-air-origin-style defcustom (auto Denote-aware) not added yet")
+    (org-air-r9-f1-denote-origin-shows-title-slug
+     . "F1: org-air-view--origin does not yet strip Denote id/tag/.org to the title slug")
+    (org-air-r9-f1-denote-origin-rendered-and-truncates
+     . "F1: rendered origin still shows the raw Denote filename, not the de-slugged title")
+    ;;  Q1 scope-reset discoverability — rail must surface an `S clears'/
+    ;;     `S reset' cue when a scope is active (S already fires; the
+    ;;     org-air-r9-q1-S-clears-active-scope guard passes).
+    (org-air-r9-q1-rail-advertises-scope-reset
+     . "Q1: rail does not yet advertise the scope-reset (S clears/S reset) cue")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -52,9 +52,12 @@ same screen column on every dated row."
                          (setq p (1+ p)))
                        found))
                (line (buffer-substring-no-properties bol eol)))
+          ;; The trailing \b keeps a date phrase inside a TITLE (e.g.
+          ;; "Untracked idea with no dates") from masquerading as the
+          ;; V6 date cell.
           (when (and item
                      (string-match
-                      " \\(OVERDUE [0-9]+d\\|Today\\|Tomorrow\\|no date\\)"
+                      " \\(OVERDUE [0-9]+d\\|Today\\|Tomorrow\\|no date\\)\\b"
                       line))
             (push (match-beginning 1) cols)))
         (forward-line 1)))

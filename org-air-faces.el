@@ -516,6 +516,14 @@ the eye to work that is waiting."
   "Face for the bucket name beside a summary number."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-rail-key
+  '((t :inherit org-air-face-salient))
+  "Face for the leading key token in a rail Actions verb (D5).
+The key (e.g. \"c\", \"/\", \"s\", \"g\", \"TAB\", \"?\") reads as a key; the
+verb description beside it stays faded.  Quiet salient — no box, no
+bold; just enough presence to separate keys from prose."
+  :group 'org-air-faces)
+
 ;;;; ---------------------------------------------------------------------
 ;;;; Air-docs project view (F5) — state badges + tree
 ;;;;

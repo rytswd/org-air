@@ -1,0 +1,295 @@
+#+title: org-air v0.4 round-9 — D5 sidebar / context-rail refinement (design)
+#+state: ready
+#+FILETAGS: :ui:visual:faces:rail:v0.4:
+
+* Summary
+D5 re-thinks the *context rail* (right column in 8a) so it reads as a
+polished modern sidebar — rougier =nano-*= quality — instead of stacked
+text.  The current rail (calendar → Summary → Filters → two hint lines)
+is *functionally complete and correctly aligned*; the problem is purely
+*visual rhythm*: every block sits at the same level with one blank line
+between, the calendar legend hugs the grid, the =total= sub-rule reads as
+a stray hairline, the verb hints float, and the left edges don't agree.
+
+This spec keeps every value, count, glyph and keystroke the rail already
+shows.  It changes *framing, spacing, left-edge discipline and weight
+hierarchy* only.  It is coherent with the round-9 svg-pill look (D1–D3:
+rounded, thin-border, light-tint, calm colour) and the subtler calendar
+(D4): the rail echoes the pill's *rounded, hairline, quiet* language in
+pure text.
+
+*Measurability / layer flags* (carry the round-9 convention):
+- =[byte]= = changes buffer TEXT (rail glyphs / spacing / labels) → the
+  fixture layer regenerates; the recipe re-render + new fixtures.
+- =[face]= = face-only (applied via =org-air-faces.el= now; the byte
+  fixtures hold, face-run dumps re-bless).
+- (no =[gui]= here — the rail carries no svg overlay; pills live in the
+  item pane.)
+
+This spec is *additive to* round-9-design (C2/D1–D4/F1), which stands.
+
+* The rail today (8a, wide tier) — baseline
+#+begin_example
+June 2026                              ‹ ›
+Su Mo Tu We Th Fr Sa
+ 1  2  3  4  5  6
+ 7  8· 9 10 11·12·13●
+14●15·16●17●18●19●20
+21●22 23●24 25 26·27
+28●29 30
+◆due ●sched ·created
+
+── Summary ─────────────────────
+   5  Inbox
+  14  Needs attention
+  11  Upcoming
+   4  High priority
+   6  Stale
+────────────────────────────────
+  33  total
+
+── Filters ─────────────────────
+No filters · all items
+
+c capture · / filter · s scope
+gr refresh · TAB expand · ? help
+#+end_example
+Faults: (1) calendar has no labelled rule so it doesn't belong to the
+same family as Summary/Filters; (2) the legend butts against the grid;
+(3) Summary/calendar/Filters/hints each start at a *different* left
+column (0 / 1 / 0 / 0) → no spine; (4) the empty-label rule above =total=
+is a full-width hairline that reads as debris; (5) the two hint lines
+float, unlabelled, with no anchor; (6) one uniform blank line gives every
+block equal weight → "stacked text".
+
+* The rail after D5 (wide tier) — target
+#+begin_example
+╶─ June 2026 ──────────────── ‹ ›
+   Su Mo Tu We Th Fr Sa
+    1  2  3  4  5  6
+    7  8· 9 10 11·12·13●
+   14●15·16●17●18●19●20
+   21●22 23●24 25 26·27
+   28●29 30
+   ◆ due    ● sched    · created
+
+╶─ Summary ──────────────────────
+    5   Inbox
+   14   Needs attention
+   11   Upcoming
+    4   High priority
+    6   Stale
+        ────
+   33   total
+
+╶─ Filters ──────────────────────
+   No filters · all items
+
+╶─ Actions ──────────────────────
+   c capture    / filter    s scope
+   g refresh    TAB expand    ? help
+#+end_example
+Four peer blocks, each opened by the *same* labelled rule and sharing a
+*single content spine* (3-col inset).  The =total= sum sits under a short
+ledger rule.  The verbs are a named =Actions= block, not floating text.
+
+* D5a — One labelled-rule family for every block  [byte + face]
+*Today:* Summary and Filters open with =── Label ──────=; the calendar
+opens with a bare =June 2026   ‹ ›= header and the hints open with
+nothing.  Inconsistent → they don't read as one sidebar.
+- *Unify:* the calendar header and the Actions block adopt the *same*
+  labelled-rule as Summary/Filters, via the existing
+  =org-air-view--insert-labelled-rule=.  The rail then has exactly four
+  peers: =June 2026= · =Summary= · =Filters= · =Actions=.
+- *Calendar:* render the month as a labelled rule whose label is the
+  month-year, with the =‹ ›= nav right-anchored *after* the fill — i.e.
+  =╶─ June 2026 ───…─── ‹ ›=.  The existing month-abbreviation fallback
+  (=Jun 2026=) and the nav-never-truncates rule (round-9 D3 / the calendar
+  header logic) are preserved: when label+nav won't fit, abbreviate the
+  month first, never drop =‹ ›=.  The =org-air-day= keymap / month-nav
+  bindings on =‹ ›= are unchanged.
+- *Rounded rule cap (pill coherence):* each rule *starts* with a small
+  rounded stub glyph =╶= (=org-air-layout='s new =hrule-cap=, TTY =-=)
+  before the two =─=, so the rule's left end echoes the rounded *left
+  edge of a D1–D3 pill*.  One quiet visual rhyme between rail and pills.
+  defcustom-free; degrades to =-= on TTY.
+- =[byte]=: the rule prefix glyph and the calendar-header restructure
+  change buffer text → fixture regen.  =[face]=: rule glyph stays
+  =org-air-face-pane-border=; the label stays =org-air-face-rail-title=.
+
+* D5b — A single content spine (left-edge discipline)  [byte]
+*Today:* calendar grid at col 0, summary rows at col 1, filters/hints at
+col 0 — three different left edges.
+- *Inset every block's content to one spine* =org-air-rail-content-inset=
+  (default *3*, aligning content directly under the rule's label text,
+  which begins at col 3 = =╶─ =).  Applies to: the calendar weekday row +
+  day grid + legend, the summary rows + total, the filters/scope text,
+  and the Actions verb lines.  One vertical spine = the strongest single
+  "this is a designed sidebar" signal.
+- *Responsive:* the inset is *3* at the wide (42) and mid (32) tiers, and
+  *1* at the narrow (28) tier so the 20-col calendar grid (+inset) and the
+  labelled rules never overflow the rail.  (Same tier function as
+  =org-air-view--rail-width=.)  The inset is *content only* — labelled
+  rules still start at col 0 so the rule reaches the full rail width.
+- =[byte]=: shifts the grid/summary/filters/hints columns → fixture
+  regen.  Numerically: summary number field becomes =inset + "%3d"=
+  (today =" %3d"=, i.e. inset already ~1); the change is the *uniform*
+  application, not the summary alone.
+
+* D5c — Calendar grid framing + legend  [byte + face]
+- *Header → grid gap:* keep the weekday row immediately under the rule
+  (no blank), but the grid reads better with the legend *separated*.
+- *Legend spacing (the orphan fix):* put *one blank line* between the day
+  grid and the legend, indent the legend to the spine, add a *space
+  between each glyph and its word* (=◆ due= not =◆due=) and a *wider gap
+  (4 spaces) between entries*: =◆ due    ● sched    · created=.  This is
+  pure spacing — the glyphs and words are unchanged from D4.
+- *Legend marks inherit D4's subtler faces:* the legend already draws
+  =◆/●/·= in =org-air-face-calendar-deadline/-scheduled/-created=, which
+  D4 muted + de-bolded — so the legend automatically quiets with the grid
+  (no extra work; just confirm the legend uses the same mark faces, which
+  it does via =org-air-calendar--legend-entry=).
+- *Legend word face:* =org-air-face-calendar-legend= stays faded.
+- =[byte]=: the blank line + glyph/word spacing change text → fixture
+  regen.  =[face]=: marks already quieted by D4; no new face.
+
+* D5d — Summary block: ledger sum, calmer rows  [byte + face]
+- *Drop the full-width empty rule above =total=.*  Replace it with a
+  *short ledger rule* spanning only the number field (=────=, 4 chars),
+  positioned at the spine directly over the =total= number — the universal
+  "sum" affordance.  This removes the stray-hairline read and makes
+  =total= obviously the sum of the rows above.
+- *Row rhythm:* keep =inset + "%3d" + "   " + label= (3 spaces between the
+  number and the label, up from 2) so the number column and the labels
+  each get a clean gutter; numbers right-aligned in their 3-col field stay
+  a tidy ledger column.
+- *Weight hierarchy (already good, keep):* zero counts =faded=; non-zero
+  attention buckets (Inbox, Needs attention) =popout :weight bold=; other
+  counts =strong :weight bold=; labels =faded=.  =total= number =strong
+  bold=, =total= label =faded=.  This is the one place the rail spends
+  hue, exactly as the summary faces intend — do not add more colour.
+- =[byte]=: ledger rule + the 3-space gutter change text → fixture regen.
+  =[face]=: no change (existing summary faces).
+
+* D5e — Filters / scope block  [byte + face]
+- *Inset to the spine* (D5b) so =No filters · all items= aligns under the
+  =Filters= label rather than the rail edge.
+- *Active-scope surfacing (ties round-9 Q1):* when a scope/filter is
+  active the block already shows the chips + =Scope: <name>=; D5 keeps
+  that and renders the scope line with a *quiet trailing hint* =(S clears)=
+  in =org-air-face-faded= so the reset affordance is discoverable in
+  place (the Q1 surfacing this design doc asked for, rendered here).
+- =[face]=: =No filters · all items= and =Scope:= stay faded; the active
+  filter chips keep their per-tag accent (existing).
+- =[byte]=: the inset + the =(S clears)= suffix change text → fixture
+  regen (covered by the existing filtered/scoped fixtures).
+
+* D5f — Actions block (the floating hints, anchored + named)  [byte + face]
+- *Name it:* open with =╶─ Actions ──── = (D5a) so the verbs are a peer
+  block, not orphan lines.
+- *Two aligned verb rows*, inset to the spine, with the *verbs aligned in
+  columns* and a wider (4-space) gap, dropping the =·= separators (the
+  column gap now does the separating, calmer than dotted prose):
+  =c capture    / filter    s scope= / =g refresh    TAB expand    ? help=.
+  (Round-9: =g refresh= not =gr refresh= — the verb is =g r=; show the
+  primary key =g=; the narrow tier may elide with =…= as today.)
+- *Keycap emphasis (face-only):* the leading *key token* of each verb
+  (=c=, =/=, =s=, =g=, =TAB=, =?=) renders in a new quiet keycap face
+  =org-air-face-rail-key= (inherits =org-air-face-salient=, no box) and the
+  description (=capture=, =filter=…) stays =org-air-face-faded=.  Keys read
+  as keys, prose recedes — the single highest-signal polish in the hint
+  block, and it costs zero layout.
+- *Anchoring (optional, flagged):* default keeps the Actions block in
+  normal flow after Filters (one blank line).  Offer
+  =org-air-rail-anchor-actions= (default =nil=): when =t=, pad between
+  Filters and Actions so Actions sits at the *bottom* of the fixed-height
+  rail — the classic sidebar footer.  Left off by default to avoid churn
+  in the fixed-height composition; available for the polished look.
+- =[byte]=: rule + aligned columns + dropped =·= change text → fixture
+  regen.  =[face]=: new =org-air-face-rail-key= (keycap), applied now.
+
+* D5g — Vertical rhythm  [byte]
+- *Exactly one blank line between the four peer blocks* (calendar /
+  Summary / Filters / Actions) — already the case, kept — *and zero blank
+  lines inside a block* (kept).  The new framing (labelled rules + spine
+  + legend gap + ledger sum) is what creates hierarchy; the spacing stays
+  a calm single-line rhythm so the rail never feels gappy.  The one new
+  intra-block blank line is the legend separator (D5c).
+- =[byte]=: the legend blank line is the only rhythm change.
+
+* Faces this round (=org-air-faces.el=)
+- *New* =org-air-face-rail-key=  — quiet keycap for the Actions verbs'
+  leading key token; =:inherit org-air-face-salient= (no =:box=, no bold),
+  light + dark via the inherited salient tone.  =[face]=, applied now.
+- *Reused, unchanged:* =org-air-face-rail-title= (block labels),
+  =org-air-face-pane-border= (rule glyph), =org-air-face-summary-number=
+  / =-attention= / =-summary-label= (counts + total), =org-air-face-faded=
+  (legend words, filters text, verb descriptions),
+  =org-air-face-calendar-*= (D4-quieted marks).
+- *No* new hue is spent; the rail's only colour stays the attention
+  summary number (popout) + the calendar's three muted mark hues.
+- Strict byte-compile clean; =org-air-face-rail-key= must =facep= and have
+  a light+dark spec.
+
+* Glyphs this round (=org-air-layout.el=)
+- *New* =hrule-cap= = (=╶= . =-=) — the rounded rule stub (D5a) echoing the
+  pill's rounded left edge; TTY/thin-font degrade to =-=.
+
+* Coherence with D1–D4 (round-9-design)
+- *Rounded:* the =╶= rule cap rhymes with the pill's rounded corners.
+- *Hairline / thin:* the rail's rules stay 1-glyph =org-air-face-pane-border=
+  faded — the same restraint as the pill's thin 1px border.
+- *Calm colour:* the rail spends hue only where the summary faces already
+  do; the calendar marks ride D4's muted tones — coherent with the pill's
+  "hue lives in the chip, layout stays a quiet table" rule.
+- *Cell discipline:* the rail's single content spine is the vertical
+  analogue of C2's "pill = exactly its cell" — everything snaps to a
+  grid, nothing floats.
+
+* Routing
+- *impl2:* D5a labelled-rule family (calendar header → labelled rule +
+  =hrule-cap= + nav right-anchor; Actions block label); D5b content-inset
+  spine (=org-air-rail-content-inset=, responsive 3/3/1 by tier) applied
+  to calendar grid + summary + filters + actions; D5c legend gap +
+  glyph/word spacing; D5d ledger-sum rule + 3-space summary gutter; D5e
+  filters inset + =(S clears)= scope hint; D5f Actions aligned columns +
+  =org-air-face-rail-key= keycaps + optional =org-air-rail-anchor-actions=;
+  D5g legend blank line.  Most of D5 is =[byte]= (rail TEXT) → regen the
+  rail fixtures.
+- *Design (this role):* =org-air-face-rail-key= + =hrule-cap= land via
+  =org-air-faces.el= / =org-air-layout.el= as the =[face]=/glyph parts; the
+  layout =[byte]= parts are impl2's.  The face-run dumps re-bless.
+- *test:* regen rail fixtures for the byte parts (calendar header, spine
+  inset, legend spacing, ledger sum, actions columns); add a narrow-tier
+  (28) rail fixture to prove the inset drops to 1 and nothing overflows
+  (ties round-9 C1 split/narrow); face-run re-bless for =rail-key=.
+
+* Verification (design role, frozen-clock recipe)
+Render =org-air-view--render= against =tests/fixtures= with the clock
+frozen to =org-air-test-now= (Mon 2026-06-15 10:00) and dump (a)
+=buffer-substring-no-properties=, (b) face runs via
+=next-single-property-change=, (c) the distinct face set — for the rail
+region at all three width tiers (28 / 32 / 42).  Confirm: four labelled
+peer blocks; one content spine; legend separated + spaced; ledger sum
+under =total=; named Actions block with =rail-key= on the leading key
+tokens; nothing overflows the narrow tier.  (Same recipe that has caught
+dead-face / sign-inversion bugs in prior rounds — render the integrated
+rail, never the face artifact alone.)
+
+* History
+- 2026-06-15: Authored D5 sidebar/context-rail refinement.  Re-thought
+  the rail from 8a as a polished nano-* sidebar: D5a one labelled-rule
+  family (calendar + Actions adopt Summary/Filters' rule + a =╶= rounded
+  rule cap echoing the D1–D3 pill); D5b a single content spine
+  (=org-air-rail-content-inset=, responsive 3/3/1) so calendar grid /
+  summary / filters / actions share one left edge; D5c legend separated
+  from the grid + glyph-word spacing (D4 marks already muted); D5d a
+  short ledger-sum rule under =total= replacing the stray full-width
+  hairline + a 3-space summary gutter; D5e filters inset + a =(S clears)=
+  scope hint (Q1 surfacing in place); D5f the floating hints become a
+  named =Actions= block with column-aligned verbs and a new quiet
+  =org-air-face-rail-key= keycap face (+ optional bottom-anchor
+  defcustom); D5g calm single-line rhythm with the one new legend blank.
+  Layers flagged: mostly =[byte]= (rail text → fixture regen),
+  =[face]= for =org-air-face-rail-key= + the D4-quieted marks, new glyph
+  =hrule-cap=.  No new hue spent.  Set =#+state: ready=.

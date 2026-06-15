@@ -37,6 +37,7 @@
     (box-vertical . ("│" . "|"))
     (vrule . ("│" . "|"))
     (hrule . ("─" . "-"))
+    (hrule-cap . ("╶" . "-"))
     (cal-prev . ("‹" . "<"))
     (cal-next . ("›" . ">"))
     (box-top-left . ("┌" . "+"))

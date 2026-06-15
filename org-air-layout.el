@@ -117,9 +117,13 @@ The vertical analogue of `org-air-layout-current-width' (S6): measures
 the window actually showing BUFFER so the dashboard can fill its full
 height.  Falls back to the selected window, then a sane default."
   (let* ((buffer (or buffer (current-buffer)))
-         (window (or (get-buffer-window buffer t)
-                     (and (eq buffer (window-buffer (selected-window)))
-                          (selected-window)))))
+         ;; C1: prefer the selected window when it is the one showing BUFFER
+         ;; (the resize/config hook runs inside `with-selected-window' on the
+         ;; window being re-rendered), so a split re-renders to ITS height —
+         ;; never a stale full-frame value — then any window showing BUFFER.
+         (window (or (and (eq buffer (window-buffer (selected-window)))
+                          (selected-window))
+                     (get-buffer-window buffer t))))
     (cond
      ((window-live-p window) (org-air-layout--usable-rows window))
      ((window-live-p (selected-window))
@@ -156,9 +160,13 @@ revision passed PIXELWISE to `window-body-width', which made the renderer
 compose against a pixel count and pushed the calendar rail far off the
 visible area."
   (let* ((buffer (or buffer (current-buffer)))
-         (window (or (get-buffer-window buffer t)
-                     (and (eq buffer (window-buffer (selected-window)))
-                          (selected-window)))))
+         ;; C1: prefer the selected window when it displays BUFFER so a
+         ;; split/narrow re-render (the hook runs in `with-selected-window'
+         ;; on the affected window) measures the ACTUAL displaying-window
+         ;; width and never overflows; otherwise any window showing BUFFER.
+         (window (or (and (eq buffer (window-buffer (selected-window)))
+                          (selected-window))
+                     (get-buffer-window buffer t))))
     (cond
      ((window-live-p window) (org-air-layout--usable-columns window))
      ((window-live-p (selected-window))

@@ -75,6 +75,38 @@ shifts the V6 columns, and the byte gate only ever sees the text."
   :type '(choice (const pill) (const text))
   :group 'org-air)
 
+(defcustom org-air-pill-inset 2
+  "Horizontal inset in device pixels for the rounded svg pill (D1).
+The rounded rectangle is drawn inset by this many pixels on the left and
+right (and roughly half that top/bottom) inside its fixed text-cell box,
+so the pill has consistent breathing room WITHOUT changing the cell's
+width — the box is always `Ncols' columns wide (C2)."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-pill-radius nil
+  "Corner radius in device pixels for the rounded svg pill (D3).
+When nil the radius is `line-height / 3' (svg-tag-mode-like), tracking the
+current font/text-scale metrics so the pill stays proportionally rounded."
+  :type '(choice (const :tag "Auto (line-height/3)" nil) number)
+  :group 'org-air)
+
+(defcustom org-air-pill-fill-alpha 0.12
+  "Fill opacity for the light tint inside a coloured svg pill (D2).
+The pill is filled with its accent/semantic hue at this opacity over a
+thin border and coloured label of the same hue, giving the board its
+colour back calmly.  0 means a pure outline pill (no tint)."
+  :type 'number
+  :group 'org-air)
+
+(defvar org-air-view--pill-char-w nil
+  "Device-pixel width of one text column for the current render (C2/C3).
+Bound during `org-air-view--render' from the displaying window's actual
+font metrics (text-scale aware) so svg pills are sized to the exact cell.")
+
+(defvar org-air-view--pill-char-h nil
+  "Device-pixel height of one text line for the current render (C2/C3).")
+
 (defcustom org-air-date-column 12
   "Fixed width of the date cell in the item-row metadata table (V6).
 The date is left-justified in this many columns so every row's date
@@ -100,6 +132,26 @@ The verbs live in the rail hint block now; the footer band is opt-in."
 
 (defcustom org-air-show-group nil
   "When non-nil, show item group instead of leaf filename as origin."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-origin-style 'auto
+  "How the origin column renders a file name (F1).
+`auto' is Denote-aware: a file named like a Denote note
+\(\"YYYYMMDDTHHMMSS--my-title__tag1_tag2.org\") shows the human title
+\(\"my-title\"), stripping the timestamp id, the __tag signature and the
+extension; any other file falls back to its plain leaf name.  `filename'
+always shows the plain leaf name (the historic behaviour).
+`title-from-org' reads the file's \"#+title:\" when present, then falls
+back to the Denote title, then the leaf name."
+  :type '(choice (const :tag "Denote-aware (auto)" auto)
+                 (const :tag "Plain filename" filename)
+                 (const :tag "Org #+title" title-from-org))
+  :group 'org-air)
+
+(defcustom org-air-origin-deslugify nil
+  "When non-nil, show a Denote title with spaces instead of hyphens (F1).
+The default keeps hyphens for a compact origin column."
   :type 'boolean
   :group 'org-air)
 
@@ -478,11 +530,50 @@ stacked and two-pane layouts."
     (let ((char (- org-priority-lowest (/ priority 1000))))
       (and (characterp char) char))))
 
+(defconst org-air-view--denote-id-regexp
+  "\\`[0-9]\\{8\\}T[0-9]\\{6\\}--"
+  "Anchored regexp matching the Denote identifier prefix of a file name (F1).")
+
+(defun org-air-view--denote-title (filename)
+  "Return the de-machined Denote title of FILENAME, or nil (F1).
+Strips the \"YYYYMMDDTHHMMSS--\" identifier, the \"__tag_tag\" signature
+and the extension, leaving the title slug; hyphens become spaces when
+`org-air-origin-deslugify' is non-nil.  Returns nil when FILENAME is not a
+Denote-style name."
+  (let ((base (file-name-nondirectory (or filename ""))))
+    (when (string-match org-air-view--denote-id-regexp base)
+      (let* ((rest (file-name-sans-extension (substring base (match-end 0))))
+             (slug (if (string-match "__" rest)
+                       (substring rest 0 (match-beginning 0))
+                     rest)))
+        (unless (string-empty-p slug)
+          (if org-air-origin-deslugify
+              (replace-regexp-in-string "-" " " slug)
+            slug))))))
+
+(defun org-air-view--org-file-title (file)
+  "Return the \"#+title:\" keyword of FILE, or nil (F1, `title-from-org')."
+  (when (and file (file-readable-p file))
+    (ignore-errors
+      (with-temp-buffer
+        (insert-file-contents file nil 0 4096)
+        (goto-char (point-min))
+        (when (re-search-forward "^#\\+title:[ \t]*\\(.+?\\)[ \t]*$" nil t)
+          (let ((title (match-string-no-properties 1)))
+            (unless (string-empty-p title) title)))))))
+
 (defun org-air-view--origin (item)
-  "Return origin breadcrumb for ITEM."
+  "Return origin breadcrumb for ITEM, honouring `org-air-origin-style' (F1)."
   (if org-air-show-group
       (or (org-air-item-group item) "")
-    (file-name-nondirectory (org-air-item-file item))))
+    (let* ((file (org-air-item-file item))
+           (leaf (file-name-nondirectory (or file ""))))
+      (pcase org-air-origin-style
+        ('filename leaf)
+        ('title-from-org (or (org-air-view--org-file-title file)
+                             (org-air-view--denote-title file)
+                             leaf))
+        (_ (or (org-air-view--denote-title file) leaf))))))
 
 (defun org-air-view--filter-tags ()
   "Return active tag filters as a list."
@@ -700,40 +791,74 @@ ATTENTIONP means the count should use the attention badge face."
     (?B 'org-air-face-priority-b)
     (_ 'org-air-face-priority-c)))
 
-(defun org-air-view--svg-pills-available-p ()
-  "Return non-nil when V3 svg pills should be drawn now."
-  (and (eq org-air-tag-style 'pill)
-       (display-graphic-p)
+(defun org-air-view--svg-available-p ()
+  "Return non-nil when svg pills can be drawn on this display (C2)."
+  (and (display-graphic-p)
        (require 'svg nil t)))
 
+(defun org-air-view--char-dimensions ()
+  "Return (CHAR-W . CHAR-H) device pixels for the displaying window (C2/C3).
+Uses `window-font-width'/`window-font-height' on the window actually
+showing the org-air buffer so the metrics track the current font AND any
+`text-scale-mode' adjustment (C3); falls back to the frame char metrics
+when no graphical window is available."
+  (let ((win (get-buffer-window (current-buffer) t)))
+    (if (and win (display-graphic-p (window-frame win))
+             (fboundp 'window-font-width))
+        (cons (or (ignore-errors (window-font-width win)) (frame-char-width))
+              (or (ignore-errors (window-font-height win)) (frame-char-height)))
+      (cons (frame-char-width) (frame-char-height)))))
+
 (defun org-air-view--svg-pillify (text face)
-  "Return TEXT carrying a rounded svg-pill `display' overlay (V3).
-The pill is sized to TEXT's column width (so it never shifts the V6
-columns) and drawn in FACE's foreground; on a non-graphical frame, when
-SVG is unavailable, or when `svg-tag-mode' style is off, TEXT is returned
-unchanged so the byte/TTY layer keeps the plain coloured text.  Soft-uses
-`svg-tag-mode' when it is loaded, else draws a minimal built-in pill."
-  (if (or (not (org-air-view--svg-pills-available-p))
-          (string-empty-p (string-trim text)))
-      text
-    (or (ignore-errors
-          (if (fboundp 'svg-tag-make)
-              (propertize text 'display
-                          (svg-tag-make (string-trim text)))
-            (let* ((cw (frame-char-width))
-                   (ch (frame-char-height))
-                   (w (* (max 1 (string-width text)) cw))
+  "Return TEXT carrying a rounded svg-pill `display' overlay (C2/D1-D3).
+The pill SVG occupies EXACTLY TEXT's text-cell box —
+width = Ncols * char-px, height = the line's pixel height — where Ncols is
+TEXT's column width and char-px/line-px are the current (text-scale aware)
+metrics bound in `org-air-view--pill-char-w'/`-h'.  Because the image is
+locked to that box it never adds external width, so turning pills on/off
+changes zero V6 column positions (C2).  The pill carries FACE's hue:
+coloured label + thin border over a light tint (`org-air-pill-fill-alpha',
+D2), rounded by `org-air-pill-radius' and inset by `org-air-pill-inset'
+\(D1/D3).  On a non-graphical frame, when SVG is unavailable, or if the
+cell box would be degenerate, TEXT is returned unchanged so the byte/TTY
+layer keeps the plain coloured text (mandatory fallback)."
+  (let ((ncols (string-width text)))
+    (if (or (not (org-air-view--svg-available-p))
+            (string-empty-p (string-trim text))
+            (<= ncols 0))
+        text
+      (or (ignore-errors
+            (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
+                   (ch (or org-air-view--pill-char-h (frame-char-height)))
+                   (w (* ncols cw))
+                   (h ch)
+                   (ix (max 0 org-air-pill-inset))
+                   (iy (max 0 (round (/ org-air-pill-inset 2.0))))
+                   (radius (max 0.0 (float (or org-air-pill-radius (/ h 3.0)))))
                    (fg (or (face-foreground face nil t) "gray"))
-                   (svg (svg-create w ch)))
-              (svg-rectangle svg 0.5 0.5 (- w 1.0) (- ch 1.0)
-                             :rx (/ ch 3.0) :ry (/ ch 3.0)
-                             :fill "none" :stroke fg :stroke-width 1)
+                   (alpha (max 0.0 (min 1.0 org-air-pill-fill-alpha)))
+                   (fs (max 6 (- h (* 2 iy) 2)))
+                   (svg (svg-create w h)))
+              (when (and (> w (* 2 ix)) (> h (* 2 iy)))
+                (svg-rectangle svg
+                               (+ 0.5 ix) (+ 0.5 iy)
+                               (max 0 (- w 1.0 (* 2 ix)))
+                               (max 0 (- h 1.0 (* 2 iy)))
+                               :rx radius :ry radius
+                               :fill fg :fill-opacity alpha
+                               :stroke fg :stroke-width 1))
               (svg-text svg (string-trim text)
-                        :x (/ w 2.0) :y (- ch (max 3 (/ ch 4)))
-                        :text-anchor "middle" :fill fg
-                        :font-size (max 8 (- ch 4)))
-              (propertize text 'display (svg-image svg :ascent 'center)))))
-        text)))
+                        :x (/ w 2.0)
+                        :y (+ (/ h 2.0) (* 0.34 fs))
+                        :text-anchor "middle"
+                        :fill fg
+                        :font-size fs)
+              ;; Lock the displayed image to the exact cell box so the run
+              ;; of Ncols characters occupies Ncols*char-px pixels — no more,
+              ;; no less (C2); centre it vertically on the text line (D1).
+              (propertize text 'display
+                          (svg-image svg :ascent 'center :width w :height h))))
+          text))))
 
 (defun org-air-view--item-tagstr (tags k total)
   "Return inline tag chips showing K of TOTAL TAGS, with overflow marker.
@@ -742,10 +867,11 @@ Each chip carries its deterministic accent face (T1c) — face-only, so the
 chip text and width are unchanged."
   (let ((shown (mapconcat
                 (lambda (tg)
-                  (org-air-view--svg-pillify
-                   (propertize (concat "#" tg)
-                               'face (org-air-faces-tag-face tg))
-                   (org-air-faces-tag-face tg)))
+                  (let ((chip (propertize (concat "#" tg)
+                                          'face (org-air-faces-tag-face tg))))
+                    (if (eq org-air-tag-style 'pill)
+                        (org-air-view--svg-pillify chip (org-air-faces-tag-face tg))
+                      chip)))
                 (seq-take tags k) " "))
         (overflow (- total k)))
     (cond
@@ -768,10 +894,12 @@ xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
                               (org-air-item-deadline item))
                           (propertize " · file with r" 'face 'org-air-face-faded))))
     (when date
-      (concat (org-air-view--svg-pillify
-               (propertize (car date) 'face (or (cdr date) 'org-air-face-date))
-               (or (cdr date) 'org-air-face-date))
-              (or inbox-hint "")))))
+      (let* ((face (or (cdr date) 'org-air-face-date))
+             (text (propertize (car date) 'face face)))
+        (concat (if (eq org-air-date-style 'pill)
+                    (org-air-view--svg-pillify text face)
+                  text)
+                (or inbox-hint ""))))))
 
 (defun org-air-view--compute-meta-widths (items)
   "Set the V6 metadata column widths over the rendered ITEMS.
@@ -1079,7 +1207,8 @@ under the other buckets."
                                  filters " ")
                       "\n")
             (insert (propertize "No tag filters" 'face 'org-air-face-faded) "\n"))
-          (insert (propertize (concat "Scope: " (org-air-view--scope-label))
+          (insert (propertize (concat "Scope: " (org-air-view--scope-label)
+                                      (when org-air-view--scope "  (S clears)"))
                               'face 'org-air-face-faded)
                   "\n"))))))
 
@@ -1102,8 +1231,14 @@ under the other buckets."
                                               width)
                         'face 'org-air-face-faded)
             "\n"
-            (propertize (org-air-view--pad-to "gr refresh · TAB expand · ? help"
-                                              width)
+            ;; Q1: surface the scope reset right where the user looks for it —
+            ;; but only while a scope is active, so it is actionable advice
+            ;; (not noise) and the default board's hint is unchanged.
+            (propertize (org-air-view--pad-to
+                         (if org-air-view--scope
+                             "gr refresh · S scope-reset · ? help"
+                           "gr refresh · TAB expand · ? help")
+                         width)
                         'face 'org-air-face-faded)
             "\n")))
 
@@ -1343,7 +1478,14 @@ full `org-air-view--render-height' (two-pane keeps the divider down
 every body row; stacked blank-fills), and a footer pinned to the bottom."
   (let* ((inhibit-read-only t)
          (width (org-air-view--render-width))
-         (height (org-air-view--render-height)))
+         (height (org-air-view--render-height))
+         ;; C2/C3: capture the displaying window's live char metrics here,
+         ;; in the real buffer (the panes render in temp buffers with no
+         ;; window), so every pill is sized to the exact text cell at the
+         ;; current font/text-scale.
+         (dims (org-air-view--char-dimensions))
+         (org-air-view--pill-char-w (car dims))
+         (org-air-view--pill-char-h (cdr dims)))
     (erase-buffer)
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)

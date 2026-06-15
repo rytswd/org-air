@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-9 — D5 sidebar / context-rail refinement (design)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:faces:rail:v0.4:
 
 * Summary
@@ -367,4 +367,4 @@ rail, never the face artifact alone.)
   defcustom); D5g calm single-line rhythm with the one new legend blank.
   Layers flagged: mostly =[byte]= (rail text → fixture regen),
   =[face]= for =org-air-face-rail-key= + the D4-quieted marks, new glyph
-  =hrule-cap=.  No new hue spent.  Set =#+state: ready=.
+  =hrule-cap=.  No new hue spent.  Set =#+state: complete=.

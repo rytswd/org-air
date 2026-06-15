@@ -315,5 +315,150 @@ Filters block shows `Scope: <name>  (S clears)' and the rail hint adds
         ;; and a discoverable S-clears-scope cue is present.
         (should (string-match-p "S[^\n]*\\(clear\\|reset\\)" text))))))
 
+;;;; ---------------------------------------------------------------------
+;;;; D5 — sidebar / context-rail refinement
+;;;; (air/v0.4/org-air-round9-design-d5.org, design tip utwrpzmx).
+;;;; The rail becomes a polished nano-* sidebar: one labelled-rule family
+;;;; (calendar + Actions adopt Summary/Filters' rule, each opened by a ╶
+;;;; hrule-cap echoing the D1-D3 pill), a single content spine, a spaced
+;;;; legend, a short ledger-sum rule under `total', and a named Actions
+;;;; block with rail-key keycaps.  Mostly [byte] (rail text -> regen);
+;;;; the [face] rail-key + [glyph] hrule-cap land via org-air-faces.el /
+;;;; org-air-layout.el.  All grinds until the D5 impl+face parts integrate.
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-r9--rail-lines ()
+  "Return the rail-column text (right of the two-pane divider) per line.
+Each element is the right-trimmed text after the first divider glyph;
+lines with no divider are skipped."
+  (let (out)
+    (dolist (line (org-air-viewport-test-lines))
+      (let ((s (substring-no-properties line)))
+        (when (string-match "[│|]" s)
+          (push (string-trim-right (substring s (match-end 0))) out))))
+    (nreverse out)))
+
+(defun org-air-r9--hrule-cap ()
+  "Return the GUI hrule-cap glyph (╶) from the glyph table, or the spec
+literal when the entry is absent (so the grind reports the missing cap)."
+  (let ((entry (and (boundp 'org-air-glyphs)
+                    (cdr (assq 'hrule-cap org-air-glyphs)))))
+    (or (cond ((and (consp entry) (stringp (cdr entry))) (car entry))
+              ((consp entry) (nth 0 entry))
+              ((stringp entry) entry))
+        "╶")))
+
+(ert-deftest org-air-r9-d5-rail-key-face-defined ()
+  "D5f: the quiet keycap face `org-air-face-rail-key' exists (inherits
+the salient tone, no box) for the Actions verbs' leading key tokens."
+  (skip-unless (locate-library "org-air"))
+  (should (facep 'org-air-face-rail-key)))
+
+(ert-deftest org-air-r9-d5-hrule-cap-glyph-defined ()
+  "D5a: the `hrule-cap' glyph (GUI ╶ / TTY -) is registered so every rail
+rule can open with the rounded stub that echoes the pill's left edge."
+  (skip-unless (locate-library "org-air"))
+  (should (assq 'hrule-cap org-air-glyphs))
+  (should (equal (org-air-layout-glyph 'hrule-cap) "╶")))
+
+(ert-deftest org-air-r9-d5a-rail-rule-family-has-cap ()
+  "D5a: Summary and Filters open with the SAME labelled rule led by the
+╶ hrule-cap (one rule family across the rail, not bare ── rules)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (let ((cap (org-air-r9--hrule-cap))
+            (text (substring-no-properties (buffer-string))))
+        (should (string-match-p (concat (regexp-quote cap) "─ Summary") text))
+        (should (string-match-p (concat (regexp-quote cap) "─ Filters") text))))))
+
+(ert-deftest org-air-r9-d5a-actions-block-named ()
+  "D5f/D5a: the floating verb hints become a named `Actions' peer block,
+opened by the labelled rule (not orphan lines)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (let ((cap (org-air-r9--hrule-cap))
+            (text (substring-no-properties (buffer-string))))
+        (should (string-match-p (concat (regexp-quote cap) "─ Actions") text))))))
+
+(ert-deftest org-air-r9-d5a-calendar-is-labelled-rule ()
+  "D5a: the calendar month header renders as a labelled rule
+(╶─ June 2026 ──…── ‹ ›): the cap + month label, the ‹ › nav anchored
+AFTER the fill, in the same family as Summary/Filters."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (let* ((cap (org-air-r9--hrule-cap))
+             (rail (org-air-r9--rail-lines))
+             ;; the month rule line: cap, dash, "June 2026"/"Jun 2026",
+             ;; fill, then the nav glyphs at the right.
+             (rx (concat "\\`" (regexp-quote cap)
+                         "─ Ju\\(ne\\|n\\) 2026 ─.*‹ ›\\'")))
+        (should (cl-some (lambda (l) (string-match-p rx l)) rail))))))
+
+(ert-deftest org-air-r9-d5c-legend-separated-and-spaced ()
+  "D5c: the calendar legend is separated from the grid by one blank line,
+indented to the spine, with a space between each glyph and its word
+(◆ due, ● sched, · created) and a wide gap between entries."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (let* ((rail (org-air-r9--rail-lines))
+             (idx (cl-position-if
+                   (lambda (l) (string-match-p "◆ due" l)) rail)))
+        (should idx)
+        ;; spaced glyph+word for all three marks.
+        (let ((line (nth idx rail)))
+          (should (string-match-p "◆ due" line))
+          (should (string-match-p "● sched" line))
+          (should (string-match-p "· created" line))
+          ;; wider (>=4 space) gap between entries, not a single space.
+          (should (string-match-p "due {4,}●" line)))
+        ;; separated from the grid by a blank rail line above.
+        (should (> idx 0))
+        (should (string-empty-p (string-trim (nth (1- idx) rail))))))))
+
+(ert-deftest org-air-r9-d5d-ledger-sum-rule ()
+  "D5d: `total' sits under a SHORT ledger rule (a 4-char ──── over the
+number field), not the old full-width empty hairline that read as debris."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (let* ((rail (org-air-r9--rail-lines))
+             (tot (cl-position-if
+                   (lambda (l) (string-match-p "[0-9]+ +total\\'" l)) rail)))
+        (should tot)
+        (should (> tot 0))
+        (let ((above (string-trim (nth (1- tot) rail))))
+          ;; a short ledger rule of box-drawing dashes,
+          (should (string-match-p "\\`─+\\'" above))
+          ;; that is SHORT (the ledger sum, ~4), not the full rail width.
+          (should (<= (string-width above) 8)))))))
+
+(ert-deftest org-air-r9-d5f-actions-aligned-no-dot-separators ()
+  "D5f: the Actions verb rows are column-aligned with a wide gap and DROP
+the `·' separators (the column gap does the separating, calmer prose)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (let* ((rail (org-air-r9--rail-lines))
+             (verbs (seq-filter
+                     (lambda (l) (string-match-p "capture\\|filter\\|refresh" l))
+                     rail)))
+        (should verbs)
+        (dolist (l verbs)
+          (should-not (string-match-p " · " l))
+          ;; column-aligned: a wide gap between verbs.
+          (should (string-match-p "[a-z] \\{3,\\}[A-Za-z/?]" l)))))))
+
+(ert-deftest org-air-r9-d5f-rail-key-keycap-applied ()
+  "D5f: the Actions verbs' leading key tokens render in the quiet keycap
+face `org-air-face-rail-key' (keys read as keys, prose recedes)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (should (org-air-viewport-test-face-applied-p 'org-air-face-rail-key)))))
+
 (provide 'org-air-round9-test)
 ;;; org-air-round9-test.el ends here

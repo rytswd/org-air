@@ -119,6 +119,29 @@
     ;;     org-air-r9-q1-S-clears-active-scope guard passes).
     (org-air-r9-q1-rail-advertises-scope-reset
      . "Q1: rail does not yet advertise the scope-reset (S clears/S reset) cue")
+    ;;
+    ;; v0.4 ROUND-9 D5 grind punch list (design utwrpzmx,
+    ;; air/v0.4/org-air-round9-design-d5.org — sidebar/context-rail
+    ;; refinement; delete each as the D5 face/glyph + impl byte parts
+    ;; integrate):
+    (org-air-r9-d5-rail-key-face-defined
+     . "D5f: org-air-face-rail-key (keycap face) not added yet")
+    (org-air-r9-d5-hrule-cap-glyph-defined
+     . "D5a: hrule-cap glyph (╶ . -) not registered in org-air-glyphs yet")
+    (org-air-r9-d5a-rail-rule-family-has-cap
+     . "D5a: rail rules (Summary/Filters) do not yet open with the ╶ hrule-cap")
+    (org-air-r9-d5a-actions-block-named
+     . "D5f: floating hints not yet a named Actions labelled-rule block")
+    (org-air-r9-d5a-calendar-is-labelled-rule
+     . "D5a: calendar month header not yet rendered as a labelled rule w/ right-anchored nav")
+    (org-air-r9-d5c-legend-separated-and-spaced
+     . "D5c: legend not yet blank-separated/spaced (◆ due  ● sched  · created)")
+    (org-air-r9-d5d-ledger-sum-rule
+     . "D5d: total still under a full-width hairline, not a short ledger-sum rule")
+    (org-air-r9-d5f-actions-aligned-no-dot-separators
+     . "D5f: Actions verbs still use · separators, not column alignment")
+    (org-air-r9-d5f-rail-key-keycap-applied
+     . "D5f: org-air-face-rail-key not yet applied to the Actions key tokens")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

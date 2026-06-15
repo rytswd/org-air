@@ -47,19 +47,25 @@ track ACE runtime artifacts in this git repo.
     ever pub org-air3.work.$ROLE.done "{\"agent\":\"org-air-$ROLE\",\"status\":\"exited\",\"exit_code\":\$EXIT_CODE}"
     SH
     chmod +x /tmp/org-air-ace/on-exit-$ROLE.sh
-    chronoa new --daemon \
+    mkdir -p /tmp/org-air-ace/logs
+    chronoa new --daemon --log /tmp/org-air-ace/logs/$ROLE.log \
       --cwd /home/ryota/Coding/github.com/rytswd/org-air-$ROLE \
       --sandbox cwd \
       --sandbox-dir /home/ryota/Coding/github.com/rytswd/org-air/.jj \
       --sandbox-dir /home/ryota/Coding/github.com/rytswd/org-air/.git \
       --sandbox-dir /home/ryota/Coding/github.com/withre/ace-stack/data \
+      --sandbox-dir /home/ryota/.pi \
       --env EVER_DATA_DIR=/home/ryota/Coding/github.com/withre/ace-stack/data \
       --env GIT_CONFIG_GLOBAL=/dev/null \
       --env PI_NO_GATE=1 \
       --tag project=org-air --tag role=$ROLE \
       --on-exit /tmp/org-air-ace/on-exit-$ROLE.sh \
-      org-air-$ROLE -- pi --no-session --sandbox --model opus
+      org-air-$ROLE -- pi --no-session --no-extensions --model claude-opus-4-5
     chronoa send org-air-$ROLE "@/tmp/org-air-ace/prompt-$ROLE.md"
+- Spawn gotchas (learned): pi has no own sandbox flag — Landlock is
+  chronoa's `--sandbox`; `--sandbox-dir ~/.pi` is REQUIRED (auth.json +
+  trust lock); `--no-extensions` avoids a stale global extension path;
+  model id is `claude-opus-4-5` (not "opus"); `--log` needs a PATH.
 - Workers signal via `ever pub org-air3.work.$ROLE.{done,failed,learnings}`
   (reliable through the sandbox; the host hook relays to me). `/tmp`,
   `$XDG_RUNTIME_DIR`, `/nix/store` are always in sandbox scope.

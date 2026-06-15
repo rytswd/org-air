@@ -187,6 +187,35 @@ columns (keeping the U1 width-derivation tests green)."
       (window-max-chars-per-line window)
     (window-body-width window)))
 
+(cl-defun org-air-layout-labelled-rule (label width &key suffix
+                                              (label-face 'org-air-face-rail-title)
+                                              (rule-face 'org-air-face-pane-border)
+                                              (suffix-face 'org-air-face-rail-title))
+  "Return a D5 labelled-rule string of display WIDTH for the context rail.
+Form: ‹cap›‹rule› LABEL ‹fill…› [‹SUFFIX›], where the leading cap glyph
+\(`hrule-cap', a rounded stub) echoes the rounded left edge of a D1-D3
+pill so the rail rules and the item-pane pills share one rounded
+language.  The rule glyphs render in RULE-FACE, LABEL in LABEL-FACE, and
+the optional right-anchored SUFFIX (e.g. the calendar `‹ ›' nav) in
+SUFFIX-FACE — the suffix is reserved its width first so it never
+truncates.  An empty LABEL yields a bare capped rule."
+  (let* ((cap (org-air-layout-glyph 'hrule-cap))
+         (rule (org-air-layout-glyph 'hrule))
+         (rchar (string-to-char rule))
+         (suffix (or suffix ""))
+         (left (if (string-empty-p label)
+                   (propertize (concat cap rule) 'face rule-face)
+                 (concat (propertize (concat cap rule) 'face rule-face)
+                         " "
+                         (propertize label 'face label-face)
+                         " ")))
+         (suffix-str (if (string-empty-p suffix)
+                         ""
+                       (concat " " (propertize suffix 'face suffix-face))))
+         (fill-n (max 0 (- width (string-width left) (string-width suffix-str))))
+         (fill (propertize (make-string fill-n rchar) 'face rule-face)))
+    (concat left fill suffix-str)))
+
 (defun org-air-layout-orientation (width &optional breakpoint)
   "Return layout orientation for WIDTH and BREAKPOINT.
 The result is `two-pane' when WIDTH reaches BREAKPOINT, otherwise `stacked'."

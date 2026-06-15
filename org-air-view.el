@@ -210,6 +210,25 @@ usable width (D1)."
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-rail-content-inset 3
+  "Content-spine indent for the context-rail blocks (D5b).
+Every rail block's CONTENT (calendar grid + legend, summary rows + total,
+filters/scope text, Actions verbs) is inset by this many columns so they
+share one left edge directly under the labelled rules' label text.  The
+labelled rules themselves start at column 0 and span the full rail width.
+At the narrow rail tier the inset drops to 1 (see `org-air-view--rail-inset')
+so the 20-col calendar grid never overflows."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-rail-anchor-actions nil
+  "When non-nil, pin the rail Actions block to the bottom of the rail (D5f).
+The default keeps Actions in normal flow one blank line under Filters; set
+to t for the classic sidebar-footer look, padding blank lines between
+Filters and Actions so the verbs sit at the foot of the fixed-height rail."
+  :type 'boolean
+  :group 'org-air)
+
 (defcustom org-air-layout-hysteresis 3
   "Column dead-band around the two-pane breakpoint (D1).
 Resizing within this many columns of the breakpoint keeps the current
@@ -1151,20 +1170,34 @@ under the other buckets."
   "Return display title for BUCKET."
   (cadr (assq bucket org-air-view--sections)))
 
+(defun org-air-view--rail-inset (width)
+  "Return the D5b content-spine inset for a rail of content WIDTH.
+Drops to 1 at the narrow tier (content width < 30, i.e. the 28-col rail)
+so the calendar grid and rules never overflow; `org-air-rail-content-inset'
+\(default 3) at the mid/wide tiers."
+  (if (>= width 30) (max 0 org-air-rail-content-inset) 1))
+
+(defun org-air-view--rail-inset-str (width)
+  "Return the spine-inset whitespace prefix for a rail of content WIDTH."
+  (make-string (org-air-view--rail-inset width) ?\s))
+
 (defun org-air-view--insert-labelled-rule (label width)
-  "Insert a rail rule labelled LABEL and fitted to WIDTH."
-  (let* ((rule (org-air-view--glyph 'hrule))
-         (prefix (if (string-empty-p label) "" (concat rule rule " " label " ")))
-         (face (if (string-empty-p label) 'org-air-face-pane-border 'org-air-face-rail-title))
-         (line (concat prefix (org-air-view--rule-string (max 0 (- width (string-width prefix)))))))
-    (insert (propertize (org-air-view--pad-to line width) 'face face) "\n")))
+  "Insert a D5 rail rule labelled LABEL and fitted to WIDTH.
+The rule opens with the rounded `hrule-cap' stub echoing a pill's left
+edge (D5a); the rule glyphs are quiet `org-air-face-pane-border' and the
+label is `org-air-face-rail-title'."
+  (insert (org-air-view--pad-to
+           (org-air-layout-labelled-rule label width)
+           width)
+          "\n"))
 
 (defun org-air-view--insert-summary (items width)
   "Insert summary block for ITEMS fitted to WIDTH."
   (when org-air-show-summary
     (org-air-view--insert-labelled-rule "Summary" width)
     (let ((counts (org-air-view--section-counts items))
-          (total (length (org-air-view--visible-items items))))
+          (total (length (org-air-view--visible-items items)))
+          (inset (org-air-view--rail-inset-str width)))
       (dolist (entry counts)
         (let* ((bucket (car entry))
                (count (cdr entry))
@@ -1173,16 +1206,22 @@ under the other buckets."
                              ((memq bucket '(inbox attention))
                               'org-air-face-summary-number-attention)
                              (t 'org-air-face-summary-number))))
-          (insert " "
+          ;; D5b/D5d: spine inset + %3d number + 3-space gutter + label.
+          (insert inset
                   (propertize (format "%3d" count) 'face number-face)
-                  "  "
+                  "   "
                   (propertize (org-air-view--bucket-title bucket)
                               'face 'org-air-face-summary-label)
                   "\n")))
-      (org-air-view--insert-labelled-rule "" width)
-      (insert " " (propertize (format "%3d" total)
+      ;; D5d: a short ledger rule (over the number field) replaces the old
+      ;; stray full-width hairline — the universal "sum" affordance.
+      (insert inset
+              (propertize (make-string 4 (string-to-char (org-air-view--glyph 'hrule)))
+                          'face 'org-air-face-pane-border)
+              "\n")
+      (insert inset (propertize (format "%3d" total)
                                 'face 'org-air-face-summary-number)
-              "  " (propertize "total" 'face 'org-air-face-summary-label)
+              "   " (propertize "total" 'face 'org-air-face-summary-label)
               "\n"))))
 
 (defun org-air-view--scope-label ()
@@ -1197,50 +1236,91 @@ under the other buckets."
   "Insert filters and scope block fitted to WIDTH."
   (when org-air-show-rail-filters
     (org-air-view--insert-labelled-rule "Filters" width)
-    (let ((filters (org-air-view--filter-tags)))
+    (let ((filters (org-air-view--filter-tags))
+          (inset (org-air-view--rail-inset-str width)))
       (if (and (null filters) (null org-air-view--scope))
-          (insert (propertize "No filters · all items" 'face 'org-air-face-faded) "\n")
+          (insert inset
+                  (propertize "No filters · all items" 'face 'org-air-face-faded)
+                  "\n")
         (progn
           (if filters
-              (insert (mapconcat (lambda (tag)
+              (insert inset
+                      (mapconcat (lambda (tag)
                                    (concat "#" tag " " (org-air-view--glyph 'clear)))
                                  filters " ")
                       "\n")
-            (insert (propertize "No tag filters" 'face 'org-air-face-faded) "\n"))
-          (insert (propertize (concat "Scope: " (org-air-view--scope-label)
+            (insert inset
+                    (propertize "No tag filters" 'face 'org-air-face-faded) "\n"))
+          (insert inset
+                  (propertize (concat "Scope: " (org-air-view--scope-label)
                                       (when org-air-view--scope "  (S clears)"))
                               'face 'org-air-face-faded)
                   "\n"))))))
 
+(defun org-air-view--verb-cell (key desc width)
+  "Return a rail Actions verb cell: KEY (keycap face) DESC (faded), padded.
+KEY renders in `org-air-face-rail-key' so keys read as keys; DESC stays
+`org-air-face-faded'.  The cell is right-padded to display WIDTH for
+column alignment (D5f); a WIDTH of 0 (the trailing column) is as-is."
+  (let ((cell (concat (propertize key 'face 'org-air-face-rail-key)
+                      " "
+                      (propertize desc 'face 'org-air-face-faded))))
+    (if (> width 0)
+        (concat cell (make-string (max 0 (- width (string-width cell))) ?\s))
+      cell)))
+
+(defun org-air-view--insert-actions (width)
+  "Insert the named D5f Actions block fitted to rail content WIDTH.
+Two column-aligned verb rows, inset to the spine, the leading key token in
+the quiet keycap face; the columns do the separating (no dotted prose)."
+  (org-air-view--insert-labelled-rule "Actions" width)
+  (let* ((inset (org-air-view--rail-inset-str width))
+         ;; Round-9 Q1: when a scope is active the second row's middle verb
+         ;; surfaces the scope reset right where the user acts.
+         (mid2 (if org-air-view--scope '("S" . "scope-reset") '("TAB" . "expand")))
+         ;; Column field widths = the widest "KEY DESC" cell in each column.
+         (c1 (max (+ 2 (length "capture")) (+ 2 (length "refresh"))))
+         (c2 (max (+ 2 (length "filter"))
+                  (+ (length (car mid2)) 1 (length (cdr mid2)))))
+         ;; D5f: a 4-space column gap at the wide tier; tighten to 1 at the
+         ;; mid/narrow tiers so the three verbs still fit (elide only at the
+         ;; very narrow rail, as the spec allows).
+         (gap (if (>= width 38) "    " " ")))
+    (insert (org-air-view--pad-to
+             (concat inset
+                     (org-air-view--verb-cell "c" "capture" c1) gap
+                     (org-air-view--verb-cell "/" "filter" c2) gap
+                     (org-air-view--verb-cell "s" "scope" 0))
+             width)
+            "\n")
+    (insert (org-air-view--pad-to
+             (concat inset
+                     (org-air-view--verb-cell "g" "refresh" c1) gap
+                     (org-air-view--verb-cell (car mid2) (cdr mid2) c2) gap
+                     (org-air-view--verb-cell "?" "help" 0))
+             width)
+            "\n")))
+
 (defun org-air-view--insert-rail (items width)
-  "Insert the context rail for ITEMS at WIDTH."
+  "Insert the context rail for ITEMS at WIDTH (D5 polished sidebar).
+Four peer blocks — calendar, Summary, Filters, Actions — each opened by
+the same labelled rule and sharing one content spine (D5a/D5b)."
   (let ((org-air-view--line-width width))
     (org-air-calendar-insert-month org-air-view--cal-month
                                    (org-air-view--visible-items items)
-                                   width)
+                                   width (org-air-view--rail-inset width))
     (insert "\n")
     (org-air-view--insert-summary items width)
     (insert "\n")
     (org-air-view--insert-rail-filters width)
-    ;; R4: the full verb set lives in the rail now (footer band removed) —
-    ;; two quiet faded lines, ALWAYS (the single condensed line belongs to
-    ;; the stacked top-band, not the two-pane rail).  At a narrow rail the
-    ;; lines elide with … rather than dropping verbs.
-    (insert "\n"
-            (propertize (org-air-view--pad-to "c capture · / filter · s scope"
-                                              width)
-                        'face 'org-air-face-faded)
-            "\n"
-            ;; Q1: surface the scope reset right where the user looks for it —
-            ;; but only while a scope is active, so it is actionable advice
-            ;; (not noise) and the default board's hint is unchanged.
-            (propertize (org-air-view--pad-to
-                         (if org-air-view--scope
-                             "gr refresh · S scope-reset · ? help"
-                           "gr refresh · TAB expand · ? help")
-                         width)
-                        'face 'org-air-face-faded)
-            "\n")))
+    ;; D5f: the verbs are a named Actions peer block, not floating text.
+    ;; Optionally pin it to the rail foot (`org-air-rail-anchor-actions').
+    (when org-air-rail-anchor-actions
+      (let* ((have (count-lines (point-min) (point)))
+             (target (max 0 (- (org-air-view--render-height) 3 have 3))))
+        (when (> target 0) (insert (make-string target ?\n)))))
+    (insert "\n")
+    (org-air-view--insert-actions width)))
 
 (defun org-air-view--insert-top-rail (items width)
   "Insert the stacked top-band rail for ITEMS at total WIDTH (D3).

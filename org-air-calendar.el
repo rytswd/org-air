@@ -18,6 +18,7 @@
 (require 'org)
 (require 'org-air-query)
 (require 'org-air-faces)
+(require 'org-air-layout)
 
 (declare-function org-ql--normalize-query "org-ql" t t)
 
@@ -126,11 +127,19 @@ so a day carrying both reads as a deadline."
   (mod (- calendar-dow org-air-calendar-week-start) 7))
 
 ;;;###autoload
-(defun org-air-calendar-insert-month (&optional date items width)
+(defun org-air-calendar-insert-month (&optional date items width inset)
   "Insert a compact month calendar for DATE marking dashboard ITEMS.
 WIDTH is the available content width; it selects the responsive day-cell
-width (3 vs 4 columns) when `org-air-calendar-day-spacing' is `auto'."
-  (let* ((cell (org-air-calendar--cell-width width))
+width (3 vs 4 columns) when `org-air-calendar-day-spacing' is `auto'.
+INSET (D5b) is the content-spine indent in columns applied to the weekday
+row, the day grid and the legend so the calendar shares the rail's single
+left edge; the labelled-rule header itself spans the full WIDTH."
+  (let* ((inset (or inset 0))
+         ;; D5b: the content spine eats INSET columns, so the day-cell
+         ;; width must be chosen from the width that REMAINS for the grid —
+         ;; otherwise a spaced (4-col) grid plus the inset overflows the rail.
+         (cell (org-air-calendar--cell-width (- (or width 0) inset)))
+         (pad-str (make-string (max 0 inset) ?\s))
          (gap (if (>= cell 4) " " ""))
          (decoded (decode-time (or date (current-time))))
          (month (decoded-time-month decoded))
@@ -149,25 +158,29 @@ width (3 vs 4 columns) when `org-air-calendar-day-spacing' is `auto'."
                                        (org-air-calendar--weekdays) "")
                           ;; Compact tier: exactly the pre-T3a 20-col row.
                           (string-join (org-air-calendar--weekdays) " ")))
-           (row-width (string-width weekday-row))
            (nav (concat (org-air-calendar--glyph "‹" "<") " "
                         (org-air-calendar--glyph "›" ">")))
-           (label (format "%s %d" (calendar-month-name month) year))
-           ;; Right-align the month-nav within the weekday-row width so the
-           ;; ‹ › affordance never truncates, abbreviating the month name
-           ;; before dropping the nav (D3).
-           (label (if (> (+ (string-width label) 1 (string-width nav)) row-width)
+           (full-label (format "%s %d" (calendar-month-name month) year))
+           ;; D5a: the calendar header is now the same labelled rule as
+           ;; Summary/Filters/Actions, with the ‹ › nav right-anchored as the
+           ;; rule suffix.  Abbreviate the month before the nav truncates
+           ;; (the round-9 D3 / nav-never-drops rule, preserved).
+           (label (if (> (+ 4 (string-width full-label) 2 (string-width nav))
+                         (or width (string-width weekday-row)))
                       (format "%s %d"
                               (substring (calendar-month-name month) 0 3) year)
-                    label))
-           (pad (max 1 (- row-width (string-width label) (string-width nav)))))
-      (insert (propertize (concat label (make-string pad ?\s) nav)
-                          'face 'org-air-face-calendar-header)
+                    full-label)))
+      (insert (org-air-layout-labelled-rule
+               label (or width (string-width weekday-row))
+               :suffix nav :suffix-face 'org-air-face-calendar-header)
               "\n")
-      (insert (propertize weekday-row 'face 'org-air-face-calendar-day-name)
+      (insert pad-str
+              (propertize weekday-row 'face 'org-air-face-calendar-day-name)
               "\n"))
     ;; T3a: per-day cell = "%2d" + marker (+ one breathing space when the
     ;; rail is wide enough; responsive per `org-air-calendar-day-spacing').
+    ;; D5b: each grid row opens at the content spine (INSET).
+    (insert pad-str)
     (dotimes (_ first-day)
       (insert (make-string cell ?\s)))
     (while (<= day last-day)
@@ -193,25 +206,32 @@ width (3 vs 4 columns) when `org-air-calendar-day-spacing' is `auto'."
         (insert (if mark (propertize (car mark) 'face (cdr mark)) " ")
                 gap)
         (when (= (org-air-calendar--column calendar-dow) 6)
-          (insert "\n")))
+          (insert "\n")
+          ;; D5b: open the next grid row at the content spine.
+          (when (< day last-day) (insert pad-str))))
       (setq day (1+ day)))
     (unless (bolp) (insert "\n"))
+    ;; D5c: separate the legend from the grid with one blank line, indent it
+    ;; to the spine, and space each glyph from its word.
+    (insert "\n" pad-str)
     ;; T3b/S9 (ruling tynxttsz): a per-tier SINGLE-LINE legend that doubles
-    ;; as a key, the glyph hugging its label.  Narrow tier (compact cell)
-    ;; drops `created' from the cramped key (the · mark still renders on
-    ;; the grid); the wide tier names all three plus today.  Markers come
-    ;; from `org-air-calendar--glyph', the same source as the cells.
+    ;; as a key.  Narrow tier (compact cell) drops `created' from the
+    ;; cramped key (the · mark still renders on the grid); the wide tier
+    ;; names all three.  Markers come from `org-air-calendar--glyph', the
+    ;; same source as the cells.
     (insert (org-air-calendar--legend (>= cell 4)) "\n")))
 
 (defun org-air-calendar--legend-entry (gui tty face word)
-  "Return a legend key entry: GUI/TTY glyph in FACE, hugging WORD."
+  "Return a legend key entry: GUI/TTY glyph in FACE, a space, then WORD (D5c)."
   (concat (propertize (org-air-calendar--glyph gui tty) 'face face)
+          " "
           (propertize word 'face 'org-air-face-calendar-legend)))
 
 (defun org-air-calendar--legend (wide)
   "Return the single-line calendar legend; WIDE names `created' too (T3b).
-R7: today no longer appears in the legend — the filled today cell is its
-own unmistakable cue."
+D5c: each glyph is spaced from its word (\"◆ due\") and the entries are
+separated by a wider 4-space gap.  R7: today no longer appears in the
+legend — the filled today cell is its own unmistakable cue."
   (let ((due (org-air-calendar--legend-entry
               "◆" "!" 'org-air-face-calendar-deadline "due"))
         (sched (org-air-calendar--legend-entry
@@ -219,8 +239,8 @@ own unmistakable cue."
         (created (org-air-calendar--legend-entry
                   "·" "." 'org-air-face-calendar-created "created")))
     (if wide
-        (string-join (list due sched created) " ")
-      (string-join (list due sched) " "))))
+        (string-join (list due sched created) "    ")
+      (string-join (list due sched) "    "))))
 
 (provide 'org-air-calendar)
 

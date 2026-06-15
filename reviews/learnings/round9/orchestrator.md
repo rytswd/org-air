@@ -23,3 +23,13 @@
    mockups" — those bytes were the flush-set leaking from a sibling, not a real
    mismatch. Let the test track (fixture↔code pairing owner) produce the green
    integration tip; don't hand-merge divergent worker branches.
+
+## Addendum: ship was FLUSH, not spine
+Test's learnings frame the outcome as "integrate qqpuoqlv lineage, defer
+rskvknsz" — that is test's stale spine viewpoint. The ACTUAL ship is FLUSH
+(rskvknsz + ryqqlzwprtux, trunk uoqvktux, byte-verified). Design reversed
+spine->flush after seeing the render and re-reading D5b. Test's rebase-
+relocation + fixture<->code pairing lessons are correct regardless of the
+spine/flush framing. The meta-lesson: crossed messages got so tangled that
+design AND test each held a stale view of what shipped; only a single
+authoritative byte-verified ground-truth message resolved it.

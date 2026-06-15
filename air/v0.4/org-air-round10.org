@@ -1,0 +1,89 @@
+#+title: org-air v0.4 round-10: svg pill rework + svg sidebar + project-as-dashboard + routines/journals
+#+state: ready
+#+FILETAGS: :ui:visual:svg:architecture:
+
+* Summary
+Round-10 from two screenshots (board 00-39-08, project 00-39-16) on the
+shipped flush build.  Alignment is good; the svg layer and the project
+view are not.  Six items, design-led.
+
+* Findings
+
+** P1 [CRIT] SVG pills look bad — clipped, over-round, over-colourful
+The pills are the #1 problem.  On the board every pill clips its last
+character(s): =#inbox=→"inbo", =Today=→"oday", =Tomorrow=→"omorrow",
+=#urgent=→"urgen", =#report=→"repor", =OVERDUE 5d=→"OVERDUE 5", =#docs=
+→"doc".  Root cause: the pill box is locked to =Ncols * char-width= (the
+C2 alignment contract, correct) but the svg label is drawn at a font-size
+that is WIDER than the box, so it spills past the rounded edge and is
+clipped.  Plus: corner radius =h/3= reads as a full stadium (too round);
+per-tag =fill-opacity= tint over every chip is too colourful and busy;
+there is no internal horizontal padding so text kisses the border.
+*Contract (keep alignment, fix the rest):*
+- The label MUST fit fully inside the pill with horizontal padding on
+  both sides — NEVER clipped.  Use the svg-tag-mode approach: the
+  underlying string reserves the padding columns (e.g. one space each
+  side), the svg is drawn over the full padded cell box, the label is
+  centred with room.  Column width = reserved Ncols, so V6 alignment is
+  preserved (the box still = Ncols*char-width).
+- Gentler radius: a soft 2–4px (or ~h/6), not a stadium.
+- Less colour: drop the per-chip fill tint to near-zero / monochrome;
+  prefer a thin muted border + coloured label on the normal background,
+  or a single very-subtle neutral fill.  One restrained accent, not a
+  rainbow.  Study svg-lib / svg-tag-mode defaults and rougier's palette.
+- Modern, calm, padded.  Alignment must stay pixel-locked (C2 holds).
+
+** P2 [HIGH] Sidebar (calendar/summary) — svg-based modernisation
+The rail is functional but plain.  Bring rougier-grade polish: consider
+svg for the calendar grid / today marker / section headers, subtle card
+treatment (see hl-block.el technique: face background + overline/
+underline to draw a block without svg), and a more refined month grid.
+References saved at reviews/references/rougier-*.el.  Keep the flush rail
+structure; modernise the *fill*.  TTY/byte fallback mandatory.
+
+** P3 [LOW] Today's date in the header → accent colour
+Top-right header "Tue 16 Jun · 33 items": render the date (and maybe the
+count) in the accent/salient colour, not muted grey.
+
+** P4 [MED] Calendar should centre in the rail width
+The month grid is left-aligned in the rail; centre the grid block within
+the available rail width (equal left/right margin) so it sits balanced.
+
+** P5 [HIGH/arch] Project view — reuse the dashboard renderer, drop the tree
+The Air-doc project view (org-air-project) currently mimics =airctl
+status= with an ASCII pipe tree (├ │ └).  That reads as raw CLI output,
+not a modern Emacs UI, and duplicates rendering logic.  Replace it with
+the SAME rendering org-air uses for the board: state buckets as sections
+(Draft / Ready / WIP / Review / Complete like Inbox/Needs-attention),
+each doc a row with the title LEFT and the right cluster (date + tags +
+origin/path) — reusing org-air-view's row renderer + faces + svg layer.
+Goal: visual parity with the board, far less bespoke code, easier to
+maintain.  Keep the same data (state, dir grouping, counts, tags, dates)
+but present it through the shared renderer.  Sub-grouping by version/dir
+can become indented sub-sections or a secondary cluster, design's call.
+
+** P6 [NEW/design-proposal] Routines & journals — first-class handling
+org-air should handle recurring *routines* (habits/repeating tasks) and
+*journals* (daily/periodic notes) better than a generic TODO list.
+Design to PROPOSE a model + presentation (e.g. a routines strip showing
+today's recurring items with streak/done-state; a journal affordance for
+today's entry; how org-mode repeaters / logbook / Denote-journal map in).
+This is a PROPOSAL for user approval BEFORE any impl — keep it concrete
+and minimal.
+
+* Constraints
+- org-ql only (no org-agenda).  Emacs 29.1+.  GUI svg cosmetic only —
+  byte/TTY fallback mandatory for every svg element (tests are byte
+  fixtures).  Pixel-lock alignment contract (C2) must hold.
+- Reuse over rewrite (P5): share org-air-view's renderer/faces.
+
+* Work items (design-led; impl + test follow design specs)
+- D-P1  svg pill rework (padding/no-clip, gentle radius, calm colour)   [CRIT]
+- D-P2  svg sidebar modernisation (calendar/cards)                      [HIGH]
+- D-P3  header date accent colour                                       [LOW]
+- D-P4  centre calendar in rail                                         [MED]
+- D-P5  project-view → shared dashboard renderer (drop ASCII tree)      [HIGH]
+- D-P6  routines/journals model + presentation PROPOSAL (approval gate) [NEW]
+
+* Implementation History
+- (pending) round-10 opened from screenshots 00-39-08 / 00-39-16.

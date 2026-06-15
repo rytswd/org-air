@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-9: layout robustness + svg refinement + Denote
-#+state: work-in-progress
+#+state: complete
 #+FILETAGS: :ui:visual:bugs:
 
 * Summary

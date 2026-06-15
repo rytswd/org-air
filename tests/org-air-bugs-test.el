@@ -41,14 +41,18 @@ refresh+reset; `G' = bottom of pane (vim/evil g-prefix)."
   (should (keymapp (lookup-key org-air-view-mode-map (kbd "g")))))
 
 (ert-deftest org-air-b4-rail-hint-shows-g-prefix ()
-  "B4 [byte]: the rail hint advertises the g-prefix (gr refresh) rather
-than the old bare `g refresh'."
+  "D5f [byte] REVERSAL of the round-8 B4 rail-hint string: the D5 Actions
+block shows the PRIMARY key `g refresh' (not the round-8 `gr refresh').
+The keymap is unchanged — `g' is still the prefix and `g r' refreshes
+(see the g-prefix keymap tests); D5f only changes the rail's DISPLAYED
+verb to the primary key.  Flagged to design as an intended D5
+consequence (previously-blessed `gr refresh' -> `g refresh')."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-dashboard 120
+    (org-air-viewport-test-with-dashboard 160
       (let ((text (buffer-string)))
-        (should (string-match-p "gr refresh\\|g r refresh" text))
-        (should-not (string-match-p "[^r] g refresh" text))))))
+        (should (string-match-p "g refresh" text))
+        (should-not (string-match-p "gr refresh" text))))))
 
 ;;;; B1 — TAB never hangs; header-only toggle keeps point on the header.
 

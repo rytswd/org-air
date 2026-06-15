@@ -111,29 +111,13 @@
     ;; face also landed via design utwrpzmx.  Five manifest entries
     ;; deleted here as passed-unexpectedly.
     ;;
-    ;; v0.4 ROUND-9 D5 grind punch list (design utwrpzmx,
-    ;; air/v0.4/org-air-round9-design-d5.org — sidebar/context-rail
-    ;; refinement, byte rail; impl is landing it now).  The rail-key FACE
-    ;; landed, but it is not yet APPLIED and the byte rail structure is
-    ;; still the round-8 rail — delete each as the D5 byte parts land:
-    (org-air-r9-d5-hrule-cap-glyph-defined
-     . "D5a: hrule-cap glyph (╶ . -) not registered in org-air-glyphs yet")
-    (org-air-r9-d5b-content-spine
-     . "D5b: org-air-rail-content-inset spine not applied to all rail blocks yet")
-    (org-air-r9-d5a-rail-rule-family-has-cap
-     . "D5a: rail rules (Summary/Filters) do not yet open with the ╶ hrule-cap")
-    (org-air-r9-d5a-actions-block-named
-     . "D5f: floating hints not yet a named Actions labelled-rule block")
-    (org-air-r9-d5a-calendar-is-labelled-rule
-     . "D5a: calendar month header not yet rendered as a labelled rule w/ right-anchored nav")
-    (org-air-r9-d5c-legend-separated-and-spaced
-     . "D5c: legend not yet blank-separated/spaced (◆ due  ● sched  · created)")
-    (org-air-r9-d5d-ledger-sum-rule
-     . "D5d: total still under a full-width hairline, not a short ledger-sum rule")
-    (org-air-r9-d5f-actions-aligned-no-dot-separators
-     . "D5f: Actions verbs still use · separators, not column alignment")
-    (org-air-r9-d5f-rail-key-keycap-applied
-     . "D5f: org-air-face-rail-key not yet applied to the Actions key tokens")
+    ;; v0.4 ROUND-9 D5 closeout (impl settled tip ysvynsyl, verified):
+    ;; ALL 9 D5 rail-structure grinds flipped GREEN — hrule-cap glyph,
+    ;; the labelled-rule family (Summary/Filters/calendar-as-rule + named
+    ;; Actions), content-spine inset (org-air-rail-content-inset=3),
+    ;; spaced legend, short ledger-sum rule, column-aligned no-dot verbs,
+    ;; and rail-key keycaps applied.  Manifest entries deleted; the tests
+    ;; stay as permanent regression guards.  Round-9 manifest is EMPTY.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

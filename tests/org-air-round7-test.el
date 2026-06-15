@@ -81,15 +81,15 @@ found by its `org-air-face-calendar-today' face."
 
 (ert-deftest org-air-r7-legend-drops-today ()
   "R7 [byte]: the calendar legend no longer names today (the background
-highlight is self-evident): wide ◆due ●sched ·created / narrow
-◆due ●sched, with NO ■today token."
+highlight is self-evident): wide ◆ due  ● sched  · created / narrow
+◆ due  ● sched (D5c glyph-spaced), with NO ■today token."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (dolist (width '(100 120))
       (org-air-viewport-test-with-dashboard width
         (let ((text (buffer-string))
               (today (org-air-viewport-test--calendar-today-glyph 'gui)))
-          (should (string-match-p "◆due ●sched" text))
+          (should (string-match-p "◆ due    ● sched" text))
           (should-not (string-match-p (concat (regexp-quote today) "today")
                                       text)))))))
 
@@ -109,19 +109,21 @@ defaults to 0 (users can set 1 for Monday)."
 
 (ert-deftest org-air-r4-footer-band-removed ()
   "R4 [byte]: the bottom `[c]apture [g]refresh …' footer band is gone
-(`org-air-show-footer' defaults nil); the verbs live in the rail,
-expanded to two faded hint lines (c capture · / filter · s scope …)."
+(`org-air-show-footer' defaults nil); the verbs live in the rail's D5
+Actions block (c capture / filter  s scope ...).  Rendered wide (160) so
+the mid-tier elision (D5f narrow tiers truncate with …) does not clip
+`s scope'."
   (skip-unless (locate-library "org-air"))
   (should (boundp 'org-air-show-footer))
   (should (null org-air-show-footer))
   (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-dashboard 120
+    (org-air-viewport-test-with-dashboard 160
       (let ((text (buffer-string)))
         ;; The bottom band's bracketed hints are gone…
         (should-not (string-match-p "\\[c\\]apture" text))
-        ;; …but the rail still carries the verbs.
+        ;; …but the rail still carries the verbs (D5 Actions block).
         (should (string-match-p "c capture" text))
-        (should (string-match-p "scope" text))))))
+        (should (string-match-p "s scope" text))))))
 
 ;;;; R10 — title left & clean; one right-aligned [date] <=2 tags origin.
 

@@ -1,31 +1,31 @@
   org-air                                                                                          Mon 15 Jun · 0 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  □ Inbox 0                                                                           │   June 2026                  ‹ ›
-      Inbox zero — nothing to process.                                                │   Su  Mo  Tu  We  Th  Fr  Sa
-                                                                                      │        1   2   3   4   5   6
-  ▲ Needs attention 0                                                                 │    7   8   9  10  11  12  13
-      Nothing overdue. Nice.                                                          │   14  15  16  17  18  19  20
-                                                                                      │   21  22  23  24  25  26  27
-  ◆ Upcoming 0                                                                        │   28  29  30
-      Nothing scheduled in the next 7 days.                                           │   ◆due ●sched ·created
+  □ Inbox 0                                                                           │   ╶─ June 2026 ───────────── ‹ ›
+      Inbox zero — nothing to process.                                                │      Su Mo Tu We Th Fr Sa
+                                                                                      │          1  2  3  4  5  6
+  ▲ Needs attention 0                                                                 │       7  8  9 10 11 12 13
+      Nothing overdue. Nice.                                                          │      14 15 16 17 18 19 20
+                                                                                      │      21 22 23 24 25 26 27
+  ◆ Upcoming 0                                                                        │      28 29 30
+      Nothing scheduled in the next 7 days.                                           │
+                                                                                      │      ◆ due    ● sched
+  ★ High priority 0                                                                   │
+      No #A items.                                                                    │   ╶─ Summary ───────────────────
+                                                                                      │        0   Inbox
+  ○ Stale 0                                                                           │        0   Needs attention
+      Nothing has gone stale.                                                         │        0   Upcoming
+                                                                                      │        0   High priority
+      Nothing here yet. Press c to capture your first note.                           │        0   Stale
+                                                                                      │      ────
+                                                                                      │        0   total
                                                                                       │
-  ★ High priority 0                                                                   │   ── Summary ───────────────────
-      No #A items.                                                                    │      0  Inbox
-                                                                                      │      0  Needs attention
-  ○ Stale 0                                                                           │      0  Upcoming
-      Nothing has gone stale.                                                         │      0  High priority
-                                                                                      │      0  Stale
-      Nothing here yet. Press c to capture your first note.                           │   ──────────────────────────────
-                                                                                      │      0  total
+                                                                                      │   ╶─ Filters ───────────────────
+                                                                                      │      No filters · all items
                                                                                       │
-                                                                                      │   ── Filters ───────────────────
-                                                                                      │   No filters · all items
-                                                                                      │
-                                                                                      │   c capture · / filter · s scope
-                                                                                      │   gr refresh · TAB expand · ? h…
-                                                                                      │
-                                                                                      │
+                                                                                      │   ╶─ Actions ───────────────────
+                                                                                      │      c capture / filter   s sco…
+                                                                                      │      g refresh TAB expand ? help
                                                                                       │
                                                                                       │
                                                                                       │

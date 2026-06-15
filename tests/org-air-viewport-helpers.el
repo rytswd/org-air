@@ -484,19 +484,20 @@ TIER is `narrow' (the 95-119 / stacked form, no `created' word) or
 `wide' (the >=120 form).  WHICH selects the glyph set (`gui', default,
 or `tty').  R7 (design vlpzyquw) drops the today token — today is a
 background highlight on its cell, so the legend needs no entry for it:
-narrow ◆due ●sched / wide ◆due ●sched ·created.  GLYPHS are derived from
-the mark table so a respec never rots the assertion.  Format:
-GLYPH+word joined, single-space separated."
+narrow ◆ due  ●  sched / wide adds ·  created.  GLYPHS are derived from
+the mark table so a respec never rots the assertion.  Format (D5c): each
+GLYPH is spaced from its WORD (glyph, space, word) and entries are
+joined by a wider 4-space gap."
   (let* ((which (or which 'gui))
          (g (lambda (kind)
               (let ((cell (cdr (assq kind
                                      org-air-viewport-test-calendar-mark-glyphs))))
                 (if (eq which 'tty) (cdr cell) (car cell)))))
-         (parts (append (list (concat (funcall g 'deadline) "due")
-                              (concat (funcall g 'scheduled) "sched"))
+         (parts (append (list (concat (funcall g 'deadline) " due")
+                              (concat (funcall g 'scheduled) " sched"))
                         (when (eq tier 'wide)
-                          (list (concat (funcall g 'created) "created"))))))
-    (mapconcat #'identity parts " ")))
+                          (list (concat (funcall g 'created) " created"))))))
+    (mapconcat #'identity parts "    ")))
 
 (defun org-air-viewport-test--face-list-at (pos)
   "Return the `face' property at POS as a list (it may be a symbol)."

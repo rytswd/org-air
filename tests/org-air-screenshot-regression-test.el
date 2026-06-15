@@ -287,13 +287,20 @@ spec'd set with non-empty string values."
 ;;;; T3b — responsive single-line calendar legend (design tynxttsz).
 
 (defun org-air-t3b--legend-tier-for-width (width)
-  "Expected legend TIER for WIDTH: `wide' at >=120, else `narrow'."
-  (if (>= width 120) 'wide 'narrow))
+  "Expected legend TIER for WIDTH: `wide' at >=150, else `narrow'.
+D5b CONSEQUENCE (flagged to design): the content-spine inset (3 at the
+mid/wide rail tiers) eats grid columns, so the spaced 4-col calendar
+cell — and therefore the `created' legend word — now appears only at the
+wide rail tier (>=150: rail 42, avail 39 >= the 30 spacing threshold).
+The mid tier (120-149: rail 32, avail 29) is now compact/narrow.  This
+MOVES the `created' boundary up from the round-7 120 to 150."
+  (if (>= width 150) 'wide 'narrow))
 
 (ert-deftest org-air-t3b-calendar-legend-per-tier ()
   "The calendar legend is single-line and tier-dependent (tynxttsz +
-R7): narrow (95-119 / stacked) reads \"◆due ●sched\"; wide (>=120) reads
-\"◆due ●sched ·created\".  R7 drops the today token entirely (today is a
+R7 + D5c): narrow (95-119 / stacked) reads \"◆ due    ● sched\"; wide
+(>=120) reads \"◆ due    ● sched    · created\" (D5c glyph-spaced).  R7
+drops the today token entirely (today is a
 background highlight, self-evident).  The wide tier names `created',
 the narrow tier does not.  Asserted on GUI and TTY glyph sets."
   (skip-unless (locate-library "org-air"))
@@ -304,7 +311,7 @@ the narrow tier does not.  Asserted on GUI and TTY glyph sets."
              (created (let ((cell (cdr (assq 'created
                                              org-air-viewport-test-calendar-mark-glyphs))))
                         (concat (if (eq which 'tty) (cdr cell) (car cell))
-                                "created")))
+                                " created")))
              (today-glyph (org-air-viewport-test--calendar-today-glyph which))
              (run (lambda ()
                     (org-air-viewport-test-with-dashboard width

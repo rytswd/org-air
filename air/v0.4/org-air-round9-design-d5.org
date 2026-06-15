@@ -306,6 +306,21 @@ dead-face / sign-inversion bugs in prior rounds — render the integrated
 rail, never the face artifact alone.)
 
 * History
+- 2026-06-15: BLESS — flush-col-0 fixtures =ryqqlzwprtux= (GREEN on the
+  frozen flush tip =rskvknsz=, 177/177, 19 two-pane mockups re-regen).
+  Compared the rendered flush rail against the prior spine-aligned bless:
+  flush gives =│ ╶─ Summary …= (rule cap 1 space after the divider,
+  full-width to the right edge) vs the spine-aligned =│   ╶─ Summary …=
+  (rule inset 2 extra cols — asymmetric: inset left but flush right).
+  Flush is the correct D5 rail: full-width section separators with the
+  content indented on the spine = the intended rougier-nano look and what
+  D5b specifies.  Verified clean at every tier (160 wide, 120 mid, 96
+  narrow): rules span full width, content on the spine, no overflow,
+  verbs elide gracefully; rail-key/faces unchanged (the fix is
+  compose-level padding only, =insert-rail= untouched).  *Final tip to
+  integrate = =rskvknsz= + =ryqqlzwprtux=* (the complete round-9 incl.
+  impl's D5b correctness fix).  The spine-aligned =vxmtqvqm= set is
+  superseded.
 - 2026-06-15: RULING on impl =rskvknsz= (flush-col-0 rules) — *rskvknsz
   is CORRECT per this spec; ship it, drop the margin-inset render.*  The
   question: should the rail's labelled RULES (=╶─= caps, =────= ledger,

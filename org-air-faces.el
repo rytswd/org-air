@@ -197,6 +197,39 @@ A bold popout number that pulls the eye without a chip — mirrors
 `org-air-face-summary-number-attention' in the rail."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-header-date
+  '((t :inherit org-air-face-salient))
+  "Face for the DATE token in the top-right status band (D-P3).
+The date reads as the band's quiet accent (salient); the count and the
+filter/scope tokens stay faded.  The assembled header string width is
+unchanged — only the per-segment face differs, so fixtures hold."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-rail-card-header
+  '((((class color) (min-colors 256) (background light))
+     (:background "#F1EFEA" :overline "#D8D4CC" :weight normal))
+    (((class color) (min-colors 256) (background dark))
+     (:background "#3B4252" :overline "#4C566A" :weight normal))
+    (t nil))
+  "Face for an hl-block-style rail section card header (D-P2.A).
+A very subtle rail tint background with an `:overline' hairline closing
+the card above its label; the label foreground keeps its section colour.
+In a non-graphical / mono frame the background and overline simply do not
+paint, so the underlying labelled rule text (the substrate) still reads as
+a hairline rule — the card is a visual enrichment, never a replacement."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-rail-card-foot
+  '((((class color) (min-colors 256) (background light))
+     (:background "#F1EFEA" :underline "#D8D4CC"))
+    (((class color) (min-colors 256) (background dark))
+     (:background "#3B4252" :underline "#4C566A"))
+    (t nil))
+  "Face for the foot spacer closing an hl-block rail card (D-P2.A).
+An `:underline' hairline on a 1-col-tall spacer beneath the card's last
+body line.  TTY paints nothing (mandatory fallback)."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-separator
   '((t :inherit org-air-face-faded :weight normal))
   "Face for thin horizontal rules.
@@ -547,6 +580,16 @@ bold; just enough presence to separate keys from prose."
   '((t :inherit org-air-face-salient :weight bold))
   "Air doc state badge: Work In Progress ([W]) — salient (actively worked).
 The 5th Air state (between Ready and Complete)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-air-state-review
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#00838F" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#88C0D0" :weight bold))
+    (t (:inherit org-air-face-salient :weight bold)))
+  "Air doc state badge: Review (\N{LEFT-POINTING MAGNIFYING GLASS}) — a
+salient teal, sitting between Work In Progress and Complete (D-P5.C)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-complete

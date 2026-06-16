@@ -31,7 +31,6 @@
 (declare-function svg-rectangle "svg")
 (declare-function svg-text "svg")
 (declare-function svg-image "svg")
-(declare-function svg-tag-make "svg-tag")
 
 (defvar org-air-files)
 (defvar org-air-inbox-file)
@@ -67,36 +66,58 @@ property), so fixtures are unaffected by this choice."
 
 (defcustom org-air-tag-style 'pill
   "How tags (and the R10/V6 date) render (V3).
-`pill' draws a rounded svg-tag-style pill on a graphical frame when SVG is
-available (soft-using `svg-tag-mode' if loaded, else a minimal built-in
-pill), degrading to the quiet coloured text; `text' is always the text.
-The pill is sized to the underlying text's column width so it never
-shifts the V6 columns, and the byte gate only ever sees the text."
+`pill' draws a built-in rounded svg pill on a graphical frame when SVG is
+available (D-P1: own the geometry, no `svg-tag-mode'), degrading to the
+quiet coloured text; `text' is always the text.  The pill is sized to the
+underlying text's column width, with the D-P1.PAD reserved pad columns,
+so it never shifts the V6 columns, and the byte gate only ever sees the
+padded text."
   :type '(choice (const pill) (const text))
   :group 'org-air)
 
-(defcustom org-air-pill-inset 2
-  "Horizontal inset in device pixels for the rounded svg pill (D1).
-The rounded rectangle is drawn inset by this many pixels on the left and
-right (and roughly half that top/bottom) inside its fixed text-cell box,
-so the pill has consistent breathing room WITHOUT changing the cell's
-width — the box is always `Ncols' columns wide (C2)."
+(defcustom org-air-pill-pad-cols 1
+  "Reserved internal padding COLUMNS on each side of a pill label (D-P1.PAD).
+The pill label string carries this many space columns left AND right in
+the TEXT layer (svg-tag-mode's technique): the chip reads `(pad)#inbox(pad)'.
+Because `org-air-view--compute-meta-widths' sizes the metadata columns from
+`string-width', the reserved pad is counted automatically, so the pill box
+spans `reserved-Ncols * char-width' and V6 alignment still holds (geometry
+stays 100% text-layer driven).  The label is drawn centred in the inner
+columns so the pad becomes genuine internal margin and the label never
+reaches the rounded edge.  In TTY (pills off) the pad spaces are harmless
+and keep alignment byte-identical with the pill on."
   :type 'integer
   :group 'org-air)
 
-(defcustom org-air-pill-radius nil
-  "Corner radius in device pixels for the rounded svg pill (D3).
-When nil the radius is `line-height / 3' (svg-tag-mode-like), tracking the
-current font/text-scale metrics so the pill stays proportionally rounded."
-  :type '(choice (const :tag "Auto (line-height/3)" nil) number)
+(defcustom org-air-pill-font-scale 0.66
+  "Pill label font-size as a fraction of the line height `ch' (D-P1.FIT).
+The desired label font-size is `(max 7 (round (* ch this)))'.  The label
+is then WIDTH-fitted to the box's inner width so a long label can never
+exceed its drawable area — this is the structural clip fix."
+  :type 'number
   :group 'org-air)
 
-(defcustom org-air-pill-fill-alpha 0.12
-  "Fill opacity for the light tint inside a coloured svg pill (D2).
-The pill is filled with its accent/semantic hue at this opacity over a
-thin border and coloured label of the same hue, giving the board its
-colour back calmly.  0 means a pure outline pill (no tint)."
+(defcustom org-air-pill-radius nil
+  "Corner radius in device pixels for the rounded svg pill (D-P1.LOOK).
+When nil the radius is `line-height / 6' (a soft rounded corner, NOT a
+stadium), tracking the current font/text-scale metrics."
+  :type '(choice (const :tag "Auto (line-height/6)" nil) number)
+  :group 'org-air)
+
+(defcustom org-air-pill-fill-alpha 0
+  "Per-chip fill opacity for the rounded svg pill (D-P1.LOOK).
+Default 0 = a pure outline pill (no fill): the board stops being a
+rainbow of filled chips.  Colour lives only in the LABEL; the capsule is
+a monochrome border."
   :type 'number
+  :group 'org-air)
+
+(defcustom org-air-pill-border nil
+  "Colour of the single muted pill border (D-P1.LOOK).
+A colour string, or nil to derive a quiet neutral from the
+`org-air-face-faded' foreground.  The same restrained neutral is used for
+every chip — the per-tag hue lives in the LABEL only, never the border."
+  :type '(choice (const :tag "Auto (derive from faded)" nil) string)
   :group 'org-air)
 
 (defvar org-air-view--pill-char-w nil
@@ -828,19 +849,42 @@ when no graphical window is available."
               (or (ignore-errors (window-font-height win)) (frame-char-height)))
       (cons (frame-char-width) (frame-char-height)))))
 
+(defun org-air-view--string-pixel-width-available-p ()
+  "Return non-nil when `string-pixel-width' can measure here (Emacs >= 29)."
+  (and (fboundp 'string-pixel-width) (display-graphic-p)))
+
+(defun org-air-view--pill-label-width (label fs cw ch)
+  "Return LABEL's natural pixel width at font-size FS (device px) (D-P1.FIT).
+Prefer `string-pixel-width' inside a temp face scaled to FS/CH of the
+frame default; fall back to the column-width estimate `(* (string-width
+LABEL) CW)' when `string-pixel-width' is unavailable (Emacs < 29)."
+  (or (and (org-air-view--string-pixel-width-available-p)
+           (> ch 0)
+           (ignore-errors
+             (string-pixel-width
+              (propertize label 'face (list :height (/ fs (float ch)))))))
+      (* (string-width label) cw)))
+
 (defun org-air-view--svg-pillify (text face)
-  "Return TEXT carrying a rounded svg-pill `display' overlay (C2/D1-D3).
+  "Return TEXT carrying a rounded svg-pill `display' overlay (C2/D-P1).
 The pill SVG occupies EXACTLY TEXT's text-cell box —
-width = Ncols * char-px, height = the line's pixel height — where Ncols is
-TEXT's column width and char-px/line-px are the current (text-scale aware)
+box-w = Ncols * char-px, height = the line's pixel height — where Ncols is
+TEXT's column width (INCLUDING the `org-air-pill-pad-cols' reserved pad
+spaces, D-P1.PAD) and char-px/line-px are the current (text-scale aware)
 metrics bound in `org-air-view--pill-char-w'/`-h'.  Because the image is
 locked to that box it never adds external width, so turning pills on/off
-changes zero V6 column positions (C2).  The pill carries FACE's hue:
-coloured label + thin border over a light tint (`org-air-pill-fill-alpha',
-D2), rounded by `org-air-pill-radius' and inset by `org-air-pill-inset'
-\(D1/D3).  On a non-graphical frame, when SVG is unavailable, or if the
-cell box would be degenerate, TEXT is returned unchanged so the byte/TTY
-layer keeps the plain coloured text (mandatory fallback)."
+changes zero V6 column positions (C2).
+
+The label (TEXT trimmed) is drawn centred and WIDTH-FITTED to the box's
+inner width (box minus the reserved pad columns) so the glyph run can
+NEVER reach the rounded edge (D-P1.FIT) — no clipping at any tag length or
+text-scale.  The capsule is a calm monochrome: a soft `org-air-pill-radius'
+corner, no per-chip fill (`org-air-pill-fill-alpha' default 0) and ONE
+muted `org-air-pill-border'; colour lives only in the LABEL via FACE, per
+D-P1.LOOK.  On a non-graphical frame, when SVG is unavailable, the box
+is degenerate, OR the label cannot be guaranteed to fit, TEXT is returned
+unchanged so the byte/TTY layer keeps the plain padded coloured text as a
+mandatory fallback."
   (let ((ncols (string-width text)))
     (if (or (not (org-air-view--svg-available-p))
             (string-empty-p (string-trim text))
@@ -849,47 +893,81 @@ layer keeps the plain coloured text (mandatory fallback)."
       (or (ignore-errors
             (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
                    (ch (or org-air-view--pill-char-h (frame-char-height)))
-                   (w (* ncols cw))
+                   (pad (max 0 org-air-pill-pad-cols))
+                   (box-w (* ncols cw))
                    (h ch)
-                   (ix (max 0 org-air-pill-inset))
-                   (iy (max 0 (round (/ org-air-pill-inset 2.0))))
-                   (radius (max 0.0 (float (or org-air-pill-radius (/ h 3.0)))))
+                   ;; the width the label is allowed to occupy = box minus
+                   ;; the reserved pad columns (D-P1.FIT).
+                   (inner-w (* (max 1 (- ncols (* 2 pad))) cw))
+                   (radius (max 0.0 (float (or org-air-pill-radius (/ h 6.0)))))
+                   (label (string-trim text))
                    (fg (or (face-foreground face nil t) "gray"))
-                   (alpha (max 0.0 (min 1.0 org-air-pill-fill-alpha)))
-                   (fs (max 6 (- h (* 2 iy) 2)))
-                   (svg (svg-create w h)))
-              (when (and (> w (* 2 ix)) (> h (* 2 iy)))
-                (svg-rectangle svg
-                               (+ 0.5 ix) (+ 0.5 iy)
-                               (max 0 (- w 1.0 (* 2 ix)))
-                               (max 0 (- h 1.0 (* 2 iy)))
-                               :rx radius :ry radius
-                               :fill fg :fill-opacity alpha
-                               :stroke fg :stroke-width 1))
-              (svg-text svg (string-trim text)
-                        :x (/ w 2.0)
-                        :y (+ (/ h 2.0) (* 0.34 fs))
-                        :text-anchor "middle"
-                        :fill fg
-                        :font-size fs)
-              ;; Lock the displayed image to the exact cell box so the run
-              ;; of Ncols characters occupies Ncols*char-px pixels — no more,
-              ;; no less (C2); centre it vertically on the text line (D1).
-              (propertize text 'display
-                          (svg-image svg :ascent 'center :width w :height h))))
+                   (border (or org-air-pill-border
+                               (face-foreground 'org-air-face-faded nil t)
+                               "gray"))
+                   (alpha (max 0.0 (min 1.0 (float org-air-pill-fill-alpha))))
+                   (desired-fs (max 7 (round (* ch org-air-pill-font-scale))))
+                   (natural-w (org-air-view--pill-label-width
+                               label desired-fs cw ch))
+                   ;; width fit: never exceed inner-w (the actual clip fix).
+                   (font-size (if (and (> natural-w inner-w) (> natural-w 0))
+                                  (max 7 (floor (* desired-fs
+                                                   (/ inner-w (float natural-w)))))
+                                desired-fs)))
+              (if (and (not (org-air-view--string-pixel-width-available-p))
+                       (> (org-air-view--pill-label-width label font-size cw ch)
+                          inner-w))
+                  ;; D-P1.FIT cannot guarantee a fit (no string-pixel-width
+                  ;; AND the estimate already overruns) -> mandatory text
+                  ;; fallback (plain padded coloured label, no pill).
+                  text
+                (let ((svg (svg-create box-w h)))
+                  (svg-rectangle svg 0.5 0.5
+                                 (max 0 (- box-w 1.0)) (max 0 (- h 1.0))
+                                 :rx radius :ry radius
+                                 :fill (if (> alpha 0) fg "none")
+                                 :fill-opacity (if (> alpha 0) alpha 0)
+                                 :stroke border :stroke-width 1)
+                  (svg-text svg label
+                            :x (/ box-w 2.0)
+                            :y (round (* ch 0.72))
+                            :text-anchor "middle"
+                            :fill fg
+                            :font-size font-size)
+                  ;; Lock the displayed image to the exact cell box so the
+                  ;; run of Ncols characters occupies Ncols*char-px pixels
+                  ;; — no more, no less (C2); centre on the text line.
+                  (propertize text 'display
+                              (svg-image svg :ascent 'center
+                                         :width box-w :height h))))))
           text))))
+
+(defun org-air-view--pill-pad-label (label face)
+  "Return LABEL carrying FACE and the reserved pill pad columns (D-P1.PAD).
+When a pill style is active the label string carries `org-air-pill-pad-cols'
+space columns on EACH side in the text layer (svg-tag-mode's technique), so
+`org-air-view--compute-meta-widths' counts the pad automatically and V6
+alignment holds.  The pad spaces inherit FACE so the TTY/fallback shows the
+same quiet coloured breathing space."
+  (let* ((pad (max 0 org-air-pill-pad-cols))
+         (sp (make-string pad ?\s)))
+    (propertize (concat sp label sp) 'face face)))
 
 (defun org-air-view--item-tagstr (tags k total)
   "Return inline tag chips showing K of TOTAL TAGS, with overflow marker.
 When fewer than TOTAL chips are shown the `more' glyph signals the rest.
-Each chip carries its deterministic accent face (T1c) — face-only, so the
-chip text and width are unchanged."
+Each chip carries its deterministic accent face (T1c); when the pill style
+is active the chip text also carries the D-P1.PAD reserved pad columns so
+the svg box gains genuine internal margin and the byte/V6 widths track it."
   (let ((shown (mapconcat
                 (lambda (tg)
-                  (let ((chip (propertize (concat "#" tg)
-                                          'face (org-air-faces-tag-face tg))))
-                    (if (eq org-air-tag-style 'pill)
-                        (org-air-view--svg-pillify chip (org-air-faces-tag-face tg))
+                  (let* ((face (org-air-faces-tag-face tg))
+                         (pill (eq org-air-tag-style 'pill))
+                         (chip (if pill
+                                   (org-air-view--pill-pad-label (concat "#" tg) face)
+                                 (propertize (concat "#" tg) 'face face))))
+                    (if pill
+                        (org-air-view--svg-pillify chip face)
                       chip)))
                 (seq-take tags k) " "))
         (overflow (- total k)))
@@ -914,8 +992,11 @@ xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
                           (propertize " · file with r" 'face 'org-air-face-faded))))
     (when date
       (let* ((face (or (cdr date) 'org-air-face-date))
-             (text (propertize (car date) 'face face)))
-        (concat (if (eq org-air-date-style 'pill)
+             (pill (eq org-air-date-style 'pill))
+             (text (if pill
+                       (org-air-view--pill-pad-label (car date) face)
+                     (propertize (car date) 'face face))))
+        (concat (if pill
                     (org-air-view--svg-pillify text face)
                   text)
                 (or inbox-hint ""))))))
@@ -936,7 +1017,11 @@ vertically.  The date floor is `org-air-date-column'."
                  (n (length tags))
                  (ts (org-air-view--item-tagstr
                       tags (min org-air-tags-inline-max n) n)))
-            (when date (setq dw (max dw (string-width (car date)))))
+            (when date
+              (setq dw (max dw (+ (string-width (car date))
+                                  (if (eq org-air-date-style 'pill)
+                                      (* 2 (max 0 org-air-pill-pad-cols))
+                                    0)))))
             (setq tw (max tw (string-width ts)))
             (setq ow (max ow (string-width
                               (org-air-view--item-origin-raw item))))))))

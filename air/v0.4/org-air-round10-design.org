@@ -1,0 +1,373 @@
+#+title: org-air v0.4 round-10 — svg pill rework + shared project renderer + sidebar polish (design)
+#+state: ready
+#+FILETAGS: :ui:visual:faces:svg:v0.4:
+
+* Summary
+Round-10 from two screenshots (already triaged into D-P1..D-P6).  The
+board's *alignment is GOOD* (the V6 contract + round-9 flush rail hold);
+the *svg pills are BAD* — every pill clips its last glyph (=#inbox= →
+"inbo", =Today= → "oday").  The project view's ASCII pipe-tree (├│└) reads
+as raw CLI, not an Emacs UI.
+
+This round is design-led: it specifies the *contract* impl must hit and
+blesses the resulting fixtures.  No integration, no trunk, specs + blesses
+only.
+
+*Measurability tags* (carried from round-9):
+- =[gui]= GUI-only svg overlay (non-byte; the text layer is the fallback).
+- =[face]= face-only (applied via =org-air-faces.el=, fixtures hold).
+- =[byte]= buffer-text change (fixture regen + bless).
+
+*Authoritative contracts* are C2 (round-9, still binding) +
+D-P1.PAD below.  When a later message blesses fixtures it states the exact
+change-id and voids earlier blesses.
+
+* D-P1 [CRIT] — svg pill rework (fix clipping WITHOUT breaking alignment)
+*Root cause (confirmed in =org-air-view--svg-pillify=, ~L709):* the pill
+box is locked to =Ncols × char-width= (correct C2 alignment contract) but
+the label is drawn at =:font-size (max 8 (- ch 4))= — a size whose glyph
+run is *wider than the box* — so it spills past the rounded edge and the
+last glyph clips.  Radius =ch/3= = a stadium (too round); =:fill= per chip
++ the 6-hue accent = a rainbow; there is *no internal padding*.
+
+The fix has three independent parts: (A) reserve padding columns so the
+label has horizontal breathing room inside the box; (B) *fit* the
+font-size to the box so the glyph run can never exceed it; (C) calm the
+look (radius, fill, border).
+
+** D-P1.PAD [byte] — reserve padding columns in the underlying string
+This is svg-tag-mode's technique and the new authoritative addition to
+C2.  The pill label string carries =org-air-pill-pad-cols= reserved
+*space columns on each side* in the *text layer*:
+
+: chip text  =  (pad)#inbox(pad)         ; pad = org-air-pill-pad-cols spaces
+
+- defcustom =org-air-pill-pad-cols= — integer, *default 1* (one reserved
+  column L and R; the label sits in the middle =label-cols= columns).
+- Because =org-air-view--compute-meta-widths= sizes columns from
+  =string-width=, the reserved pad is counted automatically → the box is
+  =reserved-Ncols × char-width= where =reserved-Ncols = pad + label + pad=.
+  *V6 alignment therefore still holds* — geometry is still 100% text-layer
+  driven; the pill is still a pure overlay.
+- The reserved pad is *part of the pill box* (the rounded rect spans the
+  full reserved-Ncols cells); the label is drawn centred so the pad cols
+  become genuine internal margin — the label never reaches the rounded
+  edge.  This is the structural fix to "no internal padding".
+- Inter-pill gap is the *existing single unpilled space* between chips in
+  the tag string (=#work␣#report=) — unchanged from round-9 D1.  Net TTY
+  gap between two pills = pad + 1 + pad = 3 cells; acceptable and even.
+- =[byte]=: pad cols change the tag/date *bytes* and the meta-column
+  widths → a fixture regen for every fixture carrying a tag or date pill.
+  *I bless these in a follow-up message with the exact change-id.*  TTY
+  shows =␣#inbox␣= (the pad spaces are harmless, give the same breathing
+  gap, and keep alignment identical with pills on or off).
+
+** D-P1.FIT [gui] — font-size fits the box (clipping is now impossible)
+Rewrite the built-in pill branch of =org-air-view--svg-pillify= so the
+label can *never* exceed its drawable area:
+
+- =cw= = =(frame-char-width)=, =ch= = =(frame-char-height)=.
+- =ncols= = =(string-width text)= (includes the reserved pad).
+- =box-w= = =(* ncols cw)=  (the C2 box — unchanged formula).
+- =inner-w= = =(* (- ncols (* 2 org-air-pill-pad-cols)) cw)= — the width
+  the label is allowed to occupy (box minus the reserved pad columns).
+- =desired-fs= = =(max 7 (round (* ch org-air-pill-font-scale)))= where
+  defcustom =org-air-pill-font-scale= = *0.66* (was effectively =(- ch 4)=
+  ≈ 0.75–0.8 at common metrics, which over-ran the box).
+- *Width fit (the actual clip fix):* measure the label's natural pixel
+  width at =desired-fs=.  Prefer =(string-pixel-width (string-trim text))=
+  inside a temp buffer whose default face = the frame default scaled to
+  =desired-fs=; fall back to =(* (string-width (string-trim text))
+  cw)= when =string-pixel-width= is unavailable (Emacs < 29).  If
+  =natural-w > inner-w=, scale down:
+  : font-size = (max 7 (floor (* desired-fs (/ inner-w (float natural-w)))))
+  else =font-size = desired-fs=.  The label is now guaranteed ≤ =inner-w=,
+  so *no glyph can reach the rounded edge → no clip, at any tag length or
+  text-scale*.  Recompute on the C2 triggers (font / text-scale / width).
+- Draw the label =:text-anchor "middle" :x (/ box-w 2.0)=, vertically
+  centred on the cap height: =:y (round (* ch 0.72))= (tune so the glyph
+  optical-centres on the line; this replaces the ad-hoc =(- ch (max 3 (/
+  ch 4)))=).  Image =:ascent 'center=; pill height ≤ line height so line
+  spacing is untouched.
+- *Drop the =svg-tag-make= branch.*  Round-9 D3 already preferred our own
+  =svg.el= pill; =svg-tag-make='s auto-sizing is exactly what we cannot
+  control (it ignores our box), so the controlled built-in pill is the
+  only path.  =org-air-tag-style= / =org-air-date-style= stay ='pill |
+  'text; =svg-tag-mode= soft-dep is *removed* from the contract.
+
+** D-P1.LOOK [gui + face] — gentler radius, calm colour, ONE accent
+- *Radius:* defcustom =org-air-pill-radius= default =(/ ch 6.0)= (soft
+  rounded, *not* a stadium).  =:rx :ry= = that value.
+- *Fill → monochrome:* defcustom =org-air-pill-fill-alpha= default *0*
+  (no per-chip fill).  The board stops being a rainbow of filled chips.
+- *Border = ONE restrained muted neutral* (not the per-tag hue): defcustom
+  =org-air-pill-border= — a colour string or =nil= to derive from
+  =org-air-face-faded= foreground (a muted grey, e.g. light =#BDBDBD= /
+  dark =#4C566A=).  =:stroke= that, =:stroke-width 1=, =:fill "none"=.
+- *Colour lives in the LABEL only:* the tag label keeps its deterministic
+  accent hue (=org-air-faces-tag-face=) as the svg =:fill= of the *text*;
+  the date label keeps its semantic hue (overdue =critical=, deadline
+  =popout=, scheduled =salient=, neutral =faded=).  Because the chip is
+  now *border + coloured text on no fill*, the six hues read as calm
+  coloured words inside identical quiet capsules — "ONE restrained accent"
+  (the hue is the label, the capsule is monochrome), not six loud fills.
+- Re-render border/label on theme change so light/dark track (round-9 D3).
+
+** D-P1 fallback (mandatory, asserts the text)
+When =(not (display-graphic-p))=, svg is unavailable, OR D-P1.FIT cannot
+guarantee the label fits (e.g. =string-pixel-width= missing AND the
+char-width estimate already exceeds =inner-w=), render the *plain coloured
+label text* (accent/semantic face) — *including the reserved pad spaces* —
+and no pill.  The byte gate always asserts this text; alignment is
+identical with the pill on or off.
+
+** D-P1 knob summary (all new defcustoms)
+| knob                      | default      | role                          |
+| =org-air-pill-pad-cols=   | =1=          | reserved internal pad columns |
+| =org-air-pill-font-scale= | =0.66=       | label font as fraction of ch  |
+| =org-air-pill-radius=     | =(/ ch 6.0)= | soft corner radius            |
+| =org-air-pill-fill-alpha= | =0=          | per-chip fill (0 = none)      |
+| =org-air-pill-border=     | =nil=        | one muted border (nil=derive) |
+
+* D-P5 [HIGH] — project view → shared dashboard renderer  [byte, full replace]
+*FULL REPLACE* the ASCII pipe-tree (├│└, =box-*= glyphs, per-folder
+roll-up) in =org-air-project.el=.  Render Air docs through org-air-view's
+row renderer + faces + svg layer so the project view has *visual parity
+with the board* and far less bespoke code.
+
+** D-P5.A — extract a shared row renderer from =org-air-view--insert-item=
+=org-air-view--insert-item= already implements the V6 contract we want:
+title LEFT (flex + truncate-last), a fixed-width right cluster (date /
+tags / origin), svg pills over the cluster.  Extract its *body* into a
+reusable primitive:
+
+: (org-air-view--insert-row &key prefix title date-text tags origin-text
+:                                origin-face widths props face)
+
+- =widths= = =(dcol tcol ocol)= precomputed fixed columns (the V6 floor),
+  so both views line their clusters up down the list.
+- =org-air-view--insert-item= becomes a thin caller (task item → row args).
+- The project view calls the *same* primitive, so pills, truncation,
+  alignment, faces and the cluster layout are shared, not re-implemented.
+
+** D-P5.B — map Air docs onto the row
+| board column | project-view source                                  |
+|--------------+------------------------------------------------------|
+| prefix       | (none; or a tiny state dot when grouped non-by-state)|
+| title LEFT   | =(org-air-doc-name doc)= (the #+title)               |
+| date cell    | =↻ 2026-06-14= updated stamp, =org-air-face-faded=   |
+| tags cell    | doc =#tags=, accent face + svg pill (D-P1 pill)      |
+| origin cell  | =⌂ relpath= (the dir grouping lives here now)        |
+
+The right cluster reuses =org-air-view--compute-meta-widths='s logic on
+the doc set (a =doc→pseudo-item= shim or a parallel width pass) so the
+date/tag/path columns line up exactly as the board's do.
+
+** D-P5.C — state buckets become sections (parity with the board)
+Replace =org-air-project--insert-group-box= (the box tree) with
+=org-air-view--insert-section-heading= styling: a section icon + title +
+count badge per state bucket, doc rows beneath.
+
+- Section order (defcustom =org-air-project-sections=, default): *Draft,
+  Ready, Work-In-Progress, Review, Complete, Dropped*.  =Review= is a new
+  optional state — add ="review"= to =org-air-project-states= and a
+  =org-air-face-air-state-review= (salient-ish, between WIP and complete);
+  buckets with zero docs are omitted, exactly like the board's empty
+  sections.
+- Each heading's count badge = the bucket's doc count
+  (=org-air-face-count=; non-empty actionable buckets — Ready/WIP — may
+  use =org-air-face-count-attention=, matching inbox/attention on the
+  board).
+- The current =directory= / =tag= group modes (=d= / =t=) survive as
+  *alternate section keys* (sections become folders or tags); in those
+  modes each row's cluster shows the doc's *state* as a small leading chip
+  in the prefix (the state is no longer the section).  =s= returns to
+  state sections.  No box glyphs in any mode.
+
+** D-P5.D — what is deleted
+=org-air-project--build-dir-tree=, =--insert-dir-node=,
+=--node-descendant-count=, =--insert-group-box=, =--insert-doc-row= and
+every =box-*= / tree-glyph use are removed.  The per-folder nesting +
+roll-up counts collapse into the flat path column (D-P5.B) — the dir
+hierarchy is read from =⌂ relpath=, not redrawn with pipes.  Net: the
+project view is ~a section loop + the shared row primitive.
+
+=[byte]=: the project-view fixtures fully change (tree → rows).  *I bless
+the new project fixtures with the exact change-id in a follow-up.*
+
+* D-P2 [HIGH] — svg sidebar modernisation  [face + gui, TTY fallback]
+Keep the round-9 *flush rail* structure (col-0 rail, single internal
+divider); modernise the *fill*, not the skeleton.
+
+** D-P2.A — hl-block-style section cards (no svg; face bg + rules)
+Per the rougier =hl-block= reference (face bg + overline/underline, no
+svg).  Replace the rail's =── Label ──= labelled rules
+(=org-air-view--insert-labelled-rule=) with a *card header*:
+
+- New face =org-air-face-rail-card-header= — =:background= a *very subtle*
+  rail tint (light ≈ =#F1EFEA=, dark ≈ =#3B4252=), =:overline= the rail
+  hairline colour, =:weight= regular, foreground = section colour.  The
+  label line spans the full rail content width (already padded by
+  =--pad-to=), so the tint reads as a soft band, not a boxed glyph.
+- =:underline= (same hairline) closes the card under its last body line
+  via =org-air-face-rail-card-foot= on a 1-col-tall spacer, OR simply an
+  =:overline= on the *next* header (cheaper, still reads as separation).
+- *TTY fallback (mandatory):* in a non-graphical / mono frame the
+  =:background/:overline/:underline= simply don't paint; the face *also*
+  carries the old =── Label ──= text via =org-air-view--insert-labelled-
+  rule= as the substrate, so TTY still gets the labelled hairline rule.
+  i.e. the card is a *visual enrichment of the existing rule text*, never
+  a replacement that vanishes in TTY.
+
+** D-P2.B — calendar grid + today marker refinement
+- *Today:* keep the R7 filled-background today cell (no ■).  GUI
+  enrichment: a soft rounded today cell — a tiny svg rounded-rect bg
+  behind the =%2d= sized to the day cell (reusing D-P1's box-fit
+  discipline, =:rx (/ ch 6.0)=).  *TTY fallback:* the existing
+  =org-air-face-calendar-today= background (unchanged) — mandatory.
+- *Grid:* the marks already muted in round-9 D4; this round only adds the
+  centred block (D-P4) and the header accent (below).  No glyph change →
+  the grid bytes hold.
+- *Section header of the calendar* (month + ‹ ›): gets the D-P2.A card
+  treatment + the D-P3 accent on the month label.
+
+* D-P3 [LOW] — header date accent colour  [face]
+The top-right status (=Tue 16 Jun · 33 items=) is currently *entirely*
+=org-air-face-faded=.  Split it into faced segments in
+=org-air-view--insert-header=:
+
+- *Date* token → new face =org-air-face-header-date= (inherits
+  =org-air-face-salient=): the date reads as the band's quiet accent.
+- *Count* (=· 33 items=) → =org-air-face-count= (the existing count hue),
+  or stay faded; defcustom =org-air-header-accent-count= (default =nil= =
+  count stays faded; =t= = count also salient).
+- Filter / scope tokens stay =org-air-face-faded=.
+- The shedding budget logic (S7) is unchanged — only the per-segment face
+  changes; the assembled string width is identical, so no realign.
+=[face]=: segment faces only; the header bytes are unchanged → fixtures
+hold (the header asserts text, not faces).
+
+* D-P4 [MED] — centre the calendar grid within the rail  [byte, calendar]
+The grid is currently left-packed from col 0.  Centre the *whole grid
+block* (weekday row + day rows + legend share one block width =
+=row-width= = =7×cell= or the weekday-row width) within the available
+rail =width=:
+
+- defcustom =org-air-calendar-center= (default =t=).
+- In =org-air-calendar-insert-month=, compute =lead = (max 0 (/ (- width
+  row-width) 2))= and prefix *every emitted grid line* (header, weekday
+  row, each day row, legend) with =lead= spaces.  The month-nav header
+  already right-aligns within =row-width=, so it centres with the block.
+- Floors at 0 when =width ≤ row-width= (narrow rail → no centring, no
+  clip).  =org-air-calendar-center nil= restores left-pack.
+=[byte]=: the calendar lines gain leading spaces → the rail/calendar
+fixtures change.  *I bless the centred-calendar fixtures with the exact
+change-id in a follow-up.*
+
+* D-P6 [PROPOSAL — approval gate] routines & journals
+*Do NOT spec for impl yet.*  This is a concrete, minimal proposal for
+orchestrator + user approval *before* any spec hardening.  Nothing here is
+a contract; no fixtures are blessed for it this round.
+
+** Problem
+org-air today is a GTD board over dated Org tasks + an Air doc tree.  Two
+recurring daily-driver surfaces are missing: *routines* (habits /
+repeaters with streak + done state) and *journals* (today's entry).  Both
+are first-class in the org/Denote ecosystem; the proposal is to *map onto
+existing org/Denote machinery*, not invent storage.
+
+** Model (minimal)
+- *Routine* = an Org heading that is either (a) an =org-habit= (a TODO with
+  =:STYLE: habit= + a repeating =SCHEDULED= =.+1d= / =++1w=), or (b) any
+  repeater task.  State derived from the *LOGBOOK*: =done-today?= (a
+  =CLOCK=/=- State "DONE"= state-change dated today), and =streak= (run of
+  consecutive completed periods read from =LOGBOOK= state lines +
+  =LAST_REPEAT=).  No new file format — a routine is detected, not stored.
+  defcustom-style toggle: a routine source = tag =:routine:= or
+  =:STYLE: habit=.
+- *Journal* = a Denote =journal= note for today: a file matching the
+  Denote journal identifier for =today= (=YYYYMMDDT...= with the
+  =_journal= signature, per =denote-journal-extras=), or a configured
+  single =journal.org= datetree entry for today.  "Today's entry" =
+  exists? / first lines preview.
+
+** Presentation (sketch, board-parity)
+- A new *Routines* rail block (or board section): each routine a row —
+  title LEFT, a streak chip (=🔥 4d= / TTY =4d=) + a done marker (=●= done
+  today / =○= pending) in the right cluster, reusing the D-P5 shared row
+  primitive + D-P1 pills.  Toggling done = =org-todo= on the heading
+  (advances the repeater, writes the LOGBOOK line we read back).
+- A *Journal* affordance: a one-line rail entry "=Journal: today ✓=" /
+  "=Journal: today —=" with =RET= = open/create today's Denote journal
+  note (=denote-journal-extras-new-or-existing-entry= when present).
+
+** Mapping table
+| concept       | org / Denote source                                  |
+|---------------+------------------------------------------------------|
+| routine       | =org-habit= (=:STYLE: habit=) or repeater =SCHEDULED=|
+| done-today    | LOGBOOK =- State "DONE"= dated today / today's CLOCK |
+| streak        | consecutive LOGBOOK completions + =LAST_REPEAT=      |
+| repeat advance| =org-todo= done → org advances =.+1d/++1w= itself    |
+| journal entry | Denote =_journal= note for today (denote-journal)    |
+| journal open  | =denote-journal-extras-new-or-existing-entry=        |
+
+** Open questions for approval
+1. Routines as a *board section* vs a *rail block* vs a *separate view*?
+2. Streak: derive purely from LOGBOOK (robust, read-only) — acceptable, or
+   do we want a cached/denormalised streak?  (Proposal: derive, no cache.)
+3. Journal: Denote-journal hard dep, or also support a plain datetree
+   =journal.org=?  (Proposal: Denote-journal when present, datetree else.)
+4. Scope: ship routines first (more GTD-aligned), journals as a thin
+   follow-up?
+
+* Faces touched this round
+- =[face]= new: =org-air-face-header-date= (D-P3), =org-air-face-rail-card-
+  header= / =-foot= (D-P2.A), =org-air-face-air-state-review= (D-P5.C).
+- D-P1 reuses the existing accent + semantic date faces (label colour) and
+  derives the muted border from =org-air-face-faded= (no rainbow face).
+- Strict byte-compile clean expected; the byte gate count changes only
+  where fixtures are regenerated (D-P1.PAD, D-P4, D-P5) — those are the
+  blessed regens, called out per item.
+
+* Routing
+- impl: D-P1 (pad cols + font-fit + look knobs; drop svg-tag-make branch),
+  D-P5 (extract =org-air-view--insert-row=; rebuild =org-air-project.el= on
+  it; delete the box tree), D-P2 (rail card faces + today svg w/ TTY
+  fallback), D-P3 (header segment faces), D-P4 (centre the calendar).
+- test: regen + the design BLESS for D-P1.PAD (tag/date fixtures), D-P4
+  (calendar fixtures), D-P5 (project fixtures).  D-P3 = face-only (hold).
+  D-P2 cards = face-only on the existing rule text (hold); the today svg =
+  =[gui]= non-byte (TTY background asserted, unchanged).
+- D-P6 stays a proposal — orchestrator + user approval gate before any
+  spec hardening; no routing, no fixtures this round.
+
+* Verification recipe (carried forward — design role must render, not assert)
+org-ql not vendored: =make deps= (network) → repo-local =.deps/=.  Then
+=emacs -Q --batch -L tests -l tests/org-air-test-init.el -l render-dump.el=
+with =current-time= frozen (=cl-letf= to =org-air-test-now=) inside
+=org-air-test-with-fixtures=; dump (a) =buffer-substring-no-properties=,
+(b) face runs via =next-single-property-change=, (c) the distinct face
+set.  For D-P1, additionally assert the *reserved pad cols* appear in the
+text layer (so V6 holds) and that the fallback text (pills off) is byte-
+identical to the pills-on column widths.
+
+* History
+- 2026-06-16: Authored round-10 design from the two-screenshot triage.
+  D-P1 [CRIT] svg pill rework: D-P1.PAD reserve =org-air-pill-pad-cols=
+  (default 1) padding columns in the underlying string (svg-tag-mode
+  style; box = reserved-Ncols×char-width so V6 holds) + D-P1.FIT scale the
+  label font-size down to =inner-w= so the glyph run can never exceed the
+  box (the actual clip fix; drop the =svg-tag-make= branch, own the
+  geometry) + D-P1.LOOK soft radius =ch/6=, fill-alpha 0 (monochrome), ONE
+  muted border, colour only in the label.  D-P5 [HIGH] full-replace the
+  project ASCII tree: extract =org-air-view--insert-row=, rebuild the
+  project view as state-bucket sections of shared rows (title LEFT + date/
+  tags/path cluster), delete every box-tree glyph.  D-P2 [HIGH] rail
+  hl-block cards (face bg + over/underline over the existing rule text;
+  TTY mandatory) + soft today svg with TTY background fallback.  D-P3
+  [LOW] header date in =org-air-face-header-date= (salient).  D-P4 [MED]
+  centre the calendar grid block within the rail.  D-P6 [PROPOSAL] minimal
+  routines (org-habit/repeater + LOGBOOK streak) + journals (Denote
+  journal) model + board-parity presentation — approval gate, not specced.
+  Blesses for D-P1.PAD / D-P4 / D-P5 fixtures follow with exact change-ids.
+  Set =#+state: ready=.

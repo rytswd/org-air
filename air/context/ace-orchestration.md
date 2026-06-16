@@ -55,17 +55,29 @@ track ACE runtime artifacts in this git repo.
       --sandbox-dir /home/ryota/Coding/github.com/rytswd/org-air/.git \
       --sandbox-dir /home/ryota/Coding/github.com/withre/ace-stack/data \
       --sandbox-dir /home/ryota/.pi \
+      --sandbox-ro /home/ryota/Coding/github.com/rytswd/pi-agent-extensions \
+      --sandbox-ro /home/ryota/Coding/github.com/rytswd/pi-agent-extensions-extra \
       --env EVER_DATA_DIR=/home/ryota/Coding/github.com/withre/ace-stack/data \
       --env GIT_CONFIG_GLOBAL=/dev/null \
       --env PI_NO_GATE=1 \
       --tag project=org-air --tag role=$ROLE \
       --on-exit /tmp/org-air-ace/on-exit-$ROLE.sh \
-      org-air-$ROLE -- pi --no-session --no-extensions --model claude-opus-4-5
+      org-air-$ROLE -- pi --no-session
     chronoa send org-air-$ROLE "@/tmp/org-air-ace/prompt-$ROLE.md"
-- Spawn gotchas (learned): pi has no own sandbox flag — Landlock is
-  chronoa's `--sandbox`; `--sandbox-dir ~/.pi` is REQUIRED (auth.json +
-  trust lock); `--no-extensions` avoids a stale global extension path;
-  model id is `claude-opus-4-5` (not "opus"); `--log` needs a PATH.
+- **CRITICAL auth lesson:** do NOT pass `--no-extensions`, `--model`, or
+  `--api-key`. pi's extensions (settings.json packages
+  `pi-agent-extensions{,-extra}`) include `claude-max-fix` — the auth/model
+  GATEWAY that routes billing to the plan. Without them pi uses raw oauth and
+  every call 400s "You're out of extra usage" (a RED HERRING, not a real
+  billing problem). The extension dirs MUST be `--sandbox-ro` so they load in
+  the sandbox (else "cannot find module"). settings.json defaults
+  model=claude-opus-4-8, so bare `pi --no-session` gives Opus 4.8. Verify the
+  `chronoa output` status line reads `Opus 4.8 ❯ … ❯ org-air-$ROLE …` and a
+  test message replies with no 400.
+- Other gotchas: pi has no own sandbox flag (Landlock is chronoa's
+  `--sandbox`); `--sandbox-dir ~/.pi` REQUIRED (auth + trust lock); `--log`
+  needs a PATH; bisect spawn issues by starting with NO sandbox + a test
+  message, then add `--sandbox` paths one at a time.
 - Workers signal via `ever pub org-air3.work.$ROLE.{done,failed,learnings}`
   (reliable through the sandbox; the host hook relays to me). `/tmp`,
   `$XDG_RUNTIME_DIR`, `/nix/store` are always in sandbox scope.

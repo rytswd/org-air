@@ -1029,18 +1029,71 @@ vertically.  The date floor is `org-air-date-column'."
           org-air-view--meta-tags-w tw
           org-air-view--meta-origin-w ow)))
 
-(defun org-air-view--insert-item (item bucket &optional omit-date)
-  "Insert ITEM as an interactive row in BUCKET (V6 fixed-column table).
-The title owns the LEFT and stays clean; the metadata is a fixed-width
-right-aligned TABLE — date (left-justified in `org-air-view--meta-date-w'),
-tags (left-justified, cap `org-air-tags-inline-max'), origin (right-
-justified, whole).  Because every cell is fixed width the date / tags /
-origin columns line up vertically down the list (V6).  The title flexes
-and truncates LAST (D2) in the single gap before the table.  OMIT-DATE
-drops the date column (R6 day view)."
+(cl-defun org-air-view--insert-row (&key prefix title date-text tags
+                                         origin-text origin-face widths
+                                         props face)
+  "Insert one shared V6 fixed-column row (D-P5.A; the board + project floor).
+The TITLE owns the LEFT and stays clean; the metadata is a fixed-width
+right-aligned cluster of DATE-TEXT / TAGS / ORIGIN-TEXT.  WIDTHS is
+\(DCOL TCOL OCOL); a cell whose column width is 0 is omitted.  DATE-TEXT
+and TAGS are pre-faced/pilled strings (left-justified); ORIGIN-TEXT is
+right-justified in OCOL and faced with ORIGIN-FACE.  Because every cell is
+fixed width the columns line up vertically down the list (V6).  The title
+flexes and truncates LAST (D2) in the single gap before the cluster.
+PROPS are added as text properties over the whole row and FACE is its
+`font-lock-face' (so both the board's items and the project's docs share
+this one primitive, faces, truncation, alignment and svg pills)."
   (let* ((start (point))
          (width (org-air-view--render-width))
-         (todo (org-air-item-todo item))
+         (prefix (or prefix ""))
+         (prefix-w (string-width prefix))
+         (title (or title ""))
+         (gap 2)
+         (dcol (or (nth 0 widths) 0))
+         (tcol (or (nth 1 widths) 0))
+         (ocol (or (nth 2 widths) 0))
+         ;; date cell: left-justified; expands locally (e.g. for the Inbox
+         ;; nudge baked into DATE-TEXT) so the row alone widens, never clips.
+         (date-cell (when (> dcol 0)
+                      (org-air-view--pad-to
+                       (or date-text "")
+                       (max dcol (string-width (or date-text ""))))))
+         (tags-cell (when (> tcol 0) (org-air-view--pad-to (or tags "") tcol)))
+         (origin-cell (when (> ocol 0)
+                        (let* ((ot (or origin-text ""))
+                               (w (string-width ot)))
+                          (concat (make-string (max 0 (- ocol w)) ?\s)
+                                  (if origin-face
+                                      (propertize ot 'face origin-face)
+                                    ot)))))
+         (cluster (mapconcat #'identity
+                             (delq nil (list date-cell tags-cell origin-cell))
+                             " "))
+         (cluster-w (string-width cluster))
+         ;; title flexes/truncates in the space before the fixed cluster.
+         ;; V6: it floors at 1 so the cluster stays at a fixed column — a
+         ;; long title or wide prefix must not push the columns out.
+         (avail-title (- width prefix-w gap cluster-w))
+         (title (if (<= (string-width title) avail-title)
+                    title
+                  (truncate-string-to-width
+                   title (max 1 avail-title) nil nil
+                   (org-air-view--glyph 'more))))
+         (left (concat prefix title))
+         (pad (max gap (- width (string-width left) cluster-w)))
+         (line (concat left (make-string pad ?\s) cluster)))
+    (insert line "\n")
+    (when (or props face)
+      (add-text-properties start (point)
+                           (append props
+                                   (when face (list 'font-lock-face face)))))))
+
+(defun org-air-view--insert-item (item bucket &optional omit-date)
+  "Insert ITEM as an interactive row in BUCKET (V6 fixed-column table).
+A thin caller of the shared `org-air-view--insert-row' (D-P5.A): it maps
+the task ITEM onto the row args (todo/priority prefix, title, date / tags
+/ origin cluster).  OMIT-DATE drops the date column (R6 day view)."
+  (let* ((todo (org-air-item-todo item))
          (priority (org-air-view--priority-char item))
          (date-text (unless omit-date (org-air-view--item-date-text item bucket)))
          (prefix (concat (org-air-view--item-margin)
@@ -1052,54 +1105,28 @@ drops the date column (R6 day view)."
                            (concat (propertize (format "[#%c]" priority) 'face
                                                (org-air-view--priority-face priority))
                                    " "))))
-         (prefix-w (string-width prefix))
-         (title (org-air-item-title item))
          (tags (org-air-item-tags item))
          (n-tags (length tags))
          (tagstr (org-air-view--item-tagstr
                   tags (min org-air-tags-inline-max n-tags) n-tags))
          (origin-raw (org-air-view--item-origin-raw item))
-         (gap 2)
          ;; V6 fixed column widths (computed over the whole list; fall back
          ;; to this single row when unset, e.g. the day pane).
          (dcol (if omit-date 0 (or org-air-view--meta-date-w org-air-date-column)))
          (tcol (or org-air-view--meta-tags-w (string-width tagstr)))
-         (ocol (or org-air-view--meta-origin-w (string-width origin-raw)))
-         ;; date cell: left-justified; expands locally for the Inbox nudge
-         ;; so the hint is never clipped (its row alone widens).
-         (date-cell (when (> dcol 0)
-                      (org-air-view--pad-to
-                       (or date-text "")
-                       (max dcol (string-width (or date-text ""))))))
-         (tags-cell (when (> tcol 0) (org-air-view--pad-to tagstr tcol)))
-         (origin-cell (when (> ocol 0)
-                        (let ((w (string-width origin-raw)))
-                          (concat (make-string (max 0 (- ocol w)) ?\s)
-                                  (propertize origin-raw
-                                              'face 'org-air-face-group)))))
-         (cluster (mapconcat #'identity
-                             (delq nil (list date-cell tags-cell origin-cell))
-                             " "))
-         (cluster-w (string-width cluster))
-         ;; title flexes/truncates in the space before the fixed table.
-         ;; V6: it floors at 1 (not `org-air-title-min') so the table stays
-         ;; at a fixed column — a long title or wide prefix must not push
-         ;; the date/tags/origin columns out of alignment.
-         (avail-title (- width prefix-w gap cluster-w))
-         (title (if (<= (string-width title) avail-title)
-                    title
-                  (truncate-string-to-width
-                   title (max 1 avail-title) nil nil
-                   (org-air-view--glyph 'more))))
-         (left (concat prefix title))
-         (pad (max gap (- width (string-width left) cluster-w)))
-         (line (concat left (make-string pad ?\s) cluster)))
-    (insert line "\n")
-    (add-text-properties start (point)
-                         `(org-air-item ,item
-                           org-air-marker ,(org-air-item-marker item)
-                           mouse-face org-air-face-cursor
-                           font-lock-face org-air-face-title))))
+         (ocol (or org-air-view--meta-origin-w (string-width origin-raw))))
+    (org-air-view--insert-row
+     :prefix prefix
+     :title (org-air-item-title item)
+     :date-text date-text
+     :tags tagstr
+     :origin-text origin-raw
+     :origin-face 'org-air-face-group
+     :widths (list dcol tcol ocol)
+     :props (list 'org-air-item item
+                  'org-air-marker (org-air-item-marker item)
+                  'mouse-face 'org-air-face-cursor)
+     :face 'org-air-face-title)))
 
 (defun org-air-view--item-sort-time (item)
   "Return the effective deadline/scheduled time for ITEM, or nil."

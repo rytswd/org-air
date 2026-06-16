@@ -734,6 +734,14 @@ When ACTIVE is non-nil, use the active-filter tag face."
     (when (> overflow 0)
       (insert " " (propertize (format "+%d" overflow) 'face 'org-air-face-count)))))
 
+(defcustom org-air-header-accent-count nil
+  "When non-nil, the header item count is salient too (D-P3).
+Default nil keeps the count faded; the date token always takes the quiet
+`org-air-face-header-date' accent.  Face-only: the assembled header string
+width is unchanged, so fixtures hold."
+  :type 'boolean
+  :group 'org-air)
+
 (defun org-air-view--insert-banner (items)
   "Insert the org-air header band for ITEMS (S1 single in-buffer band).
 The right status is justified to the displaying window width W with a
@@ -744,17 +752,30 @@ priority order — filter chips, then scope, then the item count — always
 keeping the date."
   (let* ((w (org-air-view--render-width))
          (left (propertize "  org-air" 'face 'org-air-face-header))
-         (date (format-time-string "%a %d %b" (current-time)))
-         (count (format " · %d items" (length (org-air-view--visible-items items))))
+         ;; D-P3: per-segment faces — date salient, count faded (or salient
+         ;; via `org-air-header-accent-count'), filter/scope faded.  The
+         ;; assembled width is unchanged (propertize never alters it).
+         (date (propertize (format-time-string "%a %d %b" (current-time))
+                           'face 'org-air-face-header-date))
+         (count (propertize
+                 (format " · %d items" (length (org-air-view--visible-items items)))
+                 'face (if org-air-header-accent-count
+                           'org-air-face-count 'org-air-face-faded)))
          (filter-text (let ((filters (org-air-view--filter-tags)))
                         (when filters
-                          (concat " · "
-                                  (mapconcat (lambda (tag) (concat "#" tag)) filters " ")
-                                  " " (org-air-view--glyph 'clear)))))
+                          (propertize
+                           (concat " · "
+                                   (mapconcat (lambda (tag) (concat "#" tag)) filters " ")
+                                   " " (org-air-view--glyph 'clear))
+                           'face 'org-air-face-faded))))
          (scope-text (pcase org-air-view--scope
-                       (`(:tag ,tag) (concat " · #" tag))
-                       (`(:group ,group) (concat " · @" group))
-                       (`(:file ,file) (concat " · " (file-name-nondirectory file)))
+                       (`(:tag ,tag) (propertize (concat " · #" tag)
+                                                 'face 'org-air-face-faded))
+                       (`(:group ,group) (propertize (concat " · @" group)
+                                                     'face 'org-air-face-faded))
+                       (`(:file ,file) (propertize
+                                        (concat " · " (file-name-nondirectory file))
+                                        'face 'org-air-face-faded))
                        (_ nil)))
          ;; Budget for the status: window minus the left token, a >=2-col
          ;; gap, and the reserved one-column right margin.
@@ -771,7 +792,9 @@ keeping the date."
                      (let ((s (funcall assemble shed)))
                        (when (<= (string-width s) budget)
                          (throw 'fit s))))))
-         (right (propertize status 'face 'org-air-face-faded))
+         ;; D-P3: the segments already carry their faces; keep the assembled
+         ;; status as-is (no blanket faded override).
+         (right status)
          ;; Justify with a trailing space so the status ends at W-1 and the
          ;; final column W is always blank (the reserved margin).
          (line (org-air-view--justify left (concat right " ") w)))
@@ -1033,7 +1056,8 @@ vertically.  The date floor is `org-air-date-column'."
                                          origin-text origin-face widths
                                          props face)
   "Insert one shared V6 fixed-column row (D-P5.A; the board + project floor).
-The TITLE owns the LEFT and stays clean; the metadata is a fixed-width
+PREFIX leads the line (todo/priority markers, or a state chip); the TITLE
+owns the LEFT and stays clean; the metadata is a fixed-width
 right-aligned cluster of DATE-TEXT / TAGS / ORIGIN-TEXT.  WIDTHS is
 \(DCOL TCOL OCOL); a cell whose column width is 0 is omitted.  DATE-TEXT
 and TAGS are pre-faced/pilled strings (left-justified); ORIGIN-TEXT is
@@ -1297,11 +1321,18 @@ so the calendar grid and rules never overflow; `org-air-rail-content-inset'
   "Insert a D5 rail rule labelled LABEL and fitted to WIDTH.
 The rule opens with the rounded `hrule-cap' stub echoing a pill's left
 edge (D5a); the rule glyphs are quiet `org-air-face-pane-border' and the
-label is `org-air-face-rail-title'."
-  (insert (org-air-view--pad-to
-           (org-air-layout-labelled-rule label width)
-           width)
-          "\n"))
+label is `org-air-face-rail-title'.
+D-P2.A: the line also carries `org-air-face-rail-card-header' (a subtle bg
+tint + overline) layered UNDER the rule text via `add-face-text-property'
+\(APPEND), so the existing labelled rule is the TTY substrate (mandatory
+fallback) while a GUI frame reads it as an hl-block card header."
+  (let ((start (point)))
+    (insert (org-air-view--pad-to
+             (org-air-layout-labelled-rule label width)
+             width)
+            "\n")
+    (add-face-text-property start (max start (1- (point)))
+                            'org-air-face-rail-card-header t)))
 
 (defun org-air-view--insert-summary (items width)
   "Insert summary block for ITEMS fitted to WIDTH."

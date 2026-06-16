@@ -21,6 +21,10 @@
 (require 'org-air-layout)
 
 (declare-function org-ql--normalize-query "org-ql" t t)
+(declare-function svg-create "svg")
+(declare-function svg-rectangle "svg")
+(declare-function svg-text "svg")
+(declare-function svg-image "svg")
 
 (defcustom org-air-calendar-day-spacing 'auto
   "Width of each calendar day cell (T3a, responsive per ruling pxvlzyov).
@@ -50,6 +54,16 @@ never clips the Sunday column.  An integer 3 or 4 forces that cell width."
   "First day of week for the org-air calendar (R8: default Sunday).
 0 means Sunday, 1 means Monday."
   :type '(choice (const :tag "Sunday" 0) (const :tag "Monday" 1))
+  :group 'org-air)
+
+(defcustom org-air-calendar-center t
+  "When non-nil, centre the calendar grid block within the rail (D-P4).
+The whole grid block (header, weekday row, day rows, legend) shares one
+block width (the weekday-row width) and is prefixed by
+`lead = (max 0 (/ (- width row-width) 2))' spaces so it sits centred in
+the available rail WIDTH.  Floors at 0 when WIDTH <= row-width (narrow rail
+-> no centring, no clip).  Nil restores the left-packed spine layout."
+  :type 'boolean
   :group 'org-air)
 
 (defun org-air-calendar--date-key (month day year)
@@ -116,6 +130,38 @@ so a day carrying both reads as a deadline."
   "Return GUI glyph or TTY fallback."
   (if (display-graphic-p) gui tty))
 
+(defun org-air-calendar--today-svg (text)
+  "Return TEXT with a soft rounded svg today-cell background (D-P2.B).
+A tiny rounded-rect (\=:rx ch/6, reusing the D-P1 box-fit discipline) is
+drawn in the `org-air-face-calendar-today' background behind the centred
+day number.  On a non-graphical frame or when SVG is unavailable TEXT is
+returned unchanged so the existing today-cell BACKGROUND face is the
+mandatory fallback; the buffer text (the bytes) is never touched."
+  (if (not (and (display-graphic-p) (require 'svg nil t)))
+      text
+    (or (ignore-errors
+          (let* ((cw (frame-char-width))
+                 (ch (frame-char-height))
+                 (n (max 1 (string-width text)))
+                 (w (* n cw))
+                 (h ch)
+                 (bg (or (face-background 'org-air-face-calendar-today nil t)
+                         "#88C0D0"))
+                 (fg (or (face-foreground 'org-air-face-calendar-today nil t)
+                         (face-foreground 'default nil t)
+                         "black"))
+                 (radius (/ ch 6.0))
+                 (fs (max 7 (round (* ch 0.7))))
+                 (svg (svg-create w h)))
+            (svg-rectangle svg 0.5 0.5 (max 0 (- w 1.0)) (max 0 (- h 1.0))
+                           :rx radius :ry radius :fill bg)
+            (svg-text svg (string-trim text)
+                      :x (/ w 2.0) :y (round (* ch 0.72))
+                      :text-anchor "middle" :fill fg :font-size fs)
+            (propertize text 'display
+                        (svg-image svg :ascent 'center :width w :height h))))
+        text)))
+
 (defun org-air-calendar--weekdays ()
   "Return weekday labels according to `org-air-calendar-week-start'."
   (if (= org-air-calendar-week-start 1)
@@ -139,7 +185,6 @@ left edge; the labelled-rule header itself spans the full WIDTH."
          ;; width must be chosen from the width that REMAINS for the grid —
          ;; otherwise a spaced (4-col) grid plus the inset overflows the rail.
          (cell (org-air-calendar--cell-width (- (or width 0) inset)))
-         (pad-str (make-string (max 0 inset) ?\s))
          (gap (if (>= cell 4) " " ""))
          (decoded (decode-time (or date (current-time))))
          (month (decoded-time-month decoded))
@@ -152,13 +197,21 @@ left edge; the labelled-rule header itself spans the full WIDTH."
          (first-day (org-air-calendar--column
                      (calendar-day-of-week (list month 1 year))))
          (last-day (calendar-last-day-of-month month year))
-         (day 1))
-    (let* ((weekday-row (if (>= cell 4)
-                            (mapconcat (lambda (wd) (format "%-4s" wd))
-                                       (org-air-calendar--weekdays) "")
-                          ;; Compact tier: exactly the pre-T3a 20-col row.
-                          (string-join (org-air-calendar--weekdays) " ")))
-           (nav (concat (org-air-calendar--glyph "‹" "<") " "
+         (day 1)
+         (weekday-row (if (>= cell 4)
+                          (mapconcat (lambda (wd) (format "%-4s" wd))
+                                     (org-air-calendar--weekdays) "")
+                        ;; Compact tier: exactly the pre-T3a 20-col row.
+                        (string-join (org-air-calendar--weekdays) " ")))
+         (row-width (string-width weekday-row))
+         ;; D-P4: when centring, the whole block (header included) shares
+         ;; the row-width and is prefixed by LEAD spaces; otherwise the D5b
+         ;; spine INSET left-packs it.
+         (center (and org-air-calendar-center width (> width row-width)))
+         (lead (if center (max 0 (/ (- width row-width) 2)) inset))
+         (pad-str (make-string (max 0 lead) ?\s))
+         (rule-width (if center row-width (or width row-width))))
+    (let* ((nav (concat (org-air-calendar--glyph "‹" "<") " "
                         (org-air-calendar--glyph "›" ">")))
            (full-label (format "%s %d" (calendar-month-name month) year))
            ;; D5a: the calendar header is now the same labelled rule as
@@ -166,14 +219,22 @@ left edge; the labelled-rule header itself spans the full WIDTH."
            ;; rule suffix.  Abbreviate the month before the nav truncates
            ;; (the round-9 D3 / nav-never-drops rule, preserved).
            (label (if (> (+ 4 (string-width full-label) 2 (string-width nav))
-                         (or width (string-width weekday-row)))
+                         rule-width)
                       (format "%s %d"
                               (substring (calendar-month-name month) 0 3) year)
                     full-label)))
-      (insert (org-air-layout-labelled-rule
-               label (or width (string-width weekday-row))
-               :suffix nav :suffix-face 'org-air-face-calendar-header)
-              "\n")
+      ;; D-P4: the header right-anchors its nav within rule-width, so it
+      ;; centres with the block when prefixed by LEAD.
+      ;; D-P2.B: the calendar section header takes the same D-P2.A card
+      ;; treatment as the rail rules (bg tint + overline; TTY substrate).
+      (insert pad-str)
+      (let ((hstart (point)))
+        (insert (org-air-layout-labelled-rule
+                 label rule-width
+                 :suffix nav :suffix-face 'org-air-face-calendar-header)
+                "\n")
+        (add-face-text-property hstart (max hstart (1- (point)))
+                                'org-air-face-rail-card-header t))
       (insert pad-str
               (propertize weekday-row 'face 'org-air-face-calendar-day-name)
               "\n"))
@@ -196,12 +257,16 @@ left edge; the labelled-rule header itself spans the full WIDTH."
                     (weekend 'org-air-face-calendar-weekend)
                     (t 'org-air-face-calendar-day))))
         ;; R6: each day cell carries its date + a click/RET keymap so it
-        ;; can be focused into the single-day view.
-        (insert (propertize (format "%2d" day)
-                            'face face
-                            'org-air-day (encode-time 0 0 0 day month year)
-                            'mouse-face 'org-air-face-calendar-selected
-                            'keymap org-air-calendar-day-keymap))
+        ;; can be focused into the single-day view.  D-P2.B: today also
+        ;; gets a soft rounded svg bg (GUI only; TTY keeps the bg face).
+        (let ((cell-text (propertize (format "%2d" day)
+                                     'face face
+                                     'org-air-day (encode-time 0 0 0 day month year)
+                                     'mouse-face 'org-air-face-calendar-selected
+                                     'keymap org-air-calendar-day-keymap)))
+          (insert (if todayp
+                      (org-air-calendar--today-svg cell-text)
+                    cell-text)))
         ;; R7: today is a filled background on the day number — no ■ glyph.
         (insert (if mark (propertize (car mark) 'face (cdr mark)) " ")
                 gap)

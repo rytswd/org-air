@@ -387,14 +387,16 @@ fallback agree."
                 :value-type (cons string string))
   :group 'org-air)
 
-(defcustom org-air-priority-style 'badge
-  "How the priority cookie renders (D-P4, parallel to `org-air-tag-style').
-`badge draws the `[#A]' token as a colour-coded svg badge (the calm
-capsule, tinted by level) on a graphical frame, degrading to the coloured
-`[#A]' text; `text is always the coloured text.  The byte gate only ever
-sees the `[#A]' text (the badge is a GUI display overlay), so fixtures
-hold either way."
-  :type '(choice (const badge) (const text))
+(defcustom org-air-priority-style 'square
+  "How the priority cookie renders (R13 D-P2, parallel to `org-air-tag-style').
+`square (the R13 default) draws a tiny solid filled colour square — red A
+/ orange B / cooler C, NO letter, NO outline — in a FIXED 2-column slot on
+EVERY item row (blank slot when the row has no shown priority), so titles
+stay V6-aligned.  `badge keeps the round-12 `[#A]' svg capsule; `text is
+always the plain coloured cookie.  The byte gate sees the slot text (`■ '
+for `square, `[#A]' for badge/text); the filled square / capsule is a GUI
+display overlay."
+  :type '(choice (const square) (const badge) (const text))
   :group 'org-air)
 
 (defcustom org-air-todo-keyword-faces
@@ -967,6 +969,41 @@ cell.  Otherwise the plain coloured `[#A]' text (the TTY/byte fallback)."
                                    :border-color (org-air-view--priority-color char))
       text)))
 
+(defun org-air-view--svg-priority-square (char text)
+  "Return TEXT (the `■' cell) carrying a tiny filled-square overlay (R13 D-P2).
+Draws a small solid square — no stroke, slightly rounded — filled in
+`org-air-view--priority-color', sized ~62% of the cell and centred,
+box-fit to the 1-col cell and line-height-clamped so it never grows the
+row.  Returns TEXT unchanged when svg is unavailable (the `■' glyph is the
+fallback)."
+  (if (not (org-air-view--svg-available-p))
+      text
+    (or (ignore-errors
+          (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
+                 (ch (or org-air-view--pill-char-h (frame-char-height)))
+                 (color (org-air-view--priority-color char))
+                 (size (max 3.0 (* 0.62 (min cw ch))))
+                 (x (/ (- cw size) 2.0))
+                 (y (/ (- ch size) 2.0))
+                 (svg (svg-create cw ch)))
+            (svg-rectangle svg x y size size :rx 1 :ry 1 :fill color)
+            (propertize text 'display
+                        (org-air-view--svg-line-image svg cw ch))))
+        text)))
+
+(defun org-air-view--priority-slot (char)
+  "Return the FIXED 2-column priority slot for CHAR (R13 D-P2 `square style).
+A coloured filled square (svg on GUI, `■' glyph in TTY) + one pad space
+when CHAR is a shown priority (`org-air-priority-show'); two blanks
+otherwise — so every item-row title starts at the same column (V6)."
+  (if (and char (member char org-air-priority-show))
+      (let* ((sq (org-air-view--glyph 'priority-square))
+             (face (org-air-view--priority-face char))
+             (cell (propertize sq 'face face))
+             (cell (org-air-view--svg-priority-square char cell)))
+        (concat cell " "))
+    "  "))
+
 (defun org-air-view--svg-available-p ()
   "Return non-nil when svg pills can be drawn on this display (C2)."
   (and (display-graphic-p)
@@ -1375,8 +1412,13 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
                            (concat (propertize todo 'face
                                                (org-air-view--todo-face todo))
                                    " "))
-                         (when (and priority (member priority org-air-priority-show))
-                           (concat (org-air-view--priority-token priority) " "))))
+                         ;; R13 D-P2: `square style emits a FIXED 2-col slot
+                         ;; on EVERY row (square or blank) so titles align;
+                         ;; `badge/`text keep the conditional `[#A]' token.
+                         (if (eq org-air-priority-style 'square)
+                             (org-air-view--priority-slot priority)
+                           (when (and priority (member priority org-air-priority-show))
+                             (concat (org-air-view--priority-token priority) " ")))))
          (tags (org-air-item-tags item))
          (n-tags (length tags))
          (tagstr (org-air-view--item-tagstr

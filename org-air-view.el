@@ -136,12 +136,41 @@ underlying TTY/byte text stays left-justified either way."
   :type '(choice (const center) (const right))
   :group 'org-air)
 
-(defcustom org-air-line-spacing 0.15
-  "Buffer-local `line-spacing' for the org-air board (D-P2 #4).
-A touch of inter-row breathing space calms the stacked capsules.  nil
-leaves `line-spacing' at the frame default; 0 packs rows tight (the
-round-8 S8 behaviour for unbroken box-drawing rules)."
+(defcustom org-air-line-spacing 0
+  "Buffer-local `line-spacing' for the org-air board (D-P3, default 0).
+Default 0 packs rows tight (the round-8 S8 behaviour) so the `│' divider
+glyph is drawn per cell with NO gap below the row — a continuous,
+portable (TTY + every GUI) vertical rule.  Round-11 set this to 0.15 to
+calm the stacked capsules, but that opens a pixel gap below every row
+that the per-cell divider glyph does not paint into, so the divider read
+as dashed/broken (D-P3 symptom).  The capsule breathing now lives
+INSIDE each pill via `org-air-pill-vinset', so the divider stays solid.
+nil leaves `line-spacing' at the frame default; a non-zero value
+re-introduces inter-row spacing (the divider then needs
+`org-air-divider-style' = `svg to stay solid)."
   :type '(choice (const :tag "Frame default" nil) number)
+  :group 'org-air)
+
+(defcustom org-air-pill-vinset 2
+  "Vertical inset in device pixels applied INSIDE each svg pill (D-P3).
+Each pill capsule is drawn this many pixels shorter than the full line
+height at top AND bottom (box height = char-px-h - 2*vinset, vertically
+centred), so a stacked column of capsules reads airy while the cell grid
+(and the `│' divider glyph) stays continuous.  This replaces the
+round-11 `line-spacing' breathing, which broke the divider.  TTY is
+unaffected (no pills)."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-divider-style 'glyph
+  "How the two-pane vertical divider renders (D-P3, secondary opt-in).
+`glyph (default) draws the `│' box-drawing glyph per cell — continuous
+at `org-air-line-spacing' 0, portable to TTY and every GUI, zero-cost.
+`svg draws each divider cell as an svg vertical bar sized to the line
+height PLUS the line-spacing gap so consecutive cells abut into a solid
+line even when `org-air-line-spacing' is non-zero — for users who
+re-enable inter-row spacing.  The shipped default is `glyph + spacing 0."
+  :type '(choice (const glyph) (const svg))
   :group 'org-air)
 
 (defvar org-air-view--pill-char-w nil
@@ -462,10 +491,10 @@ of whether the wrapping pane margin is added later (D6).")
   (setq-local truncate-lines t)
   ;; S1: the header band is in-buffer text only; never a header line.
   (setq-local header-line-format nil)
-  ;; D-P2 #4: a touch of `line-spacing' (`org-air-line-spacing', default
-  ;; 0.15) calms the stacked capsules.  This reverses the round-8 S8
-  ;; line-spacing 0 (which kept box-drawing rules unbroken); set
-  ;; `org-air-line-spacing' to 0 to restore the tight S8 packing.
+  ;; D-P3: `org-air-line-spacing' default 0 keeps the `│' divider glyph an
+  ;; unbroken vertical rule (no gap below the row for the per-cell glyph
+  ;; to skip).  The capsule breathing now lives inside each pill via
+  ;; `org-air-pill-vinset'.  A non-zero value re-introduces spacing.
   (setq-local line-spacing org-air-line-spacing)
   (setq-local cursor-type 'bar)
   (setq-local org-air-layout-refresh-function #'org-air-view--resize-refresh)
@@ -473,8 +502,12 @@ of whether the wrapping pane margin is added later (D6).")
   ;; T6: re-fit when the font/text size changes (text-scale alters how many
   ;; columns/rows fit), debounced through the same window-size path.
   (add-hook 'text-scale-mode-hook #'org-air-view--text-scale-refresh nil t)
-  ;; D-P7: track point to keep the lower-rail inspector synced (debounced).
-  (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t)
+  ;; D-P7: track point to keep the rail inspector synced (debounced).
+  ;; P0: INERT when noninteractive — never install the live hook under
+  ;; batch (`make check' / `make regen-mockups') so nothing schedules a
+  ;; timer or waits for input; the compose path stays pure/synchronous.
+  (unless noninteractive
+    (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t))
   ;; V3: the round-4/T7 buffer-box outer frame is DROPPED — it shipped
   ;; half-drawn (partial top edge, deferred right) and a half-box reads
   ;; worse than none.  Structure comes from the in-buffer full-width
@@ -973,10 +1006,17 @@ mandatory fallback."
                   ;; AND the estimate already overruns) -> mandatory text
                   ;; fallback (plain padded coloured label, no pill).
                   text
-                (let ((svg (svg-create box-w h))
-                      (stroke-op (max 0.0 (min 1.0 (float org-air-pill-border-opacity)))))
-                  (svg-rectangle svg 0.5 0.5
-                                 (max 0 (- box-w 1.0)) (max 0 (- h 1.0))
+                (let* ((svg (svg-create box-w h))
+                       (stroke-op (max 0.0 (min 1.0 (float org-air-pill-border-opacity))))
+                       ;; D-P3: draw the capsule `org-air-pill-vinset' px
+                       ;; shorter top+bottom, vertically centred, so the
+                       ;; pill breathes INSIDE its cell while the cell grid
+                       ;; (and the `│' divider glyph) stays continuous.
+                       (vin (max 0.0 (min (/ (- h 2.0) 2.0)
+                                          (float org-air-pill-vinset))))
+                       (box-h (max 1.0 (- h (* 2 vin)))))
+                  (svg-rectangle svg 0.5 (+ vin 0.5)
+                                 (max 0 (- box-w 1.0)) (max 0 (- box-h 1.0))
                                  :rx radius :ry radius
                                  :fill (if (> alpha 0) fg "none")
                                  :fill-opacity (if (> alpha 0) alpha 0)
@@ -1351,13 +1391,42 @@ Within `org-air-layout-hysteresis' columns of the breakpoint the current
         (eq org-air-view--orientation 'two-pane)
       base)))
 
+(defun org-air-view--svg-divider-glyph (glyph)
+  "Return GLYPH carrying an svg vertical-bar `display' overlay (D-P3 `svg).
+The bar is sized to the cell width and to the line height PLUS the
+`org-air-line-spacing' gap so consecutive divider cells abut into a solid
+rule even when inter-row spacing is non-zero.  Returns GLYPH unchanged
+when svg is unavailable (the glyph itself is the TTY/GUI fallback)."
+  (if (not (org-air-view--svg-available-p))
+      glyph
+    (or (ignore-errors
+          (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
+                 (ch (or org-air-view--pill-char-h (frame-char-height)))
+                 (sp (cond ((null org-air-line-spacing) 0)
+                           ((floatp org-air-line-spacing)
+                            (round (* ch org-air-line-spacing)))
+                           (t (round org-air-line-spacing))))
+                 (h (+ ch (max 0 sp)))
+                 (color (or (face-foreground 'org-air-face-pane-border nil t)
+                            "gray"))
+                 (svg (svg-create cw h)))
+            (svg-rectangle svg (/ (- cw 1.0) 2.0) 0 1.0 h :fill color)
+            (propertize glyph 'display
+                        (svg-image svg :ascent 'center :width cw :height h))))
+        glyph)))
+
 (defun org-air-view--divider ()
-  "Return the pane divider string for the current layout style."
+  "Return the pane divider string for the current layout style.
+With `org-air-divider-style' = `svg the `│' cell carries an svg bar sized
+to the line+spacing so the rule stays solid even with row spacing (D-P3)."
   (if (eq org-air-layout-style 'plain)
       "   "
-    (concat " " (propertize (org-air-view--glyph 'vrule)
-                            'face 'org-air-face-pane-border)
-            " ")))
+    (let ((bar (propertize (org-air-view--glyph 'vrule)
+                           'face 'org-air-face-pane-border)))
+      (concat " " (if (eq org-air-divider-style 'svg)
+                      (org-air-view--svg-divider-glyph bar)
+                    bar)
+              " "))))
 
 (defun org-air-view--section-counts (items)
   "Return bucket count alist for visible ITEMS.
@@ -1832,8 +1901,10 @@ is stashed in `org-air-view--inspector-geom' for live updates."
       (org-air-view--maybe-update-inspector))))
 
 (defun org-air-view--inspector-post-command ()
-  "Buffer-local `post-command-hook': schedule a debounced update (D-P7)."
-  (when (and org-air-show-inspector (derived-mode-p 'org-air-view-mode))
+  "Buffer-local `post-command-hook': schedule a debounced update (D-P7).
+P0: a hard noninteractive guard — never arm an idle timer under batch."
+  (when (and (not noninteractive)
+             org-air-show-inspector (derived-mode-p 'org-air-view-mode))
     (when (timerp org-air-view--inspector-timer)
       (cancel-timer org-air-view--inspector-timer))
     (setq org-air-view--inspector-timer

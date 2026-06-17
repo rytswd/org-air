@@ -1,0 +1,56 @@
+#+title: org-air v0.4 round-15: title alignment + rail/divider architecture proposal
+#+state: ready
+#+FILETAGS: :ui:layout:architecture:
+
+* Summary
+Round-15 from the round-13 dashboard screenshot.  One quick alignment fix,
+and a real architectural proposal for the divider/rail (the in-buffer text
+│ keeps reading as gappy / old-school; user wants rougier-sidetabs-level
+sophistication).
+
+* Findings
+
+** P1 [BUG] Items without a TODO keyword don't align with TODO items
+Keyword-less items (=Call the plumber…=, =Idea…=, =Cancel…=) render their
+title where the =TODO= keyword starts, so their titles sit LEFT of the
+titles of items that DO have a keyword.  Reserve the TODO-keyword column
+for every item (blank when no keyword) so ALL titles share one left edge.
+Quick fix; keep V6/byte contract.
+
+** P2 [PROPOSAL — approval gate] Rail/divider architecture for a continuous,
+   sophisticated divider
+The vertical divider still reads as gappy / text-based across rounds 12-13
+despite the line-height clamp.  Root cause is structural: an in-buffer
+box-drawing =│= glyph does not span the full cell in most fonts and pill
+rows complicate it; a single buffer can't easily give a font-independent
+continuous rule.  User wants the sophistication of rougier's sidetabs
+(https://gist.github.com/rougier/23f723b039873cd5c2e9eb6862dbc31e), which
+uses REAL Emacs side-windows + window borders.
+
+*Design to PROPOSE (approval before any impl)* — weigh at least:
+- *Option A — real side-window rail.*  Render the rail in a dedicated
+  side-window (=display-buffer-in-side-window=) with =window-divider-mode=
+  / a window border for a true continuous pixel divider (font-independent,
+  sophisticated, sidetabs-like).  Analyse the COSTS: the byte fixtures
+  assume one buffer with the rail inline; the responsive board-only mode
+  (round-13) and the full-width inspector assume one buffer; point/refresh/
+  scroll sync across two windows; how the byte test model adapts (two
+  buffers? render-dump each?).
+- *Option B — keep one buffer, robust font-independent divider.*  e.g. a
+  full-height stretch-space with a face =:box=/border, or a per-row svg
+  divider segment sized to the EXACT row height (incl. pill rows) so it
+  tiles into a seamless line, or a fringe/margin rule.  Lower rework, keeps
+  the test model; analyse whether it can truly be gap-free + sophisticated.
+- Recommend one, with the migration + testability plan.  This is the
+  decision that unblocks the divider for good.
+
+* Constraints
+- org-ql only; Emacs 29.1+.  Keep byte/TTY fallback + V6 alignment.  Build
+  on the round-14 trunk tip.
+
+* Work items
+- D-P1  reserve TODO-keyword column so titles align (quick)               [BUG]
+- D-P2  rail/divider architecture PROPOSAL (approval gate)                [PROP]
+
+* Implementation History
+- (pending) round-15 opened from round-13 dashboard screenshot.

@@ -1,0 +1,251 @@
+#+title: org-air v0.4 round-13 — solid divider + visible pills + tiny priority + responsive rail + repeats (design)
+#+state: ready
+#+FILETAGS: :ui:visual:svg:responsive:repeats:v0.4:
+
+* Summary
+Round-13 from the 2026-06-17 15-20 screenshot on the shipped round-12
+build.  The rail reorder (round-12 D-P1) is good, but round-12 D-P3
+*backfired*: the divider still reads broken AND the pills got fainter — a
+net regression.  This round rethinks that, shrinks the priority badge to a
+tiny square, makes the rail responsive, brightens the inspector labels, and
+proposes repeats.  Six items (P1..P5; P5 is an approval-gated proposal).
+
+Continuity: builds on round-12 — the C2 pill pixel-lock, =org-air-view--
+svg-pillify= (now with =:border-color=), the mid-rail inspector, the
+priority badge, =org-air-line-spacing= 0 + =org-air-pill-vinset=.  This
+round *supersedes* round-12 D-P3 (the vinset/line-spacing divider attempt)
+and *re-tunes* D-P4 (priority) into a square.
+
+*Tags:* =[gui]= GUI svg/display overlay (non-byte; text is the fallback);
+=[face]= face-only (fixtures hold); =[byte]= buffer-text change (regen +
+bless).  Each bless names the exact change-id and voids earlier blesses.
+
+* D-P1 [HIGH] — a TRULY solid divider AND clearly-visible pills (rethink R12 D-P3)
+*Diagnosis (confirmed in =org-air-view--svg-pillify=):* the pill is drawn
+=(svg-create box-w h)= with =h = char-px= and displayed
+=(svg-image … :ascent 'center :height h)=.  With =:ascent 'center= the
+image is vertically centred on the text *centerline*, so a full-line-height
+image extends *above* the line's ascent by a few px → *the pill row grows
+taller than a normal line*.  The =│= divider glyph is drawn at the *normal*
+font line height, so on the (taller) pill rows it cannot reach the next
+row → the divider reads *broken*.  Round-12's =vinset= shrank the capsule
+(making it fainter) but did NOT stop the row from growing, because the
+*image height* (= =h=) and =:ascent 'center= were unchanged — so the gap
+persisted and the pills lost contrast.  *Both failures share one root: the
+pill image grows the line.*
+
+** D-P1.A — clamp the pill image to the font line height (the real fix)
+Fix the gap at the SOURCE: the pill image must occupy *exactly* the text
+line's pixel box and never grow it (this is what svg-tag-mode / svg-lib do).
+- Measure the *line pixel height* =lh= (the displaying window's default
+  line height — =window-font-height=, the same C2/C3 metric source) and the
+  *font ascent* =asc= (e.g. =(aref (font-info (face-font 'default)) 8)=, or
+  svg-lib's ascent helper).
+- Build the svg at height =lh= (NOT an arbitrary =char-px= that may differ)
+  and display it with an *integer* =:ascent= = =(round (* 100 (/ asc
+  (float lh))))= — baseline-aligned like text — *instead of =:ascent
+  'center=*.  A line-height image with the text ascent never exceeds the
+  line box, so *pill rows are exactly one normal line tall*.
+- With rows no longer growing, the =│= glyph fills every row at
+  =org-air-line-spacing 0= → *the divider is solid*, portably (TTY + every
+  GUI), with zero per-row divider machinery.  Keep =org-air-divider-style=
+  ='glyph as the default; the round-12 ='svg escape hatch stays for users
+  who set =line-spacing > 0=.
+- =box-w= and the C2 width contract are *unchanged* (the fix is vertical
+  only), so V6 column alignment is untouched.
+
+** D-P1.B — restore clearly-visible (but calm) capsules
+Undo the round-12 faintness now that breathing no longer has to come from
+shrinking the pill:
+- =org-air-pill-vinset= default *2 → 1* (a 1px top/bottom inset — a hair of
+  internal margin, but the capsule is essentially full height again).
+- =org-air-pill-border-opacity= default *0.5 → 0.85* (a clearly visible
+  border, still a single hairline stroke, not a heavy chip).
+- =org-air-pill-fill-alpha= default *0 → 0.08* (a *very* light tint of the
+  label hue behind the label) — this is what makes a capsule read at a
+  glance without shouting; combined with the 1px border the pill is
+  unmistakable yet calm.
+- The label keeps its accent / semantic colour (unchanged).  Net: a
+  visible, soft, tinted capsule with a crisp hairline border — calm but
+  *clearly a pill*.  TTY fallback (plain coloured padded text) is intact.
+- =[gui]= / display-only: image height/ascent + the three default knobs are
+  all svg attributes; the pill *text* is unchanged → *fixtures HOLD*.
+
+* D-P2 [HIGH] — priority badge → a tiny solid colour square (no letter/outline)
+*Symptom:* the =[#A]= badge is too big.  Make it a *tiny solid filled
+colour square* — red A / orange B / cooler C — *no letter, no outline*; red
+already signals importance.
+
+*Contract:*
+- *Fixed compact slot.*  Replace the variable =[#A]=-or-nothing prefix with
+  a *fixed 2-column priority slot* on EVERY item row (the square + one pad
+  space; *two blanks* when the row has no shown priority).  Titles then
+  start at the same column whether or not an item is prioritised → V6
+  title-left alignment holds across all rows.  (Today the slot only exists
+  on priority rows, so titles jump — this also fixes that.)
+- *Glyph (byte/TTY layer):* new glyph =priority-square= = =("■" . "#")=
+  (or =▪=); the slot text is =■ = (square + pad) faced in the priority
+  colour, or =␣␣= when none.  TTY/non-svg shows the coloured =■=.
+- *GUI svg:* on a capable GUI overlay the =■= cell with a *tiny solid
+  filled square* — =svg-rectangle= filled in =org-air-view--priority-color=,
+  *no stroke*, slightly rounded (=:rx= ≈ 1px) or sharp, sized ≈ 60–70% of
+  the cell and centred (a small box, not the full cell), box-fit to the
+  1-col cell (=1 × char-px=, reusing the D-P1.A height-clamp so it never
+  grows the row).  New =org-air-view--svg-priority-square (char)=.
+- defcustom =org-air-priority-style= gains ='square (the new *default*);
+  ='badge keeps the round-12 =[#A]= capsule, ='text the plain cookie.
+  =org-air-priority-colors= is reused unchanged.
+- =org-air-priority-show= still gates which levels render a square (default
+  =?A=); a non-shown priority renders the blank slot (alignment holds).
+- =[byte]=: the prefix slot changes on EVERY item row (fixed 2-col slot;
+  =■ = for shown priorities, =␣␣= otherwise — vs today's =[#A] = or
+  nothing) → regen + *BLESS*.  The filled-square svg is a =[gui]= overlay
+  over the =■= cell.
+
+* D-P3 [MED] — responsive: drop the rail when the window is too narrow
+*Symptom:* opening a file splits the window; a too-narrow displaying window
+crowds board + rail.  *Drop the rail entirely (board-only) below a width
+threshold; restore it when wide.*
+
+*Contract:*
+- defcustom =org-air-rail-min-width= (default *90*): the minimum displaying-
+  window width that still shows the rail.  Below it the view renders
+  *board-only* — a new =org-air-view--orientation= value ='board-only=: NO
+  rail, NO calendar, NO inspector; the item pane uses the *full* window
+  width (the round-9 C2 row renderer already flexes to any width).
+- Orientation decision (in =org-air-view--render=): =width <
+  org-air-rail-min-width= → ='board-only=; else the existing
+  =org-air-view--two-pane-p= path (two-pane vs stacked).  Keep the
+  =org-air-layout-hysteresis= guard so dragging across the threshold does
+  not flap.
+- *Hook the existing resize re-render* (round-9 C1): the view already
+  re-renders to the displaying-window width via
+  =org-air-layout-refresh-function= / =org-air-view--resize-refresh= — the
+  orientation switch rides that, so splitting/opening a file flips to
+  board-only automatically and back when widened.  No new hook.
+- The inspector's =post-command-hook= no-ops in ='board-only= (no inspector
+  band; =org-air-view--setup-inspector= already guards on two-pane).
+- =[byte]=: existing fixtures render at wide widths (two-pane) → they HOLD;
+  add *new* board-only fixtures at a sub-threshold width (e.g. 70) → *BLESS*
+  the new narrow fixtures only.
+
+* D-P4 [MED] — brighten the inspector field labels  [face]
+*Symptom:* the inspector labels (=Sched= / =Deadln= / =Created= / =Bucket=
+/ =Closed=) inherit =org-air-face-faded= and are too dark to read.
+*Contract:* retune =org-air-face-inspector-label= to a *more visible* tone —
+inherit a mid-tier readable foreground (e.g. =org-air-face-rail-header= /
+the default fg at a slightly dimmed weight) instead of =faded=; it must
+pass WCAG AA on the rail background.  The *values* (filename, dates,
+bucket) keep their existing faces.  The round-11/12 inspector field
+contract (keys/values/layout/marker-region) is otherwise unchanged.
+=[face]=-only: the inspector *text* is unchanged → *fixtures HOLD* (the byte
+gate asserts text; this only brightens the label face).
+
+* D-P5 [NEW / PROPOSAL — approval gate] repeating schedule + working-day repeat
+*Do NOT spec for impl.*  A concrete, minimal proposal for orchestrator +
+user approval; it supersedes the round-10 routines/journals parking with a
+sharper ask (repeats + working days; journals can follow later).  Nothing
+here is a contract; no fixtures blessed.
+
+** A — surface ORG repeaters (read-only, detection + presentation)
+- *Detect:* an item whose =SCHEDULED= or =DEADLINE= timestamp carries an
+  org repeater (=.+1d=, =++1w=, =.+2d/3d=, =+1m=).  Parse the repeater off
+  the Org timestamp (already available on =org-air-item-scheduled/-deadline=).
+- *Row marker:* a small repeat glyph (=↻= / TTY =~=) tucked into the date
+  cluster next to the date pill — so a repeating item reads as recurring at
+  a glance (a non-byte svg later; the glyph is the text contract).
+- *Inspector "Repeat" line:* =Repeat   every 1w → next Mon 22 Jun= — the
+  human repeat rule + the next occurrence (org computes the next via
+  =org-get-repeat= / timestamp math).
+- *No model change* — this is pure detection over org's own repeaters.
+
+** B — custom WORKING-DAY repeat (org has no weekday/holiday notion)
+Org's builtin =.+1d/++1w= cannot say "every working day / skip weekends /
+skip holidays."  Propose a *minimal org-air property model* layered on top:
+- *Property:* =:AIR_REPEAT: workday= (or =every weekday=) on the heading,
+  optionally =:AIR_REPEAT: workday +2= (every 2 working days).  Holidays:
+  =:AIR_REPEAT: workday holidays= opts into a holiday source.
+- *Holiday source:* reuse Emacs =calendar-holidays= / =holiday-list= (the
+  user's existing holiday config) — defcustom =org-air-workday-holidays=
+  (a function or list); default = weekends only, no holidays.
+- *Advance:* when the item is completed, *org advances its own builtin
+  repeater first*; org-air then, IF =AIR_REPEAT= is workday, *rolls the new
+  =SCHEDULED= forward to the next working day* (skip Sat/Sun + holidays) via
+  an =org-after-todo-state-change-hook= shim (=org-air-repeat-advance=).
+  This avoids double-advancing: builtin moves +N, org-air only nudges off a
+  weekend/holiday.  (Open question: pure-workday repeats with no builtin
+  repeater — org-air owns the whole advance.)
+- *Presentation:* the inspector Repeat line shows =every weekday → next Tue
+  18 Jun (skipped Sat/Sun)=; the row carries the same =↻= marker.
+
+** Open questions for approval
+1. Property name (=AIR_REPEAT= vs reuse a =:STYLE:=-like key)?
+2. Holiday source: lean on =calendar-holidays= or a dedicated org-air list?
+3. Workday repeats *with* vs *without* a builtin org repeater (who advances)?
+4. Scope: scheduled only, or deadlines too?  Ship read-only repeat
+   surfacing (A) first, working-day advance (B) as a follow-up?
+
+* Faces / knobs touched this round
+- =[face]=: brighten =org-air-face-inspector-label= (D-P4).  Reconcile
+  =org-air-face-priority-a/-b/-c= with =org-air-priority-colors= so the
+  square fill and any text fallback agree (D-P2).
+- New defcustoms: =org-air-rail-min-width= (D-P3); =org-air-priority-style=
+  gains ='square default (D-P2).  Retuned defaults: =org-air-pill-vinset=
+  2→1, =org-air-pill-border-opacity= 0.5→0.85, =org-air-pill-fill-alpha=
+  0→0.08 (D-P1.B).
+- New glyph =priority-square= =("■" . "#")= (D-P2).
+- New svg helpers: =org-air-view--svg-priority-square= (D-P2); the pill
+  image-height/ascent clamp lands inside =org-air-view--svg-pillify=,
+  =--svg-file-icon=, =--svg-priority-square=, =--svg-divider-glyph= (one
+  shared =org-air-view--svg-line-image= wrapper recommended so EVERY org-air
+  svg uses the line-height clamp + integer ascent and none grows a row).
+
+* Routing
+- impl: D-P1 (line-height/integer-ascent clamp on all org-air svgs — the
+  divider fix; restore pill visibility via the three retuned defaults),
+  D-P2 (fixed 2-col priority slot + =■= glyph + filled-square svg +
+  ='square style), D-P3 (='board-only orientation < =org-air-rail-min-
+  width=, riding the C1 resize re-render), D-P4 (brighten
+  =org-air-face-inspector-label=).
+- test: =[byte]= regen + design *BLESS* for D-P2 (priority slot on every
+  item row) and D-P3 (new narrow board-only fixtures).  D-P1 and D-P4 are
+  =[gui]=/=[face]= → *fixtures HOLD* (pill text + inspector text unchanged;
+  assert the divider is now contiguous and pill rows are one line tall).
+- D-P5 stays a proposal — orchestrator + user approval gate before any
+  spec hardening; no routing, no fixtures.
+
+* Verification recipe (carried forward — render, don't assert)
+=make deps= → =.deps/=; =emacs -Q --batch -L tests -l tests/org-air-test-
+init.el -l render-dump.el= with =current-time= frozen inside
+=org-air-test-with-fixtures=; dump (a) =buffer-substring-no-properties=,
+(b) face runs, (c) distinct faces.  This round add: (d) D-P1 — assert the
+=│= divider column is *contiguous* down the full body AND that a pill row's
+displayed image height equals the font line height (no row growth: compare
+=line-pixel-height= on a pill row vs a plain row); (e) D-P2 — assert the
+priority slot is a fixed 2 cols on EVERY item row (=■ = / =␣␣=) and titles
+start at one column; (f) D-P3 — render at width 70 and assert NO rail /
+calendar / inspector and a full-width board; render at 140 and assert the
+rail returns; (g) D-P4 — assert the inspector label face changed (faces
+dump) while the label TEXT is unchanged.
+
+* History
+- 2026-06-17: Authored round-13 from the 15-20 screenshot.  D-P1 [HIGH]
+  rethink the round-12 divider/pill regression: root cause = the pill svg
+  image (=:ascent 'center= + height = char-px) grows pill rows taller than
+  the font line, so the =│= glyph can't fill → broken divider, and vinset
+  shrank the capsule → faint.  Fix at the source: clamp every org-air svg
+  to the font line height with an *integer* baseline ascent (shared
+  =svg-line-image= wrapper) so rows never grow → solid =│= at line-spacing
+  0, portable; restore visible-but-calm pills via vinset 2→1, border-opacity
+  0.5→0.85, fill-alpha 0→0.08.  D-P2 [HIGH] priority → tiny solid colour
+  square (no letter/outline), fixed 2-col slot on every row (V6 titles
+  align), =■= glyph + filled-square svg, =org-air-priority-style='square
+  default.  D-P3 [MED] responsive ='board-only orientation below
+  =org-air-rail-min-width= (default 90), riding the round-9 C1 resize
+  re-render — drops rail/calendar/inspector, board fills the width.  D-P4
+  [MED] brighten =org-air-face-inspector-label= (face-only, fixtures hold).
+  D-P5 [PROPOSAL] repeats: surface org repeaters (↻ marker + inspector
+  Repeat line) + a minimal custom working-day repeat (=AIR_REPEAT: workday=,
+  skip weekends/holidays via =calendar-holidays=, advance via a state-change
+  shim) — approval gate, not specced.  Blesses for D-P2 + D-P3 fixtures
+  follow with exact change-ids.  Set =#+state: ready=.

@@ -61,6 +61,21 @@ Integer pins an exact composition width (the batch/test seam, mirroring
   :type '(choice (const :tag "Live window" nil) integer)
   :group 'org-air)
 
+(defcustom org-air-project-line2-indent 2
+  "Extra indent (cols) of a doc block's second line under its title (R14 D-P1.A).
+The `▤ relpath  created… updated…' detail line sits this many columns to
+the right of the title so it reads as a secondary detail of line 1."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-project-show-inspector t
+  "When non-nil, the project view hosts a mid-rail inspector (R14 D-P1.B).
+Mirrors `org-air-show-inspector' for the board: above
+`org-air-rail-min-width' the view is two-pane (doc sections + a project
+rail of Summary + Inspector); below it the view is board-only."
+  :type 'boolean
+  :group 'org-air)
+
 (defcustom org-air-project-group 'state
   "Default grouping for the Air project view: `state', `directory' or `tag'.
 Mirrors `airctl status' -a / -Da / -Ta; toggled in-view with s / d / t."
@@ -130,7 +145,7 @@ That is, when ROOT contains `air-config.toml' or an `air/' subdirectory."
 
 (cl-defstruct (org-air-doc (:constructor org-air-doc-create))
   "A single Air document read from its `.org' file."
-  name file state tags updated relpath)
+  name file state tags updated created relpath)
 
 (defun org-air-project--air-dir (root)
   "Return the directory under ROOT containing the Air docs.
@@ -171,7 +186,24 @@ Point-independent; scans from the top of the current buffer."
      :state state
      :tags tags
      :updated (file-attribute-modification-time (file-attributes file))
+     :created (org-air-project--doc-created file)
      :relpath relpath)))
+
+(defun org-air-project--doc-created (file)
+  "Return FILE's creation time (R14 D-P1.A): #+created:/#+date: else ctime.
+Reads an in-buffer `#+created:' or `#+date:' keyword as an Org timestamp
+when present, else the file's status-change (ctime) attribute."
+  (or (ignore-errors
+        (with-temp-buffer
+          (insert-file-contents file nil 0 4096)
+          (when-let* ((v (or (org-air-project--read-keyword "created")
+                             (org-air-project--read-keyword "date")))
+                      (ts (org-timestamp-from-string
+                           (if (string-prefix-p "[" (string-trim v))
+                               (string-trim v)
+                             (format "[%s]" (string-trim v))))))
+            (org-timestamp-to-time ts))))
+      (file-attribute-status-change-time (file-attributes file))))
 
 (defun org-air-project--collect-docs (root)
   "Return the list of `org-air-doc' under ROOT's Air directory."
@@ -332,12 +364,18 @@ Buckets with zero docs are omitted; any state not listed is appended."
      (sort tags #'string-lessp))))
 
 (defun org-air-project--insert-section-heading (section)
-  "Insert SECTION's heading (D-P5.C): icon + title + count badge.
-Reuses the board's section-heading styling for parity."
-  (let ((start (point))
-        (icon (plist-get section :icon))
-        (count (length (plist-get section :docs))))
-    (insert "  "
+  "Insert SECTION's heading (R14 D-P1.A): ▌ marker + icon + title + count.
+Adopts the round-11 prefix-svg `▌' header marker for parity with the rail
+headers; the marker carries the GUI svg accent bar via
+`org-air-layout-marker-image'."
+  (let* ((start (point))
+         (icon (plist-get section :icon))
+         (count (length (plist-get section :docs)))
+         (img (org-air-layout-marker-image))
+         (mk (org-air-layout-glyph 'rail-marker))
+         (marker (propertize mk 'face 'org-air-face-rail-marker))
+         (marker (if img (propertize marker 'display img) marker)))
+    (insert "  " marker " "
             (if icon
                 (concat (propertize icon 'face (plist-get section :icon-face)) " ")
               "")
@@ -353,22 +391,54 @@ Reuses the board's section-heading styling for parity."
                          (list 'org-air-section (plist-get section :title)
                                'org-air-count-badge count))))
 
-(defun org-air-project--insert-doc-row (doc widths show-state)
-  "Insert DOC as a shared-row (D-P5.B) using `org-air-view--insert-row'.
-WIDTHS is the fixed (DCOL TCOL OCOL).  SHOW-STATE adds a leading state
-chip in the prefix (dir/tag modes, where the state is not the section)."
-  (org-air-view--insert-row
-   :prefix (concat "  " (when show-state (org-air-project--state-chip doc)))
-   :title (org-air-doc-name doc)
-   :date-text (org-air-project--doc-date-text doc)
-   :tags (org-air-project--doc-tagstr doc)
-   :origin-text (org-air-project--doc-origin-text doc)
-   :origin-face 'org-air-face-group
-   :widths widths
-   :props (list 'org-air-doc doc
-                'org-air-marker (org-air-doc-file doc)
-                'mouse-face 'org-air-face-cursor)
-   :face 'org-air-face-title))
+(defun org-air-project--doc-dates-str (doc)
+  "Return the quiet `created …    updated …' detail for DOC (R14 D-P1.A)."
+  (let* ((created (org-air-doc-created doc))
+         (updated (org-air-doc-updated doc))
+         (parts (delq nil
+                      (list (when created
+                              (format "created %s" (format-time-string "%F" created)))
+                            (when updated
+                              (format "updated %s" (format-time-string "%F" updated)))))))
+    (propertize (mapconcat #'identity parts "    ") 'face 'org-air-face-faded)))
+
+(defun org-air-project--insert-doc-block (doc width &optional show-state)
+  "Insert DOC as a TWO-LINE left-flowing block (R14 D-P1.A) fitted to WIDTH.
+Line 1 = <indent><state-chip?>Title  #tag #tag (calm pills, NOT
+right-pinned; the title truncates LAST).  Line 2 = <indent+line2-indent>
+▤ relpath    created …    updated … (quieter, the document svg-file-icon
+overlays the ▤ cell; the filename is NOT right-aligned).  Both lines carry
+`org-air-doc' + `org-air-marker' so point on EITHER identifies the doc."
+  (let* ((start (point))
+         (indent "  ")
+         (l2-indent (concat indent (make-string (max 0 org-air-project-line2-indent) ?\s)))
+         ;; line 1: indent + state-chip? + title + inline tags.
+         (chip (if show-state (org-air-project--state-chip doc) ""))
+         (tagstr (org-air-project--doc-tagstr doc))
+         (gap (if (string-empty-p tagstr) "" "  "))
+         (l1-prefix (concat indent chip))
+         (avail (max 1 (- width (string-width l1-prefix)
+                          (string-width gap) (string-width tagstr))))
+         (title (org-air-doc-name doc))
+         (title (if (<= (string-width title) avail)
+                    title
+                  (truncate-string-to-width title avail nil nil
+                                            (org-air-view--glyph 'more))))
+         (line1 (concat l1-prefix (propertize title 'face 'org-air-face-title)
+                        gap tagstr))
+         ;; line 2: indented ▤ relpath + created/updated.
+         (origin-glyph (org-air-layout-glyph 'origin))
+         (file-cell (org-air-view--svg-file-icon origin-glyph))
+         (relpath (propertize (org-air-doc-relpath doc) 'face 'org-air-face-faded))
+         (line2 (concat l2-indent file-cell " " relpath "    "
+                        (org-air-project--doc-dates-str doc))))
+    (insert (org-air-view--pad-to line1 width) "\n")
+    (insert (org-air-view--pad-to line2 width) "\n")
+    (add-text-properties start (point)
+                         (list 'org-air-doc doc
+                               'org-air-marker (org-air-doc-file doc)
+                               'mouse-face 'org-air-face-cursor
+                               'font-lock-face 'org-air-face-title))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; View
@@ -377,42 +447,208 @@ chip in the prefix (dir/tag modes, where the state is not the section)."
 (defvar-local org-air-project--root nil
   "Air root rendered in this project-view buffer.")
 
+(defvar-local org-air-project--rendered-width nil
+  "Width of the most recent project-view render (R14 D-P1.B resize guard).")
+
+(defun org-air-project--insert-doc-sections (sections width)
+  "Insert all SECTIONS (headings + two-line doc blocks) at content WIDTH."
+  (dolist (section sections)
+    (org-air-project--insert-section-heading section)
+    (let ((show-state (plist-get section :show-state)))
+      (dolist (doc (plist-get section :docs))
+        (org-air-project--insert-doc-block doc width show-state)))
+    (insert "\n")))
+
+(defun org-air-project--insert-state-summary-line (docs)
+  "Insert the compact one-line state-count summary for DOCS (board-only)."
+  (insert "  "
+          (mapconcat
+           (lambda (state)
+             (let ((n (seq-count (lambda (d) (equal (org-air-doc-state d) state))
+                                 docs)))
+               (concat (propertize (org-air-project--state-badge state)
+                                   'face (org-air-project--state-face state))
+                       " " (number-to-string n))))
+           org-air-project-states "   ")
+          "\n\n"))
+
+(defun org-air-project--insert-summary (docs width)
+  "Insert the project rail Summary block for DOCS at rail WIDTH (R14 D-P1.B).
+A `▌ Summary' header + a per-state count row (the board's top-line state
+summary moved into the rail)."
+  (org-air-view--rail-header "Summary" width)
+  (let ((inset (org-air-view--rail-inset-str width)))
+    (dolist (state org-air-project-states)
+      (let ((n (seq-count (lambda (d) (equal (org-air-doc-state d) state)) docs)))
+        (insert inset
+                (propertize (format "%3d" n)
+                            'face (if (= n 0) 'org-air-face-faded
+                                    'org-air-face-summary-number))
+                "  "
+                (propertize (org-air-project--state-title state)
+                            'face 'org-air-face-summary-label)
+                "\n")))))
+
+(defun org-air-project--insert-rail (docs rail-width target-h)
+  "Insert the project rail (Summary + Inspector) at RAIL-WIDTH (R14 D-P1.B).
+The inspector fills the fixed reserved region to TARGET-H (the doc pane
+height) so the divider spans the docs; there are no Filters/Actions here.
+The reserved region is rendered with a nil thing (just reserves height +
+the `Inspector' header); `org-air-view--setup-inspector' fills it with the
+first doc in the real buffer (buffer-locals set there)."
+  (org-air-project--insert-summary docs rail-width)
+  (insert "\n")
+  (if org-air-project-show-inspector
+      (let* ((top-used (count-lines (point-min) (point)))
+             (reserved (max 1 (- target-h top-used))))
+        (setq org-air-view--inspector-region-height reserved)
+        (dolist (l (org-air-view--inspector-rail-lines nil rail-width reserved))
+          (insert l "\n")))
+    (setq org-air-view--inspector-region-height nil)))
+
+(defun org-air-project--two-pane-body (docs sections width)
+  "Return (BODY-LINES . FILL-ROW) composing docs | project-rail at WIDTH.
+LEFT = the two-line doc sections; RIGHT = the project rail (Summary +
+Inspector).  The rail is sized to the doc-pane height so the divider runs
+the full body and the layout is deterministic (no window-height seam)."
+  (let* ((rail-width (org-air-view--rail-width width))
+         (divider (org-air-view--divider))
+         (item-width (max 20 (- width rail-width (string-width divider))))
+         (doc-lines (org-air-view--render-lines
+                     item-width
+                     (lambda ()
+                       (org-air-project--insert-doc-sections sections item-width))))
+         (doc-h (max 1 (length doc-lines)))
+         (rail-lines (mapcar
+                      (lambda (l) (org-air-view--pad-to l rail-width))
+                      (org-air-view--render-lines
+                       rail-width
+                       (lambda ()
+                         (org-air-project--insert-rail docs rail-width doc-h))))))
+    (setq org-air-view--inspector-geom
+          (list :item-width item-width :divider divider :rail-width rail-width
+                :region-height org-air-view--inspector-region-height))
+    (cons (org-air-view--compose-columns
+           (list (cons doc-lines item-width) (cons rail-lines rail-width))
+           divider)
+          (concat (make-string item-width ?\s) divider
+                  (make-string rail-width ?\s)))))
+
+(defun org-air-project--inspector-doc-fields (doc inset content-w now)
+  "Return the project DOC's inspector body lines (forward order) (R14 D-P1.B).
+Title / State / Path (full) / tags / Group / Created / Updated, the same KV
+layout + breathing as the board (`org-air-view--inspector-fields-function')."
+  (let ((state (org-air-doc-state doc))
+        lines)
+    (dolist (tl (org-air-view--inspector-title-lines
+                 (or (org-air-doc-name doc) "") content-w
+                 org-air-inspector-max-title-lines))
+      (push (concat inset (propertize tl 'face 'org-air-face-title)) lines))
+    (push (org-air-view--inspector-kv
+           "State"
+           (concat (propertize (org-air-project--state-badge state)
+                               'face (org-air-project--state-face state))
+                   " "
+                   (propertize (org-air-project--state-title state)
+                               'face (org-air-project--state-face state)))
+           inset)
+          lines)
+    (push (org-air-view--inspector-kv
+           "Path"
+           (propertize (abbreviate-file-name (org-air-doc-file doc))
+                       'face 'org-air-face-faded)
+           inset)
+          lines)
+    (let ((tagstr (mapconcat
+                   (lambda (tg) (propertize (concat "#" tg)
+                                            'face (org-air-faces-tag-face tg)))
+                   (org-air-doc-tags doc) " ")))
+      (unless (string-empty-p tagstr)
+        (dolist (tl (org-air-view--word-wrap tagstr content-w))
+          (push (concat inset tl) lines))))
+    (let ((grp (car (split-string (org-air-doc-relpath doc) "/"))))
+      (when (and grp (not (string-empty-p grp))
+                 (string-match-p "/" (org-air-doc-relpath doc)))
+        (push (org-air-view--inspector-kv
+               "Group" (propertize grp 'face 'org-air-face-faded) inset)
+              lines)))
+    (push "" lines)
+    (when-let* ((c (org-air-doc-created doc)))
+      (push (org-air-view--inspector-kv
+             "Created"
+             (concat (propertize (format-time-string "%F" c) 'face 'org-air-face-faded)
+                     "  "
+                     (propertize (format "(%s)" (org-air-view--inspector-relative c now))
+                                 'face 'org-air-face-faded))
+             inset)
+            lines))
+    (when-let* ((u (org-air-doc-updated doc)))
+      (push (org-air-view--inspector-kv
+             "Updated"
+             (concat (propertize (format-time-string "%F" u) 'face 'org-air-face-faded)
+                     "  "
+                     (propertize (format "(%s)" (org-air-view--inspector-relative u now))
+                                 'face 'org-air-face-faded))
+             inset)
+            lines))
+    (nreverse lines)))
+
 (defun org-air-project--render (root)
-  "Render the Air project view for ROOT into the current buffer (D-P5).
-A section loop over the shared row primitive: no box-tree glyphs."
+  "Render the Air project view for ROOT into the current buffer (R14 D-P1).
+Two-line doc blocks in state-bucket sections; two-pane (docs + a Summary/
+Inspector rail) above `org-air-rail-min-width', board-only below it."
   (let* ((inhibit-read-only t)
-         (org-air-project--width (org-air-project--render-width))
+         (width (org-air-project--render-width))
+         (org-air-project--width width)
          ;; drive the shared row primitive's width seam.
-         (org-air-view-width org-air-project--width)
+         (org-air-view-width width)
+         (dims (org-air-view--char-dimensions))
+         (org-air-view--pill-char-w (car dims))
+         (org-air-view--pill-char-h (cdr dims))
          (docs (org-air-project--collect-docs root))
-         (sections (org-air-project--sections docs))
-         (widths (org-air-project--doc-widths docs)))
+         (sections (org-air-project--sections docs)))
+    ;; R14 D-P1.B: this buffer hosts the SHARED mid-rail inspector with the
+    ;; project's property + fields function.
+    (setq-local org-air-view--inspector-active (and org-air-project-show-inspector t)
+                org-air-view--inspector-property 'org-air-doc
+                org-air-view--inspector-fields-function
+                #'org-air-project--inspector-doc-fields)
     (erase-buffer)
-    (insert (propertize "  org-air · project" 'face 'org-air-face-title)
-            "\n\n")
-    ;; Compact state-count summary (F5e).
-    (insert "  "
-            (mapconcat
-             (lambda (state)
-               (let ((n (seq-count (lambda (d) (equal (org-air-doc-state d) state))
-                                   docs)))
-                 (concat (propertize (org-air-project--state-badge state)
-                                     'face (org-air-project--state-face state))
-                         " " (number-to-string n))))
-             org-air-project-states "   ")
-            "\n\n")
-    (if (null docs)
-        (insert "  "
-                (propertize "No Air documents found here." 'face 'org-air-face-empty)
-                "\n")
-      (dolist (section sections)
-        (org-air-project--insert-section-heading section)
-        (let ((show-state (plist-get section :show-state)))
-          (dolist (doc (plist-get section :docs))
-            (org-air-project--insert-doc-row doc widths show-state)))
-        (insert "\n")))
+    (setq org-air-view--orientation
+          (if (and org-air-project-show-inspector
+                   (not (org-air-view--board-only-p width)))
+              'two-pane 'board-only))
+    (insert (propertize "  org-air · project" 'face 'org-air-face-title) "\n\n")
+    (cond
+     ((null docs)
+      (insert "  "
+              (propertize "No Air documents found here." 'face 'org-air-face-empty)
+              "\n"))
+     ((eq org-air-view--orientation 'two-pane)
+      (let ((body (car (org-air-project--two-pane-body docs sections width))))
+        (org-air-view--insert-lines body)))
+     (t
+      ;; board-only: the state summary + the full-width doc sections.
+      (setq org-air-view--inspector-region-height nil)
+      (org-air-project--insert-state-summary-line docs)
+      (org-air-project--insert-doc-sections sections width)))
+    ;; Drop the trailing newline so the buffer is exactly its line count.
+    (goto-char (point-max))
+    (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
     (goto-char (point-min))
-    (org-air-project--next-doc)))
+    (org-air-project--next-doc)
+    (setq org-air-project--rendered-width width)
+    ;; Locate + fill the inspector region (real buffer; buffer-locals set).
+    (org-air-view--setup-inspector)))
+
+(defun org-air-project--resize-refresh ()
+  "Re-render the project view when the displaying window changed (R14 D-P1.B).
+Rides the round-9 C1 resize path so widening/narrowing the window flips
+between two-pane and board-only."
+  (let ((width (org-air-project--render-width)))
+    (unless (eql width org-air-project--rendered-width)
+      (when org-air-project--root
+        (org-air-project--render org-air-project--root)))))
 
 (defun org-air-project--next-doc ()
   "Move point to the next doc row, if any."
@@ -495,6 +731,15 @@ A section loop over the shared row primitive: no box-tree glyphs."
   "Major mode for the Air-docs project tree view (F5)."
   (setq-local truncate-lines t)
   (setq-local cursor-type 'box)
+  (setq-local line-spacing org-air-line-spacing)
+  ;; R14 D-P1.B: responsive re-render (two-pane <-> board-only) on resize,
+  ;; riding the round-9 C1 window-size path.
+  (setq-local org-air-layout-refresh-function #'org-air-project--resize-refresh)
+  ;; R14 D-P1.B: the project view hosts the shared mid-rail inspector; the
+  ;; debounced point-tracking hook is INERT under batch (P0 contract).
+  (unless noninteractive
+    (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t))
+  (org-air-layout-install-window-size-hook)
   (buffer-disable-undo))
 
 ;;;###autoload

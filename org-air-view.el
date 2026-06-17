@@ -29,6 +29,7 @@
 ;; V3 svg pills are GUI-only and soft-loaded at render time (`require 'svg').
 (declare-function svg-create "svg")
 (declare-function svg-rectangle "svg")
+(declare-function svg-polygon "svg")
 (declare-function svg-text "svg")
 (declare-function svg-image "svg")
 
@@ -1045,6 +1046,56 @@ mandatory fallback."
                                          :width box-w :height h))))))
           text))))
 
+(defcustom org-air-origin-icon-svg t
+  "When non-nil, overlay the origin cell with a drawn document icon (D-P2).
+On a capable GUI the 1-col origin glyph (`▤') carries an svg `display'
+of a crisp document — a rounded rectangle with a folded top-right corner,
+box-fit to the single reserved column (1 × char-px, V6 pixel-lock holds)
+and stroked in `org-air-face-group' (the origin face).  Turning it off (or
+on a TTY) shows the plain `▤' glyph.  The svg is a non-byte overlay over
+the unchanged glyph cell, so fixtures assert `▤' either way."
+  :type 'boolean
+  :group 'org-air)
+
+(defun org-air-view--svg-file-icon (glyph)
+  "Return GLYPH carrying a drawn document-icon `display' overlay (D-P2).
+The icon is box-fit to GLYPH's single text cell (1 × char-px), a rounded
+rectangle with a folded top-right corner, stroked in `org-air-face-group'.
+Returns GLYPH unchanged when the icon is off or svg is unavailable (the
+glyph is then the mandatory fallback)."
+  (if (or (not org-air-origin-icon-svg)
+          (not (org-air-view--svg-available-p)))
+      glyph
+    (or (ignore-errors
+          (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
+                 (ch (or org-air-view--pill-char-h (frame-char-height)))
+                 (color (or (face-foreground 'org-air-face-group nil t) "gray"))
+                 (svg (svg-create cw ch))
+                 ;; margins so the page sits centred in the cell.
+                 (mx (max 1.0 (* cw 0.18)))
+                 (my (max 1.0 (* ch 0.18)))
+                 (x0 mx) (y0 my)
+                 (x1 (- cw mx)) (y1 (- ch my))
+                 ;; fold size at the top-right corner.
+                 (fold (max 2.0 (* (- x1 x0) 0.34))))
+            ;; page outline with a cut top-right corner (the fold).
+            (svg-polygon svg (list (cons x0 y0)
+                                   (cons (- x1 fold) y0)
+                                   (cons x1 (+ y0 fold))
+                                   (cons x1 y1)
+                                   (cons x0 y1))
+                         :fill "none" :stroke color :stroke-width 1
+                         :stroke-linejoin "round")
+            ;; the folded corner triangle.
+            (svg-polygon svg (list (cons (- x1 fold) y0)
+                                   (cons (- x1 fold) (+ y0 fold))
+                                   (cons x1 (+ y0 fold)))
+                         :fill "none" :stroke color :stroke-width 1
+                         :stroke-linejoin "round")
+            (propertize glyph 'display
+                        (svg-image svg :ascent 'center :width cw :height ch))))
+        glyph)))
+
 (defun org-air-view--pill-pad-label (label face)
   "Return LABEL carrying FACE and the reserved pill pad columns (D-P1.PAD).
 When a pill style is active the label string carries `org-air-pill-pad-cols'
@@ -1087,8 +1138,12 @@ the svg box gains genuine internal margin and the byte/V6 widths track it."
      (t shown))))
 
 (defun org-air-view--item-origin-raw (item)
-  "Return the origin breadcrumb \"⌂ FILE\" for ITEM (unfaced)."
-  (concat (org-air-view--glyph 'origin) " " (org-air-view--origin item)))
+  "Return the origin breadcrumb \"▤ FILE\" for ITEM (unfaced).
+D-P2: the leading origin glyph carries the drawn document-icon svg overlay
+(`org-air-view--svg-file-icon'); the glyph TEXT is unchanged so the byte
+width/cell holds."
+  (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
+          " " (org-air-view--origin item)))
 
 (defun org-air-view--item-date-text (item bucket)
   "Return the propertized date text for ITEM in BUCKET (V6/R10), or nil.
@@ -1781,7 +1836,11 @@ the `org-air-inspector' text property so the band can be re-found (D-P7)."
                           (file-name-nondirectory (org-air-item-file item))))
                (org (concat (org-air-view--glyph 'origin) " "
                             (if grp (concat grp "/") "") (or file ""))))
-          (push (concat inset (propertize org 'face 'org-air-face-group)) lines))
+          (push (concat inset
+                        (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
+                        (propertize (substring org (length (org-air-view--glyph 'origin)))
+                                    'face 'org-air-face-group))
+                lines))
         ;; tags (all, accent, wrapped)
         (let ((tagstr (mapconcat
                        (lambda (tg) (propertize (concat "#" tg)

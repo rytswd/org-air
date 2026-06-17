@@ -31,7 +31,7 @@
 (set (intern "│") "│")
 
 (defcustom org-air-glyphs
-  '((origin . ("⌂" . "H"))
+  '((origin . ("▤" . "·"))
     (inbox . ("□" . "I"))
     (attention . ("▲" . "!"))
     (upcoming . ("◆" . ">"))
@@ -66,7 +66,7 @@ Selection is `org-air-layout-glyph'.  User-overridable."
   :group 'org-air)
 
 (defcustom org-air-layout-safe-glyphs
-  '((origin . "·")
+  '((origin . "▤")
     (clear . "×"))
   "Intermediate SAFE glyphs for thin GUI fonts (S5b middle tier).
 When a glyph's PREFERRED form is not `char-displayable-p' in a graphical

@@ -135,10 +135,11 @@ single origin filename — not a column of 4–5)."
 
 (ert-deftest org-air-r10-item-row-right-cluster ()
   "R10 [byte]: the title is LEFT & clean; a SINGLE right-aligned cluster
-holds [date] <=2 tags> ⌂origin as one unit (the date JOINS the cluster
+holds [date] <=2 tags> ▤origin as one unit (the date JOINS the cluster
 — not round-6's inline-after-title, not round-5's separate boxed
 column).  One flex gap between the clean title and the right cluster;
-origin flush-right (D2)."
+origin flush-right (D2).  D-P2 [byte]: the origin glyph is now ▤ (file),
+not ⌂ (house) (air/v0.4/org-air-round12-design.org §D-P2)."
   (skip-unless (locate-library "org-air"))
   ;; D-P1.PAD widens the cluster (the tag pills reserve pad columns), so at
   ;; W120 the title truncates; render wide (160) so the clean full title +
@@ -153,7 +154,7 @@ origin flush-right (D2)."
         ;; Right cluster, as one unit at the right edge: date, then tags,
         ;; then the flush-right origin.
         (should (string-match-p
-                 "OVERDUE 7d .*#projects.*⌂ projects\\.org\\'" lp))
+                 "OVERDUE 7d .*#projects.*▤ projects\\.org\\'" lp))
         ;; The title is clean: a wide flex gap follows it (not crammed).
         (should (string-match-p "Chase missing invoice  +" lp))))))
 

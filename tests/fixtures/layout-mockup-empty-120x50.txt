@@ -20,13 +20,6 @@
                                                                                       │    ────
                                                                                       │      0   total
                                                                                       │
-                                                                                      │ ▌ Filters
-                                                                                      │    No filters · all items
-                                                                                      │
-                                                                                      │ ▌ Actions
-                                                                                      │    c capture / filter   s scope
-                                                                                      │    g refresh TAB expand ? help
-                                                                                      │
                                                                                       │ ▌ Inspector
                                                                                       │    Move to an item to inspect.
                                                                                       │
@@ -48,3 +41,10 @@
                                                                                       │
                                                                                       │
                                                                                       │
+                                                                                      │
+                                                                                      │ ▌ Filters
+                                                                                      │    No filters · all items
+                                                                                      │
+                                                                                      │ ▌ Actions
+                                                                                      │    c capture / filter   s scope
+                                                                                      │    g refresh TAB expand ? help

@@ -2,42 +2,35 @@
   ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3                                                               │ ▌ June 2026              ‹ ›
-      Quick note a…                  #inbox                   ⌂ inbox.org │     Su Mo Tu We Th Fr Sa
-      Call plumber                   #inbox                   ⌂ inbox.org │         1  2  3  4  5  6
-      TODO Triage …                  #inbox                   ⌂ inbox.org │      7  8● 9 10◆11 12◆13
+      Quick note a…                  #inbox                   ▤ inbox.org │     Su Mo Tu We Th Fr Sa
+      Call plumber                   #inbox                   ▤ inbox.org │         1  2  3  4  5  6
+      TODO Triage …                  #inbox                   ▤ inbox.org │      7  8● 9 10◆11 12◆13
                                                                           │     14 15◆16◆17◆18●19◆20●
   ▲ Needs attention 8                                                     │     21 22 23 24 25 26 27
-      TODO Chase m…  OVERDUE 7d      #projects   #admin    ⌂ projects.org │     28 29 30
-      TODO [#A] Fi…  OVERDUE 5d      #projects   #work  …  ⌂ projects.org │
-      TODO Book de…  OVERDUE 3d      #personal   #health   ⌂ personal.org │     ◆ due    ● sched
-      TODO Dust of…  no date         #projects   #archive  ⌂ projects.org │
-      TODO Untrack…  no date         #projects   #someday  ⌂ projects.org │ ▌ Summary
-      Reference no…  no date         #projects   #note     ⌂ projects.org │    3   Inbox
+      TODO Chase m…  OVERDUE 7d      #projects   #admin    ▤ projects.org │     28 29 30
+      TODO [#A] Fi…  OVERDUE 5d      #projects   #work  …  ▤ projects.org │
+      TODO Book de…  OVERDUE 3d      #personal   #health   ▤ personal.org │     ◆ due    ● sched
+      TODO Dust of…  no date         #projects   #archive  ▤ projects.org │
+      TODO Untrack…  no date         #projects   #someday  ▤ projects.org │ ▌ Summary
+      Reference no…  no date         #projects   #note     ▤ projects.org │    3   Inbox
       …and 2 more — press TAB on the title to expand                      │    8   Needs attention
                                                                           │    8   Upcoming
   ◆ Upcoming 8                                                            │    3   High priority
-      TODO Renew l…  Today           #personal   #admin    ⌂ personal.org │    2   Stale
-      TODO Water t…  Today           #projects   #home     ⌂ projects.org │  ────
-      TODO [#A] Pr…  Tomorrow        #work   #client           ⌂ work.org │   23   total
-      TODO Prepare…  Tomorrow        #projects   #work     ⌂ projects.org │
-      TODO Email f…  Tomorrow        #work                     ⌂ work.org │ ▌ Filters
-      …and 3 more — press TAB on the title to expand                      │  No filters · all items
-                                                                          │
-  ★ High priority 3                                                       │ ▌ Actions
-      TODO [#A] Sh…  Wed             #projects   #work  …  ⌂ projects.org │  c capture / filter   s sco…
-      TODO [#A] Fi…  OVERDUE 5d      #projects   #work  …  ⌂ projects.org │  g refresh TAB expand ? help
-      TODO [#A] Pr…  Tomorrow        #work   #client           ⌂ work.org │
-                                                                          │
-  ○ Stale 2                                                               │
-      TODO Dust of…  · 225d quiet    #projects   #archive  ⌂ projects.org │
-      TODO Learn l…  · 273d quiet    #someday   #hobby      ⌂ someday.org │
-                                                                          │
-                                                                          │ ▌ Inspector
-                                                                          │  Quick note about org-air
+      TODO Renew l…  Today           #personal   #admin    ▤ personal.org │    2   Stale
+      TODO Water t…  Today           #projects   #home     ▤ projects.org │  ────
+      TODO [#A] Pr…  Tomorrow        #work   #client           ▤ work.org │   23   total
+      TODO Prepare…  Tomorrow        #projects   #work     ▤ projects.org │
+      TODO Email f…  Tomorrow        #work                     ▤ work.org │ ▌ Inspector
+      …and 3 more — press TAB on the title to expand                      │  Quick note about org-air
                                                                           │  idea
-                                                                          │  ⌂ inbox/inbox.org
-                                                                          │  #inbox
+  ★ High priority 3                                                       │  ▤ inbox/inbox.org
+      TODO [#A] Sh…  Wed             #projects   #work  …  ▤ projects.org │  #inbox
+      TODO [#A] Fi…  OVERDUE 5d      #projects   #work  …  ▤ projects.org │
+      TODO [#A] Pr…  Tomorrow        #work   #client           ▤ work.org │
                                                                           │  Bucket  Inbox
+  ○ Stale 2                                                               │
+      TODO Dust of…  · 225d quiet    #projects   #archive  ▤ projects.org │
+      TODO Learn l…  · 273d quiet    #someday   #hobby      ▤ someday.org │
                                                                           │
                                                                           │
                                                                           │
@@ -48,3 +41,10 @@
                                                                           │
                                                                           │
                                                                           │
+                                                                          │
+                                                                          │ ▌ Filters
+                                                                          │  No filters · all items
+                                                                          │
+                                                                          │ ▌ Actions
+                                                                          │  c capture / filter   s sco…
+                                                                          │  g refresh TAB expand ? help

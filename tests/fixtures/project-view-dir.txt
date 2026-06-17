@@ -2,12 +2,12 @@
 
   [D] 2   [R] 1   [W] 1   [V] 0   [C] 1   [X] 1
 
-  H v0.1/ 3
-  [D] Gamma context               ~ 2026-05-01  #context        H v0.1/air-context/gamma-context.org
-  [R] Alpha feature               ~ 2026-05-01  #ui   #core                 H v0.1/alpha-feature.org
-  [C] Beta CLI                    ~ 2026-05-01  #core                            H v0.1/beta-cli.org
+  . v0.1/ 3
+  [D] Gamma context               ~ 2026-05-01  #context        . v0.1/air-context/gamma-context.org
+  [R] Alpha feature               ~ 2026-05-01  #ui   #core                 . v0.1/alpha-feature.org
+  [C] Beta CLI                    ~ 2026-05-01  #core                            . v0.1/beta-cli.org
 
-  H v0.2/ 3
-  [X] Delta UI exploration        ~ 2026-05-01  #ui                              H v0.2/delta-ui.org
-  [D] Epsilon plan                ~ 2026-05-01  #context   #ui               H v0.2/epsilon-plan.org
-  [W] Zeta work in progress       ~ 2026-05-01  #core   #ui                      H v0.2/zeta-wip.org
+  . v0.2/ 3
+  [X] Delta UI exploration        ~ 2026-05-01  #ui                              . v0.2/delta-ui.org
+  [D] Epsilon plan                ~ 2026-05-01  #context   #ui               . v0.2/epsilon-plan.org
+  [W] Zeta work in progress       ~ 2026-05-01  #core   #ui                      . v0.2/zeta-wip.org

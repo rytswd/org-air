@@ -237,15 +237,17 @@ width is exactly W-1, and the status text is intact (no clipped
 
 (ert-deftest org-air-s8-line-spacing-zero-buffer-local ()
   "org-air-view-mode sets `line-spacing' buffer-locally from the
-`org-air-line-spacing' defcustom.  D-P2 #4 [display] re-bless: the
-default is now 0.15 (a touch of inter-row breathing to calm the stacked
-capsules), REVERSING the round-9 S8 line-spacing-0 contract; set
-`org-air-line-spacing' to 0 to restore the tight box-rule packing.  Only
-the MECHANISM is asserted (the pixel effect needs a real GUI frame)
-\(air/v0.4/org-air-round11-design.org §D-P2)."
+`org-air-line-spacing' defcustom.  D-P3 [display] re-bless: the default
+is back to 0 — a glyph divider at `line-spacing' 0 is continuous
+(round-11's 0.15 opened a pixel gap below every row that broke the `│'
+divider into a dashed line); the capsule \"breathing\" moved INTO the pill
+via `org-air-pill-vinset' instead, so the cell grid + divider stay solid.
+The round-11 0.15 default is REVERSED (air/v0.4/org-air-round12-design.org
+§D-P3).  Only the MECHANISM is asserted (the pixel effect needs a real
+GUI frame)."
   (skip-unless (locate-library "org-air"))
   (should (boundp 'org-air-line-spacing))
-  (should (eql org-air-line-spacing 0.15))
+  (should (eql org-air-line-spacing 0))
   (org-air-viewport-test-with-dashboard 120
     (should (local-variable-p 'line-spacing))
     (should (eql line-spacing org-air-line-spacing))))

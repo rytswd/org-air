@@ -183,25 +183,34 @@
     ;; the LAST foot block, does not disturb board rows or move point; V6
     ;; alignment and origin alignment hold).  No .el source touched.
     ;; ===================================================================
-    ;; v0.4 ROUND-12 grind (impl track) — BYTE/VALUE changes under the
-    ;; design-blessed D-P1 (rail reorder + mid-rail inspector), D-P2
-    ;; (origin glyph ⌂→▤, TTY H→.), D-P3 (line-spacing default 0).
-    ;; Fixtures need regen + design BLESS on the test track; impl does NOT
-    ;; edit fixtures.  D-P4 (priority badge) is a [gui] overlay → the [#A]
-    ;; text + priority face are unchanged, so NO fixture moved for it.
-    ;; (impl change tynrkmvw/lvosluym; verified the failures are ONLY the
-    ;; intended byte/value deltas — all other 167 tests green, incl. the
-    ;; width-composition + divider-run invariants on the new mid-rail rail.)
-    (org-air-layout-mockup-80 . "D-P1 rail reorder + D-P2 origin glyph ⌂→▤ — regen+bless")
-    (org-air-layout-mockup-120 . "D-P1 rail reorder + D-P2 origin glyph ⌂→▤ — regen+bless")
-    (org-air-layout-mockup-160 . "D-P1 rail reorder + D-P2 origin glyph ⌂→▤ — regen+bless")
-    (org-air-layout-mockup-heights . "D-P1 rail reorder + mid-rail inspector reserved region — regen+bless")
-    (org-air-layout-mockup-thresholds . "D-P1 rail reorder + D-P2 origin glyph — regen+bless")
-    (org-air-f5-project-view-byte-mockups . "D-P2 origin TTY glyph H→. in the shared item row — regen+bless")
-    (org-air-r10-item-row-right-cluster . "D-P2 origin glyph ⌂→▤ in the right cluster (asserts ⌂) — re-bless to ▤")
-    (org-air-v1b-inline-tag-placement . "D-P2 origin glyph ⌂→▤ (asserts ⌂ origin) — re-bless to ▤")
-    (org-air-v1b-origin-protected-on-overflow . "D-P2 origin glyph ⌂→▤ (asserts ⌂ origin) — re-bless to ▤")
-    (org-air-s8-line-spacing-zero-buffer-local . "D-P3 org-air-line-spacing default 0.15→0 (solid divider) — re-bless to 0")
+    ;; v0.4 ROUND-12 closeout (impl tip lvosluym + test re-bless
+    ;; <this commit>).  ALL 10 grind entries CLOSED — fixtures regenerated
+    ;; from impl's render via the FROZEN-CLOCK renderer (make regen-mockups,
+    ;; guards active; it NO LONGER HANGS — impl made the inspector inert
+    ;; when noninteractive, so the round-11 regen deadlock is fixed) and the
+    ;; assertion tests re-blessed to the design-blessed D-P1/D-P2/D-P3
+    ;; contracts (air/v0.4/org-air-round12-design.org):
+    ;;   D-P1 rail reorder Calendar/Summary/Inspector/Filters/Actions with
+    ;;     the inspector moved into a fixed reserved mid-rail region
+    ;;     (Filters+Actions pinned to the foot): layout-mockup-80/120/160/
+    ;;     heights/thresholds regenerated wholesale.
+    ;;   D-P2 origin glyph ⌂→▤ (GUI/preferred), ASCII/TTY tier `.':
+    ;;     item-row + inspector origin cells; f5-project-view-byte-mockups
+    ;;     regenerated (shared row TTY origin H→.); r10-item-row-right-
+    ;;     cluster, v1b-inline-tag-placement, v1b-origin-protected re-blessed
+    ;;     to assert ▤ (was ⌂).
+    ;;   D-P3 line-spacing default 0.15→0 (solid `│' divider; capsule
+    ;;     breathing moved into org-air-pill-vinset): s8-line-spacing
+    ;;     re-blessed to 0.
+    ;; D-P4 priority badge is a [gui] svg overlay over the unchanged `[#A]'
+    ;; text → no fixture moved.  Verified: regen did NOT hang; the `│'
+    ;; divider is a single contiguous column down all 30 body rows at
+    ;; W96/120/160 (D-P3 fix holds); no extra test failed beyond the 10
+    ;; intended deltas; date/origin columns stay aligned.  The inspector is
+    ;; inert (blank reserved region) in --batch by design — its live
+    ;; per-item content + column-only motion update are interactive and not
+    ;; byte-tested here.  No real impl bug surfaced.  No .el source touched.
+    ;; Round-12 manifest is EMPTY; the tests stay as permanent guards.
     ;; ===================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

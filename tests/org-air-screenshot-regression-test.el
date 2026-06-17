@@ -388,10 +388,11 @@ after the divider is dropped so only the item line is inspected."
 (ert-deftest org-air-v1b-inline-tag-placement ()
   "V6 metadata table (supersedes the round-6/7 inline cluster): the
 title is LEFT & clean, then a fixed-column right cluster in the order
-[date] [tags] [⌂ origin]; the origin is flush-right and whole (D2).
+[date] [tags] [▤ origin]; the origin is flush-right and whole (D2).
 Rendered wide so the full row fits without truncation.  D-P1.PAD: the tag
 pills reserve pad columns, so the inter-tag spacing widens (#projects␠␠␠
-#admin) — the cluster ORDER is what this guards, not the exact gap."
+#admin) — the cluster ORDER is what this guards, not the exact gap.
+D-P2 [byte]: the origin glyph is now ▤ (file), not ⌂ (house)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
@@ -400,7 +401,7 @@ pills reserve pad columns, so the inter-tag spacing widens (#projects␠␠␠
         ;; Cluster order: date, then tags, then the flush-right origin
         ;; (D-P1.PAD pads the tags, so allow >1 space between chips).
         (should (string-match-p
-                 "OVERDUE 7d.*#projects +#admin.*⌂ projects\\.org\\'" lp))
+                 "OVERDUE 7d.*#projects +#admin.*▤ projects\\.org\\'" lp))
         ;; The title is clean on the left, a flex gap before the cluster.
         (should (string-match-p "Chase missing invoice  +" lp))))))
 
@@ -416,8 +417,9 @@ flush-right."
       (let ((lp (org-air-v1b--item-leftpane "Fix produc"))
             (more (org-air-viewport-test--glyph 'more 'gui)))
         (should lp)
-        ;; Origin intact and flush-right despite the overflow (D2).
-        (should (string-suffix-p "⌂ projects.org" lp))
+        ;; Origin intact and flush-right despite the overflow (D2); D-P2:
+        ;; the origin glyph is now ▤ (file), not ⌂ (house).
+        (should (string-suffix-p "▤ projects.org" lp))
         ;; A faded overflow marker shows content was dropped before it.
         (should (string-match-p (regexp-quote more) lp))))))
 

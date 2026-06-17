@@ -14,32 +14,32 @@
   ──────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3
-      Quick note about or…                  #inbox                   ⌂ inbox.org
-      Call plumber                          #inbox                   ⌂ inbox.org
-      TODO Triage me later                  #inbox                   ⌂ inbox.org
+      Quick note about or…                  #inbox                   ▤ inbox.org
+      Call plumber                          #inbox                   ▤ inbox.org
+      TODO Triage me later                  #inbox                   ▤ inbox.org
 
   ▲ Needs attention 8
-      TODO Chase missing …  OVERDUE 7d      #projects   #admin    ⌂ projects.org
-      TODO [#A] Fix produ…  OVERDUE 5d      #projects   #work  …  ⌂ projects.org
-      TODO Book dentist a…  OVERDUE 3d      #personal   #health   ⌂ personal.org
-      TODO Dust off old a…  no date         #projects   #archive  ⌂ projects.org
-      TODO Untracked idea…  no date         #projects   #someday  ⌂ projects.org
-      Reference notes wit…  no date         #projects   #note     ⌂ projects.org
+      TODO Chase missing …  OVERDUE 7d      #projects   #admin    ▤ projects.org
+      TODO [#A] Fix produ…  OVERDUE 5d      #projects   #work  …  ▤ projects.org
+      TODO Book dentist a…  OVERDUE 3d      #personal   #health   ▤ personal.org
+      TODO Dust off old a…  no date         #projects   #archive  ▤ projects.org
+      TODO Untracked idea…  no date         #projects   #someday  ▤ projects.org
+      Reference notes wit…  no date         #projects   #note     ▤ projects.org
       …and 2 more — press TAB on the title to expand
 
   ◆ Upcoming 8
-      TODO Renew library …  Today           #personal   #admin    ⌂ personal.org
-      TODO Water the gard…  Today           #projects   #home     ⌂ projects.org
-      TODO [#A] Prep clie…  Tomorrow        #work   #client           ⌂ work.org
-      TODO Prepare standu…  Tomorrow        #projects   #work     ⌂ projects.org
-      TODO Email finance …  Tomorrow        #work                     ⌂ work.org
+      TODO Renew library …  Today           #personal   #admin    ▤ personal.org
+      TODO Water the gard…  Today           #projects   #home     ▤ projects.org
+      TODO [#A] Prep clie…  Tomorrow        #work   #client           ▤ work.org
+      TODO Prepare standu…  Tomorrow        #projects   #work     ▤ projects.org
+      TODO Email finance …  Tomorrow        #work                     ▤ work.org
       …and 3 more — press TAB on the title to expand
 
   ★ High priority 3
-      TODO [#A] Ship quar…  Wed             #projects   #work  …  ⌂ projects.org
-      TODO [#A] Fix produ…  OVERDUE 5d      #projects   #work  …  ⌂ projects.org
-      TODO [#A] Prep clie…  Tomorrow        #work   #client           ⌂ work.org
+      TODO [#A] Ship quar…  Wed             #projects   #work  …  ▤ projects.org
+      TODO [#A] Fix produ…  OVERDUE 5d      #projects   #work  …  ▤ projects.org
+      TODO [#A] Prep clie…  Tomorrow        #work   #client           ▤ work.org
 
   ○ Stale 2
-      TODO Dust off old a…  · 225d quiet    #projects   #archive  ⌂ projects.org
-      TODO Learn lute       · 273d quiet    #someday   #hobby      ⌂ someday.org
+      TODO Dust off old a…  · 225d quiet    #projects   #archive  ▤ projects.org
+      TODO Learn lute       · 273d quiet    #someday   #hobby      ▤ someday.org

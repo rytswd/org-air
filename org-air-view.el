@@ -105,11 +105,12 @@ stadium), tracking the current font/text-scale metrics."
   :type '(choice (const :tag "Auto (line-height/6)" nil) number)
   :group 'org-air)
 
-(defcustom org-air-pill-fill-alpha 0
-  "Per-chip fill opacity for the rounded svg pill (D-P1.LOOK).
-Default 0 = a pure outline pill (no fill): the board stops being a
-rainbow of filled chips.  Colour lives only in the LABEL; the capsule is
-a monochrome border."
+(defcustom org-air-pill-fill-alpha 0.08
+  "Per-chip fill opacity for the rounded svg pill (D-P1.LOOK / R13 D-P1.B).
+Round-13 raises the default 0 → 0.08: a *very* light tint of the label hue
+behind the label, so a capsule reads at a glance without shouting.
+Combined with the 0.85 border this makes the pill unmistakable yet calm.
+Colour lives in the LABEL; the fill is just a faint wash of the same hue."
   :type 'number
   :group 'org-air)
 
@@ -121,11 +122,12 @@ every chip — the per-tag hue lives in the LABEL only, never the border."
   :type '(choice (const :tag "Auto (derive from faded)" nil) string)
   :group 'org-air)
 
-(defcustom org-air-pill-border-opacity 0.5
-  "Stroke opacity for the svg pill border (D-P2, calmer capsules).
-Default 0.5 draws the capsule outline as a hairline so a column of stacked
-pills no longer reads as a busy grid of lines.  Display-only (an svg
-attribute) — no byte change."
+(defcustom org-air-pill-border-opacity 0.85
+  "Stroke opacity for the svg pill border (R13 D-P1.B, visible capsules).
+Round-13 raises the default 0.5 → 0.85: a clearly visible border (still a
+single hairline stroke, not a heavy chip) so the capsule is unmistakable.
+Round-12's 0.5 made the pills too faint.  Display-only (an svg attribute)
+— no byte change."
   :type 'number
   :group 'org-air)
 
@@ -152,14 +154,15 @@ re-introduces inter-row spacing (the divider then needs
   :type '(choice (const :tag "Frame default" nil) number)
   :group 'org-air)
 
-(defcustom org-air-pill-vinset 2
-  "Vertical inset in device pixels applied INSIDE each svg pill (D-P3).
+(defcustom org-air-pill-vinset 1
+  "Vertical inset in device pixels applied INSIDE each svg pill (R13 D-P1.B).
 Each pill capsule is drawn this many pixels shorter than the full line
 height at top AND bottom (box height = char-px-h - 2*vinset, vertically
-centred), so a stacked column of capsules reads airy while the cell grid
-\(and the `│' divider glyph) stays continuous.  This replaces the
-round-11 `line-spacing' breathing, which broke the divider.  TTY is
-unaffected (no pills)."
+centred), a hair of internal margin.  Round-13 lowers the default 2 → 1:
+the capsule is essentially full height again (round-12's 2px shrank it and
+made it read faint).  The divider is now kept solid by the D-P1.A image
+line-height clamp (`org-air-view--svg-line-image'), NOT by shrinking the
+pill, so the vinset is purely cosmetic margin.  TTY is unaffected."
   :type 'integer
   :group 'org-air)
 
@@ -982,6 +985,33 @@ when no graphical window is available."
               (or (ignore-errors (window-font-height win)) (frame-char-height)))
       (cons (frame-char-width) (frame-char-height)))))
 
+(defun org-air-view--font-ascent ()
+  "Return the default font ASCENT in device px for the displaying window (D-P1.A).
+Used to baseline-align org-air svg overlays with the text line so an image
+clamped to the line height never grows the row.  Falls back to ~80% of the
+line height when `font-info' is unavailable."
+  (let* ((win (get-buffer-window (current-buffer) t))
+         (frame (and win (window-frame win)))
+         (info (ignore-errors (font-info (face-font 'default frame)))))
+    (if (and (vectorp info) (> (length info) 8) (numberp (aref info 8)))
+        (aref info 8)
+      (round (* 0.8 (or org-air-view--pill-char-h (frame-char-height)))))))
+
+(defun org-air-view--svg-line-image (svg width height)
+  "Return an `svg-image' of SVG clamped to the font LINE box (D-P1.A).
+Displays SVG with an INTEGER :ascent derived from the font ascent ratio
+\(NOT `:ascent center'), so a HEIGHT = line-height image occupies exactly
+the text line box and NEVER grows the row.  Because no org-air svg row
+grows, the `│' divider glyph fills every row at `line-spacing' 0 and the
+divider reads solid.  This is the shared wrapper for EVERY org-air svg
+overlay (pill / file-icon / priority-square / divider) so none can grow a
+row."
+  (let* ((asc (org-air-view--font-ascent))
+         (ascent (if (and (numberp asc) (> height 0))
+                     (max 0 (min 100 (round (* 100 (/ (float asc) height)))))
+                   'center)))
+    (svg-image svg :ascent ascent :width width :height height)))
+
 (defun org-air-view--string-pixel-width-available-p ()
   "Return non-nil when `string-pixel-width' can measure here (Emacs >= 29)."
   (and (fboundp 'string-pixel-width) (display-graphic-p)))
@@ -1097,10 +1127,11 @@ mandatory fallback."
                               :font-size font-size))
                   ;; Lock the displayed image to the exact cell box so the
                   ;; run of Ncols characters occupies Ncols*char-px pixels
-                  ;; — no more, no less (C2); centre on the text line.
+                  ;; — no more, no less (C2); D-P1.A integer-ascent clamp so
+                  ;; the image is exactly one line tall and never grows the
+                  ;; row (→ solid divider).
                   (propertize text 'display
-                              (svg-image svg :ascent 'center
-                                         :width box-w :height h))))))
+                              (org-air-view--svg-line-image svg box-w h))))))
           text))))
 
 (defcustom org-air-origin-icon-svg t
@@ -1150,7 +1181,7 @@ glyph is then the mandatory fallback)."
                          :fill "none" :stroke color :stroke-width 1
                          :stroke-linejoin "round")
             (propertize glyph 'display
-                        (svg-image svg :ascent 'center :width cw :height ch))))
+                        (org-air-view--svg-line-image svg cw ch))))
         glyph)))
 
 (defun org-air-view--pill-pad-label (label face)

@@ -2251,7 +2251,7 @@ trimmed."
 (defun org-air-view--maybe-update-inspector (&optional force)
   "Redraw the inspector when the thing at point changed (or FORCE) (D-P7/D-P1.B).
 The thing is read via the buffer-local `org-air-view--inspector-property'
-(board `org-air-item', project `org-air-doc'); the guard is the
+\(board `org-air-item', project `org-air-doc'); the guard is the
 buffer-local `org-air-view--inspector-active' flag so this fires in either
 host mode."
   (when (and org-air-view--inspector-active

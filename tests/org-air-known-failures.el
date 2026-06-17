@@ -237,6 +237,27 @@
     ;; failed.  No real impl bug surfaced.  No .el source touched.
     ;; Round-13 manifest is EMPTY; the tests stay as permanent guards.
     ;; ===================================================================
+    ;; v0.4 ROUND-14 grind (impl track) — BYTE/STRUCTURE change under the
+    ;; design-blessed D-P1 (project view two-line rework + project
+    ;; inspector).  Each doc is now a TWO-LINE block (line 1 title + inline
+    ;; left-flowing tag pills; line 2 indented `▤ relpath  created…
+    ;; updated…', NOT right-pinned); section headings gain the round-11 `▌'
+    ;; prefix marker; the date cluster changes from `↻ date' to `created…
+    ;; updated…'; and the view becomes TWO-PANE (docs | Summary+Inspector
+    ;; rail) at the fixture width 100, so section-header lines no longer END
+    ;; the line (the rail sits beside them).  Fixtures need regen + design
+    ;; BLESS on the test track; impl does NOT edit fixtures.
+    ;;   D-P1.B inspector-core generalisation reproduces the BOARD inspector
+    ;;     byte-identically (board fixtures HOLD — every board test green).
+    ;;   D-P2 repeats: no board fixture carries an Org repeater yet, so the
+    ;;     board date cells + inspector are unchanged — the test track adds a
+    ;;     repeating fixture item to exercise the ↻ marker + Repeat line.
+    ;; (impl change mktnvzox/supwwrkv; verified ONLY these 3 project tests
+    ;; moved — all other 180 tests green, incl. every board fixture.)
+    (org-air-f5-tree-structure . "D-P1 project two-line: date cluster ↻→created/updated + ▌ headers — re-bless")
+    (org-air-f5-grouping-toggle . "D-P1.B project now two-pane: section headers no longer end the line — re-bless")
+    (org-air-f5-project-view-byte-mockups . "D-P1 project two-line + two-pane rail/inspector — regen+bless")
+    ;; ===================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -408,7 +408,8 @@ Line 1 = <indent><state-chip?>Title  #tag #tag (calm pills, NOT
 right-pinned; the title truncates LAST).  Line 2 = <indent+line2-indent>
 ▤ relpath    created …    updated … (quieter, the document svg-file-icon
 overlays the ▤ cell; the filename is NOT right-aligned).  Both lines carry
-`org-air-doc' + `org-air-marker' so point on EITHER identifies the doc."
+`org-air-doc' + `org-air-marker' so point on EITHER identifies the doc.
+SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
   (let* ((start (point))
          (indent "  ")
          (l2-indent (concat indent (make-string (max 0 org-air-project-line2-indent) ?\s)))
@@ -490,7 +491,7 @@ summary moved into the rail)."
                 "\n")))))
 
 (defun org-air-project--insert-rail (docs rail-width target-h)
-  "Insert the project rail (Summary + Inspector) at RAIL-WIDTH (R14 D-P1.B).
+  "Insert the project rail (Summary + Inspector) for DOCS at RAIL-WIDTH (D-P1.B).
 The inspector fills the fixed reserved region to TARGET-H (the doc pane
 height) so the divider spans the docs; there are no Filters/Actions here.
 The reserved region is rendered with a nil thing (just reserves height +
@@ -507,10 +508,10 @@ first doc in the real buffer (buffer-locals set there)."
     (setq org-air-view--inspector-region-height nil)))
 
 (defun org-air-project--two-pane-body (docs sections width)
-  "Return (BODY-LINES . FILL-ROW) composing docs | project-rail at WIDTH.
-LEFT = the two-line doc sections; RIGHT = the project rail (Summary +
+  "Return (BODY-LINES . FILL-ROW) composing DOCS | project-rail at WIDTH.
+LEFT = the two-line doc SECTIONS; RIGHT = the project rail (Summary +
 Inspector).  The rail is sized to the doc-pane height so the divider runs
-the full body and the layout is deterministic (no window-height seam)."
+the full body and the layout is deterministic (no `window-height' seam)."
   (let* ((rail-width (org-air-view--rail-width width))
          (divider (org-air-view--divider))
          (item-width (max 20 (- width rail-width (string-width divider))))
@@ -537,7 +538,8 @@ the full body and the layout is deterministic (no window-height seam)."
 (defun org-air-project--inspector-doc-fields (doc inset content-w now)
   "Return the project DOC's inspector body lines (forward order) (R14 D-P1.B).
 Title / State / Path (full) / tags / Group / Created / Updated, the same KV
-layout + breathing as the board (`org-air-view--inspector-fields-function')."
+layout + breathing as the board (`org-air-view--inspector-fields-function').
+INSET is the spine prefix, CONTENT-W the wrap width, NOW the render clock."
   (let ((state (org-air-doc-state doc))
         lines)
     (dolist (tl (org-air-view--inspector-title-lines

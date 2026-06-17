@@ -1,0 +1,82 @@
+#+title: org-air v0.4 round-11: pill/sidebar polish + item inspector
+#+state: ready
+#+FILETAGS: :ui:visual:svg:polish:
+
+* Summary
+Round-11 from screenshot 2026-06-17 10-47-30 on the shipped round-10
+build.  Pills are calm now (good); this round is polish + one new
+surface (the inspector).  Seven items, design-led.
+
+* Findings
+
+** P1 [MED] Date pills — uniform width
+The date pills (=OVERDUE 6d=, =OVERDUE 3d=, =Today=, =Tomorrow=, =Fri=,
+=Mon=, =· 26d quiet=) vary in width, so the gap between the date cluster
+and the tag cluster is ragged.  Make ALL date pills the *same width* — a
+fixed date-pill cell (the existing date column width), label centred or
+right-aligned within the capsule — so the date column reads as one clean
+column.  Must preserve V6 alignment (pixel-locked box = Ncols×char-width).
+
+** P2 [MED/explore] Stacked capsules look busy at tight line height
+With many bordered capsules stacked row-on-row at a tight line height the
+board reads busy.  Design to EXPLORE a calmer treatment, e.g.: thinner /
+lower-contrast border, a hairline instead of a full stroke, a subtle fill
+tint instead of a border, capsules only on the focused row, or a touch
+more inter-row breathing.  Propose options; keep alignment + TTY fallback.
+
+** P3 [BUG] Alignment off on the overflow rows
+Rows whose tags overflow (a 3rd tag hidden, shown as =…=) shift the origin
+column LEFT of the other rows — e.g. =#projects #urgent … ⌂ projects.org=
+sits left of the aligned =⌂= column.  The overflow =…= marker must fit
+inside the tag-cluster budget so the origin column stays fixed.  Fix so
+EVERY row's origin column lines up.
+
+** P4 [HIGH] Sidebar section headers are hard to read
+=Summary= / =Filters= / =Actions= (and the calendar header) currently use
+the hl-block card treatment (background bar + overline) which is
+low-contrast and hard to read.  Resolve together with P6.
+
+** P5 [LOW] Calendar header spans the full rail width
+The =─ June 2026 ─── ‹ ›= header should span the *full* rail width (like
+the section rules), with the month label + nav anchored within it.
+
+** P6 [HIGH] Drop overline + =────=; subtle prefix-svg header
+Remove the overline on headers and the =────= rule chrome.  Replace with a
+more subtle, sophisticated marker — likely a small *prefix svg* before the
+header label (see the comment on
+https://gist.github.com/rougier/f80a9ddfe5740305e1701d74ca008d71 —
+overline/underline-drawn block markers / a small leading glyph) rather
+than text rules.  Goal: headers read clearly, calm, no heavy chrome.
+Resolves P4.  TTY fallback: a plain prefix char (no svg).
+
+** P7 [NEW/HIGH] Item inspector in the lower sidebar
+The rail has lots of empty space below =Actions=.  Use it for an
+*inspector* showing metadata about the *currently highlighted* board line:
+the item at point — full title, file/origin, all tags, the dates
+(scheduled / deadline / created), priority, TODO state, staleness, and any
+useful derived info.  Updates as point moves (post-command-hook or similar,
+debounced).  When point is not on an item, show nothing / a hint.  Design
+to specify the exact fields + layout (board-parity faces); keep it byte-
+testable (the text content is the contract; svg is cosmetic).
+
+* Constraints
+- org-ql only; Emacs 29.1+.  svg = GUI cosmetic, byte/TTY fallback
+  mandatory.  V6 pixel-lock alignment must hold (P1/P3).  Reuse the shared
+  =org-air-view--insert-row= primitive where it fits.
+- Build on the round-10 trunk tip (=nkrwrsvr=).
+
+* Work items (design-led; impl + test follow)
+- D-P1  uniform-width date pills                                       [MED]
+- D-P2  calmer stacked-capsule treatment (propose options)             [MED]
+- D-P3  fix overflow-row origin misalignment                           [BUG]
+- D-P4  (folds into P6) sidebar header readability                     [HIGH]
+- D-P5  calendar header spans full rail width                          [LOW]
+- D-P6  drop overline/rules → subtle prefix-svg headers                [HIGH]
+- D-P7  item inspector panel (highlighted-line metadata)               [NEW]
+
+* Notes
+- Round-10 P6 (routines/journals proposal) is still PARKED awaiting user
+  approval; not part of round-11 unless folded in.
+
+* Implementation History
+- (pending) round-11 opened from screenshot 2026-06-17 10-47-30.

@@ -981,8 +981,9 @@ cell.  Otherwise the plain coloured `[#A]' text (the TTY/byte fallback)."
 
 (defun org-air-view--svg-priority-square (char text)
   "Return TEXT (the `■' cell) carrying a tiny filled-square overlay (R13 D-P2).
-Draws a small solid square — no stroke, slightly rounded — filled in
-`org-air-view--priority-color', sized ~62% of the cell and centred,
+Draws a small solid square — no stroke, slightly rounded — filled in the
+CHAR priority colour (`org-air-view--priority-color'), sized ~62% of the
+cell and centred,
 box-fit to the 1-col cell and line-height-clamped so it never grows the
 row.  Returns TEXT unchanged when svg is unavailable (the `■' glyph is the
 fallback)."
@@ -1045,7 +1046,7 @@ line height when `font-info' is unavailable."
       (round (* 0.8 (or org-air-view--pill-char-h (frame-char-height)))))))
 
 (defun org-air-view--svg-line-image (svg width height)
-  "Return an `svg-image' of SVG clamped to the font LINE box (D-P1.A).
+  "Return an `svg-image' of SVG at WIDTH x HEIGHT clamped to the line box (D-P1.A).
 Displays SVG with an INTEGER :ascent derived from the font ascent ratio
 \(NOT `:ascent center'), so a HEIGHT = line-height image occupies exactly
 the text line box and NEVER grows the row.  Because no org-air svg row

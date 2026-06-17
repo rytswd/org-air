@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-10: svg pill rework + svg sidebar + project-as-dashboard + routines/journals
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:svg:architecture:
 
 * Summary
@@ -86,4 +86,4 @@ and minimal.
 - D-P6  routines/journals model + presentation PROPOSAL (approval gate) [NEW]
 
 * Implementation History
-- (pending) round-10 opened from screenshots 00-39-08 / 00-39-16.
+- SHIPPED to trunk (gate green): round-10 from screenshots 00-39-08 / 00-39-16.

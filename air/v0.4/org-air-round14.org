@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-14: project-view two-line rework + repeats (org-default)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:project:repeats:
 
 * Summary
@@ -58,4 +58,4 @@ surfacing) first; weekends-only working-day deferred; advance on completion.
   defaults, fill gaps as necessary".
 
 * Implementation History
-- (pending) round-14 opened from user feedback (project view + repeats).
+- SHIPPED to trunk (gate green): round-14 from user feedback (project view + repeats).

@@ -1,103 +1,54 @@
-# Implementation Guide
+# Implementation Guide — org-air
 
-<!-- TODO: Customize this guide for your project's specific technology stack and practices -->
+## Files & where things live
+| file | responsibility |
+|------|----------------|
+| `org-air.el` | entry points, mode, keymap (`M-x org-air`, `org-air-project`) |
+| `org-air-query.el` | org-ql queries → `org-air-item` structs (title, todo, priority, tags, scheduled/deadline/created/closed, group, file) |
+| `org-air-classify.el` | buckets (Inbox/Needs-attention/Upcoming/High-priority/Stale), staleness, date relative terms |
+| `org-air-view.el` | renderer: `--insert-row`, `--svg-pillify`, `--svg-line-image`, priority square, inspector core, sections, point-tracking |
+| `org-air-layout.el` | two-pane geometry, rail blocks, prefix-svg headers, divider, responsive board-only |
+| `org-air-calendar.el` | month grid + marks |
+| `org-air-project.el` | Air-docs view (thin; reuses view core) |
+| `org-air-faces.el` | faces + svg colour/knob defcustoms |
+| `tests/` | ERT suites, `fixtures/`, `org-air-known-failures.el` |
 
-## Development Environment
+## Conventions
+- Follow `air/context/air-conventions.md` for Air docs.
+- Emacs Lisp: lexical-binding; `org-air-` / `org-air-view--` (internal `--`)
+  prefixes; checkdoc-clean docstrings (escape col-0 parens, quote symbols);
+  custom defcustoms grouped, themable.
+- **Every new GUI/svg feature needs a TTY/byte fallback** and (if it changes
+  rendered bytes) a fixture regen recorded in the known-failures manifest.
+- Keep the V6 pixel-lock + the svg-line-height clamp + inspector
+  noninteractive-guard invariants (see `architecture.md`).
 
-<!-- TODO: Replace with your project's development environment setup -->
-<!-- Example sections for different technology stacks:
+## Adding a feature (the round loop)
+1. Spec it in `air/v0.4/org-air-roundN.org` (state `ready`); design writes a
+   `-design.org` companion with exact contracts + knobs.
+2. impl implements per the design doc; commits PER-ITEM (`RNN` prefix);
+   records byte-changing fixtures in the manifest (does NOT edit fixtures).
+3. test regenerates + re-blesses fixtures via the frozen-clock renderer,
+   empties the manifest, gates green; holds RED + reports any real impl bug.
+4. Orchestrator verifies `make check` itself (timeout-guarded), integrates
+   to trunk, marks the round `complete`.
 
-### Language Configuration
-- **Language**: [Your language and version]
-- **Build System**: [Your build tool/system]
-- **Project Structure**: [Multi-module/package structure if applicable]
-- **Linting**: [Code quality tools enabled]
+## The gate (binary)
+`make clean && make check` → green = "Ran N tests, N as expected, 0
+unexpected" + lint(0) + manifest EMPTY. Anything else = not shippable.
+`make check` must COMPLETE quickly (~16s); a hang means the inspector
+noninteractive-guard is incomplete.
 
-### Build Environment
-- [Your environment management approach]
-- [Required system dependencies]
-- [Development dependencies management]
+## jj / workflow / orchestration
+See `air/context/ace-orchestration.md` — the mandatory jj incantation
+(`GIT_CONFIG_GLOBAL=/dev/null jj --config signing.behavior=drop ...`), the
+sandboxed worker-seat spawn recipe, the monitor timer/hooks, and the
+hard-won process lessons (one authoritative decision message; workers never
+integrate; byte-verify what shipped; park `@` before abandoning strays).
 
-### Dependency Management
-- [How you manage dependencies]
-- [Version management strategy]
-- [Handling external dependencies]
-- [Documentation standards for dependency choices]
--->
-
-## Coding Standards
-
-<!-- TODO: Replace with your project's language-specific coding standards -->
-
-<!-- Example coding standards for Rust - replace with your language-specific standards:
-
-### Code Style
-#### Conciseness and Clarity
-- Use idiomatic language patterns
-- Avoid verbose implementations when simpler solutions exist
-- Don't create unnecessary abstractions
-- Use complete sentences with proper punctuation for user-facing messages
-
-#### Type Safety
-- Use strong typing to prevent errors
-- Implement proper error handling
-- Leverage language features for safety
-- Use pattern matching over conditional logic where appropriate
-
-#### Code Organization
-- Keep public API surface minimal and well-documented
-- Group related functionality logically
-- Separate business logic from interface code
-- Co-locate related types and functions
-
-### Error Handling
-- Use structured error handling
-- Keep error messages clear and actionable for users
-- Provide graceful degradation when optional features fail
-- Chain errors appropriately
-
-### Documentation Standards
-- Document public APIs thoroughly
-- Focus on usage, not implementation details
-- Include examples for complex functionality
-- Document rationale for architectural decisions
--->
-
-## Development Practices
-
-<!-- TODO: Add your project-specific development practices -->
-
-<!-- Example development practices - customize for your project:
-
-### Resource Management
-- How you handle static resources and templates
-- Approach to configuration and asset management
-- Strategy for embedded vs external resources
-
-### Testing Strategy
-- Testing framework and approach
-- Unit vs integration testing strategy
-- Coverage requirements and standards
-
-#### Testing Commands
-Run your project's test suite:
-```bash
-# Replace with your testing commands
-[your test command]
-[your coverage command]
-[your integration test command]
-```
-
-#### Test Requirements
-- All new functionality must have corresponding tests
-- Tests should cover both success and error cases
-- Use descriptive test names
-- Mock external dependencies appropriately
-- Follow project-specific testing patterns
-
-### Performance Guidelines
-- Performance considerations for your technology stack
-- Optimization strategies for your use case
-- Caching and efficiency patterns
-- Resource usage guidelines
--->
+## Known follow-ups (deferred, not lost)
+- Round-15: no-TODO title alignment; the divider architecture decision
+  (side-window + `window-divider` vs robust in-buffer rule).
+- Repeats B: custom `:AIR_REPEAT: workday` weekend/holiday-skipping advance
+  (deferred — lean on Org defaults first).
+- Journals (Denote `_journal`) affordance — later.

@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-11 — pill/sidebar polish + item inspector (design)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:svg:polish:inspector:v0.4:
 
 * Summary

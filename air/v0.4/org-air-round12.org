@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-12: rail reorder + priority svg + divider/icon polish
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:svg:polish:
 
 * Summary
@@ -64,4 +64,4 @@ coloured text.
 - Round-10 P6 (routines/journals) still PARKED awaiting user approval.
 
 * Implementation History
-- (pending) round-12 opened from screenshot 2026-06-17 14-26-06.
+- SHIPPED to trunk (gate green): round-12 from screenshot 2026-06-17 14-26-06.

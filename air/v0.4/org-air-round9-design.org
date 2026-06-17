@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-9 — svg pill refinement + subtler calendar + Denote (design)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:faces:v0.4:
 
 * Summary

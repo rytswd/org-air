@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-13: divider/pill rethink + tiny priority + responsive rail + repeats
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:svg:responsive:repeats:
 
 * Summary
@@ -71,4 +71,4 @@ holidays).  Concrete + minimal; APPROVAL before any impl.
   ask (repeats + working days); journals can follow later.
 
 * Implementation History
-- (pending) round-13 opened from screenshot 2026-06-17 15-20-20.
+- SHIPPED to trunk (gate green): round-13 from screenshot 2026-06-17 15-20-20.

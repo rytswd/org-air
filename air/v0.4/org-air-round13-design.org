@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-13 — solid divider + visible pills + tiny priority + responsive rail + repeats (design)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:svg:responsive:repeats:v0.4:
 
 * Summary

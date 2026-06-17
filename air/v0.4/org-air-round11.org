@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-11: pill/sidebar polish + item inspector
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:svg:polish:
 
 * Summary
@@ -79,4 +79,4 @@ testable (the text content is the contract; svg is cosmetic).
   approval; not part of round-11 unless folded in.
 
 * Implementation History
-- (pending) round-11 opened from screenshot 2026-06-17 10-47-30.
+- SHIPPED to trunk (gate green): round-11 from screenshot 2026-06-17 10-47-30.

@@ -1,145 +1,84 @@
-# Interface Design
+# Interface Design — org-air
 
-<!-- TODO: Customize this guide for your project's interface design patterns -->
+The visual design system as shipped through round-14. Inspiration:
+rougier's nano-emacs / svg-tag-mode / svg-lib; calm, typographic, modern.
 
-## User Interface Design
+## Two views, one renderer
+- **Board** (`M-x org-air`): the GTD dashboard.
+- **Project** (`M-x org-air-project`): the Air-docs viewer.
+Both render through the SAME core (`org-air-view--insert-row`, the inspector
+core, the svg layer, faces) so they cannot drift. Project-specific code is
+thin (doc→item mapping, bucket grouping, the two-line arrangement).
 
-<!-- TODO: Define your project's interface design principles -->
-<!-- Example patterns that work well for most projects:
+## Layout — two panes in one buffer
+`[ board/item pane ]  │  [ rail ]`
+- One buffer holds both panes + the divider inline (keeps it byte-testable).
+- **Rail order (top→bottom):** Calendar, Summary, **Inspector**, Filters,
+  Actions (Filters+Actions pinned to the foot; the inspector takes the
+  expanded middle).
+- **Responsive:** below `org-air-rail-min-width` (default 90) the rail is
+  dropped and the board fills the full width (board-only) — so opening a
+  file in a narrow split never crowds. Re-renders on resize (round-9 C1).
 
-### Visual Hierarchy and Structure
-- Maintain visual hierarchy with headers, sections, and proper indentation
-- Show items in consistent order across related commands
-- Use strategic spacing between different types of information
-- Group related information together with clear visual separation
+## The V6 alignment contract (load-bearing — never break)
+Every row: title LEFT (flex, truncate-last), then a fixed-width right
+cluster of meta cells (date · tags · origin). Columns are computed from
+`string-width` (text layer) and stay pixel-locked. **svg pills must occupy
+EXACTLY their text cell's pixel box** (`Ncols × char-width`) so turning
+svg on/off shifts zero columns. Titles share one left edge whether or not
+the item has a TODO keyword (the keyword column is reserved).
 
-### Typography and Styling
-- Use consistent styling system with fallbacks for different environments
-- Apply visual distinction for different types of information (success/error/info)
-- Consistent styling for similar content types across all interfaces
-- Show exact information rather than generic descriptions
+## svg pills (date / tags / priority)
+- A pill is an svg overlay sized to its reserved text cell; the label is
+  centred with reserved **pad columns** so it never clips (svg-tag style).
+- **Critical:** the pill image is clamped to the EXACT font line height with
+  an integer baseline `:ascent` (`org-air-view--svg-line-image`) so it never
+  grows the row — otherwise the row grows taller than the `│` glyph and the
+  divider gaps. (This was the round-13 fix; do not regress.)
+- Calm look: soft radius (~`ch/6`), monochrome capsule (near-zero fill,
+  hairline border), colour lives in the LABEL only (tag accent / date
+  semantic hue). Date pills are padded to a UNIFORM width (the date column).
+- **Priority** = a tiny solid colour SQUARE (no letter/outline) in a fixed
+  ~2-col slot: A=red, B=orange, C=yellow-green (`org-air-priority-colors`).
+- Knobs: `org-air-pill-pad-cols`, `-radius`, `-fill-alpha`,
+  `-border(-opacity)`, `-vinset`, `org-air-date-pill-align`,
+  `org-air-priority-style`, `org-air-tag-style`/`-date-style` (pill|text).
 
-### Content Organization
-- Separate different types of information logically
-- Align related information dynamically based on actual content
-- Use complete sentences with proper punctuation for user-facing messages
-- Strategic use of compact vs expanded display for information hierarchy
--->
+## Rail headers — prefix-svg markers (round-11/D-P6)
+Section headers (`▌ Summary`, `▌ June 2026`, `▌ Inspector`, …) use a slim
+prefix-svg marker + clean label (`org-air-rail-header-style` marker|rule).
+The old hl-block card / `────` rule chrome is retired. TTY fallback = a
+plain prefix char.
 
-## Interface Components
+## The divider (still being refined — see round-15)
+A single-buffer text `│` at `line-spacing 0` with line-clamped pills. Known
+fragility: box-drawing glyph coverage varies by font. Round-15 proposes the
+architecture decision (real side-window + `window-divider` vs a robust
+in-buffer rule) for a truly gap-free, sophisticated divider.
 
-<!-- TODO: Define your project's interface component patterns -->
-<!-- Example component design principles:
+## The inspector (round-11..14)
+A mid-rail block showing metadata for the highlighted line, live-updating as
+point moves (buffer-local `post-command-hook` → **debounced**, redraw only
+when the inspected item changes, marker-region delete+reinsert — NEVER a
+full re-render on motion). **Must be inert when `noninteractive`** (else
+batch/regen deadlocks — round-13 hardening). Fields: title, state+priority,
+origin/file, tags, Scheduled, Deadline (+◆ overdue), Created, Closed,
+Repeat (`every 1w → next Mon 22 Jun`), Bucket/stale-days; nil lines omitted.
+Generalised core (`inspector-active/-property/-fields-function/-initial-fn`)
+so the project view hosts a doc-field inspector with the same machinery.
 
-### Reusable Components
-- Extract common interface logic into reusable components
-- Use configuration objects to centralize interface decisions
-- Create component libraries that encapsulate complex logic
-- Define consistent naming and sizing standards
+## Calendar
+Month grid with due (◆) / scheduled (●) / created (·) marks, today
+highlighted, muted palette, centred in the rail, full-width header.
 
-### Dynamic Layout
-- Calculate dimensions from actual data, not hardcoded values
-- Handle responsive design based on available space
-- Separate layout logic from content logic
-- Ensure consistent behavior across different view modes
+## Faces & theming
+All colour in `org-air-faces.el`; light/dark aware; svg colours derive from
+faces and re-render on theme change. Inspector field labels are mid-tier
+readable (WCAG-AA), values keep their semantic faces.
 
-### Hierarchical Display
-- Use consistent patterns for nested information
-- Maintain clear visual hierarchy
-- Provide clear indicators for different levels
-- Handle large datasets with pagination or truncation
--->
-
-## Interactive Interface Patterns
-
-<!-- TODO: Define your project's interaction patterns -->
-
-### User Interaction Design
-- Provide clear summaries before performing important operations
-- Always validate user input with helpful, actionable error messages
-- Use confirmation steps for operations that create or modify files
-- Structure prompts to guide users through complex workflows step-by-step
-
-### Contextual Help and Guidance
-- Provide contextual help and explanations for each decision point
-- Handle system environment detection gracefully with sensible fallbacks
-- Keep interface logic separate from business logic for maintainability
-- Design extensible prompts that can accommodate future options
-
-### Progressive Disclosure
-- Show essential information by default
-- Provide verbose modes for detailed information
-- Use flags like `--all` to show complete information without truncation
-- Implement filtering options to focus on relevant subsets
-
-## Accessibility and Compatibility
-
-### Cross-Platform Compatibility
-- Maintain broad compatibility by testing UI elements across different environments
-- Provide text fallbacks for emoji/unicode in terminals that don't support them
-- Handle different terminal widths and capabilities gracefully
-- Test on various operating systems and terminal emulators
-
-### User Experience Levels
-- Design for both novice and expert users
-- Provide clear default behaviors that work for most users
-- Offer advanced options for power users without cluttering the basic interface
-- Include helpful examples and guidance in help text
-
-### Error Communication
-- Clear error messages with suggested solutions
-- Show exactly what failed and why
-- Provide actionable next steps for resolution
-- Use consistent error formatting and terminology
-
-## Information Display Patterns
-
-<!-- TODO: Define how your project displays information and status -->
-
-## Configuration and Customization
-
-<!-- TODO: Define your project's customization options -->
-
-### Display Preferences
-- Support multiple output formats (tree, list, JSON)
-- Allow customization of display elements through configuration
-- Provide sensible defaults that work for most users
-- Enable/disable optional display elements based on user preference
-
-### Responsive Design
-- Adapt display format based on terminal width
-- Handle narrow terminals gracefully
-- Scale information density based on available space
-- Maintain readability across different screen sizes
-
-### Output Format Flexibility
-- Support machine-readable formats (JSON) for programmatic use
-- Human-readable formats optimized for direct consumption
-- Consistent data representation across different output formats
-- Clear documentation of output format schemas
-
-## Future Interface Considerations
-
-<!-- TODO: Plan for future interface enhancements -->
-
-## Implementation Guidelines
-
-<!-- TODO: Add your project's interface implementation guidelines -->
-
-### Code Organization
-- Keep interface logic separate from business logic
-- Use dependency injection for testability
-- Create clear boundaries between display components
-- Design for extensibility and customization
-
-### Testing Interface Components
-- Test display formatting with various data sets
-- Verify alignment and spacing calculations
-- Test edge cases (empty data, very long content, special characters)
-- Validate cross-platform rendering consistency
-
-### Performance Considerations
-- Lazy rendering for large data sets
-- Efficient string formatting and memory usage
-- Minimize expensive formatting operations
-- Cache calculated layout information when appropriate
+## Repeats (round-14, read-only)
+Org repeaters (`.+1d`/`++1w`) on scheduled/deadline are detected (via Org's
+own `org-get-repeat` — not reimplemented) and shown as a `↻` marker in the
+date cluster + an inspector `Repeat` line. The custom working-day-aware
+advance (`:AIR_REPEAT: workday`, skip weekends) is DEFERRED — lean on Org's
+defaults, fill the gap only when needed.

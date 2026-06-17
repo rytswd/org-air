@@ -212,28 +212,30 @@
     ;; byte-tested here.  No real impl bug surfaced.  No .el source touched.
     ;; Round-12 manifest is EMPTY; the tests stay as permanent guards.
     ;; ===================================================================
-    ;; v0.4 ROUND-13 grind (impl track) — BYTE change under the design-
-    ;; blessed D-P2 (priority → tiny solid colour square in a FIXED 2-col
-    ;; slot on EVERY item row): every item-row prefix gains a 2-col slot
-    ;; (`■ ' for a shown priority, `␣␣' otherwise) where today only
-    ;; priority rows carried `[#A] ', so unprioritised titles now start 2
-    ;; columns later (V6 title-left alignment across ALL rows — the intended
-    ;; win).  The divider + date/tags/origin cluster columns are UNCHANGED
-    ;; (verified: mockup diffs are the title left-shift only).  Fixtures need
-    ;; regen + design BLESS on the test track; impl does NOT edit fixtures.
-    ;;   D-P1 (line-height/integer-ascent svg clamp + retuned pill knobs)
-    ;;     and D-P4 (brighter org-air-face-inspector-label) are [gui]/[face]
-    ;;     → the pill/inspector TEXT is unchanged, fixtures HOLD.
-    ;;   D-P3 (board-only orientation < org-air-rail-min-width) only adds
-    ;;     NEW sub-threshold board-only fixtures (test track) — the existing
-    ;;     wide fixtures render two-pane and HOLD.
-    ;; (impl change novrxnnw/ssvowptt; verified only these 5 mockups moved,
-    ;; all other 172 tests green.)
-    (org-air-layout-mockup-80 . "D-P2 priority 2-col slot on every row (title +2 col shift) — regen+bless")
-    (org-air-layout-mockup-120 . "D-P2 priority 2-col slot on every row (title +2 col shift) — regen+bless")
-    (org-air-layout-mockup-160 . "D-P2 priority 2-col slot on every row (title +2 col shift) — regen+bless")
-    (org-air-layout-mockup-heights . "D-P2 priority 2-col slot on every row — regen+bless")
-    (org-air-layout-mockup-thresholds . "D-P2 priority 2-col slot on every row — regen+bless")
+    ;; v0.4 ROUND-13 closeout (impl tip ssvowptt + test re-bless
+    ;; <this commit>).  ALL 5 grind entries CLOSED — the GTD-board mockups
+    ;; regenerated from impl's render via the FROZEN-CLOCK renderer (make
+    ;; regen-mockups, guards active; verified NO HANG, exit 0) for the
+    ;; design-blessed D-P2 fixed 2-col priority slot (air/v0.4/org-air-
+    ;; round13-design.org):
+    ;;   D-P2 — every item-row prefix now carries a fixed 2-col slot (`■ '
+    ;;     for a shown priority, `␣␣' otherwise) where only priority rows
+    ;;     carried `[#A] ' before, so titles left-align across ALL rows;
+    ;;     layout-mockup-80/120/160/heights/thresholds regenerated.  The
+    ;;     divider + date/tags/origin cluster columns are UNCHANGED.
+    ;; New round-13 guards added (passing, not grind):
+    ;;   D-P1 — org-air-r13-divider-contiguous-full-height (solid `│' down
+    ;;     the whole body now that the pill svg is line-height clamped via
+    ;;     org-air-view--svg-line-image) + -svg-line-height-clamp-mechanism.
+    ;;   D-P2 — -priority-square-glyph / -priority-slot-fixed-two-col.
+    ;;   D-P3 — -board-only-below-rail-min-width + -board-only-byte-mockup
+    ;;     (new layout-mockup-70.txt board-only fixture, < rail-min-width).
+    ;; D-P1 (pill svg clamp + retuned pill knobs) and D-P4 (brighter
+    ;; inspector-label face) are [gui]/[face] → pill/inspector TEXT
+    ;; unchanged, fixtures HELD (no regen).  Verified: regen did NOT hang;
+    ;; only the 5 D-P2 mockups moved (title left-shift); no extra test
+    ;; failed.  No real impl bug surfaced.  No .el source touched.
+    ;; Round-13 manifest is EMPTY; the tests stay as permanent guards.
     ;; ===================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

@@ -1,0 +1,33 @@
+  org-air                                       Mon 15 Jun · 23 items
+  ────────────────────────────────────────────────────────────────────
+
+  □ Inbox 3
+        Quick n…                  #inbox                   ▤ inbox.org
+        Call pl…                  #inbox                   ▤ inbox.org
+      TODO   Tr…                  #inbox                   ▤ inbox.org
+
+  ▲ Needs attention 8
+      TODO   Ch…  OVERDUE 7d      #projects   #admin    ▤ projects.org
+      TODO ■ Fi…  OVERDUE 5d      #projects   #work  …  ▤ projects.org
+      TODO   Bo…  OVERDUE 3d      #personal   #health   ▤ personal.org
+      TODO   Du…  no date         #projects   #archive  ▤ projects.org
+      TODO   Un…  no date         #projects   #someday  ▤ projects.org
+        Referen…  no date         #projects   #note     ▤ projects.org
+      …and 2 more — press TAB on the title to expand
+
+  ◆ Upcoming 8
+      TODO   Re…  Today           #personal   #admin    ▤ personal.org
+      TODO   Wa…  Today           #projects   #home     ▤ projects.org
+      TODO ■ Pr…  Tomorrow        #work   #client           ▤ work.org
+      TODO   Pr…  Tomorrow        #projects   #work     ▤ projects.org
+      TODO   Em…  Tomorrow        #work                     ▤ work.org
+      …and 3 more — press TAB on the title to expand
+
+  ★ High priority 3
+      TODO ■ Sh…  Wed             #projects   #work  …  ▤ projects.org
+      TODO ■ Fi…  OVERDUE 5d      #projects   #work  …  ▤ projects.org
+      TODO ■ Pr…  Tomorrow        #work   #client           ▤ work.org
+
+  ○ Stale 2
+      TODO   Du…  · 225d quiet    #projects   #archive  ▤ projects.org
+      TODO   Le…  · 273d quiet    #someday   #hobby      ▤ someday.org

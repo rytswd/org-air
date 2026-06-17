@@ -26,6 +26,11 @@
 (defconst org-air-regen-widths '(80 90 96 100 104 110 120 160)
   "Widths to regenerate: canonical 80/120/160 + breakpoint bracket.")
 
+(defconst org-air-regen-board-only-widths '(70)
+  "Sub-threshold widths (< `org-air-rail-min-width', default 90) that
+render BOARD-ONLY (R13 D-P3): no rail / calendar / inspector, the item
+pane fills the whole window.  Written as layout-mockup-WIDTH.txt.")
+
 (defconst org-air-regen-heights '(nil 24 50)
   "Heights per width: natural (nil), overflow branch (24), fill (50).
 Blessed by design/orchestrator for the S6 regen.")
@@ -106,6 +111,9 @@ F5 project view: the ./air fixture in each grouping (state/dir/tag)."
   (dolist (width org-air-regen-widths)
     (dolist (height org-air-regen-heights)
       (org-air-regen--write width height)))
+  ;; R13 D-P3: board-only fixtures below `org-air-rail-min-width'.
+  (dolist (width org-air-regen-board-only-widths)
+    (org-air-regen--write width nil))
   (org-air-regen--write-empty 120 50)
   ;; F5 project-view fixture family (one width, all three groupings).
   (when (fboundp 'org-air-project)

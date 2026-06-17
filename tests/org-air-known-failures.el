@@ -155,33 +155,34 @@
     ;; stay as permanent regression guards.  Round-9 manifest is EMPTY.
     ;;
     ;; ===================================================================
-    ;; v0.4 ROUND-11 grind (impl track) — tests that change BYTES/structure
-    ;; under the design-blessed D-P1/D-P3/D-P5/D-P6/D-P7 contracts.  Each
-    ;; FAILS until test re-blesses the regen with an exact change-id; impl
-    ;; does NOT hand-edit fixtures.  Delete on re-bless.
-    ;; -------------------------------------------------------------------
-    ;; D-P6 [byte/face]: the hl-block labelled rule + overline/`────'
-    ;; chrome is REPLACED by a clean prefix-svg marker header `▌ Label'
-    ;; (org-air-view--rail-header); calendar header goes full-width (D-P5).
-    (org-air-r9-d5a-rail-rule-family-has-cap . "D-P6: rail headers are now marker headers, no hrule-cap rule — test/design re-bless")
-    (org-air-r9-d5a-calendar-is-labelled-rule . "D-P5/D-P6: calendar header is a full-width marker header, not a labelled rule — test/design re-bless")
-    (org-air-r9-d5a-actions-block-named . "D-P6: Actions header is a marker header, not a labelled rule — test/design re-bless")
-    (org-air-layout-rail-faces-applied . "D-P6: rail headers use org-air-face-rail-header/-marker, not the rule/card faces — test/design re-bless")
-    ;; D-P2 #4 [display]: buffer-local line-spacing is now `org-air-line-
-    ;; spacing' (0.15), reversing the round-8 S8 line-spacing 0.
-    (org-air-s8-line-spacing-zero-buffer-local . "D-P2 #4: line-spacing now 0.15 (org-air-line-spacing), reverses S8 — test/design re-bless")
-    ;; D-P7 [byte]: the inspector foot band shows a `⌂' origin breadcrumb
-    ;; in the RAIL columns; this guard asserted no origin glyph sits right
-    ;; of the divider.  (Date-column alignment itself still holds.)
-    (org-air-r9-c1-narrow-resize-refits . "D-P7: inspector band shows a ⌂ origin in the rail (right of divider) — test/design re-bless")
-    ;; Byte mockups: D-P6 marker headers + D-P5 full-width calendar header
-    ;; + D-P1 uniform date pills + D-P3 no-trim overflow + D-P7 inspector
-    ;; band all change the rendered bytes.
-    (org-air-layout-mockup-80 . "R11 D-P6/D-P5/D-P1/D-P3/D-P7: header + date-cell + inspector bytes change — design re-bless")
-    (org-air-layout-mockup-120 . "R11 D-P6/D-P5/D-P1/D-P3/D-P7: header + date-cell + inspector bytes change — design re-bless")
-    (org-air-layout-mockup-160 . "R11 D-P6/D-P5/D-P1/D-P3/D-P7: header + date-cell + inspector bytes change — design re-bless")
-    (org-air-layout-mockup-heights . "R11 D-P6/D-P5/D-P1/D-P3/D-P7: header + date-cell + inspector bytes change — design re-bless")
-    (org-air-layout-mockup-thresholds . "R11 D-P6/D-P5/D-P1/D-P3/D-P7: header + date-cell + inspector bytes change — design re-bless")
+    ;; v0.4 ROUND-11 closeout (impl tip slvutooqm + test re-bless
+    ;; <this commit>).  ALL 11 grind entries CLOSED — fixtures regenerated
+    ;; from impl's render via the FROZEN-CLOCK renderer (make regen-mockups,
+    ;; guards active) and the assertion tests re-blessed to the new
+    ;; design-blessed D-P1/D-P3/D-P5/D-P6/D-P7 contracts:
+    ;;   D-P6 (prefix-marker rail headers, no hl-block rule/overline):
+    ;;     r9-d5a-rail-rule-family-has-cap, -actions-block-named, and
+    ;;     layout-rail-faces-applied re-blessed to `▌ Label' headers +
+    ;;     org-air-face-rail-header/-marker (rail-title/card-header retired).
+    ;;   D-P5 (calendar header full-width): r9-d5a-calendar-is-labelled-rule
+    ;;     re-blessed to the full-width `▌ June 2026 … ‹ ›' marker header
+    ;;     (grid stays centred).
+    ;;   D-P2 #4 (display): s8-line-spacing re-blessed — line-spacing is now
+    ;;     org-air-line-spacing (0.15 default), reversing the S8 zero.
+    ;;   D-P7 (lower-rail inspector): r9-c1-narrow-resize-refits re-blessed —
+    ;;     (c) now skips the inspector block's own rail `⌂' origin (tagged
+    ;;     org-air-inspector) and guards only board item-row origins; the
+    ;;     inspector's first-item field text is byte-tested via the mockups.
+    ;;   D-P1 (uniform date pills) + D-P3 (no-trim overflow tag clusters):
+    ;;     the byte mockups (80/120/160 + heights + thresholds) regenerated;
+    ;;     verified the date column stays single-valued at every tier and
+    ;;     the ⌂ origin column does not drift on overflow vs non-overflow
+    ;;     rows (per-filename single column at W96/120/160).
+    ;; Round-11 manifest is EMPTY; the tests stay as permanent regression
+    ;; guards.  No real impl bug surfaced this round (inspector renders as
+    ;; the LAST foot block, does not disturb board rows or move point; V6
+    ;; alignment and origin alignment hold).  No .el source touched.
+    ;; ===================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

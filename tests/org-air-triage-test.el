@@ -236,13 +236,19 @@ width is exactly W-1, and the status text is intact (no clipped
 ;;;; S8 — mechanism only (pixel effect is GUI-only, untestable in batch).
 
 (ert-deftest org-air-s8-line-spacing-zero-buffer-local ()
-  "org-air-view-mode sets line-spacing buffer-locally to 0 so divider
-glyphs touch into a continuous frame.  Only the MECHANISM is asserted;
-the pixel-level stroke continuity needs a real GUI frame."
+  "org-air-view-mode sets `line-spacing' buffer-locally from the
+`org-air-line-spacing' defcustom.  D-P2 #4 [display] re-bless: the
+default is now 0.15 (a touch of inter-row breathing to calm the stacked
+capsules), REVERSING the round-9 S8 line-spacing-0 contract; set
+`org-air-line-spacing' to 0 to restore the tight box-rule packing.  Only
+the MECHANISM is asserted (the pixel effect needs a real GUI frame)
+\(air/v0.4/org-air-round11-design.org §D-P2)."
   (skip-unless (locate-library "org-air"))
+  (should (boundp 'org-air-line-spacing))
+  (should (eql org-air-line-spacing 0.15))
   (org-air-viewport-test-with-dashboard 120
     (should (local-variable-p 'line-spacing))
-    (should (eql line-spacing 0))))
+    (should (eql line-spacing org-air-line-spacing))))
 
 (provide 'org-air-triage-test)
 ;;; org-air-triage-test.el ends here

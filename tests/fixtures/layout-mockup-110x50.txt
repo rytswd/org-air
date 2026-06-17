@@ -1,43 +1,43 @@
   org-air                                                                               Mon 15 Jun · 23 items
   ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  □ Inbox 3                                                                     │     ╶─ June 2026 ─── ‹ ›
+  □ Inbox 3                                                                     │ ▌ June 2026              ‹ ›
       Quick note about o…                  #inbox                   ⌂ inbox.org │     Su Mo Tu We Th Fr Sa
       Call plumber                         #inbox                   ⌂ inbox.org │         1  2  3  4  5  6
       TODO Triage me lat…                  #inbox                   ⌂ inbox.org │      7  8● 9 10◆11 12◆13
                                                                                 │     14 15◆16◆17◆18●19◆20●
   ▲ Needs attention 8                                                           │     21 22 23 24 25 26 27
-      TODO Chase missing…   OVERDUE 7d     #projects   #admin    ⌂ projects.org │     28 29 30
-      TODO [#A] Fix prod…   OVERDUE 5d    #projects   #work  …   ⌂ projects.org │
-      TODO Book dentist …   OVERDUE 3d     #personal   #health   ⌂ personal.org │     ◆ due    ● sched
-      TODO Dust off old …   no date        #projects   #archive  ⌂ projects.org │
-      TODO Untracked ide…   no date        #projects   #someday  ⌂ projects.org │ ╶─ Summary ─────────────────
-      Reference notes wi…   no date        #projects   #note     ⌂ projects.org │    3   Inbox
+      TODO Chase missing…  OVERDUE 7d      #projects   #admin    ⌂ projects.org │     28 29 30
+      TODO [#A] Fix prod…  OVERDUE 5d      #projects   #work  …  ⌂ projects.org │
+      TODO Book dentist …  OVERDUE 3d      #personal   #health   ⌂ personal.org │     ◆ due    ● sched
+      TODO Dust off old …  no date         #projects   #archive  ⌂ projects.org │
+      TODO Untracked ide…  no date         #projects   #someday  ⌂ projects.org │ ▌ Summary
+      Reference notes wi…  no date         #projects   #note     ⌂ projects.org │    3   Inbox
       …and 2 more — press TAB on the title to expand                            │    8   Needs attention
                                                                                 │    8   Upcoming
   ◆ Upcoming 8                                                                  │    3   High priority
-      TODO Renew library…   Today          #personal   #admin    ⌂ personal.org │    2   Stale
-      TODO Water the gar…   Today          #projects   #home     ⌂ projects.org │  ────
-      TODO [#A] Prep cli…   Tomorrow       #work   #client           ⌂ work.org │   23   total
-      TODO Prepare stand…   Tomorrow       #projects   #work     ⌂ projects.org │
-      TODO Email finance…   Tomorrow       #work                     ⌂ work.org │ ╶─ Filters ─────────────────
+      TODO Renew library…  Today           #personal   #admin    ⌂ personal.org │    2   Stale
+      TODO Water the gar…  Today           #projects   #home     ⌂ projects.org │  ────
+      TODO [#A] Prep cli…  Tomorrow        #work   #client           ⌂ work.org │   23   total
+      TODO Prepare stand…  Tomorrow        #projects   #work     ⌂ projects.org │
+      TODO Email finance…  Tomorrow        #work                     ⌂ work.org │ ▌ Filters
       …and 3 more — press TAB on the title to expand                            │  No filters · all items
                                                                                 │
-  ★ High priority 3                                                             │ ╶─ Actions ─────────────────
-      TODO [#A] Ship qua…   Wed           #projects   #work  …   ⌂ projects.org │  c capture / filter   s sco…
-      TODO [#A] Fix prod…   OVERDUE 5d    #projects   #work  …   ⌂ projects.org │  g refresh TAB expand ? help
-      TODO [#A] Prep cli…   Tomorrow       #work   #client           ⌂ work.org │
+  ★ High priority 3                                                             │ ▌ Actions
+      TODO [#A] Ship qua…  Wed             #projects   #work  …  ⌂ projects.org │  c capture / filter   s sco…
+      TODO [#A] Fix prod…  OVERDUE 5d      #projects   #work  …  ⌂ projects.org │  g refresh TAB expand ? help
+      TODO [#A] Prep cli…  Tomorrow        #work   #client           ⌂ work.org │
                                                                                 │
   ○ Stale 2                                                                     │
-      TODO Dust off old …   · 225d quiet   #projects   #archive  ⌂ projects.org │
-      TODO Learn lute       · 273d quiet   #someday   #hobby      ⌂ someday.org │
+      TODO Dust off old …  · 225d quiet    #projects   #archive  ⌂ projects.org │
+      TODO Learn lute      · 273d quiet    #someday   #hobby      ⌂ someday.org │
                                                                                 │
-                                                                                │
-                                                                                │
-                                                                                │
-                                                                                │
-                                                                                │
-                                                                                │
+                                                                                │ ▌ Inspector
+                                                                                │  Quick note about org-air
+                                                                                │  idea
+                                                                                │  ⌂ inbox/inbox.org
+                                                                                │  #inbox
+                                                                                │  Bucket  Inbox
                                                                                 │
                                                                                 │
                                                                                 │

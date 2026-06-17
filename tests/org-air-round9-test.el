@@ -99,19 +99,25 @@ calendar pane (the 8b calendar/origin overlap)."
         (let ((cols (org-air-r9--date-token-columns)))
           (should (> (length cols) 2))
           (should (= 1 (length (delete-dups (copy-sequence cols))))))
-        ;; (c) no calendar/origin overlap: every origin glyph sits LEFT of
-        ;; the recomputed divider column (origins live in the item pane,
-        ;; the calendar in the rail to the right).
+        ;; (c) no calendar/origin overlap: every BOARD ITEM-ROW origin
+        ;; glyph sits LEFT of the recomputed divider column (item origins
+        ;; live in the item pane, the calendar in the rail to the right).
+        ;; D-P7: the lower-rail inspector block legitimately carries a ⌂
+        ;; origin INSIDE the rail; it is tagged `org-air-inspector', so we
+        ;; skip it and guard only the board item-row origins.
         (let ((glyph (org-air-r9--origin-glyph)))
           (save-excursion
             (goto-char (point-min))
             (while (not (eobp))
-              (let ((line (buffer-substring-no-properties
-                           (line-beginning-position) (line-end-position)))
-                    (start 0))
+              (let* ((bol (line-beginning-position))
+                     (line (buffer-substring-no-properties
+                            bol (line-end-position)))
+                     (start 0))
                 (while (string-match (regexp-quote glyph) line start)
-                  (should (< (string-width (substring line 0 (match-beginning 0)))
-                             divider-col))
+                  (unless (get-text-property (+ bol (match-beginning 0))
+                                             'org-air-inspector)
+                    (should (< (string-width (substring line 0 (match-beginning 0)))
+                               divider-col)))
                   (setq start (match-end 0))))
               (forward-line 1))))))))
 
@@ -385,38 +391,46 @@ rule can open with the rounded stub that echoes the pill's left edge."
   "D5a: Summary and Filters open with the SAME labelled rule led by the
 ╶ hrule-cap (one rule family across the rail, not bare ── rules)."
   (skip-unless (locate-library "org-air"))
+  ;; D-P6 re-bless (reverses round-9/10 D5a): rail headers are clean PREFIX
+  ;; MARKER headers `▌ Summary' / `▌ Filters' (rail-marker glyph + legible
+  ;; label, no `──── rule' glyphs); the svg accent bar is a non-byte overlay
+  ;; on the marker char (air/v0.4/org-air-round11-design.org §D-P6).
   (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-dashboard 160
-      (let ((cap (org-air-r9--hrule-cap))
-            (text (substring-no-properties (buffer-string))))
-        (should (string-match-p (concat (regexp-quote cap) "─ Summary") text))
-        (should (string-match-p (concat (regexp-quote cap) "─ Filters") text))))))
+    (let ((cap (org-air-r9--hrule-cap))
+          (mk (org-air-layout-glyph 'rail-marker)))
+      (org-air-viewport-test-with-dashboard 160
+        (let ((text (substring-no-properties (buffer-string))))
+          (should (string-match-p (concat (regexp-quote mk) " Summary") text))
+          (should (string-match-p (concat (regexp-quote mk) " Filters") text))
+          ;; D-P6 retires the labelled rule: no `╶─ Summary' anywhere.
+          (should-not (string-match-p (concat (regexp-quote cap) "─ Summary")
+                                      text)))))))
 
 (ert-deftest org-air-r9-d5a-actions-block-named ()
-  "D5f/D5a: the floating verb hints become a named `Actions' peer block,
-opened by the labelled rule (not orphan lines)."
+  "D-P6 [byte] re-bless: the named `Actions' peer block now opens with the
+prefix-marker header `▌ Actions' (not the round-9 labelled rule)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-dashboard 160
-      (let ((cap (org-air-r9--hrule-cap))
-            (text (substring-no-properties (buffer-string))))
-        (should (string-match-p (concat (regexp-quote cap) "─ Actions") text))))))
+    (let ((mk (org-air-layout-glyph 'rail-marker)))
+      (org-air-viewport-test-with-dashboard 160
+        (let ((text (substring-no-properties (buffer-string))))
+          (should (string-match-p (concat (regexp-quote mk) " Actions") text)))))))
 
 (ert-deftest org-air-r9-d5a-calendar-is-labelled-rule ()
-  "D5a: the calendar month header renders as a labelled rule
-(╶─ June 2026 ──…── ‹ ›): the cap + month label, the ‹ › nav anchored
-AFTER the fill, in the same family as Summary/Filters."
+  "D-P5 + D-P6 [byte] re-bless: the calendar month header is now a
+FULL-WIDTH prefix-marker header `▌ June 2026  …  ‹ ›' — the marker +
+month label left-anchored, the ‹ › nav right-anchored at the full rail
+width (like every other section header), NOT the round-9 labelled rule.
+The day grid + weekday row stay centred below (round-10 D-P4)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-dashboard 160
-      (let* ((cap (org-air-r9--hrule-cap))
-             (rail (org-air-r9--rail-lines))
-             ;; the month rule line: cap, dash, "June 2026"/"Jun 2026",
-             ;; fill, then the nav glyphs at the right.
-             ;; the line carries the content-spine leading inset.
-             (rx (concat "^ *" (regexp-quote cap)
-                         "─ Ju\\(ne\\|n\\) 2026 ─.*‹ ›$")))
-        (should (cl-some (lambda (l) (string-match-p rx l)) rail))))))
+    (let ((mk (org-air-layout-glyph 'rail-marker)))
+      (org-air-viewport-test-with-dashboard 160
+        (let* ((rail (org-air-r9--rail-lines))
+               ;; marker + month label, then fill to the nav at the right.
+               (rx (concat "^ *" (regexp-quote mk)
+                           " Ju\\(ne\\|n\\) 2026 .*‹ ›$")))
+          (should (cl-some (lambda (l) (string-match-p rx l)) rail)))))))
 
 (ert-deftest org-air-r9-d5c-legend-separated-and-spaced ()
   "D5c: the calendar legend is separated from the grid by one blank line,

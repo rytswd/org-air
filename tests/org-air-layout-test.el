@@ -216,13 +216,17 @@ the banner's visible-item count.  Spec §4.2/§9.4."
 ;;;; §9.5 Face application — integrated render, not byte-compile faith.
 
 (ert-deftest org-air-layout-rail-faces-applied ()
-  "The new v0.2 pane faces are actually applied in a real render:
-pane border on the divider, rail titles on block labels, summary
-number faces on the counts.  Spec §7/§9.5."
+  "The rail pane faces are actually applied in a real render: pane border
+on the divider, summary number faces on the counts, and \u2014 D-P6 [face]
+re-bless \u2014 the prefix-marker header faces `org-air-face-rail-header'
+(legible label) + `org-air-face-rail-marker' (the prefix accent) on the
+block labels, REPLACING the retired round-10 rail-title/card-header
+application (air/v0.4/org-air-round11-design.org \u00a7D-P6).  Spec \u00a77/\u00a79.5."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-dashboard 120
     (should (org-air-viewport-test-face-applied-p 'org-air-face-pane-border))
-    (should (org-air-viewport-test-face-applied-p 'org-air-face-rail-title))
+    (should (org-air-viewport-test-face-applied-p 'org-air-face-rail-header))
+    (should (org-air-viewport-test-face-applied-p 'org-air-face-rail-marker))
     (should (org-air-viewport-test-face-applied-p 'org-air-face-summary-number))))
 
 ;;;; §9.6 TTY fallback — no GUI-only glyph leaks in --batch.

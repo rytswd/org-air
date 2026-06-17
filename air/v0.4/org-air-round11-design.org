@@ -1,0 +1,293 @@
+#+title: org-air v0.4 round-11 — pill/sidebar polish + item inspector (design)
+#+state: ready
+#+FILETAGS: :ui:visual:svg:polish:inspector:v0.4:
+
+* Summary
+Round-11 from the 2026-06-17 screenshot on the shipped round-10 build.
+The pills are *calm now* (round-10 landed); this round is polish + one new
+surface.  Seven design items (P1..P7); D-P4 folds into D-P6.
+
+Continuity: builds on round-10's contracts — the C2 pill pixel-lock, the
+shared =org-air-view--insert-row= primitive, the D-P1 pad/fit pill, and the
+rail's flush col-0 spine.  This round *reverses* round-10 D-P2.A (the
+hl-block card bg+overline on rail headers) — it read low-contrast — in
+favour of a subtle prefix-svg marker (D-P6).
+
+*Measurability tags:* =[gui]= GUI-only svg overlay (non-byte; text is the
+fallback); =[face]= face-only (fixtures hold); =[byte]= buffer-text change
+(fixture regen + bless).  =[explore]= = options + a recommendation.
+
+*Authoritative contracts:* C2 (pixel-lock) + round-10 D-P1.PAD remain
+binding; D-P1 (uniform date cell) and D-P3 (no-trim cluster) below are new
+pixel-lock corollaries.  Each bless names the exact change-id and voids
+earlier blesses for that fixture.
+
+* D-P6 [HIGH, resolves P4] — drop overline/rules → subtle prefix-svg header
+*Symptom:* the round-10 hl-block card (=org-air-face-rail-card-header= bg
+tint + overline, applied via =org-air-view--insert-labelled-rule= and the
+calendar header) is *low-contrast and hard to read*; =Summary= / =Filters=
+/ =Actions= / the calendar month header all suffer.
+
+*Contract — replace the labelled rule with a clean prefix-marked header:*
+- New =org-air-view--rail-header (label width &key suffix suffix-face)=
+  replaces =org-air-view--insert-labelled-rule= for the four rail headers.
+  It emits =<marker><sp>LABEL= left-anchored, =SUFFIX= (e.g. the calendar
+  =‹ ›= nav) right-anchored at =width=, padded to =width=.  *No bg, no
+  overline, no =────= rule glyphs.*
+- *Label face:* new =org-air-face-rail-header= — legible, NOT faded:
+  inherit =default= with a slightly salient foreground + =:weight
+  semibold= (light) / regular-bright (dark).  This alone fixes P4.
+- *Prefix marker (=org-air-view--rail-header-marker=):* reserve *one
+  column* in the text layer for a marker char; on a capable GUI draw a
+  *slim rounded vertical accent bar* over it (svg: a rounded-rect ≈
+  =(round (* cw 0.45))= wide × line-height, =:rx (/ ch 6.0)=, filled in
+  =org-air-face-rail-marker= — a muted salient).  Reuses the D-P1 box-fit
+  discipline (image locked to =1×char-px= so alignment is unchanged).
+  - *TTY fallback (mandatory):* a plain prefix char from the glyph table —
+    =rail-marker= = =("▌" . "|")= (left-half-block → ascii pipe), faced
+    =org-air-face-rail-marker=.  Headers read as =▌ Summary= / =| Summary=.
+- =[byte]=: header bytes change (=── Summary ──…= → =▌ Summary=========+
+  trailing pad / nav).  The svg bar is a non-byte overlay on the marker
+  char; the byte gate asserts =▌ Summary= (the plain marker + label).
+- =[face]=: stop *applying* =org-air-face-rail-card-header= / =-foot=
+  (keep the defs for back-compat; they become dead unless re-enabled by a
+  user).  New faces =org-air-face-rail-header=, =org-air-face-rail-marker=.
+- defcustom =org-air-rail-header-style= (='marker | 'rule), default
+  ='marker; 'rule restores the round-10 labelled rule for anyone who wants
+  it.
+
+** D-P5 [LOW] — calendar header spans the full rail width
+Currently the calendar header spans =rule-width= (= the centred grid's
+=row-width=, per round-10 D-P4), so it is narrower than the section
+headers.  *Contract:* the calendar's =org-air-view--rail-header= spans the
+*full rail =width== (like every other section header): the month label
+left-anchored after the prefix marker, the =‹ ›= nav right-anchored at
+=width=.  The day grid + weekday row + legend below stay *centred* within
+=width= (round-10 D-P4) — only the header goes full-width.  Abbreviate the
+month (=Jun=) before the nav truncates (round-9 rule, preserved).
+=[byte]=: calendar header bytes change (full-width + marker) → regen.
+
+* D-P7 [NEW/HIGH] — item inspector in the lower rail
+The rail has empty space below =Actions=.  Fill it with an *inspector*
+showing metadata for the *currently highlighted board line* (the item at
+point), updating as point moves (debounced).  This is the round's big new
+surface.
+
+** Layout (rail content width =W=, inset to the spine)
+A foot block opened by the D-P6 prefix-svg header =▌ Inspector=, then:
+
+: ▌ Inspector
+:   <full title, wrapped to W, up to org-air-inspector-max-title-lines>
+:   TODO  [#A]                         <- state + priority (faces)
+:   ⌂ group/file.org                   <- origin (faded/group)
+:   #tag #tag #tag                     <- all tags, accent, wrapped
+:   Sched    2026-06-20  (in 3d)
+:   Deadln   2026-06-18  (2d ago) ◆    <- overdue marker when past
+:   Created  2026-06-01
+:   Closed   2026-06-15                <- only when present
+:   Bucket   Attention · stale 24d     <- derived classification
+
+- *Key column:* fixed =org-air-inspector-key-w= (default 8) cols, label in
+  =org-air-face-inspector-label= (faded); value follows at the spine + key.
+- *Title:* =org-air-face-title=, word-wrapped to =W=, capped at
+  =org-air-inspector-max-title-lines= (default 3) with the =more= glyph.
+- *Dates:* value in the *same semantic face the board uses* — scheduled
+  =salient=, deadline =popout= (=critical= when overdue), created/closed
+  =faded= — with a parenthetical *relative* term (=in Nd= / =Nd ago= /
+  =today=) computed from the frozen-clock =current-time= (so it is
+  deterministic + testable).  A trailing =◆= on an overdue deadline.
+- *Bucket / derived:* the classification bucket(s) the item falls in
+  (=Attention=, =Upcoming=, =Stale=, =Inbox=, =High-priority=) + =stale
+  Nd= when stale (reuse =org-air-classify=).
+- *Empty state:* when point is NOT on an item (banner, heading, calendar,
+  rail), show the header + one faded hint line =Move to an item to
+  inspect.= (defcustom =org-air-inspector-empty-hint=).
+
+** Fields (exact, from the =org-air-item= struct + classify)
+| line     | source                                                       |
+|----------+--------------------------------------------------------------|
+| title    | =org-air-item-title=                                         |
+| state    | =org-air-item-todo= (todo face) + =org-air-item-priority=    |
+| origin   | =org-air-item-group= ⁄ =(file-name-nondirectory file)=       |
+| tags     | =org-air-item-tags= (all; accent faces; no pill — text)      |
+| Sched    | =org-air-item-scheduled= + relative                          |
+| Deadln   | =org-air-item-deadline= + relative + overdue ◆               |
+| Created  | =CREATED= property if present (else omit the line)           |
+| Closed   | =org-air-item-closed= (omit when nil)                        |
+| Bucket   | =org-air-classify= bucket(s) + stale-days when stale         |
+Lines whose source is nil are *omitted* (the block is compact, not a grid
+of em-dashes).
+
+** Live update (point tracking, debounced)
+- Buffer-local =post-command-hook= → =org-air-view--maybe-update-inspector=.
+- *Debounce* via a short idle timer (defcustom =org-air-inspector-debounce=
+  default 0.1s); coalesce rapid n/p motion.
+- *Only redraw when the inspected item CHANGES* — track
+  =org-air-view--inspector-item=; a no-op when the item under point is the
+  same (so holding a key or scrolling within a row costs nothing).
+- *Update mechanism (recommended):* the inspector occupies a
+  *marker-delimited region* at the buffer foot
+  (=org-air-view--inspector-beg= / =-end= markers).  Its lines are composed
+  *full-width* (item-pane blank columns + the divider + the rail inspector
+  columns), so on change we =delete-region= between the markers and
+  re-insert the recomposed full-width inspector lines under
+  =inhibit-read-only= + =save-excursion=.  Because the inspector is the
+  LAST block (below the visible item rows) this full-line replacement
+  never disturbs the board rows or point.  *Do NOT full-re-render the view*
+  on motion (it would move point + flicker).
+- defcustom =org-air-show-inspector= (default t).
+
+** Byte-testability (the contract is the TEXT)
+- The inspector's *text content* (labels + values + relative terms) is the
+  byte contract; the prefix-svg bar is cosmetic (=[gui]=).
+- *Initial render:* compute the inspected item up front =
+  =org-air-view--goto-first-item='s target (the first actionable item) and
+  render the inspector for IT during compose (point isn't known in the
+  temp-buffer panes, so we use the same first-item the cursor lands on).
+  The fixture then asserts the inspector block for the first item; the
+  live hook keeps it synced thereafter.
+- =[byte]=: new inspector text in the rail fixtures → regen + bless.
+
+* D-P1 [MED] — uniform-width date pills
+*Symptom:* date pills (=OVERDUE 6d=, =Today=, =Fri=, =· 26d quiet=) vary in
+width, so the gap to the tag cluster is ragged.
+
+*Root cause:* =org-air-view--item-date-text= pads the date label by
+=org-air-pill-pad-cols= (1 each side) → the pill's =Ncols= = =pad + label
++ pad=, which *varies per label*.  The date *column* is =meta-date-w= wide
+(the cell is padded to it afterward), but the *pill box* is only the
+label's own width, so capsules are uneven.
+
+*Contract — the date pill box = the whole date column, uniformly:*
+- In =org-air-view--item-date-text=, when a pill style is active, pad the
+  date label to the *full* =org-air-view--meta-date-w= columns *before*
+  =svg-pillify= (replacing the per-side =pill-pad-label=).  Then every
+  date pill has =Ncols = meta-date-w= → identical box width =
+  =meta-date-w × char-px= (V6 pixel-lock holds, box still text-driven).
+- The label is *centred within the capsule* by the existing
+  =svg-text :text-anchor "middle" :x (/ box-w 2.0)=; defcustom
+  =org-air-date-pill-align= (='center | 'right), default ='center
+  (='right offsets =:x= to =box-w - inner-pad= for a right-hugging column).
+- *Text / TTY fallback:* the underlying padded text stays *left-justified*
+  (label + trailing pad to =meta-date-w=) so the no-pill TTY column reads
+  naturally; the svg simply centres the glyph over that full-width box.
+  =meta-date-w= already reserves the widest label + =2×pad-cols= margin
+  (round-10), so the widest pill still has internal breathing room.
+- The Inbox =· file with r= nudge stays appended *outside* the pill
+  (unchanged; the row expands locally for it).
+- =[byte]=: the date cell's *internal padding distribution* changes
+  (uniform pad-to-column vs pad-cols+trailing) → date-column bytes change →
+  regen + bless.  Column WIDTH (=meta-date-w=) is unchanged, so tags/origin
+  columns do not move.
+
+* D-P3 [BUG] — overflow rows shift the origin column left
+*Symptom:* a row whose tags overflow (3rd tag hidden, shown =…=) renders
+=#projects #urgent … ⌂ projects.org= with =⌂= LEFT of the aligned origin
+column on the other rows.
+
+*Root cause (confirmed in =org-air-view--item-tagstr=):* the overflow
+branch is =(string-trim (concat shown " " (more-glyph)))=.  =string-trim=
+strips the *leading reserved pad space of the first pilled chip*.  That
+chip's svg box was sized at =pillify= time to =Ncols= *including* that pad
+(C2); trimming the char shrinks the string region the =display= image
+covers while the image keeps its baked =:width box-w= — the chip's pixel
+box no longer matches its column run, so the whole cluster (and the origin)
+drifts.  Non-overflow rows are NOT trimmed, so they keep the pad → the two
+row kinds disagree and the origin column splits.
+
+*Contract — never trim a string carrying pill display props:*
+- Remove the =string-trim= from the overflow branch.  Assemble the tag
+  cluster *identically* for overflow and non-overflow: chips joined by a
+  single space; on overflow append a trailing =␣<more-glyph>= as a *plain,
+  unpilled* 1-col token (counted in the budget).  The first chip keeps its
+  reserved leading pad on *every* row → uniform =Ncols= per chip → each
+  svg box matches its run → C2 holds → origin column is fixed.
+- =org-air-view--compute-meta-widths= already calls the same
+  =item-tagstr=, so =meta-tags-w= accounts for the =…= token; =insert-row='s
+  =pad-to= then fixes the cell at =tcol= and the origin column never moves.
+- =[byte]=: overflow-row tag-cluster bytes change (no trim; leading pad
+  retained; =…= within budget) → regen + bless.
+
+* D-P2 [MED, explore] — calmer stacked capsules
+*Symptom:* many bordered capsules stacked at a tight line height read busy.
+Options (all keep V6 alignment + the TTY text fallback):
+
+1. *Hairline / lower-contrast border.*  Draw the capsule stroke at reduced
+   opacity (=:stroke-opacity=) and/or a fainter colour — the capsule shape
+   survives but the grid-of-lines effect softens.  Knob
+   =org-air-pill-border-opacity= (default ≈ 0.5).  *Minimal, safe.*
+2. *Subtle fill, no border.*  =:fill= a muted neutral at =fill-alpha ≈
+   0.07=, =:stroke none= — chips read as soft tints, zero stroke lines.
+   (=org-air-pill-fill-alpha= already exists; set the border off.)
+3. *Capsules on the focused row only.*  Draw pills ONLY on the row at point
+   (the highlighted line); every other row shows plain coloured text.
+   Mode =org-air-pill-render= (='all | 'focus).  *Biggest calm*; ties
+   naturally to D-P7's point tracking (the same hook re-pills the new
+   focused row).  Higher impl cost (per-row re-pill on motion).
+4. *More inter-row breathing.*  Buffer-local =line-spacing= (e.g. 0.15).
+   Orthogonal; composes with any of the above.
+
+*Recommendation:* ship *#1 (hairline border, opacity ≈ 0.5) as the new
+always-on default* + *#4 a touch of =line-spacing= (0.15)* — together they
+calm the board without losing per-row legibility or adding motion cost.
+Offer *#3 ='focus= as an opt-in* for users who want maximum quiet (and as
+the natural partner to the inspector).  =#2= stays available via the
+existing fill knob.  All =[gui]=/display-only — *no byte change* (#1/#2/#3
+are svg attributes, #4 is a buffer-local display var); fixtures hold.
+
+* Faces touched this round
+- =[face]= new: =org-air-face-rail-header= (legible header), =org-air-face-
+  rail-marker= (the prefix bar), =org-air-face-inspector-label= (faded key
+  column).  Reuse existing title/todo/priority/semantic-date/accent faces
+  for the inspector values (board parity).
+- =[face]= deprecate *application* of =org-air-face-rail-card-header= /
+  =-foot= (round-10 D-P2.A) — kept defined, no longer applied (D-P6).
+- D-P2 uses svg attribute knobs + =line-spacing=, not faces.
+
+* Routing
+- impl: D-P6 (=org-air-view--rail-header= + prefix-svg marker + TTY glyph;
+  retire card-header application; =org-air-rail-header-style=), D-P5
+  (calendar header full-width, grid stays centred), D-P7 (inspector block +
+  fields + =post-command-hook= debounced marker-region update), D-P1
+  (date label padded to =meta-date-w= before pillify; =org-air-date-pill-
+  align=), D-P3 (drop =string-trim=; plain =…= within budget), D-P2
+  (=org-air-pill-border-opacity= default 0.5 + =line-spacing= 0.15; offer
+  =org-air-pill-render= ='focus).
+- test: =[byte]= regen + design BLESS for D-P6 (rail/calendar headers),
+  D-P1 (date column), D-P3 (overflow tag clusters), D-P7 (inspector text,
+  rendered for the first-item).  D-P2 = display-only (hold).  The prefix-svg
+  bar, the today svg, and focus-only pills are =[gui]= non-byte (TTY
+  marker/text asserted, unchanged).
+
+* Verification recipe (carried forward — render, don't assert)
+=make deps= (network) → repo-local =.deps/=.  =emacs -Q --batch -L tests
+-l tests/org-air-test-init.el -l render-dump.el= with =current-time= frozen
+(=cl-letf= to =org-air-test-now=) inside =org-air-test-with-fixtures=; dump
+(a) =buffer-substring-no-properties=, (b) face runs via
+=next-single-property-change=, (c) the distinct face set.  This round add:
+(d) for D-P1, assert ALL date pills share one =Ncols= (= =meta-date-w=) and
+the column is byte-identical with pills on/off; (e) for D-P3, assert every
+row's =⌂= origin starts at the same column on overflow and non-overflow
+rows; (f) for D-P7, render with the cursor on the first item (the inspector
+block reflects it) and assert the inspector field text; (g) for D-P6,
+assert the header text is =▌ <Label>= (marker + label, no =────=).
+
+* History
+- 2026-06-17: Authored round-11 design from the 2026-06-17 screenshot on
+  the shipped round-10 build.  D-P6 [HIGH] retire the hl-block card
+  (low-contrast) → =org-air-view--rail-header= with a subtle prefix-svg
+  accent bar + legible =org-air-face-rail-header= (TTY: =▌ Label= / =|
+  Label=); resolves P4.  D-P5 [LOW] calendar header spans the full rail
+  width (grid stays centred).  D-P7 [NEW/HIGH] lower-rail item inspector:
+  full fields (title/state/origin/tags/sched/deadln/created/closed/bucket
+  + relative date terms), board-parity faces, debounced =post-command-hook=
+  marker-region update (no full re-render), byte-tested via the
+  first-item; empty hint off-item.  D-P1 [MED] uniform date pills (pad the
+  label to =meta-date-w= before pillify → identical box; =org-air-date-pill-
+  align= center default; V6 holds).  D-P3 [BUG] overflow origin drift =
+  =string-trim= stripped the first pill's reserved pad and desynced its svg
+  box; fix = never trim a pilled string, append =…= as a plain in-budget
+  token.  D-P2 [explore] recommend hairline border (opacity ≈ 0.5) +
+  =line-spacing= 0.15 default, offer focus-only pills opt-in (all
+  display-only).  Blesses for D-P1/D-P3/D-P5/D-P6/D-P7 fixtures follow with
+  exact change-ids.  Set =#+state: ready=.

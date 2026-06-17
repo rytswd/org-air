@@ -157,7 +157,7 @@ re-introduces inter-row spacing (the divider then needs
 Each pill capsule is drawn this many pixels shorter than the full line
 height at top AND bottom (box height = char-px-h - 2*vinset, vertically
 centred), so a stacked column of capsules reads airy while the cell grid
-(and the `│' divider glyph) stays continuous.  This replaces the
+\(and the `│' divider glyph) stays continuous.  This replaces the
 round-11 `line-spacing' breathing, which broke the divider.  TTY is
 unaffected (no pills)."
   :type 'integer
@@ -168,7 +168,7 @@ unaffected (no pills)."
 `glyph (default) draws the `│' box-drawing glyph per cell — continuous
 at `org-air-line-spacing' 0, portable to TTY and every GUI, zero-cost.
 `svg draws each divider cell as an svg vertical bar sized to the line
-height PLUS the line-spacing gap so consecutive cells abut into a solid
+height PLUS the `line-spacing' gap so consecutive cells abut into a solid
 line even when `org-air-line-spacing' is non-zero — for users who
 re-enable inter-row spacing.  The shipped default is `glyph + spacing 0."
   :type '(choice (const glyph) (const svg))
@@ -1197,7 +1197,7 @@ the svg box gains genuine internal margin and the byte/V6 widths track it."
 (defun org-air-view--item-origin-raw (item)
   "Return the origin breadcrumb \"▤ FILE\" for ITEM (unfaced).
 D-P2: the leading origin glyph carries the drawn document-icon svg overlay
-(`org-air-view--svg-file-icon'); the glyph TEXT is unchanged so the byte
+via `org-air-view--svg-file-icon'; the glyph TEXT is unchanged so the byte
 width/cell holds."
   (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
           " " (org-air-view--origin item)))

@@ -28,17 +28,28 @@ track ACE runtime artifacts in this git repo.
 ## Rig rebuild after a reboot (run from the repo)
     export EVER_DATA_DIR=/home/ryota/Coding/github.com/withre/ace-stack/data
     mkdir -p /tmp/org-air-ace
+    # Topics MUST exist before `ever pub` (else "topic not found"); create all:
+    for r in design impl test; do for e in status done learnings; do \
+      ever topic create org-air3.work.$r.$e 2>/dev/null; done; done
+    ever topic create org-air3.monitor.tick 2>/dev/null
     # notify.sh — host-side hook; relays worker ever-events back to me.
+    # CRITICAL: the crosstalk --from tag MUST use the @ever: scheme or the ACL
+    # denies it ("acl:unknown-sender") and the message silently never arrives.
     cat > /tmp/org-air-ace/notify.sh <<'SH'
     #!/usr/bin/env bash
     EVENT=$(cat)
     case "$EVER_TOPIC" in
       *.status) echo "$EVENT" >> /tmp/org-air-ace/status.log ;;
-      *) pi-crosstalk send org-air-orchestrator --from "$EVER_TOPIC" "$EVENT" ;;
+      *) pi-crosstalk send org-air-orchestrator --from "@ever:$EVER_TOPIC" "$EVENT" ;;
     esac
     SH
     chmod +x /tmp/org-air-ace/notify.sh
     ever hook add org-air3.work. -- /tmp/org-air-ace/notify.sh
+    # Monitor timer (backstop: pings me on new commits / seat exits even if a
+    # worker never publishes). tick.sh crosstalks with --from "@ever:org-air3.monitor",
+    # dedupes via /tmp/org-air-ace/monitor-commits.txt + exited-<role> flags.
+    ever hook add org-air3.monitor.tick -- /tmp/org-air-ace/tick.sh
+    ever timer add --name org-air-monitor --every 3m org-air3.monitor.tick '{"tick":1}'
 
 ## Worker seat spawn (sandboxed; per role = design|impl|test)
     ROLE=design

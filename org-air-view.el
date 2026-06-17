@@ -1717,9 +1717,13 @@ the quiet keycap face; the columns do the separating (no dotted prose)."
 ;;;; ---------------------------------------------------------------------
 
 (defcustom org-air-show-inspector t
-  "When non-nil, show the lower-rail item inspector (D-P7).
-The inspector is a full-width foot band whose rail columns show metadata
-for the board line at point, updating (debounced) as point moves."
+  "When non-nil, show the rail item inspector (D-P7/D-P1).
+The inspector occupies a FIXED reserved mid-rail region between Summary
+and Filters (D-P1): it shows metadata for the board line at point,
+updating (debounced) as point moves.  The region height is fixed per full
+render so Filters/Actions stay pinned to the rail foot and the rail never
+desyncs from the item pane; live updates replace ONLY the rail columns,
+preserving the item rows beside the region."
   :type 'boolean
   :group 'org-air)
 
@@ -1728,8 +1732,9 @@ for the board line at point, updating (debounced) as point moves."
   :type 'integer
   :group 'org-air)
 
-(defcustom org-air-inspector-max-title-lines 3
-  "Maximum wrapped title lines shown in the inspector (D-P7)."
+(defcustom org-air-inspector-max-title-lines 4
+  "Maximum wrapped title lines shown in the inspector (D-P7/D-P1).
+D-P1 raised the default 3 → 4 now the inspector owns the freed mid-rail."
   :type 'integer
   :group 'org-air)
 
@@ -1751,7 +1756,15 @@ Coalesces rapid n/p motion so holding a key costs nothing."
 (defvar-local org-air-view--inspector-item nil
   "The `org-air-item' currently shown in the inspector, or nil (D-P7).")
 (defvar-local org-air-view--inspector-geom nil
-  "Plist (:item-width :divider :rail-width) for the inspector band (D-P7).")
+  "Plist (:item-width :divider :rail-width :region-height) (D-P7/D-P1).
+:region-height is the FIXED line-count of the reserved mid-rail region;
+live updates pad/truncate the inspector to exactly this many lines and
+replace ONLY the rail columns (>= :item-width + the divider).")
+
+(defvar org-air-view--inspector-region-height nil
+  "Reserved mid-rail inspector region height for the current render (D-P1).
+Set by `org-air-view--insert-rail' (in the rail temp buffer) and read back
+by `org-air-view--two-pane-body' to stash into `org-air-view--inspector-geom'.")
 (defvar org-air-view--inspector-timer nil
   "Pending debounce timer for the inspector update (D-P7).")
 
@@ -1903,6 +1916,9 @@ the `org-air-inspector' text property so the band can be re-found (D-P7)."
           (unless (string-empty-p tagstr)
             (dolist (tl (org-air-view--word-wrap tagstr content-w))
               (push (concat inset tl) lines))))
+        ;; D-P1 breathing: a blank line separates the identity group
+        ;; (title/state/origin/tags) from the dates group.
+        (push "" lines)
         ;; dates
         (let* ((deadline (org-air-item-deadline item))
                (dl-time (org-air-view--timestamp-time deadline))
@@ -1931,29 +1947,33 @@ the `org-air-inspector' text property so the band can be re-found (D-P7)."
                               "Closed" (org-air-item-closed item)
                               'org-air-face-faded inset now))))
             (push ln lines)))
-        ;; derived bucket
+        ;; derived bucket (D-P1 breathing: a blank line before it)
         (let ((b (org-air-view--inspector-bucket-line item inset now)))
-          (when b (push b lines)))))
+          (when b (push "" lines) (push b lines)))))
     (mapcar (lambda (l)
               (propertize (org-air-view--pad-to l width) 'org-air-inspector t))
             (nreverse lines))))
 
-(defun org-air-view--inspector-band (item width)
-  "Return the full-width inspector foot band for ITEM at total WIDTH (D-P7).
-Each line is `<item-width blanks><divider><rail inspector>'; the geometry
-is stashed in `org-air-view--inspector-geom' for live updates."
-  (let* ((rail-width (org-air-view--rail-width width))
-         (divider (org-air-view--divider))
-         (item-width (max 20 (- width rail-width (string-width divider)))))
-    (setq org-air-view--inspector-geom
-          (list :item-width item-width :divider divider :rail-width rail-width))
-    (mapcar (lambda (rl)
-              (propertize (concat (make-string item-width ?\s) divider rl)
-                          'org-air-inspector t))
-            (org-air-view--inspector-lines item rail-width))))
+(defun org-air-view--inspector-rail-lines (item width height)
+  "Return exactly HEIGHT rail-cell lines (each WIDTH wide) for ITEM (D-P1).
+The inspector content (header + fields) is top-aligned; the remainder is
+padded with blank `org-air-inspector'-tagged rail lines (the blank tail IS
+the breathing the spec asks for); content is truncated to HEIGHT if it
+overflows.  Every line carries the `org-air-inspector' property so the
+fixed reserved region can be re-found."
+  (let* ((content (org-air-view--inspector-lines item width))
+         (height (max 1 height))
+         (blank (propertize (org-air-view--pad-to "" width) 'org-air-inspector t)))
+    (if (>= (length content) height)
+        (seq-take content height)
+      (append content (make-list (- height (length content)) blank)))))
 
 (defun org-air-view--render-inspector-region (item)
-  "Replace the inspector marker region with ITEM's full-width lines (D-P7)."
+  "Redraw the inspector region for ITEM, COLUMN-ONLY (D-P1).
+Replaces ONLY the rail columns (>= :item-width + the divider) of each
+fixed region line, PRESERVING the item-row text beside it; the new
+inspector lines are padded/truncated to exactly :region-height so the
+region never changes height."
   (when (and org-air-view--inspector-beg org-air-view--inspector-end
              (marker-buffer org-air-view--inspector-beg)
              org-air-view--inspector-geom)
@@ -1961,37 +1981,55 @@ is stashed in `org-air-view--inspector-geom' for live updates."
            (iw (plist-get geom :item-width))
            (div (plist-get geom :divider))
            (rw (plist-get geom :rail-width))
-           (lines (mapcar
-                   (lambda (rl)
-                     (concat (make-string iw ?\s) div rl))
-                   (org-air-view--inspector-lines item rw)))
+           (rh (or (plist-get geom :region-height) 1))
+           (rail-cells (org-air-view--inspector-rail-lines item rw rh))
            (inhibit-read-only t))
       (save-excursion
-        (delete-region org-air-view--inspector-beg org-air-view--inspector-end)
         (goto-char org-air-view--inspector-beg)
-        (dolist (l lines) (insert l "\n"))))))
+        (dolist (cell rail-cells)
+          (when (< (point) org-air-view--inspector-end)
+            (let* ((beg (line-beginning-position))
+                   (end (line-end-position))
+                   (cur (buffer-substring beg end))
+                   ;; preserve the item-row text in the first IW columns,
+                   ;; re-pad to IW, then the divider + the new rail cell.
+                   ;; Keep the full composed width (item-w + divider +
+                   ;; rail-w) so the line stays exactly the board width —
+                   ;; never trim here (a trimmed line would break the
+                   ;; width-composition invariant the byte gate asserts).
+                   (item-part (org-air-view--pad-to
+                               (truncate-string-to-width cur iw) iw))
+                   (new (concat item-part div cell)))
+              (delete-region beg end)
+              (insert new))
+            (forward-line 1)))))))
 
 (defun org-air-view--setup-inspector ()
-  "Find the inspector band, set its markers, sync it to the line at point (D-P7)."
+  "Bracket the fixed reserved inspector region, sync it to point (D-P1).
+Uses the first `org-air-inspector'-tagged line as the region start and the
+stashed :region-height as the fixed line-count so the region brackets the
+WHOLE reserved block even after the blank tail's trailing spaces are
+trimmed."
   (setq org-air-view--inspector-beg nil
         org-air-view--inspector-end nil
         org-air-view--inspector-item nil)
   (when (and org-air-show-inspector
+             org-air-view--inspector-geom
              (eq org-air-view--orientation 'two-pane))
-    (let (firstbol lastbol)
+    (let ((rh (or (plist-get org-air-view--inspector-geom :region-height) 0))
+          firstbol)
       (save-excursion
         (goto-char (point-min))
-        (while (not (eobp))
+        (while (and (not firstbol) (not (eobp)))
           (when (text-property-any (line-beginning-position) (line-end-position)
                                    'org-air-inspector t)
-            (unless firstbol (setq firstbol (line-beginning-position)))
-            (setq lastbol (line-beginning-position)))
+            (setq firstbol (line-beginning-position)))
           (forward-line 1)))
-      (when firstbol
+      (when (and firstbol (> rh 0))
         (setq org-air-view--inspector-beg (copy-marker firstbol nil))
         (save-excursion
-          (goto-char lastbol)
-          (forward-line 1)
+          (goto-char firstbol)
+          (forward-line rh)
           (setq org-air-view--inspector-end (copy-marker (point) t)))
         ;; sync to the actual item the cursor landed on.
         (org-air-view--maybe-update-inspector t)))))
@@ -2026,9 +2064,12 @@ P0: a hard noninteractive guard — never arm an idle timer under batch."
                                (current-buffer)))))
 
 (defun org-air-view--insert-rail (items width)
-  "Insert the context rail for ITEMS at WIDTH (D5 polished sidebar).
-Four peer blocks — calendar, Summary, Filters, Actions — each opened by
-the same labelled rule and sharing one content spine (D5a/D5b)."
+  "Insert the context rail for ITEMS at WIDTH (D-P1 reordered sidebar).
+Top→bottom: Calendar, Summary, Inspector, Filters, Actions.  The
+Inspector occupies a FIXED reserved mid-rail region (top-aligned +
+blank-padded) computed once per render, and Filters + Actions are pinned
+to the rail foot beneath it (D-P1).  When the inspector is off the rail
+falls back to the D5 four-block flow (Calendar/Summary/Filters/Actions)."
   (let ((org-air-view--line-width width))
     (org-air-calendar-insert-month org-air-view--cal-month
                                    (org-air-view--visible-items items)
@@ -2036,15 +2077,43 @@ the same labelled rule and sharing one content spine (D5a/D5b)."
     (insert "\n")
     (org-air-view--insert-summary items width)
     (insert "\n")
-    (org-air-view--insert-rail-filters width)
-    ;; D5f: the verbs are a named Actions peer block, not floating text.
-    ;; Optionally pin it to the rail foot (`org-air-rail-anchor-actions').
-    (when org-air-rail-anchor-actions
-      (let* ((have (count-lines (point-min) (point)))
-             (target (max 0 (- (org-air-view--render-height) 3 have 3))))
-        (when (> target 0) (insert (make-string target ?\n)))))
-    (insert "\n")
-    (org-air-view--insert-actions width)))
+    (if org-air-show-inspector
+        ;; D-P1: Inspector in the fixed reserved middle; Filters + Actions
+        ;; pinned to the foot.  `insert-rail' is only ever called for the
+        ;; two-pane rail, so the orientation is implicitly two-pane here
+        ;; (the rail renders in a temp buffer where the buffer-local
+        ;; orientation is not carried).
+        (let* ((top-used (count-lines (point-min) (point)))
+               ;; foot = the leading blank gap + Filters + blank + Actions.
+               (foot-lines (org-air-view--render-lines
+                            width
+                            (lambda ()
+                              (org-air-view--insert-rail-filters width)
+                              (insert "\n")
+                              (org-air-view--insert-actions width))))
+               (foot-h (1+ (length foot-lines)))
+               (target (max 1 (- (org-air-view--render-height)
+                                 3 (if org-air-show-footer 2 0))))
+               (reserved (max 1 (- target top-used foot-h))))
+          (setq org-air-view--inspector-region-height reserved)
+          (dolist (l (org-air-view--inspector-rail-lines
+                      (org-air-view--first-actionable-item items)
+                      width reserved))
+            (insert l "\n"))
+          (insert "\n")
+          (org-air-view--insert-rail-filters width)
+          (insert "\n")
+          (org-air-view--insert-actions width))
+      ;; No inspector: the historic D5 four-block rail.
+      (setq org-air-view--inspector-region-height nil)
+      (org-air-view--insert-rail-filters width)
+      ;; D5f: optionally pin Actions to the rail foot.
+      (when org-air-rail-anchor-actions
+        (let* ((have (count-lines (point-min) (point)))
+               (target (max 0 (- (org-air-view--render-height) 3 have 3))))
+          (when (> target 0) (insert (make-string target ?\n)))))
+      (insert "\n")
+      (org-air-view--insert-actions width))))
 
 (defun org-air-view--insert-top-rail (items width)
   "Insert the stacked top-band rail for ITEMS at total WIDTH (D3).
@@ -2273,6 +2342,12 @@ spans the full body height when the body is padded out (S6)."
                       (org-air-view--render-lines
                        rail-content-width
                        (lambda () (org-air-view--insert-rail items rail-content-width))))))
+    ;; D-P1: stash the inspector geometry (incl. the FIXED :region-height set
+    ;; by `org-air-view--insert-rail' in the rail temp buffer) so the live
+    ;; column-only update can re-find + re-fill the reserved region.
+    (setq org-air-view--inspector-geom
+          (list :item-width item-width :divider divider :rail-width rail-width
+                :region-height org-air-view--inspector-region-height))
     (cons (org-air-view--compose-columns
            (list (cons item-lines item-width) (cons rail-lines rail-width))
            divider)
@@ -2318,17 +2393,11 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
            (fill-row "")
            (body-content
             (if (eq org-air-view--orientation 'two-pane)
+                ;; D-P1: the inspector now lives INSIDE the rail (fixed
+                ;; reserved mid-rail region), not as an appended foot band.
                 (let ((pair (org-air-view--two-pane-body items width)))
                   (setq fill-row (cdr pair))
-                  ;; D-P7: append the full-width inspector foot band below
-                  ;; the composed body (below the visible item rows), after
-                  ;; one divider separator row.
-                  (if org-air-show-inspector
-                      (append (car pair)
-                              (list fill-row)
-                              (org-air-view--inspector-band
-                               (org-air-view--first-actionable-item items) width))
-                    (car pair)))
+                  (car pair))
               (org-air-view--render-lines
                width
                (lambda ()

@@ -313,18 +313,34 @@ row of `─' reads as one faint connected line rather than a solid bar
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-priority-a
-  '((t :inherit org-air-face-critical :weight bold))
-  "[#A] cookie: critical-hue bold TEXT (round-6 restraint: no pill/box)."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#D32F2F" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#BF616A" :weight bold))
+    (t (:inherit org-air-face-critical :weight bold)))
+  "[#A] cookie: red bold TEXT (D-P4).
+Reconciled with `org-air-priority-colors' so the svg badge and the text
+fallback agree on the A hue."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-priority-b
-  '((t :inherit org-air-face-popout :weight bold))
-  "[#B] cookie: popout bold text (no box)."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#E0631E" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#D08770" :weight bold))
+    (t (:inherit org-air-face-popout :weight bold)))
+  "[#B] cookie: orange bold text (D-P4).
+Reconciled with `org-air-priority-colors'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-priority-c
-  '((t :inherit org-air-face-faded))
-  "[#C] cookie: faded text (no box)."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#689F38"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#A3BE8C"))
+    (t (:inherit org-air-face-faded)))
+  "[#C] cookie: yellow-green text (D-P4).
+Reconciled with `org-air-priority-colors'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-date

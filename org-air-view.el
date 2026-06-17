@@ -370,6 +370,30 @@ Set via `kbd' syntax.  Kept out of the way of normal Org editing (T4)."
   :type '(repeat character)
   :group 'org-air)
 
+(defcustom org-air-priority-colors
+  '((?A . ("#D32F2F" . "#BF616A"))
+    (?B . ("#E0631E" . "#D08770"))
+    (?C . ("#689F38" . "#A3BE8C")))
+  "Alist mapping a priority CHAR to its (LIGHT . DARK) badge colour (D-P4).
+Lower priority is cooler/quieter: A = red (hot), B = orange, C =
+yellow-green (cool).  Resolved against the frame background like the
+accent palette by `org-air-view--priority-color'.  Themable; reconciled
+with `org-air-face-priority-a/-b/-c' so the svg badge and the TTY text
+fallback agree."
+  :type '(alist :key-type character
+                :value-type (cons string string))
+  :group 'org-air)
+
+(defcustom org-air-priority-style 'badge
+  "How the priority cookie renders (D-P4, parallel to `org-air-tag-style').
+`badge draws the `[#A]' token as a colour-coded svg badge (the calm
+capsule, tinted by level) on a graphical frame, degrading to the coloured
+`[#A]' text; `text is always the coloured text.  The byte gate only ever
+sees the `[#A]' text (the badge is a GUI display overlay), so fixtures
+hold either way."
+  :type '(choice (const badge) (const text))
+  :group 'org-air)
+
 (defcustom org-air-todo-keyword-faces
   '(("TODO" . org-air-face-todo)
     ("NEXT" . org-air-face-todo-next)
@@ -915,6 +939,31 @@ ATTENTIONP means the count should use the attention badge face."
     (?B 'org-air-face-priority-b)
     (_ 'org-air-face-priority-c)))
 
+(defun org-air-view--priority-color (char)
+  "Return the badge colour string for priority CHAR (D-P4).
+Resolved light/dark from `org-air-priority-colors' against the frame
+background (like the accent palette); falls back to the priority face
+foreground when CHAR is absent from the table."
+  (let ((pair (cdr (assq char org-air-priority-colors)))
+        (dark (eq (frame-parameter nil 'background-mode) 'dark)))
+    (or (and (consp pair) (if dark (cdr pair) (car pair)))
+        (face-foreground (org-air-view--priority-face char) nil t)
+        "gray")))
+
+(defun org-air-view--priority-token (char)
+  "Return the `[#C]' priority token for CHAR, badge-pilled when enabled (D-P4).
+With `org-air-priority-style' = `badge and svg available the existing
+`[#A]' text cell is pillified — the calm capsule tinted by level via
+`org-air-view--svg-pillify' :border-color — pixel-locked to its 4-col
+cell.  Otherwise the plain coloured `[#A]' text (the TTY/byte fallback)."
+  (let* ((face (org-air-view--priority-face char))
+         (text (propertize (format "[#%c]" char) 'face face)))
+    (if (and (eq org-air-priority-style 'badge)
+             (org-air-view--svg-available-p))
+        (org-air-view--svg-pillify text face
+                                   :border-color (org-air-view--priority-color char))
+      text)))
+
 (defun org-air-view--svg-available-p ()
   "Return non-nil when svg pills can be drawn on this display (C2)."
   (and (display-graphic-p)
@@ -949,10 +998,13 @@ LABEL) CW)' when `string-pixel-width' is unavailable (Emacs < 29)."
               (propertize label 'face (list :height (/ fs (float ch)))))))
       (* (string-width label) cw)))
 
-(cl-defun org-air-view--svg-pillify (text face &key (align 'center))
+(cl-defun org-air-view--svg-pillify (text face &key (align 'center) border-color)
   "Return TEXT carrying a rounded svg-pill `display' overlay (C2/D-P1).
 ALIGN places the label inside the box: `center' (default) or `right'
-\(D-P1 `org-air-date-pill-align').
+\(D-P1 `org-air-date-pill-align').  BORDER-COLOR overrides the neutral
+`org-air-pill-border' for this pill (D-P4: the priority badge passes its
+level colour; tags/dates pass nil = the neutral border).  When non-nil
+the border draws a touch stronger (full opacity) since it is salient.
 The pill SVG occupies EXACTLY TEXT's text-cell box —
 box-w = Ncols * char-px, height = the line's pixel height — where Ncols is
 TEXT's column width (INCLUDING the `org-air-pill-pad-cols' reserved pad
@@ -988,7 +1040,8 @@ mandatory fallback."
                    (radius (max 0.0 (float (or org-air-pill-radius (/ h 6.0)))))
                    (label (string-trim text))
                    (fg (or (face-foreground face nil t) "gray"))
-                   (border (or org-air-pill-border
+                   (border (or border-color
+                               org-air-pill-border
                                (face-foreground 'org-air-face-faded nil t)
                                "gray"))
                    (alpha (max 0.0 (min 1.0 (float org-air-pill-fill-alpha))))
@@ -1008,7 +1061,11 @@ mandatory fallback."
                   ;; fallback (plain padded coloured label, no pill).
                   text
                 (let* ((svg (svg-create box-w h))
-                       (stroke-op (max 0.0 (min 1.0 (float org-air-pill-border-opacity))))
+                       ;; D-P4: a salient priority border draws full strength;
+                       ;; the neutral tag/date border stays a hairline.
+                       (stroke-op (if border-color
+                                      1.0
+                                    (max 0.0 (min 1.0 (float org-air-pill-border-opacity)))))
                        ;; D-P3: draw the capsule `org-air-pill-vinset' px
                        ;; shorter top+bottom, vertically centred, so the
                        ;; pill breathes INSIDE its cell while the cell grid
@@ -1288,9 +1345,7 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
                                                (org-air-view--todo-face todo))
                                    " "))
                          (when (and priority (member priority org-air-priority-show))
-                           (concat (propertize (format "[#%c]" priority) 'face
-                                               (org-air-view--priority-face priority))
-                                   " "))))
+                           (concat (org-air-view--priority-token priority) " "))))
          (tags (org-air-item-tags item))
          (n-tags (length tags))
          (tagstr (org-air-view--item-tagstr
@@ -1827,8 +1882,7 @@ the `org-air-inspector' text property so the band can be re-found (D-P7)."
                                     (propertize todo 'face
                                                 (org-air-view--todo-face todo)))
                                   (when prio
-                                    (propertize (format "[#%c]" prio) 'face
-                                                (org-air-view--priority-face prio)))))))
+                                    (org-air-view--priority-token prio))))))
           (when parts (push (concat inset (string-join parts "  ")) lines)))
         ;; origin (group/file)
         (let* ((grp (org-air-item-group item))

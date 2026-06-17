@@ -1,0 +1,231 @@
+#+title: org-air v0.4 round-14 — project-view two-line rework + project inspector + repeats (design)
+#+state: ready
+#+FILETAGS: :ui:project:repeats:svg:v0.4:
+
+* Summary
+Round-14 from user feedback after round-13.  Two design-led items:
+1. *D-P1 [HIGH]* — rework the Air project view (=org-air-project=) from the
+   board's right-aligned single row into a *two-line doc component*, and
+   *add the mid-rail inspector* to it (reusing the shared machinery).
+2. *D-P2 [NEW]* — surface *Org repeaters read-only*, the Org-default way (a
+   =↻= marker + an inspector =Repeat= line); no model change, no advance.
+
+Continuity: builds on round-10 D-P5 (the project view already renders state
+buckets as sections through =org-air-view--insert-row=), round-11/12/13
+(the prefix-svg headers, the calm line-clamped pills, the mid-rail
+inspector + its marker-region/debounced/column-only update, the round-13
+=board-only= responsive drop).  This round *replaces* the project view's
+single-row doc with a two-line block and *generalises* the board-only
+inspector core so the project view can host it.
+
+*Tags:* =[gui]= GUI svg/display overlay (non-byte; text is the fallback);
+=[face]= face-only (fixtures hold); =[byte]= buffer-text change (regen +
+bless).  Each bless names the exact change-id and voids earlier blesses.
+
+* D-P1 [HIGH] — project view: two-line doc component + a project inspector
+
+** D-P1.A — the two-line doc component (replaces the single row)
+Each doc renders as a *2-line block* (the byte contract is these two
+lines).  The right-aligned filename/date cluster (round-10 D-P5.B, wrong
+for docs) is gone; everything *flows LEFT*.
+
+- *Line 1 — title + inline tags (left-flowing):*
+  : <indent><state-chip?>Title  #tag #tag
+  - =Title= = =org-air-doc-name= in =org-air-face-title=.
+  - Tags follow inline after a 2-space gap, the *calm round-13 pills* (reuse
+    =org-air-view--item-tagstr= so they are the SAME accent pills as the
+    board); they are *NOT right-pinned* — they sit immediately after the
+    title and flow left.
+  - =state-chip= prefix only in the dir/tag group modes (where the state is
+    not the section), exactly as today's =org-air-project--state-chip=.
+  - The whole line truncates LAST at the pane content width with the =more=
+    glyph (titles are long; tags give way first, then the title).
+- *Line 2 — filename + dates, indented + quieter:*
+  : <indent+2>▤ relpath    created 2026-06-01    updated 2026-06-14
+  - Indented *under* the title (=indent + org-air-project-line2-indent=,
+    default +2) so it reads as a secondary detail of line 1.
+  - =▤ relpath= = the round-12 file glyph + the doc's =relpath= (NOT the
+    basename, so the dir/version is visible) in =org-air-face-faded=; the
+    GUI document =svg-file-icon= overlays the =▤= cell.  *Filename is NOT
+    right-aligned* — it flows left right after the indent.
+  - =created= + =updated= dates follow, each a quiet =org-air-face-faded=
+    =created YYYY-MM-DD= / =updated YYYY-MM-DD= (a small gap between).
+  - New doc field: =org-air-doc-created= — read =#+created:= / =#+date:= if
+    present, else the file's birth/ctime (=file-attribute-status-change-
+    time=); =updated= stays =file-attribute-modification-time=.
+- *Both lines* carry =org-air-doc= + =org-air-marker= text props (point on
+  EITHER line identifies the doc → RET / next / prev / the inspector all
+  work on the 2-line block as a unit).
+- *Sections + headers:* keep the state-bucket sections; the section heading
+  adopts the round-11 *prefix-svg header marker* (=▌=) for consistency —
+  =▌ <state-badge> <State Title> <count>= via the shared
+  =org-air-layout-rail-header-string= marker (TTY =▌=/=|=).  Calm pills on
+  tags throughout (D-P1.A).
+- =[byte]=: the doc block goes 1 row → 2 rows, left-flowing, +created date,
+  + the =▌= section markers → the project fixtures change wholesale → regen
+  + *BLESS*.
+
+** D-P1.B — add the mid-rail inspector to the project view
+The project view today is single-pane.  To host a *mid-rail* inspector it
+adopts the board's *two-pane* composition: LEFT = the doc sections (the
+two-line blocks), RIGHT = a *project rail*.  Reuse, don't reinvent.
+
+- *Project rail (top→bottom): Summary · Inspector.*  =Summary= = the
+  per-state count block (move today's top-line state summary into a rail
+  =▌ Summary= block); the =Inspector= fills the reserved middle/foot
+  exactly like the board (round-12 D-P1: Summary above, inspector in the
+  fixed reserved region to the rail foot — there are no Filters/Actions
+  here, so the inspector extends to the foot).
+- *Responsive (round-13 D-P3):* when the window is wider than
+  =org-air-rail-min-width= render two-pane (docs + rail); below it render
+  *board-only* — the two-line doc list at full width, no rail, no
+  inspector.  Reuse the board's =board-only= path / the C1 resize
+  re-render.
+
+*** Generalise the inspector core (so both views share it)
+The round-11/12/13 inspector core (=--inspector-band=, =--inspector-rail-
+lines=, =--render-inspector-region=, =--setup-inspector=, =--maybe-update-
+inspector=, =--inspector-post-command=, the markers/geom/debounce) is
+content-agnostic *except* three board-specific touch points.  Parameterise
+them with *buffer-local* hooks:
+1. =org-air-view--inspector-property= (symbol; default ='org-air-item) —
+   the text property identifying the thing at point.  Project sets
+   ='org-air-doc=.
+2. =org-air-view--inspector-fields-function= (function; default the
+   extracted =org-air-view--inspector-item-fields=) — =(thing inset
+   content-w now)= → the list of body lines *after* the =▌ Inspector=
+   header (the header + empty-hint stay in the core).  Project sets
+   =org-air-project--inspector-doc-fields=.
+3. =org-air-view--inspector-initial-fn= (function; default
+   =org-air-view--first-actionable-item=) — pick the initial thing to show
+   at render time (point isn't known in the temp-buffer panes).  Project
+   sets "the first doc".
+   Also: the post-command guard =(derived-mode-p 'org-air-view-mode)=
+   becomes a buffer-local flag =org-air-view--inspector-active= (the board
+   and the project view both set it), so the hook fires in either mode.
+- =org-air-view--inspector-lines= keeps the header + empty-hint + the
+  per-WIDTH padding, but its body comes from
+  =org-air-view--inspector-fields-function=.  Everything downstream
+  (region height, column-only replace, debounce) is unchanged.
+
+*** Project inspector fields (=org-air-project--inspector-doc-fields=)
+For the highlighted =org-air-doc= (noninteractive-inert, like the board):
+| line     | source                                                   |
+|----------+----------------------------------------------------------|
+| title    | =org-air-doc-name= (wrapped, =max-title-lines=)          |
+| State    | badge + State title in the state face                    |
+| Path     | the *full* path (=org-air-doc-file=, abbreviated =~=)    |
+| tags     | all =#tags= (accent, wrapped)                            |
+| Group    | the dir / version group (leading =relpath= component)    |
+| Created  | =org-air-doc-created= + relative term                    |
+| Updated  | =org-air-doc-updated= + relative term                    |
+Same KV layout, =org-air-inspector-key-w= key column, breathing blank
+lines, and the D-P4 brightened label face as the board.
+
+* D-P2 [NEW] — repeats, read-only, the Org-default way
+*Guidance honoured: detect Org's own repeaters; do NOT reimplement repeat
+logic, no model change, no advance.*  (Working-day advance = round-13 D-P5
+B, *deferred* — not this round.)
+
+** Detection (read Org, don't compute)
+- New =org-air-view--timestamp-repeater (timestamp)= → returns =(TYPE VALUE
+  UNIT)= or nil by reading the org-timestamp object's =:repeater-type= /
+  =:repeater-value= / =:repeater-unit= (these are already on the
+  =org-timestamp-from-string= object stored in =org-air-item-scheduled= /
+  =-deadline=).  No marker round-trip, no recomputation.
+- New =org-air-view--repeat-string (timestamp)= → a human rule =every 1w=
+  (unit day→d / week→w / month→m / year→y; the cookie kind =.+/++/+= is
+  irrelevant to the displayed rule, so keep it as =every <N><u>=).
+
+** Row marker (date cluster)
+- New glyph =repeat= = =("↻" . "~")=.
+- In =org-air-view--item-date-text=, when the *effective* date timestamp
+  (deadline-or-scheduled) carries a repeater, append a small =␣↻= marker
+  (faded/salient) *after* the date pill, before the Inbox nudge — within
+  the date cell.  It widens =org-air-view--meta-date-w= (computed over the
+  same text), so the date column stays aligned (V6).
+- =[byte]=: the date cell gains =␣↻= on repeating rows → date-column bytes
+  change → regen + *BLESS* (fixtures should add a repeating item).
+
+** Inspector "Repeat" line
+- A new field (in the *item* fields, after the dates): when the effective
+  date repeats,
+  : Repeat   every 1w → next Mon 22 Jun
+  - =every 1w= = =org-air-view--repeat-string=.
+  - =next= = the repeating timestamp's *own date* formatted =%a %d %b= — a
+    scheduled/deadline repeater's stored date *is* the next due occurrence
+    by Org convention, so we read it directly (no repeat math reimplemented).
+  - Faced like the other inspector values (=salient= for the date, =faded=
+    label brightened per round-13 D-P4).
+- =[byte]=: when a repeating item is the rendered (first) item, the
+  inspector gains the Repeat line → part of the inspector fixture → *BLESS*.
+
+* Faces / knobs / glyphs touched this round
+- New defcustoms: =org-air-project-line2-indent= (default 2, D-P1.A);
+  reuse =org-air-rail-min-width= (D-P1.B responsive).  Possibly
+  =org-air-project-show-inspector= (default t) mirroring the board.
+- New struct field =org-air-doc-created= (D-P1.A).
+- New buffer-locals: =org-air-view--inspector-property=,
+  =org-air-view--inspector-fields-function=,
+  =org-air-view--inspector-initial-fn=, =org-air-view--inspector-active=
+  (D-P1.B generalisation).
+- New glyph =repeat= =("↻" . "~")= (D-P2).
+- New helpers: =org-air-view--timestamp-repeater=,
+  =org-air-view--repeat-string= (D-P2); =org-air-project--two-pane-body=,
+  =org-air-project--inspector-doc-fields=,
+  =org-air-project--insert-doc-block= (D-P1); extract
+  =org-air-view--inspector-item-fields= from =--inspector-lines= (D-P1.B).
+- No new faces required (reuse title/faded/accent/state/semantic faces; the
+  repeat marker uses =faded= or =salient=).
+
+* Routing
+- impl: D-P1 (two-line =insert-doc-block= replacing =insert-doc-row=;
+  =org-air-doc-created=; the =▌= section headers; the project two-pane body
+  + project rail Summary+Inspector; generalise the inspector core via the
+  three buffer-locals + the active flag; =inspector-doc-fields=;
+  board-only/responsive reuse), D-P2 (=timestamp-repeater= + =repeat-string=
+  + the =↻= date marker + the inspector Repeat line; new =repeat= glyph).
+- test: =[byte]= regen + design *BLESS* for D-P1 (project view two-line +
+  the project rail/inspector) and D-P2 (the =↻= date marker + inspector
+  Repeat line — add a repeating fixture item).  The pills / file-icon /
+  prefix-svg markers are =[gui]= overlays (asserted text unchanged).  The
+  board's own item rows are *unchanged* by D-P1 (project-only) → board
+  fixtures HOLD; D-P2 touches the board's date cells only on repeating rows.
+- Generalising the inspector core must *not* change the board's inspector
+  output — assert the board inspector fixtures HOLD after the refactor
+  (the default buffer-locals reproduce today's behaviour exactly).
+
+* Verification recipe (carried forward — render, don't assert)
+=make deps= → =.deps/=; =emacs -Q --batch -L tests -l tests/org-air-test-
+init.el -l render-dump.el= with =current-time= frozen inside
+=org-air-test-with-fixtures=; dump (a) =buffer-substring-no-properties=,
+(b) face runs, (c) distinct faces.  This round add: (d) D-P1 — render
+=org-air-project= against a fixtures Air tree and assert the *two-line*
+block per doc (line 1 title+inline tags, line 2 indented =▤ relpath= +
+created/updated, NOT right-aligned), the =▌= section headers, AND the
+project rail Inspector reflecting the first doc; (e) D-P1.B refactor — the
+*board* inspector fixtures are byte-identical after generalisation; (f)
+D-P2 — a repeating fixture item shows =␣↻= in its date cell and a =Repeat
+  every 1w → next …= inspector line, while non-repeating rows are
+unchanged.
+
+* History
+- 2026-06-17: Authored round-14 from user feedback.  D-P1 [HIGH] project
+  view two-line rework: each doc = line 1 (title + inline left-flowing
+  tags, calm pills, NOT right-pinned) + line 2 (indented quieter =▤ relpath=
+  + created/updated dates, filename NOT right-aligned); keep state-bucket
+  sections with round-11 =▌= prefix-svg headers; add =org-air-doc-created=.
+  D-P1.B add the mid-rail inspector to the project view by GENERALISING the
+  inspector core — buffer-local =inspector-property= / =-fields-function= /
+  =-initial-fn= + an =-active= flag (default reproduces the board exactly,
+  fixtures hold) — and giving the project view a two-pane body (LEFT doc
+  sections, RIGHT rail = Summary + Inspector), responsive board-only below
+  =org-air-rail-min-width=; project inspector shows title/state/full-path/
+  tags/group/created/updated.  D-P2 [NEW] repeats read-only the Org-default
+  way: =timestamp-repeater= reads the org-timestamp object's repeater props,
+  =repeat-string= formats =every 1w=, a =↻= marker (glyph =repeat=) in the
+  date cluster + an inspector =Repeat   every 1w → next <date>= line whose
+  next = the repeating timestamp's own stored date (Org convention; no
+  repeat math reimplemented); working-day advance stays DEFERRED.  Blesses
+  for D-P1 + D-P2 fixtures follow with exact change-ids.  Set
+  =#+state: ready=.

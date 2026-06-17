@@ -1,0 +1,280 @@
+#+title: org-air v0.4 round-15 D-P2 — side-window rail + window-divider (impl-ready SPEC)
+#+state: ready
+#+FILETAGS: :ui:layout:architecture:svg:v0.4:
+
+* Status
+APPROVED: Option A (real side-window rail + =window-divider-mode=), the
+round-15 D-P2 proposal's recommendation, PHASED behind =org-air-rail-style=.
+This is the hardened, impl-ready spec.  Impl commits *per phase* (Phase 0..4
+below); the ='inline path stays the default and stays byte-green until
+Phase 4 flips it.  Fixture blesses follow per phase with exact change-ids.
+
+* Goal
+A *truly* gap-free, font-independent divider by rendering the rail in a
+dedicated Emacs *side window* (a separate buffer) and drawing the rule as a
+real *window border* (=window-divider-mode=), not an in-buffer per-cell
+glyph.  Inline composition (today) stays available behind a flag.
+
+* Architecture summary (the two layouts)
+- ='inline= (today, unchanged): ONE buffer =*org-air*=; the rail is composed
+  into the same buffer via =org-air-view--two-pane-body= /
+  =org-air-view--compose-columns=; the divider is the in-buffer =│= cell.
+- ='side-window= (new): TWO buffers — =*org-air*= (board, main window, full
+  width) and =*org-air-rail*= (rail, a right side window).  The divider is
+  the *window border* between them (=window-divider-mode=, GUI pixel line;
+  TTY =vertical-border=).  NO column stitching, NO in-buffer divider.
+
+The chosen layout is =org-air-rail-style= EXCEPT that the round-13
+responsive *board-only* still wins below =org-air-rail-min-width= (no rail
+at all — under ='side-window that means the side window is deleted).
+
+* New defcustoms
+- =org-air-rail-style= — =(choice (const inline) (const side-window))=,
+  *default ='inline= for Phases 0-3*; flipped to ='side-window= in Phase 4
+  after parity.  =:group 'org-air=.
+- =org-air-divider-pixels= — integer, default *3*; the
+  =window-divider-width= (right border) used in ='side-window on GUI.
+- =org-air-rail-window-width= — integer or nil, default nil = derive from
+  the existing =org-air-rail-width= tier (=-narrow/-/-wide=) for the
+  *window* width (columns).  (Reuses the tier logic; the side window's body
+  width = this minus any fringes.)
+- =org-air-rail-side= — =(choice (const right) (const left))=, default
+  ='right= (future-proofing; spec targets ='right).
+
+* New faces
+- =org-air-face-window-divider= — maps onto the standard =window-divider=
+  face for the org-air frames; a calm =org-air-face-pane-border= hue
+  (light/dark).  Impl sets =window-divider= via =face-remap= *buffer/
+  frame-locally* if global remap is undesirable, else documents that
+  ='side-window enables =window-divider-mode= and themes =window-divider=.
+- No other new faces — the rail buffer reuses every existing rail face.
+
+* New buffer-locals / state
+- =org-air-view--rail-buffer= (in the board buffer): the live
+  =*org-air-rail*= buffer, or nil.
+- =org-air-rail--board-buffer= (in the rail buffer): back-pointer to
+  =*org-air*= (so the rail's render reads the board's items/scope/filter).
+- =org-air-rail--window= cached side window, validated before use.
+- Reuse the existing inspector buffer-locals (=org-air-view--inspector-
+  property/-fields-function/-initial-fn/-active=, R14 D-P1.B) *in the rail
+  buffer* so the inspector core runs there unchanged.
+
+* New functions (by area)
+** Rail buffer + window lifecycle (new file section in org-air-view.el, or org-air-rail.el)
+- =org-air-rail--get-buffer ()= → get-or-create =*org-air-rail*=, put it in
+  =org-air-rail-mode= (a =special-mode= derivative; =truncate-lines=,
+  =buffer-read-only=, =cursor-type nil=, =line-spacing org-air-line-spacing=).
+- =org-air-rail--window-params ()= → the =display-buffer-in-side-window=
+  alist: =(side . right) (slot . 0) (window-width . COLS)
+  (window-parameters . ((no-other-window . t) (no-delete-other-windows . t)))=.
+- =org-air-rail--show (board-buffer width)= → ensure the side window exists
+  (=display-buffer-in-side-window=), enable =window-divider-mode= on the
+  frame with =window-divider-default-right-width = org-air-divider-pixels=
+  (and =window-divider-default-places 'right-only=), render the rail buffer
+  (below), and stash =org-air-view--rail-buffer= / =org-air-rail--window=.
+- =org-air-rail--hide (board-buffer)= → delete the side window (if live) and
+  clear the caches.  Used by board-only + =q=.
+- =org-air-rail--render (items width-cols height-rows)= → render the rail
+  buffer's content (below).  Pure text + svg overlays, like every pane.
+
+** Rail content render (reuse the existing block builders verbatim)
+The rail buffer renders the SAME blocks as today's inline rail, just into a
+full-width buffer instead of a composed column:
+- header band: a compact =▌ org-air · rail= (or reuse the board banner's
+  right cluster) — minimal.
+- =org-air-view--insert-rail items rail-cols= ALREADY emits calendar /
+  Summary / Filters / Actions + the mid-rail inspector region (R12 D-P1).
+  *Reuse it unchanged*: in ='side-window the rail buffer is its own full
+  width = =rail-cols=, so =insert-rail= just renders top-to-bottom with no
+  divider/compose.  The inspector's *fixed reserved mid-rail region* still
+  applies (Summary above, inspector to the foot) — but now trivially,
+  because the rail buffer has no item columns beside it.
+- The board buffer in ='side-window renders *board-only style* (full-width
+  item pane, header + rule + sections), i.e. it reuses the EXISTING
+  =board-only= body path — no rail, no compose, no fill-row divider.
+
+** Inspector adaptation (gets SIMPLER)
+- In ='side-window the inspector lives in the RAIL buffer.  Set the rail
+  buffer's inspector buffer-locals to the BOARD's content: the rail's
+  =org-air-view--inspector-initial-fn= = first board item; but the *live*
+  thing-at-point is the BOARD's point, not the rail's.  So:
+  - The board buffer's =post-command-hook= (=org-air-view--inspector-post-
+    command=) is kept, but its update target becomes the RAIL buffer:
+    =org-air-view--maybe-update-inspector= reads
+    =(get-text-property (point) org-air-view--inspector-property)= in the
+    BOARD, then renders the inspector region IN =org-air-view--rail-buffer=.
+  - Generalize =org-air-view--render-inspector-region= to accept the target
+    buffer; in ='side-window the replacement is a *whole-region* (not
+    column-only) re-insert in the rail buffer (no item columns to dodge) —
+    *delete the marker region, insert the fresh inspector lines*.  Keep the
+    column-only path for ='inline (back-compat).
+  - =org-air-view--setup-inspector= in ='side-window locates the markers in
+    the RAIL buffer after =org-air-rail--render=.
+- Debounce, =noninteractive= inertness, and the empty-hint all unchanged.
+
+** Orientation / render plumbing
+- =org-air-view--render= (board buffer) gains a ='side-window branch
+  *before* the inline two-pane branch:
+  : (cond
+  :  ((org-air-view--board-only-p width) 'board-only)        ; rail hidden
+  :  ((eq org-air-rail-style 'side-window) 'side-window)      ; NEW
+  :  ((org-air-view--two-pane-p width) 'two-pane)             ; inline
+  :  (t 'stacked))
+  - ='side-window: render the board body via the EXISTING board-only path
+    (full-width item pane), then call =org-air-rail--show= to render/refresh
+    the rail buffer + side window.  =org-air-view--setup-inspector= runs in
+    the rail buffer.
+  - ='board-only (width < =org-air-rail-min-width=): render board-only AND
+    =org-air-rail--hide= (delete the side window) regardless of rail-style.
+- =org-air-view--render-width= for the BOARD in ='side-window is the *board
+  window* width (the side window is separate), so the board naturally uses
+  the full remaining frame width — no rail subtraction.
+
+** Lifecycle hooks
+- =org-air-view= (entry): after rendering the board, if ='side-window and
+  not board-only, =org-air-rail--show=.
+- =org-air-view-quit= / the board's =kill-buffer-hook=: =org-air-rail--hide=
+  + kill =*org-air-rail*=.
+- Resize: =org-air-view--resize-refresh= (already debounced via
+  =org-air-layout-refresh-function=) re-derives width, re-renders the board,
+  and re-shows/hides the rail (crossing =org-air-rail-min-width= flips
+  board-only ↔ side-window).  The rail window's own size-change is ignored
+  (the rail is passive; only the board drives).
+
+* Point / scroll / refresh sync
+- *Point lives only in the board* (main window).  The rail window carries
+  =(no-other-window . t)= and =cursor-type nil= → users never land in it;
+  =n/p/RET/g= all act on the board.
+- *Scroll:* the rail does NOT scroll with the board (it is fixed calendar/
+  summary/inspector) — desired.  The board scrolls independently.
+- *Inspector sync:* board =post-command-hook= → debounced → render the
+  inspector region in the rail buffer for the board's item-at-point (cross-
+  buffer =with-current-buffer org-air-view--rail-buffer=).
+- *Refresh (=g=):* re-render the board, then =org-air-rail--render= the rail
+  (and re-show the window if needed).  Filter/scope/cal-month state stays in
+  the board buffer; the rail reads it through the back-pointer.
+
+* TTY fallback (mandatory)
+- =window-divider-mode= renders in TTY too (Emacs draws the inter-window
+  =vertical-border= — a full-height column, continuous by construction), so
+  ='side-window is valid in TTY and the divider is solid there.
+- If a user/site prefers a single buffer in TTY, ='inline remains and is the
+  documented fallback; ='side-window is opt-in until Phase 4.  The svg pill/
+  badge/file-icon overlays already degrade to text in both buffers.
+
+* Phased migration (impl commits one phase per commit)
+** Phase 0 — flag + no-op
+- Add =org-air-rail-style= (default ='inline), =org-air-divider-pixels=,
+  =org-air-rail-window-width=, =org-air-rail-side= defcustoms; the
+  =org-air-face-window-divider= face.  No behaviour change (='inline path).
+- *Gate:* full suite green, byte-compile + lint clean.  NO fixture change.
+- Commit: =Design round-15 D-P2 Phase 0: rail-style flag + defcustoms (no-op)=.
+** Phase 1 — rail buffer + side window + divider (board-only body for the board)
+- =org-air-rail-mode=, =org-air-rail--get-buffer=, =--show=, =--hide=,
+  =--window-params=, =--render= (calendar/Summary/Filters/Actions via the
+  existing =insert-rail=; NO inspector yet — render it with the inspector
+  block suppressed or showing its empty hint).
+- =org-air-view--render= ='side-window branch: board renders board-only
+  body; =org-air-rail--show= draws the rail + enables =window-divider-mode=.
+- *Gate:* with =org-air-rail-style 'side-window=, manual/interactive parity
+  of the rail blocks + a continuous pixel divider; ='inline fixtures
+  UNCHANGED (default still inline).  Add the Phase-3 per-buffer fixtures
+  later; here assert the rail buffer renders the expected blocks (a rail
+  golden at one width) + a window-config assertion (side window exists,
+  =window-divider-default-right-width = org-air-divider-pixels=).
+- Commit: =… Phase 1: side-window rail buffer + window-divider=.
+** Phase 2 — inspector in the rail buffer
+- Generalize =org-air-view--render-inspector-region= to a TARGET buffer +
+  a whole-region re-insert path; board =post-command-hook= updates the rail
+  buffer's inspector for the board's item-at-point; =setup-inspector= finds
+  the markers in the rail buffer.
+- *Gate:* moving point on the board updates the rail inspector (manual);
+  the BOARD's own fixtures are byte-identical (inspector no longer inline in
+  ='side-window, but ='inline default is unchanged → inline fixtures hold).
+- Commit: =… Phase 2: inspector renders in the rail buffer=.
+** Phase 3 — responsive + lifecycle + per-buffer test model
+- board-only below =org-air-rail-min-width= deletes the side window;
+  widening re-shows it (ride the resize refresh).  =q= / kill-buffer tears
+  down the rail.  Window-parameter hardening (=no-delete-other-windows=,
+  =no-other-window=).
+- *Test model:* add the per-buffer render-dump harness (below) + new
+  ='side-window goldens (board golden + rail golden) at the canonical
+  widths; window-config assertions for the divider + board-only teardown.
+- Commit: =… Phase 3: responsive teardown + per-buffer fixtures=.
+** Phase 4 — flip the default
+- Set =org-air-rail-style= default ='side-window once Phase 3 goldens +
+  window-config assertions pass at parity.  Keep ='inline documented as the
+  single-buffer fallback (and exercised by the retained inline fixtures).
+- *Gate:* the ='side-window goldens are now the primary dashboard fixtures;
+  ='inline goldens retained as a second matrix dimension.
+- Commit: =… Phase 4: default rail-style = side-window=.
+
+* Testability plan (keep the byte contract; add a window dimension)
+The renderer keeps the =org-air-view-width= seam; add a rail seam.
+- *Per-buffer dumps.*  New helper (tests):
+  =org-air-test-render-side-window (width)= → bind =org-air-rail-style
+  'side-window= + the width seam, render the board, render the rail buffer,
+  and return =(BOARD-TEXT . RAIL-TEXT)= via =buffer-substring-no-properties=
+  on each buffer.  Text-is-the-contract holds *per buffer* (invariant 4),
+  just two goldens.
+  - New fixtures: =tests/fixtures/sidewindow-board-WIDTH.txt= and
+    =tests/fixtures/sidewindow-rail-WIDTH.txt= at the canonical widths
+    (=org-air-viewport-test--widths=).  The existing
+    =layout-mockup-WIDTH.txt= remain the ='inline goldens.
+  - Anti-tautology guards (the viewport harness's mockup-read traps) apply
+    to BOTH buffers; the rail render must PRODUCE its bytes, not read a
+    fixture.
+- *Divider asserted structurally, not as text.*  A window-config ERT:
+  with a real (non-batch) frame, =org-air-rail-style 'side-window=, open the
+  dashboard and assert: a right side window shows =*org-air-rail*=;
+  =(frame-parameter nil 'right-divider-width)= (or
+  =window-divider-default-right-width=) = =org-air-divider-pixels=; the
+  board window shows =*org-air*=.  The divider was never legitimately part
+  of the text contract — this is its proper assertion.
+  - In *batch* (=noninteractive=), side windows/dividers are unreliable, so
+    the per-buffer *text* goldens are the batch gate; the window-config ERT
+    is guarded =(skip-unless (display-graphic-p))= (or an interactive
+    harness), matching how other GUI-only behaviour is handled.
+- *board-only teardown ERT:* render at width < =org-air-rail-min-width= and
+  assert the side window is absent and the board is full-width (reuse the
+  existing board-only fixtures).
+- *Inspector ERT:* with point on a known board item, assert the RAIL
+  golden's inspector region reflects that item (the same field text as the
+  inline inspector fixtures, now in the rail golden).
+- *Inline regression net retained:* the ='inline =layout-mockup-*= fixtures
+  stay green throughout (Phases 0-3) and remain a permanent second matrix
+  so the shared renderer (sections/rows/pills/V6) can't silently break.
+
+* Invariants preserved
+1. V6 pixel-lock — both buffers render the V6 text columns identically.
+2. svg never grows the line — unchanged; the ='side-window divider uses NO
+   svg (it is a window border), so the per-cell svg-divider concern is gone.
+3. Text is the contract — per-buffer (two goldens); the divider moves to a
+   window-config assertion.
+4. Responsive board-only + inspector — both adapt (board-only deletes the
+   window; the inspector moves into the rail buffer and gets simpler).
+
+* Routing
+- impl: Phases 0-4 above, one commit each; ='inline stays default + green
+  until Phase 4.
+- test: Phase 3 adds the per-buffer dump harness + ='side-window goldens +
+  the window-config / teardown / inspector ERTs; ='inline fixtures retained.
+- BLESS: the new ='side-window board+rail goldens at Phase 3, and the
+  default-flip fixture matrix at Phase 4 — each with the exact change-id.
+
+* History
+- 2026-06-17: Hardened the APPROVED Option A into an impl-ready spec.
+  ='side-window renders the rail in a =*org-air-rail*= side window
+  (=display-buffer-in-side-window=, =side right=, width from the rail tier)
+  with =window-divider-mode= (=org-air-divider-pixels=) as the continuous
+  pixel divider; the board renders full-width board-only-style; the
+  inspector moves into the rail buffer (whole-region re-insert, simpler than
+  the inline column-only replace) driven by the board's point via the
+  debounced hook; board-only below =org-air-rail-min-width= deletes the side
+  window.  Phased behind =org-air-rail-style= (default ='inline until Phase
+  4) so the inline byte fixtures stay green throughout.  5 concrete phases
+  (flag → rail buffer+divider → rail inspector → responsive+per-buffer
+  fixtures → flip default), each a commit.  Testability = per-buffer render-
+  dumps (board + rail goldens) + window-config divider assertions + retained
+  inline regression net; the byte contract holds per buffer.  Set
+  =#+state: ready=.

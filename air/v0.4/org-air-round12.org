@@ -1,0 +1,67 @@
+#+title: org-air v0.4 round-12: rail reorder + priority svg + divider/icon polish
+#+state: ready
+#+FILETAGS: :ui:visual:svg:polish:
+
+* Summary
+Round-12 from screenshot 2026-06-17 14-26-06 on the shipped round-11
+build.  Headers/pills/inspector all look good now; this is layout +
+two svg refinements.  Four items, design-led.
+
+* Findings
+
+** P1 [HIGH] Reorder the rail blocks; give the inspector room
+Current rail order: Calendar, Summary, Filters, Actions, Inspector
+(inspector last + cramped → "too small").  New order, top→bottom:
+  1. Calendar
+  2. Summary
+  3. *Inspector*   (moves up, takes the large middle space)
+  4. Filters
+  5. Actions       (bottom-most)
+So Filters + Actions sink to the bottom; the Inspector sits right under
+Summary and expands into the freed middle area (more fields / breathing /
+wrap room).  Keep the prefix-svg headers (round-11 D-P6).
+
+** P2 [MED] Origin icon — clearer file glyph
+The =⌂= (house) glyph before the filename reads as "home", not "file".
+Replace with a clearer *file* indicator — a document/file glyph (or a
+small file svg on a graphical frame), TTY fallback a plain clear char.
+Applies to the item rows AND the inspector origin line.
+
+** P3 [MED] Vertical divider — solid continuous line (no gaps)
+The rail divider reads as a dashed/broken vertical because round-11's
+=line-spacing 0.15= (D-P2 calmer capsules) opens a gap between each row's
+=│=.  Make the divider a *continuous unbroken vertical line* down the full
+board height while keeping the calmer capsule spacing.  Options for design:
+draw the divider column with a face background + =:extend= that fills the
+line-spacing gap; or an svg/overlay continuous rule; or a window/fringe
+divider; or drop =line-spacing= in favour of another capsule-calming knob
+that does not break the divider.  Reconcile "calm capsules" + "solid line".
+
+** P4 [HIGH] Priority cookie as an svg badge (org-mode-like)
+=[#A]= / =[#B]= / =[#C]= currently render as plain text in the title.
+Make the priority a small *svg badge* coloured by level, like org-mode
+priority cookies: *A = red, B = orange, C = yellow/green* (lower priority =
+cooler/quieter).  Define =org-air-priority-colors= (alist level→colour,
+themable light/dark).  Reuse the round-10/11 pill machinery (box-fit, soft
+radius, the calm capsule treatment) for the badge so it matches the date/
+tag pills.  Must keep V6 alignment (the badge occupies its existing
+=[#A]=-width text cell, pixel-locked).  TTY fallback = the plain =[#A]=
+coloured text.
+
+* Constraints
+- org-ql only; Emacs 29.1+.  svg = GUI cosmetic, byte/TTY fallback
+  mandatory.  V6 pixel-lock alignment must hold (P4 badge, P2 icon).
+- Inspector keep the round-11 marker-region + debounced live-update +
+  noninteractive-inert contract.  Build on the round-11 trunk tip.
+
+* Work items (design-led; impl + test follow)
+- D-P1  reorder rail: Calendar/Summary/Inspector/Filters/Actions          [HIGH]
+- D-P2  clearer file glyph for origin (rows + inspector)                  [MED]
+- D-P3  solid continuous vertical divider (vs line-spacing gap)           [MED]
+- D-P4  priority svg badge (A=red/B=orange/C=… cookie)                    [HIGH]
+
+* Notes
+- Round-10 P6 (routines/journals) still PARKED awaiting user approval.
+
+* Implementation History
+- (pending) round-12 opened from screenshot 2026-06-17 14-26-06.

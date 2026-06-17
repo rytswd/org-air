@@ -56,6 +56,8 @@
     (box-tee-right . ("┤" . "+"))
     (updated . ("↻" . "~"))
     (priority-square . ("■" . "#"))
+    (repeat . ("↻" . "~"))
+    (arrow . ("→" . "->"))
     (rail-marker . ("▌" . "|")))
   "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
 PREFERRED is the GUI glyph (already the safer S5b default: stale ○, today

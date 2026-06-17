@@ -46,8 +46,37 @@ track ACE runtime artifacts in this git repo.
     chmod +x /tmp/org-air-ace/notify.sh
     ever hook add org-air3.work. -- /tmp/org-air-ace/notify.sh
     # Monitor timer (backstop: pings me on new commits / seat exits even if a
-    # worker never publishes). tick.sh crosstalks with --from "@ever:org-air3.monitor",
-    # dedupes via /tmp/org-air-ace/monitor-commits.txt + exited-<role> flags.
+    # worker never publishes). Filters to WORKER-work descriptions only (so my
+    # own orchestration/context commits are not reported). Dedupes via the
+    # snapshot file + exited-<role> flags. BASE = the round's spec-landing tip
+    # (here qqqzwtol); update it each round.
+    cat > /tmp/org-air-ace/tick.sh <<'SH'
+    #!/usr/bin/env bash
+    export EVER_DATA_DIR=/home/ryota/Coding/github.com/withre/ace-stack/data
+    export GIT_CONFIG_GLOBAL=/dev/null
+    cd /home/ryota/Coding/github.com/rytswd/org-air 2>/dev/null || exit 0
+    BASE=qqqzwtol   # round-10 spec-landing tip; bump per round
+    RS="($BASE:: ~ $BASE) & ~empty() & (description(glob:\"R10*\") | description(glob:\"Design round-10*\") | description(glob:\"tests:*\") | description(glob:\"test:*\"))"
+    STATE=/tmp/org-air-ace/monitor-commits.txt
+    CUR=$(jj --config signing.behavior=drop log --no-graph -r "$RS" -T 'change_id.short() ++ "|" ++ description.first_line() ++ "\n"' 2>/dev/null)
+    PREV=$(cat "$STATE" 2>/dev/null)
+    if [ "$CUR" != "$PREV" ]; then
+      NEW=$(comm -13 <(printf '%s' "$PREV" | sort) <(printf '%s' "$CUR" | sort))
+      [ -n "$NEW" ] && pi-crosstalk send org-air-orchestrator --from "@ever:org-air3.monitor" "[monitor] new round-10 worker commits:
+    $NEW"
+      printf '%s' "$CUR" > "$STATE"
+    fi
+    for s in design impl test; do
+      line=$(chronoa list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep "org-air-$s")
+      flag=/tmp/org-air-ace/exited-$s
+      if echo "$line" | grep -q "exited"; then
+        [ ! -f "$flag" ] && { touch "$flag"; pi-crosstalk send org-air-orchestrator --from "@ever:org-air3.monitor" "[monitor] seat org-air-$s EXITED"; }
+      else rm -f "$flag"; fi
+    done
+    SH
+    chmod +x /tmp/org-air-ace/tick.sh
+    # seed the snapshot once (so existing commits aren't re-reported), then arm:
+    EVER_TOPIC=x /tmp/org-air-ace/tick.sh >/dev/null 2>&1
     ever hook add org-air3.monitor.tick -- /tmp/org-air-ace/tick.sh
     ever timer add --name org-air-monitor --every 3m org-air3.monitor.tick '{"tick":1}'
 

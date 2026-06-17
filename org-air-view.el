@@ -270,6 +270,16 @@ windows near 100 columns stay horizontal with the calendar on-screen (D1)."
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-rail-min-width 90
+  "Minimum displaying-window width that still shows the context rail (R13 D-P3).
+Below this width the dashboard renders BOARD-ONLY — no rail, no calendar,
+no inspector — and the item pane uses the FULL window width.  At or above
+it the usual `org-air-view--two-pane-p' decision applies (two-pane vs
+stacked).  Opening a file in a split flips to board-only automatically via
+the round-9 C1 resize re-render, and back when the window is widened."
+  :type 'integer
+  :group 'org-air)
+
 (defcustom org-air-rail-width-narrow 28
   "Context rail content width in the threshold zone (95–119 cols).
 The narrow tier still fits the calendar grid, the longest summary row,
@@ -1559,6 +1569,19 @@ Wide (>= 150) -> `org-air-rail-width-wide' (42); mid (120-149) ->
 Item-pane floor + divider + the narrow rail tier (≈ 95 cols)."
   (+ org-air-item-pane-min 3 org-air-rail-width-narrow))
 
+(defun org-air-view--board-only-p (width)
+  "Return non-nil when WIDTH is too narrow for the rail (R13 D-P3).
+Below `org-air-rail-min-width' the dashboard drops the rail and renders
+board-only.  Within `org-air-layout-hysteresis' columns of the threshold
+the current `org-air-view--orientation' is kept so dragging across the
+boundary does not flap."
+  (let ((base (< width org-air-rail-min-width)))
+    (if (and org-air-view--orientation
+             (<= (abs (- width org-air-rail-min-width))
+                 org-air-layout-hysteresis))
+        (eq org-air-view--orientation 'board-only)
+      base)))
+
 (defun org-air-view--two-pane-p (width)
   "Return non-nil when WIDTH should render two-pane (D1).
 Engagement is derived: two-pane iff the item pane (WIDTH minus the
@@ -2446,8 +2469,13 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)
           org-air-view--tag-filter tag-filter)
+    ;; R13 D-P3: below `org-air-rail-min-width' drop the rail entirely
+    ;; (board-only); else the existing two-pane vs stacked decision.
     (setq org-air-view--orientation
-          (if (org-air-view--two-pane-p width) 'two-pane 'stacked))
+          (cond
+           ((org-air-view--board-only-p width) 'board-only)
+           ((org-air-view--two-pane-p width) 'two-pane)
+           (t 'stacked)))
     (let* ((header (org-air-view--render-lines
                     width
                     (lambda ()
@@ -2465,12 +2493,20 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
                      nil))
            (fill-row "")
            (body-content
-            (if (eq org-air-view--orientation 'two-pane)
-                ;; D-P1: the inspector now lives INSIDE the rail (fixed
-                ;; reserved mid-rail region), not as an appended foot band.
-                (let ((pair (org-air-view--two-pane-body items width)))
-                  (setq fill-row (cdr pair))
-                  (car pair))
+            (cond
+             ;; R13 D-P3: board-only — full-width item pane, NO rail /
+             ;; calendar / inspector.
+             ((eq org-air-view--orientation 'board-only)
+              (org-air-view--render-lines
+               width
+               (lambda () (org-air-view--insert-item-pane items width))))
+             ((eq org-air-view--orientation 'two-pane)
+              ;; D-P1: the inspector now lives INSIDE the rail (fixed
+              ;; reserved mid-rail region), not as an appended foot band.
+              (let ((pair (org-air-view--two-pane-body items width)))
+                (setq fill-row (cdr pair))
+                (car pair)))
+             (t
               (org-air-view--render-lines
                width
                (lambda ()
@@ -2478,7 +2514,7 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
                  (insert "\n")
                  (org-air-view--insert-rule)
                  (insert "\n")
-                 (org-air-view--insert-item-pane items width)))))
+                 (org-air-view--insert-item-pane items width))))))
            (body-content (org-air-view--collapse-line-list body-content))
            (body-target (max (length body-content)
                              (- height (length header) (length footer))))

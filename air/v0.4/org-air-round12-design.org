@@ -1,0 +1,231 @@
+#+title: org-air v0.4 round-12 — rail reorder + priority svg badge + divider/icon polish (design)
+#+state: ready
+#+FILETAGS: :ui:visual:svg:polish:v0.4:
+
+* Summary
+Round-12 from the 2026-06-17 14-26 screenshot on the shipped round-11
+build.  Headers / pills / inspector all read well now; this is *layout* +
+two *svg refinements*.  Four design items (P1..P4).
+
+Continuity: builds on round-11 — the C2 pill pixel-lock, the shared
+=org-air-view--insert-row= primitive, the prefix-svg rail headers (D-P6),
+and the D-P7 inspector (marker-region + debounced live update +
+noninteractive-inert).  This round *moves* the inspector up into the rail
+and *retunes* round-11's =line-spacing= (D-P2 #4), which broke the divider.
+
+*Measurability tags:* =[gui]= GUI-only svg/display overlay (non-byte; text
+is the fallback); =[face]= face-only (fixtures hold); =[byte]= buffer-text
+change (fixture regen + bless).
+
+*Authoritative contracts:* C2 (pixel-lock) stays binding.  D-P4 (badge) and
+D-P2 (origin svg) are new C2 corollaries — each occupies its existing
+reserved text cell, pixel-locked.  Each bless names the exact change-id and
+voids earlier blesses for that fixture.
+
+* D-P1 [HIGH] — reorder the rail; give the inspector the middle
+*Symptom:* the round-11 rail order is Calendar, Summary, Filters, Actions,
+*Inspector-last* — the inspector is a foot band below the item rows,
+small + cramped ("too small").
+
+*New order, top→bottom:* Calendar · Summary · *Inspector* · Filters ·
+Actions.  The inspector moves up under Summary and *expands into the large
+freed middle*; Filters + Actions sink to the rail foot.
+
+** The hard part: the inspector is no longer a foot band
+Round-11 put the inspector *below* the composed two-pane body, so its lines
+were full-width =<item blanks><divider><rail inspector>= and the item
+columns beside it were legitimately blank → it updated by *full-line*
+replacement.  Moving it *into* the rail (between Summary and Filters) means
+its rail lines now sit *beside real item rows*.  Two consequences the
+contract must handle:
+
+1. *Fixed reserved height.*  The inspector content varies per item (field
+   count, title wrap).  If it grew/shrank mid-rail it would shove Filters/
+   Actions and desync the rail from the item pane.  *Contract:* the
+   inspector occupies a *fixed reserved region* = the freed middle rows
+   (rail height − calendar − Summary − Filters − Actions − inter-block
+   gaps).  Render the inspector *top-aligned* within the region and *pad
+   the remainder with blank =org-air-inspector='-tagged rail lines* (the
+   blank tail IS the "breathing/expand" the spec asks for).  Filters +
+   Actions are *pinned to the rail foot* (extend the existing
+   =org-air-rail-anchor-actions= foot-pin to cover both).  The reserved
+   height is computed once per full render (Filters height doesn't change
+   on point motion), so it is stable between renders.
+2. *Column-only live update.*  =org-air-view--render-inspector-region= must
+   now replace *only the rail columns* (everything from column
+   =item-width + (string-width divider)= to end-of-line) of each region
+   line, *preserving the item-row text beside it*.  The marker region
+   brackets the fixed reserved rows; the new inspector-lines list is padded
+   /truncated to *exactly* the region's line count so the region height
+   never changes.  =org-air-view--inspector-geom= gains =:region-height=.
+   *Do NOT* full-line-replace (it would clobber the item rows) and *do
+   NOT* full-re-render on motion (flicker / point loss) — both round-11
+   bans still hold.
+
+** Use the room (the visible payoff)
+With the middle reserved, the inspector can breathe (the spec's
+"more fields/breathing/wrap"):
+- raise =org-air-inspector-max-title-lines= default 3 → *4*;
+- add a *blank breathing line* between the identity group (title/state/
+  origin/tags) and the dates group, and before the derived Bucket line;
+- let the tags wrap freely (already word-wrapped) — the extra rows are
+  free now.
+Keep every round-11 field + the prefix-svg =▌ Inspector= header.
+
+=[byte]=: the rail block ORDER + the inspector's new mid-rail position +
+reserved blanks change the rail fixtures wholesale → regen + *BLESS*.
+
+* D-P4 [HIGH] — priority cookie as a colour-coded svg badge  [gui]
+*Symptom:* =[#A]= / =[#B]= / =[#C]= render as plain text.  Make the
+priority a small *svg badge* like an org-mode priority cookie, coloured by
+level (A hot → C cool), reusing the round-10/11 *calm capsule* machinery so
+it matches the date/tag pills.
+
+*Contract:*
+- defcustom =org-air-priority-colors= — alist =(?A . (LIGHT . DARK))= …;
+  defaults *A = red* (=#D32F2F= / =#BF616A=), *B = orange* (=#E0631E= /
+  =#D08770=), *C = yellow-green* (=#689F38= / =#A3BE8C=) — lower priority =
+  cooler/quieter.  Themable; resolved light/dark like the accent palette.
+  New helper =org-air-view--priority-color (char)=.
+- defcustom =org-air-priority-style= (='badge | 'text), default ='badge
+  (parallel to =org-air-tag-style= / =org-air-date-style=).
+- *Render:* when ='badge + svg is available, *pillify the existing =[#A]=
+  token* — box-fit to its text cell (=Ncols("[#A]") × char-px= = 4 cells,
+  C2 pixel-lock holds), soft =org-air-pill-radius=, the *calm capsule*
+  (no/low fill, hairline border) — but tinted in the *priority colour*:
+  the label =[#A]= and the border both draw in =priority-color= (a touch
+  stronger than the neutral tag border, since priority is salient).  This
+  is a thin generalization of =org-air-view--svg-pillify=: add a
+  =&key border-color= (priority passes its colour; tags/dates pass nil =
+  the neutral =org-air-pill-border=).  The label keeps the full =[#A]=
+  glyphs centred + width-fit (no new geometry).
+- *TTY / fallback (mandatory):* the plain =[#A]= text in the existing
+  =org-air-face-priority-a/-b/-c= (whose hues should be reconciled with
+  =org-air-priority-colors= so text + badge agree).
+- *Applies* on the item-row prefix (only priorities in
+  =org-air-priority-show=, default =?A=) AND, as a GUI cosmetic, the
+  inspector "state + priority" line.
+- =[gui]= non-byte: the badge is an svg overlay over the *unchanged* =[#A]=
+  text → *fixtures HOLD* (the byte gate asserts =[#A]= text + its face).
+
+* D-P3 [MED] — solid continuous vertical divider (vs the line-spacing gap)
+*Symptom:* round-11's =org-air-line-spacing= 0.15 (D-P2 #4 capsule calm)
+opens a pixel gap *below every row*; the divider =│= glyph is drawn per
+character cell and does NOT paint into that gap → the divider reads as a
+*dashed/broken* vertical.
+
+*Decision (pick one, per the brief): move the row breathing OFF
+=line-spacing= and INTO the capsule, so the divider stays an unbroken
+glyph.*  Rationale: a glyph divider at =line-spacing 0= is *continuous,
+portable (TTY + every GUI), and zero-cost*; svg-abutting bars and
+=:stipple= backgrounds (the only ways to fill a line-spacing gap) are
+fragile (hairline seams) and platform-limited (=:stipple= is X11-only).
+
+*Contract:*
+- Set =org-air-line-spacing= *default → 0* (restore tight S8 packing → the
+  =│= divider touches row-to-row again).  The defcustom stays, so a user
+  can re-introduce spacing knowing the divider trade-off.
+- *Recover the capsule "breathing" without a buffer-level gap:* draw each
+  pill capsule *slightly shorter than the line* — pill box height =
+  =char-px-h − 2 × org-air-pill-vinset=, vertically centred (new defcustom
+  =org-air-pill-vinset=, default *2* px).  Each capsule then carries its
+  own top/bottom margin *inside its cell*, so a stacked column of capsules
+  reads airy while the *cell grid (and the divider glyph) stays
+  continuous*.  This reuses the pill box machinery; TTY is unaffected (no
+  pills, no spacing — the glyph divider was always solid there).
+- *Escape hatch (secondary, documented, NOT the default):* defcustom
+  =org-air-divider-style= (='glyph default | 'svg).  ='svg draws each
+  divider cell as an svg vertical bar sized to =char-h + line-spacing-px=
+  so consecutive cells abut into a solid line *even with line-spacing > 0*
+  — for users who re-enable spacing.  ='glyph + =line-spacing 0= is the
+  shipped default.
+- =[gui]= / display-only: =line-spacing= is a display var, =pill-vinset= is
+  an svg attribute, the divider glyph =│= is *unchanged* → *fixtures HOLD*.
+
+* D-P2 [MED] — clearer file glyph for the origin  [byte glyph + gui svg]
+*Symptom:* =⌂= (house) before the filename reads as "home", not "file";
+on item rows AND the inspector origin line.
+
+*Contract:*
+- *Glyph table* (=org-air-layout-glyphs=, key =origin=): retire the house.
+  New tiers — PREFERRED =▤= (U+25A4 SQUARE WITH HORIZONTAL FILL — a lined
+  "page", 1 col, text-presentation, widely covered), SAFE =▤=, ASCII =·=
+  (a plain clear char for TTY).  *Avoid emoji* (📄/🗎 are width-2 / font-
+  variable → would break the V6 1-col origin cell).
+- *GUI svg (the real win):* defcustom =org-air-origin-icon-svg= (default
+  =t=).  On a capable GUI, overlay the origin cell with a crisp drawn
+  *document icon* — a rounded rectangle with a folded top-right corner —
+  box-fit to the 1-col cell (=1 × char-px=, reusing the pill box-fit/soft-
+  radius discipline), stroked in =org-air-face-group= (the origin face).
+  New =org-air-view--svg-file-icon=.  Because it is locked to the single
+  reserved column, *V6 pixel-lock holds*; turning it off shows =▤=.
+- *Both surfaces:* =org-air-view--item-origin-raw= (item rows) and the
+  inspector origin line already build =(org-air-view--glyph 'origin) " "
+  …= — both pick up the new glyph; the svg overlay applies on the leading
+  origin cell of each.
+- =[byte]=: the origin glyph =⌂→▤= (and ASCII =·=) changes the origin
+  column bytes on every item row + the inspector → regen + *BLESS*.  The
+  document svg is a =[gui]= overlay over the =▤= cell (asserted text =▤=).
+
+* Faces / knobs touched this round
+- =[face]=: reconcile =org-air-face-priority-a/-b/-c= hues with
+  =org-air-priority-colors= so the badge (svg) and the text fallback agree.
+  No new faces required (badge tints from =org-air-priority-colors=; the
+  file icon strokes =org-air-face-group=).
+- New defcustoms: =org-air-priority-colors=, =org-air-priority-style=
+  (D-P4); =org-air-pill-vinset=, =org-air-divider-style= (D-P3);
+  =org-air-origin-icon-svg= (D-P2); =org-air-line-spacing= default → 0
+  (D-P3); =org-air-inspector-max-title-lines= default → 4 (D-P1).
+- =org-air-view--svg-pillify= gains =&key border-color= (D-P4 reuse).
+
+* Routing
+- impl: D-P1 (reorder =org-air-view--insert-rail= → Calendar/Summary/
+  Inspector/Filters/Actions; move the inspector from the appended foot
+  band into a *fixed reserved mid-rail region*; pin Filters+Actions to the
+  foot; rework =render-inspector-region= to *column-only* replacement with
+  =:region-height=; bump title lines + breathing), D-P4 (=priority-colors=
+  + =priority-style='badge + =svg-pillify :border-color= + the row/inspector
+  badge), D-P3 (=line-spacing= 0 default + =pill-vinset= capsule breathing
+  + optional =divider-style='svg), D-P2 (=origin= glyph → =▤=/=·= + the
+  document =svg-file-icon= + =origin-icon-svg=).
+- test: =[byte]= regen + design *BLESS* for D-P1 (rail reorder + mid-rail
+  inspector) and D-P2 (origin glyph on rows + inspector).  D-P3 and D-P4
+  are =[gui]=/display-only → *fixtures HOLD* (the divider glyph, the =[#A]=
+  text, the =▤= cell are all asserted unchanged in the byte gate).
+
+* Verification recipe (carried forward — render, don't assert)
+=make deps= (network) → repo-local =.deps/=.  =emacs -Q --batch -L tests
+-l tests/org-air-test-init.el -l render-dump.el= with =current-time= frozen
+(=cl-letf= to =org-air-test-now=) inside =org-air-test-with-fixtures=; dump
+(a) =buffer-substring-no-properties=, (b) face runs via
+=next-single-property-change=, (c) the distinct face set.  This round add:
+(d) D-P1 — assert the rail block ORDER is Calendar/Summary/Inspector/
+Filters/Actions, that the inspector region line-count is FIXED across two
+different inspected items (move point, re-dump, compare region height), and
+that the item-pane columns beside the inspector are *unchanged* after a
+live update (column-only replacement); (e) D-P2 — assert the origin cell is
+=▤= (not =⌂=) on every item row + the inspector; (f) D-P3 — assert the
+divider column is a *contiguous* =│= down the full body (no blank rows
+between divider cells); (g) D-P4 — assert the =[#A]= text + priority face
+are unchanged (the badge is a non-byte overlay).
+
+* History
+- 2026-06-17: Authored round-12 design from the 14-26 screenshot on the
+  shipped round-11 build.  D-P1 [HIGH] reorder the rail to Calendar/Summary/
+  Inspector/Filters/Actions; the inspector leaves the appended foot band
+  for a *fixed reserved mid-rail region* (top-aligned + blank-padded;
+  Filters+Actions pinned to the foot), its live update becomes *column-only*
+  rail replacement (preserve the item rows beside it) with =:region-height=;
+  bump title lines (3→4) + breathing.  D-P4 [HIGH] priority svg badge:
+  =org-air-priority-colors= (A red / B orange / C yellow-green, themable),
+  =org-air-priority-style='badge, pillify the =[#A]= cell in the calm
+  capsule tinted by level via a new =svg-pillify :border-color= — pixel-lock
+  holds, TTY = plain =[#A]=, fixtures hold.  D-P3 [MED] solid divider:
+  decided to move row breathing OFF =line-spacing= (default → 0, restoring
+  the unbroken =│= glyph, portable + TTY-safe) and INTO the capsule via
+  =org-air-pill-vinset= (default 2px shorter, centred); secondary opt-in
+  =org-air-divider-style='svg for users who re-enable spacing; display-only,
+  fixtures hold.  D-P2 [MED] clearer origin: glyph =⌂→▤= (ASCII =·=) + a
+  drawn document =svg-file-icon= (=org-air-origin-icon-svg=) on rows AND the
+  inspector; byte glyph change → regen.  Blesses for D-P1 + D-P2 fixtures
+  follow with exact change-ids.  Set =#+state: ready=.

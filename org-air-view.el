@@ -1104,6 +1104,20 @@ this one primitive, faces, truncation, alignment and svg pills)."
                    title (max 1 avail-title) nil nil
                    (org-air-view--glyph 'more))))
          (left (concat prefix title))
+         ;; V6 (D-P1.PAD fix): the cluster MUST start at the fixed column
+         ;; `width - cluster-w' regardless of prefix/title/pad.  At the
+         ;; narrow tier a wide prefix (e.g. the [#A] priority badge) plus
+         ;; the reserved pad cols can make prefix + the 1-col title floor
+         ;; overrun the left budget; flooring the pad at `gap' would then
+         ;; shove the cluster right and break the date/tag/origin column
+         ;; alignment.  Clamp the assembled LEFT to the budget so the
+         ;; cluster column never shifts (a no-op when LEFT already fits,
+         ;; so the wider tiers stay byte-identical).
+         (left-budget (max 0 (- width cluster-w gap)))
+         (left (if (<= (string-width left) left-budget)
+                   left
+                 (truncate-string-to-width
+                  left left-budget nil nil (org-air-view--glyph 'more))))
          (pad (max gap (- width (string-width left) cluster-w)))
          (line (concat left (make-string pad ?\s) cluster)))
     (insert line "\n")

@@ -473,6 +473,8 @@ of whether the wrapping pane margin is added later (D6).")
   ;; T6: re-fit when the font/text size changes (text-scale alters how many
   ;; columns/rows fit), debounced through the same window-size path.
   (add-hook 'text-scale-mode-hook #'org-air-view--text-scale-refresh nil t)
+  ;; D-P7: track point to keep the lower-rail inspector synced (debounced).
+  (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t)
   ;; V3: the round-4/T7 buffer-box outer frame is DROPPED — it shipped
   ;; half-drawn (partial top edge, deferred right) and a half-box reads
   ;; worse than none.  Structure comes from the in-buffer full-width
@@ -1531,6 +1533,314 @@ the quiet keycap face; the columns do the separating (no dotted prose)."
              width)
             "\n")))
 
+;;;; ---------------------------------------------------------------------
+;;;; D-P7 — item inspector (lower-rail metadata for the line at point)
+;;;; ---------------------------------------------------------------------
+
+(defcustom org-air-show-inspector t
+  "When non-nil, show the lower-rail item inspector (D-P7).
+The inspector is a full-width foot band whose rail columns show metadata
+for the board line at point, updating (debounced) as point moves."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-inspector-key-w 8
+  "Width in columns of the inspector's fixed key column (D-P7)."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-inspector-max-title-lines 3
+  "Maximum wrapped title lines shown in the inspector (D-P7)."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-inspector-debounce 0.1
+  "Idle seconds before the inspector re-renders after point moves (D-P7).
+Coalesces rapid n/p motion so holding a key costs nothing."
+  :type 'number
+  :group 'org-air)
+
+(defcustom org-air-inspector-empty-hint "Move to an item to inspect."
+  "Inspector hint shown when point is not on an item row (D-P7)."
+  :type 'string
+  :group 'org-air)
+
+(defvar-local org-air-view--inspector-beg nil
+  "Marker at the start of the inspector foot band, or nil (D-P7).")
+(defvar-local org-air-view--inspector-end nil
+  "Marker just past the inspector foot band, or nil (D-P7).")
+(defvar-local org-air-view--inspector-item nil
+  "The `org-air-item' currently shown in the inspector, or nil (D-P7).")
+(defvar-local org-air-view--inspector-geom nil
+  "Plist (:item-width :divider :rail-width) for the inspector band (D-P7).")
+(defvar org-air-view--inspector-timer nil
+  "Pending debounce timer for the inspector update (D-P7).")
+
+(defun org-air-view--first-actionable-item (items)
+  "Return the first of ITEMS the cursor lands on (section order), or nil.
+Mirrors `org-air-view--goto-first-item': the first item of the first
+non-empty section (D-P7)."
+  (catch 'found
+    (dolist (descriptor org-air-view--sections)
+      (let ((bucket-items (org-air-view--items-for-bucket (car descriptor) items)))
+        (when bucket-items (throw 'found (car bucket-items)))))
+    nil))
+
+(defun org-air-view--word-wrap (string width)
+  "Greedily wrap STRING (props preserved) into lines of <= WIDTH columns."
+  (let ((words (split-string string " " t)) lines (cur ""))
+    (dolist (w words)
+      (let ((cand (if (string-empty-p cur) w (concat cur " " w))))
+        (if (<= (string-width cand) width)
+            (setq cur cand)
+          (progn (unless (string-empty-p cur) (push cur lines))
+                 (setq cur w)))))
+    (unless (string-empty-p cur) (push cur lines))
+    (or (nreverse lines) (list ""))))
+
+(defun org-air-view--inspector-title-lines (title width maxlines)
+  "Return TITLE word-wrapped to WIDTH, capped at MAXLINES with a more glyph."
+  (let ((lines (org-air-view--word-wrap title width)))
+    (if (<= (length lines) maxlines)
+        lines
+      (append (butlast (seq-take lines maxlines))
+              (list (truncate-string-to-width
+                     (concat (nth (1- maxlines) lines) (org-air-view--glyph 'more))
+                     width nil nil (org-air-view--glyph 'more)))))))
+
+(defun org-air-view--inspector-kv (key value inset)
+  "Return an inspector key/value line: INSET + KEY (label face) + VALUE."
+  (let* ((k (truncate-string-to-width key org-air-inspector-key-w))
+         (k (concat k (make-string (max 0 (- org-air-inspector-key-w
+                                            (string-width k)))
+                                   ?\s))))
+    (concat inset
+            (propertize k 'face 'org-air-face-inspector-label)
+            value)))
+
+(defun org-air-view--inspector-relative (time now)
+  "Return a relative term for TIME vs NOW: `today' / `in Nd' / `Nd ago'."
+  (let ((d (org-air-view--days-between now time)))
+    (cond ((= d 0) "today")
+          ((> d 0) (format "in %dd" d))
+          (t (format "%dd ago" (- d))))))
+
+(defun org-air-view--inspector-date-line (key timestamp face inset now &optional overdue)
+  "Return an inspector date line for KEY/TIMESTAMP in FACE at INSET, or nil.
+Appends the relative term computed against NOW; with OVERDUE non-nil
+appends the deadline mark."
+  (when-let* ((time (org-air-view--timestamp-time timestamp)))
+    (org-air-view--inspector-kv
+     key
+     (concat (propertize (format-time-string "%F" time) 'face face)
+             "  "
+             (propertize (format "(%s)" (org-air-view--inspector-relative time now))
+                         'face 'org-air-face-faded)
+             (if overdue
+                 (concat " " (propertize (if (display-graphic-p) "◆" "!") 'face face))
+               ""))
+     inset)))
+
+(defun org-air-view--item-created (item)
+  "Return ITEM's CREATED property as an Emacs time, or nil (D-P7)."
+  (when-let* ((marker (org-air-item-marker item))
+              (buffer (marker-buffer marker)))
+    (ignore-errors
+      (with-current-buffer buffer
+        (save-excursion
+          (goto-char marker)
+          (when-let* ((v (org-entry-get (point) "CREATED")))
+            (org-air-view--timestamp-time (org-timestamp-from-string v))))))))
+
+(defun org-air-view--inspector-bucket-name (bucket)
+  "Return a compact display name for classify BUCKET (D-P7)."
+  (pcase bucket
+    ('inbox "Inbox") ('attention "Attention") ('upcoming "Upcoming")
+    ('high-priority "High-priority") ('stale "Stale")
+    (_ (capitalize (symbol-name bucket)))))
+
+(defun org-air-view--inspector-bucket-line (item inset now)
+  "Return the inspector derived-bucket line for ITEM at INSET, or nil.
+The classification is computed against NOW (D-P7)."
+  (let ((buckets (org-air-classify-item item now)))
+    (when buckets
+      (let* ((names (mapconcat #'org-air-view--inspector-bucket-name
+                               (seq-remove (lambda (b) (eq b 'stale)) buckets)
+                               " · "))
+             (stale (when (memq 'stale buckets)
+                      (when-let* ((act (org-air-classify--last-activity item)))
+                        (format "stale %dd" (org-air-view--days-between act now)))))
+             (text (string-join (delq nil (list (unless (string-empty-p names) names)
+                                                stale))
+                                " · ")))
+        (unless (string-empty-p text)
+          (org-air-view--inspector-kv
+           "Bucket" (propertize text 'face 'org-air-face-faded) inset))))))
+
+(defun org-air-view--inspector-lines (item width)
+  "Return the inspector block as a list of lines, each WIDTH wide, for ITEM.
+ITEM nil yields the header + the empty hint.  Every line is tagged with
+the `org-air-inspector' text property so the band can be re-found (D-P7)."
+  (let* ((inset (org-air-view--rail-inset-str width))
+         (content-w (max 1 (- width (string-width inset))))
+         (now (current-time))
+         (lines (list (org-air-layout-rail-header-string "Inspector" width))))
+    (if (null item)
+        (push (concat inset (propertize org-air-inspector-empty-hint
+                                        'face 'org-air-face-faded))
+              lines)
+      (progn
+        ;; title (wrapped)
+        (dolist (tl (org-air-view--inspector-title-lines
+                     (or (org-air-item-title item) "") content-w
+                     org-air-inspector-max-title-lines))
+          (push (concat inset (propertize tl 'face 'org-air-face-title)) lines))
+        ;; state + priority
+        (let* ((todo (org-air-item-todo item))
+               (prio (org-air-view--priority-char item))
+               (parts (delq nil
+                            (list (when todo
+                                    (propertize todo 'face
+                                                (org-air-view--todo-face todo)))
+                                  (when prio
+                                    (propertize (format "[#%c]" prio) 'face
+                                                (org-air-view--priority-face prio)))))))
+          (when parts (push (concat inset (string-join parts "  ")) lines)))
+        ;; origin (group/file)
+        (let* ((grp (org-air-item-group item))
+               (file (and (org-air-item-file item)
+                          (file-name-nondirectory (org-air-item-file item))))
+               (org (concat (org-air-view--glyph 'origin) " "
+                            (if grp (concat grp "/") "") (or file ""))))
+          (push (concat inset (propertize org 'face 'org-air-face-group)) lines))
+        ;; tags (all, accent, wrapped)
+        (let ((tagstr (mapconcat
+                       (lambda (tg) (propertize (concat "#" tg)
+                                                'face (org-air-faces-tag-face tg)))
+                       (org-air-item-tags item) " ")))
+          (unless (string-empty-p tagstr)
+            (dolist (tl (org-air-view--word-wrap tagstr content-w))
+              (push (concat inset tl) lines))))
+        ;; dates
+        (let* ((deadline (org-air-item-deadline item))
+               (dl-time (org-air-view--timestamp-time deadline))
+               (overdue (and dl-time (> (org-air-view--days-between dl-time now) 0))))
+          (dolist (ln (delq nil
+                            (list
+                             (org-air-view--inspector-date-line
+                              "Sched" (org-air-item-scheduled item)
+                              'org-air-face-salient inset now)
+                             (org-air-view--inspector-date-line
+                              "Deadln" deadline
+                              (if overdue 'org-air-face-critical 'org-air-face-popout)
+                              inset now overdue)
+                             (when-let* ((c (org-air-view--item-created item)))
+                               (org-air-view--inspector-kv
+                                "Created"
+                                (concat (propertize (format-time-string "%F" c)
+                                                    'face 'org-air-face-faded)
+                                        "  "
+                                        (propertize
+                                         (format "(%s)"
+                                                 (org-air-view--inspector-relative c now))
+                                         'face 'org-air-face-faded))
+                                inset))
+                             (org-air-view--inspector-date-line
+                              "Closed" (org-air-item-closed item)
+                              'org-air-face-faded inset now))))
+            (push ln lines)))
+        ;; derived bucket
+        (let ((b (org-air-view--inspector-bucket-line item inset now)))
+          (when b (push b lines)))))
+    (mapcar (lambda (l)
+              (propertize (org-air-view--pad-to l width) 'org-air-inspector t))
+            (nreverse lines))))
+
+(defun org-air-view--inspector-band (item width)
+  "Return the full-width inspector foot band for ITEM at total WIDTH (D-P7).
+Each line is `<item-width blanks><divider><rail inspector>'; the geometry
+is stashed in `org-air-view--inspector-geom' for live updates."
+  (let* ((rail-width (org-air-view--rail-width width))
+         (divider (org-air-view--divider))
+         (item-width (max 20 (- width rail-width (string-width divider)))))
+    (setq org-air-view--inspector-geom
+          (list :item-width item-width :divider divider :rail-width rail-width))
+    (mapcar (lambda (rl)
+              (propertize (concat (make-string item-width ?\s) divider rl)
+                          'org-air-inspector t))
+            (org-air-view--inspector-lines item rail-width))))
+
+(defun org-air-view--render-inspector-region (item)
+  "Replace the inspector marker region with ITEM's full-width lines (D-P7)."
+  (when (and org-air-view--inspector-beg org-air-view--inspector-end
+             (marker-buffer org-air-view--inspector-beg)
+             org-air-view--inspector-geom)
+    (let* ((geom org-air-view--inspector-geom)
+           (iw (plist-get geom :item-width))
+           (div (plist-get geom :divider))
+           (rw (plist-get geom :rail-width))
+           (lines (mapcar
+                   (lambda (rl)
+                     (concat (make-string iw ?\s) div rl))
+                   (org-air-view--inspector-lines item rw)))
+           (inhibit-read-only t))
+      (save-excursion
+        (delete-region org-air-view--inspector-beg org-air-view--inspector-end)
+        (goto-char org-air-view--inspector-beg)
+        (dolist (l lines) (insert l "\n"))))))
+
+(defun org-air-view--setup-inspector ()
+  "Find the inspector band, set its markers, sync it to the line at point (D-P7)."
+  (setq org-air-view--inspector-beg nil
+        org-air-view--inspector-end nil
+        org-air-view--inspector-item nil)
+  (when (and org-air-show-inspector
+             (eq org-air-view--orientation 'two-pane))
+    (let (firstbol lastbol)
+      (save-excursion
+        (goto-char (point-min))
+        (while (not (eobp))
+          (when (text-property-any (line-beginning-position) (line-end-position)
+                                   'org-air-inspector t)
+            (unless firstbol (setq firstbol (line-beginning-position)))
+            (setq lastbol (line-beginning-position)))
+          (forward-line 1)))
+      (when firstbol
+        (setq org-air-view--inspector-beg (copy-marker firstbol nil))
+        (save-excursion
+          (goto-char lastbol)
+          (forward-line 1)
+          (setq org-air-view--inspector-end (copy-marker (point) t)))
+        ;; sync to the actual item the cursor landed on.
+        (org-air-view--maybe-update-inspector t)))))
+
+(defun org-air-view--maybe-update-inspector (&optional force)
+  "Redraw the inspector when the item at point changed (or FORCE) (D-P7)."
+  (when (and org-air-show-inspector
+             (derived-mode-p 'org-air-view-mode)
+             org-air-view--inspector-beg
+             (marker-buffer org-air-view--inspector-beg))
+    (let ((item (get-text-property (point) 'org-air-item)))
+      (when (or force (not (eq item org-air-view--inspector-item)))
+        (setq org-air-view--inspector-item item)
+        (org-air-view--render-inspector-region item)))))
+
+(defun org-air-view--inspector-update-now (buf)
+  "Run the inspector update in BUF (debounce-timer callback) (D-P7)."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (org-air-view--maybe-update-inspector))))
+
+(defun org-air-view--inspector-post-command ()
+  "Buffer-local `post-command-hook': schedule a debounced update (D-P7)."
+  (when (and org-air-show-inspector (derived-mode-p 'org-air-view-mode))
+    (when (timerp org-air-view--inspector-timer)
+      (cancel-timer org-air-view--inspector-timer))
+    (setq org-air-view--inspector-timer
+          (run-with-idle-timer org-air-inspector-debounce nil
+                               #'org-air-view--inspector-update-now
+                               (current-buffer)))))
+
 (defun org-air-view--insert-rail (items width)
   "Insert the context rail for ITEMS at WIDTH (D5 polished sidebar).
 Four peer blocks — calendar, Summary, Filters, Actions — each opened by
@@ -1826,7 +2136,15 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
             (if (eq org-air-view--orientation 'two-pane)
                 (let ((pair (org-air-view--two-pane-body items width)))
                   (setq fill-row (cdr pair))
-                  (car pair))
+                  ;; D-P7: append the full-width inspector foot band below
+                  ;; the composed body (below the visible item rows), after
+                  ;; one divider separator row.
+                  (if org-air-show-inspector
+                      (append (car pair)
+                              (list fill-row)
+                              (org-air-view--inspector-band
+                               (org-air-view--first-actionable-item items) width))
+                    (car pair)))
               (org-air-view--render-lines
                width
                (lambda ()
@@ -1852,7 +2170,10 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
       (delete-char -1))
     (setq org-air-view--rendered-width width
           org-air-view--rendered-height height)
-    (org-air-view--goto-first-item)))
+    (org-air-view--goto-first-item)
+    ;; D-P7: locate the inspector band, set its markers, sync to the item
+    ;; the cursor landed on (the live hook keeps it synced thereafter).
+    (org-air-view--setup-inspector)))
 
 (defun org-air-view--save-position ()
   "Return a token describing the cursor location for later restoration."

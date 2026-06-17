@@ -1,0 +1,74 @@
+#+title: org-air v0.4 round-13: divider/pill rethink + tiny priority + responsive rail + repeats
+#+state: ready
+#+FILETAGS: :ui:visual:svg:responsive:repeats:
+
+* Summary
+Round-13 from screenshot 2026-06-17 15-20-20 on the shipped round-12
+build.  The rail reorder is good; but round-12's divider solution
+backfired, and there are four more refinements + a repeats proposal.
+Six items, design-led.
+
+* Findings
+
+** P1 [HIGH] Divider STILL has gaps + svg pills are now HARDER to see
+Round-12 D-P3 (=line-spacing 0= + pill =vinset=) did NOT fix the divider
+(it still reads broken) AND made the pills fainter/harder to see — a net
+regression.  *Reconsider the whole approach.*
+- *Likely root cause of the gap:* the date/tag pill svg images are TALLER
+  than the font line height, so pill-rows are taller and the font =│=
+  divider glyph (normal char height) cannot fill them → a gap appears on
+  pill rows.  Fixes to weigh: clamp the pill image height to EXACTLY the
+  font line height (so rows never grow); OR render the divider itself as a
+  per-row image/overlay sized to the actual row height; OR a continuous
+  rule that does not depend on the glyph.
+- *Pill visibility:* undo the round-12 visibility loss — the vinset +
+  0.5 hairline made pills faint.  Restore clearly-visible capsules (retune
+  vinset/border/opacity) while keeping them calm.  Both must hold together:
+  *a truly solid divider AND clearly visible pills.*  TTY fallback intact.
+
+** P2 [HIGH] Priority badge → tiny solid colour box, no letter
+The =[#A]= badge is too big.  Make it a *tiny solid filled colour square*
+(red for A, orange for B, etc.) with *no visible letter and no outline* —
+red already signals importance.  Keep a *fixed compact slot* (e.g. 2 cols:
+square + pad, blank when no priority) so titles stay column-aligned (V6).
+Reuse =org-air-priority-colors=.  TTY fallback = a small coloured char
+(e.g. a filled block) or the plain text.
+
+** P3 [MED] Responsive — hide the rail when the window is too narrow
+When a file is opened (split) and the displaying window is too narrow to
+show the board + rail without crowding, *drop the rail entirely* (board
+only).  Threshold defcustom (e.g. =org-air-rail-min-width=).  Re-show when
+wide again.  (Round-9 C1 already re-renders on resize — hook into that.)
+
+** P4 [MED] Inspector label readability
+The inspector field labels (=Sched= / =Deadln= / =Created= / =Bucket=) are
+too dark to read.  Brighten the LABELS (a more visible label face); the
+filename/value colours can stay.  Keep the round-11/12 inspector contract.
+
+** P5 [NEW/PROPOSAL — approval gate] Repeating schedule + working-day repeats
+Revives the parked routines idea, narrowed: surface *repeating* scheduled
+items, and support a *custom working-day-aware* repeat (org's builtin
+=.+1d/++1w= has no "working day / skip weekends/holidays" notion).  Design
+to PROPOSE: how repeats are detected + shown (a repeat marker / next-occur
+on the row or inspector), and a minimal custom working-day repeat model
+(e.g. a =:REPEAT: workday= / =every weekday= property, skip weekends, opt
+holidays).  Concrete + minimal; APPROVAL before any impl.
+
+* Constraints
+- org-ql only; Emacs 29.1+.  svg = GUI cosmetic, byte/TTY fallback
+  mandatory.  V6 pixel-lock alignment must hold (P2 badge).  Build on the
+  round-12 trunk tip.  Inspector stays noninteractive-inert.
+
+* Work items (design-led; impl + test follow)
+- D-P1  solid divider + visible pills (rethink round-12 D-P3)             [HIGH]
+- D-P2  tiny solid priority square (no letter/outline, fixed slot)        [HIGH]
+- D-P3  responsive: hide rail below a width threshold                     [MED]
+- D-P4  brighten inspector field labels                                   [MED]
+- D-P5  repeating-schedule + working-day repeat PROPOSAL (approval gate)  [NEW]
+
+* Notes
+- This supersedes the round-10 P6 routines/journals parking with a sharper
+  ask (repeats + working days); journals can follow later.
+
+* Implementation History
+- (pending) round-13 opened from screenshot 2026-06-17 15-20-20.

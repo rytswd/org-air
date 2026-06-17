@@ -1,0 +1,61 @@
+#+title: org-air v0.4 round-14: project-view two-line rework + repeats (org-default)
+#+state: ready
+#+FILETAGS: :ui:project:repeats:
+
+* Summary
+Round-14 from user feedback after round-13.  Two design-led items: rework
+the Air project view into a proper two-line layout (it currently reads
+poorly), and surface repeats leaning on Org's own behaviour (no
+over-engineering).  Builds on the round-13 trunk.
+
+* Findings
+
+** P1 [HIGH] Project view — two-line item layout (not the right-aligned row)
+The project view (=org-air-project=) currently reuses the board's single
+row (title LEFT + right-aligned filename/date cluster).  User: it reads
+poorly and the right-aligned filename is wrong for docs.  Rework to a
+*two-line item component* per doc:
+  - *Line 1:* the title + its tags (LEFT-flowing, like the board title but
+    tags follow inline, NOT right-pinned).
+  - *Line 2:* the filename + the dates (created / updated), indented under
+    the title — secondary/quieter face.
+So each doc is a 2-line block; the filename is NOT right-aligned.  Keep the
+state-bucket sections (Draft/Ready/WIP/Review/Complete) + prefix-svg
+headers (round-11) + the calm pill/tag treatment.  Still byte-testable
+(the two-line text is the contract).
+*Add an inspector to the project view too* — same mid-rail inspector
+contract as the board (round-11/12/13): metadata for the highlighted doc
+(title, state, full path, tags, dates, dir/version group, etc.).  Reuse
+the shared inspector machinery; noninteractive-inert.
+
+** P2 [NEW, APPROVED] Repeating schedule — read-only, Org-default based
+*Guidance: do NOT over-engineer.  Use what Org Mode does by default and
+fill the gap only as necessary.*  Approved scope: ship A (read-only repeat
+surfacing) first; weekends-only working-day deferred; advance on completion.
+- *A (this round):* detect Org repeaters (=.+1d/++1w/...=) already on
+  =org-air-item-scheduled/-deadline=.  Show a small =↻= marker (TTY =~=) in
+  the date cluster, and an inspector =Repeat= line: =every 1w → next Mon 22
+  Jun= (next occurrence via Org's own =org-get-repeat= / timestamp math —
+  do not reimplement repeat logic).  Pure detection + display, no model
+  change, no advance code.
+- *B (DEFERRED to a later round):* the custom =:AIR_REPEAT: workday=
+  weekend-skipping advance — NOT this round.  Note it as a future item so
+  we lean on Org's defaults first and only add the working-day gap when we
+  actually need it.  Approvals recorded for when B lands: weekends-only
+  (holidays later), advance ON COMPLETION (mark DONE → next working day).
+
+* Constraints
+- org-ql only; Emacs 29.1+.  svg = GUI cosmetic, byte/TTY fallback
+  mandatory.  Reuse round-13's line-clamped svg, the shared row/inspector
+  primitives.  Don't reimplement Org repeat behaviour — read it.
+
+* Work items (design-led; impl + test follow)
+- D-P1  project view two-line layout + project inspector                  [HIGH]
+- D-P2  repeats read-only (↻ marker + inspector Repeat line, Org-default)  [NEW]
+
+* Notes
+- Repeats B (working-day advance) intentionally deferred per "use Org
+  defaults, fill gaps as necessary".
+
+* Implementation History
+- (pending) round-14 opened from user feedback (project view + repeats).

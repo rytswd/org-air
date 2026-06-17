@@ -255,10 +255,17 @@ glyph (left-half-block, ascii `|') in this face."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-inspector-label
-  '((t :inherit org-air-face-faded))
-  "Face for the inspector's fixed key column (D-P7).
-A faded label (`Sched', `Deadln', ...); the value follows in the same
-semantic face the board uses for that field (board parity)."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#455A64" :weight semibold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#D8DEE9" :weight semibold))
+    (t (:inherit default :weight bold)))
+  "Face for the inspector's fixed key column (D-P7 / R13 D-P4).
+The inspector field labels (`Sched', `Deadln', `Created', `Bucket',
+`Closed').  R13 D-P4 brightens this from `org-air-face-faded' (too dark to
+read) to a mid-tier readable foreground at a slight weight (parity with
+`org-air-face-rail-header'), passing WCAG AA on the rail background.  The
+VALUES (filename, dates, bucket) keep their own semantic faces."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-separator

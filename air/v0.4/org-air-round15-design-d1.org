@@ -1,0 +1,111 @@
+#+title: org-air v0.4 round-15 D-P1 — reserve the TODO-keyword column so titles align (design)
+#+state: ready
+#+FILETAGS: :ui:layout:alignment:v0.4:
+
+* Summary
+Round-15 D-P1 [BUG, quick] — items *without* a TODO keyword render their
+title where the keyword would start, so their titles sit LEFT of the titles
+of items that DO have a keyword (=Call the plumber…=, =Idea…=, =Cancel…=
+float left of the =TODO …= rows).  Reserve the keyword column for *every*
+item so ALL titles share one left edge.  Keep the V6 / byte contract.
+
+This is the same fix pattern as the R13 priority slot and the R14 repeat
+reservation: a *fixed-width reserved cell*, blank when the field is absent.
+
+* Root cause (confirmed in =org-air-view--insert-item=)
+The row prefix is built (≈ L1493):
+
+: (prefix (concat (org-air-view--item-margin)
+:                 (when todo                       ; <-- conditional
+:                   (concat (propertize todo …) " "))
+:                 (if (eq org-air-priority-style 'square)
+:                     (org-air-view--priority-slot priority)  ; fixed slot
+:                   …)))
+
+The priority slot is already a *fixed* cell (R13 D-P2), but the TODO
+keyword is emitted *only when present*.  So a keyword-less row's prefix is
+=margin + priority-slot=, a keyword row's is =margin + "TODO " + priority-
+slot= — the title left edge differs by the keyword width.  V6 fixes the
+date/tags/origin columns on the RIGHT, but the title left edge on the LEFT
+was never reserved.
+
+* Contract — a fixed reserved keyword cell (mirror the V6 meta widths)
+** Compute the column width once over the rendered list
+In =org-air-view--compute-meta-widths= add a fourth reserved width:
+- New module var =org-air-view--meta-todo-w= (defvar, like =-meta-date-w=).
+- In the items walk, =(setq tw-todo (max tw-todo (string-width (or (org-air-
+  item-todo item) ""))))= and store it: =org-air-view--meta-todo-w= = the
+  widest TODO keyword over ALL rendered items (board-wide, so every section
+  shares one left edge).  When NO item has a keyword it is =0=.
+
+** Emit a fixed-width keyword cell on every row
+New helper =org-air-view--todo-cell (todo width)=:
+- =width = 0= → return ="" = (no board has keywords → no wasted column).
+- =width > 0= → return the keyword *left-justified and padded to WIDTH*
+  plus a single trailing space:
+  : (concat (org-air-view--pad-to
+  :          (if todo (propertize todo 'face (org-air-view--todo-face todo)) "")
+  :          width)
+  :         " ")
+  i.e. the keyword in its todo-face when present, =WIDTH= blanks when
+  absent, then the one-space separator.  *Every* row now contributes
+  =width + 1= columns here, so the priority slot (and the title after it)
+  start at the same column on every row.
+
+Replace the conditional =(when todo …)= in =org-air-view--insert-item= with
+=(org-air-view--todo-cell todo (or org-air-view--meta-todo-w 0))=.
+
+** Fallbacks / scope
+- *Single-row panes* (the R6 day pane, where the meta widths may be unset):
+  fall back to =(string-width (or todo ""))= for that row — it is the only
+  row, so its own keyword width is the column (no cross-row alignment to
+  honour).
+- *Project view* doc rows have no TODO keyword and build their own prefix
+  (=" " + state-chip=), so they are *unaffected* (the keyword cell is a
+  board concern only).
+- *Order is unchanged:* =margin · todo-cell · priority-slot · title= — the
+  keyword cell sits between the margin and the priority slot exactly where
+  the conditional keyword used to be.
+
+* V6 / pixel-lock
+The reserved cell is pure TEXT (no svg), sized from =string-width=, so it
+shifts only the *title* left edge — uniformly, for every row — and does
+NOT touch the right-hand date/tags/origin cluster (those remain anchored by
+=insert-row='s right padding).  V6 alignment holds; nothing about the svg
+layer changes.
+
+* Byte / fixture impact  [byte]
+- Keyword-LESS rows gain =meta-todo-w + 1= leading spaces before the title
+  → their bytes change (title moves right to the common edge).
+- Keyword rows whose keyword is *shorter* than =meta-todo-w= (mixed
+  keywords, e.g. =NEXT= alongside a longer =WAITING=) gain right-padding →
+  their bytes change too.  Rows whose keyword == =meta-todo-w= are
+  byte-identical.
+- Net: board fixtures that contain a mix of keyword / keyword-less items
+  regenerate.  The project-view fixtures are *unchanged*.
+- *BLESS:* I bless the regenerated board fixtures in a follow-up with the
+  exact change-id once impl produces them.
+
+* Verification
+Render the board fixtures and assert: for every item row, the column index
+of the first title glyph (the char after =margin + todo-cell + priority-
+slot=) is IDENTICAL across keyword and keyword-less rows in the same render
+(walk the rows, compute the title start column, assert one value).  The
+right cluster columns (date/tags/origin) are unchanged from the prior
+fixtures.
+
+* Routing
+- impl: =org-air-view--meta-todo-w= in =compute-meta-widths=; the
+  =org-air-view--todo-cell= helper; swap the conditional keyword for it in
+  =insert-item=.  Quick, localized.
+- test: =[byte]= regen + BLESS the board fixtures with mixed keyword
+  presence; assert the single-title-left-edge invariant above.
+
+* History
+- 2026-06-17: Authored round-15 D-P1.  Reserve a fixed TODO-keyword cell
+  (=org-air-view--meta-todo-w=, widest keyword board-wide; blank when
+  absent, omitted when no board item has a keyword) via a new
+  =org-air-view--todo-cell= helper, mirroring the R13 priority slot / R14
+  repeat reservation, so all titles share one left edge.  Pure text, V6
+  holds; keyword-less + short-keyword rows regen → BLESS follows with the
+  change-id.  Set =#+state: ready=.

@@ -1,0 +1,175 @@
+#+title: org-air v0.4 round-15 D-P2 — rail/divider architecture (PROPOSAL, approval gate)
+#+state: ready
+#+FILETAGS: :ui:layout:architecture:proposal:
+
+* Status: PROPOSAL — approval gate
+This is a *decision document* for the user/orchestrator, NOT a spec for
+impl.  It weighs two architectures for a *truly* gap-free, sophisticated
+divider, gives a pros/cons table + effort/risk, and *recommends one* with a
+migration + testability plan.  No fixtures are blessed; no impl is routed
+until this is approved.
+
+* The problem (why rounds 12-14 keep failing)
+The divider has been whack-a-mole for four rounds: round-12 glyph +
+=line-spacing 0=, round-13 the =svg-line-image= line-height clamp, the
+round-12 =org-air-divider-style 'svg= per-cell bar.  *Root cause is
+structural, not a bug:* in a SINGLE buffer the divider is necessarily a
+*per-cell* element (a box-drawing =│= glyph, or a per-cell svg bar) sitting
+between two text columns.  Whether it reads continuous depends on the glyph
+filling its cell vertically (font-dependent) and on per-cell images tiling
+with zero rounding seams (fragile, esp. once pill rows / =line-spacing= /
+text-scale enter).  No per-cell approach is robust across all fonts — which
+is exactly the symptom.  A genuinely continuous rule needs a drawing
+surface that is NOT tied to character cells: a *real Emacs window border*.
+
+* Invariants in play (architecture.md)
+1. V6 pixel-lock (text columns) — must hold either way.
+2. svg never grows the line (=svg-line-image=) — A removes the divider svg
+   entirely; B leans harder on it.
+3. *Single buffer* (byte-testable text + svg overlay) — the invariant
+   Option A revises.
+4. Text is the contract; fixtures assert the text layer only — survives A
+   (per-buffer dumps).
+5. Round-13 responsive *board-only* + the round-12/14 *mid-rail full-width
+   inspector* — both currently assume one buffer; A changes how, B keeps.
+
+* Option A — real side-window rail (rougier sidetabs model)
+Render the rail (calendar / summary / filters / actions / inspector) in a
+*dedicated side window* (=display-buffer-in-side-window=, =side 'right=,
+=window-width= the rail columns) holding a *separate rail buffer*.  The
+board stays in the main window.  The continuous divider is the *window
+border* — =window-divider-mode= with =window-divider-width= (a true
+N-pixel line in the =window-divider= face, font-independent) on GUI; in TTY
+Emacs draws the full-height =vertical-border= column.  *This is literally
+what sidetabs does* and is the look the user is asking for.
+
+** What gets SIMPLER under A (a real upside, not just cost)
+- *No column stitching.*  =org-air-view--compose-columns=, =--two-pane-
+  body=, =--indent-pane-lines=, the rail-width-vs-content-width juggling,
+  and the fill-row divider padding all *go away* — each buffer renders its
+  own full-width text.
+- *The inspector gets EASIER.*  The round-12/14 mid-rail inspector's
+  hardest part — *column-only* in-place replacement that must preserve the
+  item rows beside it — disappears.  The rail buffer owns the inspector
+  outright: a point move on the board re-renders the inspector *region of
+  the rail buffer* (or the whole rail buffer), no item columns to dodge.
+- *board-only* (round-13) becomes "delete the side window" (and re-show it
+  when wide) — a window op, not a re-render branch.
+- The divider is *no longer in the text contract at all* — which is the
+  right place for it (it was never text; that was the whole problem).
+
+** Costs (the prompt's questions, answered)
+- *Byte fixtures (one inline buffer):* change to *per-buffer* golden dumps
+  — a board golden + a rail golden, each still pure text (invariant 4
+  survives, just twice).  =render-dump.el= gains a "dump every org-air
+  window's buffer" mode; the divider is asserted by a *window-config*
+  assertion (a right side window exists with =window-divider-width > 0=),
+  not a text fixture.
+- *Point / refresh / scroll sync:* the board is the *only* interactive
+  window (point + scroll live there); the rail is *passive*.  The board's
+  =post-command-hook= writes the inspector into the rail buffer (cross-
+  buffer, trivial — =with-current-buffer=).  =g=/refresh re-renders both.
+  The rail does *not* scroll with the board (it is fixed calendar/summary/
+  inspector) — a *feature*, not a sync burden.
+- *Window management risk:* must own the side window's lifecycle (create on
+  open, delete on =q=/board-only, restore on widen), play nice with the
+  user's other windows + =display-buffer-alist=, and survive frame resize
+  (ride the existing =org-air-layout-refresh-function= resize hook).  This
+  is the bulk of the new code.
+
+* Option B — one buffer, robust font-independent rule
+Keep the single buffer; replace the per-cell divider with the *least
+fragile* in-buffer rule:
+- B1 full-height *stretch-space* with a face =:box= / border;
+- B2 *per-row svg segment* sized to the EXACT row height (round-13 already
+  clamps pill rows to the font line height, so all rows are one height →
+  segments *should* tile) — the round-12 ='svg path, hardened;
+- B3 a *fringe/margin* rule.
+*Honest assessment:* B keeps the test model and is lower rework, but it is
+*more of the same per-cell approach that has failed*.  B2 is the best of
+them (uniform row height post-clamp), yet still depends on sub-pixel image
+tiling with no seam across every font/scale/theme — i.e. it cannot be
+*guaranteed* gap-free, only "better".  B1/B3 cannot draw a clean mid-buffer
+vertical rule reliably.  B is the "don't change the architecture" choice
+and accepts a residual fragility risk.
+
+* Decision table
+| dimension                | A — side-window rail        | B — one-buffer rule          |
+|--------------------------+-----------------------------+------------------------------|
+| Truly gap-free divider   | YES (real window border)    | "better", NOT guaranteed     |
+| Font/scale independence  | YES (pixels, not cells)     | NO (still per-cell tiling)   |
+| Sophistication (sidetabs)| YES (the actual technique)  | partial                      |
+| TTY divider              | YES (Emacs vertical-border) | glyph (the current look)     |
+| Inspector complexity     | DROPS (own buffer)          | unchanged (column-only)      |
+| Column-stitch code       | DELETED                     | kept                         |
+| board-only / responsive  | window delete/restore       | unchanged                    |
+| Single-buffer invariant  | revised (per-buffer dumps)  | kept                         |
+| Test-model change        | medium (2 goldens + wincfg) | none                         |
+| Window-mgmt surface area  | new (lifecycle, resize)     | none                         |
+| Net code                 | less stitching, more winmgmt| slightly more svg            |
+| Effort                   | M-L                         | S-M                          |
+| Risk (will it look right)| LOW (proven technique)      | MEDIUM (residual seams)      |
+| Risk (regressions)       | MEDIUM (windows/tests)      | LOW                          |
+
+* Recommendation — Option A (phased, behind a flag)
+Option A is the *architecturally correct* answer and the only one that can
+*guarantee* the gap-free, sophisticated divider the user wants; it also
+*simplifies* the inspector and deletes the column-stitch layer.  Its cost
+is concentrated in window-lifecycle code and a one-time test-model change —
+both bounded and worth it to end the four-round divider churn.  Recommend
+adopting A, *phased behind a defcustom* so nothing breaks mid-flight:
+
+** Migration plan
+1. *Phase 0 — flag.*  Add =org-air-rail-style= (='inline default | 'side-
+   window).  Everything below ships behind ='side-window; ='inline keeps
+   today's behaviour and today's fixtures green throughout.
+2. *Phase 1 — rail buffer + side window.*  Render the rail into a
+   =*org-air-rail*= buffer shown via =display-buffer-in-side-window=
+   (=side 'right=, =window-width org-air-rail-width=, =window-parameters
+   '((no-other-window . t))=).  Enable =window-divider-mode= with
+   =window-divider-width= (defcustom =org-air-divider-pixels=, default ~2)
+   in the =window-divider= face.  The board buffer renders *full width* (no
+   rail, no compose).
+3. *Phase 2 — inspector into the rail buffer.*  Move the inspector field
+   render into the rail buffer; the board's =post-command-hook= updates it
+   cross-buffer (drop the column-only replace + the mid-rail reserved
+   region — they were only needed for inline composition).
+4. *Phase 3 — responsive + lifecycle.*  board-only = delete the side
+   window below =org-air-rail-min-width= and recreate it above; hook the
+   existing resize refresh; delete the side window on =q=.
+5. *Phase 4 — flip default.*  Once per-buffer fixtures + a window-config
+   assertion pass at parity, set =org-air-rail-style= default ='side-window=
+   and keep ='inline as a documented fallback (and for any byte test that
+   prefers a single dump).
+
+** Testability plan
+- =render-dump.el= gains a *multi-buffer* dump: for ='side-window it dumps
+  the board buffer golden AND the rail buffer golden (each pure text — the
+  contract holds per buffer); ='inline keeps the single golden.
+- The *divider* is asserted structurally, not as text: a window-config
+  assertion that a right side window exists and =window-divider-width > 0=
+  (GUI) — the divider was never legitimately part of the text contract.
+- Anti-tautology guards apply per buffer; the frozen clock /
+  =org-air-test-with-fixtures= harness is unchanged.
+- ='inline fixtures remain the regression net for the shared renderer
+  (sections, rows, pills, V6) so A's window work can't silently break the
+  text layer.
+
+** If the user prefers minimal change
+Fall back to *Option B2* (harden the per-row ='svg divider to the clamped
+uniform row height) as a *stopgap*, with the explicit caveat that it
+*reduces* but cannot *eliminate* the seam risk — i.e. it may regress again
+on a new font/scale.  Recommend A as the durable fix; B2 only if the
+two-buffer model is rejected.
+
+* History
+- 2026-06-17: Authored round-15 D-P2 PROPOSAL.  Diagnosed the divider as a
+  structural single-buffer/per-cell limitation, not a bug.  Weighed Option
+  A (real side-window rail + =window-divider-mode=, sidetabs technique —
+  font-independent, also simplifies the inspector and deletes column
+  stitching) vs Option B (one-buffer robust rule — lower rework, keeps the
+  test model, but cannot guarantee gap-free).  *Recommended Option A,
+  phased behind =org-air-rail-style='side-window=*, with a 5-phase
+  migration and a per-buffer-dump + window-config testability plan; B2 as a
+  stopgap if the two-buffer model is rejected.  APPROVAL GATE — no impl
+  routed, no fixtures blessed.  Set =#+state: ready=.

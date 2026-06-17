@@ -140,7 +140,9 @@ visits the item — no backslash prefix needed."
 (ert-deftest org-air-ux-u3-save-of-tracked-file-refreshes ()
   "Saving a configured org file refreshes an open dashboard."
   (skip-unless (fboundp 'org-air-view--after-save-refresh))
-  (org-air-viewport-test-with-dashboard 120
+  ;; D-P1.PAD widens the cluster (titles truncate sooner); render wide so
+  ;; the freshly captured headline is whole for the string search.
+  (org-air-viewport-test-with-dashboard 160
     (should-not (string-match-p "Freshly captured headline" (buffer-string)))
     (let ((file (car (seq-filter (lambda (f) (string-suffix-p "inbox.org" f))
                                  org-air-files))))
@@ -172,7 +174,9 @@ visits the item — no backslash prefix needed."
 (ert-deftest org-air-ux-u3-refresh-preserves-filter-and-point ()
   "Refresh keeps the active tag filter and restores point to the item."
   (skip-unless (fboundp 'org-air-view--save-position))
-  (org-air-viewport-test-with-dashboard 120
+  ;; D-P1.PAD widens the cluster (titles truncate sooner); render wide so
+  ;; the parked "Prepare standup notes" row title is whole for the search.
+  (org-air-viewport-test-with-dashboard 160
     ;; Park point on a known item row.
     (goto-char (point-min))
     (should (search-forward "Prepare standup notes" nil t))

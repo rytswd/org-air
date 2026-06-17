@@ -1,45 +1,45 @@
   org-air                                                 Mon 15 Jun · 23 items
   ──────────────────────────────────────────────────────────────────────────────
 
-╶─ June 2026 ─────── ‹ ›  ╶─ Summary ─────────────  ╶─ Filters ─────────────
-Su Mo Tu We Th Fr Sa         3   Inbox               No filters · all items
-    1  2  3  4  5  6         8   Needs attention    c capture · / filter
- 7  8● 9 10◆11 12◆13         8   Upcoming
-14 15◆16◆17◆18●19◆20●        3   High priority
-21 22 23 24 25 26 27         2   Stale
-28 29 30                   ────
+  ╶─ June 2026 ─── ‹ ›    ╶─ Summary ─────────────  ╶─ Filters ─────────────
+  Su Mo Tu We Th Fr Sa       3   Inbox               No filters · all items
+      1  2  3  4  5  6       8   Needs attention    c capture · / filter
+   7  8● 9 10◆11 12◆13       8   Upcoming
+  14 15◆16◆17◆18●19◆20●      3   High priority
+  21 22 23 24 25 26 27       2   Stale
+  28 29 30                 ────
                             23   total
-◆ due    ● sched
+  ◆ due    ● sched
 
   ──────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3
-      Quick note about org-air …               #inbox                ⌂ inbox.org
-      Call plumber                             #inbox                ⌂ inbox.org
-      TODO Triage me later                     #inbox                ⌂ inbox.org
+      Quick note about or…                  #inbox                   ⌂ inbox.org
+      Call plumber                          #inbox                   ⌂ inbox.org
+      TODO Triage me later                  #inbox                   ⌂ inbox.org
 
   ▲ Needs attention 8
-      TODO Chase missing invoice  OVERDUE 7d   #projects #admin   ⌂ projects.org
-      TODO [#A] Fix production …  OVERDUE 5d   #projects #work …  ⌂ projects.org
-      TODO Book dentist appoint…  OVERDUE 3d   #personal #health  ⌂ personal.org
-      TODO Dust off old archive…  no date      #projects #archive ⌂ projects.org
-      TODO Untracked idea with …  no date      #projects #someday ⌂ projects.org
-      Reference notes without a…  no date      #projects #note    ⌂ projects.org
+      TODO Chase missing …   OVERDUE 7d     #projects   #admin    ⌂ projects.org
+      TODO [#A] Fix produ…   OVERDUE 5d    #projects   #work  …   ⌂ projects.org
+      TODO Book dentist a…   OVERDUE 3d     #personal   #health   ⌂ personal.org
+      TODO Dust off old a…   no date        #projects   #archive  ⌂ projects.org
+      TODO Untracked idea…   no date        #projects   #someday  ⌂ projects.org
+      Reference notes wit…   no date        #projects   #note     ⌂ projects.org
       …and 2 more — press TAB on the title to expand
 
   ◆ Upcoming 8
-      TODO Renew library card     Today        #personal #admin   ⌂ personal.org
-      TODO Water the garden       Today        #projects #home    ⌂ projects.org
-      TODO [#A] Prep client pre…  Tomorrow     #work #client          ⌂ work.org
-      TODO Prepare standup notes  Tomorrow     #projects #work    ⌂ projects.org
-      TODO Email finance about …  Tomorrow     #work                  ⌂ work.org
+      TODO Renew library …   Today          #personal   #admin    ⌂ personal.org
+      TODO Water the gard…   Today          #projects   #home     ⌂ projects.org
+      TODO [#A] Prep clie…   Tomorrow       #work   #client           ⌂ work.org
+      TODO Prepare standu…   Tomorrow       #projects   #work     ⌂ projects.org
+      TODO Email finance …   Tomorrow       #work                     ⌂ work.org
       …and 3 more — press TAB on the title to expand
 
   ★ High priority 3
-      TODO [#A] Ship quarterly …  Wed          #projects #work …  ⌂ projects.org
-      TODO [#A] Fix production …  OVERDUE 5d   #projects #work …  ⌂ projects.org
-      TODO [#A] Prep client pre…  Tomorrow     #work #client          ⌂ work.org
+      TODO [#A] Ship quar…   Wed           #projects   #work  …   ⌂ projects.org
+      TODO [#A] Fix produ…   OVERDUE 5d    #projects   #work  …   ⌂ projects.org
+      TODO [#A] Prep clie…   Tomorrow       #work   #client           ⌂ work.org
 
   ○ Stale 2
-      TODO Dust off old archive…  · 225d quiet #projects #archive ⌂ projects.org
-      TODO Learn lute             · 273d quiet #someday #hobby     ⌂ someday.org
+      TODO Dust off old a…   · 225d quiet   #projects   #archive  ⌂ projects.org
+      TODO Learn lute        · 273d quiet   #someday   #hobby      ⌂ someday.org

@@ -60,7 +60,9 @@ consequence (previously-blessed `gr refresh' -> `g refresh')."
   "B1 [CRIT]: TAB on a NON-header item line must never hang or loop — it
 returns promptly (a no-op or a move to the next header)."
   (skip-unless (locate-library "org-air"))
-  (org-air-viewport-test-with-dashboard 120
+  ;; D-P1.PAD widens the tag/date cluster, so titles truncate sooner; render
+  ;; wide (160) so "Prepare standup notes" is whole for the title search.
+  (org-air-viewport-test-with-dashboard 160
     (goto-char (point-min))
     (should (search-forward "Prepare standup notes" nil t))
     (goto-char (line-beginning-position))
@@ -103,7 +105,9 @@ header line (it must not jump to the first item)."
 back on the ORIGINATING item row, not at the top."
   (skip-unless (locate-library "org-air"))
   (skip-unless (fboundp 'org-air-return))
-  (org-air-viewport-test-with-dashboard 120
+  ;; D-P1.PAD widens the cluster (titles truncate sooner) — render wide so
+  ;; the originating row's title is whole for the search.
+  (org-air-viewport-test-with-dashboard 160
     (goto-char (point-min))
     (should (search-forward "Prepare standup notes" nil t))
     (goto-char (match-beginning 0))

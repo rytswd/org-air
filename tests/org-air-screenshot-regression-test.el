@@ -217,7 +217,10 @@ on an item/section property, or on a non-whitespace character."
 open, refresh, item-anchored refresh, filter apply/clear, and a resize
 re-render — not just the first open (screenshot-3 finding 2)."
   (skip-unless (locate-library "org-air"))
-  (org-air-viewport-test-with-dashboard 120
+  ;; D-P1.PAD widens the cluster so titles truncate sooner; render wide
+  ;; (160) so the anchored "Prepare standup notes" search (step c) is whole.
+  ;; The resize path (step g) still narrows to 100 to exercise the seam.
+  (org-air-viewport-test-with-dashboard 160
     ;; (a) first open.
     (ert-info ("first open")
       (should (org-air-s5a--point-on-visible-char-p)))
@@ -386,15 +389,18 @@ after the divider is dropped so only the item line is inspected."
   "V6 metadata table (supersedes the round-6/7 inline cluster): the
 title is LEFT & clean, then a fixed-column right cluster in the order
 [date] [tags] [⌂ origin]; the origin is flush-right and whole (D2).
-Rendered wide so the full row fits without truncation."
+Rendered wide so the full row fits without truncation.  D-P1.PAD: the tag
+pills reserve pad columns, so the inter-tag spacing widens (#projects␠␠␠
+#admin) — the cluster ORDER is what this guards, not the exact gap."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
       (let ((lp (org-air-v1b--item-leftpane "Chase missing invoice")))
         (should lp)
-        ;; Cluster order: date, then tags, then the flush-right origin.
+        ;; Cluster order: date, then tags, then the flush-right origin
+        ;; (D-P1.PAD pads the tags, so allow >1 space between chips).
         (should (string-match-p
-                 "OVERDUE 7d.*#projects #admin.*⌂ projects\\.org\\'" lp))
+                 "OVERDUE 7d.*#projects +#admin.*⌂ projects\\.org\\'" lp))
         ;; The title is clean on the left, a flex gap before the cluster.
         (should (string-match-p "Chase missing invoice  +" lp))))))
 

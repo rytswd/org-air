@@ -10,6 +10,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'cl-lib)
 (require 'org-air-test-helpers)
 
 (when (locate-library "org-air")
@@ -18,9 +19,14 @@
 (defmacro org-air-view-test--with-dashboard (&rest body)
   "Open the dashboard over the scratch fixtures and run BODY in it.
 Renders wide (160) so V6's fixed metadata table leaves the full title
-untruncated for title-based item lookups."
+untruncated for title-based item lookups.  The clock is frozen to
+`org-air-test-now' (Mon 2026-06-15) so the render is deterministic — the
+fixtures' relative schedule/deadline window is anchored on that date, so
+running on any wall-clock day buckets items identically."
   (declare (indent 0) (debug t))
   `(org-air-test-with-fixtures
+     (cl-letf (((symbol-function 'current-time)
+                (lambda () org-air-test-now)))
      (let ((org-air-view-width 160))
        (unwind-protect
            (progn
@@ -30,7 +36,7 @@ untruncated for title-based item lookups."
                (with-current-buffer buf
                  ,@body)))
          (when (get-buffer "*org-air*")
-           (kill-buffer "*org-air*"))))))
+           (kill-buffer "*org-air*")))))))
 
 (ert-deftest org-air-view-api-present ()
   "The frozen view API exists and `org-air' is interactive."

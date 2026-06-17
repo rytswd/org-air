@@ -112,23 +112,33 @@ is a distinct major mode (the tree renderer, not the GTD board)."
 ;;;; F5d — tree render structural invariants (byte-testable text).
 
 (ert-deftest org-air-f5-tree-structure ()
-  "The project tree is buffer TEXT with the airctl-status structure:
-box-drawing frame + branches, the four state badges (TTY text form in
-batch), version-folder grouping, doc rows with the ↻ (~) date and
-#tags, and (+N) roll-up counts."
+  "D-P5 [byte, full replace]: the project view is rebuilt as the SHARED
+row renderer (`org-air-view--insert-row', the GTD board's primitive) — a
+state-summary header, then grouped SECTIONS of shared rows.  The old
+airctl box-drawing tree (┌─│├└) and the (+N) roll-up counts are GONE
+(air/v0.4/org-air-round10-design.org §D-P5).  What remains is buffer
+TEXT with: the state badges, version-folder section headers, doc rows by
+title with the ↻ (~) date + #tags, and per-section count headers."
   (skip-unless (locate-library "org-air"))
-  (org-air-project-test--render
+  ;; Render at the blessed fixture width (100) so the shared-row titles are
+  ;; whole for the title search (D-P5 rows truncate like the GTD board).
+  (let ((org-air-project-view-width 100))
+   (org-air-project-test--render
+    ;; Grouping is a persistent global toggle; pin it to state so this test
+    ;; is order-independent of the grouping-toggle test.
+    (when (commandp 'org-air-project-group-by-state)
+      (call-interactively 'org-air-project-group-by-state))
     (let ((text (buffer-string)))
-      ;; Box-drawing tree frame + branches (GUI ┌─│├└ or the TTY +|- the
-      ;; gate actually sees in --batch).
-      (should (string-match-p "[┌└+][─-]" text))
-      (should (string-match-p "[│|]" text))
-      (should (string-match-p "[├└+][─-] " text))
+      ;; D-P5: NO box-drawing tree frame / branches anywhere.
+      (should-not (string-match-p "[┌└├│─]" text))
+      ;; D-P5: NO (+N) roll-up counts (sections carry a plain count head).
+      (should-not (string-match-p "(\\+[0-9]+)" text))
       ;; Every fixture doc renders by its TITLE (org-air shows #+title).
       (dolist (doc org-air-project-test-docs)
         (should (string-match-p (regexp-quote (plist-get (cdr doc) :title))
                                 text)))
-      ;; Version folders group the docs.
+      ;; Version folders group the docs (section headers in dir grouping;
+      ;; the origin column carries the path in every grouping).
       (should (string-match-p "v0\\.1/" text))
       (should (string-match-p "v0\\.2/" text))
       ;; TTY state badges (batch is a TTY): all five states.
@@ -138,8 +148,9 @@ batch), version-folder grouping, doc rows with the ↻ (~) date and
       (should (string-match-p "~ [0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" text))
       ;; Tags as accent text.
       (should (string-match-p "#ui\\|#core\\|#context" text))
-      ;; (+N) roll-up count somewhere.
-      (should (string-match-p "(\\+[0-9]+)" text)))))
+      ;; Shared-row SECTIONS: a state section header `[D] Draft 2' with a
+      ;; trailing count (the replacement for the old roll-up).
+      (should (string-match-p "\\[[DRWCX]\\] [A-Z][A-Za-z ]+ [0-9]+$" text))))))
 
 ;;;; F5d byte — the project tree matches the blessed fixtures (all modes).
 
@@ -194,12 +205,14 @@ stability; --batch renders the TTY [D]/[R]/[W]/[C]/[X] badge forms."
 ;;;; F5c — grouping toggle (state / directory / tag), default state.
 
 (ert-deftest org-air-f5-grouping-toggle ()
-  "The state / directory / tag groupings produce DISTINCT trees.
+  "The state / directory / tag groupings produce DISTINCT renders.
 The three renders must be pairwise BYTE-DIFFERENT — they group by
-different top-level boxes (states vs directories vs tags), so a fallback
-that renders dir/tag the same as state (the design-caught regression)
-can never pass here.  Plus: dir grouping heads its boxes with a version
-folder, tag grouping with a #tag (not a state badge)."
+different sections (states vs directories vs tags), so a fallback that
+renders dir/tag the same as state (the design-caught regression) can
+never pass here.  D-P5 [byte] re-bless: the sections are now SHARED-ROW
+blocks (no box-drawing glyphs); a section HEADER leads with its grouping
+key — dir grouping with a version folder + count, tag grouping with a
+#tag + count, state grouping with a `[badge] State N' header."
   (skip-unless (locate-library "org-air"))
   (let ((state (org-air-project-test--render-lines
                 'org-air-project-group-by-state 100))
@@ -212,13 +225,18 @@ folder, tag grouping with a #tag (not a state badge)."
     (should-not (equal state dir))
     (should-not (equal state tag))
     (should-not (equal dir tag))
-    ;; A top box (a `+- '/`┌─ ' line) in DIR grouping is headed by a
-    ;; version folder; in TAG grouping by a #tag.
+    ;; D-P5: no box-drawing glyphs lead any line in any grouping.
+    (dolist (lines (list state dir tag))
+      (should-not (cl-some (lambda (l) (string-match-p "[┌└├│─]" l)) lines)))
+    ;; A DIR section header is a version folder + count (`H v0.1/ 3');
+    ;; doc rows end in `.org', so the `/ N' tail uniquely marks a header.
     (should (cl-some (lambda (l)
-                       (string-match-p "\\`[+┌├└|│].*v0\\.[0-9]+/" l))
+                       (string-match-p "v0\\.[0-9]+/ [0-9]+\\'" l))
                      dir))
+    ;; A TAG section header is a `#tag count' (`#core 3'); doc rows in tag
+    ;; grouping never END with `#tag N', so the tail uniquely marks it.
     (should (cl-some (lambda (l)
-                       (string-match-p "\\`[+┌├└|│][^\n]*#[a-z]" l))
+                       (string-match-p "\\`[[:space:]]*#[a-z]+ [0-9]+\\'" l))
                      tag))))
 
 ;;;; V6 — fixed date column (dates line up vertically down the list).

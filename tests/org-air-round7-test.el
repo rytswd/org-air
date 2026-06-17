@@ -140,8 +140,11 @@ holds [date] <=2 tags> ⌂origin as one unit (the date JOINS the cluster
 column).  One flex gap between the clean title and the right cluster;
 origin flush-right (D2)."
   (skip-unless (locate-library "org-air"))
+  ;; D-P1.PAD widens the cluster (the tag pills reserve pad columns), so at
+  ;; W120 the title truncates; render wide (160) so the clean full title +
+  ;; the right cluster both fit (round-8 title-search precedent).
   (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-dashboard 120
+    (org-air-viewport-test-with-dashboard 160
       (let ((lp (org-air-r7-test--leftpane "Chase missing invoice")))
         (should lp)
         ;; Round-6's inline `<date> <tags>' crammed after the title is GONE:

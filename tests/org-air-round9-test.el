@@ -134,14 +134,28 @@ buffer's TEXT layer (no properties) as a list of right-trimmed lines."
     out))
 
 (ert-deftest org-air-r9-c2-pill-text-layer-byte-identical ()
-  "C2: turning the svg pills ON must not move a single column.  The TEXT
-layer (what the byte gate and the TTY both see) is byte-identical with
-pills on vs off — the pill is a `display' overlay sized to the cell, not
-extra geometry."
+  "C2 (re-blessed for D-P1.PAD): the svg pill is a PURE overlay — it adds
+zero geometry of its own.  The only thing that widens a cell is the
+DESIGN-blessed `org-air-pill-pad-cols' reserved padding (D-P1.PAD), which
+lives in the text layer, not the svg.  Proof in two parts:
+
+  (a) With NO reserved pad (`org-air-pill-pad-cols' = 0) the `pill' and
+      `text' styles are byte-identical — the overlay contributes nothing.
+  (b) With the default pad (1) the `pill' style reserves the pad columns
+      so it is intentionally WIDER than `text' (the round-9 byte-identical
+      across-styles form is superseded by D-P1.PAD; the design keeps
+      geometry 100% text-layer driven and the pill a pure overlay,
+      air/v0.4/org-air-round10-design.org §D-P1.PAD)."
   (skip-unless (locate-library "org-air"))
-  (let ((pill (org-air-r9--render-text 'pill 'pill 120))
-        (text (org-air-r9--render-text 'text 'text 120)))
-    (should (equal pill text))))
+  ;; (a) overlay adds nothing: pad 0 -> pill text layer == text style.
+  (let ((org-air-pill-pad-cols 0))
+    (should (equal (org-air-r9--render-text 'pill 'pill 120)
+                   (org-air-r9--render-text 'text 'text 120))))
+  ;; (b) D-P1.PAD reserves real pad columns in the pill's text layer, so a
+  ;; pilled board is wider than the plain-text board — the intended change.
+  (let ((org-air-pill-pad-cols 1))
+    (should-not (equal (org-air-r9--render-text 'pill 'pill 120)
+                       (org-air-r9--render-text 'text 'text 120)))))
 
 (ert-deftest org-air-r9-c2-text-fallback-is-coloured-text ()
   "C2 fallback contract: with pills OFF (or unavailable) the tag/date
@@ -433,11 +447,15 @@ indented to the spine, with a space between each glyph and its word
     0))
 
 (ert-deftest org-air-r9-d5b-content-spine ()
-  "D5b: every block's content snaps to ONE left-edge spine
-(`org-air-rail-content-inset', default 3 at the wide/mid tiers).  The
-calendar weekday row, a Summary row, the Filters text and an Actions
-verb row all begin at the SAME rail column (the old rail had three
-different left edges)."
+  "D5b + D-P4: the rail's LEFT-ALIGNED text blocks snap to ONE left-edge
+spine (`org-air-rail-content-inset', default 3 at the wide/mid tiers):
+the Filters text and an Actions verb row begin at the SAME rail column.
+
+D-P4 [byte] re-bless: the calendar grid is now CENTRED in the rail
+(`org-air-calendar-center'), so the weekday row NO LONGER shares the
+content spine — it sits further in (a wider inset).  This guards both
+invariants: the text blocks stay spine-aligned, and the calendar is
+centred off that spine."
   (skip-unless (locate-library "org-air"))
   (should (boundp 'org-air-rail-content-inset))
   (should (= org-air-rail-content-inset 3))
@@ -449,13 +467,16 @@ different left edges)."
              (weekday (funcall pick "Su .*Mo .*Tu"))
              (filters (funcall pick "No filters"))
              (actions (funcall pick "c capture")))
-        ;; Left-aligned content across three blocks (calendar grid /
-        ;; filters / actions) shares one left edge.  (Summary numbers are
-        ;; right-aligned in their field, a different measurement.)
         (should (and weekday filters actions))
-        (let ((insets (mapcar #'org-air-r9--rail-leading-spaces
-                              (list weekday filters actions))))
-          (should (= 1 (length (delete-dups (copy-sequence insets))))))))))
+        ;; The text blocks (filters / actions) share one left edge — the
+        ;; content spine.
+        (let ((filters-inset (org-air-r9--rail-leading-spaces filters))
+              (actions-inset (org-air-r9--rail-leading-spaces actions))
+              (weekday-inset (org-air-r9--rail-leading-spaces weekday)))
+          (should (= filters-inset actions-inset))
+          ;; D-P4: the centred calendar grid sits OFF the spine (a wider
+          ;; inset), it no longer shares the content-spine inset.
+          (should (> weekday-inset filters-inset)))))))
 
 (ert-deftest org-air-r9-d5d-ledger-sum-rule ()
   "D5d: `total' sits under a SHORT ledger rule (a 4-char ──── over the

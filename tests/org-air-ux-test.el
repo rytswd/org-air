@@ -27,9 +27,13 @@
 (defmacro org-air-ux-test--with-dashboard (&rest body)
   "Open the dashboard over the scratch fixtures and run BODY in it.
 Renders wide (160) so V6's fixed metadata table leaves the full title
-untruncated for title-based item lookups."
+untruncated for title-based item lookups.  The clock is frozen to
+`org-air-test-now' (Mon 2026-06-15) so bucketing is deterministic on any
+wall-clock day (the fixtures' schedule/deadline window is anchored there)."
   (declare (indent 0) (debug t))
   `(org-air-test-with-fixtures
+     (cl-letf (((symbol-function 'current-time)
+                (lambda () org-air-test-now)))
      (let ((org-air-view-width 160))
        (unwind-protect
            (progn
@@ -39,7 +43,7 @@ untruncated for title-based item lookups."
                (with-current-buffer buf
                  ,@body)))
          (when (get-buffer "*org-air*")
-           (kill-buffer "*org-air*"))))))
+           (kill-buffer "*org-air*")))))))
 
 (defun org-air-ux-test--filter (tag)
   "Apply TAG as the dashboard tag filter via whatever command exists."

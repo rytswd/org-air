@@ -31,39 +31,37 @@
     ;;
     ;; ===================================================================
     ;; v0.4 ROUND-10 grind (impl track) — fixtures/tests that change BYTES
-    ;; under the design-blessed D-P1.PAD / D-P4 / D-P5 contracts.  Each
-    ;; FAILS until design re-blesses the regen with an exact change-id;
-    ;; impl does NOT hand-edit fixtures.  Delete on re-bless.
+    ;; under the design-blessed D-P1.PAD / D-P4 / D-P5 contracts.
+    ;;
+    ;; 2026-06-17: round-10 TEST-track re-bless (change <this commit>).
+    ;; 15 of the 19 entries CLOSED — fixtures regenerated from impl's tip
+    ;; umrpsoxp via the FROZEN-CLOCK renderer (make regen-mockups, guards
+    ;; active) and the byte/assertion tests re-blessed to the new D-P1.PAD
+    ;; / D-P4 / D-P5 contracts:
+    ;;   D-P1.PAD (pill pad-cols, text-layer geometry): mockup-80/120/160
+    ;;     regen'd; r10-item-row, v1b, b1, b2, s5a, ux-u3 (x2) re-rendered
+    ;;     wide (160) where the padded cluster no longer truncates the
+    ;;     searched title; r9-c2 re-blessed to the NEW pure-overlay
+    ;;     contract (pad-cols=0 -> pill == text; pad-cols=1 -> pill wider).
+    ;;   D-P4 (centred calendar): r9-d5b re-blessed — text blocks share the
+    ;;     content spine, the calendar grid is centred OFF it.
+    ;;   D-P5 (shared-row project view): project-view-{state,dir,tag}
+    ;;     fixtures regen'd; f5-tree-structure + f5-grouping-toggle
+    ;;     rewritten to the shared-row sections (no box glyphs/roll-up).
     ;; -------------------------------------------------------------------
-    ;; D-P1.PAD [byte]: the pill label now reserves `org-air-pill-pad-cols'
-    ;; (default 1) space columns each side in the text layer, so the
-    ;; tag/date cells + meta-column widths gain bytes and the cluster
-    ;; widens (titles truncate sooner; priority rows overflow at narrow
-    ;; widths; 'pill no longer byte-equals 'text).
-    (org-air-layout-mockup-80 . "D-P1.PAD: tag/date pad-cols change mockup bytes — design re-bless")
-    (org-air-layout-mockup-120 . "D-P1.PAD: tag/date pad-cols change mockup bytes — design re-bless")
-    (org-air-layout-mockup-160 . "D-P1.PAD: tag/date pad-cols change mockup bytes — design re-bless")
-    (org-air-layout-mockup-heights . "D-P1.PAD: tag/date pad-cols change mockup bytes — design re-bless")
-    (org-air-layout-mockup-thresholds . "D-P1.PAD: tag/date pad-cols change mockup bytes — design re-bless")
-    (org-air-r10-item-row-right-cluster . "D-P1.PAD: padded cluster widens; title truncates at test width — design re-bless")
-    (org-air-v1b-inline-tag-placement . "D-P1.PAD: tag cluster bytes change (pad cols) — design re-bless")
-    (org-air-b1-tab-on-non-header-is-safe . "D-P1.PAD: wider cluster truncates 'Prepare standup notes' at W120 — test/design re-bless")
-    (org-air-b2-return-restores-point . "D-P1.PAD: wider cluster truncates title at W120, search-forward stale — test/design re-bless")
-    (org-air-s5a-point-on-visible-char-all-paths . "D-P1.PAD: wider cluster truncates title at W120 — test/design re-bless")
-    (org-air-ux-u3-refresh-preserves-filter-and-point . "D-P1.PAD: wider cluster truncates title at W120 — test/design re-bless")
-    (org-air-ux-u3-save-of-tracked-file-refreshes . "D-P1.PAD: wider cluster truncates title at W120 — test/design re-bless")
-    (org-air-r9-c1-narrow-resize-refits . "D-P1.PAD: padded cluster overflows priority rows at W100, date col shifts — test/design re-bless")
-    (org-air-r9-c2-pill-text-layer-byte-identical . "D-P1.PAD: 'pill now reserves pad cols, so it is no longer byte-identical to 'text — test/design re-bless")
-    (org-air-r9-c3-text-scale-refit-consistent . "D-P1.PAD: padded cluster changes refit widths — test/design re-bless")
-    ;; D-P4 [byte]: the calendar grid block is now centred in the rail, so
-    ;; the weekday row no longer shares the D5b content-spine inset.
-    (org-air-r9-d5b-content-spine . "D-P4: calendar grid centred (org-air-calendar-center), not spine-aligned — test/design re-bless")
-    ;; D-P5 [byte, full replace]: the project view is rebuilt as shared-row
-    ;; sections; every box-tree glyph / roll-up is deleted, fixtures fully
-    ;; change.
-    (org-air-f5-tree-structure . "D-P5: box-tree glyphs/roll-up deleted (shared-row sections) — test/design re-bless")
-    (org-air-f5-project-view-byte-mockups . "D-P5: project fixtures fully change (tree -> rows) — design re-bless")
-    (org-air-f5-grouping-toggle . "D-P5: dir/tag section headers no longer lead with box glyphs — test/design re-bless")
+    ;; 2026-06-17: round-10 CLOSEOUT — the last 4 entries CLOSED on impl's
+    ;; narrow-tier fix nzruxkrm (clamps the assembled LEFT to width -
+    ;; cluster-w - gap, so a wide [#A] prefix + reserved pad cols can no
+    ;; longer shove the V6 cluster right).  Byte-verified the fix is a
+    ;; NO-OP at the wide tiers (W80/120/160/90/104/110 + project + empty
+    ;; fixtures byte-identical to the earlier regen ovrwrtzt); regenerated
+    ;; ONLY the W96/W100 mockups, which now show the V6 date column ALIGNED
+    ;; (W96 and W100 each render a single date column).  All four deleted:
+    ;;   org-air-layout-mockup-thresholds, org-air-layout-mockup-heights,
+    ;;   org-air-r9-c1-narrow-resize-refits,
+    ;;   org-air-r9-c3-text-scale-refit-consistent.
+    ;; Round-10 manifest is EMPTY; the tests stay as permanent regression
+    ;; guards (V6 alignment at every tier).
     ;; ===================================================================
     ;; passed-unexpectedly through the anti-tautology render guards
     ;; (real renderer produced the bytes: width seam, 80/120/160

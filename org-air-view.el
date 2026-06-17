@@ -120,6 +120,30 @@ every chip — the per-tag hue lives in the LABEL only, never the border."
   :type '(choice (const :tag "Auto (derive from faded)" nil) string)
   :group 'org-air)
 
+(defcustom org-air-pill-border-opacity 0.5
+  "Stroke opacity for the svg pill border (D-P2, calmer capsules).
+Default 0.5 draws the capsule outline as a hairline so a column of stacked
+pills no longer reads as a busy grid of lines.  Display-only (an svg
+attribute) — no byte change."
+  :type 'number
+  :group 'org-air)
+
+(defcustom org-air-date-pill-align 'center
+  "How the date label sits inside its uniform-width pill capsule (D-P1).
+`center' (default) centres the label in the `meta-date-w' box; `right'
+hugs the label to the right of the box (a right-aligned date column).  The
+underlying TTY/byte text stays left-justified either way."
+  :type '(choice (const center) (const right))
+  :group 'org-air)
+
+(defcustom org-air-line-spacing 0.15
+  "Buffer-local `line-spacing' for the org-air board (D-P2 #4).
+A touch of inter-row breathing space calms the stacked capsules.  nil
+leaves `line-spacing' at the frame default; 0 packs rows tight (the
+round-8 S8 behaviour for unbroken box-drawing rules)."
+  :type '(choice (const :tag "Frame default" nil) number)
+  :group 'org-air)
+
 (defvar org-air-view--pill-char-w nil
   "Device-pixel width of one text column for the current render (C2/C3).
 Bound during `org-air-view--render' from the displaying window's actual
@@ -438,10 +462,11 @@ of whether the wrapping pane margin is added later (D6).")
   (setq-local truncate-lines t)
   ;; S1: the header band is in-buffer text only; never a header line.
   (setq-local header-line-format nil)
-  ;; S8: zero line-spacing so adjacent box-drawing glyphs (the full-height
-  ;; pane divider, calendar grid, rules) touch top-to-bottom and read as
-  ;; one unbroken rule; any positive line-spacing leaves a ragged gap.
-  (setq-local line-spacing 0)
+  ;; D-P2 #4: a touch of `line-spacing' (`org-air-line-spacing', default
+  ;; 0.15) calms the stacked capsules.  This reverses the round-8 S8
+  ;; line-spacing 0 (which kept box-drawing rules unbroken); set
+  ;; `org-air-line-spacing' to 0 to restore the tight S8 packing.
+  (setq-local line-spacing org-air-line-spacing)
   (setq-local cursor-type 'bar)
   (setq-local org-air-layout-refresh-function #'org-air-view--resize-refresh)
   (setq-local buffer-read-only t)
@@ -888,8 +913,10 @@ LABEL) CW)' when `string-pixel-width' is unavailable (Emacs < 29)."
               (propertize label 'face (list :height (/ fs (float ch)))))))
       (* (string-width label) cw)))
 
-(defun org-air-view--svg-pillify (text face)
+(cl-defun org-air-view--svg-pillify (text face &key (align 'center))
   "Return TEXT carrying a rounded svg-pill `display' overlay (C2/D-P1).
+ALIGN places the label inside the box: `center' (default) or `right'
+\(D-P1 `org-air-date-pill-align').
 The pill SVG occupies EXACTLY TEXT's text-cell box —
 box-w = Ncols * char-px, height = the line's pixel height — where Ncols is
 TEXT's column width (INCLUDING the `org-air-pill-pad-cols' reserved pad
@@ -944,19 +971,30 @@ mandatory fallback."
                   ;; AND the estimate already overruns) -> mandatory text
                   ;; fallback (plain padded coloured label, no pill).
                   text
-                (let ((svg (svg-create box-w h)))
+                (let ((svg (svg-create box-w h))
+                      (stroke-op (max 0.0 (min 1.0 (float org-air-pill-border-opacity)))))
                   (svg-rectangle svg 0.5 0.5
                                  (max 0 (- box-w 1.0)) (max 0 (- h 1.0))
                                  :rx radius :ry radius
                                  :fill (if (> alpha 0) fg "none")
                                  :fill-opacity (if (> alpha 0) alpha 0)
-                                 :stroke border :stroke-width 1)
-                  (svg-text svg label
-                            :x (/ box-w 2.0)
-                            :y (round (* ch 0.72))
-                            :text-anchor "middle"
-                            :fill fg
-                            :font-size font-size)
+                                 :stroke border :stroke-width 1
+                                 ;; D-P2 #1: hairline border at reduced opacity.
+                                 :stroke-opacity stroke-op)
+                  ;; D-P1: label placement — centred (default) or right-hugged.
+                  (if (eq align 'right)
+                      (svg-text svg label
+                                :x (- box-w (* pad cw))
+                                :y (round (* ch 0.72))
+                                :text-anchor "end"
+                                :fill fg
+                                :font-size font-size)
+                    (svg-text svg label
+                              :x (/ box-w 2.0)
+                              :y (round (* ch 0.72))
+                              :text-anchor "middle"
+                              :fill fg
+                              :font-size font-size))
                   ;; Lock the displayed image to the exact cell box so the
                   ;; run of Ncols characters occupies Ncols*char-px pixels
                   ;; — no more, no less (C2); centre on the text line.
@@ -996,7 +1034,14 @@ the svg box gains genuine internal margin and the byte/V6 widths track it."
         (overflow (- total k)))
     (cond
      ((<= total 0) "")
-     ((> overflow 0) (string-trim (concat shown " " (org-air-view--glyph 'more))))
+     ;; D-P3: NEVER `string-trim' a string carrying pill display props.
+     ;; Trimming strips the first chip's reserved leading pad, desyncing
+     ;; its baked svg box from its column run and drifting the origin
+     ;; column.  Keep every chip's pad; append the overflow marker as a
+     ;; plain, unpilled 1-col token (counted in `meta-tags-w').
+     ((> overflow 0)
+      (concat shown " "
+              (propertize (org-air-view--glyph 'more) 'face 'org-air-face-faded)))
      (t shown))))
 
 (defun org-air-view--item-origin-raw (item)
@@ -1016,11 +1061,17 @@ xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
     (when date
       (let* ((face (or (cdr date) 'org-air-face-date))
              (pill (eq org-air-date-style 'pill))
+             ;; D-P1: pad the label to the FULL date column before pillify
+             ;; (left-justified text fallback) so every date pill's box =
+             ;; meta-date-w × char-px — uniform capsules (V6 pixel-lock holds).
+             (col (max (or org-air-view--meta-date-w org-air-date-column)
+                       (string-width (car date))))
              (text (if pill
-                       (org-air-view--pill-pad-label (car date) face)
+                       (propertize (org-air-view--pad-to (car date) col) 'face face)
                      (propertize (car date) 'face face))))
         (concat (if pill
-                    (org-air-view--svg-pillify text face)
+                    (org-air-view--svg-pillify text face
+                                               :align org-air-date-pill-align)
                   text)
                 (or inbox-hint ""))))))
 
@@ -1331,6 +1382,27 @@ so the calendar grid and rules never overflow; `org-air-rail-content-inset'
   "Return the spine-inset whitespace prefix for a rail of content WIDTH."
   (make-string (org-air-view--rail-inset width) ?\s))
 
+(cl-defun org-air-view--rail-header (label width &key suffix suffix-face)
+  "Insert a D-P6 rail section header for LABEL fitted to WIDTH.
+With `org-air-rail-header-style' = `marker' (default) emit the clean
+prefix-marked header with SUFFIX (e.g. the calendar nav, in SUFFIX-FACE)
+right-anchored — no bg/overline/rule glyphs (reverses round-10 D-P2.A).
+With `rule' restore the round-10 labelled rule."
+  (if (eq org-air-rail-header-style 'rule)
+      (let ((start (point)))
+        (insert (org-air-view--pad-to
+                 (org-air-layout-labelled-rule
+                  label width :suffix suffix
+                  :suffix-face (or suffix-face 'org-air-face-rail-title))
+                 width)
+                "\n")
+        (add-face-text-property start (max start (1- (point)))
+                                'org-air-face-rail-card-header t))
+    (insert (org-air-layout-rail-header-string
+             label width :suffix suffix
+             :suffix-face (or suffix-face 'org-air-face-rail-header))
+            "\n")))
+
 (defun org-air-view--insert-labelled-rule (label width)
   "Insert a D5 rail rule labelled LABEL and fitted to WIDTH.
 The rule opens with the rounded `hrule-cap' stub echoing a pill's left
@@ -1351,7 +1423,7 @@ fallback) while a GUI frame reads it as an hl-block card header."
 (defun org-air-view--insert-summary (items width)
   "Insert summary block for ITEMS fitted to WIDTH."
   (when org-air-show-summary
-    (org-air-view--insert-labelled-rule "Summary" width)
+    (org-air-view--rail-header "Summary" width)
     (let ((counts (org-air-view--section-counts items))
           (total (length (org-air-view--visible-items items)))
           (inset (org-air-view--rail-inset-str width)))
@@ -1392,7 +1464,7 @@ fallback) while a GUI frame reads it as an hl-block card header."
 (defun org-air-view--insert-rail-filters (width)
   "Insert filters and scope block fitted to WIDTH."
   (when org-air-show-rail-filters
-    (org-air-view--insert-labelled-rule "Filters" width)
+    (org-air-view--rail-header "Filters" width)
     (let ((filters (org-air-view--filter-tags))
           (inset (org-air-view--rail-inset-str width)))
       (if (and (null filters) (null org-air-view--scope))
@@ -1430,7 +1502,7 @@ column alignment (D5f); a WIDTH of 0 (the trailing column) is as-is."
   "Insert the named D5f Actions block fitted to rail content WIDTH.
 Two column-aligned verb rows, inset to the spine, the leading key token in
 the quiet keycap face; the columns do the separating (no dotted prose)."
-  (org-air-view--insert-labelled-rule "Actions" width)
+  (org-air-view--rail-header "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
          ;; Round-9 Q1: when a scope is active the second row's middle verb
          ;; surfaces the scope reset (the literal "S reset" cue the design

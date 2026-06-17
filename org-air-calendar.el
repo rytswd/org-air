@@ -210,31 +210,31 @@ left edge; the labelled-rule header itself spans the full WIDTH."
          (center (and org-air-calendar-center width (> width row-width)))
          (lead (if center (max 0 (/ (- width row-width) 2)) inset))
          (pad-str (make-string (max 0 lead) ?\s))
-         (rule-width (if center row-width (or width row-width))))
+         ;; D-P5: the calendar header spans the FULL rail width (like every
+         ;; other section header), not the centred grid width.
+         (header-width (or width row-width)))
     (let* ((nav (concat (org-air-calendar--glyph "‹" "<") " "
                         (org-air-calendar--glyph "›" ">")))
            (full-label (format "%s %d" (calendar-month-name month) year))
-           ;; D5a: the calendar header is now the same labelled rule as
-           ;; Summary/Filters/Actions, with the ‹ › nav right-anchored as the
-           ;; rule suffix.  Abbreviate the month before the nav truncates
-           ;; (the round-9 D3 / nav-never-drops rule, preserved).
+           ;; Abbreviate the month before the nav truncates (round-9 rule,
+           ;; preserved); measured against the full header width now.
            (label (if (> (+ 4 (string-width full-label) 2 (string-width nav))
-                         rule-width)
+                         header-width)
                       (format "%s %d"
                               (substring (calendar-month-name month) 0 3) year)
                     full-label)))
-      ;; D-P4: the header right-anchors its nav within rule-width, so it
-      ;; centres with the block when prefixed by LEAD.
-      ;; D-P2.B: the calendar section header takes the same D-P2.A card
-      ;; treatment as the rail rules (bg tint + overline; TTY substrate).
-      (insert pad-str)
-      (let ((hstart (point)))
-        (insert (org-air-layout-labelled-rule
-                 label rule-width
+      ;; D-P6: clean prefix-marked header (no bg/overline/rule); D-P5: full
+      ;; rail width, nav right-anchored.  The grid + weekday row + legend
+      ;; below stay CENTRED (LEAD), only the header goes full-width.
+      (if (eq org-air-rail-header-style 'rule)
+          (insert (org-air-layout-labelled-rule
+                   label header-width
+                   :suffix nav :suffix-face 'org-air-face-calendar-header)
+                  "\n")
+        (insert (org-air-layout-rail-header-string
+                 label header-width
                  :suffix nav :suffix-face 'org-air-face-calendar-header)
-                "\n")
-        (add-face-text-property hstart (max hstart (1- (point)))
-                                'org-air-face-rail-card-header t))
+                "\n"))
       (insert pad-str
               (propertize weekday-row 'face 'org-air-face-calendar-day-name)
               "\n"))

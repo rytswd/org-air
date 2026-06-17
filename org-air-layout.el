@@ -20,6 +20,14 @@
 (require 'seq)
 (require 'subr-x)
 
+(declare-function svg-create "svg")
+(declare-function svg-rectangle "svg")
+(declare-function svg-image "svg")
+;; Bound by `org-air-view--render' to the displaying window's live char
+;; metrics (C2/C3); used here only to size the cosmetic header marker bar.
+(defvar org-air-view--pill-char-w)
+(defvar org-air-view--pill-char-h)
+
 (set (intern "│") "│")
 
 (defcustom org-air-glyphs
@@ -46,7 +54,8 @@
     (box-bottom-right . ("┘" . "+"))
     (box-tee-left . ("├" . "+"))
     (box-tee-right . ("┤" . "+"))
-    (updated . ("↻" . "~")))
+    (updated . ("↻" . "~"))
+    (rail-marker . ("▌" . "|")))
   "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
 PREFERRED is the GUI glyph (already the safer S5b default: stale ○, today
 ■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate
@@ -215,6 +224,61 @@ truncates.  An empty LABEL yields a bare capped rule."
          (fill-n (max 0 (- width (string-width left) (string-width suffix-str))))
          (fill (propertize (make-string fill-n rchar) 'face rule-face)))
     (concat left fill suffix-str)))
+
+(defcustom org-air-rail-header-style 'marker
+  "How a rail/calendar section header renders (D-P6).
+`marker' (default) draws a clean prefix-marked header (a slim rounded svg
+accent bar over a reserved 1-col marker on a GUI, the plain `rail-marker'
+glyph in TTY) with a legible `org-air-face-rail-header' label.  `rule'
+restores the round-10 hl-block labelled rule."
+  :type '(choice (const marker) (const rule))
+  :group 'org-air)
+
+(defun org-air-layout-marker-image ()
+  "Return an svg image of a slim rounded accent bar one char wide (D-P6), or nil.
+GUI only; uses the displaying window's live char metrics when bound (C2/C3),
+else the frame char metrics.  The image is locked to one char cell so the
+reserved marker column's alignment is unchanged."
+  (when (and (display-graphic-p) (require 'svg nil t))
+    (ignore-errors
+      (let* ((cw (or (bound-and-true-p org-air-view--pill-char-w)
+                     (frame-char-width)))
+             (ch (or (bound-and-true-p org-air-view--pill-char-h)
+                     (frame-char-height)))
+             (bw (max 1 (round (* cw 0.45))))
+             (color (or (face-foreground 'org-air-face-rail-marker nil t) "gray"))
+             (svg (svg-create cw ch)))
+        (svg-rectangle svg 0.5 (* ch 0.1) bw (* ch 0.8)
+                       :rx (/ ch 6.0) :ry (/ ch 6.0) :fill color)
+        (svg-image svg :ascent 'center :width cw :height ch)))))
+
+(cl-defun org-air-layout-rail-header-string (label width &key suffix
+                                                   (suffix-face 'org-air-face-rail-header))
+  "Return a D-P6 prefix-marked rail header line as TEXT, padded to WIDTH.
+Form: `<marker> LABEL <fill> [SUFFIX]'.  The 1-col prefix marker is the
+`rail-marker' glyph (left-half-block, ascii `|') faced `org-air-face-rail-
+marker'; on a GUI it also carries a slim rounded svg accent bar via
+`display' (locked to one char cell).  LABEL is faced `org-air-face-rail-
+header' (legible, not faded); the optional right-anchored SUFFIX (e.g. the
+calendar `‹ ›' nav) is faced SUFFIX-FACE.  No bg/overline/rule glyphs
+\(reverses round-10 D-P2.A).  The byte/TTY layer is `<marker> LABEL'."
+  (let* ((img (org-air-layout-marker-image))
+         (mk (org-air-layout-glyph 'rail-marker))
+         (marker (propertize mk 'face 'org-air-face-rail-marker))
+         (marker (if img (propertize marker 'display img) marker))
+         (left (concat marker " "
+                       (propertize label 'face 'org-air-face-rail-header)))
+         (suffix-str (if (and suffix (not (string-empty-p suffix)))
+                         (propertize suffix 'face suffix-face)
+                       ""))
+         (fill-n (max 1 (- width (string-width left) (string-width suffix-str))))
+         (line (concat left (make-string fill-n ?\s) suffix-str))
+         (w (string-width line)))
+    (cond
+     ((> w width)
+      (truncate-string-to-width line width nil nil (org-air-layout-glyph 'more)))
+     ((< w width) (concat line (make-string (- width w) ?\s)))
+     (t line))))
 
 (defun org-air-layout-orientation (width &optional breakpoint)
   "Return layout orientation for WIDTH and BREAKPOINT.

@@ -230,6 +230,37 @@ An `:underline' hairline on a 1-col-tall spacer beneath the card's last
 body line.  TTY paints nothing (mandatory fallback)."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-rail-header
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#37474F" :weight semibold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#ECEFF4" :weight normal))
+    (t (:inherit default :weight bold)))
+  "Face for a rail/calendar section header LABEL (D-P6).
+Legible — NOT faded: a near-default foreground with a touch of weight, so
+`Summary' / `Filters' / `Actions' / the month header read clearly (this
+replaces the low-contrast round-10 hl-block card label, P4)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-rail-marker
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#7E9CB8"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#6E8AA8"))
+    (t (:inherit org-air-face-salient)))
+  "Face for the rail header prefix marker (D-P6).
+A muted salient accent: the GUI draws a slim rounded vertical bar over the
+reserved marker column in this colour; the TTY shows the `rail-marker'
+glyph (left-half-block, ascii `|') in this face."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-inspector-label
+  '((t :inherit org-air-face-faded))
+  "Face for the inspector's fixed key column (D-P7).
+A faded label (`Sched', `Deadln', ...); the value follows in the same
+semantic face the board uses for that field (board parity)."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-separator
   '((t :inherit org-air-face-faded :weight normal))
   "Face for thin horizontal rules.

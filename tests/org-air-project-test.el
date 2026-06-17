@@ -112,16 +112,17 @@ is a distinct major mode (the tree renderer, not the GTD board)."
 ;;;; F5d — tree render structural invariants (byte-testable text).
 
 (ert-deftest org-air-f5-tree-structure ()
-  "D-P5 [byte, full replace]: the project view is rebuilt as the SHARED
-row renderer (`org-air-view--insert-row', the GTD board's primitive) — a
-state-summary header, then grouped SECTIONS of shared rows.  The old
-airctl box-drawing tree (┌─│├└) and the (+N) roll-up counts are GONE
-(air/v0.4/org-air-round10-design.org §D-P5).  What remains is buffer
-TEXT with: the state badges, version-folder section headers, doc rows by
-title with the ↻ (~) date + #tags, and per-section count headers."
+  "D-P1 [byte] re-bless (round-14): the project view is a TWO-LINE doc
+component per doc inside state-bucket sections, in a two-pane body (docs
+LEFT, project rail RIGHT).  Line 1 = title + inline left-flowing tags;
+line 2 = an indented, quieter `▤ relpath  created YYYY-MM-DD  updated
+YYYY-MM-DD' (filename NOT right-aligned).  Section headers adopt the
+round-11 `▌' prefix marker (TTY `|'): `▌ [badge] State N'.  The old
+single-row right-aligned cluster + the `~ date' updated token are GONE
+(air/v0.4/org-air-round14-design.org §D-P1).  No box-drawing tree."
   (skip-unless (locate-library "org-air"))
-  ;; Render at the blessed fixture width (100) so the shared-row titles are
-  ;; whole for the title search (D-P5 rows truncate like the GTD board).
+  ;; Render at the blessed fixture width (100) so the two-line titles are
+  ;; whole for the title search.
   (let ((org-air-project-view-width 100))
    (org-air-project-test--render
     ;; Grouping is a persistent global toggle; pin it to state so this test
@@ -129,36 +130,44 @@ title with the ↻ (~) date + #tags, and per-section count headers."
     (when (commandp 'org-air-project-group-by-state)
       (call-interactively 'org-air-project-group-by-state))
     (let ((text (buffer-string)))
-      ;; D-P5: NO box-drawing tree frame / branches anywhere.
-      (should-not (string-match-p "[┌└├│─]" text))
-      ;; D-P5: NO (+N) roll-up counts (sections carry a plain count head).
+      ;; NO box-drawing tree frame / branches (the TTY pane divider is a
+      ;; plain `|', not a box glyph).
+      (should-not (string-match-p "[┌┐└┘├┤┬┴┼]" text))
+      ;; NO (+N) roll-up counts.
       (should-not (string-match-p "(\\+[0-9]+)" text))
-      ;; Every fixture doc renders by its TITLE (org-air shows #+title).
+      ;; Every fixture doc renders by its TITLE on line 1.
       (dolist (doc org-air-project-test-docs)
         (should (string-match-p (regexp-quote (plist-get (cdr doc) :title))
                                 text)))
-      ;; Version folders group the docs (section headers in dir grouping;
-      ;; the origin column carries the path in every grouping).
+      ;; D-P1.A line 2: indented `<glyph> relpath' with the version path
+      ;; visible (not the basename) + `created'/`updated' date labels.
       (should (string-match-p "v0\\.1/" text))
       (should (string-match-p "v0\\.2/" text))
+      (should (string-match-p "created [0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" text))
+      (should (string-match-p "updated [0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" text))
       ;; TTY state badges (batch is a TTY): all five states.
       (dolist (badge '("[D]" "[R]" "[W]" "[C]" "[X]"))
         (should (string-match-p (regexp-quote badge) text)))
-      ;; ↻ date marker degrades to ~ on TTY; a fixture date is present.
-      (should (string-match-p "~ [0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" text))
-      ;; Tags as accent text.
+      ;; Tags as accent text (line 1, inline).
       (should (string-match-p "#ui\\|#core\\|#context" text))
-      ;; Shared-row SECTIONS: a state section header `[D] Draft 2' with a
-      ;; trailing count (the replacement for the old roll-up).
-      (should (string-match-p "\\[[DRWCX]\\] [A-Z][A-Za-z ]+ [0-9]+$" text))))))
+      ;; D-P1 section header: `▌'/`|' prefix marker + `[badge] State N'.
+      (should (string-match-p "| \\[[DRWCX]\\] [A-Z][A-Za-z ]+ [0-9]" text))
+      ;; D-P1.B: the project rail carries a `Summary' and an `Inspector'
+      ;; block (the mid-rail inspector reflecting the first doc).
+      (should (string-match-p "| Summary" text))
+      (should (string-match-p "| Inspector" text))))))
 
 ;;;; F5d byte — the project tree matches the blessed fixtures (all modes).
 
 (defun org-air-project-test--render-lines (group-fn width)
-  "Render the project view in GROUP-FN at WIDTH; return right-trimmed lines."
+  "Render the project view in GROUP-FN at WIDTH; return right-trimmed lines.
+The clock is frozen to `org-air-test-now' (matching the regen tool) so the
+D-P1.B project inspector's relative date terms (created/updated `(Nd ago)')
+are byte-stable, and the file mtime is pinned for the same reason."
   (let ((org-air-sources (list (list :air org-air-project-test-root)))
         (org-air-project-view-width width))
-    (org-air-project-test--with-frozen-mtime
+    (org-air-viewport-test--with-frozen-now
+     (org-air-project-test--with-frozen-mtime
      (save-window-excursion
        (org-air-project)
        (let ((buf (seq-find
@@ -174,7 +183,7 @@ title with the ↻ (~) date + #tags, and per-section count headers."
                (org-air-viewport-test--drop-trailing-blanks
                 (mapcar #'string-trim-right
                         (split-string (buffer-string) "\n"))))
-           (when (buffer-live-p buf) (kill-buffer buf))))))))
+           (when (buffer-live-p buf) (kill-buffer buf )))))))))
 
 (ert-deftest org-air-f5-project-view-byte-mockups ()
   "The honest org-air-project render of the ./air fixture equals the
@@ -209,10 +218,12 @@ stability; --batch renders the TTY [D]/[R]/[W]/[C]/[X] badge forms."
 The three renders must be pairwise BYTE-DIFFERENT — they group by
 different sections (states vs directories vs tags), so a fallback that
 renders dir/tag the same as state (the design-caught regression) can
-never pass here.  D-P5 [byte] re-bless: the sections are now SHARED-ROW
-blocks (no box-drawing glyphs); a section HEADER leads with its grouping
-key — dir grouping with a version folder + count, tag grouping with a
-#tag + count, state grouping with a `[badge] State N' header."
+never pass here.  D-P1.B [byte] re-bless (round-14): the project view is
+now a TWO-PANE body (docs LEFT, rail RIGHT), so a section header no
+longer ENDS the line (the rail follows after the `|' divider).  A section
+HEADER leads with the `▌'/`|' prefix marker + its grouping key — dir
+grouping with a version folder + count, tag grouping with a #tag + count,
+state grouping with a `[badge] State N' header."
   (skip-unless (locate-library "org-air"))
   (let ((state (org-air-project-test--render-lines
                 'org-air-project-group-by-state 100))
@@ -225,18 +236,20 @@ key — dir grouping with a version folder + count, tag grouping with a
     (should-not (equal state dir))
     (should-not (equal state tag))
     (should-not (equal dir tag))
-    ;; D-P5: no box-drawing glyphs lead any line in any grouping.
+    ;; No box-drawing tree glyphs in any grouping (the TTY pane divider is
+    ;; a plain `|', not a box glyph).
     (dolist (lines (list state dir tag))
-      (should-not (cl-some (lambda (l) (string-match-p "[┌└├│─]" l)) lines)))
-    ;; A DIR section header is a version folder + count (`H v0.1/ 3');
-    ;; doc rows end in `.org', so the `/ N' tail uniquely marks a header.
+      (should-not (cl-some (lambda (l) (string-match-p "[┌┐└┘├┤┬┴┼]" l)) lines)))
+    ;; A DIR section header is the `|' marker + a version folder + count
+    ;; (`| . v0.1/ 3'); doc-line-2 paths read `v0.1/<sub>' with NO space
+    ;; after the slash, so `v0.N/ <count>' uniquely marks a header.
     (should (cl-some (lambda (l)
-                       (string-match-p "v0\\.[0-9]+/ [0-9]+\\'" l))
+                       (string-match-p "v0\\.[0-9]+/ [0-9]+" l))
                      dir))
-    ;; A TAG section header is a `#tag count' (`#core 3'); doc rows in tag
-    ;; grouping never END with `#tag N', so the tail uniquely marks it.
+    ;; A TAG section header is the `|' marker + a `#tag count' (`| #core 3');
+    ;; doc rows carry `#tag' inline but never `| #tag N'.
     (should (cl-some (lambda (l)
-                       (string-match-p "\\`[[:space:]]*#[a-z]+ [0-9]+\\'" l))
+                       (string-match-p "| #[a-z]+ [0-9]+" l))
                      tag))))
 
 ;;;; V6 — fixed date column (dates line up vertically down the list).

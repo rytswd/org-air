@@ -1,18 +1,26 @@
   org-air · project
 
-  [D] 2   [R] 1   [W] 1   [V] 0   [C] 1   [X] 1
-
-  #context 2
-  [D] Gamma context               ~ 2026-05-01  #context        . v0.1/air-context/gamma-context.org
-  [D] Epsilon plan                ~ 2026-05-01  #context   #ui               . v0.2/epsilon-plan.org
-
-  #core 3
-  [R] Alpha feature               ~ 2026-05-01  #ui   #core                 . v0.1/alpha-feature.org
-  [C] Beta CLI                    ~ 2026-05-01  #core                            . v0.1/beta-cli.org
-  [W] Zeta work in progress       ~ 2026-05-01  #core   #ui                      . v0.2/zeta-wip.org
-
-  #ui 4
-  [R] Alpha feature               ~ 2026-05-01  #ui   #core                 . v0.1/alpha-feature.org
-  [X] Delta UI exploration        ~ 2026-05-01  #ui                              . v0.2/delta-ui.org
-  [D] Epsilon plan                ~ 2026-05-01  #context   #ui               . v0.2/epsilon-plan.org
-  [W] Zeta work in progress       ~ 2026-05-01  #core   #ui                      . v0.2/zeta-wip.org
+  | #context 2                                                        | | Summary
+  [D] Gamma context   #context                                        |    2  Draft
+    . v0.1/air-context/gamma-context.org    created 2026-06-14    ... |    1  Ready
+  [D] Epsilon plan   #context   #ui                                   |    1  Work In Progress
+    . v0.2/epsilon-plan.org    created 2026-06-14    updated 2026-... |    0  Review
+                                                                      |    1  Complete
+  | #core 3                                                           |    1  Dropped
+  [R] Alpha feature   #ui   #core                                     |
+    . v0.1/alpha-feature.org    created 2026-06-14    updated 2026... | | Inspector
+  [C] Beta CLI   #core                                                |  Gamma context
+    . v0.1/beta-cli.org    created 2026-06-14    updated 2026-05-01   |  State   [D] Draft
+  [W] Zeta work in progress   #core   #ui                             |  Path    ~/Coding/github....
+    . v0.2/zeta-wip.org    created 2026-06-14    updated 2026-05-01   |  #context
+                                                                      |  Group   v0.1
+  | #ui 4                                                             |
+  [R] Alpha feature   #ui   #core                                     |  Created 2026-06-14  (1d ...
+    . v0.1/alpha-feature.org    created 2026-06-14    updated 2026... |  Updated 2026-05-01  (45d...
+  [X] Delta UI exploration   #ui                                      |
+    . v0.2/delta-ui.org    created 2026-06-14    updated 2026-05-01   |
+  [D] Epsilon plan   #context   #ui                                   |
+    . v0.2/epsilon-plan.org    created 2026-06-14    updated 2026-... |
+  [W] Zeta work in progress   #core   #ui                             |
+    . v0.2/zeta-wip.org    created 2026-06-14    updated 2026-05-01   |
+                                                                      |

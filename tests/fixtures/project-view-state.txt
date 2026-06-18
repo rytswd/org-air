@@ -2,23 +2,23 @@
 
   | [D] Draft 2                                                       | | Summary
   Gamma context   #context                                            |    2  Draft
-    . v0.1/air-context/gamma-context.org    created 2026-06-14    ... |    1  Ready
+    . v0.1/air-context/gamma-context.org    created 2026-04-01    ... |    1  Ready
   Epsilon plan   #context   #ui                                       |    1  Work In Progress
-    . v0.2/epsilon-plan.org    created 2026-06-14    updated 2026-... |    0  Review
+    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    0  Review
                                                                       |    1  Complete
   | [R] Ready 1                                                       |    1  Dropped
   Alpha feature   #ui   #core                                         |
-    . v0.1/alpha-feature.org    created 2026-06-14    updated 2026... | | Inspector
+    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... | | Inspector
                                                                       |  Gamma context
   | [W] Work In Progress 1                                            |  State   [D] Draft
   Zeta work in progress   #core   #ui                                 |  Path    ~/Coding/github....
-    . v0.2/zeta-wip.org    created 2026-06-14    updated 2026-05-01   |  #context
+    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  #context
                                                                       |  Group   v0.1
   | [C] Complete 1                                                    |
-  Beta CLI   #core                                                    |  Created 2026-06-14  (1d ...
-    . v0.1/beta-cli.org    created 2026-06-14    updated 2026-05-01   |  Updated 2026-05-01  (45d...
+  Beta CLI   #core                                                    |  Created 2026-04-01  (75d...
+    . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |  Updated 2026-05-01  (45d...
                                                                       |
   | [X] Dropped 1                                                     |
   Delta UI exploration   #ui                                          |
-    . v0.2/delta-ui.org    created 2026-06-14    updated 2026-05-01   |
+    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |
                                                                       |

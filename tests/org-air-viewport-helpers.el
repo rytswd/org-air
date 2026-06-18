@@ -64,11 +64,25 @@ the implementation; declared special here for binding.")
 The F5 doc ↻ date is the file mtime, which a jj checkout resets to the
 checkout time — pinning it keeps the project-view fixtures byte-stable.")
 
+(defconst org-air-project-test-frozen-ctime
+  (encode-time 0 0 12 1 4 2026)
+  "Frozen file status-change (ctime) time (2026-04-01) for fixtures.
+`org-air-project--doc-created' falls back to the file CTIME when a doc
+carries no `#+created:'/`#+date:' keyword.  A jj checkout resets ctime to
+the checkout time, so the rendered `created YYYY-MM-DD' and its relative
+term `(Nd ago)' DRIFT day-to-day unless ctime is pinned too (the mtime
+pin alone left `created' computed from REAL today).  Distinct from — and
+earlier than — the mtime so created < updated reads naturally.")
+
 (defmacro org-air-project-test--with-frozen-mtime (&rest body)
-  "Run BODY with every file's modification-time pinned (deterministic ↻).
+  "Run BODY with every file's modification + status-change times pinned.
 Mocks `file-attributes' (a C subr, so the override survives byte-
 compilation — unlike `file-attribute-modification-time', which the
-compiler inlines) and rewrites the mtime slot (index 5)."
+compiler inlines) and rewrites BOTH the mtime slot (index 5) and the
+ctime slot (index 6).  Pinning ctime keeps the project-view doc
+`created' date (which falls back to ctime) byte-stable: without it the
+created date and its relative `(Nd ago)' term track REAL today, so the
+fixtures drift across midnight / across a jj checkout."
   (declare (indent 0) (debug t))
   `(let ((org-air-project-test--orig-file-attributes
           (symbol-function 'file-attributes)))
@@ -78,6 +92,8 @@ compiler inlines) and rewrites the mtime slot (index 5)."
                                       file args)))
                     (when (and attrs (> (length attrs) 5))
                       (setf (nth 5 attrs) org-air-project-test-frozen-mtime))
+                    (when (and attrs (> (length attrs) 6))
+                      (setf (nth 6 attrs) org-air-project-test-frozen-ctime))
                     attrs))))
        ,@body)))
 

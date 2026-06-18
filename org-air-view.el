@@ -202,6 +202,13 @@ list.  Fits the longest tokens (e.g. \"OVERDUE 12d\", \"· 273d quiet\")."
 (defvar org-air-view--meta-origin-w nil
   "Computed width of the origin column for the current render (V6), or nil.")
 
+(defvar org-air-view--meta-todo-w nil
+  "Computed width of the reserved TODO-keyword cell for the current render.
+The widest TODO keyword over ALL rendered board items (board-wide, so
+every section shares one left edge).  0 when no rendered item carries a
+keyword (no board has keywords -> no wasted column).  Set by
+`org-air-view--compute-meta-widths' (R15 D-P1).")
+
 (defvar org-air-view--meta-date-repeat 0
   "Extra date-column columns reserved for the R14 D-P2 repeat marker.
 2 when ANY rendered item carries an Org repeater on its effective date (so
@@ -1387,12 +1394,14 @@ Walks the same section buckets the pane renders and records the widest
 date label (bare, no Inbox nudge), tag string and origin so date / tags /
 origin each occupy a fixed-width column down the whole list and line up
 vertically.  The date floor is `org-air-date-column'."
-  (let ((dw org-air-date-column) (tw 0) (ow 0) (rep 0))
+  (let ((dw org-air-date-column) (tw 0) (ow 0) (rep 0) (tw-todo 0))
     (dolist (descriptor org-air-view--sections)
       (let* ((bucket (car descriptor))
              (bucket-items (org-air-view--items-for-bucket bucket items)))
         (dolist (item bucket-items)
           (when (org-air-view--item-repeat-timestamp item) (setq rep 2))
+          (setq tw-todo (max tw-todo
+                             (string-width (or (org-air-item-todo item) ""))))
           (let* ((date (org-air-view--date-label item bucket))
                  (tags (org-air-item-tags item))
                  (n (length tags))
@@ -1409,7 +1418,25 @@ vertically.  The date floor is `org-air-date-column'."
     (setq org-air-view--meta-date-w dw
           org-air-view--meta-tags-w tw
           org-air-view--meta-origin-w ow
-          org-air-view--meta-date-repeat rep)))
+          org-air-view--meta-date-repeat rep
+          org-air-view--meta-todo-w tw-todo)))
+
+(defun org-air-view--todo-cell (todo width)
+  "Return a fixed-width reserved TODO-keyword cell (R15 D-P1).
+WIDTH is the board-wide widest keyword (`org-air-view--meta-todo-w').
+When WIDTH is 0 no rendered item has a keyword, so return an empty
+string (no wasted column).  Otherwise return TODO in its todo-face (or
+WIDTH blanks when absent), left-justified and padded to WIDTH, plus a
+single trailing space separator -- so every row contributes WIDTH+1
+columns here and all titles share one left edge."
+  (if (<= width 0)
+      ""
+    (concat (org-air-view--pad-to
+             (if todo
+                 (propertize todo 'face (org-air-view--todo-face todo))
+               "")
+             width)
+            " ")))
 
 (cl-defun org-air-view--insert-row (&key prefix title date-text tags
                                          origin-text origin-face widths
@@ -1493,11 +1520,16 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
   (let* ((todo (org-air-item-todo item))
          (priority (org-air-view--priority-char item))
          (date-text (unless omit-date (org-air-view--item-date-text item bucket)))
+         ;; R15 D-P1: reserve a FIXED keyword cell so keyword-less rows
+         ;; render blank there and ALL titles share one left edge.  The
+         ;; board-wide width comes from `org-air-view--meta-todo-w'; in a
+         ;; single-row pane (R6 day view, meta widths unset) fall back to
+         ;; this row's own keyword width -- it is the only row, so there is
+         ;; no cross-row alignment to honour.
+         (todo-w (or org-air-view--meta-todo-w
+                     (string-width (or todo ""))))
          (prefix (concat (org-air-view--item-margin)
-                         (when todo
-                           (concat (propertize todo 'face
-                                               (org-air-view--todo-face todo))
-                                   " "))
+                         (org-air-view--todo-cell todo todo-w)
                          ;; R13 D-P2: `square style emits a FIXED 2-col slot
                          ;; on EVERY row (square or blank) so titles align;
                          ;; `badge/`text keep the conditional `[#A]' token.
@@ -2399,6 +2431,9 @@ now-redundant date."
          (org-air-view--meta-date-w nil)
          (org-air-view--meta-tags-w nil)
          (org-air-view--meta-origin-w nil)
+         ;; R15 D-P1: unset the board keyword width so each day row falls
+         ;; back to its own keyword width (single-row, no cross-row align).
+         (org-air-view--meta-todo-w nil)
          (day org-air-view--day)
          (groups (org-air-view--day-groups items day))
          (total (apply #'+ (mapcar (lambda (g) (length (cdr g))) groups))))

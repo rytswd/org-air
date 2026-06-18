@@ -266,6 +266,43 @@
     ;; project tests moved; no real impl bug surfaced.  No .el source
     ;; touched.  Round-14 manifest is EMPTY; the tests stay as guards.
     ;; ===================================================================
+    ;; v0.4 ROUND-15 D-P1 grind (impl track) — fixtures/tests that change
+    ;; BYTES under the design-blessed reserved TODO-keyword cell
+    ;; (air/v0.4/org-air-round15-design-d1.org).
+    ;;
+    ;; 2026-06-18: D-P1 landed in org-air-view.el — a FIXED reserved
+    ;; keyword cell (`org-air-view--meta-todo-w' = widest keyword
+    ;; board-wide; `org-air-view--todo-cell' pads the keyword (or blanks
+    ;; when absent) to that width + one separator space) replaces the
+    ;; conditional `(when todo …)' prefix in `org-air-view--insert-item'.
+    ;; Keyword-LESS rows now gain `meta-todo-w + 1' leading spaces so ALL
+    ;; titles share one left edge — the title left edge shifts right on
+    ;; those rows, regenerating every board fixture that mixes keyword /
+    ;; keyword-less items.  Pure text, V6 right-cluster (date/tags/origin)
+    ;; unchanged.  These are [byte] fixture/assertion deltas, NOT impl
+    ;; bugs; TEST re-blesses + BLESS follows with this change-id.
+    (org-air-data-variation-titles-render
+     . "R15 D-P1: keyword-less title shifts right to the common left edge, \
+ so the alt title `Reference clipping without dates' now truncates earlier \
+(`…') at W120 — re-render wide or re-bless to the aligned render.")
+    (org-air-layout-mockup-80
+     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
+keyword title left edges — regen layout-mockup-80.txt.")
+    (org-air-layout-mockup-120
+     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
+keyword title left edges — regen layout-mockup-120.txt.")
+    (org-air-layout-mockup-160
+     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
+keyword title left edges — regen layout-mockup-160.txt.")
+    (org-air-layout-mockup-heights
+     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
+keyword title left edges — regen the height mockups.")
+    (org-air-layout-mockup-thresholds
+     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
+keyword title left edges — regen the threshold mockups.")
+    (org-air-r13-board-only-byte-mockup
+     . "R15 D-P1 [byte]: reserved keyword cell shifts the board-only \
+layout-mockup-70.txt title left edges — regen.")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -73,10 +73,14 @@ also reported as today."
 F2's per-title branches are dead for unknown data — the general path
 must carry any board, and no canonical-fixture origin may appear."
   (skip-unless (locate-library "org-air"))
-  ;; Lift section truncation so every item row is visible.
+  ;; Lift section truncation so every item row is visible.  Render WIDE
+  ;; (160): R15 D-P1's reserved keyword cell shifts keyword-less titles
+  ;; right to the common left edge, so the longest keyword-less title
+  ;; ("Reference clipping without dates") truncates at the old W120 — the
+  ;; assertion is "every title renders", so render wide enough to show it.
   (let ((org-air-section-max 100))
    (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-alt-dashboard 120
+    (org-air-viewport-test-with-alt-dashboard 160
       (let ((text (buffer-string)))
         (dolist (title (org-air-viewport-test-alt-titles t))
           (should (string-match-p (regexp-quote title) text)))

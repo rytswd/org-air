@@ -14,8 +14,8 @@
   ────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3
-        Quick note about org-air id…                  #inbox                   ▤ inbox.org
-        Call plumber                                  #inbox                   ▤ inbox.org
+             Quick note about org-a…                  #inbox                   ▤ inbox.org
+             Call plumber                             #inbox                   ▤ inbox.org
       TODO   Triage me later                          #inbox                   ▤ inbox.org
 
   ▲ Needs attention 8
@@ -24,7 +24,7 @@
       TODO   Book dentist appointme…  OVERDUE 3d      #personal   #health   ▤ personal.org
       TODO   Dust off old archive p…  no date         #projects   #archive  ▤ projects.org
       TODO   Untracked idea with no…  no date         #projects   #someday  ▤ projects.org
-        Reference notes without a t…  no date         #projects   #note     ▤ projects.org
+             Reference notes withou…  no date         #projects   #note     ▤ projects.org
       …and 2 more — press TAB on the title to expand
 
   ◆ Upcoming 8

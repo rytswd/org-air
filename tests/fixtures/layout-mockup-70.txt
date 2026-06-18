@@ -2,8 +2,8 @@
   ────────────────────────────────────────────────────────────────────
 
   □ Inbox 3
-        Quick n…                  #inbox                   ▤ inbox.org
-        Call pl…                  #inbox                   ▤ inbox.org
+             Qu…                  #inbox                   ▤ inbox.org
+             Ca…                  #inbox                   ▤ inbox.org
       TODO   Tr…                  #inbox                   ▤ inbox.org
 
   ▲ Needs attention 8
@@ -12,7 +12,7 @@
       TODO   Bo…  OVERDUE 3d      #personal   #health   ▤ personal.org
       TODO   Du…  no date         #projects   #archive  ▤ projects.org
       TODO   Un…  no date         #projects   #someday  ▤ projects.org
-        Referen…  no date         #projects   #note     ▤ projects.org
+             Re…  no date         #projects   #note     ▤ projects.org
       …and 2 more — press TAB on the title to expand
 
   ◆ Upcoming 8

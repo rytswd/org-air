@@ -281,28 +281,22 @@
     ;; keyword-less items.  Pure text, V6 right-cluster (date/tags/origin)
     ;; unchanged.  These are [byte] fixture/assertion deltas, NOT impl
     ;; bugs; TEST re-blesses + BLESS follows with this change-id.
-    (org-air-data-variation-titles-render
-     . "R15 D-P1: keyword-less title shifts right to the common left edge, \
- so the alt title `Reference clipping without dates' now truncates earlier \
-(`…') at W120 — re-render wide or re-bless to the aligned render.")
-    (org-air-layout-mockup-80
-     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
-keyword title left edges — regen layout-mockup-80.txt.")
-    (org-air-layout-mockup-120
-     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
-keyword title left edges — regen layout-mockup-120.txt.")
-    (org-air-layout-mockup-160
-     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
-keyword title left edges — regen layout-mockup-160.txt.")
-    (org-air-layout-mockup-heights
-     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
-keyword title left edges — regen the height mockups.")
-    (org-air-layout-mockup-thresholds
-     . "R15 D-P1 [byte]: reserved keyword cell shifts keyword-less / short-\
-keyword title left edges — regen the threshold mockups.")
-    (org-air-r13-board-only-byte-mockup
-     . "R15 D-P1 [byte]: reserved keyword cell shifts the board-only \
-layout-mockup-70.txt title left edges — regen.")
+    ;;
+    ;; 2026-06-18: ROUND-15 D-P1 CLOSEOUT (change <this commit>).  All 7
+    ;; entries CLOSED — board fixtures regenerated from impl's tip
+    ;; xqnzpzlykkxm via the FROZEN-CLOCK renderer (make regen-mockups,
+    ;; guards active) and the byte/assertion tests re-blessed to the
+    ;; reserved-keyword-cell contract:
+    ;;   25 layout-mockup-*.txt fixtures regen'd (W70..W160 + height
+    ;;     variants); keyword-less rows (`Quick note', `Call plumber', …)
+    ;;     now share the common title left edge with the `TODO ' rows, and
+    ;;     short-keyword rows gain right-padding to `meta-todo-w'.
+    ;;   org-air-data-variation-titles-render re-blessed to the aligned
+    ;;     render; the V6 right-cluster (date/tags/origin) is byte-
+    ;;     identical, only the title left edge moved.  Closed entries:
+    ;;     org-air-data-variation-titles-render, org-air-layout-mockup-80,
+    ;;     -120, -160, -heights, -thresholds, org-air-r13-board-only-byte-
+    ;;     mockup.  Round-15 D-P1 manifest is EMPTY.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

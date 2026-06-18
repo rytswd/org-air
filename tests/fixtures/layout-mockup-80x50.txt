@@ -2,8 +2,8 @@
   ──────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3
-        Quick note about …                  #inbox                   ▤ inbox.org
-        Call plumber                        #inbox                   ▤ inbox.org
+             Quick note a…                  #inbox                   ▤ inbox.org
+             Call plumber                   #inbox                   ▤ inbox.org
       TODO   Triage me la…                  #inbox                   ▤ inbox.org
 
   ▲ Needs attention 8
@@ -12,7 +12,7 @@
       TODO   Book dentist…  OVERDUE 3d      #personal   #health   ▤ personal.org
       TODO   Dust off old…  no date         #projects   #archive  ▤ projects.org
       TODO   Untracked id…  no date         #projects   #someday  ▤ projects.org
-        Reference notes w…  no date         #projects   #note     ▤ projects.org
+             Reference no…  no date         #projects   #note     ▤ projects.org
       …and 2 more — press TAB on the title to expand
 
   ◆ Upcoming 8

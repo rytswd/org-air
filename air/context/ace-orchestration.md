@@ -97,6 +97,8 @@ track ACE runtime artifacts in this git repo.
       --sandbox-dir /home/ryota/.pi \
       --sandbox-ro /home/ryota/Coding/github.com/rytswd/pi-agent-extensions \
       --sandbox-ro /home/ryota/Coding/github.com/rytswd/pi-agent-extensions-extra \
+      --sandbox-ro /home/ryota/Coding/bin \
+      --sandbox-ro /home/ryota/Coding/go/bin \
       --env EVER_DATA_DIR=/home/ryota/Coding/github.com/withre/ace-stack/data \
       --env GIT_CONFIG_GLOBAL=/dev/null \
       --env PI_NO_GATE=1 \
@@ -159,3 +161,8 @@ track ACE runtime artifacts in this git repo.
   EXITED, (3) seat STUCK >600s on one tool (hang), (4) seat DEGRADED >280k
   tokens (reseat-fresh warning). Reseat a worker per round / when degraded —
   bloated seats thrash (emit malformed tool-calls, 0 commits) silently.
+- WORKER SIGNALLING FIX: `ever` lives at ~/Coding/bin and `pi-crosstalk` at
+  ~/Coding/go/bin — NEITHER is in the Landlock allow-list, so without
+  `--sandbox-ro ~/Coding/bin` + `--sandbox-ro ~/Coding/go/bin` workers get
+  `Permission denied` (exit 126) on ever/crosstalk and fall back to commits
+  only. Mount both ro and worker .done/.learnings + direct crosstalk work.

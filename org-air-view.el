@@ -338,6 +338,49 @@ between stacked and two-pane on every pixel."
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-rail-style 'inline
+  "How the context rail is laid out relative to the board (R15 D-P2).
+With `inline' (the default and the only behaviour through Phases 0-3) the
+rail is composed into the SAME `*org-air*' buffer beside the board and the
+divider is the in-buffer `\=│' cell.  With `side-window' the rail renders
+into a dedicated `*org-air-rail*' side window (a separate buffer) and the
+divider is a real window border (`window-divider-mode' on GUI,
+`vertical-border' on TTY); the board buffer then renders board-only style
+at full window width with no in-buffer rail or divider.
+The responsive board-only path (below `org-air-rail-min-width') still wins
+over either style — under `side-window' that means the side window is
+deleted entirely."
+  :type '(choice (const :tag "Inline (single buffer)" inline)
+                 (const :tag "Side window (separate rail buffer)" side-window))
+  :group 'org-air)
+
+(defcustom org-air-divider-pixels 3
+  "Pixel width of the `side-window' rail divider on GUI frames (R15 D-P2).
+Used as `window-divider-default-right-width' (and the right divider width)
+when `org-air-rail-style' is `side-window' on a graphical frame.  Ignored
+for `inline' and on TTY (where the inter-window `vertical-border' is a
+single continuous column by construction)."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-rail-window-width nil
+  "Column width of the `side-window' rail window, or nil to derive it (R15 D-P2).
+When nil the rail window width is derived from the existing rail-width tier
+\(`org-air-rail-width-narrow'/`-width'/`-wide', see
+`org-air-view--rail-tier') so the side window matches the inline rail's
+tiers.  When an integer it is
+used verbatim as the side window's column width.  Only consulted when
+`org-air-rail-style' is `side-window'."
+  :type '(choice (const :tag "Derive from rail-width tier" nil) integer)
+  :group 'org-air)
+
+(defcustom org-air-rail-side 'right
+  "Which side the `side-window' rail occupies (R15 D-P2).
+The spec targets `right'; `left' is provided for future-proofing.  Only
+consulted when `org-air-rail-style' is `side-window'."
+  :type '(choice (const :tag "Right" right) (const :tag "Left" left))
+  :group 'org-air)
+
 (defcustom org-air-origin-min 12
   "Columns reserved for the origin breadcrumb in a two-pane item row (D2).
 The origin is the item's identity and RET target; tags and then the
@@ -570,6 +613,9 @@ of whether the wrapping pane margin is added later (D6).")
   ;; hairline rules (S2) and the single internal rail divider; no chrome
   ;; frame, so `header-line-format' stays nil (S1) and the mode-line is
   ;; the default.
+  ;; R15 D-P2: tear down the side-window rail when the board buffer is
+  ;; killed (the rail buffer + side window must not outlive the board).
+  (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
   (org-air-view--setup-evil)
   (org-air-layout-install-window-size-hook))
 
@@ -2571,6 +2617,161 @@ the first VISIBLE character of that row, never the indent whitespace."
       lines
     (append lines (make-list (- target (length lines)) fill-row))))
 
+;;;; ---------------------------------------------------------------------
+;;;; Side-window rail (R15 D-P2 `side-window' rail-style)
+;;;;
+;;;; With `org-air-rail-style' = `side-window' the rail renders into a
+;;;; dedicated `*org-air-rail*' buffer shown in a right side window; the
+;;;; divider is a real window border (`window-divider-mode' on GUI,
+;;;; `vertical-border' on TTY).  The board buffer renders board-only style
+;;;; at full window width with no inline rail or divider.  Phase 1 renders
+;;;; the calendar/Summary/Filters/Actions blocks (no inspector yet — the
+;;;; rail uses the simple four-block flow; the inspector moves in at
+;;;; Phase 2).
+;;;; ---------------------------------------------------------------------
+
+(defconst org-air-rail-buffer-name "*org-air-rail*"
+  "Name of the `side-window' rail buffer (R15 D-P2).")
+
+(defvar-local org-air-view--rail-buffer nil
+  "The live `*org-air-rail*' buffer for this board buffer, or nil (R15 D-P2).")
+(defvar-local org-air-rail--board-buffer nil
+  "Back-pointer to the `*org-air*' board buffer, set in the rail buffer.
+The rail reads the board's items/scope/filter/cal-month through this
+pointer (R15 D-P2).")
+(defvar-local org-air-rail--window nil
+  "Cached side window showing the rail buffer, validated before use (R15 D-P2).")
+
+(define-derived-mode org-air-rail-mode special-mode "org-air-rail"
+  "Major mode for the `side-window' org-air context rail (R15 D-P2).
+A passive, read-only buffer: point never lands here (the side window
+carries `no-other-window'), so it has no cursor and no keymap of its own
+beyond `special-mode'."
+  (setq-local truncate-lines t)
+  (setq-local header-line-format nil)
+  (setq-local line-spacing org-air-line-spacing)
+  (setq-local cursor-type nil)
+  (setq-local buffer-read-only t))
+
+(defun org-air-rail--get-buffer ()
+  "Get or create the `*org-air-rail*' buffer in `org-air-rail-mode' (R15 D-P2)."
+  (let ((buf (get-buffer-create org-air-rail-buffer-name)))
+    (with-current-buffer buf
+      (unless (derived-mode-p 'org-air-rail-mode)
+        (org-air-rail-mode)))
+    buf))
+
+(defun org-air-rail--window-cols (board-width)
+  "Return the rail side-window column width for the board's BOARD-WIDTH.
+`org-air-rail-window-width' wins when set; else derive from the existing
+rail-width tier (`org-air-view--rail-width'), so the side window matches
+the inline rail's tiers (R15 D-P2)."
+  (or org-air-rail-window-width
+      (org-air-view--rail-width board-width)))
+
+(defun org-air-rail--window-params (cols)
+  "Return the `display-buffer-in-side-window' alist for a rail of COLS wide.
+The side window sits on `org-air-rail-side', is non-selectable and is not
+deleted by `delete-other-windows' (R15 D-P2)."
+  `((side . ,org-air-rail-side)
+    (slot . 0)
+    (window-width . ,cols)
+    (window-parameters . ((no-other-window . t)
+                          (no-delete-other-windows . t)))))
+
+(defun org-air-rail--setup-divider ()
+  "Enable `window-divider-mode' with the org-air right divider on GUI (R15 D-P2).
+No-op in batch / on TTY, where the inter-window `vertical-border' is a
+single continuous column by construction."
+  (when (and (not noninteractive) (display-graphic-p))
+    (setq window-divider-default-places 'right-only
+          window-divider-default-right-width org-air-divider-pixels)
+    (window-divider-mode 1)))
+
+(defun org-air-rail--render (board-buffer width)
+  "Render the rail buffer for BOARD-BUFFER at content WIDTH columns (R15 D-P2).
+Reads the board's items/scope/filter/cal-month through the back-pointer
+and emits the same blocks as the inline rail (calendar, Summary, Filters,
+Actions) full-width into `*org-air-rail*'.  Phase 1 suppresses the
+inspector block (Phase 2 moves it here)."
+  (let* ((rail-buf (org-air-rail--get-buffer))
+         (state (with-current-buffer board-buffer
+                  (list :items org-air-view--items
+                        :items-key org-air-view--items-key
+                        :tag-filter org-air-view--tag-filter
+                        :scope org-air-view--scope
+                        :expanded org-air-view--expanded-sections
+                        :cal-month org-air-view--cal-month
+                        :day org-air-view--day)))
+         (dims (with-current-buffer board-buffer
+                 (org-air-view--char-dimensions))))
+    (with-current-buffer rail-buf
+      (setq-local org-air-rail--board-buffer board-buffer)
+      (let ((inhibit-read-only t)
+            (org-air-view--pill-char-w (car dims))
+            (org-air-view--pill-char-h (cdr dims))
+            (org-air-view--line-width width)
+            (org-air-view--items (plist-get state :items))
+            (org-air-view--items-key (plist-get state :items-key))
+            (org-air-view--tag-filter (plist-get state :tag-filter))
+            (org-air-view--scope (plist-get state :scope))
+            (org-air-view--expanded-sections (plist-get state :expanded))
+            (org-air-view--cal-month (plist-get state :cal-month))
+            (org-air-view--day (plist-get state :day))
+            ;; Phase 1: no inspector in the rail yet — fall through to the
+            ;; simple D5 four-block rail (calendar/summary/filters/actions).
+            (org-air-show-inspector nil))
+        (erase-buffer)
+        (org-air-view--insert-rail (plist-get state :items) width)
+        (goto-char (point-max))
+        (when (and (bolp) (> (point-max) (point-min)))
+          (delete-char -1))
+        (goto-char (point-min))))
+    rail-buf))
+
+(defun org-air-rail--show (board-buffer width)
+  "Show + render the rail side window for BOARD-BUFFER at board WIDTH (R15 D-P2).
+WIDTH is the board's total window width; the rail window's column width
+derives from the rail tier.  Stashes the rail buffer + window caches and
+enables `window-divider-mode' on GUI."
+  (let* ((cols (org-air-rail--window-cols width))
+         (rail-buf (org-air-rail--get-buffer))
+         (params (org-air-rail--window-params cols)))
+    (org-air-rail--setup-divider)
+    (let ((win (display-buffer-in-side-window rail-buf params)))
+      (when (window-live-p win)
+        (set-window-parameter win 'no-other-window t)
+        (set-window-parameter win 'no-delete-other-windows t)
+        (set-window-dedicated-p win t))
+      (with-current-buffer board-buffer
+        (setq-local org-air-view--rail-buffer rail-buf
+                    org-air-rail--window (and (window-live-p win) win)))
+      (org-air-rail--render board-buffer
+                            (if (window-live-p win)
+                                (max 1 (window-body-width win))
+                              cols))
+      win)))
+
+(defun org-air-rail--hide (board-buffer)
+  "Delete the rail side window and clear caches for BOARD-BUFFER (R15 D-P2)."
+  (let ((rail-buf (get-buffer org-air-rail-buffer-name)))
+    (when (buffer-live-p rail-buf)
+      (let ((win (get-buffer-window rail-buf)))
+        (when (window-live-p win)
+          (delete-window win)))))
+  (when (buffer-live-p board-buffer)
+    (with-current-buffer board-buffer
+      (setq-local org-air-view--rail-buffer nil
+                  org-air-rail--window nil))))
+
+(defun org-air-rail--teardown ()
+  "Tear down the rail window + buffer for the current board buffer (R15 D-P2).
+Used by `org-air-view-quit' and the board's `kill-buffer-hook'."
+  (org-air-rail--hide (current-buffer))
+  (let ((rail-buf (get-buffer org-air-rail-buffer-name)))
+    (when (buffer-live-p rail-buf)
+      (kill-buffer rail-buf))))
+
 (defun org-air-view--two-pane-body (items width)
   "Return (BODY-LINES . FILL-ROW) for ITEMS in the two-pane layout at WIDTH.
 FILL-ROW is a full-width blank row carrying the divider, so the divider
@@ -2632,6 +2833,10 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     (setq org-air-view--orientation
           (cond
            ((org-air-view--board-only-p width) 'board-only)
+           ;; R15 D-P2: the rail lives in a separate side-window buffer; the
+           ;; board renders board-only style and the rail buffer carries the
+           ;; calendar/summary/filters/actions (+ inspector from Phase 2).
+           ((eq org-air-rail-style 'side-window) 'side-window)
            ((org-air-view--two-pane-p width) 'two-pane)
            (t 'stacked)))
     (let* ((header (org-air-view--render-lines
@@ -2654,7 +2859,7 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
             (cond
              ;; R13 D-P3: board-only — full-width item pane, NO rail /
              ;; calendar / inspector.
-             ((eq org-air-view--orientation 'board-only)
+             ((memq org-air-view--orientation '(board-only side-window))
               (org-air-view--render-lines
                width
                (lambda () (org-air-view--insert-item-pane items width))))
@@ -2693,7 +2898,15 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     (org-air-view--goto-first-item)
     ;; D-P7: locate the inspector band, set its markers, sync to the item
     ;; the cursor landed on (the live hook keeps it synced thereafter).
-    (org-air-view--setup-inspector)))
+    (org-air-view--setup-inspector)
+    ;; R15 D-P2: side-window rail lifecycle.  `side-window' shows/refreshes
+    ;; the rail side window; board-only deletes it (responsive teardown);
+    ;; the inline paths leave any rail buffer untouched (none under inline).
+    (cond
+     ((eq org-air-view--orientation 'side-window)
+      (org-air-rail--show (current-buffer) width))
+     ((eq org-air-view--orientation 'board-only)
+      (org-air-rail--hide (current-buffer))))))
 
 (defun org-air-view--save-position ()
   "Return a token describing the cursor location for later restoration."
@@ -3288,6 +3501,9 @@ adjacent day; the rail calendar re-centres on the focused month."
   (interactive)
   (if org-air-view--day
       (org-air-view-board)
+    ;; R15 D-P2: tear down the side-window rail before quitting the board.
+    (when (eq org-air-rail-style 'side-window)
+      (org-air-rail--teardown))
     (quit-window)))
 
 (defun org-air-calendar-today ()

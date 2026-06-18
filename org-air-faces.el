@@ -578,6 +578,17 @@ drawn in window chrome (margins / header-line / mode-line / line-prefix
 / wrap-prefix).  A quiet 1px rule, like rougier/buffer-box."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-window-divider
+  '((t :inherit org-air-face-pane-border))
+  "Face for the `side-window' rail divider (R15 D-P2).
+When `org-air-rail-style' is `side-window' the divider between the board
+and the rail is a real window border.  This face maps onto the standard
+`window-divider' face (a calm `org-air-face-pane-border' hue) so the
+window border reads like the inline `\=│' rule.  Impl may remap
+`window-divider' to this face buffer/frame-locally, or theme
+`window-divider' directly."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-rail-title
   '((t :inherit org-air-face-faded :weight bold))
   "Face for a rail block label (e.g. the word in \"-- Summary --\").

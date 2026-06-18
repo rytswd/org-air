@@ -166,3 +166,12 @@ track ACE runtime artifacts in this git repo.
   `--sandbox-ro ~/Coding/bin` + `--sandbox-ro ~/Coding/go/bin` workers get
   `Permission denied` (exit 126) on ever/crosstalk and fall back to commits
   only. Mount both ro and worker .done/.learnings + direct crosstalk work.
+- REVIEW role (4th seat, org-air-review workspace): a senior code
+  reviewer. EVERY integration is gated on its verdict — the orchestrator
+  does NOT review diffs itself. It reads diffs (jj diff -r <change>) +
+  spec + architecture.md invariants, publishes
+  org-air3.work.review.done {verdict:APPROVE|CHANGES-NEEDED, findings:[...]}.
+  Read-only: never edits code/fixtures/trunk. Spawn like the others (incl.
+  the ~/Coding/bin + ~/Coding/go/bin mounts so it can ever-pub the verdict).
+  Flow: impl phase commit -> review -> APPROVE => orchestrator integrates;
+  CHANGES-NEEDED => route findings back to impl.

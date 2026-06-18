@@ -154,3 +154,8 @@ track ACE runtime artifacts in this git repo.
   expected, 0 unexpected". Self-policing known-failures manifest must be
   EMPTY at integration. Tests are byte fixtures (svg is GUI-cosmetic only;
   every svg element needs a TTY/byte fallback).
+
+- Monitor checks (tick.sh, every 3m): (1) new worker commits, (2) seat
+  EXITED, (3) seat STUCK >600s on one tool (hang), (4) seat DEGRADED >280k
+  tokens (reseat-fresh warning). Reseat a worker per round / when degraded —
+  bloated seats thrash (emit malformed tool-calls, 0 commits) silently.

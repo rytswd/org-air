@@ -2015,6 +2015,13 @@ Coalesces rapid n/p motion so holding a key costs nothing."
 live updates pad/truncate the inspector to exactly this many lines and
 replace ONLY the rail columns (>= :item-width + the divider).")
 
+(defvar-local org-air-view--inspector-target-buffer nil
+  "Buffer whose inspector region this buffer's point drives, or nil (R15 D-P2).
+Under `org-air-rail-style' = `side-window' the BOARD buffer sets this to the
+`*org-air-rail*' buffer: the board's point selects the item but the
+inspector region lives + redraws in the rail buffer.  nil means the
+inspector region lives in this same buffer (the inline default).")
+
 (defvar org-air-view--inspector-region-height nil
   "Reserved mid-rail inspector region height for the current render (D-P1).
 Set by `org-air-view--insert-rail' (in the rail temp buffer) and read back
@@ -2260,41 +2267,60 @@ fixed reserved region can be re-found."
         (seq-take content height)
       (append content (make-list (- height (length content)) blank)))))
 
-(defun org-air-view--render-inspector-region (item)
-  "Redraw the inspector region for ITEM, COLUMN-ONLY (D-P1).
-Replaces ONLY the rail columns (>= :item-width + the divider) of each
-fixed region line, PRESERVING the item-row text beside it; the new
-inspector lines are padded/truncated to exactly :region-height so the
-region never changes height."
-  (when (and org-air-view--inspector-beg org-air-view--inspector-end
-             (marker-buffer org-air-view--inspector-beg)
-             org-air-view--inspector-geom)
-    (let* ((geom org-air-view--inspector-geom)
-           (iw (plist-get geom :item-width))
-           (div (plist-get geom :divider))
-           (rw (plist-get geom :rail-width))
-           (rh (or (plist-get geom :region-height) 1))
-           (rail-cells (org-air-view--inspector-rail-lines item rw rh))
-           (inhibit-read-only t))
-      (save-excursion
-        (goto-char org-air-view--inspector-beg)
-        (dolist (cell rail-cells)
-          (when (< (point) org-air-view--inspector-end)
-            (let* ((beg (line-beginning-position))
-                   (end (line-end-position))
-                   (cur (buffer-substring beg end))
-                   ;; preserve the item-row text in the first IW columns,
-                   ;; re-pad to IW, then the divider + the new rail cell.
-                   ;; Keep the full composed width (item-w + divider +
-                   ;; rail-w) so the line stays exactly the board width —
-                   ;; never trim here (a trimmed line would break the
-                   ;; width-composition invariant the byte gate asserts).
-                   (item-part (org-air-view--pad-to
-                               (truncate-string-to-width cur iw) iw))
-                   (new (concat item-part div cell)))
-              (delete-region beg end)
-              (insert new))
-            (forward-line 1)))))))
+(defun org-air-view--render-inspector-region (item &optional target)
+  "Redraw the inspector region for ITEM in TARGET (default current) (D-P1/R15).
+Two paths, chosen by the target buffer's `org-air-view--inspector-geom':
+- `:style' = `whole-region' (R15 D-P2 `side-window'): the rail buffer has
+  no item columns beside the inspector, so the whole reserved region is
+  deleted and the fresh inspector lines (padded/truncated to
+  :region-height) are re-inserted.
+- otherwise (inline, COLUMN-ONLY): replace ONLY the rail columns
+  \(>= :item-width + the divider) of each fixed region line, PRESERVING
+  the item-row text beside it; lines are padded/truncated to
+  :region-height so the region never changes height."
+  (with-current-buffer (or target (current-buffer))
+    (when (and org-air-view--inspector-beg org-air-view--inspector-end
+               (marker-buffer org-air-view--inspector-beg)
+               org-air-view--inspector-geom)
+      (let* ((geom org-air-view--inspector-geom)
+             (rw (plist-get geom :rail-width))
+             (rh (or (plist-get geom :region-height) 1))
+             (rail-cells (org-air-view--inspector-rail-lines item rw rh))
+             (inhibit-read-only t))
+        (if (eq (plist-get geom :style) 'whole-region)
+            ;; R15 D-P2: rail buffer — delete the reserved region and
+            ;; re-insert the fresh inspector lines (no item columns to
+            ;; dodge).  Markers bracket exactly :region-height lines.
+            (save-excursion
+              (let ((beg (marker-position org-air-view--inspector-beg))
+                    (end (marker-position org-air-view--inspector-end)))
+                (delete-region beg end)
+                (goto-char beg)
+                (dolist (cell rail-cells)
+                  (insert cell "\n"))))
+          ;; inline column-only path (unchanged).
+          (let ((iw (plist-get geom :item-width))
+                (div (plist-get geom :divider)))
+            (save-excursion
+              (goto-char org-air-view--inspector-beg)
+              (dolist (cell rail-cells)
+                (when (< (point) org-air-view--inspector-end)
+                  (let* ((beg (line-beginning-position))
+                         (end (line-end-position))
+                         (cur (buffer-substring beg end))
+                         ;; preserve the item-row text in the first IW
+                         ;; columns, re-pad to IW, then the divider + the
+                         ;; new rail cell.  Keep the full composed width so
+                         ;; the line stays exactly the board width — never
+                         ;; trim here (a trimmed line would break the
+                         ;; width-composition invariant the byte gate
+                         ;; asserts).
+                         (item-part (org-air-view--pad-to
+                                     (truncate-string-to-width cur iw) iw))
+                         (new (concat item-part div cell)))
+                    (delete-region beg end)
+                    (insert new))
+                  (forward-line 1))))))))))
 
 (defun org-air-view--setup-inspector ()
   "Bracket the fixed reserved inspector region, sync it to point (D-P1).
@@ -2304,7 +2330,11 @@ WHOLE reserved block even after the blank tail's trailing spaces are
 trimmed."
   (setq org-air-view--inspector-beg nil
         org-air-view--inspector-end nil
-        org-air-view--inspector-item nil)
+        org-air-view--inspector-item nil
+        ;; Inline default: the inspector region lives in THIS buffer.  The
+        ;; `side-window' path re-points this to the rail buffer afterwards
+        ;; via `org-air-rail--setup-inspector' (R15 D-P2).
+        org-air-view--inspector-target-buffer nil)
   (when (and org-air-view--inspector-active
              org-air-view--inspector-geom
              (eq org-air-view--orientation 'two-pane))
@@ -2332,13 +2362,21 @@ The thing is read via the buffer-local `org-air-view--inspector-property'
 \(board `org-air-item', project `org-air-doc'); the guard is the
 buffer-local `org-air-view--inspector-active' flag so this fires in either
 host mode."
-  (when (and org-air-view--inspector-active
-             org-air-view--inspector-beg
-             (marker-buffer org-air-view--inspector-beg))
-    (let ((thing (get-text-property (point) org-air-view--inspector-property)))
-      (when (or force (not (eq thing org-air-view--inspector-item)))
-        (setq org-air-view--inspector-item thing)
-        (org-air-view--render-inspector-region thing)))))
+  (let ((target (or org-air-view--inspector-target-buffer (current-buffer))))
+    (when (and org-air-view--inspector-active
+               (buffer-live-p target)
+               (buffer-local-value 'org-air-view--inspector-beg target)
+               (marker-buffer
+                (buffer-local-value 'org-air-view--inspector-beg target)))
+      ;; Point lives in THIS buffer (the board); the inspector region lives
+      ;; in TARGET (self for inline, the rail buffer for `side-window').
+      (let ((thing (get-text-property (point) org-air-view--inspector-property)))
+        (when (or force
+                  (not (eq thing (buffer-local-value
+                                  'org-air-view--inspector-item target))))
+          (with-current-buffer target
+            (setq org-air-view--inspector-item thing))
+          (org-air-view--render-inspector-region thing target))))))
 
 (defun org-air-view--inspector-update-now (buf)
   "Run the inspector update in BUF (debounce-timer callback) (D-P7)."
@@ -2688,12 +2726,14 @@ single continuous column by construction."
           window-divider-default-right-width org-air-divider-pixels)
     (window-divider-mode 1)))
 
-(defun org-air-rail--render (board-buffer width)
+(defun org-air-rail--render (board-buffer width &optional height)
   "Render the rail buffer for BOARD-BUFFER at content WIDTH columns (R15 D-P2).
 Reads the board's items/scope/filter/cal-month through the back-pointer
-and emits the same blocks as the inline rail (calendar, Summary, Filters,
-Actions) full-width into `*org-air-rail*'.  Phase 1 suppresses the
-inspector block (Phase 2 moves it here)."
+and emits the same blocks as the inline rail (calendar, Summary,
+Inspector, Filters, Actions) full-width into `*org-air-rail*'.  HEIGHT
+in rows sizes the reserved inspector region; when nil the board's render
+height is used.  Stashes a whole-region inspector geom so the cross-buffer
+inspector update re-finds + re-fills the region (Phase 2)."
   (let* ((rail-buf (org-air-rail--get-buffer))
          (state (with-current-buffer board-buffer
                   (list :items org-air-view--items
@@ -2704,13 +2744,17 @@ inspector block (Phase 2 moves it here)."
                         :cal-month org-air-view--cal-month
                         :day org-air-view--day)))
          (dims (with-current-buffer board-buffer
-                 (org-air-view--char-dimensions))))
+                 (org-air-view--char-dimensions)))
+         (rheight (or height
+                      (with-current-buffer board-buffer
+                        (org-air-view--render-height)))))
     (with-current-buffer rail-buf
       (setq-local org-air-rail--board-buffer board-buffer)
       (let ((inhibit-read-only t)
             (org-air-view--pill-char-w (car dims))
             (org-air-view--pill-char-h (cdr dims))
             (org-air-view--line-width width)
+            (org-air-view-height rheight)
             (org-air-view--items (plist-get state :items))
             (org-air-view--items-key (plist-get state :items-key))
             (org-air-view--tag-filter (plist-get state :tag-filter))
@@ -2718,16 +2762,61 @@ inspector block (Phase 2 moves it here)."
             (org-air-view--expanded-sections (plist-get state :expanded))
             (org-air-view--cal-month (plist-get state :cal-month))
             (org-air-view--day (plist-get state :day))
-            ;; Phase 1: no inspector in the rail yet — fall through to the
-            ;; simple D5 four-block rail (calendar/summary/filters/actions).
-            (org-air-show-inspector nil))
+            (org-air-view--inspector-region-height nil))
         (erase-buffer)
+        ;; Phase 2: the inspector renders here (in the rail buffer); the
+        ;; board's point drives its content via the cross-buffer hook.
         (org-air-view--insert-rail (plist-get state :items) width)
         (goto-char (point-max))
         (when (and (bolp) (> (point-max) (point-min)))
           (delete-char -1))
-        (goto-char (point-min))))
+        (goto-char (point-min))
+        ;; Whole-region inspector geom: the rail buffer has no item columns
+        ;; beside the inspector, so updates delete + re-insert the region.
+        (setq-local org-air-view--inspector-geom
+                    (when org-air-view--inspector-region-height
+                      (list :style 'whole-region
+                            :rail-width width
+                            :region-height
+                            org-air-view--inspector-region-height)))))
     rail-buf))
+
+(defun org-air-rail--setup-inspector (board-buffer)
+  "Bracket the rail inspector region + point the board's hook at it (R15 D-P2).
+Finds the reserved `org-air-inspector' region in the rail buffer, sets the
+rail buffer's markers, then sets the BOARD-BUFFER's inspector target to
+the rail buffer and syncs once to the board's item-at-point.  Thereafter the
+board's debounced `post-command-hook' redraws the rail inspector."
+  (let ((rail-buf (org-air-rail--get-buffer)))
+    (with-current-buffer rail-buf
+      (setq org-air-view--inspector-beg nil
+            org-air-view--inspector-end nil
+            org-air-view--inspector-item nil)
+      (setq-local org-air-view--inspector-active org-air-show-inspector)
+      (setq-local org-air-view--inspector-property 'org-air-item)
+      (when (and org-air-view--inspector-active
+                 org-air-view--inspector-geom)
+        (let ((rh (or (plist-get org-air-view--inspector-geom :region-height) 0))
+              firstbol)
+          (save-excursion
+            (goto-char (point-min))
+            (while (and (not firstbol) (not (eobp)))
+              (when (text-property-any (line-beginning-position)
+                                       (line-end-position)
+                                       'org-air-inspector t)
+                (setq firstbol (line-beginning-position)))
+              (forward-line 1)))
+          (when (and firstbol (> rh 0))
+            (setq org-air-view--inspector-beg (copy-marker firstbol nil))
+            (save-excursion
+              (goto-char firstbol)
+              (forward-line rh)
+              (setq org-air-view--inspector-end (copy-marker (point) t)))))))
+    ;; Wire the board's point-tracking hook to redraw the rail inspector.
+    (when (buffer-live-p board-buffer)
+      (with-current-buffer board-buffer
+        (setq-local org-air-view--inspector-target-buffer rail-buf)
+        (org-air-view--maybe-update-inspector t)))))
 
 (defun org-air-rail--show (board-buffer width)
   "Show + render the rail side window for BOARD-BUFFER at board WIDTH (R15 D-P2).
@@ -2746,10 +2835,21 @@ enables `window-divider-mode' on GUI."
       (with-current-buffer board-buffer
         (setq-local org-air-view--rail-buffer rail-buf
                     org-air-rail--window (and (window-live-p win) win)))
-      (org-air-rail--render board-buffer
-                            (if (window-live-p win)
-                                (max 1 (window-body-width win))
-                              cols))
+      ;; The render-width/-height seams (`org-air-view-width/-height', used
+      ;; for deterministic batch goldens) drive the rail dimensions when
+      ;; set; otherwise the live side window's body metrics do.  This keeps
+      ;; the per-buffer text goldens reproducible in batch where side-window
+      ;; geometry is unreliable (R15 D-P2 testability plan).
+      (let ((rwidth (if org-air-view-width
+                        cols
+                      (if (window-live-p win) (max 1 (window-body-width win))
+                        cols)))
+            (rheight (cond (org-air-view-height nil)
+                           ((window-live-p win) (window-body-height win))
+                           (t nil))))
+        (org-air-rail--render board-buffer rwidth rheight))
+      ;; Phase 2: bracket the rail inspector region + wire the board hook.
+      (org-air-rail--setup-inspector board-buffer)
       win)))
 
 (defun org-air-rail--hide (board-buffer)
@@ -2762,7 +2862,9 @@ enables `window-divider-mode' on GUI."
   (when (buffer-live-p board-buffer)
     (with-current-buffer board-buffer
       (setq-local org-air-view--rail-buffer nil
-                  org-air-rail--window nil))))
+                  org-air-rail--window nil
+                  ;; the rail inspector is gone; stop driving it.
+                  org-air-view--inspector-target-buffer nil))))
 
 (defun org-air-rail--teardown ()
   "Tear down the rail window + buffer for the current board buffer (R15 D-P2).

@@ -2734,7 +2734,9 @@ Inspector, Filters, Actions) full-width into `*org-air-rail*'.  HEIGHT
 in rows sizes the reserved inspector region; when nil the board's render
 height is used.  Stashes a whole-region inspector geom so the cross-buffer
 inspector update re-finds + re-fills the region (Phase 2)."
-  (let* ((rail-buf (org-air-rail--get-buffer))
+  (let* ((rail-buf (or (buffer-local-value 'org-air-view--rail-buffer
+                                           board-buffer)
+                       (org-air-rail--get-buffer)))
          (state (with-current-buffer board-buffer
                   (list :items org-air-view--items
                         :items-key org-air-view--items-key
@@ -2787,7 +2789,9 @@ Finds the reserved `org-air-inspector' region in the rail buffer, sets the
 rail buffer's markers, then sets the BOARD-BUFFER's inspector target to
 the rail buffer and syncs once to the board's item-at-point.  Thereafter the
 board's debounced `post-command-hook' redraws the rail inspector."
-  (let ((rail-buf (org-air-rail--get-buffer)))
+  (let ((rail-buf (or (buffer-local-value 'org-air-view--rail-buffer
+                                          board-buffer)
+                      (org-air-rail--get-buffer))))
     (with-current-buffer rail-buf
       (setq org-air-view--inspector-beg nil
             org-air-view--inspector-end nil
@@ -2818,11 +2822,15 @@ board's debounced `post-command-hook' redraws the rail inspector."
         (setq-local org-air-view--inspector-target-buffer rail-buf)
         (org-air-view--maybe-update-inspector t)))))
 
-(defun org-air-rail--show (board-buffer width)
-  "Show + render the rail side window for BOARD-BUFFER at board WIDTH (R15 D-P2).
-WIDTH is the board's total window width; the rail window's column width
-derives from the rail tier.  Stashes the rail buffer + window caches and
-enables `window-divider-mode' on GUI."
+(defun org-air-rail--ensure-window (board-buffer width)
+  "Ensure the rail side window exists for BOARD-BUFFER at board WIDTH (R15 D-P2).
+WIDTH is the board's total window width; the rail window column width
+derives from the rail tier.  Creates (or reuses) the `*org-air-rail*'
+side window via `display-buffer-in-side-window', hardens its parameters,
+enables `window-divider-mode' on GUI, and stashes the buffer/window caches
+in BOARD-BUFFER.  Returns the side window (or nil).  Renders NO content —
+creating the window first lets the board re-measure its (now-shrunk)
+window width before composing its body (no stale full-frame board text)."
   (let* ((cols (org-air-rail--window-cols width))
          (rail-buf (org-air-rail--get-buffer))
          (params (org-air-rail--window-params cols)))
@@ -2835,22 +2843,32 @@ enables `window-divider-mode' on GUI."
       (with-current-buffer board-buffer
         (setq-local org-air-view--rail-buffer rail-buf
                     org-air-rail--window (and (window-live-p win) win)))
-      ;; The render-width/-height seams (`org-air-view-width/-height', used
-      ;; for deterministic batch goldens) drive the rail dimensions when
-      ;; set; otherwise the live side window's body metrics do.  This keeps
-      ;; the per-buffer text goldens reproducible in batch where side-window
-      ;; geometry is unreliable (R15 D-P2 testability plan).
-      (let ((rwidth (if org-air-view-width
-                        cols
-                      (if (window-live-p win) (max 1 (window-body-width win))
-                        cols)))
-            (rheight (cond (org-air-view-height nil)
-                           ((window-live-p win) (window-body-height win))
-                           (t nil))))
-        (org-air-rail--render board-buffer rwidth rheight))
-      ;; Phase 2: bracket the rail inspector region + wire the board hook.
-      (org-air-rail--setup-inspector board-buffer)
       win)))
+
+(defun org-air-rail--show (board-buffer width)
+  "Show + render the rail side window for BOARD-BUFFER at board WIDTH (R15 D-P2).
+WIDTH is the board's total window width; the rail window's column width
+derives from the rail tier.  Ensures the window (idempotent — reuses the
+window `org-air-view--render' may already have created to re-measure the
+board width), then renders the rail content + inspector."
+  (let* ((cols (org-air-rail--window-cols width))
+         (win (org-air-rail--ensure-window board-buffer width)))
+    ;; The render-width/-height seams (`org-air-view-width/-height', used
+    ;; for deterministic batch goldens) drive the rail dimensions when set;
+    ;; otherwise the live side window's body metrics do.  This keeps the
+    ;; per-buffer text goldens reproducible in batch where side-window
+    ;; geometry is unreliable (R15 D-P2 testability plan).
+    (let ((rwidth (if org-air-view-width
+                      cols
+                    (if (window-live-p win) (max 1 (window-body-width win))
+                      cols)))
+          (rheight (cond (org-air-view-height nil)
+                         ((window-live-p win) (window-body-height win))
+                         (t nil))))
+      (org-air-rail--render board-buffer rwidth rheight))
+    ;; Phase 2: bracket the rail inspector region + wire the board hook.
+    (org-air-rail--setup-inspector board-buffer)
+    win))
 
 (defun org-air-rail--hide (board-buffer)
   "Delete the rail side window and clear caches for BOARD-BUFFER (R15 D-P2)."
@@ -2941,6 +2959,18 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
            ((eq org-air-rail-style 'side-window) 'side-window)
            ((org-air-view--two-pane-p width) 'two-pane)
            (t 'stacked)))
+    ;; R15 D-P2: under `side-window' create the rail side window BEFORE
+    ;; composing the board body, then re-measure the board's (now-shrunk)
+    ;; window width — so the board text is composed at the real board-window
+    ;; width, never the stale full-frame width.  Skipped when the width seam
+    ;; is set (deterministic batch goldens: the seam IS the board width and
+    ;; window geometry is unreliable in batch).
+    (when (and (eq org-air-view--orientation 'side-window)
+               (not org-air-view-width))
+      (org-air-rail--ensure-window (current-buffer) width)
+      (let ((bwin (get-buffer-window (current-buffer))))
+        (when (window-live-p bwin)
+          (setq width (max org-air-item-pane-min (window-body-width bwin))))))
     (let* ((header (org-air-view--render-lines
                     width
                     (lambda ()

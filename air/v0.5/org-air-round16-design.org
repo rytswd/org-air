@@ -1,0 +1,487 @@
+#+title: org-air v0.5 round-16 DESIGN: native side-window + bottom view pane + project sorting
+#+state: ready
+#+FILETAGS: :ui:windows:project:sorting:design:v0.5:
+
+* Status
+Design-led impl-ready SPEC for round-16 (the spec is air/v0.5/org-air-round16.org).
+Reworks the round-15 D-P2 *forceful* side-window into a *cooperative,
+command-driven* one (D-P1), adds a *mu4e-style bottom view pane* (D-P3), and
+makes the project view *sortable* (D-P4) with *grouping + sorting composed*
+(D-P5).  D-P2 is a documentation contract (buffer-naming) recorded in
+interface-design.md.
+
+Impl + tests + REVIEW gates follow this spec; nothing is integrated here.
+The =inline= default and every existing byte fixture stay green until a phase
+explicitly flips behaviour.  Commits are per-item (R16 / Design round-16).
+
+* Why (the round-15 D-P2 UX is buggy)
+The shipped =org-air-rail-style 'side-window= treats the side window as a
+RENDER ORIENTATION that the renderer *forcefully* (re)creates on every
+render:
+- =org-air-view--render= calls =org-air-rail--ensure-window= *before*
+  composing the board body and =org-air-rail--show= *after* it, every render,
+  whenever =org-air-rail-style= is ='side-window=.
+- So =window-toggle-side-window= (native) closes the rail, the very next
+  render re-creates it → it appears to "flicker back" → the toggle is futile.
+- The rail window carries =(no-other-window . t)= → =other-window= /
+  =C-x o= skips it; the user cannot focus it natively.
+- Teardown is wired to render + kill-buffer hooks that fight user intent.
+
+The redesign decouples the rail's *lifecycle* (a user-owned window) from the
+*renderer* (which only paints buffers).  The renderer never creates or
+destroys the side window on its own; a COMMAND does, and native window
+management is always allowed to win.
+
+* D-P1 — native, command-driven side-window rail [HIGH]
+
+** Principle
+The popped-out rail is a NORMAL Emacs side window the *user* owns.  org-air:
+1. CREATES it only from an explicit command (=org-air-rail-toggle=).
+2. REFRESHES its *content* when the board re-renders *iff a window already
+   shows it* — never (re)creates it behind the user's back.
+3. RECONCILES cooperatively: if the user closes the rail window with any
+   native command (=window-toggle-side-window=, =delete-window=, =C-x o=
+   then =q=, …), org-air does NOT re-create it — it falls back to the inline
+   rail on the next render (the rail content returns, *inline*, not as a
+   re-popped window).
+4. Sets NO =no-other-window= → the rail is =other-window=-reachable.
+
+** Default + state model
+- *Default stays inline.*  =org-air-rail-style= keeps its meaning as the
+  *initial* preference only:
+  - ='inline= (DEFAULT): board opens with the inline two-pane rail.
+  - ='side-window=: board opens with the rail already popped out (power-user
+    opt-in) — but it is still just the toggle's initial value, not a forceful
+    render mode.
+- New buffer-local runtime state in the BOARD buffer:
+  - =org-air-view--rail-popped-out= — boolean; the single source of truth for
+    "is the rail a side window right now".  Initialised from
+    =(eq org-air-rail-style 'side-window)= in =org-air-view-mode= / first
+    render.  The toggle flips it; the reconciler clears it.
+- Remove =(no-other-window . t)= from =org-air-rail--window-params= and the
+  =set-window-parameter ... 'no-other-window t= in =--ensure-window=.  Keep
+  =no-delete-other-windows= (native side-window convention: survives =C-x 1=)
+  and =set-window-dedicated-p= (the rail buffer stays put in its window).
+
+** Commands
+- =org-air-rail-toggle= (interactive, board buffer) — key =|= in
+  =org-air-view-mode-map= (a vertical bar reads as "rail / divider"):
+  - if =org-air-view--rail-popped-out= is nil → set it t, re-render
+    (inline→popout), select the side window iff =org-air-rail-focus-on-popout=
+    (new defcustom, default nil — keep point on the board, matching the
+    "point lives in the board" invariant).
+  - if t → set it nil, =org-air-rail--hide=, re-render (popout→inline).
+- =org-air-rail-popout= / =org-air-rail-popin= — thin one-way aliases
+  (optional convenience; the toggle is the documented entry point).
+- The rail buffer keeps =org-air-rail-mode= (special-mode); add =q= there
+  bound to =org-air-rail-popin= (closing the rail from inside it pops the
+  rail back inline on the board) so =C-x o= → rail → =q= is intuitive and
+  cooperative.
+
+** Render dispatch (rework =org-air-view--render=)
+Orientation now reads the runtime flag, NOT =org-air-rail-style=:
+#+begin_src elisp
+(cond
+ ((org-air-view--board-only-p width) 'board-only)   ; narrow: no rail at all
+ ((and org-air-view--rail-popped-out
+       (org-air-view--rail-window-live-p)) 'side-window) ; popped out + shown
+ (org-air-view--rail-popped-out 'side-window)        ; popped out, window to create
+ ((org-air-view--two-pane-p width) 'two-pane)        ; inline (DEFAULT)
+ (t 'stacked))
+#+end_src
+- ='side-window: the renderer composes the board body *board-only style*
+  (full window width, no inline rail / divider) AND, *only when the flag is
+  set*, ensures the side window once (=org-air-rail--ensure-window=) so it
+  can re-measure the shrunk board width, then =org-air-rail--show= (render
+  rail content + inspector).  This is the SAME create-then-remeasure dance as
+  today, but it now fires *only because the user popped the rail out*, never
+  as an unconditional render mode → =window-toggle-side-window= is respected.
+- ='board-only (width < =org-air-rail-min-width=): board-only body +
+  =org-air-rail--hide= (responsive teardown).  The popout flag is NOT
+  cleared (so widening re-pops it) — but the window is gone while narrow.
+- ='two-pane / 'stacked: the EXISTING inline paths, untouched.  No rail
+  buffer/window exists in these (the inline rail is composed into =*org-air*=).
+
+** Cooperative reconciler (the anti-fighting core)
+Add a buffer-local =window-configuration-change-hook= in the BOARD buffer:
+=org-air-rail--reconcile=.  On any window-config change:
+- guard: only act in the board buffer, only when =org-air-view--rail-popped-out=
+  is non-nil, and =(not org-air-rail--reconciling)= (a re-entrancy latch).
+- if the board window is live AND the rail buffer has NO window anywhere on
+  the board's frame → the user closed the rail (toggle-side-window /
+  delete-window).  *Do not re-create it.*  Instead:
+  - =setq-local org-air-view--rail-popped-out nil= (fall back to inline),
+  - =org-air-rail--hide= (clear caches; the rail buffer may be killed or kept
+    per =org-air-rail-keep-buffer=, default kept so re-popout is cheap),
+  - re-render the board inline (debounced via a 0-timer to run *after* the
+    window-config settles — never re-render inside the hook).
+- This is what makes closing the side window "restore the inline pane"
+  WITHOUT fighting: the rail returns inline, the board re-fills, and the user
+  is never surprised by a window springing back.
+
+The hook is the ONLY lifecycle automation; it is purely *reactive*
+(user-closed → inline) and never *proactive* (never re-opens a window the
+user closed).  Removing the old proactive recreation from
+=org-air-view--render= is the heart of D-P1.
+
+** inline ↔ popout transitions (how each renders)
+| from    | to        | trigger                       | board body         | rail                         |
+|---------+-----------+-------------------------------+--------------------+------------------------------|
+| inline  | side-win  | =org-air-rail-toggle=         | board-only, full w | side window created+rendered |
+| side-win| inline    | =org-air-rail-toggle= / =q=   | two-pane inline    | window hidden, content inline|
+| side-win| inline    | =window-toggle-side-window=   | two-pane inline    | reconciler → inline          |
+| side-win| board-only| shrink < =rail-min-width=     | board-only         | window deleted (flag kept)   |
+| board-only| side-win| widen ≥ =rail-min-width=      | board-only, full w | window re-created            |
+| inline  | board-only| shrink < =rail-min-width=     | board-only         | (none; inline rail dropped)  |
+
+** Lifecycle hooks (de-fanged)
+- =org-air-view-quit= (=q= on the board): =org-air-rail--teardown= (hide +
+  kill the rail buffer) then =quit-window= — unchanged, but it only runs on
+  the user's explicit quit, so it does not fight anything.
+- board =kill-buffer-hook=: keep =org-air-rail--teardown= (clean the orphan
+  rail buffer when the board dies).  This is teardown-on-death, not the
+  fighting recreate-on-render, so it stays.
+- Resize refresh (=org-air-view--resize-refresh=): re-derives width and
+  re-renders; the dispatch above handles board-only ↔ side-window naturally.
+  It must NOT call =org-air-rail--show= directly — let the render dispatch do
+  it, gated on the flag.
+
+** New / changed defcustoms (D-P1)
+- =org-air-rail-style= — keep, redocument: now the *initial popout state*
+  (='inline default opens inline; ='side-window opens popped out), NOT a
+  forceful render mode.  :group 'org-air.
+- =org-air-rail-focus-on-popout= — boolean, default nil.  When non-nil,
+  =org-air-rail-toggle= selects the rail side window after popping out.
+- =org-air-rail-keep-buffer= — boolean, default t.  When non-nil the
+  =*org-air-rail*= buffer survives pop-in (cheaper re-popout); nil kills it.
+- =org-air-divider-pixels=, =org-air-rail-window-width=, =org-air-rail-side=
+  — unchanged.
+
+** Testability (D-P1)
+- The per-buffer text goldens (board-only board + rail) from round-15 STAY
+  (the rail content render is unchanged).
+- New window-config ERTs (=(skip-unless (display-graphic-p))=, interactive):
+  - after =org-air-rail-toggle= a right side window shows =*org-air-rail*=,
+    the board shows =*org-air*= full width, and =other-window= reaches the
+    rail (NO =no-other-window=).
+  - =window-toggle-side-window= then a render does NOT re-create the rail
+    window; =org-air-view--rail-popped-out= is nil and the board re-rendered
+    inline (assert =org-air-view--orientation= = two-pane).
+  - =delete-window= on the rail → reconciler → inline (same assertion).
+- Batch gate is unaffected (no window automation in batch): the inline
+  fixtures and the per-buffer goldens are the byte contract.
+
+* D-P3 — mu4e-style bottom view pane [HIGH]
+
+** Principle
+Like mu4e's message view: an optional *bottom* side window that shows the
+SOURCE of the selected item — the org entry (heading + body + drawers) at the
+item's marker — read-only, in =*org-air-view*=, cooperative with the board,
+the rail side window, and native windows.
+
+** Buffer + window
+- Buffer name =*org-air-view*= (shares the =*org-air= prefix; see D-P2).  A
+  single reused buffer, =org-air-entry-view-mode= (a =special-mode=
+  derivative, read-only, =org-mode= font-lock via
+  =org-air-entry-view--fontify= so the entry reads like Org without enabling
+  Org's agenda/hook machinery).
+- Window: =display-buffer-in-side-window= with =(side . bottom) (slot . 0)
+  (window-height . org-air-view-pane-height)=, window-parameters
+  =((no-delete-other-windows . t))= and =set-window-dedicated-p t=.  NO
+  =no-other-window= → reachable.  Default height defcustom
+  =org-air-view-pane-height= = 14 (lines); when an integer < 1 it is read as
+  a frame fraction (e.g. 0.33).
+- Header-line: =▤ <file>  ·  <title>  ·  <state>= (text contract; svg
+  file-icon overlay on GUI), so the pane self-identifies.
+
+** Content (what the source view shows)
+- The item carries =org-air-marker= (a marker into the live org file buffer)
+  and =org-air-item= (the struct).  The view shows the *entry text*:
+  - resolve the marker → its buffer + position; if the file is not visited,
+    visit it in the background (=find-file-noselect=) — do NOT pop it.
+  - copy the subtree region (=org-back-to-heading= .. =org-end-of-subtree=)
+    into =*org-air-view*= under =inhibit-read-only=; apply Org font-lock on
+    the copy; read-only.  A *snapshot*, not an indirect/clone buffer — keeps
+    it inert, read-only, and *byte-testable* (the buffer text is the
+    contract; no live editing surprises, matching the inspector model).
+  - if the marker is dead (item refiled/done away), show a calm
+    =org-air-face-empty= hint =(entry no longer available)= and keep the
+    pane.
+- Optional body truncation: =org-air-view-pane-max-lines= (default nil = the
+  full subtree) caps very large entries with a =…= continuation marker
+  (reuse the =more= glyph) so a huge subtree never blows the pane.
+
+** Affordance: explicit-open (default) + optional follow
+- =org-air-view-pane= (interactive, board) — key =v=: open OR refresh the
+  bottom pane for the item at point.  If the pane is already open, refresh it
+  to the current item; if closed, open it.  (=v= = "view".)
+- =org-air-view-pane-close= — key =V=: delete the bottom pane window (and
+  bury/kill the buffer per =org-air-view-pane-keep-buffer=, default t).
+- RET behaviour: =org-air-view-pane-on-return= (defcustom, default nil).
+  Default RET stays =org-air-visit-item= (open the file in another window —
+  unchanged).  When non-nil, RET *also* opens/refreshes the bottom pane
+  before/instead of visiting (mu4e-RET feel), gated so the default contract
+  is untouched.
+- *Follow-mode* (point-tracking): =org-air-view-pane-follow= (defcustom,
+  default nil).  When non-nil AND the pane window is live, moving point on
+  the board updates the pane to the item at point — reusing the inspector's
+  debounced model:
+  - a dedicated =org-air-view--view-pane-post-command= function, added to the
+    board's =post-command-hook= (separate from the inspector hook), guarded
+    =(unless noninteractive ...)= and =(when (and org-air-view-pane-follow
+    (org-air-view-pane--window-live-p)))=, debounced via the existing idle
+    timer pattern, redraws only when the item-at-point CHANGED.
+  - this *composes* with the inspector (two consumers of board point; both
+    inert in batch; both redraw-on-change).  Default = explicit-open so we
+    pay nothing unless the user opts into follow.
+
+** Composition with the rail side window (D-P1) + native windows
+- The board is the MAIN window.  The rail (D-P1) is a =right= side window
+  (=slot 0=); the view pane is a =bottom= side window (=slot 0=).  Different
+  sides → they coexist natively; Emacs lays the board top-left, rail right,
+  view bottom.
+- Whether the bottom pane spans the full frame width (under the rail too) or
+  only under the board is governed by native =window-sides-vertical= /
+  =window-sides-slots= — org-air documents these as the user knob and ships
+  the native default (full-width bottom = the familiar "footer" look).  We do
+  not force a corner layout.
+- =delete-other-windows= (=C-x 1=) preserves both side windows
+  (=no-delete-other-windows=), per convention; the toggles remove them.
+- The view pane never steals point automatically (open keeps point on the
+  board unless =org-air-view-pane-focus= is set, default nil); it is
+  =other-window=-reachable for reading/scrolling.
+
+** Project-view parity
+The project view (=*org-air-project*=) reuses the SAME pane: its doc rows
+carry =org-air-marker= = the doc file.  =org-air-view-pane= there shows the
+doc's first entry / the file head (heading-less files → the buffer head).
+Bind =v= / =V= in =org-air-project-mode-map= to the same commands (the pane
+resolves the marker the same way).  One pane, both views (invariant 4).
+
+** New defcustoms (D-P3)
+- =org-air-view-pane-height= — integer lines (or float fraction), default 14.
+- =org-air-view-pane-follow= — boolean, default nil (explicit open).
+- =org-air-view-pane-on-return= — boolean, default nil (RET unchanged).
+- =org-air-view-pane-focus= — boolean, default nil (point stays on the board).
+- =org-air-view-pane-keep-buffer= — boolean, default t.
+- =org-air-view-pane-max-lines= — integer or nil, default nil (full subtree).
+
+** New buffer-locals / functions (D-P3)
+- board buffer-local =org-air-view--view-pane-item= — the item last shown in
+  the pane (the change-guard for follow).
+- =org-air-entry-view-mode= (special-mode derivative; read-only; org
+  font-lock; =cursor-type t= so reading/scrolling is natural).
+- =org-air-view-pane--buffer ()= → get-or-create =*org-air-view*=.
+- =org-air-view-pane--window-params ()= → the bottom side-window alist.
+- =org-air-view-pane--render (item)= → snapshot the entry into the buffer +
+  header-line; dead-marker hint; max-lines cap.
+- =org-air-view-pane--show (item)= → ensure window + render; respect
+  =org-air-view-pane-focus=.
+- =org-air-view-pane--window-live-p ()= / =--hide ()= / =--teardown ()=.
+- =org-air-view-pane= / =-close= commands (above).
+
+** Testability (D-P3)
+- Text-is-the-contract: a fixture for =*org-air-view*= content given a known
+  item (the entry snapshot at a frozen clock) — byte-asserted like every
+  golden.  The header-line is asserted as text (svg overlay degrades).
+- A dead-marker fixture (the calm hint).
+- follow-mode redraw asserted by an ERT: bind =org-air-view-pane-follow t=,
+  move point to a known item, assert =org-air-view--view-pane-item= updated
+  and the pane buffer reflects it — interactive/non-batch guarded for the
+  window, batch-safe for the *content* (render the pane buffer directly via a
+  seam, mirroring the inspector test model).
+- Window-config ERTs (=(skip-unless (display-graphic-p))=): the bottom side
+  window exists with =*org-air-view*=, coexists with the rail side window,
+  and survives =C-x 1=.
+
+* D-P4 — project-view sorting [HIGH]
+
+** Principle
+The project view must sort docs by a *key* with a *direction*, the sort
+shown in the view, and the resulting ORDER is the byte contract.  Keys now:
+=name=, =created=, =updated=; reserved for later: =scheduled=, =deadline=
+(the comparator is written to accept them so adding them is data-only).
+
+** State model
+- New defcustoms (the *initial* sort; runtime commands override per-buffer):
+  - =org-air-project-sort-key= — =(choice (const name) (const created)
+    (const updated))=, default ='name=.  :group 'org-air.
+  - =org-air-project-sort-direction= — =(choice (const ascending)
+    (const descending))=, default ='ascending=.
+- New buffer-locals in =*org-air-project*= (so the commands are per-buffer
+  and survive refresh), initialised from the defcustoms in
+  =org-air-project-mode= / first render:
+  - =org-air-project--sort-key=, =org-air-project--sort-direction=.
+
+** Comparator (deterministic — the order is the contract)
+=org-air-project--doc-compare (a b)= → strict total order, used by =sort=:
+1. (D-P5) state-rank ascending — see D-P5; constant within a state group.
+2. the active sort key in the active direction:
+   - =name= → =org-air-doc-name= via =string-collate-lessp= (locale-stable;
+     fall back to =string-lessp= for byte-determinism under the test locale).
+   - =created= → =org-air-doc-created= via =time-less-p=.
+   - =updated= → =org-air-doc-updated= via =time-less-p=.
+   - =descending= reverses *this key only* (not the state-rank or the
+     tiebreak).
+3. tiebreak: =org-air-doc-name= ascending, then =org-air-doc-relpath=
+   ascending — so equal keys are still byte-stable.
+- *Nil handling (load-bearing for the contract):* a nil =created=/=updated=
+  sorts LAST regardless of direction (missing dates never flip to the top in
+  =descending=).  Implement as: nil-key docs partition after non-nil, then
+  ordered among themselves by the tiebreak.
+
+** Where it plugs in
+- Replace the ad-hoc ordering in the section builders.  Each
+  =org-air-project--sections-by-*= sorts its members through
+  =org-air-project--sort-section-docs (docs)= =
+  =(sort (copy-sequence docs) #'org-air-project--doc-compare)=, so EVERY
+  group mode (state / directory / tag) and the board-only flat list share one
+  comparator.
+- =org-air-project--collect-docs= keeps its filesystem walk; the comparator
+  owns the *display* order (don't pre-sort there — the comparator is the
+  single source of truth).
+
+** Commands + keymap
+- =org-air-project-sort-cycle= — key =o= ("order"): cycles the key
+  =name → created → updated → name= and refreshes.
+- =org-air-project-sort-reverse= — key =O=: toggles
+  =ascending ↔ descending= and refreshes.
+- =org-air-project-sort-set= — key =g s= (optional, =completing-read= the
+  key) for direct selection; cycle is the primary affordance.
+- These join the existing group keys (=s/d/t= group; =o/O= sort) without
+  collision.
+
+** Active-sort indicator (text contract)
+The project header line gains a right-clustered sort badge:
+: org-air · project                        ↕ name ↑
+- the key label (=name= / =created= / =updated=) + a direction glyph.
+- New glyph table entries (=org-air-glyphs=): =sort-asc= =("↑" . "^")=,
+  =sort-desc= =("↓" . "v")=, =sort-key= =("↕" . "|")= (a calm marker before
+  the key label); TTY fallbacks given.  Faced =org-air-face-faded= (marker) +
+  =org-air-face-summary-label= (key) so it is quiet but present.
+- The indicator is plain text → it is part of every project fixture's byte
+  contract; svg-free.
+
+** Testability (D-P4)
+- New fixtures per key (and one reversed) at a canonical width with a frozen
+  clock: =project-sort-name-WIDTH.txt=, =project-sort-created-WIDTH.txt=,
+  =project-sort-updated-WIDTH.txt=, =project-sort-created-desc-WIDTH.txt=.
+  The ORDER of doc rows + the header indicator are the assertion.
+- An ERT asserting nil-date docs sort LAST in both directions (the
+  partition rule), independent of the golden.
+- Anti-tautology: the render must PRODUCE the order; the fixtures are dumped
+  by =make regen-mockups= and blessed by design.
+
+* D-P5 — within-group state ordering (compose grouping + sort) [MED]
+
+** Principle
+When grouping by *directory* or *tag* (mixed states in one group), items
+WITHIN the group are ordered by STATE first
+(Draft → Ready → WIP → Review → Complete), THEN by the active D-P4 sort key.
+When grouping by *state*, the group IS one state → state-rank is constant →
+the D-P4 key drives order (pure sorting shows there).  So grouping and
+sorting *compose*: state is the within-group primary, the sort key secondary.
+
+** State rank
+=org-air-project--state-rank (state)= → integer index into the canonical
+order, reusing the existing =org-air-project-sections= / =org-air-project-
+states= ordering (Draft/Ready/WIP/Review/Complete) so there is ONE source of
+truth for state order.  Unknown states rank *after* the known ones (append),
+ordered among themselves by their state string — never crashing the contract.
+
+** Composition (already wired in the D-P4 comparator)
+=org-air-project--doc-compare= step 1 IS the state-rank; step 2 is the sort
+key.  Therefore:
+- *state grouping:* members of a section are one state → step 1 ties → step 2
+  (the sort key) orders them.  No extra code.
+- *directory / tag grouping:* a section holds mixed states → step 1 buckets
+  by state inside the group, step 2 orders within each state-bucket by the
+  key.  This is exactly "state then sort key".
+- The section builders all funnel through =org-air-project--sort-section-docs=
+  (D-P4), so the composition is automatic and uniform across group modes.
+
+** Why state-primary (not key-primary) within a group
+The spec (round-16 P5) is explicit: within a group, order by STATE then the
+sort key.  Keeping state as the within-group primary means a directory's
+Drafts cluster above its Ready/WIP/… regardless of the active key, which
+matches the board's attention model (state is the dominant axis); the key is
+the secondary, visible-everywhere ordering.  For the state group the user
+already sees pure key ordering, so both intentions are served.
+
+** Testability (D-P5)
+- A directory-grouped fixture and a tag-grouped fixture at a canonical width:
+  assert that within each group the rows run Draft→…→Complete and, inside
+  each state run, follow the active sort key.  Add a reversed-direction
+  variant to prove the direction flips only the secondary key, not the
+  state order.
+- Reuse the D-P4 frozen clock + anti-tautology guards.
+
+* D-P2 — stable buffer-naming convention (documented) [MED]
+
+** Principle
+org-air's ONLY responsibility is a *stable, documented* buffer-naming
+convention so the user can exclude org-air's buffers from dimmer / popper /
+=display-buffer-alist= etc.  Dimming a side window is the user's config, NOT
+org-air's territory.  org-air ships no dimmer integration.
+
+** The convention (all share the =*org-air= prefix)
+| buffer              | role                                  | window               |
+|---------------------+---------------------------------------+----------------------|
+| =*org-air*=         | board (=M-x org-air=)                  | main window          |
+| =*org-air-project*= | project / Air-docs view               | main window          |
+| =*org-air-rail*=    | popped-out context rail (D-P1)        | right side window    |
+| =*org-air-view*=    | bottom source/entry view pane (D-P3)  | bottom side window   |
+- One regexp matches them all: =\\*org-air=.
+- This is a *public contract*; the D-P3 pane name was chosen (=*org-air-view*=)
+  specifically to keep the prefix.
+
+** Deliverable
+- Documented in interface-design.md (a "Buffer-naming convention" section +
+  the user-side dimmer-exclusion snippet) — DONE in this round's doc edit.
+- The orchestrator supplies the user the dimmer snippet directly; org-air
+  code adds nothing for it.
+
+** Testability (D-P2)
+- A trivial guard ERT: the three on-demand buffer-name constants
+  (=org-air-view-buffer-name=, =org-air-rail-buffer-name=, the new
+  =org-air-view-pane-buffer-name=, and =*org-air-project*=) all
+  =string-prefix-p "*org-air"= — so a rename can't silently break the
+  contract.
+
+* Routing (impl + test, REVIEW gates every integration)
+- D-P1 impl phases: (a) decouple — remove proactive recreation from
+  =org-air-view--render=, add =org-air-view--rail-popped-out= + the toggle +
+  the reconciler + drop =no-other-window= (inline default unchanged); (b)
+  responsive + lifecycle parity; (c) flip =org-air-rail-style= initial-state
+  semantics in docs.  Each a commit; inline fixtures stay green.
+- D-P3 impl phases: (a) =org-air-entry-view-mode= + pane buffer/window +
+  =org-air-view-pane= / =-close= (explicit open); (b) follow-mode hook
+  (inert in batch) + project-view parity + RET opt-in.  Each a commit.
+- D-P4/D-P5 impl: one comparator + section funnel + commands + indicator +
+  glyphs, then the fixtures; the comparator (state-rank → key → tiebreak) is
+  the single change point.
+- BLESS: the new per-buffer / pane / sort / group fixtures with exact
+  change-ids; inline + board goldens retained as the regression net.
+
+* Open questions for REVIEW (D-P1 / D-P3)
+- D-P1 key =|= vs a =g=-prefix entry (=g |=) — pick at review (=|= is free in
+  =org-air-view-mode-map=).
+- D-P3 view as a *snapshot* (proposed, byte-testable, read-only) vs an
+  *indirect narrowed buffer* (live, heavier).  Spec recommends the snapshot
+  for the contract + safety; flag for review if live-edit-from-pane is wanted.
+- Whether follow-mode should default ON for the project view (docs are static
+  and a follow feels natural there) — default nil here, revisit after dogfood.
+
+* Implementation History
+- (pending) round-16 design opened.  D-P1 reworks the forceful side-window
+  into a command-driven, reconciler-backed cooperative one (no proactive
+  recreation; =other-window=-reachable; closing restores inline).  D-P3 adds
+  the mu4e-style bottom =*org-air-view*= source pane (explicit-open default +
+  optional follow), composing with the rail side window and native windows.
+  D-P4 makes the project view sortable (name/created/updated + direction) via
+  one deterministic comparator + a text sort indicator; D-P5 composes
+  grouping + sorting by making the state-rank the within-group primary and
+  the sort key the secondary in that same comparator.  D-P2 records the
+  stable =*org-air= buffer-naming contract in interface-design.md (board /
+  project / rail / view), with the user-side dimmer-exclusion snippet; org-air
+  ships no dimmer integration of its own.

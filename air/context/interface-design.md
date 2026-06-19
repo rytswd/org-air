@@ -3,6 +3,27 @@
 The visual design system as shipped through round-14. Inspiration:
 rougier's nano-emacs / svg-tag-mode / svg-lib; calm, typographic, modern.
 
+## Buffer-naming convention (stable; round-16 D-P2)
+Every org-air buffer shares the `*org-air` prefix so users (and packages
+like dimmer, popper, shackle, `display-buffer-alist`) can match them all
+with one regexp — `\\*org-air`:
+
+| Buffer            | What                                              | Window                         |
+|-------------------|---------------------------------------------------|--------------------------------|
+| `*org-air*`       | the board (`M-x org-air`)                          | main window                    |
+| `*org-air-project*` | the project / Air-docs view (`M-x org-air-project`) | main window                  |
+| `*org-air-rail*`  | the popped-out context rail (round-16 D-P1)        | right side window (on demand)  |
+| `*org-air-view*`  | the bottom source/entry view pane (round-16 D-P3)  | bottom side window (on demand) |
+
+This naming is a **public contract**: it will not change without a major
+note. org-air's job is *only* the stable names — dimming/excluding the side
+windows is the **user's** config (e.g. exclude org-air from dimmer):
+```elisp
+(with-eval-after-load 'dimmer
+  (add-to-list 'dimmer-buffer-exclusion-regexps "\\*org-air"))
+```
+org-air ships no dimmer integration of its own (not its territory).
+
 ## Two views, one renderer
 - **Board** (`M-x org-air`): the GTD dashboard.
 - **Project** (`M-x org-air-project`): the Air-docs viewer.

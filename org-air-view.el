@@ -339,19 +339,22 @@ between stacked and two-pane on every pixel."
   :group 'org-air)
 
 (defcustom org-air-rail-style 'inline
-  "How the context rail is laid out relative to the board (R15 D-P2).
-With `inline' (the default and the only behaviour through Phases 0-3) the
-rail is composed into the SAME `*org-air*' buffer beside the board and the
-divider is the in-buffer `\=│' cell.  With `side-window' the rail renders
-into a dedicated `*org-air-rail*' side window (a separate buffer) and the
-divider is a real window border (`window-divider-mode' on GUI,
-`vertical-border' on TTY); the board buffer then renders board-only style
-at full window width with no in-buffer rail or divider.
-The responsive board-only path (below `org-air-rail-min-width') still wins
-over either style — under `side-window' that means the side window is
-deleted entirely."
+  "INITIAL popout state of the context rail when the board opens (R16 D-P1).
+This is no longer a forceful render mode; it only seeds the per-board
+runtime flag `org-air-view--rail-popped-out' on first render.
+With `inline' (the default) the board opens with the inline two-pane rail
+composed into the SAME `*org-air*' buffer beside the board (the in-buffer
+`\=│' divider cell).  With `side-window' the board opens with the rail
+ALREADY popped out into a dedicated `*org-air-rail*' right side window (a
+power-user opt-in); the board then renders board-only style at full window
+width with no in-buffer rail or divider.
+Either way the user owns the side window: `org-air-rail-toggle' (`|') pops
+it in/out, native window commands are always respected (closing the side
+window restores the inline rail; org-air never re-creates it behind your
+back), and the responsive board-only path (below `org-air-rail-min-width')
+still wins (the window is deleted while narrow)."
   :type '(choice (const :tag "Inline (single buffer)" inline)
-                 (const :tag "Side window (separate rail buffer)" side-window))
+                 (const :tag "Side window (popped out initially)" side-window))
   :group 'org-air)
 
 (defcustom org-air-divider-pixels 3
@@ -379,6 +382,21 @@ used verbatim as the side window's column width.  Only consulted when
 The spec targets `right'; `left' is provided for future-proofing.  Only
 consulted when `org-air-rail-style' is `side-window'."
   :type '(choice (const :tag "Right" right) (const :tag "Left" left))
+  :group 'org-air)
+
+(defcustom org-air-rail-focus-on-popout nil
+  "When non-nil, `org-air-rail-toggle' selects the rail side window after popout.
+The default nil keeps point on the board (the \"point lives in the board\"
+invariant); the rail is still `other-window'-reachable for reading (R16
+D-P1)."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-rail-keep-buffer t
+  "When non-nil the `*org-air-rail*' buffer survives a pop-in (R16 D-P1).
+Keeping the buffer makes a subsequent pop-out cheap; nil kills it on
+pop-in / reconcile."
+  :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-origin-min 12
@@ -501,6 +519,15 @@ Unknown keywords fall back to `org-air-face-todo'."
   "Body height used for the most recent render of this dashboard buffer.")
 (defvar-local org-air-view--orientation nil
   "Last chosen layout orientation, `two-pane' or `stacked' (D1 hysteresis).")
+(defvar-local org-air-view--rail-popped-out 'unset
+  "Single source of truth: is the rail a side window right now (R16 D-P1)?
+Nil = inline rail; non-nil = popped out into the `*org-air-rail*' side
+window.  The sentinel `unset' means \"not yet initialised\"; first render
+seeds it from `org-air-rail-style' (`side-window' -> t, else nil).  The
+toggle flips it; the cooperative reconciler clears it when the user closes
+the side window with a native command.")
+(defvar org-air-rail--reconciling nil
+  "Re-entrancy latch for `org-air-rail--reconcile' (R16 D-P1).")
 (defvar org-air-view--pane-indented nil
   "Non-nil while rendering the two-pane item pane (indented downstream).
 Lets headings and item rows use a consistent hanging indent regardless
@@ -576,6 +603,8 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd ">") #'org-air-calendar-next)
     (define-key map (kbd ".") #'org-air-calendar-today)
     (define-key map (kbd "?") #'org-air-help)
+    ;; R16 D-P1: pop the context rail in/out of a native side window.
+    (define-key map (kbd "|") #'org-air-rail-toggle)
     (define-key map (kbd "q") #'org-air-quit)
     map)
   "Keymap for `org-air-view-mode'.")
@@ -616,6 +645,11 @@ of whether the wrapping pane margin is added later (D6).")
   ;; R15 D-P2: tear down the side-window rail when the board buffer is
   ;; killed (the rail buffer + side window must not outlive the board).
   (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
+  ;; R16 D-P1: cooperative reconciler — fall back to inline when the user
+  ;; closes the popped-out rail with a native window command.  Reactive
+  ;; only; never re-creates a window the user closed.
+  (unless noninteractive
+    (add-hook 'window-configuration-change-hook #'org-air-rail--reconcile nil t))
   (org-air-view--setup-evil)
   (org-air-layout-install-window-size-hook))
 
@@ -2680,11 +2714,18 @@ pointer (R15 D-P2).")
 (defvar-local org-air-rail--window nil
   "Cached side window showing the rail buffer, validated before use (R15 D-P2).")
 
+(defvar org-air-rail-mode-map
+  (let ((map (make-sparse-keymap)))
+    ;; R16 D-P1: the rail is `other-window'-reachable now; `q' from inside
+    ;; it pops the rail back inline on the board (cooperative).
+    (define-key map (kbd "q") #'org-air-rail-popin)
+    map)
+  "Keymap for `org-air-rail-mode' (R16 D-P1).")
+
 (define-derived-mode org-air-rail-mode special-mode "org-air-rail"
-  "Major mode for the `side-window' org-air context rail (R15 D-P2).
-A passive, read-only buffer: point never lands here (the side window
-carries `no-other-window'), so it has no cursor and no keymap of its own
-beyond `special-mode'."
+  "Major mode for the popped-out org-air context rail (R16 D-P1).
+A read-only buffer the user owns: it is `other-window'-reachable for
+reading/scrolling, and `q' pops the rail back inline on the board."
   (setq-local truncate-lines t)
   (setq-local header-line-format nil)
   (setq-local line-spacing org-air-line-spacing)
@@ -2709,13 +2750,13 @@ the inline rail's tiers (R15 D-P2)."
 
 (defun org-air-rail--window-params (cols)
   "Return the `display-buffer-in-side-window' alist for a rail of COLS wide.
-The side window sits on `org-air-rail-side', is non-selectable and is not
-deleted by `delete-other-windows' (R15 D-P2)."
+The side window sits on `org-air-rail-side' and is not deleted by
+`delete-other-windows'.  R16 D-P1: NO `no-other-window' — the rail is the
+user's own window and stays `other-window'-reachable."
   `((side . ,org-air-rail-side)
     (slot . 0)
     (window-width . ,cols)
-    (window-parameters . ((no-other-window . t)
-                          (no-delete-other-windows . t)))))
+    (window-parameters . ((no-delete-other-windows . t)))))
 
 (defun org-air-rail--setup-divider ()
   "Enable `window-divider-mode' with the org-air right divider on GUI (R15 D-P2).
@@ -2837,7 +2878,7 @@ window width before composing its body (no stale full-frame board text)."
     (org-air-rail--setup-divider)
     (let ((win (display-buffer-in-side-window rail-buf params)))
       (when (window-live-p win)
-        (set-window-parameter win 'no-other-window t)
+        ;; R16 D-P1: do NOT set `no-other-window' — keep the rail reachable.
         (set-window-parameter win 'no-delete-other-windows t)
         (set-window-dedicated-p win t))
       (with-current-buffer board-buffer
@@ -2871,12 +2912,16 @@ board width), then renders the rail content + inspector."
     win))
 
 (defun org-air-rail--hide (board-buffer)
-  "Delete the rail side window and clear caches for BOARD-BUFFER (R15 D-P2)."
+  "Delete the rail side window and clear caches for BOARD-BUFFER (R16 D-P1).
+The `*org-air-rail*' buffer survives when `org-air-rail-keep-buffer' is
+non-nil (cheaper re-popout); otherwise it is killed."
   (let ((rail-buf (get-buffer org-air-rail-buffer-name)))
     (when (buffer-live-p rail-buf)
       (let ((win (get-buffer-window rail-buf)))
         (when (window-live-p win)
-          (delete-window win)))))
+          (delete-window win)))
+      (unless org-air-rail-keep-buffer
+        (kill-buffer rail-buf))))
   (when (buffer-live-p board-buffer)
     (with-current-buffer board-buffer
       (setq-local org-air-view--rail-buffer nil
@@ -2887,10 +2932,101 @@ board width), then renders the rail content + inspector."
 (defun org-air-rail--teardown ()
   "Tear down the rail window + buffer for the current board buffer (R15 D-P2).
 Used by `org-air-view-quit' and the board's `kill-buffer-hook'."
-  (org-air-rail--hide (current-buffer))
+  (let ((org-air-rail-keep-buffer nil))
+    (org-air-rail--hide (current-buffer)))
   (let ((rail-buf (get-buffer org-air-rail-buffer-name)))
     (when (buffer-live-p rail-buf)
       (kill-buffer rail-buf))))
+
+(defun org-air-rail--window-live-p ()
+  "Return non-nil when the `*org-air-rail*' buffer is shown on this frame.
+Checks the board frame so a stray rail buffer in another frame does not
+count (R16 D-P1)."
+  (let ((rail-buf (get-buffer org-air-rail-buffer-name)))
+    (and (buffer-live-p rail-buf)
+         (get-buffer-window rail-buf (selected-frame))
+         t)))
+
+;;;; ---------------------------------------------------------------------
+;;;; R16 D-P1: cooperative, command-driven popout + reconciler.
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-rail-toggle ()
+  "Toggle the context rail between inline and a popped-out side window (R16 D-P1).
+Command-driven and cooperative: popping out renders the board board-only
+and shows the `*org-air-rail*' side window; popping in restores the inline
+two-pane rail.  Native window management always wins — closing the side
+window with any native command falls back to inline via the reconciler."
+  (interactive)
+  (unless (derived-mode-p 'org-air-view-mode)
+    (user-error "Not in an org-air board buffer"))
+  (if org-air-view--rail-popped-out
+      (progn
+        (setq-local org-air-view--rail-popped-out nil)
+        (org-air-rail--hide (current-buffer))
+        (org-air-view--render-current))
+    (setq-local org-air-view--rail-popped-out t)
+    (org-air-view--render-current)
+    (when org-air-rail-focus-on-popout
+      (let ((win (and (org-air-rail--window-live-p)
+                      (get-buffer-window org-air-rail-buffer-name
+                                         (selected-frame)))))
+        (when (window-live-p win)
+          (select-window win))))))
+
+(defun org-air-rail-popout ()
+  "Pop the context rail OUT into the side window if it is inline (R16 D-P1)."
+  (interactive)
+  (when (and (derived-mode-p 'org-air-view-mode)
+             (not org-air-view--rail-popped-out))
+    (org-air-rail-toggle)))
+
+(defun org-air-rail-popin ()
+  "Pop the context rail back INLINE if it is a side window (R16 D-P1).
+Works from the board OR from inside the rail buffer (`q')."
+  (interactive)
+  (let ((board (if (derived-mode-p 'org-air-view-mode)
+                   (current-buffer)
+                 (or (and (boundp 'org-air-rail--board-buffer)
+                          org-air-rail--board-buffer)
+                     (get-buffer org-air-view-buffer-name)))))
+    (when (buffer-live-p board)
+      (with-current-buffer board
+        (when org-air-view--rail-popped-out
+          (setq-local org-air-view--rail-popped-out nil)
+          (org-air-rail--hide board)
+          (org-air-view--render-current)))
+      ;; If `q' was pressed inside the rail, hop focus back to the board.
+      (when (not (eq (current-buffer) board))
+        (let ((win (get-buffer-window board (selected-frame))))
+          (when (window-live-p win)
+            (select-window win)))))))
+
+(defun org-air-rail--reconcile ()
+  "React when the user closes the popped-out rail with a native command.
+Added to the board buffer's `window-configuration-change-hook'.  Purely
+REACTIVE: if the rail is flagged popped-out but its buffer no longer shows
+in any window on the board's frame, fall back to the inline rail (never
+proactively re-open a window the user closed) (R16 D-P1)."
+  (when (and (derived-mode-p 'org-air-view-mode)
+             org-air-view--rail-popped-out
+             (not org-air-rail--reconciling)
+             (not noninteractive))
+    (let ((board (current-buffer)))
+      (when (and (get-buffer-window board (selected-frame))
+                 (not (org-air-rail--window-live-p)))
+        ;; The user closed the rail.  Do NOT re-create it; go inline.
+        (setq-local org-air-view--rail-popped-out nil)
+        (org-air-rail--hide board)
+        ;; Re-render AFTER the window-config settles (never inside the hook).
+        (run-with-timer
+         0 nil
+         (lambda ()
+           (when (buffer-live-p board)
+             (with-current-buffer board
+               (let ((org-air-rail--reconciling t))
+                 (when (get-buffer-window board (selected-frame))
+                   (org-air-view--render-current)))))))))))
 
 (defun org-air-view--two-pane-body (items width)
   "Return (BODY-LINES . FILL-ROW) for ITEMS in the two-pane layout at WIDTH.
@@ -2948,15 +3084,22 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)
           org-air-view--tag-filter tag-filter)
+    ;; R16 D-P1: seed the per-board popout flag from the INITIAL preference
+    ;; on first render only (`unset' sentinel); thereafter the toggle /
+    ;; reconciler own it.  The renderer never consults `org-air-rail-style'
+    ;; for dispatch again.
+    (when (eq org-air-view--rail-popped-out 'unset)
+      (setq-local org-air-view--rail-popped-out
+                  (eq org-air-rail-style 'side-window)))
     ;; R13 D-P3: below `org-air-rail-min-width' drop the rail entirely
     ;; (board-only); else the existing two-pane vs stacked decision.
+    ;; R16 D-P1: `side-window' is now driven by the RUNTIME flag (a user
+    ;; popped the rail out), never an unconditional render mode — so
+    ;; `window-toggle-side-window' is respected.
     (setq org-air-view--orientation
           (cond
            ((org-air-view--board-only-p width) 'board-only)
-           ;; R15 D-P2: the rail lives in a separate side-window buffer; the
-           ;; board renders board-only style and the rail buffer carries the
-           ;; calendar/summary/filters/actions (+ inspector from Phase 2).
-           ((eq org-air-rail-style 'side-window) 'side-window)
+           (org-air-view--rail-popped-out 'side-window)
            ((org-air-view--two-pane-p width) 'two-pane)
            (t 'stacked)))
     ;; R15 D-P2: under `side-window' create the rail side window BEFORE
@@ -3633,8 +3776,8 @@ adjacent day; the rail calendar re-centres on the focused month."
   (interactive)
   (if org-air-view--day
       (org-air-view-board)
-    ;; R15 D-P2: tear down the side-window rail before quitting the board.
-    (when (eq org-air-rail-style 'side-window)
+    ;; R16 D-P1: tear down the popped-out rail (if any) before quitting.
+    (when org-air-view--rail-popped-out
       (org-air-rail--teardown))
     (quit-window)))
 

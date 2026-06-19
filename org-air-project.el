@@ -82,6 +82,21 @@ Mirrors `airctl status' -a / -Da / -Ta; toggled in-view with s / d / t."
   :type '(choice (const state) (const directory) (const tag))
   :group 'org-air)
 
+(defcustom org-air-project-sort-key 'name
+  "INITIAL sort key for the Air project view (R16 D-P4).
+Keys: `name', `created', `updated' (reserved for later: scheduled,
+deadline).  The runtime commands (`o' cycle, `g s' select) override this
+per-buffer via `org-air-project--sort-key'.  The resulting doc order is
+the byte contract."
+  :type '(choice (const name) (const created) (const updated))
+  :group 'org-air)
+
+(defcustom org-air-project-sort-direction 'ascending
+  "INITIAL sort direction for the Air project view (R16 D-P4).
+`O' toggles it per-buffer via `org-air-project--sort-direction'."
+  :type '(choice (const ascending) (const descending))
+  :group 'org-air)
+
 (defcustom org-air-project-states
   '("draft" "ready" "work-in-progress" "review" "complete" "dropped")
   "Air doc states in display order.
@@ -301,11 +316,17 @@ section, so each row's prefix carries the doc's state as a small chip."
 (defun org-air-project--sections (docs)
   "Return the ordered render sections for DOCS under the current group mode.
 Each section is a plist: :icon :icon-face :title :title-face :docs
-:attention :show-state."
-  (pcase org-air-project-group
-    ('directory (org-air-project--sections-by-directory docs))
-    ('tag (org-air-project--sections-by-tag docs))
-    (_ (org-air-project--sections-by-state docs))))
+:attention :show-state.  R16 D-P4/D-P5: every section's members are ordered
+through the single comparator (`org-air-project--sort-section-docs') so
+state-then-sort-key composition is uniform across all group modes."
+  (let ((sections (pcase org-air-project-group
+                    ('directory (org-air-project--sections-by-directory docs))
+                    ('tag (org-air-project--sections-by-tag docs))
+                    (_ (org-air-project--sections-by-state docs)))))
+    (dolist (section sections sections)
+      (plist-put section :docs
+                 (org-air-project--sort-section-docs
+                  (plist-get section :docs))))))
 
 (defun org-air-project--sections-by-state (docs)
   "Return state-bucket sections for DOCS in `org-air-project-sections' order.
@@ -450,6 +471,98 @@ SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
 
 (defvar-local org-air-project--rendered-width nil
   "Width of the most recent project-view render (R14 D-P1.B resize guard).")
+
+(defvar-local org-air-project--sort-key nil
+  "Active per-buffer sort key (R16 D-P4); seeded from `org-air-project-sort-key'.")
+(defvar-local org-air-project--sort-direction nil
+  "Active per-buffer sort direction (R16 D-P4); seeded from the defcustom.")
+
+(defun org-air-project--sort-key-active ()
+  "Return the active sort key, seeding from the defcustom when unset."
+  (or org-air-project--sort-key org-air-project-sort-key))
+
+(defun org-air-project--sort-direction-active ()
+  "Return the active sort direction, seeding from the defcustom when unset."
+  (or org-air-project--sort-direction org-air-project-sort-direction))
+
+(defun org-air-project--doc-key-value (doc key)
+  "Return DOC's value for sort KEY (`name'/`created'/`updated') (R16 D-P4)."
+  (pcase key
+    ('created (org-air-doc-created doc))
+    ('updated (org-air-doc-updated doc))
+    (_ (org-air-doc-name doc))))
+
+(defun org-air-project--doc-tiebreak-lessp (a b)
+  "Return non-nil when doc A precedes doc B by the byte-stable tiebreak.
+Name ascending, then relpath ascending."
+  (let ((na (or (org-air-doc-name a) ""))
+        (nb (or (org-air-doc-name b) "")))
+    (if (not (string-equal na nb))
+        (string-lessp na nb)
+      (string-lessp (or (org-air-doc-relpath a) "")
+                    (or (org-air-doc-relpath b) "")))))
+
+(defun org-air-project--doc-compare (a b)
+  "Strict total order over docs A and B (R16 D-P4).
+1. the active sort key in the active direction (a nil date sorts LAST in
+   BOTH directions — the partition rule);
+2. tiebreak: name then relpath ascending (byte-stable equal keys).
+D-P5 prepends a state-rank primary step ahead of the key."
+  (let* ((key (org-air-project--sort-key-active))
+         (desc (eq (org-air-project--sort-direction-active) 'descending))
+         (va (org-air-project--doc-key-value a key))
+         (vb (org-air-project--doc-key-value b key)))
+    (cond
+     ;; Nil-key partition: missing dates always sort LAST, never
+     ;; flipping to the top under descending.
+     ((and (null va) (null vb))
+      (org-air-project--doc-tiebreak-lessp a b))
+     ((null va) nil)
+     ((null vb) t)
+     (t
+      (let ((lt (if (memq key '(created updated))
+                    (time-less-p va vb)
+                  (string-lessp (or va "") (or vb ""))))
+            (gt (if (memq key '(created updated))
+                    (time-less-p vb va)
+                  (string-lessp (or vb "") (or va "")))))
+        (cond
+         ((and (not lt) (not gt))
+          ;; equal key → byte-stable tiebreak (never reversed).
+          (org-air-project--doc-tiebreak-lessp a b))
+         (desc gt)
+         (t lt)))))))
+
+(defun org-air-project--sort-section-docs (docs)
+  "Return DOCS ordered by the single comparator (R16 D-P4/D-P5).
+Every group mode funnels its members through here so the comparator is
+the single source of truth for display order."
+  (sort (copy-sequence docs) #'org-air-project--doc-compare))
+
+(defun org-air-project--sort-indicator ()
+  "Return the active-sort badge text `↕ <key> <dir>' (R16 D-P4).
+Plain text (svg-free) so it is part of every project fixture's byte
+contract; quiet faces."
+  (let* ((key (symbol-name (org-air-project--sort-key-active)))
+         (dir (org-air-project--sort-direction-active))
+         (mk (org-air-layout-glyph 'sort-key))
+         (arrow (org-air-layout-glyph (if (eq dir 'descending) 'sort-desc 'sort-asc))))
+    (concat (propertize mk 'face 'org-air-face-faded)
+            " "
+            (propertize key 'face 'org-air-face-summary-label)
+            " "
+            (propertize arrow 'face 'org-air-face-faded))))
+
+(defun org-air-project--header-line (width)
+  "Return the project header line for WIDTH: title left, sort badge right.
+The badge order is part of the byte contract (R16 D-P4)."
+  (let* ((title (propertize "  org-air · project" 'face 'org-air-face-title))
+         (badge (org-air-project--sort-indicator))
+         (lw (string-width title))
+         (bw (string-width badge))
+         ;; right-cluster the badge, leaving a trailing column like the rest.
+         (pad (max 1 (- width lw bw 2))))
+    (concat title (make-string pad ?\s) badge)))
 
 (defun org-air-project--insert-doc-sections (sections width)
   "Insert all SECTIONS (headings + two-line doc blocks) at content WIDTH."
@@ -615,12 +728,17 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
                 org-air-view--inspector-property 'org-air-doc
                 org-air-view--inspector-fields-function
                 #'org-air-project--inspector-doc-fields)
+    ;; R16 D-P4: seed the per-buffer sort state from the defcustoms once.
+    (unless org-air-project--sort-key
+      (setq-local org-air-project--sort-key org-air-project-sort-key))
+    (unless org-air-project--sort-direction
+      (setq-local org-air-project--sort-direction org-air-project-sort-direction))
     (erase-buffer)
     (setq org-air-view--orientation
           (if (and org-air-project-show-inspector
                    (not (org-air-view--board-only-p width)))
               'two-pane 'board-only))
-    (insert (propertize "  org-air · project" 'face 'org-air-face-title) "\n\n")
+    (insert (org-air-project--header-line width) "\n\n")
     (cond
      ((null docs)
       (insert "  "
@@ -686,6 +804,35 @@ between two-pane and board-only."
   (setq org-air-project-group 'tag)
   (org-air-project-refresh))
 
+(defun org-air-project-sort-cycle ()
+  "Cycle the sort key name -> created -> updated -> name and refresh (R16 D-P4)."
+  (interactive)
+  (setq-local org-air-project--sort-key
+              (pcase (org-air-project--sort-key-active)
+                ('name 'created)
+                ('created 'updated)
+                (_ 'name)))
+  (org-air-project-refresh)
+  (message "org-air project: sort by %s" org-air-project--sort-key))
+
+(defun org-air-project-sort-reverse ()
+  "Toggle the sort direction ascending <-> descending and refresh (R16 D-P4)."
+  (interactive)
+  (setq-local org-air-project--sort-direction
+              (if (eq (org-air-project--sort-direction-active) 'descending)
+                  'ascending 'descending))
+  (org-air-project-refresh)
+  (message "org-air project: %s" org-air-project--sort-direction))
+
+(defun org-air-project-sort-set (key)
+  "Set the sort KEY directly (name/created/updated) and refresh (R16 D-P4)."
+  (interactive
+   (list (intern (completing-read "Sort by: " '("name" "created" "updated")
+                                  nil t))))
+  (setq-local org-air-project--sort-key key)
+  (org-air-project-refresh)
+  (message "org-air project: sort by %s" key))
+
 (defun org-air-project-next ()
   "Move point to the next doc row."
   (interactive)
@@ -724,6 +871,11 @@ between two-pane and board-only."
     (define-key map (kbd "n") #'org-air-project-next)
     (define-key map (kbd "p") #'org-air-project-prev)
     (define-key map (kbd "RET") #'org-air-project-visit)
+    ;; R16 D-P4: sort the doc rows — `o' cycles the key, `O' flips direction.
+    ;; `org-air-project-sort-set' selects a key directly (M-x; `g' here is a
+    ;; single-key refresh, so it cannot also host a `g s' prefix).
+    (define-key map (kbd "o") #'org-air-project-sort-cycle)
+    (define-key map (kbd "O") #'org-air-project-sort-reverse)
     (define-key map (kbd "g") #'org-air-project-refresh)
     ;; R16 D-P3: the bottom source view pane works here too (one pane, both
     ;; views) — the doc rows carry `org-air-marker' = the doc file.

@@ -297,6 +297,20 @@
     ;;     org-air-data-variation-titles-render, org-air-layout-mockup-80,
     ;;     -120, -160, -heights, -thresholds, org-air-r13-board-only-byte-
     ;;     mockup.  Round-15 D-P1 manifest is EMPTY.
+    ;; ===================================================================
+    ;; v0.5 ROUND-16 D-P4/D-P5 grind (impl track) — the project byte
+    ;; mockups change BYTES under the design-blessed sortable project view
+    ;; (air/v0.5/org-air-round16-design.org):
+    ;;   D-P4 — the project header gains a right-clustered sort badge
+    ;;     `↕ <key> <dir>' and the doc rows are now ordered by ONE
+    ;;     deterministic comparator (name/created/updated + direction).
+    ;;   D-P5 — within a directory/tag group, rows are ordered state-rank
+    ;;     primary then the sort key secondary (same comparator).
+    ;; project-view-{state,dir,tag}.txt therefore re-order + gain the badge
+    ;; line; these are [byte] fixture deltas (NOT an impl bug) awaiting
+    ;; design BLESS (make regen-mockups) + change-id.
+    (org-air-f5-project-view-byte-mockups
+     . "R16 D-P4/D-P5: project header sort badge + comparator re-order; regen+bless")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

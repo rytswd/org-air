@@ -1,4 +1,4 @@
-  org-air · project
+  org-air · project                                                                       | name ^
 
   | . v0.1/ 3                                                         | | Summary
   [D] Gamma context   #context                                        |    2  Draft
@@ -9,10 +9,10 @@
     . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |    1  Dropped
                                                                       |
   | . v0.2/ 3                                                         | | Inspector
-  [X] Delta UI exploration   #ui                                      |  Gamma context
-    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |  State   [D] Draft
-  [D] Epsilon plan   #context   #ui                                   |  Path    ~/Coding/github....
-    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |  #context
-  [W] Zeta work in progress   #core   #ui                             |  Group   v0.1
-    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |
+  [D] Epsilon plan   #context   #ui                                   |  Gamma context
+    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |  State   [D] Draft
+  [W] Zeta work in progress   #core   #ui                             |  Path    ~/Coding/github....
+    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  #context
+  [X] Delta UI exploration   #ui                                      |  Group   v0.1
+    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |
                                                                       |  Created 2026-04-01  (75d...

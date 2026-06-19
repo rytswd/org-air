@@ -1,26 +1,26 @@
-  org-air · project
+  org-air · project                                                                       | name ^
 
   | #context 2                                                        | | Summary
-  [D] Gamma context   #context                                        |    2  Draft
-    . v0.1/air-context/gamma-context.org    created 2026-04-01    ... |    1  Ready
-  [D] Epsilon plan   #context   #ui                                   |    1  Work In Progress
-    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    0  Review
+  [D] Epsilon plan   #context   #ui                                   |    2  Draft
+    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    1  Ready
+  [D] Gamma context   #context                                        |    1  Work In Progress
+    . v0.1/air-context/gamma-context.org    created 2026-04-01    ... |    0  Review
                                                                       |    1  Complete
   | #core 3                                                           |    1  Dropped
   [R] Alpha feature   #ui   #core                                     |
     . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... | | Inspector
-  [C] Beta CLI   #core                                                |  Gamma context
-    . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |  State   [D] Draft
-  [W] Zeta work in progress   #core   #ui                             |  Path    ~/Coding/github....
-    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  #context
-                                                                      |  Group   v0.1
+  [W] Zeta work in progress   #core   #ui                             |  Epsilon plan
+    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  State   [D] Draft
+  [C] Beta CLI   #core                                                |  Path    ~/Coding/github....
+    . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |  #context #ui
+                                                                      |  Group   v0.2
   | #ui 4                                                             |
-  [R] Alpha feature   #ui   #core                                     |  Created 2026-04-01  (75d...
-    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |  Updated 2026-05-01  (45d...
-  [X] Delta UI exploration   #ui                                      |
-    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |
-  [D] Epsilon plan   #context   #ui                                   |
-    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |
+  [D] Epsilon plan   #context   #ui                                   |  Created 2026-04-01  (75d...
+    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |  Updated 2026-05-01  (45d...
+  [R] Alpha feature   #ui   #core                                     |
+    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |
   [W] Zeta work in progress   #core   #ui                             |
     . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |
+  [X] Delta UI exploration   #ui                                      |
+    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |
                                                                       |

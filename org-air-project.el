@@ -477,6 +477,16 @@ SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
 (defvar-local org-air-project--sort-direction nil
   "Active per-buffer sort direction (R16 D-P4); seeded from the defcustom.")
 
+(defun org-air-project--state-rank (state)
+  "Return the canonical rank of STATE (R16 D-P5).
+Uses `org-air-project-sections' (Draft/Ready/WIP/Review/Complete/...) as
+the single source of truth for state order; unknown states rank AFTER the
+known ones, ordered among themselves by their state string."
+  (let ((idx (seq-position org-air-project-sections state #'equal)))
+    (or idx (+ (length org-air-project-sections)
+               ;; deterministic tail order for unknown states.
+               (if state (abs (sxhash-equal state)) 0)))))
+
 (defun org-air-project--sort-key-active ()
   "Return the active sort key, seeding from the defcustom when unset."
   (or org-air-project--sort-key org-air-project-sort-key))
@@ -503,11 +513,21 @@ Name ascending, then relpath ascending."
                     (or (org-air-doc-relpath b) "")))))
 
 (defun org-air-project--doc-compare (a b)
-  "Strict total order over docs A and B (R16 D-P4).
-1. the active sort key in the active direction (a nil date sorts LAST in
+  "Strict total order over docs A and B (R16 D-P4/D-P5).
+1. state-rank ascending (D-P5 — within-group state primary; constant within
+   a state group so the key drives order there);
+2. the active sort key in the active direction (a nil date sorts LAST in
    BOTH directions — the partition rule);
-2. tiebreak: name then relpath ascending (byte-stable equal keys).
-D-P5 prepends a state-rank primary step ahead of the key."
+3. tiebreak: name then relpath ascending (byte-stable equal keys)."
+  (let ((ra (org-air-project--state-rank (org-air-doc-state a)))
+        (rb (org-air-project--state-rank (org-air-doc-state b))))
+    (if (/= ra rb)
+        (< ra rb)
+      (org-air-project--doc-compare-key a b))))
+
+(defun org-air-project--doc-compare-key (a b)
+  "Strict order over docs A and B by the active sort key only (R16 D-P4).
+The D-P5 state-rank primary is applied by `org-air-project--doc-compare'."
   (let* ((key (org-air-project--sort-key-active))
          (desc (eq (org-air-project--sort-direction-active) 'descending))
          (va (org-air-project--doc-key-value a key))

@@ -1,0 +1,80 @@
+#+title: org-air v0.5 round-16: native side-window UX + bottom view pane + project sorting
+#+state: ready
+#+FILETAGS: :ui:windows:project:sorting:
+
+* Summary
+Round-16 from user feedback after the D-P2 side-window shipped (dormant).
+The "forceful" side-window is buggy and fights native Emacs window
+conventions.  Redesign it to be a well-behaved, command-driven side
+window; add a mu4e-style bottom view pane; and add project-view sorting.
+Five items, design-led.
+
+* Findings
+
+** P1 [HIGH] Native, non-buggy side-window UX (redesign D-P2's forceful one)
+The current =org-air-rail-style 'side-window= forcefully manages the side
+window and breaks native conventions:
+- =window-toggle-side-window= closes-and-reopens immediately (org-air
+  re-creates it via a hook → fights the toggle).
+- =other-window= can't focus the rail side window.
+- it's generally fragile.
+*Redesign:*
+- *Default stays the single inline pane* (board + inline rail) — it's
+  useful; keep it.
+- Provide a *command* (e.g. =org-air-rail-popout= / a toggle) to open the
+  rail as a SEPARATE side window, following how people use side windows
+  NATIVELY: respect =window-toggle-side-window=, be focusable via
+  =other-window=, don't auto-recreate on close, no forceful teardown hooks
+  fighting the user.
+- *When the side window is open, REMOVE the inline side pane* (don't show
+  the rail twice) — the board takes the full main window, the rail lives in
+  the side window.  Closing the side window restores the inline pane.
+- Drop / rework the fragile lifecycle from D-P2; make it cooperative with
+  Emacs window management.
+
+** P2 [MED] Consistent buffer naming (so dimmer etc. can exclude org-air)
+org-air's buffers already share the =*org-air= prefix (=*org-air*=,
+=*org-air-project*=, =*org-air-rail*=); the bottom pane (P3) must too
+(=*org-air-...*=).  Dimmer dimming the side window is the USER's config to
+solve, NOT org-air's territory — org-air's job is only a *stable,
+documented buffer-naming convention* so the user can exclude them.
+Document the convention + the buffer names in interface-design.md.
+(Orchestrator supplies the dimmer snippet to the user directly.)
+
+** P3 [HIGH] mu4e-style bottom view pane for the file/entry
+Like mu4e's message view, support an optional *bottom pane* that shows the
+selected item's source (the org file/entry at point) — open on demand
+(a command / RET behaviour), in a bottom side window, =*org-air-view-...*=
+buffer, cooperative with native windows.  Design the affordance + how it
+tracks point (or opens on explicit action), and how it composes with the
+rail side window (P1).
+
+** P4 [HIGH] Project view: sortable
+The project view must support *sorting* the docs by: name, created,
+updated (and later scheduled / deadline).  A sort command that cycles /
+selects the key (+ direction).  Show the active sort.  Keep it byte-test
+friendly (the order is the contract).
+
+** P5 [MED] Project view: sort items within each group by state
+When grouping (by directory / tag / state), items WITHIN a group should
+still be ordered by state (Draft/Ready/WIP/Review/Complete) — and then by
+the active sort key (P4) as the secondary.  So grouping + sorting compose.
+
+* Constraints
+- org-ql only; Emacs 29.1+.  Reuse the shared renderer/inspector.  svg =
+  GUI cosmetic, byte/TTY fallback.  Cooperative with native window
+  management (no forceful side-window hacks).  Build on the round-15 trunk
+  (D-P2 side-window code is integrated, inline default — this round
+  reworks its UX).
+
+* Work items (design-led; impl + test follow; REVIEW gates every integration)
+- D-P1  native command-driven side-window (remove inline pane when open)  [HIGH]
+- D-P2  stable buffer-naming convention (doc it; bottom pane included)    [MED]
+- D-P3  mu4e-style bottom view pane                                       [HIGH]
+- D-P4  project-view sorting (name/created/updated; cycle + indicator)    [HIGH]
+- D-P5  within-group state ordering (compose grouping + sort)             [MED]
+
+* Implementation History
+- (pending) round-16 opened after the D-P2 side-window shipped dormant;
+  user reports the forceful side-window is buggy (toggle/other-window/
+  dimmer) and wants native UX + a bottom view pane + project sorting.

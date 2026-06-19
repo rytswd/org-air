@@ -27,6 +27,9 @@
 (require 'org-air-layout)
 
 ;; V3 svg pills are GUI-only and soft-loaded at render time (`require 'svg').
+(declare-function org-air-doc-file "org-air-project")
+(declare-function org-air-doc-name "org-air-project")
+(declare-function org-air-doc-state "org-air-project")
 (declare-function svg-create "svg")
 (declare-function svg-rectangle "svg")
 (declare-function svg-polygon "svg")
@@ -605,6 +608,9 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "?") #'org-air-help)
     ;; R16 D-P1: pop the context rail in/out of a native side window.
     (define-key map (kbd "|") #'org-air-rail-toggle)
+    ;; R16 D-P3: open/refresh + close the bottom source view pane.
+    (define-key map (kbd "v") #'org-air-view-pane)
+    (define-key map (kbd "V") #'org-air-view-pane-close)
     (define-key map (kbd "q") #'org-air-quit)
     map)
   "Keymap for `org-air-view-mode'.")
@@ -650,6 +656,10 @@ of whether the wrapping pane margin is added later (D6).")
   ;; only; never re-creates a window the user closed.
   (unless noninteractive
     (add-hook 'window-configuration-change-hook #'org-air-rail--reconcile nil t))
+  ;; R16 D-P3: follow-mode point-tracking for the bottom view pane (inert
+  ;; in batch; a separate consumer of board point from the inspector).
+  (unless noninteractive
+    (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t))
   (org-air-view--setup-evil)
   (org-air-layout-install-window-size-hook))
 
@@ -3028,6 +3038,272 @@ proactively re-open a window the user closed) (R16 D-P1)."
                  (when (get-buffer-window board (selected-frame))
                    (org-air-view--render-current)))))))))))
 
+;;;; ---------------------------------------------------------------------
+;;;; R16 D-P3: mu4e-style bottom source/entry view pane (*org-air-view*).
+;;;;
+;;;; An optional bottom side window showing the SOURCE of the selected item
+;;;; — the org entry (heading + body + drawers) at the item's marker — a
+;;;; read-only snapshot in `*org-air-view*'.  Explicit-open by default (`v')
+;;;; with optional follow-mode; cooperative with the rail side window and
+;;;; native windows.
+;;;; ---------------------------------------------------------------------
+
+(defconst org-air-view-pane-buffer-name "*org-air-view*"
+  "Name of the bottom source/entry view pane buffer (R16 D-P3/D-P2).")
+
+(defcustom org-air-view-pane-height 14
+  "Height of the bottom `*org-air-view*' source pane (R16 D-P3).
+An integer >= 1 is read as a line count; a value < 1 (a float like 0.33)
+is read as a fraction of the frame height."
+  :type 'number
+  :group 'org-air)
+
+(defcustom org-air-view-pane-follow nil
+  "When non-nil, the bottom view pane tracks point on the board (R16 D-P3).
+Default nil = explicit-open only (the pane updates when you press `v').
+When non-nil AND the pane is live, moving point updates the pane to the
+item at point (debounced, inert under batch)."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-view-pane-on-return nil
+  "When non-nil, RET also opens/refreshes the bottom view pane (R16 D-P3).
+Default nil keeps RET = `org-air-visit-item' (open the file elsewhere)."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-view-pane-focus nil
+  "When non-nil, opening the bottom view pane selects its window (R16 D-P3).
+Default nil keeps point on the board; the pane is `other-window'-reachable."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-view-pane-keep-buffer t
+  "When non-nil the `*org-air-view*' buffer survives a pane close (R16 D-P3)."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-view-pane-max-lines nil
+  "Maximum entry lines shown in the bottom view pane, or nil (R16 D-P3).
+When an integer, very large entries are capped with a `…' continuation
+marker; nil shows the full subtree."
+  :type '(choice (const :tag "Full subtree" nil) integer)
+  :group 'org-air)
+
+(defvar-local org-air-view--view-pane-item nil
+  "Item last shown in the bottom view pane; the follow change-guard.")
+
+(define-derived-mode org-air-entry-view-mode special-mode "org-air-view"
+  "Major mode for the bottom `*org-air-view*' source/entry pane (R16 D-P3).
+A read-only snapshot of the selected item's Org entry with Org font-lock,
+`other-window'-reachable for reading/scrolling."
+  (setq-local truncate-lines nil)
+  (setq-local line-spacing org-air-line-spacing)
+  (setq-local cursor-type t)
+  (setq-local buffer-read-only t))
+
+(defun org-air-view-pane--buffer ()
+  "Get or create the `*org-air-view*' pane buffer in `org-air-entry-view-mode'."
+  (let ((buf (get-buffer-create org-air-view-pane-buffer-name)))
+    (with-current-buffer buf
+      (unless (derived-mode-p 'org-air-entry-view-mode)
+        (org-air-entry-view-mode)))
+    buf))
+
+(defun org-air-view-pane--window-params ()
+  "Return the `display-buffer-in-side-window' alist for the bottom view pane.
+NO `no-other-window' — the pane is reachable; survives `delete-other-windows'
+\(R16 D-P3)."
+  `((side . bottom)
+    (slot . 0)
+    (window-height . ,org-air-view-pane-height)
+    (window-parameters . ((no-delete-other-windows . t)))))
+
+(defun org-air-view-pane--window-live-p ()
+  "Return non-nil when the `*org-air-view*' pane is shown on this frame."
+  (let ((buf (get-buffer org-air-view-pane-buffer-name)))
+    (and (buffer-live-p buf)
+         (get-buffer-window buf (selected-frame))
+         t)))
+
+(defun org-air-view-pane--context-at-point ()
+  "Return a plist describing the source to show for the item/doc at point.
+Keys: :marker (a marker or filepath string), :file, :title, :state.
+Works on the board (`org-air-item') and the project view (`org-air-doc')
+via the shared `org-air-marker' text property (R16 D-P3)."
+  (let ((item (get-text-property (point) 'org-air-item))
+        (doc (get-text-property (point) 'org-air-doc))
+        (marker (get-text-property (point) 'org-air-marker)))
+    (cond
+     (item
+      (list :marker (or marker (org-air-item-marker item))
+            :file (org-air-item-file item)
+            :title (org-air-item-title item)
+            :state (org-air-item-todo item)))
+     (doc
+      (list :marker (or marker (org-air-doc-file doc))
+            :file (org-air-doc-file doc)
+            :title (org-air-doc-name doc)
+            :state (org-air-doc-state doc)))
+     (marker
+      (list :marker marker)))))
+
+(defun org-air-view-pane--source-buffer-pos (marker)
+  "Resolve MARKER (a live marker or a filepath string) to (BUFFER . POS).
+Visits a file in the background (never pops it).  Returns nil when the
+source is unavailable (R16 D-P3)."
+  (cond
+   ((and (markerp marker) (marker-buffer marker)
+         (buffer-live-p (marker-buffer marker)))
+    (cons (marker-buffer marker) (marker-position marker)))
+   ((and (stringp marker) (file-readable-p marker))
+    (cons (find-file-noselect marker) nil))
+   (t nil)))
+
+(defun org-air-view-pane--entry-text (buffer pos)
+  "Return the Org entry text at POS in BUFFER (heading + body + drawers).
+When POS is nil, return the file head (heading-less files → the buffer
+head).  Org font-lock is applied on a copy (R16 D-P3)."
+  (with-current-buffer buffer
+    (save-excursion
+      (save-restriction
+        (widen)
+        (let (beg end)
+          (if (and pos (ignore-errors (goto-char pos)))
+              (progn
+                (if (org-at-heading-p)
+                    (ignore-errors (org-back-to-heading t))
+                  (ignore-errors (org-back-to-heading t)))
+                (setq beg (if (org-before-first-heading-p) (point-min) (point)))
+                (setq end (if (org-before-first-heading-p)
+                              (min (point-max) (+ (point-min) 4000))
+                            (save-excursion (org-end-of-subtree t t) (point)))))
+            (setq beg (point-min)
+                  end (min (point-max) (+ (point-min) 4000))))
+          (org-air-view-pane--fontify
+           (buffer-substring beg end)))))))
+
+(defun org-air-view-pane--fontify (text)
+  "Return TEXT fontified as Org (R16 D-P3).
+Uses a temp Org buffer; degrades to the raw text when Org font-lock is
+unavailable (e.g. batch)."
+  (condition-case nil
+      (with-temp-buffer
+        (delay-mode-hooks (org-mode))
+        (insert text)
+        (if noninteractive
+            (buffer-string)
+          (font-lock-ensure)
+          (buffer-string)))
+    (error text)))
+
+(defun org-air-view-pane--header-line (ctx)
+  "Return the `*org-air-view*' header-line string for context CTX (R16 D-P3).
+Text contract: `▤ <file>  ·  <title>  ·  <state>'."
+  (let* ((icon (org-air-view--glyph 'view-pane))
+         (dot (concat "  " (org-air-view--glyph 'sep-dot) "  "))
+         (file (let ((f (plist-get ctx :file)))
+                 (and f (file-name-nondirectory f))))
+         (title (plist-get ctx :title))
+         (state (plist-get ctx :state))
+         (parts (delq nil (list file title state))))
+    (concat icon " " (mapconcat #'identity parts dot))))
+
+(defun org-air-view-pane--render (ctx)
+  "Snapshot the entry described by CTX into the `*org-air-view*' pane.
+Dead/unresolvable sources show a calm hint.  Honours
+`org-air-view-pane-max-lines'.  Returns the pane buffer (R16 D-P3)."
+  (let* ((buf (org-air-view-pane--buffer))
+         (marker (plist-get ctx :marker))
+         (src (and marker (org-air-view-pane--source-buffer-pos marker))))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (if (null src)
+            (insert (propertize "(entry no longer available)"
+                                'face 'org-air-face-empty))
+          (let ((text (org-air-view-pane--entry-text (car src) (cdr src))))
+            (insert text)
+            (org-air-view-pane--apply-max-lines)))
+        (setq-local header-line-format
+                    (org-air-view-pane--header-line ctx))
+        (goto-char (point-min))))
+    buf))
+
+(defun org-air-view-pane--apply-max-lines ()
+  "Cap the current pane buffer at `org-air-view-pane-max-lines' (R16 D-P3).
+Appends a `…' continuation marker when truncated.  No-op when nil."
+  (when (integerp org-air-view-pane-max-lines)
+    (save-excursion
+      (goto-char (point-min))
+      (when (and (> org-air-view-pane-max-lines 0)
+                 (zerop (forward-line org-air-view-pane-max-lines))
+                 (not (eobp)))
+        (delete-region (point) (point-max))
+        (insert (org-air-view--glyph 'more))))))
+
+(defun org-air-view-pane--show (ctx)
+  "Ensure the bottom pane window + render CTX; respect focus (R16 D-P3)."
+  (let ((buf (org-air-view-pane--render ctx)))
+    (when (and (not noninteractive) buf)
+      (let ((win (display-buffer-in-side-window
+                  buf (org-air-view-pane--window-params))))
+        (when (window-live-p win)
+          (set-window-parameter win 'no-delete-other-windows t)
+          (set-window-dedicated-p win t)
+          (when org-air-view-pane-focus
+            (select-window win)))))
+    buf))
+
+(defun org-air-view-pane--hide ()
+  "Delete the bottom pane window (and its buffer per keep-buffer) (R16 D-P3)."
+  (let ((buf (get-buffer org-air-view-pane-buffer-name)))
+    (when (buffer-live-p buf)
+      (let ((win (get-buffer-window buf (selected-frame))))
+        (when (window-live-p win)
+          (delete-window win)))
+      (unless org-air-view-pane-keep-buffer
+        (kill-buffer buf)))))
+
+(defun org-air-view-pane--teardown ()
+  "Delete the bottom pane window + kill its buffer (R16 D-P3)."
+  (let ((org-air-view-pane-keep-buffer nil))
+    (org-air-view-pane--hide)))
+
+(defun org-air-view-pane ()
+  "Open OR refresh the bottom `*org-air-view*' source pane for the item at point.
+If the pane is open it is refreshed to the current item; if closed it is
+opened (R16 D-P3).  Key `v'."
+  (interactive)
+  (let ((ctx (org-air-view-pane--context-at-point)))
+    (unless ctx
+      (user-error "No org-air item at point"))
+    (when (derived-mode-p 'org-air-view-mode)
+      (setq-local org-air-view--view-pane-item
+                  (get-text-property (point) 'org-air-item)))
+    (org-air-view-pane--show ctx)))
+
+(defun org-air-view-pane-close ()
+  "Close the bottom `*org-air-view*' source pane (R16 D-P3).  Key `V'."
+  (interactive)
+  (org-air-view-pane--hide))
+
+(defun org-air-view--view-pane-post-command ()
+  "Follow-mode hook: update the bottom pane to the board's item at point.
+Separate from the inspector hook; inert under batch; redraws only when the
+item at point CHANGED and the pane window is live (R16 D-P3)."
+  (unless noninteractive
+    (when (and org-air-view-pane-follow
+               (derived-mode-p 'org-air-view-mode)
+               (org-air-view-pane--window-live-p))
+      (let ((item (get-text-property (point) 'org-air-item)))
+        (unless (eq item org-air-view--view-pane-item)
+          (setq-local org-air-view--view-pane-item item)
+          (let ((ctx (org-air-view-pane--context-at-point)))
+            (when ctx
+              (let ((org-air-view-pane-focus nil))
+                (org-air-view-pane--show ctx)))))))))
+
 (defun org-air-view--two-pane-body (items width)
   "Return (BODY-LINES . FILL-ROW) for ITEMS in the two-pane layout at WIDTH.
 FILL-ROW is a full-width blank row carrying the divider, so the divider
@@ -3779,6 +4055,8 @@ adjacent day; the rail calendar re-centres on the focused month."
     ;; R16 D-P1: tear down the popped-out rail (if any) before quitting.
     (when org-air-view--rail-popped-out
       (org-air-rail--teardown))
+    ;; R16 D-P3: tear down the bottom view pane as well.
+    (org-air-view-pane--teardown)
     (quit-window)))
 
 (defun org-air-calendar-today ()
@@ -3813,6 +4091,11 @@ controls window choice and defaults to `org-air-visit-display'."
   (let ((item (or item (get-text-property (point) 'org-air-item))))
     (unless item
       (user-error "No org-air item at point"))
+    ;; R16 D-P3: opt-in mu4e-RET — also open/refresh the bottom view pane.
+    (when (and org-air-view-pane-on-return
+               (derived-mode-p 'org-air-view-mode))
+      (let ((ctx (org-air-view-pane--context-at-point)))
+        (when ctx (org-air-view-pane--show ctx))))
     (let* ((marker (org-air-item-marker item))
            (buffer (or (marker-buffer marker)
                        (find-file-noselect (org-air-item-file item))))

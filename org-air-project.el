@@ -725,6 +725,10 @@ between two-pane and board-only."
     (define-key map (kbd "p") #'org-air-project-prev)
     (define-key map (kbd "RET") #'org-air-project-visit)
     (define-key map (kbd "g") #'org-air-project-refresh)
+    ;; R16 D-P3: the bottom source view pane works here too (one pane, both
+    ;; views) — the doc rows carry `org-air-marker' = the doc file.
+    (define-key map (kbd "v") #'org-air-view-pane)
+    (define-key map (kbd "V") #'org-air-view-pane-close)
     (define-key map (kbd "q") #'org-air-project-quit)
     map)
   "Keymap for `org-air-project-mode'.")

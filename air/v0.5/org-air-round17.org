@@ -1,0 +1,53 @@
+#+title: org-air v0.5 round-17: origin column must be bounded (long Denote filenames break titles)
+#+state: ready
+#+FILETAGS: :ui:layout:bug:critical:
+
+* Summary
+Round-17 from screenshot 2026-06-25 00-47-41 with the large dataset (50
+files incl. ~90-char Denote slug filenames).  CRITICAL layout break: the
+origin (filename) column grows to the longest filename, eating the entire
+title width — every title renders as just =TODO…=.
+
+* Findings
+
+** P1 [CRIT] Origin column is UNBOUNDED → titles vanish
+The right cluster's origin cell width is computed from the *longest*
+filename across items.  With long Denote slugs (e.g.
+=importer-weekly-invalidation-rate-upgrade-rate-distributed-watering-
+reading-renewal-sprint=) the origin column becomes ~90 cols wide, so the
+flex title column collapses to ~0 and shows only =TODO…=.  Short names
+(=inbox.org=) are fine.  This violates the V6 contract — the right cluster
+must be BOUNDED so the title always keeps usable space.
+*Fix:*
+- *Cap the origin column to a fixed maximum* (defcustom
+  =org-air-origin-max-width=, e.g. 24–28 cols).  Truncate longer origins
+  with the ellipsis glyph.  The title column gets a guaranteed minimum.
+- *Prefer the Denote TITLE over the raw slug.*  For a Denote file, show the
+  human =#+title= (or the slug→title, de-slugged) rather than the long
+  =identifier--slug__tags.org= filename.  Round-9 F1 (Denote origin) should
+  display the title, not the full slug; truncate to the cap.  Non-Denote
+  files keep =basename.org= (already short).
+- *Title-first budgeting:* the flex title must reserve a sensible MINIMUM
+  width (defcustom =org-air-title-min-width=) before the right cluster
+  takes the rest; the right cluster (date + tags + origin) is bounded so
+  the title is never starved.  Re-check at all widths + in the responsive
+  board-only mode.
+- Keep V6 pixel-lock + byte/TTY contract; this is a width-budget fix.
+
+** P2 [MED] Verify the inspector / project view with long names too
+The inspector origin line and the project-view two-line filename row also
+show paths — confirm long Denote names don't overflow there (truncate /
+de-slug consistently).
+
+* Constraints
+- org-ql only; Emacs 29.1+.  V6 alignment + byte/TTY fallback.  Build on
+  the round-16 trunk.  Test with the large dataset (50 files, long Denote
+  names) — add a long-filename fixture so this can't regress.
+
+* Work items (design-led; impl + test follow; REVIEW gates integration)
+- D-P1  bound the origin column + Denote title + title-min budget         [CRIT]
+- D-P2  long-name safety in inspector + project view                      [MED]
+
+* Implementation History
+- (pending) round-17 opened from screenshot 2026-06-25 00-47-41: long
+  Denote filenames collapse all titles to TODO…

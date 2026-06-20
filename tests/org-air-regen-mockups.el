@@ -104,10 +104,54 @@ in --batch), right-trimmed."
             (org-air-regen--emit out (org-air-regen--lines)))
           (when (buffer-live-p buf) (kill-buffer buf))))))))
 
+;; R16 D-P3: bottom *org-air-view* source-pane goldens.  The pane content
+;; is the header-line (text contract) + the read-only entry snapshot; we
+;; dump both, joined by a newline, so a single byte file pins the whole
+;; pane.  The source is the isolated fixture (NOT a board *.org, so it is
+;; never copied into the GTD board set), and the dead-marker variant pins
+;; the calm `org-air-face-empty' hint.
+(defconst org-air-regen-entry-view-source
+  (expand-file-name "entry-view/entry-view-source.org" org-air-test-fixture-dir)
+  "Deterministic source for the R16 D-P3 view-pane goldens.")
+
+(defun org-air-regen--pane-dump (ctx)
+  "Render CTX into the view pane and return `header-line\nbody' (no props)."
+  (org-air-view-pane--render ctx)
+  (with-current-buffer (get-buffer org-air-view-pane-buffer-name)
+    (concat (format "%s" header-line-format)
+            "\n"
+            (buffer-substring-no-properties (point-min) (point-max)))))
+
+(defun org-air-regen--write-entry-view ()
+  "Write the R16 D-P3 view-pane goldens (live snapshot + dead marker)."
+  (org-air-viewport-test--with-frozen-now
+   (let* ((buf (find-file-noselect org-air-regen-entry-view-source))
+          (mk (with-current-buffer buf
+                (goto-char (point-min))
+                (re-search-forward "^\\* TODO A heading" nil t)
+                (goto-char (match-beginning 0))
+                (point-marker)))
+          (live-ctx (list :marker mk
+                          :file org-air-regen-entry-view-source
+                          :title "A heading" :state "TODO"))
+          (missing (expand-file-name
+                    "entry-view/entry-view-missing.org"
+                    org-air-test-fixture-dir))
+          (dead-ctx (list :marker missing :file missing
+                          :title "Missing entry" :state "TODO")))
+     (org-air-regen--emit
+      (expand-file-name "entry-view-pane.txt" org-air-test-fixture-dir)
+      (split-string (org-air-regen--pane-dump live-ctx) "\n"))
+     (org-air-regen--emit
+      (expand-file-name "entry-view-dead.txt" org-air-test-fixture-dir)
+      (split-string (org-air-regen--pane-dump dead-ctx) "\n"))
+     (when (buffer-live-p buf) (kill-buffer buf)))))
+
 (defun org-air-regen-mockups ()
   "Regenerate every mockup fixture from the honest renderer.
 GTD board: widths × {natural, 24, 50} + the empty board at 120×50.
-F5 project view: the ./air fixture in each grouping (state/dir/tag)."
+F5 project view: the ./air fixture in each grouping (state/dir/tag).
+D-P3 view pane: the entry snapshot + dead-marker goldens."
   (dolist (width org-air-regen-widths)
     (dolist (height org-air-regen-heights)
       (org-air-regen--write width height)))
@@ -119,6 +163,9 @@ F5 project view: the ./air fixture in each grouping (state/dir/tag)."
   (when (fboundp 'org-air-project)
     (pcase-dolist (`(,label . ,group-fn) org-air-regen-project-groupings)
       (org-air-regen--write-project label group-fn 100)))
+  ;; R16 D-P3 view-pane goldens.
+  (when (fboundp 'org-air-view-pane--render)
+    (org-air-regen--write-entry-view))
   (message "regen: done — diff fixtures and route to design for re-blessing"))
 
 (provide 'org-air-regen-mockups)

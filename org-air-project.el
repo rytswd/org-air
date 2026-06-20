@@ -480,12 +480,12 @@ SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
 (defun org-air-project--state-rank (state)
   "Return the canonical rank of STATE (R16 D-P5).
 Uses `org-air-project-sections' (Draft/Ready/WIP/Review/Complete/...) as
-the single source of truth for state order; unknown states rank AFTER the
-known ones, ordered among themselves by their state string."
-  (let ((idx (seq-position org-air-project-sections state #'equal)))
-    (or idx (+ (length org-air-project-sections)
-               ;; deterministic tail order for unknown states.
-               (if state (abs (sxhash-equal state)) 0)))))
+the single source of truth for state order: a known state gets its index;
+any unknown state shares one rank just past the known ones (so it sorts
+AFTER them).  Unknown states are then ordered among themselves by their
+state string in `org-air-project--doc-compare', not by this integer."
+  (or (seq-position org-air-project-sections state #'equal)
+      (length org-air-project-sections)))
 
 (defun org-air-project--sort-key-active ()
   "Return the active sort key, seeding from the defcustom when unset."
@@ -519,11 +519,18 @@ Name ascending, then relpath ascending."
 2. the active sort key in the active direction (a nil date sorts LAST in
    BOTH directions — the partition rule);
 3. tiebreak: name then relpath ascending (byte-stable equal keys)."
-  (let ((ra (org-air-project--state-rank (org-air-doc-state a)))
-        (rb (org-air-project--state-rank (org-air-doc-state b))))
-    (if (/= ra rb)
-        (< ra rb)
-      (org-air-project--doc-compare-key a b))))
+  (let* ((sa (org-air-doc-state a))
+         (sb (org-air-doc-state b))
+         (ra (org-air-project--state-rank sa))
+         (rb (org-air-project--state-rank sb))
+         (unknown (length org-air-project-sections)))
+    (cond
+     ((/= ra rb) (< ra rb))
+     ;; Both UNKNOWN (same tail rank) but different states -> order by the
+     ;; state string (matches the docstring; byte-stable).
+     ((and (= ra unknown) (not (equal sa sb)))
+      (string-lessp (or sa "") (or sb "")))
+     (t (org-air-project--doc-compare-key a b)))))
 
 (defun org-air-project--doc-compare-key (a b)
   "Strict order over docs A and B by the active sort key only (R16 D-P4).

@@ -1,0 +1,11 @@
+# entry-view-source.org  -  A heading  -  TODO
+* TODO A heading :foo:bar:
+SCHEDULED: <2026-06-20 Sat>
+:PROPERTIES:
+:CREATED: [2026-06-15 Mon]
+:END:
+Body line one.
+Body line two.
+** A subheading
+Nested body under the subheading.
+

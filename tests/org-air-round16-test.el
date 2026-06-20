@@ -78,6 +78,35 @@
         (org-air-view--render org-air-view--items nil)
         (should (eq org-air-view--orientation 'side-window))))))
 
+(ert-deftest org-air-r16-d1-board-only-keeps-popped-out-flag ()
+  "Responsive board-only teardown is NOT a user close: the flag is kept.
+Widening back past the rail-min-width must therefore re-pop the side
+window rather than fall back to inline (design transition table)."
+  (org-air-test-with-fixtures
+    (let ((buf (get-buffer-create "*org-air-r16-test*")))
+      (unwind-protect
+          (progn
+            (with-current-buffer buf
+              (org-air-view-mode)
+              (setq-local org-air-view--rail-popped-out t))
+            ;; Display the board in the batch selected window so the
+            ;; predicate's `get-buffer-window' guard is satisfied; ensure no
+            ;; rail window exists.
+            (set-window-buffer (selected-window) buf)
+            (let ((rb (get-buffer org-air-rail-buffer-name)))
+              (when (buffer-live-p rb) (kill-buffer rb)))
+            (with-current-buffer buf
+              ;; Narrow -> board-only responsive teardown -> NOT a user close.
+              (let ((org-air-view-width 60))
+                (should (org-air-view--board-only-p (org-air-view--render-width)))
+                (should-not (org-air-rail--user-closed-p buf)))
+              ;; Wide + rail window absent -> a genuine user close.
+              (let ((org-air-view-width 140))
+                (should-not (org-air-view--board-only-p
+                             (org-air-view--render-width)))
+                (should (org-air-rail--user-closed-p buf)))))
+        (when (buffer-live-p buf) (kill-buffer buf))))))
+
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P3 — bottom source view pane (text-is-the-contract).
 ;;;; ---------------------------------------------------------------------
@@ -145,6 +174,203 @@
             (should-not (string-match-p "line 30" text))
             (kill-buffer buf)))
       (delete-file tmp))))
+
+;;;; ---------------------------------------------------------------------
+;;;; D-P3 — view pane: byte goldens + dead marker + follow + window-config.
+;;;; (Review-found gap: the bottom *org-air-view* pane shipped only loose
+;;;;  smoke tests; these implement the design's full testability plan.)
+;;;; ---------------------------------------------------------------------
+
+(defconst org-air-r16--entry-view-source
+  (org-air-test-fixture "entry-view/entry-view-source.org")
+  "Isolated, deterministic source for the D-P3 view-pane goldens.
+Lives under a sub-directory so the top-level `fixtures/*.org' board glob
+never copies it into the GTD board set.")
+
+(defmacro org-air-r16--frozen (&rest body)
+  "Run BODY with `current-time' frozen to `org-air-test-now' (R16 D-P3)."
+  (declare (indent 0) (debug t))
+  `(cl-letf (((symbol-function 'current-time)
+              (lambda () org-air-test-now)))
+     ,@body))
+
+(defun org-air-r16--pane-dump (ctx)
+  "Render CTX into the view pane; return `header-line\nbody' (no props).
+Identical to the regen dump so the byte golden is anti-tautological."
+  (org-air-view-pane--render ctx)
+  (with-current-buffer (get-buffer org-air-view-pane-buffer-name)
+    (concat (format "%s" header-line-format)
+            "\n"
+            (buffer-substring-no-properties (point-min) (point-max)))))
+
+(defun org-air-r16--drop-trailing-blanks (lines)
+  "Drop trailing empty LINES (byte goldens carry an emit newline)."
+  (let ((rev (reverse lines)))
+    (while (and rev (string-empty-p (car rev)))
+      (setq rev (cdr rev)))
+    (nreverse rev)))
+
+(defun org-air-r16--fixture-lines (name)
+  "Return the lines of fixture NAME."
+  (with-temp-buffer
+    (insert-file-contents (org-air-test-fixture name))
+    (split-string (buffer-string) "\n")))
+
+(ert-deftest org-air-r16-d3-pane-content-byte-golden ()
+  "The pane content (header-line + read-only entry snapshot) is the byte
+contract, blessed by `make regen-mockups' at the frozen clock."
+  (let ((buf (find-file-noselect org-air-r16--entry-view-source)))
+    (unwind-protect
+        (org-air-r16--frozen
+          (let* ((mk (with-current-buffer buf
+                       (goto-char (point-min))
+                       (re-search-forward "^\\* TODO A heading" nil t)
+                       (goto-char (match-beginning 0))
+                       (point-marker)))
+                 (ctx (list :marker mk :file org-air-r16--entry-view-source
+                            :title "A heading" :state "TODO"))
+                 (dump (org-air-r16--pane-dump ctx)))
+            (should (equal (org-air-r16--drop-trailing-blanks
+                            (split-string dump "\n"))
+                           (org-air-r16--drop-trailing-blanks
+                            (org-air-r16--fixture-lines "entry-view-pane.txt"))))
+            ;; the snapshot is READ-ONLY and stops before the next subtree.
+            (with-current-buffer (get-buffer org-air-view-pane-buffer-name)
+              (should buffer-read-only)
+              (should (derived-mode-p 'org-air-entry-view-mode))
+              (should-not (string-match-p "Other heading"
+                                          (buffer-string))))))
+      (when (buffer-live-p buf) (kill-buffer buf)))))
+
+(ert-deftest org-air-r16-d3-pane-dead-marker-byte-golden ()
+  "A dead/unresolvable source shows the calm `org-air-face-empty' hint,
+byte-pinned and faced (not an error)."
+  (let* ((missing (org-air-test-fixture "entry-view/entry-view-missing.org"))
+         (ctx (list :marker missing :file missing
+                    :title "Missing entry" :state "TODO"))
+         (dump (org-air-r16--pane-dump ctx)))
+    (should (equal (org-air-r16--drop-trailing-blanks
+                    (split-string dump "\n"))
+                   (org-air-r16--drop-trailing-blanks
+                    (org-air-r16--fixture-lines "entry-view-dead.txt"))))
+    ;; the hint text carries the calm empty face.
+    (with-current-buffer (get-buffer org-air-view-pane-buffer-name)
+      (goto-char (point-min))
+      (should (eq (get-text-property (point) 'face) 'org-air-face-empty)))))
+
+(ert-deftest org-air-r16-d3-follow-redraws-on-item-change ()
+  "Follow-mode redraws the pane only when the board item at point CHANGES.
+The REAL debounce-callback seam `org-air-view--view-pane-update-now' drives
+the change-guard (the post-command hook only schedules an idle timer, inert
+under batch); only the window I/O is stubbed (batch-safe, inspector model)."
+  (org-air-test-with-fixtures
+    (let ((org-air-view-width 140)
+          (org-air-view-height 40)
+          (org-air-view-pane-follow t)
+          (shown '()))
+      (with-temp-buffer
+        (org-air-view-mode)
+        (setq org-air-view--items (org-air-query-items))
+        (org-air-view--render org-air-view--items nil)
+        (let (posA posB itemA itemB)
+          (save-excursion
+            (goto-char (point-min))
+            (while (and (not posB) (not (eobp)))
+              (let ((it (get-text-property (point) 'org-air-item)))
+                (when it
+                  (cond ((null posA) (setq posA (point) itemA it))
+                        ((not (eq it itemA)) (setq posB (point) itemB it)))))
+              (goto-char (or (next-single-property-change
+                              (point) 'org-air-item)
+                             (point-max)))))
+          (should posA)
+          (should posB)
+          (cl-letf (((symbol-function 'org-air-view-pane--window-live-p)
+                     (lambda () t))
+                    ((symbol-function 'org-air-view-pane--show)
+                     (lambda (ctx)
+                       (push (plist-get ctx :title) shown)
+                       (org-air-view-pane--render ctx))))
+            (let ((board (current-buffer)))
+              ;; move to A -> redraw (item changed from the nil seed).
+              (goto-char posA)
+              (org-air-view--view-pane-update-now board)
+              (should (eq org-air-view--view-pane-item itemA))
+              (should (= (length shown) 1))
+              ;; staying on A (same item) -> NO redraw.
+              (org-air-view--view-pane-update-now board)
+              (should (= (length shown) 1))
+              ;; move to B -> redraw.
+              (goto-char posB)
+              (org-air-view--view-pane-update-now board)
+              (should (eq org-air-view--view-pane-item itemB))
+              (should (= (length shown) 2)))))))))
+
+;;;; D-P3 window-config (real side windows are GUI-only).
+
+(ert-deftest org-air-r16-d3-pane-window-is-bottom-side-and-reachable ()
+  "The pane is a BOTTOM side window, `other-window'-reachable (no
+`no-other-window'), showing `*org-air-view*'."
+  (skip-unless (display-graphic-p))
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((ctx (list :marker org-air-r16--entry-view-source
+                     :file org-air-r16--entry-view-source
+                     :title "A heading" :state "TODO")))
+      (unwind-protect
+          (progn
+            (org-air-view-pane--show ctx)
+            (let* ((buf (get-buffer org-air-view-pane-buffer-name))
+                   (win (get-buffer-window buf)))
+              (should (window-live-p win))
+              (should (eq (window-parameter win 'window-side) 'bottom))
+              (should-not (window-parameter win 'no-other-window))))
+        (org-air-view-pane--teardown)))))
+
+(ert-deftest org-air-r16-d3-pane-survives-delete-other-windows ()
+  "`delete-other-windows' (C-x 1) preserves the pane (no-delete-other-windows)."
+  (skip-unless (display-graphic-p))
+  (save-window-excursion
+    (delete-other-windows)
+    (let ((ctx (list :marker org-air-r16--entry-view-source
+                     :file org-air-r16--entry-view-source
+                     :title "A heading" :state "TODO")))
+      (unwind-protect
+          (progn
+            (org-air-view-pane--show ctx)
+            (delete-other-windows)
+            (should (org-air-view-pane--window-live-p)))
+        (org-air-view-pane--teardown)))))
+
+(ert-deftest org-air-r16-d3-pane-coexists-with-rail-side-window ()
+  "The bottom view pane coexists with the right rail side window."
+  (skip-unless (display-graphic-p))
+  (org-air-test-with-fixtures
+    (save-window-excursion
+      (delete-other-windows)
+      (with-temp-buffer
+        (org-air-view-mode)
+        (setq org-air-view--items (org-air-query-items))
+        (let ((board (current-buffer))
+              (ctx (list :marker org-air-r16--entry-view-source
+                         :file org-air-r16--entry-view-source
+                         :title "A heading" :state "TODO")))
+          (unwind-protect
+              (progn
+                (org-air-rail--ensure-window board 120)
+                (org-air-view-pane--show ctx)
+                (let ((rail-win (get-buffer-window
+                                 (get-buffer org-air-rail-buffer-name)))
+                      (pane-win (get-buffer-window
+                                 (get-buffer org-air-view-pane-buffer-name))))
+                  (should (window-live-p rail-win))
+                  (should (window-live-p pane-win))
+                  (should (eq (window-parameter rail-win 'window-side)
+                              org-air-rail-side))
+                  (should (eq (window-parameter pane-win 'window-side)
+                              'bottom))))
+            (org-air-view-pane--teardown)
+            (org-air-rail--hide board)))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P4 / D-P5 — comparator (the order is the contract).

@@ -3012,6 +3012,16 @@ Works from the board OR from inside the rail buffer (`q')."
           (when (window-live-p win)
             (select-window win)))))))
 
+(defun org-air-rail--user-closed-p (board)
+  "Return non-nil when the rail's absence on BOARD's frame is a USER close.
+A genuine user close = the board window is live and wide enough to show
+the rail, yet the rail buffer shows in no window.  A responsive board-only
+teardown (narrow) is NOT a user close — the flag is kept so widening
+re-pops the side window (R16 D-P1, design transition table)."
+  (and (get-buffer-window board (selected-frame))
+       (not (org-air-rail--window-live-p))
+       (not (org-air-view--board-only-p (org-air-view--render-width)))))
+
 (defun org-air-rail--reconcile ()
   "React when the user closes the popped-out rail with a native command.
 Added to the board buffer's `window-configuration-change-hook'.  Purely
@@ -3023,8 +3033,7 @@ proactively re-open a window the user closed) (R16 D-P1)."
              (not org-air-rail--reconciling)
              (not noninteractive))
     (let ((board (current-buffer)))
-      (when (and (get-buffer-window board (selected-frame))
-                 (not (org-air-rail--window-live-p)))
+      (when (org-air-rail--user-closed-p board)
         ;; The user closed the rail.  Do NOT re-create it; go inline.
         (setq-local org-air-view--rail-popped-out nil)
         (org-air-rail--hide board)
@@ -3050,6 +3059,12 @@ proactively re-open a window the user closed) (R16 D-P1)."
 
 (defconst org-air-view-pane-buffer-name "*org-air-view*"
   "Name of the bottom source/entry view pane buffer (R16 D-P3/D-P2).")
+
+(defconst org-air-view-pane--file-head-chars 4000
+  "Character cap for the file-head snapshot when no heading is at point.
+Used for heading-less files / before-first-heading positions, where there
+is no subtree to bound the copy; `org-air-view-pane-max-lines' caps the
+shown lines on top of this (R16 D-P3).")
 
 (defcustom org-air-view-pane-height 14
   "Height of the bottom `*org-air-view*' source pane (R16 D-P3).
@@ -3090,8 +3105,18 @@ marker; nil shows the full subtree."
   :type '(choice (const :tag "Full subtree" nil) integer)
   :group 'org-air)
 
+(defcustom org-air-view-pane-follow-debounce 0.1
+  "Idle seconds before follow redraws the bottom view pane (R16 D-P3).
+Mirrors `org-air-inspector-debounce': a short idle delay coalesces rapid
+point motion into a single snapshot+fontify so scrolling a large file
+with hundreds of items across dozens of files stays responsive."
+  :type 'number
+  :group 'org-air)
+
 (defvar-local org-air-view--view-pane-item nil
   "Item last shown in the bottom view pane; the follow change-guard.")
+(defvar-local org-air-view--view-pane-timer nil
+  "Pending debounce timer for the follow view-pane update (R16 D-P3).")
 
 (define-derived-mode org-air-entry-view-mode special-mode "org-air-view"
   "Major mode for the bottom `*org-air-view*' source/entry pane (R16 D-P3).
@@ -3168,18 +3193,17 @@ head).  Org font-lock is applied on a copy (R16 D-P3)."
     (save-excursion
       (save-restriction
         (widen)
-        (let (beg end)
+        (let ((head-end (min (point-max)
+                             (+ (point-min) org-air-view-pane--file-head-chars)))
+              beg end)
           (if (and pos (ignore-errors (goto-char pos)))
               (progn
-                (if (org-at-heading-p)
-                    (ignore-errors (org-back-to-heading t))
-                  (ignore-errors (org-back-to-heading t)))
-                (setq beg (if (org-before-first-heading-p) (point-min) (point)))
-                (setq end (if (org-before-first-heading-p)
-                              (min (point-max) (+ (point-min) 4000))
-                            (save-excursion (org-end-of-subtree t t) (point)))))
-            (setq beg (point-min)
-                  end (min (point-max) (+ (point-min) 4000))))
+                (ignore-errors (org-back-to-heading t))
+                (if (org-before-first-heading-p)
+                    (setq beg (point-min) end head-end)
+                  (setq beg (point)
+                        end (save-excursion (org-end-of-subtree t t) (point)))))
+            (setq beg (point-min) end head-end))
           (org-air-view-pane--fontify
            (buffer-substring beg end)))))))
 
@@ -3288,21 +3312,38 @@ opened (R16 D-P3).  Key `v'."
   (interactive)
   (org-air-view-pane--hide))
 
+(defun org-air-view--view-pane-update-now (buf)
+  "Redraw the follow view pane for BUF (debounce-timer callback).
+Redraws only when the item at point CHANGED and the pane window is live
+\(R16 D-P3)."
+  (when (buffer-live-p buf)
+    (with-current-buffer buf
+      (when (and org-air-view-pane-follow
+                 (derived-mode-p 'org-air-view-mode)
+                 (org-air-view-pane--window-live-p))
+        (let ((item (get-text-property (point) 'org-air-item)))
+          (unless (eq item org-air-view--view-pane-item)
+            (setq-local org-air-view--view-pane-item item)
+            (let ((ctx (org-air-view-pane--context-at-point)))
+              (when ctx
+                (let ((org-air-view-pane-focus nil))
+                  (org-air-view-pane--show ctx))))))))))
+
 (defun org-air-view--view-pane-post-command ()
-  "Follow-mode hook: update the bottom pane to the board's item at point.
-Separate from the inspector hook; inert under batch; redraws only when the
-item at point CHANGED and the pane window is live (R16 D-P3)."
-  (unless noninteractive
-    (when (and org-air-view-pane-follow
-               (derived-mode-p 'org-air-view-mode)
-               (org-air-view-pane--window-live-p))
-      (let ((item (get-text-property (point) 'org-air-item)))
-        (unless (eq item org-air-view--view-pane-item)
-          (setq-local org-air-view--view-pane-item item)
-          (let ((ctx (org-air-view-pane--context-at-point)))
-            (when ctx
-              (let ((org-air-view-pane-focus nil))
-                (org-air-view-pane--show ctx)))))))))
+  "Follow hook: schedule a DEBOUNCED bottom-pane update (R16 D-P3).
+Separate from the inspector hook; inert under batch.  Mirrors the
+inspector's idle-timer model so the snapshot+fontify on each item-change
+does not run synchronously on every command (responsive on large files)."
+  (when (and (not noninteractive)
+             org-air-view-pane-follow
+             (derived-mode-p 'org-air-view-mode)
+             (org-air-view-pane--window-live-p))
+    (when (timerp org-air-view--view-pane-timer)
+      (cancel-timer org-air-view--view-pane-timer))
+    (setq org-air-view--view-pane-timer
+          (run-with-idle-timer org-air-view-pane-follow-debounce nil
+                               #'org-air-view--view-pane-update-now
+                               (current-buffer)))))
 
 (defun org-air-view--two-pane-body (items width)
   "Return (BODY-LINES . FILL-ROW) for ITEMS in the two-pane layout at WIDTH.

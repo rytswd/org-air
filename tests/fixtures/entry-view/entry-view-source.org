@@ -1,0 +1,12 @@
+#+title: Entry view source fixture
+* TODO A heading :foo:bar:
+SCHEDULED: <2026-06-20 Sat>
+:PROPERTIES:
+:CREATED: [2026-06-15 Mon]
+:END:
+Body line one.
+Body line two.
+** A subheading
+Nested body under the subheading.
+* Other heading
+This sibling must not leak into the snapshot.

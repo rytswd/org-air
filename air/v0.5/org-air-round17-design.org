@@ -1,0 +1,384 @@
+#+title: org-air v0.5 round-17 DESIGN: bound the origin column (long Denote filenames must not starve the title)
+#+state: ready
+#+FILETAGS: :ui:layout:bug:critical:design:v0.5:
+
+* Status
+Design-led, impl-ready SPEC for round-17 (the findings spec is
+air/v0.5/org-air-round17.org).  CRITICAL user-facing break from the
+screenshot 2026-06-25 00-47-41 (large dataset, 50 files incl. ~90-char
+Denote slug filenames): the origin (filename) column is UNBOUNDED, so a
+long Denote slug grows the V6 right cluster until the flex title collapses
+to just =TODO…= on every row.
+
+This round bounds the origin column, guarantees the title a minimum, and
+REVERSES the never-wired round-D2 shrink priority (origin-protected) to a
+TITLE-protected one (the title is the item's primary identity on a board).
+Pure width-budget / text-layer fix: the V6 pixel-lock + svg pill box +
+byte/TTY fallback are all preserved — no svg geometry, faces or glyphs
+change.  Impl + tests + REVIEW gate integration; nothing is integrated
+here.  Commits are per-item (R17 / Design round-17).
+
+* Root cause (precise, with line anchors on the round-16 trunk)
+1. =org-air-view--compute-meta-widths= (org-air-view.el ~L1481) sets
+   #+begin_src elisp
+   (setq ow (max ow (string-width (org-air-view--item-origin-raw item))))
+   ...
+   (setq org-air-view--meta-origin-w ow)   ; NO upper bound
+   #+end_src
+   so the origin column = the WIDEST origin cell over all items.
+2. =org-air-view--item-origin-raw= (~L1382) = =▤= + space +
+   =(org-air-view--origin item)=.  For a Denote file the default
+   =org-air-origin-style 'auto= path of =org-air-view--origin= (~L811)
+   returns =org-air-view--denote-title= (~L783) — the de-machined slug
+   (id, =__tags=, =.org= already stripped).  For a ~90-char Denote slug
+   that de-slugged title is ~85 cols, so =ow= ≈ 87.
+3. =org-air-view--insert-row= (~L1532) computes
+   =avail-title = width − prefix-w − gap − cluster-w= where
+   =cluster-w = dcol + tcol + ocol + seps=.  With =ocol= ≈ 87 the cluster
+   eats the whole line, =avail-title= ≤ 0, and the title truncates to
+   =(max 1 avail-title)= = 1 col → rendered =TODO…= on every row.  Short
+   names (=inbox.org=) never trigger it.
+
+The contract violated: the V6 right cluster (date · tags · origin) must be
+BOUNDED so the flex title always keeps usable space (interface-design.md,
+"The V6 alignment contract").  Two dead defcustoms from a never-wired D2
+already named the intended budget — =org-air-origin-min= (12) and
+=org-air-title-min= (24) — but they are referenced NOWHERE in the source
+(grep: only their =defcustom= forms).  Round-17 finally wires a budget, but
+with the priority CORRECTED: title-protected, not origin-protected.
+
+* D-P1 — bound the origin column + Denote title + title-min budget [CRIT]
+
+This is one coherent change in the TEXT/width layer of org-air-view.el, in
+four precisely-placed pieces (A→D).  Each piece names the exact function
+and the exact insertion point.
+
+** A. Defcustoms (the two knobs the spec names, + the reused floor)
+- NEW =org-air-origin-max-width= — integer, default *26*.  :group
+  'org-air.  Docstring: "Hard cap (display columns) for the origin cell —
+  the =▤= glyph + its space + the file/title text — in a board item row.
+  A longer origin truncates with the ellipsis glyph.  This BOUNDS the V6
+  right cluster so a long Denote slug can never starve the flex title."
+  Range guidance 24–28; 26 chosen so a real de-slugged Denote title
+  (e.g. =weekly invalidation rate upgr…=) stays legible while the cluster
+  stays bounded at every tier.
+- NEW =org-air-title-min-width= — integer, default *24*.  :group 'org-air.
+  Docstring: "Guaranteed minimum display width for the flex item title
+  before the right cluster yields.  The origin (then tags) shrink so the
+  title keeps at least this many columns; only when the line itself is too
+  narrow to honour it (e.g. the board-only tier) does the title fall
+  below.  The title is the row's primary identity, so it wins the budget."
+  - The vestigial =org-air-title-min= (L412, never referenced) is RENAMED
+    to this via =(define-obsolete-variable-alias 'org-air-title-min
+    'org-air-title-min-width "org-air 0.5")= — same default 24, no dead
+    twin, old configs keep working.
+- REUSE =org-air-origin-min= (L405, currently dead, default 12) as the
+  origin SHRINK FLOOR: the budget shrinks the origin cell from its capped
+  width down to (but never below) =org-air-origin-min= so the origin —
+  the item's identity / RET target — never vanishes entirely.  Redocument
+  it: "Floor width (display columns) the origin cell keeps when the
+  title-min budget reclaims columns from it (round-17)."  Its old
+  docstring claimed the OPPOSITE priority (title shrinks before origin);
+  round-17 inverts that — say so in the docstring + Implementation History.
+
+** B. Denote title resolution (prefer the de-slugged title; keep it cheap)
+The default =auto= style ALREADY prefers the de-slugged Denote title over
+the raw =identifier--slug__tags.org= (that machinery strips the id, the
+=__tag= signature and =.org=).  So "prefer the #+title (or a de-slugged
+slug) over the raw filename" is satisfied for the *content*; round-17 keeps
+that resolution and adds only the CAP (piece C).  Two clarifications:
+- =auto= stays SLUG-based (no per-item file read).  Reading each file's
+  =#+title= per render was deliberately kept opt-in as the
+  =title-from-org= style (round-9 F1); do NOT make =auto= read files (it
+  would cost a stat+read per row on a 50-file board).  Users who want the
+  literal =#+title= already have =org-air-origin-style 'title-from-org=,
+  which resolves =#+title= → Denote slug → leaf and inherits the SAME cap.
+- The de-slug (hyphens→spaces) stays governed by =org-air-origin-deslugify=
+  (default nil = compact hyphenated slug).  The cap fixes the bug for BOTH
+  settings; de-slug is an orthogonal readability nicety and is NOT flipped
+  here (keep the byte default stable).  Note for REVIEW: flipping its
+  default to t once the cap lands would make capped origins read as
+  "weekly invalidation rate upgr…" rather than "weekly-invalidation-…" —
+  flag, don't change.
+
+** C. The cap + truncation (V6-safe: truncate TEXT, never the glyph cell)
+The origin cell is =▤= (1 col, carrying the box-fit svg file-icon overlay)
++ a space + the origin text.  The svg overlay is box-fit to the single
+glyph cell (=org-air-view--svg-file-icon=, V6 pixel-lock), so truncation
+MUST apply to the *origin text only* and keep the leading =▤␣= intact —
+otherwise the overlay drifts off its cell.
+
+Add =org-air-view--origin-capped (item)= used by
+=org-air-view--item-origin-raw= in place of the bare
+=(org-air-view--origin item)=:
+#+begin_src elisp
+(defun org-air-view--origin-capped (item)
+  "Return ITEM's origin TEXT capped to `org-air-origin-max-width' (R17).
+The 2-col `▤ ' lead is reserved separately (`org-air-view--item-origin-raw'),
+so the text budget is the cap minus those 2 columns; a longer text
+truncates with the ellipsis glyph.  V6: only the TEXT truncates — the glyph
+cell (and its box-fit svg overlay) is untouched."
+  (let* ((text (org-air-view--origin item))
+         (budget (max 1 (- org-air-origin-max-width 2))))
+    (if (<= (string-width text) budget)
+        text
+      (truncate-string-to-width text budget nil nil
+                                (org-air-view--glyph 'more)))))
+#+end_src
+- =org-air-view--item-origin-raw= changes its last clause from
+  =(org-air-view--origin item)= to =(org-air-view--origin-capped item)=.
+  Nothing else in that function moves; the =▤␣= prefix + svg overlay are
+  byte-identical.
+- Because the per-item origin text is now capped at the source, the
+  =ow= accumulation in =org-air-view--compute-meta-widths= is INHERENTLY
+  ≤ =org-air-origin-max-width= (single source of truth — the width and
+  the rendered cell agree, no separate min() that could drift).  Keep an
+  explicit defensive =(setq ow (min ow org-air-origin-max-width))= after
+  the loop anyway, with a comment that it's belt-and-braces.
+
+** D. The title-min budget (bound the right cluster FIRST, title gets the rest)
+Capping the origin alone fixes the catastrophic case but is NOT enough: at
+the narrow canonical tier (W80) a capped-26 origin + a full date + 2 tag
+pills can still leave the title ~11 cols, under =org-air-title-min-width=.
+So after the column maxes are computed, run a WIDTH-AWARE fit pass that
+reclaims columns for the title by shrinking the right cluster — origin
+first (down to =org-air-origin-min=), then tags — so the title reaches its
+minimum.  This is "bound the right cluster first, then the title takes a
+guaranteed minimum + the remaining flex".
+
+*** D.1 give the fit pass the render width
+=org-air-view--compute-meta-widths= currently runs at the call site
+(=org-air-view--insert-item-pane= ~L2595) *before* =org-air-view--line-width=
+is bound, so it cannot see the render width.  Change its signature to
+=(org-air-view--compute-meta-widths items width)= and pass =width= from the
+caller (the value already in scope there).  The day pane
+(=org-air-view--insert-day-pane=) does not call it (single-row, meta widths
+nil) — unaffected.
+
+*** D.2 the fit (appended to `org-air-view--compute-meta-widths', after the maxes)
+After =dw/tw/ow/rep/tw-todo= are accumulated and =ow= is capped (piece C),
+compute the board-wide LEFT reserve and the cluster, then reclaim:
+#+begin_src elisp
+;; Round-17 title-min budget.  The title's left edge is board-wide
+;; constant: margin+indent + the reserved keyword cell (+1 sep) + the
+;; fixed priority slot (`square style only).  Mirror `insert-row''s
+;; arithmetic EXACTLY (gap=2; cluster cells joined by single spaces).
+(let* ((gap 2)
+       (left-reserve (+ (string-width (org-air-view--item-margin))
+                        (if (> tw-todo 0) (1+ tw-todo) 0)
+                        (if (eq org-air-priority-style 'square) 2 0)))
+       (dcol (+ dw rep))
+       ;; present cluster cells (width>0) → one separator between each.
+       (cluster (lambda (o)
+                  (let ((cells (delq nil (list (and (> dcol 0) dcol)
+                                               (and (> tw   0) tw)
+                                               (and (> o     0) o)))))
+                    (+ (apply #'+ cells) (max 0 (1- (length cells)))))))
+       (budget (lambda (o)
+                 (- width left-reserve gap (funcall cluster o)))))
+  ;; 1) shrink the origin toward its floor until the title reaches min.
+  (while (and (> ow org-air-origin-min)
+              (< (funcall budget ow) org-air-title-min-width))
+    (setq ow (1- ow)))
+  ;; 2) still starved? shrink tags toward 0 (keep a 1-col floor when any
+  ;;    item carries tags, so the tag column doesn't disappear silently).
+  (let ((tw-floor (if (> tw 0) 1 0)))
+    (while (and (> tw tw-floor)
+                (< (funcall budget ow) org-air-title-min-width))
+      (setq tw (1- tw))))
+  ;; 3) date is held (small, uniform, semantic).  If the line is so narrow
+  ;;    that even origin+tags at floor cannot fund the title min (board-only
+  ;;    tier), the title floor in `insert-row' (max 1) takes over — never
+  ;;    crash, never overflow.
+  )
+#+end_src
+- Shrink ORDER is the corrected priority: title (protected) > date (held) >
+  tags (yield 2nd) > origin (yield 1st, capped, floored at origin-min).
+  This is the deliberate inversion of the dead D2 docstring; call it out.
+- =ow= / =tw= are then stored into =org-air-view--meta-origin-w= /
+  =-meta-tags-w= as today, so =org-air-view--insert-row= consumes the
+  reclaimed widths unchanged — the title naturally gets the freed columns
+  through the EXISTING =avail-title= path.  No change to =insert-row='s
+  body is required; its =(max 1 avail-title)= stays the final safety floor.
+- REQUIRED partner edit in =org-air-view--insert-row= (~L1562): the origin
+  cell is currently built as =(make-string (max 0 (- ocol w)) ?\s)= +
+  =ot= — i.e. it RIGHT-pads when =ot= is narrower than =ocol= but does NOT
+  truncate when =ot= is WIDER (the =max 0= swallows the negative).  Once
+  the fit pass shrinks =ocol= below a 26-col capped origin (e.g. =ocol= 13
+  at W80), that wide =ot= would OVERFLOW the cell and break the cluster.
+  So truncate =ot= to =ocol= first:
+  =(setq ot (truncate-string-to-width ot ocol nil nil (org-air-view--glyph 'more)))=
+  before the right-pad.  At the wide tiers =ot= already fits =ocol= (=ocol=
+  is the board-wide max of the capped texts), so this is a NO-OP there and
+  the wide goldens stay byte-identical; it only bites the shrunk narrow
+  tier, where it truncates with the ellipsis glyph.
+
+*** D.3 worked numbers (defaults; proves the budget lands cleanly)
+left-reserve ≈ margin+indent(6) + TODO cell(4+1=5) + square slot(2) = 13;
+gap 2; date dcol≈12; tags tw≈14; origin cap 26; 2 separators.
+- W120: budget(26) = 120 − 13 − 2 − (12+14+26+2) = 51 ≥ 24 → no shrink.
+- W160: even larger → no shrink (wide tiers byte-identical except the
+  capped origin, which only moves rows whose origin exceeded 26).
+- W80: budget(26) = 80 − 13 − 2 − 54 = 11 < 24 → shrink origin 26→13
+  (origin-min 12 not hit) restores budget to 24; origin lands at 13,
+  title at 24.  Tags untouched.
+So 80/120/160 stay coherent; only rows with an over-cap origin (the long
+Denote names) move, plus W80 origin shrinks to fund the title — exactly the
+intended deltas.
+
+** V6 / TTY invariants preserved (state explicitly in the spec)
+- Pixel-lock holds: the origin glyph cell + its box-fit svg overlay are
+  untouched; only the TEXT after =▤␣= truncates.  svg on/off shifts zero
+  columns (the cap is a text-width decision computed from =string-width=).
+- The pill svg line-height clamp, the date pill uniform width, the priority
+  square slot, the reserved TODO cell — all unchanged.
+- Byte/TTY: everything here is text-layer; fixtures assert the text.  The
+  =▤= TTY fallback and the =…= ellipsis glyph already have TTY tiers.
+
+** Testability (D-P1) — the regression the current test MISSES
+The existing F1 test =org-air-r9-f1-denote-origin-rendered-and-truncates=
+(tests/org-air-round9-test.el ~L280) asserts only that each line ≤ width —
+which the BUG already satisfies (the title collapsed to =TODO…= but the
+line still fit 80).  So it cannot catch this regression.  Add a
+title-floor assertion + a byte fixture:
+
+1. NEW ERT =org-air-r17-long-denote-origin-keeps-title= (round-17 suite):
+   render a board whose ONE dated item lives in a ~90-char Denote file at
+   W80/W120/W160 (GUI glyphs, frozen clock).  Assert, per width:
+   - the rendered item row still shows the heading title text (e.g.
+     =Long denote note=), NOT a bare =TODO…= — i.e. the title's visible
+     display width on that row ≥ =org-air-title-min-width= (or ≥ the
+     title's own width when shorter than the min).  This is THE guard the
+     old test lacked.
+   - the origin cell's display width ≤ =org-air-origin-max-width=.
+   - the id / =__tags= / =.org= never surface (keep the round-9 assertions).
+   - the whole line ≤ width (keep the overflow guard).
+   Extract the per-row title width via the =org-air-item= text property +
+   the row's column geometry (helper), not a brittle substring.
+2. NEW byte fixture =denote-origin-80.txt= (+ 120) via a dedicated regen
+   function, mirroring the entry-view goldens (ISOLATED — not added to the
+   GTD board *.org set, so the 25 layout mockups stay byte-identical):
+   - add =org-air-regen--write-denote (width)= to
+     tests/org-air-regen-mockups.el that renders a tiny fixed board (one
+     short-named item + one long-Denote item, frozen clock, GUI glyphs,
+     anti-tautology guards active) and emits =denote-origin-WIDTH.txt=.
+   - wire it into =org-air-regen-mockups= for widths 80 and 120.
+   - a byte test compares the fixture; design BLESSES the bytes; the
+     fixture pins "the long origin is capped AND the title survives".
+3. An ERT unit on =org-air-view--origin-capped=: a 90-char Denote slug caps
+   to ≤ =org-air-origin-max-width − 2= and ends with the ellipsis glyph; a
+   short name passes through verbatim.
+4. A budget unit on =org-air-view--compute-meta-widths=: at W80 with a long
+   origin, assert =org-air-view--meta-origin-w= shrank (≤ cap, ≥
+   origin-min) AND the implied title budget ≥ =org-air-title-min-width=.
+- Per the manifest model: land the ERTs spec-true; list any that the impl
+  doesn't yet satisfy in tests/org-air-known-failures.el with the round-17
+  reason; the impl track deletes them on closeout (empty manifest = gate).
+
+* D-P2 — long-name safety in the inspector + project view [MED]
+
+** Inspector origin line
+=org-air-view--inspector-item-fields= (org-air-view.el ~L2222) builds the
+origin line from the RAW =file-name-nondirectory= of the file (NOT the
+Denote-aware =org-air-view--origin=), then every inspector line is passed
+through =(org-air-view--pad-to l width)= in =org-air-view--inspector-lines=
+(~L2278), and =org-air-view--pad-to= *truncates* with the ellipsis glyph.
+So the inspector origin does NOT overflow today — but it shows the long raw
+slug (=…--slug__tags.org=), truncated mid-machinery, which is ugly and
+inconsistent with the board.  Fix (small, consistency):
+- Build the inspector origin from =org-air-view--origin item= (the same
+  de-slugged Denote title the board shows), keeping the optional =group/=
+  prefix, e.g. =▤ <group>/<origin>=.  pad-to still bounds it to the rail
+  width (no overflow).  Optionally cap it to =org-air-origin-max-width=
+  first for parity with the board cell, but pad-to already prevents
+  overflow — the de-slug is the substantive change.  Keep the svg
+  file-icon overlay on the =▤= (unchanged).
+- This makes the board and inspector agree on what "origin" reads as.
+
+** Project-view two-line filename row
+=org-air-project--insert-doc-block= (org-air-project.el ~L426):
+- Line 1 (title) already flexes + truncates LAST via =truncate-string-to-width=
+  bounded by =avail= — long doc names are safe (no overflow).
+- Line 2 = =▤ <relpath>  created… updated…=, emitted through
+  =(org-air-view--pad-to line2 width)= — which truncates with the ellipsis,
+  so a long Denote relpath does NOT overflow today either.  But it cuts the
+  PATH at the right edge, hiding the created/updated tail.  Improve
+  readability without changing the no-overflow contract:
+  - de-slug the LEAF of =org-air-doc-relpath= for display (keep the
+    directory prefix; replace only the Denote leaf with its de-slugged
+    title via =org-air-view--denote-title=, falling back to the raw leaf
+    for non-Denote files) so line 2 reads =▤ v0.1/weekly invalidation
+    rate upgr…  created…  updated…= instead of the raw id+slug.
+  - keep the pad-to truncation as the overflow guard (unchanged).
+- The vestigial =org-air-project--doc-widths= / =--doc-origin-text=
+  (defined, never called — the two-line block doesn't use them) are dead;
+  note for cleanup but do NOT block round-17 on removing them.
+
+** Testability (D-P2)
+- The existing project goldens (project-view-{state,dir,tag}.txt) cover
+  only short fixture names; add ONE long-Denote doc to the
+  tests/fixtures/air-project tree (or a dedicated isolated mini-root) and a
+  golden line asserting line 2 de-slugs the leaf and does not overflow the
+  width.  Reuse the frozen-mtime project regen.
+- An inspector ERT (batch-safe via the inspector-lines seam, NOT the live
+  hook — inspector stays inert when =noninteractive=): render the inspector
+  for the long-Denote item, assert the origin line shows the de-slugged
+  title and is ≤ rail width (no overflow).
+
+* Constraints (carried from the findings spec)
+org-ql only; Emacs 29.1+.  V6 alignment + svg line-height clamp + byte/TTY
+fallback all preserved.  Build on the round-16 trunk.  The long-Denote
+fixture (D-P1 #2) is the permanent regression net.  =make clean= before
+every verify (stale .elc).  Inspector inert in batch (no new hooks here).
+
+* Routing (impl + test; REVIEW gates integration)
+- Impl, one focused commit (R17 D-P1): add the two defcustoms + the
+  =org-air-title-min= obsolete alias + redoc =org-air-origin-min=; add
+  =org-air-view--origin-capped= and point =--item-origin-raw= at it; change
+  =--compute-meta-widths= to take =width= and append the cap + title-min
+  fit; update the one call site in =--insert-item-pane=; (if needed) the
+  origin-truncate guard in =--insert-row=.  No svg/face/glyph changes.
+- Impl, second commit (R17 D-P2): inspector origin via =--origin=; project
+  line-2 leaf de-slug.  Both rely on existing pad-to for no-overflow.
+- Test track (R17): the F1 title-floor ERT + the new
+  =org-air-view--origin-capped= / budget units + the regen function and the
+  =denote-origin-80/120.txt= goldens + the project long-name golden +
+  inspector ERT.  Add spec-true-but-unmet tests to the known-failures
+  manifest; closeout deletes them.
+- BLESS: =denote-origin-{80,120}.txt= and the long-name project golden with
+  exact change-ids.  The 25 layout mockups must stay byte-identical EXCEPT
+  any whose blessed board origin previously exceeded 26 cols — verify the
+  diff is exactly the capped-origin / W80 origin-shrink rows and nothing
+  else (anti-tautology guards active on regen).
+
+* Open questions for REVIEW
+- =org-air-origin-max-width= default 26 vs 24/28 — 26 keeps a real
+  de-slugged Denote title legible while bounding the cluster; pick at
+  review.
+- Whether to flip =org-air-origin-deslugify= default to t now that origins
+  are capped (capped slugs read better de-slugged) — proposed NO (keep byte
+  default), flag.
+- D-P2 project line-2: de-slug only the leaf (proposed) vs show the doc
+  =#+title= (already on line 1) — proposed leaf de-slug so line 2 stays the
+  file LOCATION, not a duplicate title.
+- Shrink order at the extreme narrow tier: spec holds the date column and
+  lets tags yield 2nd; if a reviewer prefers tags-before-origin (the old D2
+  order) flag it — round-17 deliberately protects the title first.
+
+* Implementation History
+- (pending) round-17 design opened from screenshot 2026-06-25 00-47-41.
+  Root-caused the =TODO…= collapse to the UNBOUNDED origin column in
+  =org-air-view--compute-meta-widths= feeding =org-air-view--insert-row='s
+  =avail-title=.  D-P1 bounds the origin cell at a new
+  =org-air-origin-max-width= (truncating the TEXT only, V6 glyph/svg cell
+  intact), guarantees the title a new =org-air-title-min-width= via a
+  width-aware fit pass that reclaims columns from the origin (down to the
+  reused =org-air-origin-min= floor) then tags — INVERTING the never-wired
+  D2 origin-protected priority to a title-protected one.  A dedicated
+  long-Denote byte fixture (=denote-origin-{80,120}.txt=) + a title-floor
+  ERT close the gap the old F1 test (line-width-only) missed.  D-P2 makes
+  the inspector origin + the project two-line filename row de-slug long
+  Denote names consistently; both already truncate via pad-to (no
+  overflow), so D-P2 is a readability/consistency fix.  V6 pixel-lock,
+  svg line-height clamp and byte/TTY fallback all preserved; no
+  svg/face/glyph bytes move.

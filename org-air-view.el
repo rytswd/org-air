@@ -3492,10 +3492,35 @@ with hundreds of items across dozens of files stays responsive."
   :type 'number
   :group 'org-air)
 
+(defcustom org-air-view-pane-editable t
+  "When non-nil, the bottom view pane is a LIVE, editable Org buffer (R19-3).
+The pane becomes an `org-mode' INDIRECT buffer narrowed to the source
+heading, so edits write through to the file's buffer and saving persists
+them to disk (the after-save hook then refreshes the board).  When nil, OR
+under `noninteractive', OR when the source cannot be resolved, the pane
+falls back to the unchanged READ-ONLY snapshot — so batch + every fixture
+use the snapshot path and stay byte-identical."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-view-pane-variable-pitch nil
+  "When non-nil, enable `variable-pitch-mode' in the editable view pane (R19-3).
+The pane is NOT pixel-locked (the V6 invariant governs the BOARD, where the
+svg pills + `│' divider must occupy exact text cells), so a prose-like
+proportional message view is allowed here.  Default off (opt-in); the round
+only requires that it be ALLOWED."
+  :type 'boolean
+  :group 'org-air)
+
 (defvar-local org-air-view--view-pane-item nil
   "Item last shown in the bottom view pane; the follow change-guard.")
 (defvar-local org-air-view--view-pane-timer nil
   "Pending debounce timer for the follow view-pane update (R16 D-P3).")
+(defvar-local org-air-view--pane-indirect nil
+  "The current editable-pane indirect buffer for this host buffer (R19-3).
+One at a time: replaced (old killed) on follow / re-open and killed on pane
+close.  Killing an indirect buffer never loses text — unsaved edits live in
+the base file buffer and stay savable.")
 
 (define-derived-mode org-air-entry-view-mode special-mode "org-air-view"
   "Major mode for the bottom `*org-air-view*' source/entry pane (R16 D-P3).
@@ -3519,20 +3544,30 @@ A read-only snapshot of the selected item's Org entry with Org font-lock,
     buf))
 
 (defun org-air-view-pane--window-params ()
-  "Return the `display-buffer-in-side-window' alist for the bottom view pane.
-NO `no-other-window' — the pane is reachable; survives `delete-other-windows'
-\(R16 D-P3)."
-  `((side . bottom)
-    (slot . 0)
+  "Return the `display-buffer' action alist for the bottom view pane (R19-3).
+The pane SPLITS the board window (`display-buffer-below-selected'), not a
+frame-level bottom side window — so the rail's RIGHT side window keeps its
+full frame-body height (side windows are placed around the whole main
+area; only the board window is split).  The `org-air-pane' parameter tags
+the window so it is reused on follow and found on close; NO `no-other-
+window' — the pane is `other-window'-reachable and survives
+`delete-other-windows'."
+  `((display-buffer-below-selected)
     (window-height . ,org-air-view-pane-height)
-    (window-parameters . ((no-delete-other-windows . t)))))
+    (dedicated . t)
+    (window-parameters . ((no-delete-other-windows . t)
+                          (org-air-pane . t)))))
+
+(defun org-air-view-pane--find-window ()
+  "Return the live org-air bottom pane window on this frame, or nil (R19-3).
+Identified by the `org-air-pane' window parameter, so it works whether the
+pane shows the read-only snapshot buffer or a per-heading indirect buffer."
+  (seq-find (lambda (w) (window-parameter w 'org-air-pane))
+            (window-list (selected-frame) 'no-mini)))
 
 (defun org-air-view-pane--window-live-p ()
-  "Return non-nil when the `*org-air-view*' pane is shown on this frame."
-  (let ((buf (get-buffer org-air-view-pane-buffer-name)))
-    (and (buffer-live-p buf)
-         (get-buffer-window buf (selected-frame))
-         t)))
+  "Return non-nil when an org-air bottom pane window is shown on this frame."
+  (window-live-p (org-air-view-pane--find-window)))
 
 (defun org-air-view--pane-host-p ()
   "Non-nil in a buffer that hosts the bottom view pane (R18 D-P3).
@@ -3641,13 +3676,52 @@ is unchanged (the pane byte golden strips properties), so it holds."
     (concat (propertize icon 'face 'org-air-face-faded)
             " " (mapconcat #'identity parts dot))))
 
-(defun org-air-view-pane--render (ctx)
-  "Snapshot the entry described by CTX into the `*org-air-view*' pane.
-Dead/unresolvable sources show a calm hint.  Honours
-`org-air-view-pane-max-lines'.  Returns the pane buffer (R16 D-P3)."
-  (let* ((buf (org-air-view-pane--buffer))
-         (marker (plist-get ctx :marker))
-         (src (and marker (org-air-view-pane--source-buffer-pos marker))))
+(defun org-air-view-pane--indirect (base pos title)
+  "Return an `org-mode' indirect buffer on BASE narrowed to the subtree at POS.
+Edits write through to BASE; `save-buffer' persists to disk (R19-3).  TITLE
+names the (hidden) indirect buffer.  When POS is before the first heading —
+a heading-less file head — the buffer is left WIDE so the file shows.
+Narrowing is per-indirect-buffer — it never leaks to BASE or to the board's
+own markers/classify scans of that file."
+  (let ((ind (make-indirect-buffer
+              base (generate-new-buffer-name
+                    (concat " *org-air-pane:" (or title "") "*"))
+              t)))                          ; CLONE = inherit org-mode
+    (with-current-buffer ind
+      (unless (derived-mode-p 'org-mode) (delay-mode-hooks (org-mode)))
+      (widen)
+      (when pos
+        (goto-char pos)
+        (ignore-errors (org-back-to-heading t))
+        (if (org-before-first-heading-p)
+            (widen)                          ; heading-less / preamble
+          (org-narrow-to-subtree)))
+      (goto-char (point-min)))
+    ind))
+
+(defun org-air-view-pane--install-chrome (ctx)
+  "Install the pane header-line + leading on the current buffer for CTX (R19-3).
+Keeps the existing `▤ file · title · state' header-line contract and the
+R18 D-P5.2 `line-spacing'; enables `variable-pitch-mode' when
+`org-air-view-pane-variable-pitch' is on (allowed — the pane is not pixel-
+locked)."
+  (setq-local header-line-format (org-air-view-pane--header-line ctx))
+  (when (numberp org-air-view-pane-line-spacing)
+    (setq-local line-spacing org-air-view-pane-line-spacing))
+  (when org-air-view-pane-variable-pitch
+    (variable-pitch-mode 1)))
+
+(defun org-air-view-pane--render-snapshot (ctx src)
+  "Render the READ-ONLY entry snapshot for CTX/SRC into `*org-air-view*'.
+The unchanged R16 path: a fontified COPY of the subtree, dead sources show
+a calm hint.  Used under `noninteractive', when `org-air-view-pane-editable'
+is nil, or when the source is unresolvable — so every fixture stays
+byte-identical (R19-3).  Returns the pane buffer."
+  (let ((buf (org-air-view-pane--buffer)))
+    ;; The editable indirect (if any) is being replaced by the snapshot;
+    ;; forget it (the caller kills the now-unshown buffer).
+    (when (org-air-view--pane-host-p)
+      (setq-local org-air-view--pane-indirect nil))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
@@ -3662,6 +3736,32 @@ Dead/unresolvable sources show a calm hint.  Honours
         (goto-char (point-min))))
     buf))
 
+(defun org-air-view-pane--render-editable (ctx src)
+  "Build the LIVE, editable Org indirect pane for CTX/SRC (R19-3).
+Returns a fresh indirect buffer on the source file narrowed to the heading;
+stashes it on the host as `org-air-view--pane-indirect' (the caller kills
+the previously-shown indirect AFTER the window swaps to this one, so the
+pane never flickers a dead buffer)."
+  (let ((ind (org-air-view-pane--indirect
+              (car src) (cdr src) (plist-get ctx :title))))
+    (with-current-buffer ind
+      (org-air-view-pane--install-chrome ctx))
+    (when (org-air-view--pane-host-p)
+      (setq-local org-air-view--pane-indirect ind))
+    ind))
+
+(defun org-air-view-pane--render (ctx)
+  "Show the entry described by CTX in the bottom pane; return its buffer.
+With `org-air-view-pane-editable' (default t) and a resolvable source, the
+pane is a LIVE, narrowed Org indirect buffer whose edits write through to
+the file (R19-3); otherwise (toggle off, batch, or a dead source) it is the
+unchanged read-only snapshot — so every byte fixture is byte-identical."
+  (let* ((marker (plist-get ctx :marker))
+         (src (and marker (org-air-view-pane--source-buffer-pos marker))))
+    (if (and src (not noninteractive) org-air-view-pane-editable)
+        (org-air-view-pane--render-editable ctx src)
+      (org-air-view-pane--render-snapshot ctx src))))
+
 (defun org-air-view-pane--apply-max-lines ()
   "Cap the current pane buffer at `org-air-view-pane-max-lines' (R16 D-P3).
 Appends a `…' continuation marker when truncated.  No-op when nil."
@@ -3675,27 +3775,61 @@ Appends a `…' continuation marker when truncated.  No-op when nil."
         (insert (org-air-view--glyph 'more))))))
 
 (defun org-air-view-pane--show (ctx)
-  "Ensure the bottom pane window + render CTX; respect focus (R16 D-P3)."
-  (let ((buf (org-air-view-pane--render ctx)))
-    (when (and (not noninteractive) buf)
-      (let ((win (display-buffer-in-side-window
-                  buf (org-air-view-pane--window-params))))
+  "Render CTX into the bottom pane and display it BELOW the board window.
+The pane splits the board window (`display-buffer-below-selected'), so the
+rail side window keeps its full frame-body height; a live pane window is
+REUSED (`set-window-buffer') so follow/re-open never re-splits, and the
+previously-shown indirect buffer is killed only AFTER the swap (no flicker)
+\(R16 D-P3 / R19-3).  Respects `org-air-view-pane-focus'."
+  (let* ((old (and (org-air-view--pane-host-p) org-air-view--pane-indirect))
+         (host (and (org-air-view--pane-host-p) (current-buffer)))
+         (buf (org-air-view-pane--render ctx)))
+    (when (and (not noninteractive) (buffer-live-p buf))
+      (let ((win (org-air-view-pane--find-window)))
+        (if (window-live-p win)
+            ;; Reuse the live pane window (follow / re-open): swap its buffer.
+            (progn
+              (set-window-dedicated-p win nil)
+              (set-window-buffer win buf)
+              (set-window-dedicated-p win t))
+          ;; Open: split the BOARD window below it.  Resolve the board window
+          ;; explicitly so a stray `selected-window' never splits the wrong
+          ;; pane (robustness).
+          (let ((host-win (or (and host (get-buffer-window host))
+                              (selected-window))))
+            (setq win (with-selected-window host-win
+                        (display-buffer buf (org-air-view-pane--window-params))))))
         (when (window-live-p win)
+          (set-window-parameter win 'org-air-pane t)
           (set-window-parameter win 'no-delete-other-windows t)
           (set-window-dedicated-p win t)
           (when org-air-view-pane-focus
             (select-window win)))))
+    ;; Kill the now-replaced indirect AFTER the window shows the new buffer.
+    (when (and (buffer-live-p old) (not (eq old buf)))
+      (kill-buffer old))
     buf))
 
+(defun org-air-view-pane--kill-indirect ()
+  "Kill the tracked pane indirect buffer; the base file buffer survives (R19-3).
+Killing an indirect buffer never loses text — unsaved edits live in the
+base and stay savable."
+  (when (org-air-view--pane-host-p)
+    (when (buffer-live-p org-air-view--pane-indirect)
+      (kill-buffer org-air-view--pane-indirect))
+    (setq-local org-air-view--pane-indirect nil)))
+
 (defun org-air-view-pane--hide ()
-  "Delete the bottom pane window (and its buffer per keep-buffer) (R16 D-P3)."
+  "Close the bottom pane window + kill its indirect buffer (R16 D-P3 / R19-3).
+The base file buffer persists (and any unsaved edits with it); the snapshot
+buffer is killed only when `org-air-view-pane-keep-buffer' is nil."
+  (let ((win (org-air-view-pane--find-window)))
+    (when (window-live-p win)
+      (delete-window win)))
+  (org-air-view-pane--kill-indirect)
   (let ((buf (get-buffer org-air-view-pane-buffer-name)))
-    (when (buffer-live-p buf)
-      (let ((win (get-buffer-window buf (selected-frame))))
-        (when (window-live-p win)
-          (delete-window win)))
-      (unless org-air-view-pane-keep-buffer
-        (kill-buffer buf)))))
+    (when (and (buffer-live-p buf) (not org-air-view-pane-keep-buffer))
+      (kill-buffer buf))))
 
 (defun org-air-view-pane--teardown ()
   "Delete the bottom pane window + kill its buffer (R16 D-P3)."

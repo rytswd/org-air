@@ -91,12 +91,14 @@ wall-clock day (the fixtures' schedule/deadline window is anchored there)."
 ;;; Keybindings (design spec §9; names frozen there)
 
 (ert-deftest org-air-ux-keys-core ()
-  "RET visits, g refreshes, q quits — the core §9 bindings.
-Round-7 R6: q is `org-air-quit', which returns from the single-day view
-to the board, else quits the window."
+  "RET opens the pane, S-RET visits, g refreshes, q quits — core bindings.
+R18 D-P4: RET = `org-air-view-pane-return' (the pane); visiting the file in
+the other window moved to `S-RET'.  Round-7 R6: q is `org-air-quit', which
+returns from the single-day view to the board, else quits the window."
   (skip-unless (locate-library "org-air"))
   (org-air-ux-test--with-dashboard
-    (should (eq (key-binding (kbd "RET")) 'org-air-visit-item))
+    (should (eq (key-binding (kbd "RET")) 'org-air-view-pane-return))
+    (should (eq (key-binding (kbd "<S-return>")) 'org-air-visit-item))
     ;; Round-8 B4: g is a prefix map now — refresh is `g r'.
     (should (eq (key-binding (kbd "g r")) 'org-air-refresh))
     (should (eq (key-binding (kbd "q")) 'org-air-quit))))

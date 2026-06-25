@@ -913,7 +913,14 @@ between two-pane and board-only."
     (define-key map (kbd "t") #'org-air-project-group-by-tag)
     (define-key map (kbd "n") #'org-air-project-next)
     (define-key map (kbd "p") #'org-air-project-prev)
-    (define-key map (kbd "RET") #'org-air-project-visit)
+    ;; R18 D-P4: RET owns the bottom view pane (open, then focus on a 2nd
+    ;; RET); visiting the doc in the other window moves to S-RET.  The
+    ;; board's `O' TTY alias is unavailable here (`O' = sort-reverse), so
+    ;; the doc stays reachable via S-RET / `v'.  D-P3 folds the two maps.
+    (define-key map (kbd "RET") #'org-air-view-pane-return)
+    (define-key map (kbd "<S-return>") #'org-air-project-visit)
+    (define-key map (kbd "S-RET") #'org-air-project-visit)
+    (define-key map (kbd "<mouse-1>") #'org-air-view-pane-return)
     ;; R16 D-P4: sort the doc rows — `o' cycles the key, `O' flips direction.
     ;; `org-air-project-sort-set' selects a key directly (M-x; `g' here is a
     ;; single-key refresh, so it cannot also host a `g s' prefix).

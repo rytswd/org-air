@@ -20,6 +20,13 @@
 (require 'org-air-viewport-helpers)
 (require 'org-air)
 (require 'org-air-view)
+(require 'org-air-project)
+
+(defun org-air-r18--goto-first-item ()
+  "Move point to the first board row carrying an `org-air-item'."
+  (goto-char (or (text-property-not-all (point-min) (point-max)
+                                        'org-air-item nil)
+                 (point-min))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P2 — filter: pre-fill + AND default + AND/OR toggle + combinator show.
@@ -126,6 +133,74 @@ chips; the OR mode swaps the word."
       (let ((text (buffer-substring-no-properties (point-min) (point-max))))
         (should (string-match-p "#work OR #home" text))
         (should (string-match-p "Match: OR" text))))))
+
+;;;; ---------------------------------------------------------------------
+;;;; D-P4 — view pane: auto-follow default + RET opens / 2nd-RET focuses.
+;;;; ---------------------------------------------------------------------
+
+(ert-deftest org-air-r18-dp4-pane-follow-default-is-t ()
+  "The shipped `org-air-view-pane-follow' default is t (R18 D-P4 flip).
+Guards the auto-inspect default: once the pane is open, point auto-follows."
+  (should (eq (default-value 'org-air-view-pane-follow) t)))
+
+(ert-deftest org-air-r18-dp4-on-return-is-obsolete ()
+  "`org-air-view-pane-on-return' is marked obsolete (RET owns the pane now)."
+  (should (get 'org-air-view-pane-on-return 'byte-obsolete-variable)))
+
+(ert-deftest org-air-r18-dp4-return-opens-then-focuses ()
+  "`org-air-view-pane-return': first RET opens (no focus), 2nd RET focuses.
+Deterministic under batch: `--window-live-p' is stubbed to flip closed->open
+and `--show' captures the dynamic `org-air-view-pane-focus' the command
+bound.  First call sees a CLOSED pane => focus nil (point stays on board);
+second call sees a LIVE pane => focus t (select the pane window)."
+  (org-air-test-with-fixtures
+    (let ((org-air-view-width 140)
+          (org-air-view-height 40))
+      (with-temp-buffer
+        (org-air-view-mode)
+        (setq org-air-view--items (org-air-query-items))
+        (org-air-view--render org-air-view--items nil)
+        (org-air-r18--goto-first-item)
+        (should (get-text-property (point) 'org-air-item))
+        (let ((focus-seen '())
+              (live nil))
+          (cl-letf (((symbol-function 'org-air-view-pane--window-live-p)
+                     (lambda () live))
+                    ((symbol-function 'org-air-view-pane--show)
+                     (lambda (_ctx)
+                       (push org-air-view-pane-focus focus-seen)
+                       ;; simulate the pane becoming live after the 1st open
+                       (setq live t)
+                       nil)))
+            ;; first RET: pane closed -> opened without focus.
+            (org-air-view-pane-return)
+            (should (= (length focus-seen) 1))
+            (should (null (car focus-seen)))
+            ;; second RET: pane now live -> focus the pane window.
+            (org-air-view-pane-return)
+            (should (= (length focus-seen) 2))
+            (should (eq (car focus-seen) t))))))))
+
+(ert-deftest org-air-r18-dp4-keymap-ret-and-sret-board-and-project ()
+  "RET -> pane-return and S-RET -> visit in BOTH the board and project maps.
+The board's S-RET visits the item; the project's S-RET visits the doc."
+  ;; Board map.
+  (should (eq (lookup-key org-air-view-mode-map (kbd "RET"))
+              'org-air-view-pane-return))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "<S-return>"))
+              'org-air-visit-item))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "O"))
+              'org-air-visit-item))
+  ;; Project map (mirrored until D-P3 folds the keymaps).
+  (should (eq (lookup-key org-air-project-mode-map (kbd "RET"))
+              'org-air-view-pane-return))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "<S-return>"))
+              'org-air-project-visit))
+  ;; The project's domain verbs are NOT shadowed by the mirror.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "O"))
+              'org-air-project-sort-reverse))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "s"))
+              'org-air-project-group-by-state)))
 
 (provide 'org-air-round18-ui-test)
 ;;; org-air-round18-ui-test.el ends here

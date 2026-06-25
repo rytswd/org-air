@@ -83,10 +83,15 @@ running on any wall-clock day buckets items identically."
                   (get-text-property pos 'font-lock-face))))))
 
 (ert-deftest org-air-view-ret-bound-to-visit ()
-  "RET in the dashboard is bound to `org-air-visit-item'."
+  "R18 D-P4: RET opens the view pane; S-RET (and `O') visit the item.
+RET moved from `org-air-visit-item' to `org-air-view-pane-return' (open the
+bottom pane, focus on a 2nd RET); visiting the file in the other window is
+now `S-RET' / `O'."
   (skip-unless (locate-library "org-air"))
   (org-air-view-test--with-dashboard
-    (should (eq (key-binding (kbd "RET")) 'org-air-visit-item))))
+    (should (eq (key-binding (kbd "RET")) 'org-air-view-pane-return))
+    (should (eq (key-binding (kbd "<S-return>")) 'org-air-visit-item))
+    (should (eq (key-binding (kbd "O")) 'org-air-visit-item))))
 
 (ert-deftest org-air-view-visit-item-jumps-to-origin ()
   "`org-air-visit-item' on an item line jumps to its file and heading."

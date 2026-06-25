@@ -640,8 +640,14 @@ of whether the wrapping pane margin is added later (D6).")
 
 (defvar org-air-view-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "RET") #'org-air-visit-item)
-    (define-key map (kbd "<mouse-1>") #'org-air-visit-item)
+    ;; R18 D-P4: RET owns the bottom view pane (open, then focus on a 2nd
+    ;; RET); visiting the file in the other window moves to S-RET (and `O'
+    ;; as a TTY alias since terminals can't send S-RET).
+    (define-key map (kbd "RET") #'org-air-view-pane-return)
+    (define-key map (kbd "<S-return>") #'org-air-visit-item)
+    (define-key map (kbd "S-RET") #'org-air-visit-item)
+    (define-key map (kbd "O") #'org-air-visit-item)
+    (define-key map (kbd "<mouse-1>") #'org-air-view-pane-return)
     (define-key map (kbd "n") #'org-air-next-item)
     (define-key map (kbd "p") #'org-air-prev-item)
     ;; R3: vim-ish line navigation; j/k are NOT destructive.
@@ -3333,19 +3339,24 @@ is read as a fraction of the frame height."
   :type 'number
   :group 'org-air)
 
-(defcustom org-air-view-pane-follow nil
+(defcustom org-air-view-pane-follow t
   "When non-nil, the bottom view pane tracks point on the board (R16 D-P3).
-Default nil = explicit-open only (the pane updates when you press `v').
-When non-nil AND the pane is live, moving point updates the pane to the
-item at point (debounced, inert under batch)."
+R18 D-P4: the default is now t so that ONCE the pane is open (RET), moving
+point auto-updates it to the item at point (debounced, inert under batch)
+— an auto-inspecting pane like the rail inspector.  This does NOT auto-open
+the pane: the follow hook guards on a live pane window, so nothing appears
+until you press RET (or `v').  nil restores explicit-open-only updates."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-view-pane-on-return nil
-  "When non-nil, RET also opens/refreshes the bottom view pane (R16 D-P3).
-Default nil keeps RET = `org-air-visit-item' (open the file elsewhere)."
+  "Obsolete (R18 D-P4): RET now owns the pane via `org-air-view-pane-return'.
+Formerly, when non-nil, RET = `org-air-visit-item' ALSO opened the pane;
+that behaviour is moot now RET opens the pane directly.  No longer
+consulted."
   :type 'boolean
   :group 'org-air)
+(make-obsolete-variable 'org-air-view-pane-on-return nil "org-air 0.5")
 
 (defcustom org-air-view-pane-focus nil
   "When non-nil, opening the bottom view pane selects its window (R16 D-P3).
@@ -3566,6 +3577,21 @@ opened (R16 D-P3).  Key `v'."
       (setq-local org-air-view--view-pane-item
                   (get-text-property (point) 'org-air-item)))
     (org-air-view-pane--show ctx)))
+
+(defun org-air-view-pane-return ()
+  "RET: open the bottom view pane for the item at point; focus it if open.
+R18 D-P4: the first RET opens/refreshes the pane and KEEPS point on the
+board; a second RET (RET while the pane is already open) selects the pane
+window for reading/scrolling.  With `org-air-view-pane-follow' (default t)
+the pane then tracks point as you move.  `q' / `other-window' return to the
+board.  Visiting the file in the other window is `S-RET'
+\(`org-air-visit-item') or, on a TTY that cannot send S-RET, `O'."
+  (interactive)
+  ;; Focus only when the pane is ALREADY live: the first RET opens (no
+  ;; focus), the second RET (pane now live) focuses.  `org-air-view-pane'
+  ;; honours the dynamic `org-air-view-pane-focus' binding.
+  (let ((org-air-view-pane-focus (org-air-view-pane--window-live-p)))
+    (org-air-view-pane)))
 
 (defun org-air-view-pane-close ()
   "Close the bottom `*org-air-view*' source pane (R16 D-P3).  Key `V'."
@@ -4567,11 +4593,9 @@ controls window choice and defaults to `org-air-visit-display'."
   (let ((item (or item (get-text-property (point) 'org-air-item))))
     (unless item
       (user-error "No org-air item at point"))
-    ;; R16 D-P3: opt-in mu4e-RET — also open/refresh the bottom view pane.
-    (when (and org-air-view-pane-on-return
-               (derived-mode-p 'org-air-view-mode))
-      (let ((ctx (org-air-view-pane--context-at-point)))
-        (when ctx (org-air-view-pane--show ctx))))
+    ;; R18 D-P4: RET owns the pane now (`org-air-view-pane-return'); the old
+    ;; opt-in `org-air-view-pane-on-return' RET-also-opens-pane behaviour is
+    ;; obsolete and no longer consulted here.
     (let* ((marker (org-air-item-marker item))
            (buffer (or (marker-buffer marker)
                        (find-file-noselect (org-air-item-file item))))

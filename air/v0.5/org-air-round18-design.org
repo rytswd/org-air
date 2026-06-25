@@ -1,6 +1,13 @@
-#+title: org-air v0.5 round-18 DESIGN: sub-100ms render at 583 entries (classify cache + svg pill cache + incremental redraw)
+#+title: org-air v0.5 round-18 DESIGN: perf (D-P1) · filter pre-fill+AND (D-P2) · project parity (D-P3) · view-pane auto-follow+RET-focus (D-P4) · nano/mu4e polish (D-P5)
 #+state: ready
-#+FILETAGS: :perf:render:cache:critical:design:v0.5:
+#+FILETAGS: :perf:render:cache:ui:filter:project:critical:design:v0.5:
+
+* Scope of this document
+The umbrella round-18 DESIGN doc.  D-P1 (perf) is specced, integrated and
+shipped (sections below: Profile / (c) / (a) / (b)).  D-P2..D-P5 are specced
+below as separate, independently-implementable items — each carries its own
+Testability + Routing + open questions.  The D-P1-specific closing sections are
+labelled =— D-P1=; Constraints + Implementation History are shared.
 
 * Status
 Design-led, impl-ready SPEC for round-18 D-P1 only (the findings spec is
@@ -434,6 +441,25 @@ classify cache (c.3) to re-query.
   returns the same classify buckets / the same pixel image; incremental
   produces a buffer byte-identical to the full render — proven by the
   equivalence golden b.2).
+- (pending) D-P2..D-P5 specced (separate, independently-implementable items).
+  *D-P2 filter*: pre-fill the prompt with the active filter (continue
+  narrowing), flip =org-air-filter-match= default to ='all= (AND), add
+  =org-air-filter-toggle-match= on =M-/= (=|= is taken by rail-toggle), and
+  surface the combinator in the banner + rail; the AND/OR predicate already
+  exists.  *D-P3 project parity*: the inspector + row/width primitives are
+  ALREADY shared — fold the remaining gaps by (i) splitting a doc-aware
+  =org-air-view--tags-pass-filter-p= + =--read-filter= so the project filters
+  docs with the same core, (ii) installing the view-pane follow hook + the
+  D-P4 RET/S-RET rebinding in the project mode, (iii) a shared
+  =org-air-view-core-map= parent for the unambiguous keys, leaving domain verbs
+  per-mode (no fork).  *D-P4 view pane*: flip =org-air-view-pane-follow= to t
+  (auto-inspect by default), =RET= → =org-air-view-pane-return= (open; a 2nd
+  RET focuses the pane), =org-air-visit-item= → =S-RET=, keep =v=/=V=,
+  deprecate =org-air-view-pane-on-return=; applied to board + project.  *D-P5
+  modernisation*: a focused, mostly byte-invisible polish set — calm nano
+  mode-line, mu4e pane chrome, calmer colour discipline, softer pinned-radius
+  svg pills (5.1–5.4 behind defcustoms, no golden moves), with the lone
+  byte-affecting horizontal-rhythm reflow (5.5) deferred/flagged.
 - org-ql only; Emacs 29.1+.  Build on the round-18 trunk.  =make clean=
   before every verify (stale .elc).  The classify wrapper keeps
   =org-air-classify-item= a pure function (its ERTs unchanged).
@@ -441,7 +467,7 @@ classify cache (c.3) to re-query.
 - Inspector stays inert in batch (no new live hooks here); the
   classify cache makes the existing follow-hook a cache hit, not new work.
 
-* Order + risk (ship in this order; each is independently valuable)
+* Order + risk — D-P1 (ship in this order; each is independently valuable)
 1. *(c) classify cache* — the dominant win, smallest surface (a wrapper + 3
    re-points), zero byte change.  Ship first; re-profile.
 2. *(a) svg pill cache* — second win, contained to the overlay producers,
@@ -452,7 +478,7 @@ Targets: after (c)+(a) a full render should already be well under 100ms at
 583 entries; (b) removes the residual full-buffer text work for TAB / month-
 nav.  If (c)+(a) alone hit the target in review, (b) MAY be deferred — flag.
 
-* Routing (impl + test; REVIEW gates integration)
+* Routing — D-P1 (impl + test; REVIEW gates integration)
 - *Impl R18 D-P1c* (first commit): add =org-air-view--classify-cached= +
   the two cache defvars; re-point =--items-for-bucket= (L888), the inspector
   classify (L2272) and the inbox check (L4093); clear the cache on the
@@ -475,7 +501,7 @@ nav.  If (c)+(a) alone hit the target in review, (b) MAY be deferred — flag.
   byte-identical; the equivalence golden is GENERATED from the full render,
   not hand-blessed.
 
-* Open questions for REVIEW
+* Open questions for REVIEW — D-P1
 - classify cache key: =eq= on the item struct (proposed — auto-invalidates
   on re-query) vs a content hash.  =eq= is correct because the query rebuilds
   structs; flag if a reviewer wants content-keying for cross-session reuse.
@@ -489,6 +515,392 @@ nav.  If (c)+(a) alone hit the target in review, (b) MAY be deferred — flag.
   — larger; deferred with a note.
 - whether (b) is needed at all if (c)+(a) already hit sub-100ms in review —
   proposed: ship (c)+(a), measure, then decide (b) vs defer.
+
+* D-P2 — filter: pre-fill current + AND default + AND/OR toggle + show combinator [HIGH]
+
+Current state (org-air-view.el):
+- =org-air-filter= (=/=, L4022) prompts with =completing-read-multiple
+  "Tags: "= over all item tags with NO initial input, and REPLACES
+  =org-air-view--tag-filter= with the chosen list — so every invocation starts
+  from scratch (cannot continue narrowing).
+- =org-air-filter-match= (L568) ALREADY exists and
+  =org-air-view--passes-filter-p= (L911) already honours =all= (AND) vs =any=
+  (OR).  But the default is ='any= (OR), there is NO command to toggle it, and
+  NOTHING surfaces which mode is active.
+- The banner filter segment (=org-air-view--insert-banner=) and the rail
+  Filters block (=org-air-view--insert-rail-filters=, L2166) list the tags but
+  never the combinator.
+So D-P2 is small: pre-fill the prompt, flip the default to AND, add a toggle +
+a display.  The matching predicate already exists — do NOT touch it.
+
+** D-P2.1 Pre-fill the prompt (continue narrowing, don't restart)
+=org-air-filter='s =interactive= form passes the active filter as
+=completing-read-multiple='s INITIAL-INPUT so the minibuffer opens
+pre-populated and the user EDITS / EXTENDS it:
+#+begin_src elisp
+(interactive
+ (let* ((tags (delete-dups (sort (seq-mapcat #'org-air-item-tags
+                                             org-air-view--items)
+                                 #'string<)))
+        (initial (when (org-air-view--filter-tags)
+                   (mapconcat #'identity (org-air-view--filter-tags) ",")))
+        (choice (completing-read-multiple "Filter tags: " tags nil nil initial)))
+   (list choice)))
+#+end_src
+- The default =crm-separator= matches =,=, so the pre-filled =a,b= parses back
+  to =("a" "b")=; RET-unchanged re-applies the same filter (no-op narrow),
+  editing narrows/extends.  Empty input still CLEARS (the existing
+  =(unless (null tags) tags)= path is preserved).
+- =org-air-filter-by-tag= (the =read-string= compat wrapper, L4032) pre-fills
+  too: =(read-string "Tag filter (empty clears): " (car (org-air-view--filter-tags)))=.
+
+** D-P2.2 AND by default + a combinator toggle
+- Flip =org-air-filter-match= default ='any= → ='all= so multiple terms
+  combine with AND (the requested default).  =--passes-filter-p= already
+  implements both modes; no predicate change.
+- NEW command (re-render + echo the mode):
+#+begin_src elisp
+(defun org-air-filter-toggle-match ()
+  "Toggle the multi-tag filter combinator: AND (`all') <-> OR (`any') (R18 D-P2)."
+  (interactive)
+  (setq org-air-filter-match (if (eq org-air-filter-match 'all) 'any 'all))
+  (org-air-view--render-current)
+  (message "Filter match: %s" (if (eq org-air-filter-match 'all) "AND" "OR")))
+#+end_src
+  Bind it in =org-air-view-mode-map= to =M-/= (the sibling of the =/= filter
+  key; verified free — NB =|= is already =org-air-rail-toggle=, L692, so it is
+  NOT available).  D-P3 folds the keymaps; mirror the binding in the project
+  map until then.
+
+** D-P2.3 Show the active filter + combinator
+- *Banner* (=org-air-view--insert-banner= filter segment): when ≥2 filter tags
+  are active, JOIN them with the combinator word so the mode reads inline —
+  =· #urgent AND #work ⌫= (all) / =· #urgent OR #work ⌫= (any); a single tag
+  shows no combinator (irrelevant).  Use the literal uppercase words
+  =AND=/=OR= (TTY-safe + deterministic in byte goldens); they ride the
+  existing faded face and the existing width-shed order.
+- *Rail Filters block* (=org-air-view--insert-rail-filters=): change the chip
+  join separator from a space to the combinator word, and add a one-line cue
+  beneath the chips so the toggle is discoverable:
+  #+begin_example
+  Filters
+    #urgent AND #work  ⌫
+    Match: AND  (M-/ toggles)
+  #+end_example
+  Keep =No filters · all items= when none active (combinator hidden).
+
+** Open question (D-P2)
+=org-air-filter-match= global vs buffer-local — proposed buffer-local
+(=setq-local= in the toggle + =make-variable-buffer-local=) so a board and a
+project view can differ; flag if review prefers one global mode.
+
+** Testability (D-P2)
+- A DEFAULT-mode unit asserting the shipped =org-air-filter-match= default is
+  ='all= (guards the flip); the existing AND/OR predicate units stay.
+- A pre-fill unit: stub =completing-read-multiple= to capture INITIAL-INPUT;
+  with a 2-tag active filter assert =org-air-filter='s interactive form passes
+  the crm-joined current filter (="urgent,work"=).
+- A banner/rail render ert (frozen board, 2-tag filter): the banner contains
+  =#urgent AND #work= under ='all= and =OR= under ='any=; the rail shows
+  =Match: AND= / =Match: OR=.
+- BYTE goldens: only fixtures that render a MULTI-tag filter change (likely
+  none — most use 0/1 tag); verify any diff is exactly the combinator word and
+  re-bless those.
+
+** Routing (D-P2)
+One impl commit (R18 D-P2): the =interactive= pre-fill on =org-air-filter= /
+=org-air-filter-by-tag=; the ='all= default flip; =org-air-filter-toggle-match=
++ its =M-/= binding (board now, project after D-P3); the banner + rail
+combinator display.  Predicate untouched.  Tests as above; re-bless only multi-tag-filter
+goldens (expected: none).
+
+* D-P3 — project view reuses the dashboard view core (filter / inspector / pane / keymap) [HIGH]
+
+** What the project view ALREADY shares (the good baseline — don't re-do)
+=org-air-project.el= already reuses a large slice of the view core:
+- *Inspector* — =org-air-project--render= (L754) sets
+  =org-air-view--inspector-active/-property/-fields-function= and the mode
+  installs the SAME =org-air-view--inspector-post-command= hook (L943); the
+  rail uses =org-air-view--inspector-rail-lines= / =--inspector-kv= /
+  =--inspector-title-lines= / =--word-wrap= / =--setup-inspector=.  The
+  inspector is the MODEL for how the rest should fold — already no fork.
+- *Row / width / layout primitives* — =org-air-view--render-lines=,
+  =--compose-columns=, =--pad-to=, =--divider=, =--rail-width=,
+  =--char-dimensions=, the =org-air-view-width= seam, =--board-only-p=,
+  =org-air-view--orientation=.
+- *View pane (partial)* — =v= / =V= already bound to =org-air-view-pane= /
+  =-close= (doc rows carry =org-air-marker= = the doc file).
+
+** What is STILL bespoke / divergent (the parity gaps to fold)
+1. *No filtering at all.*  The project map has no =/= =\= =M-/=; docs are never
+   filtered by tag, even though =org-air-doc-tags= exists.  This is the biggest
+   gap vs the board (D-P2).
+2. *D-P4 not applied.*  The project mode installs ONLY the inspector hook, NOT
+   =org-air-view--view-pane-post-command= — so the bottom pane does NOT
+   auto-follow in the project.  =RET= = =org-air-project-visit= (opens the
+   file), so the new RET-opens-pane / 2nd-RET-focus / S-RET-visit (D-P4) are
+   missing.
+3. *Two parallel keymaps.*  =org-air-project-mode-map= is hand-rolled and
+   re-binds n/p/RET/v/V/q/g independently; it also reuses keys for DOMAIN
+   verbs (=s/d/t= group, =o/O= sort, =g= bare refresh) that legitimately
+   differ from the board — so a naive full keymap merge is WRONG.
+4. *Refresh* differs (project bare =g=; board =g=-prefix).
+
+** D-P3.1 Make the FILTER core doc-aware, then bind it in the project
+The filter STATE (=org-air-view--tag-filter=, =org-air-filter-match=) and the
+predicate already live in org-air-view; generalise them so BOTH views share
+one implementation:
+- Refactor =org-air-view--passes-filter-p= to take a TAGS LIST, splitting out
+  the pure matcher:
+  #+begin_src elisp
+  (defun org-air-view--tags-pass-filter-p (item-tags)
+    "Non-nil when ITEM-TAGS satisfy the active filter + combinator (R18)."
+    (let ((filters (org-air-view--filter-tags))
+          (tags (mapcar #'downcase item-tags)))
+      (or (null filters)
+          (let ((filters (mapcar #'downcase filters)))
+            (if (eq org-air-filter-match 'all)
+                (seq-every-p (lambda (tg) (member tg tags)) filters)
+              (seq-some (lambda (tg) (member tg tags)) filters))))))
+  #+end_src
+  =org-air-view--passes-filter-p= becomes
+  =(org-air-view--tags-pass-filter-p (org-air-item-tags item))=; the project
+  adds =(org-air-view--tags-pass-filter-p (org-air-doc-tags doc))=, applied in
+  =org-air-project--collect-docs= (or the sections pipeline) so the filter
+  thins the docs exactly as the board thins items.
+- Extract the filter PROMPT into a view-agnostic helper so the pre-fill + AND
+  default + =M-/= toggle (D-P2) are shared, not re-coded:
+  #+begin_src elisp
+  (defun org-air-view--read-filter (candidate-tags)
+    "Prompt for a tag filter PRE-FILLED with the active one (R18 D-P2/D-P3)."
+    (completing-read-multiple
+     "Filter tags: " candidate-tags nil nil
+     (when (org-air-view--filter-tags)
+       (mapconcat #'identity (org-air-view--filter-tags) ","))))
+  #+end_src
+  =org-air-filter= calls it with the board's tag vocabulary +
+  =org-air-view--render-current=; a NEW =org-air-project-filter= calls it with
+  the project's =org-air-doc-tags= vocabulary + =org-air-project-refresh=.
+  =org-air-filter-clear= and =org-air-filter-toggle-match= are already
+  view-agnostic (they touch only the shared state + re-render) — bind them in
+  BOTH maps.
+- Surface the active filter in the project too: the project header-line /
+  summary shows the filter + combinator (mirror D-P2.3), so the two views
+  read identically.
+
+** D-P3.2 Apply D-P4 to the project (pane auto-follow + RET semantics)
+- Add =(add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil
+  t)= to =org-air-project-mode= (beside the inspector hook).  With
+  =org-air-view-pane-follow= default t (D-P4.1) the bottom pane auto-follows in
+  the project exactly as on the board.
+- Rebind: =RET= → =org-air-view-pane-return=; =S-RET= →
+  =org-air-project-visit= (the project's "open the doc" — the per-mode visit
+  target); keep =v= / =V=.  This is D-P4 with =org-air-project-visit= as the
+  S-RET command instead of =org-air-visit-item=.
+
+** D-P3.3 A shared keymap PARENT for the unambiguous view-core keys (no fork)
+Define the shared view-core bindings ONCE and make both mode maps inherit
+them via =set-keymap-parent=, each child overriding only its domain verbs +
+its own S-RET visit:
+- Parent (=org-air-view-core-map=): =RET= → =org-air-view-pane-return=, =v= →
+  =org-air-view-pane=, =V= → =org-air-view-pane-close=, =/= → (per-mode filter
+  — bound in the child since the candidate source differs), =\= →
+  =org-air-filter-clear=, =M-/= → =org-air-filter-toggle-match=.
+- Children keep: their motion (=n/p= walk =org-air-item= vs =org-air-doc=),
+  their =S-RET= visit target, and their DOMAIN verbs (board: =s= scope, =g=
+  prefix, =<>= month-nav; project: =s/d/t= group, =o/O= sort, =g= refresh).
+- The shared keys then can NEVER drift between the two views (the parent owns
+  them); the domain verbs stay per-mode where they genuinely differ.  This is
+  the structural "reuse the core, override the bespoke" fold the round asks
+  for — implemented as keymap inheritance, not a copy.
+
+** D-P3.4 Refresh (smaller; flag)
+Keep the project bare =g= = =org-air-project-refresh= (it works and =g= as a
+prefix would collide with the single-key habit).  Optional parity: a project
+=g=-prefix mirroring =g r= / =g g=; proposed DEFER + flag (low value vs the
+filter/pane wins).
+
+** D-P3.5 Render orchestration (optional cleanup; flag, don't block)
+=org-air-project--render= / =--two-pane-body= parallel the board's band/
+two-pane composition but already sit on the shared primitives.  A deeper fold
+into a shared =org-air-view--compose-two-pane (left-fn rail-fn width)= used by
+both is possible but larger; propose as a follow-up, NOT part of this item.
+
+** Testability (D-P3)
+- A filter-core unit on =org-air-view--tags-pass-filter-p= (lists in, AND/OR
+  honoured) — shared by both views.
+- A project render ert: with a tag filter active, the project shows only docs
+  carrying the tag(s) under AND vs OR; clearing restores all.
+- A keymap ert: =RET= → =org-air-view-pane-return= and =M-/= →
+  =org-air-filter-toggle-match= resolve in =org-air-project-mode-map= (via the
+  parent), while =s= stays =org-air-project-group-by-state= (domain verb not
+  shadowed).
+- A pane-follow ert: in the project, opening the pane + moving point updates
+  it (the hook is installed).
+- BYTE goldens: the existing project goldens stay byte-identical when NO
+  filter is active; add a filtered-project golden.
+
+** Routing (D-P3)
+Impl (R18 D-P3), can be one commit but ordered after D-P2+D-P4 land (it reuses
+their commands): split =org-air-view--tags-pass-filter-p= +
+=org-air-view--read-filter=; add =org-air-project-filter= + apply the doc
+filter in the collect/sections pipeline + project header filter display;
+install the view-pane hook + RET/S-RET rebinding in the project mode; introduce
+=org-air-view-core-map= as the shared parent of both mode maps.  Tests as
+above; re-bless only the new filtered-project golden.
+
+* D-P4 — view pane: auto-follow by default + focus-on-RET + RET/S-RET keys [HIGH]
+
+The bottom mu4e-style source pane (=*org-air-view*=, R16 D-P3) already exists
+with all the machinery; D-P4 changes its DEFAULTS and the KEYS so it behaves
+like an auto-inspecting, focusable pane.  Current state (org-air-view.el):
+- Defcustoms (L3312+): =org-air-view-pane-follow= nil, =-on-return= nil,
+  =-focus= nil.  The follow =post-command-hook=
+  (=org-air-view--view-pane-post-command=, added unconditionally in the mode,
+  L741) updates the pane only when =org-air-view-pane-follow= is non-nil AND
+  the pane window is live — i.e. follow is opt-in.
+- Keys (=org-air-view-mode-map=): =RET= → =org-air-visit-item= (L640);
+  =<mouse-1>= → =org-air-visit-item= (L641); =v= → =org-air-view-pane=
+  (open/refresh, L692); =V= → =org-air-view-pane-close= (L693).
+- =org-air-view-pane= (L3538) opens/refreshes for the item at point and
+  selects the pane window only when =org-air-view-pane-focus= is non-nil;
+  =org-air-view-pane--window-live-p= (L3383) is the live-pane predicate.
+
+** D-P4.1 Auto-follow by default (auto-inspect, like the inspector)
+- Flip =org-air-view-pane-follow= default nil → *t*.  The hook already
+  guards on =--window-live-p=, so this does NOT auto-open the pane — it means
+  that ONCE the pane is open, moving point auto-updates it (debounced via
+  =org-air-view-pane-follow-debounce=, inert under batch).  That is the
+  requested "auto-inspect by default, not only via opt-in follow-mode".
+- Do NOT auto-open the pane on board open (intrusive); the pane opens on RET
+  (D-P4.2).  Flag at review whether an "auto-open on first board render"
+  option is wanted; proposed NO.
+
+** D-P4.2 RET opens the pane; a 2nd RET (RET-while-open) focuses it
+NEW command:
+#+begin_src elisp
+(defun org-air-view-pane-return ()
+  "RET: open the bottom view pane for the item at point; focus it if open.
+First RET opens/refreshes the pane and KEEPS point on the board; a second
+RET (RET while the pane is already open) selects the pane window (R18 D-P4)."
+  (interactive)
+  ;; focus only when the pane is ALREADY live -> first RET opens (no focus),
+  ;; second RET focuses.  `org-air-view-pane' honours the dynamic binding.
+  (let ((org-air-view-pane-focus (org-air-view-pane--window-live-p)))
+    (org-air-view-pane)))
+#+end_src
+- =org-air-view-pane= already errors with =No org-air item at point= off an
+  item, renders the entry, and (with =-focus= bound t on the 2nd RET) selects
+  the pane window via =org-air-view-pane--show=.  No change to those internals.
+- With auto-follow on (D-P4.1), after the first RET the pane tracks point as
+  you move; the second RET focuses it for reading/scrolling.  =q= /
+  =other-window= return to the board (the pane is =org-air-entry-view-mode=,
+  =special-mode=).
+
+** D-P4.3 Key rebinding (board now; D-P3 shares it to project)
+In =org-air-view-mode-map=:
+- =RET= (=(kbd "RET")=) → =org-air-view-pane-return= (was =visit-item=).
+- =S-RET= → =org-air-visit-item=: bind =(kbd "<S-return>")= (GUI) AND
+  =(kbd "S-RET")= so both event spellings resolve.
+- =<mouse-1>= → =org-air-view-pane-return= (match RET: click opens the pane);
+  flag at review — alternative is to leave mouse-1 on =visit-item=.
+- Keep =v= → =org-air-view-pane= (open/refresh alias) and =V= →
+  =org-air-view-pane-close=.  Keep =o= → =org-air-visit-item-stay= and =SPC= →
+  =org-air-peek-item= (so reading-the-file is still one key without RET).
+- *TTY note:* a terminal usually cannot send =S-RET=.  So that visiting the
+  file in the OTHER window stays reachable on a TTY, ALSO bind a plain alias
+  for =org-air-visit-item= (proposed =RET= is the pane now, so add it on a free
+  key such as =O= — capital-O "open elsewhere"); flag the exact key at review.
+- Apply the SAME four bindings (RET / S-RET / v / V) in the PROJECT keymap.
+  D-P3 folds the two keymaps onto one shared map; until then, mirror them.
+
+** D-P4.4 Deprecate the now-redundant =org-air-view-pane-on-return=
+With RET owning the pane, =org-air-view-pane-on-return= (which made the OLD
+RET=visit ALSO open the pane) is moot.  =make-obsolete-variable
+'org-air-view-pane-on-return nil "org-air 0.5"= and stop consulting it;
+=org-air-view-pane-focus= stays (it still governs whether =v= /
+explicit-open focuses).
+
+** Testability (D-P4)
+- A default unit: =org-air-view-pane-follow= ships =t= (guards the flip).
+- A RET-dispatch ert (interactive seam, batch-guarded like the existing pane
+  tests): with the pane CLOSED, =org-air-view-pane-return= opens it and leaves
+  the selected window on the BOARD; with the pane OPEN, a second
+  =org-air-view-pane-return= selects the pane window.  Use
+  =--window-live-p= / =selected-window= assertions (no display under batch →
+  gate the focus assertion on =(not noninteractive)= or stub
+  =display-buffer-in-side-window=, mirroring the R16 pane tests).
+- A keymap ert: =RET= resolves to =org-air-view-pane-return= and
+  =<S-return>= to =org-air-visit-item= in BOTH the board and project maps.
+- BYTE goldens: zero change (keys/defaults only; the pane is a side window,
+  never part of the board fixture bytes).
+
+** Routing (D-P4)
+One impl commit (R18 D-P4): the two default flips (=-follow= t,
+=-on-return= obsolete); =org-air-view-pane-return=; the RET / S-RET / mouse /
+TTY-alias rebinding in the board map (+ project map until D-P3 shares it).
+Tests as above; no re-bless.
+
+* D-P5 — modernisation toward rougier nano / mu4e (a FOCUSED polish set) [MED/ongoing]
+
+A small, concrete, reversible set — each grounded in a real knob, each noting
+its byte/TTY contract.  Pick a subset at review; pair with the other items.
+Governing constraint: =org-air-line-spacing= MUST stay 0 wherever the =│=
+divider runs (two-pane/stacked) or the divider stops reading solid (L705) — so
+vertical "breathing" is only free in no-divider contexts (board-only,
+side-window board, the bottom pane).  Byte fixtures assert TEXT; faces /
+line-spacing / svg are GUI-cosmetic (TTY fallback), so most polish below is
+byte-invisible — flagged per item.
+
+** D-P5.1 A calm nano-style mode-line (status already lives in the banner)
+org-air already shows status in the in-buffer banner and keeps
+=header-line-format= nil (S1, L704), so the DEFAULT mode-line is redundant
+chrome.  Add =org-air-modeline-style= (default ='calm=) that sets a minimal,
+faded =mode-line-format= on the board / project / pane buffers — a quiet name +
+a faded rule, nano-style — with ='default= to opt out.  *Byte:* mode-line is
+not part of the buffer-text fixtures → zero golden impact.
+
+** D-P5.2 mu4e-style view-pane chrome
+Refine =org-air-view-pane--header-line= (L3460, =▤ file · title · state=): a
+salient title segment + faded =·= separators (mostly there), optionally a thin
+rule row beneath the header.  The bottom pane has NO divider, so give it a
+small positive =line-spacing= (new =org-air-view-pane-line-spacing=, default a
+touch > 0) for message-like leading like mu4e's message view.  *Byte:* the
+pane is a side window, never in board goldens → no golden impact; add a pane
+header-line ert.
+
+** D-P5.3 Calmer colour discipline ("mostly faded, one salient")
+nano's restraint = one salient accent against a faded field.  On a board row
+today the date pill, every tag, the priority badge and the state can all carry
+colour at once.  Propose: keep ONE salient signal per row (the date/priority
+cue) and let tag chips ride a single faded tag tint by default, with the
+current per-tag hues behind =org-air-tag-color= (opt-in).  *Byte:* faces are
+display-only (bytes assert the TEXT), so the TTY/byte goldens DON'T move; the
+svg pill IMAGES recolour (GUI cosmetic).  Ship behind a defcustom; flag the
+default at review.
+
+** D-P5.4 svg pill softening + a pinned radius
+Pin =org-air-pill-radius= to a fixed font-proportional value (currently nil →
+derived) for a consistent capsule across tiers, and nudge
+=org-air-pill-border-opacity= 0.85 → ~0.7 for a calmer hairline (keep
+=fill-alpha= low at 0.08).  *Byte:* pure svg-overlay cosmetic, no byte change;
+re-uses the (a) cache (the style-sig change just invalidates once).
+
+** D-P5.5 Horizontal rhythm consistency
+Audit the three insets — =org-air-margin= (2), =org-air-rail-content-inset=
+(3), the banner left token — so the board, rail and pane share one calm
+left rhythm (nano is generous + consistent horizontally).  *Byte:* margins ARE
+in the fixtures (column positions) — so any inset change MOVES bytes; treat
+this as the ONE byte-affecting polish, scope it tightly (pick the values at
+review) and re-bless the full mockup set in one deliberate pass, or DEFER it to
+keep round-18 byte-stable.  Proposed: DEFER 5.5 unless review wants the reflow.
+
+** Routing + testability (D-P5)
+Each sub-item is independently shippable behind its own defcustom; land the
+byte-invisible ones (5.1–5.4) first.  Tests: a mode-line-format unit (5.1); a
+pane header-line + line-spacing ert (5.2); face-attribute units (5.3/5.4) that
+assert the calm defaults; for 5.5 (if taken) a deliberate full mockup re-bless
+with anti-tautology guards.  No board golden moves for 5.1–5.4.
 
 * Implementation History
 - (pending) round-18 D-P1 design opened.  Profiled the 583-entry lag to a

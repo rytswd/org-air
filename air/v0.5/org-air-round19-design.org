@@ -1,0 +1,636 @@
+#+title: org-air v0.5 round-19 DESIGN: async first load (R19-1) · refile UX (R19-2) · editable view pane (R19-3) · rail/scope-filter polish (R19-4)
+#+state: ready
+#+FILETAGS: :perf:ui:inbox:filter:edit:render:design:v0.5:
+
+* Scope of this document
+The umbrella round-19 DESIGN doc, written from screenshot feedback on the
+large 583-entry / 50-file dataset.  Four independently-implementable items,
+each carrying its own Testability + Routing + open questions:
+- *R19-1* async first load — paint the chrome immediately, query in the
+  background, swap in (the biggest perceived-perf win).
+- *R19-2* refile UX — show current tags, make move-to-another-file actually
+  work + be discoverable, de-cryptify the inbox nudge.
+- *R19-3* editable view pane — the bottom =*org-air-view*= pane becomes a
+  REAL, editable Org view of the source heading (indirect/narrowed buffer),
+  splitting only the board window (rail height intact), rendered as Org Mode.
+- *R19-4* rail / side-pane polish — rail-only mode-line, a "how to clear"
+  Filters note, reordered rail blocks, and a crisp Scope-vs-Filter split.
+
+Nothing is integrated here; this is the impl-ready SPEC.  Commits are
+per-item (R19 / Design round-19).  Honour the architecture invariants: V6
+pixel-lock, svg-never-grows-line, text-is-the-contract, one-renderer-two-
+views, REUSE the shared core (no fork), and keep the R18 perf caches
+(classify + svg + incremental) intact.
+
+* Status
+Design-led, impl-ready.  R19-1 + R19-3 are the biggest wins and are specced
+first.  Byte contract: R19-1 (async) and R19-3 (view pane) are GUI/
+interactive and INERT under =noninteractive=, so every byte golden stays
+byte-identical (the async path and the editable pane never appear in the
+board fixtures).  R19-2 and R19-4 carry deliberate TEXT changes (refile
+prompts, the inbox nudge, the rail Filters/Scope blocks) — those re-bless
+the affected fixtures, called out per item.
+
+* R19-1 — async first load: paint the frame, query in the background [BIGGEST WIN]
+
+** The blocking call (precise anchors)
+First-time =M-x org-air= is slow because the entry point queries
+SYNCHRONOUSLY *before* the frame paints:
+- =org-air-view= (org-air-view.el L4085).  On a cold buffer it runs
+  #+begin_src elisp
+  (setq org-air-view--items (org-air-query-items)
+        org-air-view--classify-cache nil)
+  #+end_src
+  *before* =pop-to-buffer= — so the org-ql SELECT over ~50 files / 584 items
+  blocks, and only THEN does the window appear + render.  The user stares at
+  the old buffer (or a frozen frame) for the whole query.
+- =org-air-query-items= (org-air-query.el L80) is one =org-ql-select= pass
+  over =(org-air-query-files)= with =:action #'org-air-query--item-at-point=.
+  =org-ql-select= is synchronous; visiting + scanning 50 files is the cost.
+- Re-open / refresh is already fast: =org-air-view='s cache guard
+  (=org-air-view--items= keyed on =(list org-air-files org-air-inbox-file)=)
+  skips the re-query, and the R18 classify + svg caches make the render
+  instant.  So ONLY the cold first load needs to go async.
+
+** Strategy — chrome-first + timer-chunked query (dependency-free)
+org-ql exposes no clean async/promise API in the pinned
+=org-ql-20250421.133=, and threads/subprocess-async would add a dependency
+and fragility.  Use the simplest robust mechanism that keeps Emacs
+responsive and the frame painted: *paint the chrome immediately, then drive
+the query in BATCHES on an idle timer*, accumulating items, updating a
+progress cue, and doing the real render once complete.  This is "as async as
+possible" without a new dep, and the R18 caches make every later render
+instant.
+
+*** 1. Chrome-first (paint before querying)
+Re-order =org-air-view= so the WINDOW + chrome paint first:
+1. =get-buffer-create= + =org-air-view-mode= (unchanged).
+2. If items are already cached and the key matches → render synchronously
+   (the existing instant path; unchanged).
+3. Else (cold load): =pop-to-buffer= FIRST so the window exists, then
+   =org-air-view--render-loading= paints a chrome-only skeleton (banner +
+   rule + a calm centred "Loading your board…" body + footer), then kick off
+   the async loader.  The frame is visible within one paint.
+
+=org-air-view--render-loading (&optional progress)= reuses the existing band
+machinery (=org-air-view--insert-banner= variant + =--insert-rule= +
+=--render-lines= + the footer) at =board-only= orientation (no rail/calendar
+yet — those need items), with the body = a single centred line
+=Loading your board…  (N/50 files)=.  It binds the SAME pill metrics /
+style-sig env as =org-air-view--render= so the skeleton sizes correctly; it
+sets =org-air-view--loading= t so the banner shows the progress segment.
+
+*** 2. Timer-chunked query (background, responsive)
+Add a file-subset query so the work can be split:
+#+begin_src elisp
+(defun org-air-query-items-in-files (files &optional query)
+  "Like `org-air-query-items' but restricted to FILES (a subset)."
+  (when files
+    (org-ql-select files (or query '(heading))
+      :action #'org-air-query--item-at-point)))
+#+end_src
+The async loader (buffer-local state on the board buffer):
+#+begin_src elisp
+(defvar-local org-air-view--loading nil
+  "Non-nil while the cold first-load async query is in flight (R19-1).")
+(defvar-local org-air-view--load-token 0
+  "Generation counter; a newer load/refresh invalidates an in-flight one.")
+(defvar-local org-air-view--load-remaining nil) ; files still to query
+(defvar-local org-air-view--load-total 0)
+(defvar-local org-air-view--load-accum nil)     ; items gathered so far
+#+end_src
+=org-air-view--load-async (buffer)=:
+- snapshot =(org-air-query-files)= into =--load-remaining= / =--load-total=,
+  bump =--load-token= (capture it as THIS load's id), set =--loading= t;
+- schedule =run-with-idle-timer 0 nil #'org-air-view--load-step buffer token=;
+- =org-air-view--load-step= pops the next BATCH (=org-air-view-load-batch=
+  files, default a small N), queries it via =org-air-query-items-in-files=,
+  appends to =--load-accum=, updates the banner progress (cheap: re-insert
+  only the banner line, or a full =--render-loading= with the new count),
+  and re-schedules itself for the next batch.  A STALE token (a refresh
+  started meanwhile) makes the step a no-op (cancellation).
+- on the last batch: set =org-air-view--items= = =--load-accum=,
+  =--items-key=, clear =--loading= / the classify cache, and call the normal
+  =org-air-view--render= (which now decides orientation, builds the rail/
+  calendar, and warms the R18 classify + svg caches in one pass).
+
+*** 3. Loading UX
+- The chrome is up immediately; the body reads =Loading your board…= with a
+  live =(N/50 files)= count that ticks as batches complete.  The banner gets
+  a small =· loading N/50= segment (sheds first under width, like the filter
+  chips) so the header also signals progress.
+- Default behaviour: skeleton + progress, then ONE final render when done
+  (no mid-load flicker).  An OPTIONAL progressive mode
+  (=org-air-view-load-progressive=, default nil) re-renders the accumulated
+  items every K batches so the board "fills in"; proposed off (simpler, no
+  reflow churn) — flag at review.
+- Commands during load: =g= / scope / filter / TAB need items.  While
+  =org-air-view--loading= is non-nil they either echo =Still loading…= or
+  (for =g=) restart the load; proposed: a tiny guard at the top of the
+  data-dependent commands =(when org-air-view--loading (user-error "Still
+  loading…"))=.  Navigation over the skeleton is harmless.
+
+** Cache warm (re-render stays instant)
+- The final render runs the existing pipeline, so the R18 classify cache
+  (per-board, day-keyed) and the global svg pill cache are populated in that
+  first full pass — every subsequent TAB / month-nav / scope / filter is a
+  pure cache hit (unchanged from R18).
+- OPTIONAL pre-warm: after the final paint, an idle timer can pre-classify
+  the full item set off the critical path so even the FIRST interaction is a
+  hit.  Proposed: rely on the render-time warm (already covers the visible
+  set); add the pre-warm only if review still sees a first-interaction lag —
+  flag.
+- =org-air-view='s cache guard is unchanged, so a second =M-x org-air= (same
+  files) skips the loader entirely and renders synchronously+instantly.
+
+** Batch / noninteractive contract (invariant #3)
+- The async loader is GUI-only: =org-air-view--load-async= must be guarded so
+  that under =noninteractive= (=make check= / =make regen-mockups=) the entry
+  takes the SYNCHRONOUS path (the current =org-air-query-items= +
+  =org-air-view--render=).  No idle timer, no progress, no skeleton in batch
+  → every byte fixture is produced exactly as today (byte-identical).
+- =org-air-refresh= stays SYNCHRONOUS (the caches make a re-query fast and a
+  flicker-free in-place refresh is preferable to a skeleton).  Flag: if a
+  50-file re-query still lags in review, route =g= through the same loader.
+
+** Testability (R19-1)
+1. *Byte-identity*: the async path is inert under =noninteractive=, so every
+   existing layout/board golden stays byte-identical (=make clean= + the full
+   suite).  This proves the async work is invisible to the rendered bytes.
+2. *Subset-query unit*: =org-air-query-items-in-files= over a 2-file subset
+   returns exactly the items the full =org-air-query-items= yields for those
+   two files (deterministic over a fixture file set).
+3. *Async ≡ sync equivalence*: drive =org-air-view--load-step= SYNCHRONOUSLY
+   (call it repeatedly with the live token until =--load-remaining= empties),
+   then assert the resulting buffer is byte-identical to a one-shot
+   synchronous =org-air-view--render (org-air-query-items)=.  This is the
+   correctness net — async can never diverge from the source of truth (mirror
+   of the R18 b.2 incremental-equivalence golden).
+4. *Loading skeleton golden*: =org-air-view--render-loading= with a frozen
+   progress (e.g. =12/50=) produces a deterministic chrome-only buffer
+   (banner + rule + centred Loading line + footer); a small new byte golden.
+5. *Cancellation unit*: bumping =--load-token= mid-load makes the stale
+   =--load-step= a no-op (no further accumulation, no render).
+
+** Routing (R19-1)
+- Impl R19-1 (one commit): =org-air-query-items-in-files=; the chrome-first
+  re-order of =org-air-view= + the =noninteractive= sync fallback;
+  =org-air-view--render-loading= + the =--loading= banner segment; the
+  =--load-async= / =--load-step= loader + the buffer-local load state; the
+  data-dependent-command "Still loading…" guard.
+- Test track R19: the subset-query unit; the async≡sync equivalence ert; the
+  loading-skeleton golden; the cancellation unit; the full byte-golden suite
+  stays byte-identical (proof the async is internal).
+- BLESS: only the new loading-skeleton golden is blessed; no existing golden
+  moves.
+
+** Open questions (R19-1)
+- Progressive fill-in (re-render accumulated items every K batches) vs single
+  final render — proposed single final render (no flicker); progressive
+  behind =org-air-view-load-progressive= default nil.
+- Batch size (=org-air-view-load-batch=) — files-per-tick; proposed a small
+  default (≈8) tuned at review by feel on the 50-file set.
+- Whether =org-air-refresh= / =g= also go async — proposed keep sync (caches
+  make it fast); flag if a re-query still lags.
+- True subprocess async (emacs-async) — deferred; timer-chunked meets the
+  goal dependency-free.  Flag if review wants a non-blocking-per-file thread.
+- Does the project view (=org-air-project=) need the same async? Its collect
+  is a directory walk, not org-ql; proposed board-first, project later if
+  slow — flag (the loader helpers are reusable).
+
+* R19-2 — refile UX: show current tags · make move-to-another-file work · de-cryptify the nudge [HIGH]
+
+** Current state (org-air-inbox.el)
+=org-air-refile-item= (L122) drives ONE =completing-read= over the
+candidates from =org-air-inbox--refile-candidates= (L84) and decodes the
+pick with =org-air-inbox--decode-target= (L100).  The candidate prefixes
+are =@= category, =>= timeline, =#= tag, =⌂= file.  Three problems:
+1. *Current tags invisible.*  Picking =#foo= just PREPENDS one tag
+   (=(delete-dups (cons (substring choice 1) (org-air-item-tags item)))=,
+   L102).  Nothing ever SHOWS the item's existing tags, and there is no way
+   to remove one — you edit blind.
+2. *Move-to-another-file is broken + hidden.*  =--refile-candidates= builds
+   =⌂ <basename>= from =org-air-files= (L92), but =org-air-files= may hold
+   DIRECTORIES (=org-air-query--expand-source= recurses them).  The decode
+   (L116) then tries to match the chosen basename inside =org-air-files= —
+   a directory never matches a file basename — so it FALLS BACK to the
+   item's OWN file (=(or file (org-air-item-file item))=) and the heading
+   never moves.  The truly-arbitrary =read-file-name= branch (L120, the
+   =(t ...)= case) is UNREACHABLE because every completion candidate carries
+   a prefix.  So "cannot really move the file to other file" is literal.
+3. *The inbox nudge is cryptic.*  A dated-but-unfiled Inbox row carries
+   =" · file with r"= (=org-air-view--item-date-text=, org-air-view.el
+   L1690) — "file with r" reads as a fragment, not "press r to file this".
+
+** R19-2(a) show the current tags during the tag edit (pre-fill + display)
+- Surface tags in the TOP-level refile prompt so they are visible no matter
+  which path is taken: change =org-air-refile-item='s prompt from
+  =Refile "TITLE" → = to include the current tags, e.g.
+  =Refile "TITLE" [#a #b] → = (drop the =[]= when none).  Pure display.
+- Add an explicit *edit-tags* candidate (e.g. =# edit tags…=) that, when
+  chosen, opens =completing-read-multiple= PRE-FILLED with the item's
+  current tags (joined by =crm-separator=) over the tag vocabulary — so the
+  user SEES the full set and can add OR remove, then the chosen list
+  REPLACES the tags (the =tags= arg of =org-air-refile-item= already
+  replaces when non-nil).  Reuse the R18 pre-fill idiom from
+  =org-air-view--read-filter= (org-air-view.el L4174) for consistency.
+- Keep the quick one-shot =#foo= add candidates (handy), but they now ADD on
+  top of a visible set rather than editing blind.
+
+** R19-2(b) make move-to-another-file work + be discoverable
+- *Fix the candidate source*: build the =⌂= candidates from the REAL
+  expanded Org files — =org-air-query-files= (which recurses directories) —
+  not from the raw, possibly-directory =org-air-files=.  Each =⌂= candidate
+  is then an actual target file.  Disambiguate same-basename files by
+  showing a path tail when needed (e.g. =⌂ projects/work.org=), and label
+  the group so it reads as an action: keep the =⌂= glyph + the file name.
+- *Fix the decode*: =org-air-inbox--decode-target= for the =⌂= case matches
+  the chosen entry against =org-air-query-files= (full paths), returning the
+  real target path — so the cut-and-reinsert in =org-air-refile-item= (L143:
+  delete the subtree from the source + =save-buffer=; L150: insert into the
+  target via =org-air-inbox--target-position= + =save-buffer=) actually
+  RELOCATES the heading.  The mechanics already work once the path is real.
+- *Optional heading-within-file*: after choosing =⌂ file=, offer the file's
+  top-level headings via =completing-read= (default =(file end)=) so the
+  move lands somewhere sensible; =org-air-inbox--target-position= (L51)
+  already supports a =target-heading=.  Proposed default = file end (current
+  behaviour) with the heading pick OPTIONAL — flag whether to always prompt.
+- *Discoverable arbitrary move*: add an explicit =⌂ other file…= candidate
+  that triggers =read-file-name= for any target (reaches the formerly-dead
+  =(t ...)= path on purpose), so "move it somewhere not in my list" is one
+  visible choice.
+- *Confirm it moved*: covered by the move ert below (heading gone from
+  source, present in target).
+
+** R19-2(c) de-cryptify the inbox nudge
+Change =" · file with r"= (org-air-view.el L1690) to a clearer, still-short
+phrasing.  Proposed =" · r to file"= (compact; sheds under width like the
+rest of the date column) — or the fuller =" · press r to file"= if review
+prefers.  "file" = the verb (move it out of the inbox into its home file via
+=r= = =org-air-refile-item=).  This is the same idea behind the rail Actions
+cue, so keep the wording consistent with R19-4's clarified verbs.
+- *Byte-affecting*: this string is rendered ROW TEXT (asserted by fixtures).
+  Two goldens contain it — =tests/fixtures/denote-origin-{80,120}.txt= — so
+  the change re-blesses exactly those two (no others).
+
+** Testability (R19-2)
+1. *Decode unit* (regression net for the move bug): with =org-air-files= set
+   to a DIRECTORY, =org-air-inbox--decode-target= for a =⌂ <file>= choice
+   resolves to the real expanded target path (from =org-air-query-files=),
+   NOT the item's own file.
+2. *Move ert*: two temp Org files A (with a heading) + B; refile the heading
+   A→B; assert it is GONE from A and PRESENT in B, both saved.
+3. *Tag-edit unit*: stub =completing-read-multiple= to capture INITIAL-INPUT;
+   the edit-tags step pre-fills the item's current tags; the chosen list
+   REPLACES the tags (add AND remove both reflected).
+4. *Prompt-display unit*: =org-air-refile-item='s interactive prompt string
+   contains the current tags =[#a #b]= (stub =completing-read=).
+5. *Nudge render ert*: a dated Inbox row contains the new clearer string;
+   re-bless =denote-origin-{80,120}.txt= (the only two fixtures with it).
+
+** Routing (R19-2)
+- Impl R19-2 (one commit, org-air-inbox.el + the one org-air-view.el string):
+  the top-prompt tag display + the =# edit tags…= crm step;
+  =--refile-candidates= sourced from =org-air-query-files= + same-basename
+  disambiguation + =⌂ other file…=; the =--decode-target= =⌂= fix +
+  optional heading pick; the L1690 nudge string.
+- Test track R19: the decode unit; the A→B move ert; the tag-edit + prompt
+  units; the nudge render ert.
+- BLESS: re-bless =tests/fixtures/denote-origin-{80,120}.txt= (the nudge
+  wording) — nothing else moves.
+
+** Open questions (R19-2)
+- =⌂= candidate source =org-air-query-files= (all real Org files, possibly
+  ~50) vs the literal =org-air-files=.  Proposed query-files (real targets);
+  flag if 50 candidates is unwieldy — then group by directory or show the
+  file =#+title=.
+- Always prompt for a heading within the target vs default to file-end.
+  Proposed default file-end, heading pick optional.
+- Nudge wording =" · r to file"= vs =" · press r to file"= — pick at bless.
+
+* R19-3 — view pane = real, EDITABLE Org view of the source heading [BIGGEST WIN]
+
+** Current state (read-only snapshot, frame-level side window)
+The bottom =*org-air-view*= pane (R16 D-P3) shows a READ-ONLY, fontified
+COPY of the entry — edits go nowhere — and it disturbs the rail:
+- =org-air-view-pane--render= (org-air-view.el L3603) calls
+  =org-air-view-pane--entry-text= (L3545), which =buffer-substring='s the
+  subtree and runs =org-air-view-pane--fontify= (L3567 — a throwaway temp
+  =org-mode= buffer), then inserts that COPY into =*org-air-view*= under
+  =org-air-entry-view-mode= (L3459, a =special-mode= with
+  =buffer-read-only t=).  So the pane is a dead snapshot; typing does
+  nothing and nothing reaches disk.
+- =org-air-view-pane--show= (L3637) displays it with
+  =display-buffer-in-side-window= using =org-air-view-pane--window-params=
+  (L3480): =(side . bottom) (slot . 0)=.  A FRAME-LEVEL bottom side window
+  spans the full frame width at the very bottom and is placed AROUND the
+  main area together with the rail's RIGHT side window — so it sits *under*
+  the rail and the window manager shortens the rail to make room.  That is
+  the reported "opening/sizing the pane disturbs the rail" bug — wrong
+  by construction.
+
+** R19-3(a) edit directly to the file via an INDIRECT, narrowed Org buffer
+Replace the snapshot with a LIVE buffer whose edits write through to disk:
+- For the heading at point, resolve =(buffer . pos)= exactly as today
+  (=org-air-view-pane--source-buffer-pos= L3533 — a live marker, else
+  =find-file-noselect= on the file path).  Then create an INDIRECT buffer on
+  that base file buffer and narrow it to the subtree:
+  #+begin_src elisp
+  (defun org-air-view-pane--indirect (base pos title)
+    "Return an `org-mode' indirect buffer on BASE narrowed to the subtree at POS.
+  Edits write through to BASE; `save-buffer' persists to disk (R19-3)."
+    (let ((ind (make-indirect-buffer
+                base (generate-new-buffer-name
+                      (concat " *org-air-pane:" (or title "") "*"))
+                t)))                       ; CLONE = inherit major mode (org)
+      (with-current-buffer ind
+        (unless (derived-mode-p 'org-mode) (delay-mode-hooks (org-mode)))
+        (when pos
+          (goto-char pos)
+          (ignore-errors (org-back-to-heading t))
+          (if (org-before-first-heading-p)
+              (widen)                       ; heading-less / preamble: show file
+            (org-narrow-to-subtree)))
+        (org-air-view-pane--install-chrome title))   ; header-line + leading
+      ind))
+  #+end_src
+- The indirect buffer SHARES text with the base =find-file-noselect= buffer,
+  so every keystroke edits the file's buffer; =C-x C-s= (=save-buffer=) writes
+  the base to disk.  Saving already triggers
+  =org-air-view--after-save-refresh= (L4143, on =after-save-hook=, scoped to
+  =org-air-files=/=org-air-inbox-file=) — so an edit-then-save in the pane
+  auto-refreshes the board, point + filters preserved.  No new save wiring.
+- *Narrowing is per-indirect-buffer*: the restriction does not leak to the
+  base or other indirect buffers, so the board's own use of the file buffer
+  (markers, classify scans) is unaffected.
+- *Lifecycle*: keep ONE pane indirect buffer at a time (buffer-local
+  =org-air-view--pane-indirect= on the pane host).  On follow / re-open, KILL
+  the previous indirect buffer (its base file buffer survives — killing an
+  indirect buffer never loses text; unsaved edits live in the base and stay
+  savable) and make a fresh one for the new heading.  On pane close, kill the
+  indirect buffer; the base file buffer persists (and any unsaved edits with
+  it).  =q= buries/closes the pane WITHOUT auto-saving (respect normal Org
+  save semantics) — flag if review wants save-on-close.
+- *Editable toggle + fallbacks*: =org-air-view-pane-editable= (defcustom,
+  default t).  When nil, OR under =noninteractive=, OR when the source is a
+  dead/unresolvable marker (a file path with no live buffer is fine —
+  =find-file-noselect= gives a base), fall back to the existing READ-ONLY
+  snapshot path (=org-air-view-pane--entry-text=).  So batch + every fixture
+  use the unchanged snapshot code — byte-identical.
+
+** R19-3(b) split ONLY the board window — keep the rail side-window intact
+The fix is to make the pane a CHILD of the board window's area, not a
+frame-level side window:
+- Drop =display-buffer-in-side-window= + the =(side . bottom)= params for the
+  pane.  Display it by splitting the BOARD window:
+  #+begin_src elisp
+  (display-buffer
+   buf `((display-buffer-below-selected)
+         (window-height . ,org-air-view-pane-height)
+         (dedicated . t)
+         (window-parameters . ((no-delete-other-windows . t)))))
+  #+end_src
+  The follow hook + RET/=v= run IN the board buffer, so =selected-window= is
+  the board window and =display-buffer-below-selected= splits THAT window —
+  producing a board-top + pane-bottom pair INSIDE the main area.  Side windows
+  (the rail) are placed around the entire main area, so the rail keeps its
+  full frame-body height; only the board window is split.  This is the
+  structural cause + cure of "opening/sizing the pane disturbs the rail".
+- =org-air-view-pane--hide= / =--show= keep their interfaces; only the
+  display ACTION changes (and =--window-params= is repurposed to the
+  below-selected alist).  Closing the pane =delete-window='s the board child,
+  restoring the board to full height — rail still untouched.
+- *Robustness*: if for some reason the selected window is NOT a pane host
+  (e.g. called from elsewhere), resolve the board window explicitly
+  (=get-buffer-window= of the =org-air-view= / =org-air-project= buffer) and
+  bind =display-buffer-below-selected= to it via a one-shot
+  =with-selected-window=.
+
+** R19-3(c) render the SAME WAY as Org Mode (variable-pitch FINE here)
+(a) already delivers this: the pane buffer IS a real =org-mode= indirect
+buffer with live Org font-lock, =org-cycle= TAB, links, tables — identical
+to editing the file.  Because this pane is NOT pixel-locked (the V6 invariant
+governs the BOARD, where svg pills must occupy exact text cells; the divider
+=│= lives on the board, not here), VARIABLE-PITCH is explicitly allowed:
+- =org-air-view-pane--install-chrome= sets the pane's =header-line-format=
+  (the existing =▤ file · title · state= contract, unchanged) and the
+  R18 D-P5.2 =line-spacing= (=org-air-view-pane-line-spacing=).
+- =org-air-view-pane-variable-pitch= (defcustom, default nil): when t, enable
+  =variable-pitch-mode= in the pane for a prose-like message view.  Default
+  off so the change is opt-in; the round only asks that it be ALLOWED.
+- =org-indent-mode= / =org-modern= are the user's own org config and apply
+  naturally in an indirect =org-mode= buffer — no special handling.
+
+** One renderer, two views (no fork)
+All of this lives in the SHARED =org-air-view-pane--*= functions, which the
+board AND the project view already drive (=org-air-view--pane-host-p=,
+=--view-pane-thing-at-point=, =--context-at-point= all branch on
+=org-air-item= / =org-air-doc= / =org-air-marker=).  So the editable pane +
+the board-window split benefit BOTH views from one implementation — the
+project's doc rows become editable in the same pane, no parallel code.
+
+** Testability (R19-3)
+1. *Byte-identity*: the editable path is gated on
+   =(and (not noninteractive) org-air-view-pane-editable)=; batch keeps the
+   snapshot path, so every board golden (and the pane header-line text
+   golden) stays byte-identical.
+2. *Edit-through unit* (temp-file fixture, gated on =(not noninteractive)= or
+   driven directly): =org-air-view-pane--indirect= on a heading returns an
+   =org-mode= indirect buffer narrowed to that subtree whose base is the
+   file's buffer; insert a char + =save-buffer=; re-read the file from disk —
+   the change is present.  Regression net for "edits save to disk".
+3. *Window-layout ert*: with a rail side window live, record the rail
+   window's body-height; open the pane; assert the rail window's body-height
+   is UNCHANGED (the pane split the board, not the frame) and the pane
+   window's parent is in the main area.  Gate the assertions on a live
+   display (mirror the R16 pane tests' =(not noninteractive)= guard or stub
+   =display-buffer=).  Regression net for "pane disturbs the rail".
+4. *Lifecycle unit*: opening a pane on item A then following to item B kills
+   the A indirect buffer and leaves exactly one pane indirect buffer; the
+   base file buffer(s) survive.
+5. *Fallback unit*: with =org-air-view-pane-editable= nil the pane is the
+   read-only snapshot (=buffer-read-only= t, byte-identical to today).
+
+** Routing (R19-3)
+- Impl R19-3 (one commit): =org-air-view-pane--indirect= +
+  =--install-chrome= + the =org-air-view--pane-indirect= lifecycle;
+  re-point =org-air-view-pane--render= to build/show the indirect buffer when
+  editable (else the snapshot); the =display-buffer-below-selected= board
+  split in =--show= (+ repurposed =--window-params=);
+  =org-air-view-pane-editable= / =-variable-pitch= defcustoms.  Shared by
+  board + project (no project-specific edits beyond the existing host hook).
+- Test track R19: the edit-through unit; the window-layout rail-height ert;
+  the lifecycle + fallback units; full byte goldens stay byte-identical.
+- BLESS: nothing — the pane is never in the board fixture bytes and the
+  header-line text contract is unchanged.
+
+** Open questions (R19-3)
+- Indirect buffer vs visiting the file narrowed directly in the pane window.
+  Indirect is cleaner (independent narrow, board keeps its own file-buffer
+  view, cheap to recreate on follow) — proposed indirect; flag if review
+  prefers a direct narrowed visit.
+- =q= closes WITHOUT save (edits persist in the base buffer, savable) vs
+  save-on-close.  Proposed no auto-save (normal Org semantics); flag.
+- =org-air-view-pane-variable-pitch= default nil vs t.  Proposed nil (opt-in);
+  the round only requires it be allowed.
+- Follow + an OPEN edit: following to a new heading kills the current
+  indirect buffer.  If it has unsaved edits, the text is still in the base
+  (not lost) but the pane stops showing it.  Proposed: acceptable (the edits
+  are safe in the base); flag if review wants a "don't switch while dirty"
+  guard.
+
+* R19-4 — rail / side-pane polish: rail mode-line · clear-hint · reorder · Scope vs Filter [MED]
+
+Read: =org-air-view--insert-rail= (org-air-view.el L2769, the two-pane/
+side-window rail; order Calendar → Summary → Inspector → Filters → Actions),
+=org-air-view--insert-rail-filters= (L2242), =org-air-rail-mode= (L3059) +
+=org-air-view--install-modeline= (L752, R18 D-P5.1), =org-air-scope= (L4242)
++ =org-air-view--scope-label= (L2234) + =org-air-view--passes-scope-p=
+(L991), and =org-air-help= (L4697).
+
+** R19-4(a) a rail-only mode-line — SAFE (buffer-local, no bleed)
+*Investigation*: =org-air-view--install-modeline= sets =mode-line-format=
+with =setq-local= — it is BUFFER-LOCAL.  The board and the bottom view pane
+already install it; the rail (=org-air-rail-mode=) does NOT (it shows the
+default mode-line).  Installing it in =org-air-rail-mode= affects ONLY the
+=*org-air-rail*= buffer's mode-line — it cannot bleed to other side windows
+or buffers, because each buffer carries its own =mode-line-format=.  The one
+GLOBAL thing the rail touches is =window-divider-mode= /
+=window-divider-default-*= (=org-air-rail--setup-divider= L3095) — that is
+the inter-window DIVIDER, a SEPARATE concern from the mode-line, and is
+unchanged by a buffer-local =mode-line-format=.  So a rail-only mode-line is
+doable with zero side effects.
+*Spec*: add =(org-air-view--install-modeline)= to =org-air-rail-mode= (mirror
+the board + pane).  Byte-invisible (the mode-line is not buffer text; the
+per-buffer goldens strip it).  Flag at review if a DIFFERENT rail mode-line
+content is wanted (e.g. the active scope/filter in the rail's mode-line)
+rather than the same calm faded name.
+
+** R19-4(b) Filters block: state HOW TO CLEAR (“\”)
+In =org-air-view--insert-rail-filters= (L2242), when a filter is active the
+block shows =Match: AND  (M-/ toggles)=.  Add the clear key alongside, so
+the block teaches both verbs:
+#+begin_example
+Filter
+  #urgent AND #work
+  Match: AND   M-/ toggles · \ clears
+#+end_example
+(Use the literal =\= — TTY-safe + deterministic in goldens — matching the
+=\= = =org-air-filter-clear= binding in =org-air-view-core-map=, L671.)  The
+chip line keeps the =⌫= clear glyph; the prose line names the key.
+*Byte-affecting* (rail text) — re-bless the rail goldens (see (c)/(d)).
+
+** R19-4(c) reorder the rail: Calendar → Filters → Summary → Inspector → Actions
+The Summary counts confuse without first seeing the active Filter, so move
+the Filters block UP to between Calendar and Summary.  Today
+=org-air-view--insert-rail= emits Calendar, Summary, then (with the
+inspector on) a FIXED reserved Inspector region with Filters + Actions
+PINNED to the foot.  New order means only ACTIONS stays foot-pinned:
+- Emit: Calendar, then Filters, then Summary, then the fixed Inspector
+  region, then Actions at the foot.
+- Recompute the reserved Inspector height: =top-used= now counts Calendar +
+  Filters + Summary; =foot-h= = the (blank + Actions) block ONLY (Filters
+  leaves the foot).  =reserved = max(1, target - top-used - foot-h)= as
+  today, just with the new top/foot membership — so Actions stays pinned and
+  the inspector still owns the freed middle.
+- The no-inspector fallback path (the D5 four-block flow) reorders the same
+  way: Calendar, Filters, Summary, Actions.
+- The STACKED top-band rail (=org-air-view--insert-top-rail= L2821) lays its
+  blocks as side-by-side COLUMNS (calendar / summary / filters); for
+  consistency reorder the columns to calendar / filters / summary.  Lower
+  stakes (columns, not vertical flow) — flag whether to reorder there too.
+*Byte-affecting* — the ~23 =layout-mockup-*= + =denote-origin-120= fixtures
+that render the rail re-bless (mechanical regen).
+
+** R19-4(d) a crisp Scope-vs-Filter split (concept + labels + help)
+Today BOTH narrow by tag and the overlap confuses:
+- *Scope* (=s= = =org-air-scope=, =org-air-view--scope=): a SINGLE-select
+  =completing-read= over =all= / =@group= / =#tag= / =⌂ file= — one structural
+  lens (=org-air-view--passes-scope-p=).
+- *Filter* (=/= = =org-air-filter=, =org-air-view--tag-filter= +
+  =org-air-filter-match=): LIVE multi-tag AND/OR narrowing, pre-filled,
+  toggled with =M-/=, cleared with =\= (=org-air-view--passes-filter-p=).
+The =#tag= option exists in BOTH, which is the confusion source.
+
+*Conceptual split to adopt + state everywhere*:
+- *Scope = WHICH SLICE you are looking at* — a single STRUCTURAL lens: the
+  whole board (=all=), one category (=@group=), or one file (=⌂ file=).
+  Coarse, single-select, =s= sets / =S= clears.
+- *Filter = LIVE NARROWING of what is shown* — one or more TAGS combined
+  with AND/OR, on top of the scope.  Fine, multi-select, =/= edits /
+  =M-/= toggles AND↔OR / =\= clears.
+- *Remove =#tag= from the SCOPE candidates* so the two stop overlapping:
+  scope becomes purely structural (all / @group / ⌂ file) and tags belong
+  ENTIRELY to the filter (which does them better — multi-tag + AND/OR +
+  live).  This is the cleanest resolution; flag because it drops a feature
+  (a single-tag scope), though the filter fully subsumes it.
+
+*UI / labels*:
+- The rail block (now Filters, R19-4c) reads with explicit labels and the
+  scope on its own labelled line so each role is named:
+  #+begin_example
+  Filter
+    #urgent AND #work
+    Match: AND   M-/ toggles · \ clears
+  Scope
+    ⌂ work.org    s changes · S clears
+  #+end_example
+  (Drop =Scope= to a one-line =all items= cue when no scope is set; keep
+  =No filters · all items= when neither is set.)
+- The banner segments (=org-air-view--insert-banner= L1131) already show the
+  filter chips + combinator and the scope token; keep, but the rail is where
+  the two roles are spelled out.
+- =org-air-help= (L4697) updated to distinguish them, e.g.:
+  =… / filter (tags, live) · \ clear · M-/ AND↔OR · s scope (lens: file/group/all) …=.
+*Byte-affecting* — same rail fixtures as (b)/(c) re-bless; the help is a
+=message= (not buffer text), byte-invisible.
+
+** One renderer, two views (no fork)
+The rail reorder + the clear-hint + the Scope/Filter labels live in the
+shared =org-air-view--insert-rail*= primitives, so the board's two-pane +
+side-window rail both pick them up from one change.  The project view
+(=org-air-project=) has its own header/summary chrome; mirroring the
+Scope/Filter wording there is the D-P3 parity follow-up — flag, do not fork.
+
+** Testability (R19-4)
+1. *Rail order ert*: scan the rendered rail buffer and assert the block
+   headers appear in order Calendar, Filter(s), Summary, Inspector, Actions
+   (and Calendar, Filters, Summary, Actions with the inspector off).
+2. *Clear-hint ert*: with a filter active the Filters block contains
+   =\ clears= (and =M-/ toggles=).
+3. *Rail mode-line ert*: =*org-air-rail*= has the calm =mode-line-format=,
+   AND a plain temp buffer's =mode-line-format= is UNCHANGED afterwards
+   (proves buffer-local, no bleed).
+4. *Scope-candidate unit*: =org-air-scope='s candidate list contains =all= /
+   =@group= / =⌂ file= and NO =#tag= entry (guards the overlap removal).
+5. *Labels ert*: the rail shows distinct =Filter=/=Scope= labels; the inspector
+   region height still pins Actions to the foot (S6 height preserved).
+6. *Help unit*: =org-air-help='s message names filter (tags/live) and scope
+   (lens) distinctly.
+
+** Routing (R19-4)
+- Impl R19-4 (one commit): =org-air-view--install-modeline= in
+  =org-air-rail-mode=; the =\ clears= line + =Filter=/=Scope= labels in
+  =org-air-view--insert-rail-filters=; the block reorder + reserved-height
+  recompute in =org-air-view--insert-rail= (and the top-rail column reorder);
+  drop =#tag= from =org-air-scope='s candidates; update =org-air-help=.
+- Test track R19: the rail-order, clear-hint, mode-line-no-bleed,
+  scope-candidate, labels, and help erts.
+- BLESS: re-bless the ~23 =layout-mockup-*= + =denote-origin-120= rail
+  fixtures (the reorder + clear-hint + labels are deliberate text changes).
+  No board-only/day fixtures move (they have no rail).
+
+** Open questions (R19-4)
+- (d) DROP =#tag= from scope (clean split) vs KEEP + document.  Proposed
+  drop; flag — it removes a single-tag scope the filter subsumes.
+- (c) reorder the STACKED top-rail columns too (calendar/filters/summary)?
+  Proposed yes for consistency; flag.
+- (a) rail mode-line CONTENT — the same calm faded name (proposed) vs a
+  rail-specific line showing scope/filter; flag.
+- mirroring the Scope/Filter wording into the project view — D-P3 parity
+  follow-up; flag (no fork).
+
+* History
+- 2026-06-25: Drafted round-19 DESIGN.  Specced R19-1 (async first load),
+  R19-3 (editable view pane), R19-2 (refile UX), R19-4 (rail/scope-filter
+  polish).  All four impl-ready; state → ready.

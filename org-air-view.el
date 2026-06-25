@@ -588,6 +588,18 @@ item objects; explicitly cleared on day-rollover and refresh.")
   "Column width used for the most recent render of this dashboard buffer.")
 (defvar-local org-air-view--rendered-height nil
   "Body height used for the most recent render of this dashboard buffer.")
+(defvar-local org-air-view--body-beg nil
+  "Marker at the first body-band line of the last render (R18 D-P1b).
+Set by `org-air-view--render'; bounds the in-place section splice so it
+never touches the header.")
+(defvar-local org-air-view--body-end nil
+  "Marker just past the last body-band line of the last render (R18 D-P1b).")
+(defvar-local org-air-view--body-target-floor nil
+  "Minimum body-band row count `=height - header - footer' (R18 D-P1b).
+The splice reuses the EXACT body-target formula so the spliced buffer is
+byte-identical to a full render.")
+(defvar-local org-air-view--body-fill-row nil
+  "Fill row used to pad the body band to full height (R18 D-P1b).")
 (defvar-local org-air-view--orientation nil
   "Last chosen layout orientation, `two-pane' or `stacked' (D1 hysteresis).")
 (defvar-local org-air-view--rail-popped-out 'unset
@@ -3711,7 +3723,18 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
            (body-target (max (length body-content)
                              (- height (length header) (length footer))))
            (body (org-air-view--pad-line-list body-content body-target fill-row)))
-      (org-air-view--insert-lines (append header body footer)))
+      ;; R18 D-P1b: bracket the body band with markers and remember the
+      ;; target floor + fill row, so the TAB-expand section splice can redraw
+      ;; only the body (never the header/footer) and reproduce the EXACT
+      ;; full-render body height.
+      (setq-local org-air-view--body-target-floor
+                  (- height (length header) (length footer))
+                  org-air-view--body-fill-row fill-row)
+      (org-air-view--insert-lines header)
+      (setq-local org-air-view--body-beg (point-marker))
+      (org-air-view--insert-lines body)
+      (setq-local org-air-view--body-end (point-marker))
+      (org-air-view--insert-lines footer))
     (if (integerp org-air-view-width)
         (org-air-view--normalize-buffer-lines org-air-view-width)
       ;; D7/D6 — cap every line at the displaying window and right-trim.
@@ -3736,6 +3759,117 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
       (org-air-rail--hide (current-buffer))))))
+
+;;;; ---------------------------------------------------------------------
+;;;; R18 D-P1b incremental render — redraw only the changed body / calendar.
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-view--postprocess-line (line width)
+  "Return LINE post-processed to match a full render's output (R18 D-P1b).
+Mirror `org-air-view--normalize-buffer-lines' (pad to the fixed width seam)
+or `org-air-view--finalize-buffer-lines' (cap to WIDTH + right-trim) so a
+spliced line is byte-identical to the corresponding full-render line."
+  (if (integerp org-air-view-width)
+      (org-air-view--pad-to line org-air-view-width)
+    (let ((capped (if (> (string-width line) width)
+                      (truncate-string-to-width
+                       line width nil nil (org-air-view--glyph 'more))
+                    line)))
+      (string-trim-right capped))))
+
+(defun org-air-view--body-region ()
+  "Return (BEG . END) buffer positions of the live body band, or nil (R18)."
+  (when (and (markerp org-air-view--body-beg)
+             (markerp org-air-view--body-end)
+             (eq (marker-buffer org-air-view--body-beg) (current-buffer))
+             (eq (marker-buffer org-air-view--body-end) (current-buffer))
+             (marker-position org-air-view--body-beg)
+             (marker-position org-air-view--body-end)
+             (<= (marker-position org-air-view--body-beg)
+                 (marker-position org-air-view--body-end)))
+    (cons (marker-position org-air-view--body-beg)
+          (marker-position org-air-view--body-end))))
+
+(defun org-air-view--render-section (_bucket)
+  "Redraw only the changed board body region after a section toggled (R18 D-P1b).
+Recomposes the body the SAME way `org-air-view--render' does (cheap: the
+classify + pill caches make it text-only work), then rewrites ONLY from the
+first line that actually changed to the end of the body band — the header,
+the footer and every earlier section stay byte-untouched, and the body
+height is reproduced from the stored target floor (S6).  The result is
+byte-identical to a full render with the same `org-air-view--expanded-
+sections' (proved by the equivalence golden).  Falls back to the cheap full
+render when the body band is unknown.  _BUCKET is accepted for API symmetry."
+  (let ((region (org-air-view--body-region)))
+    (if (not region)
+        (org-air-view--render-current)
+      (let* ((token (org-air-view--save-position))
+             (width org-air-view--rendered-width)
+             (items org-air-view--items)
+             (dims (org-air-view--char-dimensions))
+             (org-air-view--pill-char-w (car dims))
+             (org-air-view--pill-char-h (cdr dims))
+             (org-air-view--pill-style-sig
+              (list org-air-pill-pad-cols org-air-pill-radius
+                    org-air-pill-fill-alpha org-air-pill-font-scale
+                    org-air-pill-border-opacity org-air-pill-vinset))
+             (beg (car region))
+             (end (cdr region))
+             (old-lines (split-string (buffer-substring-no-properties beg end)
+                                      "\n"))
+             (raw (org-air-view--render-lines
+                   width
+                   (lambda () (org-air-view--insert-item-pane items width))))
+             (body-content (org-air-view--collapse-line-list raw))
+             (body-target (max (length body-content)
+                               (or org-air-view--body-target-floor 0)))
+             (body (org-air-view--pad-line-list
+                    body-content body-target
+                    (or org-air-view--body-fill-row "")))
+             (new-lines (mapcar (lambda (l)
+                                  (org-air-view--postprocess-line l width))
+                                body))
+             ;; common prefix: every byte-identical leading line (header +
+             ;; earlier sections) is left untouched.
+             (p 0)
+             (olen (length old-lines))
+             (nlen (length new-lines)))
+        (org-air-view--classify-cache-ensure)
+        (while (and (< p olen) (< p nlen)
+                    (string= (nth p old-lines) (nth p new-lines)))
+          (setq p (1+ p)))
+        ;; Replace [start-of-old-line-p, body-end) with the new tail.  Buffer
+        ;; positions are char-based; lines 0..p-1 each contribute len+1 chars
+        ;; (text + newline) EXCEPT the body's last line carries no trailing
+        ;; newline, so the running offset is clamped to END.
+        (let* ((inhibit-read-only t)
+               (pos beg))
+          (dotimes (i p)
+            (setq pos (+ pos (length (nth i old-lines)) 1)))
+          (setq pos (min pos end))
+          (delete-region pos end)
+          (goto-char pos)
+          (let ((tail (nthcdr p new-lines)))
+            (when tail
+              ;; appending after a kept last line (no trailing newline).
+              (when (and (> pos beg) (not (eq (char-before pos) ?\n)))
+                (insert "\n"))
+              (insert (mapconcat #'identity tail "\n"))))
+          ;; The body is the last band in board-only/side-window, so it must
+          ;; not end with a newline; drop a stray one left by a pure deletion.
+          (when (and (> (point) beg) (eq (char-before (point)) ?\n))
+            (delete-char -1))
+          (set-marker org-air-view--body-end (point)))
+        (org-air-view--restore-position token)))))
+
+(defun org-air-view--render-calendar ()
+  "Re-render ONLY the side-window rail buffer for the new month (R18 D-P1b).
+The board buffer is byte-untouched: month-nav changes only
+`org-air-view--cal-month', which the rail reads through its back-pointer.
+Falls back to the cheap full render when the rail is not a side window."
+  (if (eq org-air-view--orientation 'side-window)
+      (org-air-rail--show (current-buffer) (org-air-view--render-width))
+    (org-air-view--render-current)))
 
 (defun org-air-view--save-position ()
   "Return a token describing the cursor location for later restoration."
@@ -4019,8 +4153,15 @@ hangs."
             (if (memq bucket org-air-view--expanded-sections)
                 (delq bucket org-air-view--expanded-sections)
               (cons bucket org-air-view--expanded-sections)))
-      (org-air-view--render (or org-air-view--items (org-air-query-items))
-                            org-air-view--tag-filter)
+      ;; R18 D-P1b: in the full-width item-pane layouts (board-only /
+      ;; side-window) the toggled section is splice-replaceable in place
+      ;; (the rail is a separate buffer or absent), so redraw only the body
+      ;; band; the column-composed layouts fall back to the now-cheap full
+      ;; render (correctness first).
+      (if (memq org-air-view--orientation '(board-only side-window))
+          (org-air-view--render-section bucket)
+        (org-air-view--render (or org-air-view--items (org-air-query-items))
+                              org-air-view--tag-filter))
       (let ((pos (org-air-view--find-property 'org-air-section bucket)))
         (when pos
           (goto-char pos)
@@ -4299,7 +4440,9 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
       (org-air-view-day (time-subtract org-air-view--day (days-to-time 1)))
     (setq org-air-view--cal-month
           (org-air-view--calendar-month-time org-air-view--cal-month -1))
-    (org-air-view--render-current)))
+    ;; R18 D-P1b: under `side-window' the calendar lives in the separate rail
+    ;; buffer, so month-nav redraws only that buffer — the board is untouched.
+    (org-air-view--render-calendar)))
 
 (defun org-air-calendar-next ()
   "Page to the next month, or the next day in the day view (R6)."
@@ -4308,7 +4451,8 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
       (org-air-view-day (time-add org-air-view--day (days-to-time 1)))
     (setq org-air-view--cal-month
           (org-air-view--calendar-month-time org-air-view--cal-month 1))
-    (org-air-view--render-current)))
+    ;; R18 D-P1b: side-window redraws only the rail buffer (see -prev).
+    (org-air-view--render-calendar)))
 
 ;;;###autoload
 (defun org-air-view-day (&optional date)

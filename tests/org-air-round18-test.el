@@ -224,5 +224,137 @@ differing colour/metric/style inputs produce a DIFFERENT image."
   (should (< (hash-table-count org-air-view--svg-image-cache) 4100))
   (clrhash org-air-view--svg-image-cache))
 
+;;;; ---------------------------------------------------------------------
+;;;; (b) incremental render — splice the section / re-render only the rail.
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-r18--render-board-only (expanded)
+  "Render the fixtures board-only (width 80) with EXPANDED sections; return text.
+Runs in the current temp buffer at the frozen clock."
+  (setq org-air-view--items (org-air-query-items))
+  (setq org-air-view--expanded-sections (copy-sequence expanded))
+  (org-air-view--render org-air-view--items nil)
+  (buffer-substring-no-properties (point-min) (point-max)))
+
+(ert-deftest org-air-r18-section-splice-byte-equivalent-to-full-render ()
+  "A TAB-expand splice yields a buffer BYTE-IDENTICAL to a full render.
+The equivalence golden: the incremental section splice can NEVER diverge
+from the source of truth (a full `org-air-view--render' with the same
+`org-air-view--expanded-sections')."
+  (org-air-test-with-fixtures
+    (let ((org-air-view-width 80)
+          (org-air-view-height 40)
+          full-str)
+      ;; Source of truth: a full render with `attention' already expanded.
+      (with-temp-buffer
+        (org-air-view-mode)
+        (org-air-r18--frozen
+          (setq full-str (org-air-r18--render-board-only '(attention)))
+          (should (eq org-air-view--orientation 'board-only))))
+      ;; Incremental: render collapsed, then TAB `attention' (splice path).
+      (with-temp-buffer
+        (org-air-view-mode)
+        (org-air-r18--frozen
+          (let ((collapsed (org-air-r18--render-board-only nil)))
+            (should (eq org-air-view--orientation 'board-only))
+            (let ((pos (org-air-view--find-property 'org-air-section 'attention)))
+              (should pos)
+              (goto-char pos))
+            (org-air-toggle-section)
+            (should (memq 'attention org-air-view--expanded-sections))
+            (let ((spliced (buffer-substring-no-properties
+                            (point-min) (point-max))))
+              ;; The splice actually changed the board…
+              (should-not (equal spliced collapsed))
+              ;; …and it is byte-identical to the full render.
+              (should (equal spliced full-str))
+              ;; Point landed back on the toggled section heading.
+              (should (eq (get-text-property (point) 'org-air-section)
+                          'attention)))))))))
+
+(ert-deftest org-air-r18-section-splice-collapse-round-trip ()
+  "Expand then collapse a section returns a buffer byte-identical to the start.
+Exercises the shrink / pure-deletion splice path: after TAB-expand +
+TAB-collapse on the same section the board is byte-identical to the
+original collapsed full render."
+  (org-air-test-with-fixtures
+    (let ((org-air-view-width 80)
+          (org-air-view-height 40))
+      (with-temp-buffer
+        (org-air-view-mode)
+        (org-air-r18--frozen
+          (let ((start (org-air-r18--render-board-only nil)))
+            (should (eq org-air-view--orientation 'board-only))
+            ;; expand
+            (goto-char (org-air-view--find-property 'org-air-section 'attention))
+            (org-air-toggle-section)
+            (should (memq 'attention org-air-view--expanded-sections))
+            ;; collapse back
+            (goto-char (org-air-view--find-property 'org-air-section 'attention))
+            (org-air-toggle-section)
+            (should-not (memq 'attention org-air-view--expanded-sections))
+            (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                           start))))))))
+
+(ert-deftest org-air-r18-section-splice-leaves-header-and-earlier-sections ()
+  "Toggling a LATE section leaves the header + earlier sections byte-untouched.
+Expanding `stale' (the last section) rewrites only from its region to the
+end of the body; everything above its heading is identical to the
+pre-toggle buffer."
+  (org-air-test-with-fixtures
+    (let ((org-air-view-width 80)
+          (org-air-view-height 40))
+      (with-temp-buffer
+        (org-air-view-mode)
+        (org-air-r18--frozen
+          (org-air-r18--render-board-only nil)
+          (should (eq org-air-view--orientation 'board-only))
+          (let* ((stale-pos (org-air-view--find-property 'org-air-section 'stale))
+                 (before-prefix (and stale-pos
+                                     (buffer-substring-no-properties
+                                      (point-min) stale-pos))))
+            (should stale-pos)
+            (goto-char stale-pos)
+            (org-air-toggle-section)
+            ;; The prefix up to `stale's heading is byte-identical (the
+            ;; splice never rewrote the header or earlier sections).
+            (let ((after-stale-pos (org-air-view--find-property
+                                    'org-air-section 'stale)))
+              (should after-stale-pos)
+              (should (equal (buffer-substring-no-properties
+                              (point-min) after-stale-pos)
+                             before-prefix)))))))))
+
+(ert-deftest org-air-r18-month-nav-side-window-leaves-board ()
+  "Month-nav in `side-window' redraws ONLY the rail — the board is untouched.
+The board buffer is byte-identical before/after `>'; only the rail is asked
+to redraw, the full board render is NOT invoked, and the month advances."
+  (org-air-test-with-fixtures
+    (let ((org-air-view-width 140)
+          (org-air-view-height 40))
+      (with-temp-buffer
+        (org-air-view-mode)
+        (org-air-r18--frozen
+          (setq-local org-air-view--rail-popped-out t)
+          (setq org-air-view--items (org-air-query-items))
+          (org-air-view--render org-air-view--items nil)
+          (should (eq org-air-view--orientation 'side-window))
+          (let ((before (buffer-substring-no-properties (point-min) (point-max)))
+                (month-before org-air-view--cal-month)
+                (rail-shown nil)
+                (full-called nil))
+            (cl-letf (((symbol-function 'org-air-rail--show)
+                       (lambda (&rest _) (setq rail-shown t)))
+                      ((symbol-function 'org-air-view--render-current)
+                       (lambda (&rest _) (setq full-called t))))
+              (org-air-calendar-next))
+            ;; Board byte-identical; only the rail redrew; full render skipped.
+            (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                           before))
+            (should rail-shown)
+            (should-not full-called)
+            ;; The calendar month advanced by one.
+            (should-not (equal org-air-view--cal-month month-before))))))))
+
 (provide 'org-air-round18-test)
 ;;; org-air-round18-test.el ends here

@@ -375,6 +375,25 @@
     ;; test failed; V6 date/origin columns stay aligned.  No .el SOURCE
     ;; touched (the impl landed D-P1/D-P2 in ruskyvwn+yuurwyro).  Round-17
     ;; manifest is EMPTY; the tests stay as permanent regression guards.
+    ;; ===================================================================
+    ;; v0.5 ROUND-19 grind (impl track) — DELIBERATE text changes that
+    ;; move bytes under the design-blessed R19 contracts
+    ;; (air/v0.5/org-air-round19-design.org).  Impl-only round: fixtures
+    ;; are NOT edited here; these existing goldens/assertions are pinned
+    ;; expected-failures until the TEST track re-blesses them.
+    ;;
+    ;; 2026-06-25: R19-2(c) de-cryptify the dated-Inbox nudge — the row
+    ;; suffix `· file with r' becomes `· r to file' (press `r' to file it
+    ;; out of the inbox; `org-air-view--item-date-text').  The string is
+    ;; rendered ROW TEXT, so it re-blesses the two denote-origin goldens
+    ;; and the triage assertion that pins the OLD wording:
+    (org-air-r17-denote-origin-byte-mockup
+     . "R19-2(c): denote-origin-{80,120}.txt carry the nudge; `· file with \
+ r' -> `· r to file' (re-bless on the test track)")
+    (org-air-triage-dated-inbox-row-carries-file-hint
+     . "R19-2(c): asserts the OLD `file with r' nudge; now `r to file' \
+(re-bless the assertion on the test track)")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

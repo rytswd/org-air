@@ -1722,13 +1722,14 @@ repeat math reimplemented)."
 (defun org-air-view--item-date-text (item bucket)
   "Return the propertized date text for ITEM in BUCKET (V6/R10), or nil.
 The date is coloured TEXT in its semantic face; a dated-but-unfiled Inbox
-row also carries the quiet \"· file with r\" triage nudge (ruling
+row also carries the quiet \"· r to file\" triage nudge — press `r'
+\(`org-air-refile-item') to file it out of the inbox (R19-2; ruling
 xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
   (let* ((date (org-air-view--date-label item bucket))
          (inbox-hint (and (eq bucket 'inbox)
                           (or (org-air-item-scheduled item)
                               (org-air-item-deadline item))
-                          (propertize " · file with r" 'face 'org-air-face-faded))))
+                          (propertize " · r to file" 'face 'org-air-face-faded))))
     (when date
       (let* ((face (or (cdr date) 'org-air-face-date))
              (pill (eq org-air-date-style 'pill))

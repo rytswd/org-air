@@ -83,24 +83,85 @@
        :deadline nil
        :group nil)))
 
+(defun org-air-inbox--target-files (item)
+  "Return the real, expanded Org files for refile targets (R19-2).
+Uses `org-air-query-files' (which RECURSES configured directories), so a
+`⌂' candidate is always an actual file — the move bug was that
+`org-air-files' may hold DIRECTORIES that never match a basename.  Falls
+back to ITEM's own file when nothing is configured."
+  (or (ignore-errors (org-air-query-files))
+      (list (org-air-item-file item))))
+
+(defun org-air-inbox--file-candidates (files)
+  "Return `⌂ <name>' refile candidates for FILES, disambiguating clashes (R19-2).
+When two files share a basename, the candidate shows a parent-dir/name tail
+so each `⌂' entry maps to exactly one file."
+  (let ((bases (mapcar #'file-name-nondirectory files)))
+    (mapcar (lambda (file)
+              (let ((base (file-name-nondirectory file)))
+                (concat "⌂ "
+                        (if (> (seq-count (lambda (b) (equal b base)) bases) 1)
+                            (concat (file-name-nondirectory
+                                     (directory-file-name
+                                      (file-name-directory file)))
+                                    "/" base)
+                          base))))
+            files)))
+
 (defun org-air-inbox--refile-candidates (item)
-  "Return design-style refile candidates for ITEM."
-  (let* ((files (and (boundp 'org-air-files) org-air-files))
-         (groups (delete-dups (delq nil (mapcar #'org-air-item-group
+  "Return design-style refile candidates for ITEM (R19-2).
+A `# edit tags…' candidate opens the FULL tag set pre-filled (add OR
+remove); the quick `#tag' candidates still ADD on top of the now-visible
+set.  The `⌂' file targets are the REAL expanded Org files (so move-to-
+another-file actually works), and `⌂ other file…' reaches an arbitrary
+`read-file-name' target."
+  (let* ((groups (delete-dups (delq nil (mapcar #'org-air-item-group
                                                 (ignore-errors (org-air-query-items))))))
          (tags (delete-dups (seq-mapcat #'org-air-item-tags
                                         (ignore-errors (org-air-query-items)))))
-         (file-cands (mapcar (lambda (file)
-                               (concat "⌂ " (file-name-nondirectory file)))
-                             (or files (list (org-air-item-file item))))))
-    (append (mapcar (lambda (group) (concat "@" group)) groups)
+         (file-cands (org-air-inbox--file-candidates
+                      (org-air-inbox--target-files item))))
+    (append '("# edit tags…")
+            (mapcar (lambda (group) (concat "@" group)) groups)
             '(">today" ">tomorrow" ">week" ">someday")
             (mapcar (lambda (tag) (concat "#" tag)) tags)
-            file-cands)))
+            file-cands
+            '("⌂ other file…"))))
+
+(defun org-air-inbox--edit-tags (item)
+  "Read a REPLACEMENT tag list for ITEM, pre-filled with its current tags (R19-2).
+Uses `completing-read-multiple' over the tag vocabulary seeded with the
+item's existing tags (joined by `,') so the user SEES the full set and can
+add OR remove; the returned list replaces the tags."
+  (let ((current (org-air-item-tags item))
+        (vocab (delete-dups (seq-mapcat #'org-air-item-tags
+                                        (ignore-errors (org-air-query-items))))))
+    (completing-read-multiple
+     "Tags: " vocab nil nil
+     (when current (mapconcat #'identity current ",")))))
+
+(defun org-air-inbox--decode-file-choice (choice item)
+  "Resolve a `⌂ …' refile CHOICE for ITEM to a real target file path (R19-2).
+`⌂ other file…' prompts via `read-file-name'; otherwise CHOICE is matched
+against the same disambiguated `org-air-inbox--target-files' candidates the
+prompt offered, so the chosen entry maps back to the actual expanded file
+rather than the item's own file by accident — the original move bug."
+  (if (string= choice "⌂ other file…")
+      (read-file-name "Refile to file: ")
+    (let* ((files (org-air-inbox--target-files item))
+           (cands (org-air-inbox--file-candidates files))
+           (idx (seq-position cands choice #'equal)))
+      (or (and idx (nth idx files))
+          (org-air-item-file item)))))
 
 (defun org-air-inbox--decode-target (choice item)
   "Decode refile CHOICE for ITEM into argument values."
   (cond
+   ((string= choice "# edit tags…")
+    (list item (org-air-item-file item) nil
+          (org-air-inbox--edit-tags item) nil))
+   ((string= choice "⌂ other file…")
+    (list item (org-air-inbox--decode-file-choice choice item) nil nil nil))
    ((string-prefix-p "#" choice)
     (list item (org-air-item-file item) nil
           (delete-dups (cons (substring choice 1) (org-air-item-tags item))) nil))
@@ -115,13 +176,7 @@
    ((string-prefix-p "@" choice)
     (list item (org-air-item-file item) (substring choice 1) nil nil))
    ((string-prefix-p "⌂ " choice)
-    (let* ((name (substring choice 2))
-           (file (seq-find (lambda (file)
-                             (equal name (file-name-nondirectory file)))
-                           (if (and (boundp 'org-air-files) org-air-files)
-                               org-air-files
-                             (list (org-air-item-file item))))))
-      (list item (or file (org-air-item-file item)) nil nil nil)))
+    (list item (org-air-inbox--decode-file-choice choice item) nil nil nil))
    (t (list item (read-file-name "Refile to file: ")
             (read-string "Under heading (empty for file end): ") nil nil))))
 
@@ -129,14 +184,24 @@
 (defun org-air-refile-item (item target-file &optional target-heading tags scheduled)
   "Move ITEM to TARGET-FILE under TARGET-HEADING.
 
-Interactively, dashboard items use the single org-air refile prompt with
-category (@), timeline (>), tag (#), and file (⌂) candidates.  TAGS replaces
-the item's tags when non-nil.  SCHEDULED is an Org timestamp string; empty
-clears the schedule."
+Interactively, dashboard items use the single org-air refile prompt, whose
+title shows the item's CURRENT tags, with category (@), timeline (>), quick
+tag-add (#), a `# edit tags…' step (the full set, pre-filled, add OR
+remove), real file targets (⌂), and `⌂ other file…' candidates (R19-2).
+TAGS replaces the item's tags when non-nil.  SCHEDULED is an Org timestamp
+string; empty clears the schedule."
   (interactive
    (let* ((item (org-air-inbox--interactive-item))
+          (current-tags (org-air-item-tags item))
           (choice (completing-read
-                   (format "Refile \"%s\" → " (org-air-item-title item))
+                   (format "Refile \"%s\"%s → "
+                           (org-air-item-title item)
+                           (if current-tags
+                               (concat " ["
+                                       (mapconcat (lambda (tg) (concat "#" tg))
+                                                  current-tags " ")
+                                       "]")
+                             ""))
                    (org-air-inbox--refile-candidates item)
                    nil nil)))
      (org-air-inbox--decode-target choice item)))

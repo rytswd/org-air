@@ -287,13 +287,29 @@ So the inspector origin does NOT overflow today — but it shows the long raw
 slug (=…--slug__tags.org=), truncated mid-machinery, which is ugly and
 inconsistent with the board.  Fix (small, consistency):
 - Build the inspector origin from =org-air-view--origin item= (the same
-  de-slugged Denote title the board shows), keeping the optional =group/=
-  prefix, e.g. =▤ <group>/<origin>=.  pad-to still bounds it to the rail
-  width (no overflow).  Optionally cap it to =org-air-origin-max-width=
+  de-slugged Denote title the board shows).  pad-to still bounds it to the
+  rail width (no overflow).  Optionally cap it to =org-air-origin-max-width=
   first for parity with the board cell, but pad-to already prevents
   overflow — the de-slug is the substantive change.  Keep the svg
   file-icon overlay on the =▤= (unchanged).
 - This makes the board and inspector agree on what "origin" reads as.
+- *Group prefix — APPROVED refinement (sign-off 2026-06-25).*  The literal
+  spec said "keep the optional =group/= prefix", but =org-air-query--group=
+  defaults the group to =(file-name-base file)= when a heading has no
+  =#+CATEGORY=.  For a Denote file that base is the raw
+  =id--slug__tags=, so =▤ <group>/<origin>= would render the machinery
+  REDUNDANTLY beside the de-slugged origin.  The blessed inspector form is
+  therefore:
+  - DROP the group prefix when =group == (file-name-base file)= (the
+    defaulted, non-CATEGORY case) — show just =▤ <origin>=, matching the
+    board (which only surfaces the group under =org-air-show-group=).
+  - when the group IS a real =#+CATEGORY= and is a Denote-style name,
+    DE-SLUG it (via =org-air-view--denote-title=) for the same readability
+    as the origin.
+  This is in-spirit of D-P2 (de-slug long names consistently, no
+  redundancy, no overflow) and is part of the D-P2 contract: the inspector
+  ERT (below) asserts the NO-redundant-group form (a defaulted Denote
+  group does not appear; a real CATEGORY appears de-slugged).
 
 ** Project-view two-line filename row
 =org-air-project--insert-doc-block= (org-air-project.el ~L426):
@@ -323,7 +339,9 @@ inconsistent with the board.  Fix (small, consistency):
 - An inspector ERT (batch-safe via the inspector-lines seam, NOT the live
   hook — inspector stays inert when =noninteractive=): render the inspector
   for the long-Denote item, assert the origin line shows the de-slugged
-  title and is ≤ rail width (no overflow).
+  title, is ≤ rail width (no overflow), and is in the NO-redundant-group
+  form (a defaulted Denote group == =file-name-base= does NOT appear; add a
+  CATEGORY variant asserting a real =#+CATEGORY= group appears de-slugged).
 
 * Constraints (carried from the findings spec)
 org-ql only; Emacs 29.1+.  V6 alignment + svg line-height clamp + byte/TTY
@@ -379,6 +397,13 @@ every verify (stale .elc).  Inspector inert in batch (no new hooks here).
   ERT close the gap the old F1 test (line-width-only) missed.  D-P2 makes
   the inspector origin + the project two-line filename row de-slug long
   Denote names consistently; both already truncate via pad-to (no
-  overflow), so D-P2 is a readability/consistency fix.  V6 pixel-lock,
+  overflow), so D-P2 is a readability/consistency fix.
+- (sign-off 2026-06-25) APPROVED an in-spirit impl refinement into the D-P2
+  contract: the inspector DROPS a redundant group prefix when the group is
+  the defaulted =(file-name-base file)= (no =#+CATEGORY=) and DE-SLUGs a
+  real Denote =#+CATEGORY= group — closing a redundancy the literal spec
+  (which kept the =group/= prefix unconditionally) would have introduced
+  for Denote files.  Breaks no test; the inspector ERT asserts the
+  no-redundant-group form.  V6 pixel-lock,
   svg line-height clamp and byte/TTY fallback all preserved; no
   svg/face/glyph bytes move.

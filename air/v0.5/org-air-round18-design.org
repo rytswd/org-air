@@ -1,0 +1,75 @@
+#+title: org-air v0.5 round-18 (design) — perf + filter + project parity + view-pane UX
+#+FILETAGS: :perf:ui:filter:project:design:
+
+* Note
+D-P1 (perf) specced by the orchestrator after the design seat crashed
+repeatedly (4×) on this round; profiled from the live render path. Review
+gates impl as usual. D-P2..D-P5 follow (design or orchestrator).
+
+* D-P1 [CRIT] — performance: cache svg pills + incremental render
+*Profiled bottleneck (org-air-view.el):* =org-air-view--render= does
+=erase-buffer= + a FULL recompose on every action (TAB-expand, calendar
+month-nav, refresh, toggle).  Items are ALREADY cached
+(=org-air-view--items=; only explicit refresh re-queries via
+=org-air-query-items=), so the cost is NOT org-ql.  The cost is svg: there
+are ≥4 =svg-create=/=svg-image= call sites (the date/tag pill
+=--svg-pillify=, the line-clamped =--svg-line-image=, the priority square
+=--svg-priority-square=) with NO cache — so every render regenerates EVERY
+pill image from scratch.  583 items × several pills each = thousands of
+=svg-create=+=svg-image= per keypress → the lag.
+
+** D-P1.A — svg pill image CACHE (the primary win)
+- Add a buffer-or-global hash table =org-air-view--svg-cache=
+  (=make-hash-table :test 'equal=).
+- Wrap the image-producing path (the final =svg-image= return in
+  =--svg-pillify=, =--svg-line-image=, =--svg-priority-square=) so it FIRST
+  computes a *cache key* and returns a cached image on hit; on miss it
+  builds the svg + image once and =puthash=es it.
+- *Cache key* = everything the rendered image depends on: the trimmed label
+  TEXT, the resolved colours (fg / fill / border strings), the radius,
+  fill-alpha/border-opacity, the pad/vinset, the style symbol, AND the
+  current char metrics (=org-air-view--pill-char-w= . =-pill-char-h=) +
+  font/text-scale + theme generation.  (Two pills with the same text+face+
+  metrics ARE the same image — that is the whole point.)
+- *Invalidation:* clear the hash table whenever metrics/appearance change:
+  on =text-scale-mode-hook= / font change, on =enable-theme-functions= /
+  theme change, and when =--char-dimensions= differs from the cached value
+  (width/scale change).  A monotonically-bumped =org-air-view--svg-gen=
+  counter folded into the key is the simplest correct invalidation (bump on
+  theme/font/width change → all old keys miss → table can also be cleared).
+- Effect: a full recompose now does ~O(distinct pills) svg work (tens), not
+  O(all pills) (thousands).  Most renders become cache-hits → fast.
+
+** D-P1.B — incremental render (secondary, after A)
+Avoid the full =erase-buffer= recompose when only part changed:
+- *Calendar month-nav* (=org-air-calendar-prev/next=): re-render ONLY the
+  calendar block in the rail, not the whole buffer.  Use a marker-delimited
+  region (like the inspector =--inspector-beg/-end=): delete + reinsert just
+  the calendar lines under =inhibit-read-only=+=save-excursion=.
+- *TAB-expand* (show ±N more in a section): re-render ONLY that section's
+  rows (its marker region), not the buffer.  Keep point.
+- The board rows / rail otherwise unchanged → untouched.
+- Fall back to the full render only when orientation/width changes.
+- With D-P1.A the full render is already cheap, so D-P1.B is the polish for
+  truly instant nav; ship A first, then B.
+
+** D-P1 verification
+- Byte fixtures UNCHANGED (perf is internal; the rendered text/images are
+  identical — the cache returns the same image object).  make check stays
+  green.
+- Add a micro-bench note (optional): render twice, assert the 2nd is a
+  cache-hit (e.g. an instrumented counter), and a cache-invalidation unit
+  (bump gen → miss).  Target: TAB-expand / month-nav feel instant (sub-100ms)
+  at 583 entries.
+
+* D-P2..D-P5 (to be specced next)
+- D-P2 filter: prompt pre-fills current filter; AND combinator (toggle AND/OR);
+  show active filter + combinator.
+- D-P3 project view reuses the dashboard view core (filter/inspector/pane/keymaps).
+- D-P4 view pane: auto-follow (like inspector) + focusable; RET opens pane (2nd
+  RET focuses), org-air-visit-item → S-RET; board + project.
+- D-P5 rougier-nano/mu4e modernisation pass (focused).
+
+* Implementation History
+- (pending) D-P1 perf specced by orchestrator (design-seat crashes); profiled
+  the render path: full recompose + un-cached svg pills = the lag.

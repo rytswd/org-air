@@ -321,6 +321,44 @@
     ;; confirming the change is project-view-local).  No real impl bug
     ;; surfaced; no .el source touched.  Round-16 manifest is EMPTY; the
     ;; tests stay as permanent regression guards.
+    ;; ===================================================================
+    ;; v0.5 ROUND-17 D-P1 grind (impl track) — origin column bounded +
+    ;; title-min budget (air/v0.5/org-air-round17-design.org).
+    ;;
+    ;; 2026-06-25: D-P1 landed in org-air-view.el — the origin TEXT is
+    ;; capped at `org-air-origin-max-width' (26) via
+    ;; `org-air-view--origin-capped' (V6 glyph/svg cell intact), and
+    ;; `org-air-view--compute-meta-widths' now takes the render (board-pane)
+    ;; WIDTH and runs a width-aware fit pass that reclaims columns for the
+    ;; flex title until it reaches `org-air-title-min-width' (24): the
+    ;; origin shrinks toward `org-air-origin-min' (12) FIRST, then tags,
+    ;; date held — the deliberate INVERSION of the never-wired D2
+    ;; origin-protected priority to a title-protected one.  Because the fit
+    ;; pass mirrors `insert-row''s arithmetic on the BOARD-PANE width (which
+    ;; is much narrower than the frame width in two-pane mode), any tier
+    ;; whose board pane would starve the title below 24 now reclaims
+    ;; columns — so the deltas are NOT limited to W80: the W120 board pane
+    ;; (~83 cols) and the height/threshold tiers also shift (title gains
+    ;; columns, origin/tags shrink).  W160's board pane (~113) is wide
+    ;; enough that nothing shrinks → layout-mockup-160 is byte-identical.
+    ;; These are [byte] fixture deltas, NOT impl bugs; TEST re-blesses via
+    ;; the frozen-clock renderer + BLESS follows.
+    (org-air-layout-mockup-80
+     . "R17 D-P1: W80 board-only title-min fit shrinks origin->12 + tags")
+    (org-air-layout-mockup-120
+     . "R17 D-P1: W120 board-pane (~83) title-min fit reclaims title cols")
+    (org-air-layout-mockup-heights
+     . "R17 D-P1: narrow-tier height variants pick up the title-min fit")
+    (org-air-layout-mockup-thresholds
+     . "R17 D-P1: 90/96/100/104/110 board panes pick up the title-min fit")
+    (org-air-r13-board-only-byte-mockup
+     . "R17 D-P1: W70 board-only title-min fit shrinks origin/tags")
+    ;; Two EXISTING tests encode the pre-R17 (origin-protected) contract
+    ;; and must be reworked on the test track to the title-protected one:
+    (org-air-r9-f1-denote-origin-rendered-and-truncates
+     . "R17 D-P1.C: origin capped at 26 cols, full long slug no longer surfaces; superseded by org-air-r17-long-denote-origin-keeps-title (test track reworks to capped prefix + cap assertion)")
+    (org-air-v1b-origin-protected-on-overflow
+     . "R17 D-P1.D: priority INVERTED to title-protected; origin now yields first (down to org-air-origin-min), no longer kept whole on overflow (test track reworks to the title-protected contract)")
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

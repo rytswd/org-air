@@ -403,14 +403,37 @@ pop-in / reconcile."
   :group 'org-air)
 
 (defcustom org-air-origin-min 12
-  "Columns reserved for the origin breadcrumb in a two-pane item row (D2).
-The origin is the item's identity and RET target; tags and then the
-title shrink before the origin, which keeps at least this many columns."
+  "Floor width (columns) the origin cell keeps under the title-min budget (R17).
+When the width-aware fit pass in `org-air-view--compute-meta-widths'
+shrinks the origin column to fund `org-air-title-min-width', the origin --
+the item's identity / RET target -- never drops below this many columns,
+so it can never vanish entirely.  Round-17 INVERTS the original D2
+priority (which shrank the title before the origin): the title is now the
+protected primary identity, the origin yields first (down to this floor),
+then tags."
   :type 'integer
   :group 'org-air)
 
-(defcustom org-air-title-min 24
-  "Floor width for a truncated item title before the origin shrinks (D2)."
+(defcustom org-air-origin-max-width 26
+  "Hard cap (display columns) for the origin cell in a board item row (R17).
+The cell is the `▤' glyph + its space + the file/title text; a longer
+origin truncates the TEXT with the ellipsis glyph (the glyph cell and its
+box-fit svg overlay are untouched).  This BOUNDS the V6 right cluster so a
+long Denote slug can never starve the flex title.  Range guidance 24-28;
+26 keeps a real de-slugged Denote title legible while the cluster stays
+bounded at every tier."
+  :type 'integer
+  :group 'org-air)
+
+(define-obsolete-variable-alias 'org-air-title-min
+  'org-air-title-min-width "org-air 0.5")
+
+(defcustom org-air-title-min-width 24
+  "Guaranteed minimum display width for the flex item title (R17).
+The origin (then tags) shrink so the title keeps at least this many
+columns before the right cluster yields; only when the line itself is too
+narrow to honour it (e.g. the board-only tier) does the title fall below.
+The title is the row's primary identity, so it wins the budget."
   :type 'integer
   :group 'org-air)
 
@@ -1379,13 +1402,27 @@ the svg box gains genuine internal margin and the byte/V6 widths track it."
               (propertize (org-air-view--glyph 'more) 'face 'org-air-face-faded)))
      (t shown))))
 
+(defun org-air-view--origin-capped (item)
+  "Return ITEM's origin TEXT capped to `org-air-origin-max-width' (R17).
+The 2-col `▤ ' lead is reserved separately (`org-air-view--item-origin-raw'),
+so the text budget is the cap minus those 2 columns; a longer text
+truncates with the ellipsis glyph.  V6: only the TEXT truncates -- the
+glyph cell (and its box-fit svg overlay) is untouched."
+  (let* ((text (org-air-view--origin item))
+         (budget (max 1 (- org-air-origin-max-width 2))))
+    (if (<= (string-width text) budget)
+        text
+      (truncate-string-to-width text budget nil nil
+                                (org-air-view--glyph 'more)))))
+
 (defun org-air-view--item-origin-raw (item)
   "Return the origin breadcrumb \"▤ FILE\" for ITEM (unfaced).
 D-P2: the leading origin glyph carries the drawn document-icon svg overlay
 via `org-air-view--svg-file-icon'; the glyph TEXT is unchanged so the byte
-width/cell holds."
+width/cell holds.  R17: the origin TEXT is capped via
+`org-air-view--origin-capped' so a long Denote slug cannot grow the cell."
   (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
-          " " (org-air-view--origin item)))
+          " " (org-air-view--origin-capped item)))
 
 (defun org-air-view--timestamp-repeater (timestamp)
   "Return (TYPE VALUE UNIT) of TIMESTAMP's Org repeater, or nil (R14 D-P2).
@@ -1478,12 +1515,21 @@ xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
                 (org-air-view--item-repeat-marker item)
                 (or inbox-hint ""))))))
 
-(defun org-air-view--compute-meta-widths (items)
-  "Set the V6 metadata column widths over the rendered ITEMS.
+(defun org-air-view--compute-meta-widths (items width)
+  "Set the V6 metadata column widths over the rendered ITEMS at WIDTH.
 Walks the same section buckets the pane renders and records the widest
 date label (bare, no Inbox nudge), tag string and origin so date / tags /
 origin each occupy a fixed-width column down the whole list and line up
-vertically.  The date floor is `org-air-date-column'."
+vertically.  The date floor is `org-air-date-column'.
+
+R17: the origin column is capped at `org-air-origin-max-width' (it is
+already capped per-item at the source, this is belt-and-braces), then a
+width-aware fit pass reclaims columns for the flex title so it keeps at
+least `org-air-title-min-width': the origin shrinks toward
+`org-air-origin-min' first, then tags toward a 1-col floor; the date
+column is held.  This INVERTS the never-wired D2 origin-protected
+priority -- the title is the row's primary identity and is protected
+first."
   (let ((dw org-air-date-column) (tw 0) (ow 0) (rep 0) (tw-todo 0))
     (dolist (descriptor org-air-view--sections)
       (let* ((bucket (car descriptor))
@@ -1505,6 +1551,42 @@ vertically.  The date floor is `org-air-date-column'."
             (setq tw (max tw (string-width ts)))
             (setq ow (max ow (string-width
                               (org-air-view--item-origin-raw item))))))))
+    ;; R17 piece C: the per-item origin TEXT is already capped at the
+    ;; source (`org-air-view--origin-capped'), so OW is inherently <= the
+    ;; cap; clamp anyway (belt-and-braces -- width and rendered cell agree).
+    (setq ow (min ow org-air-origin-max-width))
+    ;; R17 piece D: title-min budget.  The title's left edge is board-wide
+    ;; constant: margin+indent + the reserved keyword cell (+1 sep) + the
+    ;; fixed priority slot (`square style only).  Mirror `insert-row''s
+    ;; arithmetic EXACTLY (gap=2; cluster cells joined by single spaces).
+    (let* ((gap 2)
+           (left-reserve (+ (string-width (org-air-view--item-margin))
+                            (if (> tw-todo 0) (1+ tw-todo) 0)
+                            (if (eq org-air-priority-style 'square) 2 0)))
+           (dcol (+ dw rep))
+           ;; present cluster cells (width>0) -> one separator between each.
+           (cluster (lambda (o)
+                      (let ((cells (delq nil (list (and (> dcol 0) dcol)
+                                                   (and (> tw   0) tw)
+                                                   (and (> o     0) o)))))
+                        (+ (apply #'+ cells) (max 0 (1- (length cells)))))))
+           (budget (lambda (o)
+                     (- width left-reserve gap (funcall cluster o)))))
+      ;; 1) shrink the origin toward its floor until the title reaches min.
+      (while (and (> ow org-air-origin-min)
+                  (< (funcall budget ow) org-air-title-min-width))
+        (setq ow (1- ow)))
+      ;; 2) still starved? shrink tags toward 0 (keep a 1-col floor when any
+      ;;    item carries tags, so the tag column doesn't disappear silently).
+      (let ((tw-floor (if (> tw 0) 1 0)))
+        (while (and (> tw tw-floor)
+                    (< (funcall budget ow) org-air-title-min-width))
+          (setq tw (1- tw))))
+      ;; 3) date is held (small, uniform, semantic).  If the line is so
+      ;;    narrow that even origin+tags at floor cannot fund the title min
+      ;;    (board-only tier), the title floor in `insert-row' (max 1) takes
+      ;;    over -- never crash, never overflow.
+      )
     (setq org-air-view--meta-date-w dw
           org-air-view--meta-tags-w tw
           org-air-view--meta-origin-w ow
@@ -1560,7 +1642,15 @@ this one primitive, faces, truncation, alignment and svg pills)."
                        (max dcol (string-width (or date-text ""))))))
          (tags-cell (when (> tcol 0) (org-air-view--pad-to (or tags "") tcol)))
          (origin-cell (when (> ocol 0)
-                        (let* ((ot (or origin-text ""))
+                        ;; R17: the fit pass can shrink OCOL below a capped
+                        ;; origin's width (e.g. 13 at W80); truncate OT to
+                        ;; OCOL FIRST so a wider text can't overflow the
+                        ;; cell.  At the wide tiers OT already fits OCOL
+                        ;; (the board-wide max), so this is a no-op there
+                        ;; and the wide goldens stay byte-identical.
+                        (let* ((ot (truncate-string-to-width
+                                    (or origin-text "") ocol nil nil
+                                    (org-air-view--glyph 'more)))
                                (w (string-width ot)))
                           (concat (make-string (max 0 (- ocol w)) ?\s)
                                   (if origin-face
@@ -2592,7 +2682,7 @@ now-redundant date."
   (when org-air-view--day
     (org-air-view--insert-day-pane items width))
   (unless org-air-view--day
-  (org-air-view--compute-meta-widths items)
+  (org-air-view--compute-meta-widths items width)
   (let ((org-air-view--line-width width)
         (visible (org-air-view--visible-items items))
         (first t))

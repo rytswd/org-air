@@ -1,0 +1,30 @@
+  org-air                                                                                          Mon 15 Jun · 2 items
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  □ Inbox 1                                                                           │ ▌ June 2026                  ‹ ›
+      TODO   File the …  Tomorrow     · file with r  #inbox               ▤ inbox.org │       Su Mo Tu We Th Fr Sa
+                                                                                      │           1  2  3  4  5  6
+  ▲ Needs attention 0                                                                 │        7  8  9 10 11 12 13
+      Nothing overdue. Nice.                                                          │       14 15 16●17 18 19 20
+                                                                                      │       21 22 23 24 25 26 27
+  ◆ Upcoming 2                                                                        │       28 29 30
+      TODO   Reconcile the quarterly…  Tomorrow      #work   #admin  ▤ weekly-invali… │
+      TODO   File the receipts         Tomorrow      #inbox               ▤ inbox.org │       ◆ due    ● sched
+                                                                                      │
+  ★ High priority 0                                                                   │ ▌ Summary
+      No #A items.                                                                    │      1   Inbox
+                                                                                      │      0   Needs attention
+  ○ Stale 0                                                                           │      2   Upcoming
+      Nothing has gone stale.                                                         │      0   High priority
+                                                                                      │      0   Stale
+                                                                                      │    ────
+                                                                                      │      2   total
+                                                                                      │
+                                                                                      │ ▌ Inspector
+                                                                                      │
+                                                                                      │ ▌ Filters
+                                                                                      │    No filters · all items
+                                                                                      │
+                                                                                      │ ▌ Actions
+                                                                                      │    c capture / filter   s scope
+                                                                                      │    g refresh TAB expand ? help

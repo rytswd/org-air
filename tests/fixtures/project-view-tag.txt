@@ -11,7 +11,7 @@
     . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... | | Inspector
   [W] Zeta work in progress   #core   #ui                             |  Epsilon plan
     . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  State   [D] Draft
-  [C] Beta CLI   #core                                                |  Path    ~/Coding/github....
+  [C] Beta CLI   #core                                                |  Path    ~air/v0.2/epsilo...
     . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |  #context #ui
                                                                       |  Group   v0.2
   | #ui 4                                                             |

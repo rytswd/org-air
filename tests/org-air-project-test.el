@@ -52,7 +52,8 @@ afterwards.  Skips cleanly until impl2 provides the command."
      ;; punch list shows red.  The render+assertions run once it exists.
      (should (fboundp 'org-air-project))
      (let ((org-air-sources (list (list :air org-air-project-test-root))))
-       (org-air-project-test--with-frozen-mtime
+       (org-air-test-with-frozen-project-path org-air-project-test-root
+        (org-air-project-test--with-frozen-mtime
         (save-window-excursion
          (org-air-project)
          (let ((buf (seq-find (lambda (b)
@@ -62,7 +63,7 @@ afterwards.  Skips cleanly until impl2 provides the command."
            (should buf)
            (unwind-protect
                (with-current-buffer buf ,@body)
-             (when (buffer-live-p buf) (kill-buffer buf)))))))))
+             (when (buffer-live-p buf) (kill-buffer buf))))))))))
 
 ;;;; F5f — air faces (face-only; land on the design tip → pass now).
 
@@ -166,7 +167,8 @@ D-P1.B project inspector's relative date terms (created/updated `(Nd ago)')
 are byte-stable, and the file mtime is pinned for the same reason."
   (let ((org-air-sources (list (list :air org-air-project-test-root)))
         (org-air-project-view-width width))
-    (org-air-viewport-test--with-frozen-now
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+     (org-air-viewport-test--with-frozen-now
      (org-air-project-test--with-frozen-mtime
      (save-window-excursion
        (org-air-project)
@@ -183,7 +185,7 @@ are byte-stable, and the file mtime is pinned for the same reason."
                (org-air-viewport-test--drop-trailing-blanks
                 (mapcar #'string-trim-right
                         (split-string (buffer-string) "\n"))))
-           (when (buffer-live-p buf) (kill-buffer buf )))))))))
+           (when (buffer-live-p buf) (kill-buffer buf ))))))))))
 
 (ert-deftest org-air-f5-project-view-byte-mockups ()
   "The honest org-air-project render of the ./air fixture equals the

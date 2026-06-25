@@ -95,7 +95,11 @@ in --batch), right-trimmed."
                                 org-air-test-fixture-dir))
          (org-air-sources (list (list :air root)))
          (org-air-project-view-width width))
-    (org-air-viewport-test--with-frozen-now
+    ;; R17 harness fix: freeze the abbreviated doc path so the inspector
+    ;; `Path' line is path-INDEPENDENT (the byte test applies the SAME
+    ;; freeze), so these goldens are deterministic across checkout roots.
+    (org-air-test-with-frozen-project-path root
+     (org-air-viewport-test--with-frozen-now
      (org-air-project-test--with-frozen-mtime
       (save-window-excursion
         (org-air-project)
@@ -107,7 +111,7 @@ in --batch), right-trimmed."
             (when (and group-fn (commandp group-fn))
               (call-interactively group-fn))
             (org-air-regen--emit out (org-air-regen--lines)))
-          (when (buffer-live-p buf) (kill-buffer buf))))))))
+          (when (buffer-live-p buf) (kill-buffer buf)))))))))
 
 ;; R16 D-P3: bottom *org-air-view* source-pane goldens.  The pane content
 ;; is the header-line (text contract) + the read-only entry snapshot; we

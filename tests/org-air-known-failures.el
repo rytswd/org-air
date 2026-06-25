@@ -322,49 +322,59 @@
     ;; surfaced; no .el source touched.  Round-16 manifest is EMPTY; the
     ;; tests stay as permanent regression guards.
     ;; ===================================================================
-    ;; v0.5 ROUND-17 D-P1 grind (impl track) — origin column bounded +
-    ;; title-min budget (air/v0.5/org-air-round17-design.org).
-    ;;
-    ;; 2026-06-25: D-P1 landed in org-air-view.el — the origin TEXT is
-    ;; capped at `org-air-origin-max-width' (26) via
-    ;; `org-air-view--origin-capped' (V6 glyph/svg cell intact), and
-    ;; `org-air-view--compute-meta-widths' now takes the render (board-pane)
-    ;; WIDTH and runs a width-aware fit pass that reclaims columns for the
-    ;; flex title until it reaches `org-air-title-min-width' (24): the
-    ;; origin shrinks toward `org-air-origin-min' (12) FIRST, then tags,
-    ;; date held — the deliberate INVERSION of the never-wired D2
-    ;; origin-protected priority to a title-protected one.  Because the fit
-    ;; pass mirrors `insert-row''s arithmetic on the BOARD-PANE width (which
-    ;; is much narrower than the frame width in two-pane mode), any tier
-    ;; whose board pane would starve the title below 24 now reclaims
-    ;; columns — so the deltas are NOT limited to W80: the W120 board pane
-    ;; (~83 cols) and the height/threshold tiers also shift (title gains
-    ;; columns, origin/tags shrink).  W160's board pane (~113) is wide
-    ;; enough that nothing shrinks → layout-mockup-160 is byte-identical.
-    ;; These are [byte] fixture deltas, NOT impl bugs; TEST re-blesses via
-    ;; the frozen-clock renderer + BLESS follows.
-    (org-air-layout-mockup-80
-     . "R17 D-P1: W80 board-only title-min fit shrinks origin->12 + tags")
-    (org-air-layout-mockup-120
-     . "R17 D-P1: W120 board-pane (~83) title-min fit reclaims title cols")
-    (org-air-layout-mockup-heights
-     . "R17 D-P1: narrow-tier height variants pick up the title-min fit")
-    (org-air-layout-mockup-thresholds
-     . "R17 D-P1: 90/96/100/104/110 board panes pick up the title-min fit")
-    (org-air-r13-board-only-byte-mockup
-     . "R17 D-P1: W70 board-only title-min fit shrinks origin/tags")
-    ;; Two EXISTING tests encode the pre-R17 (origin-protected) contract
-    ;; and must be reworked on the test track to the title-protected one:
-    (org-air-r9-f1-denote-origin-rendered-and-truncates
-     . "R17 D-P1.C: origin capped at 26 cols, full long slug no longer surfaces; superseded by org-air-r17-long-denote-origin-keeps-title (test track reworks to capped prefix + cap assertion)")
-    (org-air-v1b-origin-protected-on-overflow
-     . "R17 D-P1.D: priority INVERTED to title-protected; origin now yields first (down to org-air-origin-min), no longer kept whole on overflow (test track reworks to the title-protected contract)")
-    ;; NEW R17 D-P1 #2 byte golden: the isolated long-Denote board fixtures
-    ;; (denote-origin-80/120.txt) do not exist yet -- the regen function
-    ;; (org-air-regen--write-denote) is landed but only the test track runs
-    ;; `make regen-mockups' + blesses the bytes.  Red until that closeout.
-    (org-air-r17-denote-origin-byte-mockup
-     . "R17 D-P1 #2: denote-origin-{80,120}.txt not blessed yet; test track regen+bless via org-air-regen--write-denote")
+    ;; v0.5 ROUND-17 D-P1/D-P2 CLOSEOUT (impl tip wvxmvqlu + test re-bless
+    ;; <this commit>).  ALL 8 grind entries CLOSED — fixtures regenerated
+    ;; from impl's render via the FROZEN-CLOCK renderer (make regen-mockups,
+    ;; guards active; verified NO HANG, exit 0) and the byte/assertion tests
+    ;; re-blessed to the design-blessed origin-cap + title-protected budget
+    ;; (air/v0.5/org-air-round17-design.org):
+    ;;   D-P1.C/D (origin cap + title-min fit): the GTD board mockups moved
+    ;;     wherever the board pane would starve the title below 24 — the
+    ;;     title gains columns while the origin (then tags) yield (origin
+    ;;     floored at `org-air-origin-min' 12).  Regen'd: layout-mockup-80
+    ;;     + -120 (board-pane ~83) + the 90/96/100/104/110 thresholds + the
+    ;;     x24/x50 height variants + the W70 board-only fixture.  W160
+    ;;     natural/x24 are byte-identical (board pane ~113 never starves the
+    ;;     title); 160x50 + the x50 tier moved ONLY on the D-P2 inspector
+    ;;     de-slug line (▤ inbox/inbox.org → ▤ inbox.org, the redundant
+    ;;     group dropped).  Closed: org-air-layout-mockup-80, -120,
+    ;;     -heights, -thresholds, org-air-r13-board-only-byte-mockup.
+    ;;   D-P1 #2 (isolated long-Denote byte golden): denote-origin-{80,120}
+    ;;     .txt regen'd + blessed via org-air-regen--write-denote (NOT in the
+    ;;     GTD board *.org set, so the 25 layout mockups stay local to the
+    ;;     above deltas).  Closed: org-air-r17-denote-origin-byte-mockup.
+    ;;   The two pre-R17 contract tests reworked on the TEST track to the
+    ;;     title-protected contract (the D2 origin-protected priority is
+    ;;     inverted): org-air-r9-f1-denote-origin-rendered-and-truncates now
+    ;;     asserts the de-slug PREFIX + the `<= org-air-origin-max-width' cap
+    ;;     (the full long slug no longer surfaces); org-air-v1b-origin-
+    ;;     protected-on-overflow now asserts the ORIGIN yields (capped, then
+    ;;     shrunk to its floor → truncated with the ellipsis) while the
+    ;;     TITLE keeps its guaranteed minimum.  Both deleted here as
+    ;;     passed-unexpectedly after the rework.
+    ;; New round-17 guards added on the test track (passing, not grind):
+    ;;   org-air-r17-long-denote-origin-keeps-title — the title-floor guard
+    ;;     the line-width-only F1 test missed; asserts on the MODELED row
+    ;;     (`org-air-priority-style' square slot + a BARE date, NOT the
+    ;;     Inbox-nudged row) so the floor is the genuine budget guarantee.
+    ;;   org-air-r17-origin-capped-{defcustoms,unit} + -compute-meta-widths-
+    ;;     title-budget — the cap + budget units.
+    ;;   org-air-r17-inspector-origin-deslugs — D-P2 + the design-approved
+    ;;     no-redundant-group refinement (ouyqxrnt): de-slugged title shows,
+    ;;     the defaulted Denote-base group is DROPPED, a real #+CATEGORY
+    ;;     group is shown DE-SLUGGED.
+    ;;   org-air-r17-project-line2-deslugs-leaf — D-P2 project line-2 leaf.
+    ;; Pre-existing harness artifact fixed (was path-dependent, only green
+    ;; on the blessing machine): org-air-f5-project-view-byte-mockups now
+    ;; freezes the inspector `Path' via `directory-abbrev-alist'
+    ;; (org-air-test-with-frozen-project-path → `~air/…') in BOTH the test
+    ;; render and the regen, so the project goldens are path-INDEPENDENT and
+    ;; deterministic across checkout roots (~/… vs /tmp/…).
+    ;; Verified: regen did NOT hang; the board deltas are exactly the
+    ;; title-gain / origin-yield rows + the D-P2 inspector de-slug; no extra
+    ;; test failed; V6 date/origin columns stay aligned.  No .el SOURCE
+    ;; touched (the impl landed D-P1/D-P2 in ruskyvwn+yuurwyro).  Round-17
+    ;; manifest is EMPTY; the tests stay as permanent regression guards.
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

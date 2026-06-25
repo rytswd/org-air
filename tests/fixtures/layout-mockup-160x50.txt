@@ -22,7 +22,7 @@
       TODO   Prepare standup notes                             Tomorrow        #projects   #work     ▤ projects.org │
       TODO   Email finance about budget                        Tomorrow        #work                     ▤ work.org │ ▌ Inspector
       …and 3 more — press TAB on the title to expand                                                                │    Quick note about org-air idea
-                                                                                                                    │    ▤ inbox/inbox.org
+                                                                                                                    │    ▤ inbox.org
   ★ High priority 3                                                                                                 │    #inbox
       TODO ■ Ship quarterly report                             Wed             #projects   #work  …  ▤ projects.org │
       TODO ■ Fix production outage runbook                     OVERDUE 5d      #projects   #work  …  ▤ projects.org │

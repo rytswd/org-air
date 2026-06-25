@@ -134,13 +134,30 @@ usable title at W80/W120/W160 -- the title's visible width is at least
 `org-air-title-min-width' (or its own width when shorter), NOT a bare
 `TODO…'.  The origin column is bounded by `org-air-origin-max-width', the
 id/__tags/.org never surface, and no line overflows.  THIS is the guard
-the line-width-only F1 test could not catch."
+the line-width-only F1 test could not catch.
+
+Review nit: the title-min budget (`org-air-view--compute-meta-widths') is
+computed for the MODELED row -- `org-air-priority-style' `square' (the
+fixed 2-col slot) over a BARE date label (no Inbox nudge).  Rows that
+DIVERGE from that model -- a badge / text priority prefix, or the
+Inbox-nudged date cell (which is wider than the bare label the budget
+reserves) -- can legitimately dip a hair under title-min, so this guard
+deliberately asserts on the long-Denote item, which IS the modeled row
+(square slot, no priority; `:work:admin:' so its date is bare, NOT the
+Inbox `· file with r' nudge).  `org-air-priority-style' is pinned to
+`square' so the asserted row's prefix geometry matches the budget model
+exactly and the floor is the genuine guarantee, not an accident."
   (skip-unless (locate-library "org-air"))
   ;; the render runs under `org-air-viewport-test-as-gui', so anchor the
   ;; truncation on the GUI ellipsis (computing it in the batch TTY context
   ;; would give the ASCII fallback and never match the rendered glyph).
   (let ((more (org-air-viewport-test--glyph 'more 'gui))
-        (heading org-air-viewport-test-denote-long-title))
+        (heading org-air-viewport-test-denote-long-title)
+        ;; modeled-row contract: the fixed square slot matches the budget's
+        ;; `left-reserve' (margin+indent + reserved keyword cell + 2-col
+        ;; square slot), so the long-Denote row is the row the title-min
+        ;; budget actually targets.
+        (org-air-priority-style 'square))
     (dolist (width '(80 120 160))
       (ert-info ((format "width %d" width))
         (org-air-r17--with-denote-board width
@@ -148,6 +165,10 @@ the line-width-only F1 test could not catch."
                  (row (org-air-r17--item-row lines))
                  (text (buffer-string)))
             (should row)
+            ;; the anchored row is the MODELED (bare-date, non-Inbox) row,
+            ;; NOT the Inbox-nudged `File the receipts' row.
+            (should-not (string-match-p "file with r"
+                                        (substring-no-properties row)))
             ;; (a) the title survived: its visible width >= the floor.
             (let ((vis (org-air-r17--visible-title-width row heading more))
                   (floor (min (string-width heading) org-air-title-min-width)))
@@ -227,45 +248,84 @@ byte-identical.  Regenerated + blessed via the frozen-clock renderer
 ;;;; ---------------------------------------------------------------------
 
 (ert-deftest org-air-r17-inspector-origin-deslugs ()
-  "D-P2: the inspector origin line shows the SAME de-slugged Denote title
-the board shows -- not the raw identifier--slug__tags.org -- and is
-bounded by the rail width (pad-to: no overflow).  Driven via the
-batch-safe inspector-lines seam (the live hook stays inert in --batch)."
+  "D-P2 (+ the design-approved no-redundant-group refinement): the
+inspector origin line shows the SAME de-slugged Denote title the board
+shows -- not the raw identifier--slug__tags.org -- bounded by the rail
+width (pad-to: no overflow).  Per design's D-P2 sign-off
+(ouyqxrnt: APPROVE inspector no-redundant-group + de-slug group):
+  (a) the de-slugged title shows; the id / __tags / .org never surface;
+  (b) the group breadcrumb is DROPPED when the item's group is just the
+      defaulted Denote file-name-base (the redundant case), and a real
+      #+CATEGORY group is shown DE-SLUGGED (never the raw slug).
+Driven via the batch-safe inspector-lines seam (the live hook stays inert
+in --batch)."
   (skip-unless (locate-library "org-air"))
   (let ((dir (make-temp-file "org-air-r17-insp-" t)))
     (unwind-protect
         (progn
+          ;; (1) a Denote file with NO #+CATEGORY -- its group defaults to
+          ;;     the Denote file-name-base, so the breadcrumb is redundant
+          ;;     and must be DROPPED (no `group/' prefix).
           (with-temp-file
               (expand-file-name
                "20260614T170000--weekly-invalidation-rate-upgrade-with-a-long-denote-slug__work_admin.org"
                dir)
             (insert "* TODO Long denote note\nSCHEDULED: <2026-06-16 Tue>\n"))
+          ;; (2) a Denote file with a real Denote-style #+CATEGORY -- a
+          ;;     genuine category distinct from the base, shown DE-SLUGGED
+          ;;     (id/__tags stripped), never the raw slug.
+          (with-temp-file
+              (expand-file-name
+               "20260614T180000--another-long-denote-note__proj.org"
+               dir)
+            (insert (concat "#+CATEGORY: 20250101T000000--my-project-slug__proj\n"
+                            "* TODO Cat denote note\nSCHEDULED: <2026-06-16 Tue>\n")))
           (let ((org-air-files (directory-files dir t "\\.org\\'"))
                 (org-air-inbox-file (expand-file-name "inbox.org" dir)))
             (org-air-viewport-test--with-frozen-now
               (let* ((items (org-air-query-items))
-                     (item (org-air-test-find-item "Long denote note" items)))
-                (should item)
+                     (bare (org-air-test-find-item "Long denote note" items))
+                     (catd (org-air-test-find-item "Cat denote note" items)))
+                (should bare) (should catd)
                 (dolist (width '(30 44 60))
                   (ert-info ((format "rail width %d" width))
-                    (let* ((lines (org-air-view--inspector-lines item width))
+                    ;; --- (a) + (b: no redundant group) on the bare item ---
+                    (let* ((lines (org-air-view--inspector-lines bare width))
                            (origin (seq-find
                                     (lambda (l)
                                       (string-match-p
-                                       "weekly-invalidation\\|20260614"
+                                       "weekly-invalidation\\|20260614T170000"
                                        (substring-no-properties l)))
-                                    lines)))
+                                    lines))
+                           (otext (and origin (substring-no-properties origin))))
                       (should origin)
-                      ;; the de-slugged title shows, the machinery does not.
-                      (should (string-match-p
-                               "weekly-invalidation"
-                               (substring-no-properties origin)))
+                      ;; (a) the de-slugged title shows, machinery does not.
+                      (should (string-match-p "weekly-invalidation" otext))
                       (should-not (string-match-p
-                                   "20260614T170000\\|__work\\|__admin"
-                                   (substring-no-properties origin)))
+                                   "20260614T170000\\|__work\\|__admin" otext))
+                      ;; (b) the defaulted Denote-base group is DROPPED --
+                      ;;     no `group/' breadcrumb leaks.
+                      (should-not (string-match-p "/" otext))
                       ;; bounded by the rail width (no overflow).
-                      (should (<= (string-width (substring-no-properties origin))
-                                  width)))))))))
+                      (should (<= (string-width otext) width)))
+                    ;; --- (b: real #+CATEGORY de-slugged) on the cat item ---
+                    (let* ((lines (org-air-view--inspector-lines catd width))
+                           (origin (seq-find
+                                    (lambda (l)
+                                      (string-match-p
+                                       "my-project-slug\\|another-long\\|20260614T180000"
+                                       (substring-no-properties l)))
+                                    lines))
+                           (otext (and origin (substring-no-properties origin))))
+                      (should origin)
+                      ;; the real category shows as a DE-SLUGGED breadcrumb
+                      ;; (`my-project-slug/...'), never the raw slug.
+                      (should (string-match-p "my-project-slug/" otext))
+                      (should-not (string-match-p
+                                   "20250101T000000\\|__proj\\|20260614T180000"
+                                   otext))
+                      ;; bounded by the rail width (no overflow).
+                      (should (<= (string-width otext) width)))))))))
       (delete-directory dir t))))
 
 (ert-deftest org-air-r17-project-line2-deslugs-leaf ()

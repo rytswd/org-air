@@ -278,9 +278,15 @@ behaviour) — Denote parsing must not mangle ordinary files."
       (should (equal (org-air-view--origin item) "projects.org")))))
 
 (ert-deftest org-air-r9-f1-denote-origin-rendered-and-truncates ()
-  "F1: in a rendered board a long Denote name shows the de-slugged title
-in the origin column (not the id/tags), and a too-long title truncates
-with the ellipsis glyph — never overflowing the line width."
+  "F1 re-bless (R17 D-P1.C): in a rendered board a long Denote name shows
+the de-slugged title PREFIX in the origin column, CAPPED at
+`org-air-origin-max-width' -- the FULL long slug no longer surfaces (the
+pre-R17 contract that the whole de-slugged title appears is superseded by
+the origin cap).  The id / __tags / .org never appear, the origin column
+is bounded by the cap, and nothing overflows the width.  The title-floor
+guarantee (the title is no longer starved to `TODO…') is covered by
+`org-air-r17-long-denote-origin-keeps-title'; this guards the de-slug +
+cap at the canonical W80."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-r9--with-denote-board
@@ -292,9 +298,16 @@ with the ellipsis glyph — never overflowing the line width."
           (should buf)
           (unwind-protect
               (with-current-buffer buf
-                (let ((text (buffer-string)))
-                  ;; the title slug surfaces; the machinery never does.
-                  (should (string-match-p "a-very-long-denote-note-title" text))
+                (let ((text (substring-no-properties (buffer-string))))
+                  ;; the de-slugged title PREFIX surfaces (the origin is the
+                  ;; readable Denote title, not the machine name) ...
+                  (should (string-match-p "a-very-long-denote" text))
+                  ;; ... but the cap means the FULL long slug no longer does.
+                  (should-not (string-match-p "title-that-keeps-going" text))
+                  ;; the origin column is bounded by the cap (R17 D-P1.C).
+                  (should (<= org-air-view--meta-origin-w
+                              org-air-origin-max-width))
+                  ;; the id / __tags machinery and .org never surface.
                   (should-not (string-match-p "20260614T170000" text))
                   (should-not (string-match-p "__x_y\\|\\.org" text)))
                 ;; nothing overflows the composed width.

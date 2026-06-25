@@ -1,0 +1,18 @@
+  org-air                                                  Mon 15 Jun · 2 items
+  ──────────────────────────────────────────────────────────────────────────────
+
+  □ Inbox 1
+      TODO   File the …  Tomorrow     · file with r  #inbox          ▤ inbox.org
+
+  ▲ Needs attention 0
+      Nothing overdue. Nice.
+
+  ◆ Upcoming 2
+      TODO   Reconcile the quarterly…  Tomorrow      #work   #admi… ▤ weekly-in…
+      TODO   File the receipts         Tomorrow      #inbox          ▤ inbox.org
+
+  ★ High priority 0
+      No #A items.
+
+  ○ Stale 0
+      Nothing has gone stale.

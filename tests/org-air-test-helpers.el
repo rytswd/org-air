@@ -81,5 +81,30 @@ Uses `org-air-item-title'; only call when org-air is available."
                                 (or (org-air-item-title item) "")))
               items))
 
+(defconst org-air-test-project-path-token "~air"
+  "Deterministic stand-in for the air-project fixture ROOT in the project
+inspector `Path' line.  The inspector renders `abbreviate-file-name' of the
+doc's ABSOLUTE path, which differs by checkout location (~/… under HOME vs
+/tmp/… on CI, where HOME does not abbreviate) — a harness artifact that made
+the project-view byte goldens machine-dependent (they only matched on the
+blessing machine).  Freezing the root to this token via
+`directory-abbrev-alist' makes the Path field — and thus the project-view
+goldens — path-INDEPENDENT and deterministic (R17 harness fix).")
+
+(defmacro org-air-test-with-frozen-project-path (root &rest body)
+  "Run BODY with the project ROOT abbreviated to a fixed token.
+Binds `directory-abbrev-alist' so `abbreviate-file-name' of any doc path
+under ROOT renders as `org-air-test-project-path-token'/… regardless of
+where the checkout lives, so the project-view inspector `Path' line — and
+the byte goldens that pin it — are deterministic (R17 harness fix).  The
+entry is anchored at the start of the path and applied BEFORE the HOME→~
+step in `abbreviate-file-name', so the result never depends on $HOME."
+  (declare (indent 1) (debug t))
+  `(let ((directory-abbrev-alist
+          (cons (cons (concat "\\`" (regexp-quote (directory-file-name ,root)))
+                      org-air-test-project-path-token)
+                directory-abbrev-alist)))
+     ,@body))
+
 (provide 'org-air-test-helpers)
 ;;; org-air-test-helpers.el ends here

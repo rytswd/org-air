@@ -11,7 +11,7 @@
     . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... | | Inspector
                                                                       |  Epsilon plan
   | [W] Work In Progress 1                                            |  State   [D] Draft
-  Zeta work in progress   #core   #ui                                 |  Path    ~/Coding/github....
+  Zeta work in progress   #core   #ui                                 |  Path    ~air/v0.2/epsilo...
     . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  #context #ui
                                                                       |  Group   v0.2
   | [C] Complete 1                                                    |

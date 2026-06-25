@@ -406,22 +406,34 @@ D-P2 [byte]: the origin glyph is now ▤ (file), not ⌂ (house)."
         (should (string-match-p "Chase missing invoice  +" lp))))))
 
 (ert-deftest org-air-v1b-origin-protected-on-overflow ()
-  "D2 + V6 overflow: at a narrow width the title/tags truncate toward the
-`more' (…) marker, but the origin is NEVER dropped — it stays whole and
-flush-right."
+  "R17 D-P1.D re-bless (INVERTS the pre-R17 D2 priority): the TITLE is the
+protected primary identity now, so on a narrow board the ORIGIN yields
+FIRST -- it is capped at `org-air-origin-max-width' then shrunk toward
+`org-air-origin-min' to fund the title's `org-air-title-min-width'.  At
+W120 the two-pane board pane is narrow enough that the fit pass drives the
+origin column to its floor, so a longer origin (`projects.org') truncates
+with the ellipsis glyph instead of staying whole -- the deliberate reversal
+of the old origin-protected contract.  The title keeps its guaranteed
+minimum (its long prefix survives, not a bare `TODO…').  D-P2: the origin
+glyph is ▤ (file)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 120
-      ;; The runbook row is long; at 120 the title truncates.  Search a
-      ;; prefix that survives V6's title truncation.
       (let ((lp (org-air-v1b--item-leftpane "Fix produc"))
             (more (org-air-viewport-test--glyph 'more 'gui)))
         (should lp)
-        ;; Origin intact and flush-right despite the overflow (D2); D-P2:
-        ;; the origin glyph is now ▤ (file), not ⌂ (house).
-        (should (string-suffix-p "▤ projects.org" lp))
-        ;; A faded overflow marker shows content was dropped before it.
-        (should (string-match-p (regexp-quote more) lp))))))
+        ;; the origin column shrank to fund the title (R17): it sits within
+        ;; [origin-min, origin-max], driven to its floor at this tier.
+        (should (>= org-air-view--meta-origin-w org-air-origin-min))
+        (should (<= org-air-view--meta-origin-w org-air-origin-max-width))
+        ;; title-protected: the title is no longer starved -- a long title
+        ;; prefix (well past the old `Fix produc' truncation) survives.
+        (should (string-match-p "Fix production outage" lp))
+        ;; the ORIGIN now yields: it is still flush-right but TRUNCATED with
+        ;; the ellipsis glyph -- no longer kept whole (the D2 inversion).
+        (should (string-match-p "▤ projects" lp))
+        (should (string-suffix-p more lp))
+        (should-not (string-suffix-p "▤ projects.org" lp))))))
 
 (ert-deftest org-air-v3-frame-chrome-removed ()
   "V3: the round-4 buffer-box outer frame is GONE — a half-drawn frame is

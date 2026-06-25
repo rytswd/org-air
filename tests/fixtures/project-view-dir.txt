@@ -11,7 +11,7 @@
   | . v0.2/ 3                                                         | | Inspector
   [D] Epsilon plan   #context   #ui                                   |  Gamma context
     . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |  State   [D] Draft
-  [W] Zeta work in progress   #core   #ui                             |  Path    ~/Coding/github....
+  [W] Zeta work in progress   #core   #ui                             |  Path    ~air/v0.1/air-co...
     . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  #context
   [X] Delta UI exploration   #ui                                      |  Group   v0.1
     . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |

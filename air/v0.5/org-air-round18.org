@@ -1,0 +1,76 @@
+#+title: org-air v0.5 round-18: performance + AND-filter + project parity + view-pane UX
+#+state: ready
+#+FILETAGS: :perf:ui:filter:project:critical:
+
+* Summary
+Round-18 from feedback on the large (583-entry) dataset.  Headline is a
+CRITICAL performance problem (every interaction lags); plus filter UX
+(continue/AND), project-view parity with the dashboard, view-pane
+auto-follow + focus + key changes, and continued rougier-nano/mu4e
+modernisation.  Design-led; design PROFILES P1 before proposing.
+
+* Findings
+
+** P1 [CRIT] Re-render is slow — interactions lag (unacceptable)
+On the 583-entry dataset, common actions have noticeable delay: expanding a
+title (TAB to show more items), next/prev month on the calendar, refresh,
+etc.  Likely causes to PROFILE + fix:
+- a FULL recompose/re-render on every action (recompute every row + every
+  svg pill for all visible items) instead of incremental;
+- svg generation per pill (date/tag/priority) with no caching — hundreds of
+  =svg-create=/=svg-image= calls per render;
+- org-ql re-query / re-classify on actions that don't need it.
+*Design to PROFILE (where the time goes) and PROPOSE the strategy*, e.g.:
+- memoise/cache svg pill images (key = text+face+metrics), invalidate on
+  font/theme/width change;
+- incremental render — only redraw the affected section on TAB-expand; only
+  redraw the calendar block on month-nav (never the whole buffer);
+- cache the query/classify result; re-render from cache without re-querying.
+Target: interactions feel instant (sub-100ms) at 583+ entries.  Keep V6 +
+byte contract; the byte fixtures must still pass (perf is internal).
+
+** P2 [HIGH] Filter: continue from current + AND semantics
+- The filter prompt must PRE-FILL the existing filter string so the user
+  can continue narrowing (edit/extend), not start from scratch.
+- Multiple filter terms must combine with **AND** (currently OR), and the
+  user must be able to TOGGLE the combinator (AND/OR).  Show the active
+  filter + combinator.
+
+** P3 [HIGH] Project view must reuse the dashboard's view handling
+The project view feels disjoint — it lacks the dashboard's filtering (and
+other interaction handling).  Make the two VERY similar: the project view
+should reuse MOST of the dashboard's view machinery — filtering (P2), the
+inspector, the view pane (P4), keymaps, refresh — sharing the core rather
+than re-implementing.  Identify what's still bespoke in org-air-project and
+fold it onto the shared core.
+
+** P4 [HIGH] View pane: auto-follow + focus + key changes
+- The bottom view pane should AUTO-INSPECT (follow point automatically, like
+  the inspector) by default, not only via opt-in follow-mode.
+- It should be FOCUSABLE: when the view pane is open and the user hits
+  RET, focus moves into the view pane.
+- *Key changes:* RET opens the view pane (was =v=); a SECOND RET / RET while
+  open focuses it.  =org-air-visit-item= moves to **S-RET** (shift+return).
+  Keep =v=/=V= as optional aliases if useful.  Apply in BOTH board + project.
+
+** P5 [MED/ongoing] Modernisation toward rougier nano / mu4e
+Still needs refinement — it should look as modern as rougier's nano-emacs /
+mu4e.  Design to identify concrete polish (spacing, typography, the header/
+mode-line, the view-pane chrome, calmer colour, svg refinement) and propose
+a focused set.  Incremental; pair with the other items.
+
+* Constraints
+- org-ql only; Emacs 29.1+.  V6 + byte/TTY contract preserved (perf is
+  internal — fixtures must still pass).  Reuse-over-reimplement (P3).  Build
+  on round-17 trunk.
+
+* Work items (design-led; design PROFILES P1 first; review gates integration)
+- D-P1  perf: profile + cache svg pills + incremental render (proposal+spec) [CRIT]
+- D-P2  filter: pre-fill current + AND/OR combinator                         [HIGH]
+- D-P3  project view reuses the dashboard view core (filter/inspector/pane)  [HIGH]
+- D-P4  view pane auto-follow + focus + RET/S-RET key changes                [HIGH]
+- D-P5  rougier/mu4e modernisation pass (focused proposal)                   [MED]
+
+* Implementation History
+- (pending) round-18 opened: CRIT perf lag at 583 entries + filter
+  continue/AND + project parity + view-pane UX + modernisation.

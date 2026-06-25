@@ -175,3 +175,23 @@ track ACE runtime artifacts in this git repo.
   the ~/Coding/bin + ~/Coding/go/bin mounts so it can ever-pub the verdict).
   Flow: impl phase commit -> review -> APPROVE => orchestrator integrates;
   CHANGES-NEEDED => route findings back to impl.
+
+## Reboot recovery (FULL — impermanence wipes /tmp, worker workspaces, AND ever hooks)
+A reboot now wipes more than /tmp. Recovery order:
+1. Regenerate demo data: `python3 examples/demo/generate-large.py /tmp/org-air`
+   (583 entries/50 files incl. long Denote names) or `generate.py` for small.
+2. Rebuild the /tmp/org-air-ace rig (notify.sh, on-exit-*.sh, tick.sh) from
+   the recipe above; mkdir -p /tmp/org-air-ace/logs.
+3. Recreate ever topics + RE-REGISTER hooks + timer (they get wiped):
+   for r in design impl test review; do for e in status done learnings; do
+     ever topic create org-air3.work.$r.$e; done; done
+   ever topic create org-air3.monitor.tick
+   ever hook add org-air3.work. -- /tmp/org-air-ace/notify.sh
+   ever hook add org-air3.monitor.tick -- /tmp/org-air-ace/tick.sh
+   ever timer add --name org-air-monitor --every 3m org-air3.monitor.tick '{"tick":1}'
+4. RECREATE worker workspaces (gone on reboot — ~/Coding is impermanent):
+   for w in design impl test review; do
+     [ -d ../org-air-$w ] || { jj --config signing.behavior=drop workspace forget org-air-$w 2>/dev/null;
+       jj --config signing.behavior=drop workspace add --name org-air-$w ../org-air-$w; }; done
+5. Trunk + .jj survive (the default workspace), so all shipped work is safe.
+   Bump the tick.sh BASE to the current trunk tip for the active round.

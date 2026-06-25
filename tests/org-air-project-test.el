@@ -312,5 +312,123 @@ never an image placeholder — the byte layer is pure text."
 ;; round-8 bug-batch fast-tracked to main ahead of this F5 stream.)
 
 
+;;;; R18 D-P3 — the project reuses the dashboard view core.
+
+(defun org-air-r18-dp3--doc-positions ()
+  "Return the first buffer position of each DISTINCT project doc row.
+Dedupes by the `org-air-doc' OBJECT so two spans of the same doc row never
+count as two rows (the follow change-guard keys on the doc object)."
+  (let (seen positions)
+    (save-excursion
+      (goto-char (point-min))
+      (let ((pos (point)))
+        (while (and pos (< pos (point-max)))
+          (let ((doc (get-text-property pos 'org-air-doc)))
+            (when (and doc (not (memq doc seen)))
+              (push doc seen)
+              (push pos positions)))
+          (setq pos (next-single-property-change pos 'org-air-doc)))))
+    (nreverse positions)))
+
+(ert-deftest org-air-r18-dp3-project-filter-narrows ()
+  "R18 D-P3: a tag filter thins the project docs exactly like the board.
+AND shows only docs carrying ALL active tags; OR shows any; clearing
+restores every doc.  Driven through the shared filter STATE + the doc-aware
+`org-air-view--tags-pass-filter-p' (set the state, refresh, read the docs)."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-project-view-width 100))
+    (org-air-project-test--render
+     (when (commandp 'org-air-project-group-by-state)
+       (call-interactively 'org-air-project-group-by-state))
+     (let ((all (buffer-string)))
+       ;; baseline: every fixture doc title renders.
+       (dolist (doc org-air-project-test-docs)
+         (should (string-match-p (regexp-quote (plist-get (cdr doc) :title)) all))))
+     ;; #ui filter -> only the four ui-tagged docs.
+     (setq org-air-view--tag-filter '("ui") org-air-filter-match 'all)
+     (org-air-project-refresh)
+     (let ((text (buffer-string)))
+       (should (string-match-p "Alpha feature" text))
+       (should (string-match-p "Delta UI exploration" text))
+       (should (string-match-p "Epsilon plan" text))
+       (should (string-match-p "Zeta work in progress" text))
+       ;; the non-ui docs are gone.
+       (should-not (string-match-p "Beta CLI" text))
+       (should-not (string-match-p "Gamma context" text))
+       ;; the header surfaces the active filter.
+       (should (string-match-p "#ui" text)))
+     ;; AND #ui #core -> only docs carrying BOTH (alpha, zeta).
+     (setq org-air-view--tag-filter '("ui" "core") org-air-filter-match 'all)
+     (org-air-project-refresh)
+     (let ((text (buffer-string)))
+       (should (string-match-p "#ui AND #core" text))
+       (should (string-match-p "Alpha feature" text))
+       (should (string-match-p "Zeta work in progress" text))
+       (should-not (string-match-p "Delta UI exploration" text)) ; ui only
+       (should-not (string-match-p "Epsilon plan" text)))         ; context+ui
+     ;; OR #ui #core -> the union (everything with ui OR core).
+     (setq org-air-filter-match 'any)
+     (org-air-project-refresh)
+     (let ((text (buffer-string)))
+       (should (string-match-p "#ui OR #core" text))
+       (should (string-match-p "Beta CLI" text))            ; core
+       (should (string-match-p "Delta UI exploration" text)) ; ui
+       (should-not (string-match-p "Gamma context" text)))  ; neither
+     ;; clear -> all docs back.
+     (org-air-filter-clear)
+     (let ((text (buffer-string)))
+       (dolist (doc org-air-project-test-docs)
+         (should (string-match-p (regexp-quote (plist-get (cdr doc) :title)) text)))))))
+
+(ert-deftest org-air-r18-dp3-project-filter-command-prefills ()
+  "`org-air-project-filter' pre-fills the prompt with the active filter.
+Shares `org-air-view--read-filter' with the board, so each invocation
+continues narrowing."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-project-view-width 100))
+    (org-air-project-test--render
+     (setq org-air-view--tag-filter '("ui" "core"))
+     (let ((captured 'unset))
+       (cl-letf (((symbol-function 'completing-read-multiple)
+                  (lambda (_prompt _table &optional _pred _req initial &rest _)
+                    (setq captured initial)
+                    '("ui"))))
+         (call-interactively #'org-air-project-filter))
+       (should (equal captured "ui,core"))
+       ;; the chosen filter was applied.
+       (should (equal org-air-view--tag-filter '("ui")))))))
+
+(ert-deftest org-air-r18-dp3-project-pane-follow-on-doc-change ()
+  "R18 D-P3: the view pane auto-follows the SELECTED DOC in the project.
+The project installs the same follow change-guard; only window I/O is
+stubbed (batch-safe).  Moving to a different doc redraws; staying does not."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-project-view-width 120)
+        (org-air-view-pane-follow t)
+        (shown '()))
+    (org-air-project-test--render
+     (let ((positions (org-air-r18-dp3--doc-positions)))
+       (should (> (length positions) 1))
+       (cl-letf (((symbol-function 'org-air-view-pane--window-live-p)
+                  (lambda () t))
+                 ((symbol-function 'org-air-view-pane--show)
+                  (lambda (ctx)
+                    (push (plist-get ctx :title) shown)
+                    ctx)))
+         (let ((board (current-buffer))
+               (docA (nth 0 positions))
+               (docB (nth 1 positions)))
+           ;; move to A -> redraw (changed from the nil seed).
+           (goto-char docA)
+           (org-air-view--view-pane-update-now board)
+           (should (= (length shown) 1))
+           ;; stay on A -> no redraw.
+           (org-air-view--view-pane-update-now board)
+           (should (= (length shown) 1))
+           ;; move to B -> redraw.
+           (goto-char docB)
+           (org-air-view--view-pane-update-now board)
+           (should (= (length shown) 2))))))))
+
 (provide 'org-air-project-test)
 ;;; org-air-project-test.el ends here

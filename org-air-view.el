@@ -638,16 +638,37 @@ of whether the wrapping pane margin is added later (D6).")
     map)
   "Transient g-prefix map (B4): r refresh, g top of pane, R refresh+clear.")
 
+(defvar org-air-view-core-map
+  (let ((map (make-sparse-keymap)))
+    ;; Keep the `special-mode' defaults reachable below the shared core.
+    (set-keymap-parent map special-mode-map)
+    ;; R18 D-P3: the unambiguous VIEW-CORE keys live here ONCE, so they can
+    ;; never drift between the board and project maps (both inherit this via
+    ;; `set-keymap-parent').  RET owns the bottom view pane; v/V open+close
+    ;; it; \ clears the filter; M-/ toggles AND/OR.  Each child overrides
+    ;; only its motion, its per-mode `/' filter, its S-RET visit target and
+    ;; its DOMAIN verbs.
+    (define-key map (kbd "RET") #'org-air-view-pane-return)
+    (define-key map (kbd "<mouse-1>") #'org-air-view-pane-return)
+    (define-key map (kbd "v") #'org-air-view-pane)
+    (define-key map (kbd "V") #'org-air-view-pane-close)
+    (define-key map (kbd "\\") #'org-air-filter-clear)
+    (define-key map (kbd "M-/") #'org-air-filter-toggle-match)
+    map)
+  "Shared view-core keymap, parent of the board + project mode maps (R18 D-P3).
+Reuse the core, override the bespoke: the keys here are identical across
+both views; per-mode domain verbs stay in each child map.")
+
 (defvar org-air-view-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; R18 D-P4: RET owns the bottom view pane (open, then focus on a 2nd
-    ;; RET); visiting the file in the other window moves to S-RET (and `O'
-    ;; as a TTY alias since terminals can't send S-RET).
-    (define-key map (kbd "RET") #'org-air-view-pane-return)
+    ;; R18 D-P3: inherit the shared view-core keys (RET pane, v/V, \, M-/).
+    (set-keymap-parent map org-air-view-core-map)
+    ;; R18 D-P4: visiting the file in the other window is S-RET (and `O' as
+    ;; a TTY alias since terminals can't send S-RET); RET itself opens the
+    ;; pane (inherited from the core map).
     (define-key map (kbd "<S-return>") #'org-air-visit-item)
     (define-key map (kbd "S-RET") #'org-air-visit-item)
     (define-key map (kbd "O") #'org-air-visit-item)
-    (define-key map (kbd "<mouse-1>") #'org-air-view-pane-return)
     (define-key map (kbd "n") #'org-air-next-item)
     (define-key map (kbd "p") #'org-air-prev-item)
     ;; R3: vim-ish line navigation; j/k are NOT destructive.
@@ -681,11 +702,9 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "x") #'org-air-item-kill)
     (define-key map (kbd "u") #'org-air-triage-undo)
     (define-key map (kbd "I") #'org-air-process-inbox)
+    ;; `/' is the per-mode filter (board item tags); `\' clear + `M-/'
+    ;; toggle are inherited from the shared core map (R18 D-P3).
     (define-key map (kbd "/") #'org-air-filter)
-    (define-key map (kbd "\\") #'org-air-filter-clear)
-    ;; R18 D-P2: M-/ toggles the multi-tag combinator AND <-> OR (the
-    ;; sibling of the `/' filter key; `|' is already `org-air-rail-toggle').
-    (define-key map (kbd "M-/") #'org-air-filter-toggle-match)
     ;; Scope moves off the prime key so s = schedule (the triage verb).
     (define-key map (kbd "S") #'org-air-scope-clear)
     ;; B4: vim/evil g-prefix — "g r" refresh, "g g" top of pane, "g R"
@@ -700,9 +719,8 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "?") #'org-air-help)
     ;; R16 D-P1: pop the context rail in/out of a native side window.
     (define-key map (kbd "|") #'org-air-rail-toggle)
-    ;; R16 D-P3: open/refresh + close the bottom source view pane.
-    (define-key map (kbd "v") #'org-air-view-pane)
-    (define-key map (kbd "V") #'org-air-view-pane-close)
+    ;; R16 D-P3 / R18 D-P3: v/V open+close the bottom view pane — inherited
+    ;; from `org-air-view-core-map' now (shared with the project).
     (define-key map (kbd "q") #'org-air-quit)
     map)
   "Keymap for `org-air-view-mode'.")
@@ -920,15 +938,23 @@ Denote-style name."
    ((listp org-air-view--tag-filter) org-air-view--tag-filter)
    ((stringp org-air-view--tag-filter) (list org-air-view--tag-filter))))
 
-(defun org-air-view--passes-filter-p (item)
-  "Return non-nil when ITEM passes active tag filters."
+(defun org-air-view--tags-pass-filter-p (item-tags)
+  "Return non-nil when ITEM-TAGS satisfy the active filter + combinator.
+R18 D-P3: the pure matcher SHARED by the board (`org-air-item-tags') and
+the project (`org-air-doc-tags') so both views filter identically.
+`org-air-filter-match' selects `all' (every active tag must match, AND) or
+`any' (one matches, OR)."
   (let ((filters (org-air-view--filter-tags))
-        (tags (mapcar #'downcase (org-air-item-tags item))))
+        (tags (mapcar #'downcase item-tags)))
     (or (null filters)
         (let ((filters (mapcar #'downcase filters)))
           (if (eq org-air-filter-match 'all)
               (seq-every-p (lambda (tag) (member tag tags)) filters)
             (seq-some (lambda (tag) (member tag tags)) filters))))))
+
+(defun org-air-view--passes-filter-p (item)
+  "Return non-nil when ITEM passes active tag filters."
+  (org-air-view--tags-pass-filter-p (org-air-item-tags item)))
 
 (defun org-air-view--passes-scope-p (item)
   "Return non-nil when ITEM passes the active scope."
@@ -3422,6 +3448,21 @@ NO `no-other-window' — the pane is reachable; survives `delete-other-windows'
          (get-buffer-window buf (selected-frame))
          t)))
 
+(defun org-air-view--pane-host-p ()
+  "Non-nil in a buffer that hosts the bottom view pane (R18 D-P3).
+The board (`org-air-view-mode') AND the project (`org-air-project-mode')
+both drive the same pane, so the follow hook fires in either."
+  (or (derived-mode-p 'org-air-view-mode)
+      (derived-mode-p 'org-air-project-mode)))
+
+(defun org-air-view--view-pane-thing-at-point ()
+  "Return the follow change-guard key for the row at point (R18 D-P3).
+The board item, else the project doc, else the shared `org-air-marker' —
+so the pane re-follows when the SELECTED ROW changes in either view."
+  (or (get-text-property (point) 'org-air-item)
+      (get-text-property (point) 'org-air-doc)
+      (get-text-property (point) 'org-air-marker)))
+
 (defun org-air-view-pane--context-at-point ()
   "Return a plist describing the source to show for the item/doc at point.
 Keys: :marker (a marker or filepath string), :file, :title, :state.
@@ -3573,9 +3614,9 @@ opened (R16 D-P3).  Key `v'."
   (let ((ctx (org-air-view-pane--context-at-point)))
     (unless ctx
       (user-error "No org-air item at point"))
-    (when (derived-mode-p 'org-air-view-mode)
+    (when (org-air-view--pane-host-p)
       (setq-local org-air-view--view-pane-item
-                  (get-text-property (point) 'org-air-item)))
+                  (org-air-view--view-pane-thing-at-point)))
     (org-air-view-pane--show ctx)))
 
 (defun org-air-view-pane-return ()
@@ -3605,9 +3646,9 @@ Redraws only when the item at point CHANGED and the pane window is live
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (when (and org-air-view-pane-follow
-                 (derived-mode-p 'org-air-view-mode)
+                 (org-air-view--pane-host-p)
                  (org-air-view-pane--window-live-p))
-        (let ((item (get-text-property (point) 'org-air-item)))
+        (let ((item (org-air-view--view-pane-thing-at-point)))
           (unless (eq item org-air-view--view-pane-item)
             (setq-local org-air-view--view-pane-item item)
             (let ((ctx (org-air-view-pane--context-at-point)))
@@ -3622,7 +3663,7 @@ inspector's idle-timer model so the snapshot+fontify on each item-change
 does not run synchronously on every command (responsive on large files)."
   (when (and (not noninteractive)
              org-air-view-pane-follow
-             (derived-mode-p 'org-air-view-mode)
+             (org-air-view--pane-host-p)
              (org-air-view-pane--window-live-p))
     (when (timerp org-air-view--view-pane-timer)
       (cancel-timer org-air-view--view-pane-timer))
@@ -4069,18 +4110,37 @@ filters are preserved by `org-air-refresh'."
   (goto-char (point-max))
   (org-air-prev-item))
 
+(defun org-air-view--read-filter (candidate-tags)
+  "Prompt for a tag filter PRE-FILLED with the active one (R18 D-P2/D-P3).
+CANDIDATE-TAGS is the completion vocabulary (board item tags, or project
+doc tags).  View-agnostic: shared by `org-air-filter' and
+`org-air-project-filter' so the pre-fill + AND default + `M-/' toggle are
+coded once."
+  (completing-read-multiple
+   "Filter tags: " candidate-tags nil nil
+   (when (org-air-view--filter-tags)
+     (mapconcat #'identity (org-air-view--filter-tags) ","))))
+
+(defun org-air-view--rerender-current-view ()
+  "Re-render whichever org-air view is current: board or project (R18 D-P3).
+The shared filter commands (`org-air-filter-clear',
+`org-air-filter-toggle-match') re-render through this so they work in BOTH
+the board and the project view without a hard dependency on
+org-air-project (resolved by `fboundp')."
+  (if (and (derived-mode-p 'org-air-project-mode)
+           (fboundp 'org-air-project-refresh))
+      (org-air-project-refresh)
+    (org-air-view--render-current)))
+
 (defun org-air-filter (tags)
   "Filter dashboard to TAGS, a comma-separated or list value.
 R18 D-P2: the prompt is PRE-FILLED with the active filter so each
 invocation continues narrowing instead of restarting; edit/extend the
 pre-filled value, or clear it to drop the filter."
   (interactive
-   (let* ((tags (delete-dups (sort (seq-mapcat #'org-air-item-tags org-air-view--items)
-                                   #'string<)))
-          (initial (when (org-air-view--filter-tags)
-                     (mapconcat #'identity (org-air-view--filter-tags) ",")))
-          (choice (completing-read-multiple "Filter tags: " tags nil nil initial)))
-     (list choice)))
+   (list (org-air-view--read-filter
+          (delete-dups (sort (seq-mapcat #'org-air-item-tags org-air-view--items)
+                             #'string<)))))
   (setq org-air-view--tag-filter (unless (null tags) tags))
   (org-air-view--render-current))
 
@@ -4103,20 +4163,20 @@ R18 D-P2: pre-fills with the first active filter tag (empty clears)."
   (org-air-view--render-current))
 
 (defun org-air-filter-clear ()
-  "Clear tag filters."
+  "Clear tag filters (shared by the board + project views, R18 D-P3)."
   (interactive)
   (setq org-air-view--tag-filter nil)
-  (org-air-view--render-current))
+  (org-air-view--rerender-current-view))
 
 (defun org-air-filter-toggle-match ()
   "Toggle the multi-tag filter combinator: AND (`all') <-> OR (`any').
 R18 D-P2: `all' means every active tag must match (narrow); `any' means
-any one matches (widen).  Re-renders and echoes the new mode.  Bound to
-`M-/' in the board and project maps; the banner/rail show the active
-combinator beside the filter chips."
+any one matches (widen).  Re-renders the current view (board or project,
+R18 D-P3) and echoes the new mode.  Bound to `M-/' in both maps; the
+banner/rail/project header show the active combinator beside the chips."
   (interactive)
   (setq org-air-filter-match (if (eq org-air-filter-match 'all) 'any 'all))
-  (org-air-view--render-current)
+  (org-air-view--rerender-current-view)
   (message "Filter match: %s" (if (eq org-air-filter-match 'all) "AND" "OR")))
 
 (defun org-air-view--filter-combinator-word ()

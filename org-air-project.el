@@ -596,10 +596,29 @@ contract; quiet faces."
             " "
             (propertize arrow 'face 'org-air-face-faded))))
 
+(defun org-air-project--filter-segment ()
+  "Return the active filter + combinator as a header segment, or empty string.
+R18 D-P3: mirrors the board banner (`#a AND #b' / `#a OR #b', single tag
+shows no combinator) so the two views read identically.  Empty when no
+filter is active, keeping the existing project goldens byte-identical."
+  (let* ((filters (org-air-view--filter-tags))
+         (sep (if (> (length filters) 1)
+                  (concat " " (org-air-view--filter-combinator-word) " ")
+                " ")))
+    (if filters
+        (propertize (concat " · "
+                            (mapconcat (lambda (tag) (concat "#" tag)) filters sep)
+                            " " (org-air-view--glyph 'clear))
+                    'face 'org-air-face-faded)
+      "")))
+
 (defun org-air-project--header-line (width)
   "Return the project header line for WIDTH: title left, sort badge right.
-The badge order is part of the byte contract (R16 D-P4)."
-  (let* ((title (propertize "  org-air · project" 'face 'org-air-face-title))
+The badge order is part of the byte contract (R16 D-P4).  R18 D-P3: an
+active tag filter + combinator is surfaced beside the title (empty when
+none, so the no-filter goldens are byte-identical)."
+  (let* ((title (concat (propertize "  org-air · project" 'face 'org-air-face-title)
+                        (org-air-project--filter-segment)))
          (badge (org-air-project--sort-indicator))
          (lw (string-width title))
          (bw (string-width badge))
@@ -763,7 +782,12 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
          (dims (org-air-view--char-dimensions))
          (org-air-view--pill-char-w (car dims))
          (org-air-view--pill-char-h (cdr dims))
-         (docs (org-air-project--collect-docs root))
+         ;; R18 D-P3: the shared filter core thins the docs by tag exactly
+         ;; as it thins board items (doc-aware `--tags-pass-filter-p').
+         (docs (seq-filter
+                (lambda (d) (org-air-view--tags-pass-filter-p
+                             (org-air-doc-tags d)))
+                (org-air-project--collect-docs root)))
          (sections (org-air-project--sections docs)))
     ;; R14 D-P1.B: this buffer hosts the SHARED mid-rail inspector with the
     ;; project's property + fields function.
@@ -901,6 +925,25 @@ between two-pane and board-only."
         (find-file-other-window (org-air-doc-file doc))
       (user-error "No Air document on this line"))))
 
+(defun org-air-project-filter (tags)
+  "Filter the project doc tree to TAGS (R18 D-P3, shares the board core).
+The prompt is PRE-FILLED with the active filter and the chosen terms
+combine with the shared `org-air-filter-match' combinator (AND by default,
+`M-/' toggles) — the same filter core the board uses, applied to
+`org-air-doc-tags'."
+  (interactive
+   (list (org-air-view--read-filter
+          (delete-dups
+           (sort (apply #'append
+                        (mapcar #'org-air-doc-tags
+                                (if org-air-project--root
+                                    (org-air-project--collect-docs
+                                     org-air-project--root)
+                                  nil)))
+                 #'string<)))))
+  (setq org-air-view--tag-filter (unless (null tags) tags))
+  (org-air-project-refresh))
+
 (defun org-air-project-quit ()
   "Quit the project view and restore the previous window."
   (interactive)
@@ -908,29 +951,30 @@ between two-pane and board-only."
 
 (defvar org-air-project-mode-map
   (let ((map (make-sparse-keymap)))
+    ;; R18 D-P3: inherit the SHARED view-core keys (RET pane, mouse-1, v/V,
+    ;; \ filter-clear, M-/ AND/OR toggle) so they can never drift from the
+    ;; board.  This child overrides only its motion, its DOMAIN verbs, its
+    ;; per-mode `/' doc filter and its S-RET visit target.
+    (set-keymap-parent map org-air-view-core-map)
     (define-key map (kbd "s") #'org-air-project-group-by-state)
     (define-key map (kbd "d") #'org-air-project-group-by-directory)
     (define-key map (kbd "t") #'org-air-project-group-by-tag)
     (define-key map (kbd "n") #'org-air-project-next)
     (define-key map (kbd "p") #'org-air-project-prev)
-    ;; R18 D-P4: RET owns the bottom view pane (open, then focus on a 2nd
-    ;; RET); visiting the doc in the other window moves to S-RET.  The
-    ;; board's `O' TTY alias is unavailable here (`O' = sort-reverse), so
-    ;; the doc stays reachable via S-RET / `v'.  D-P3 folds the two maps.
-    (define-key map (kbd "RET") #'org-air-view-pane-return)
+    ;; R18 D-P4: RET (inherited) opens the pane; visiting the doc in the
+    ;; other window is S-RET (the project's visit target).  The board's `O'
+    ;; TTY alias is unavailable here (`O' = sort-reverse).
     (define-key map (kbd "<S-return>") #'org-air-project-visit)
     (define-key map (kbd "S-RET") #'org-air-project-visit)
-    (define-key map (kbd "<mouse-1>") #'org-air-view-pane-return)
+    ;; R18 D-P3: the per-mode doc-tag filter (shares the board's pre-fill +
+    ;; AND default + M-/ toggle core).
+    (define-key map (kbd "/") #'org-air-project-filter)
     ;; R16 D-P4: sort the doc rows — `o' cycles the key, `O' flips direction.
     ;; `org-air-project-sort-set' selects a key directly (M-x; `g' here is a
     ;; single-key refresh, so it cannot also host a `g s' prefix).
     (define-key map (kbd "o") #'org-air-project-sort-cycle)
     (define-key map (kbd "O") #'org-air-project-sort-reverse)
     (define-key map (kbd "g") #'org-air-project-refresh)
-    ;; R16 D-P3: the bottom source view pane works here too (one pane, both
-    ;; views) — the doc rows carry `org-air-marker' = the doc file.
-    (define-key map (kbd "v") #'org-air-view-pane)
-    (define-key map (kbd "V") #'org-air-view-pane-close)
     (define-key map (kbd "q") #'org-air-project-quit)
     map)
   "Keymap for `org-air-project-mode'.")
@@ -946,7 +990,10 @@ between two-pane and board-only."
   ;; R14 D-P1.B: the project view hosts the shared mid-rail inspector; the
   ;; debounced point-tracking hook is INERT under batch (P0 contract).
   (unless noninteractive
-    (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t))
+    (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t)
+    ;; R18 D-P3/D-P4: the bottom view pane auto-follows here too (same hook
+    ;; as the board; guarded on a live pane window, inert under batch).
+    (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t))
   (org-air-layout-install-window-size-hook)
   (buffer-disable-undo))
 

@@ -202,5 +202,80 @@ The board's S-RET visits the item; the project's S-RET visits the doc."
   (should (eq (lookup-key org-air-project-mode-map (kbd "s"))
               'org-air-project-group-by-state)))
 
+;;;; ---------------------------------------------------------------------
+;;;; D-P3 — project parity: shared filter core + shared keymap parent.
+;;;; ---------------------------------------------------------------------
+
+(ert-deftest org-air-r18-dp3-tags-pass-filter-core ()
+  "`org-air-view--tags-pass-filter-p' is the shared AND/OR tag matcher.
+Lists in, combinator honoured, case-insensitive, empty filter passes all."
+  ;; AND: every active tag must be present.
+  (let ((org-air-view--tag-filter '("ui" "core"))
+        (org-air-filter-match 'all))
+    (should (org-air-view--tags-pass-filter-p '("ui" "core" "x")))
+    (should-not (org-air-view--tags-pass-filter-p '("ui")))
+    (should-not (org-air-view--tags-pass-filter-p '("core"))))
+  ;; OR: any one active tag suffices.
+  (let ((org-air-view--tag-filter '("ui" "core"))
+        (org-air-filter-match 'any))
+    (should (org-air-view--tags-pass-filter-p '("ui")))
+    (should (org-air-view--tags-pass-filter-p '("core")))
+    (should-not (org-air-view--tags-pass-filter-p '("zzz"))))
+  ;; case-insensitive both ways.
+  (let ((org-air-view--tag-filter '("UI"))
+        (org-air-filter-match 'all))
+    (should (org-air-view--tags-pass-filter-p '("ui"))))
+  ;; no filter -> everything passes (even an empty tag list).
+  (let ((org-air-view--tag-filter nil))
+    (should (org-air-view--tags-pass-filter-p '()))
+    (should (org-air-view--tags-pass-filter-p '("whatever")))))
+
+(ert-deftest org-air-r18-dp3-passes-filter-p-delegates ()
+  "The board's `org-air-view--passes-filter-p' delegates to the shared core."
+  (let ((org-air-view--tag-filter '("work"))
+        (org-air-filter-match 'all))
+    (let ((item (org-air-item-create :title "x" :tags '("work" "home"))))
+      (should (org-air-view--passes-filter-p item)))
+    (let ((item (org-air-item-create :title "y" :tags '("home"))))
+      (should-not (org-air-view--passes-filter-p item)))))
+
+(ert-deftest org-air-r18-dp3-project-keymap-inherits-core ()
+  "The project map INHERITS the shared view-core keys via its parent.
+RET/v/V/\\/M-/ resolve through `org-air-view-core-map'; `/' is the
+per-mode doc filter; the project DOMAIN verbs are NOT shadowed."
+  ;; The project map's parent is the shared core map.
+  (should (eq (keymap-parent org-air-project-mode-map) org-air-view-core-map))
+  (should (eq (keymap-parent org-air-view-mode-map) org-air-view-core-map))
+  ;; Inherited view-core keys resolve in the project map.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "RET"))
+              'org-air-view-pane-return))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "v"))
+              'org-air-view-pane))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "V"))
+              'org-air-view-pane-close))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "\\"))
+              'org-air-filter-clear))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "M-/"))
+              'org-air-filter-toggle-match))
+  ;; Per-mode `/' filter differs between the two views (the candidate
+  ;; source differs), so it stays in each child map.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "/"))
+              'org-air-project-filter))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "/"))
+              'org-air-filter))
+  ;; Domain verbs are NOT shadowed by the shared parent.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "s"))
+              'org-air-project-group-by-state))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "o"))
+              'org-air-project-sort-cycle))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "g"))
+              'org-air-project-refresh)))
+
+(ert-deftest org-air-r18-dp3-core-map-keeps-special-mode-parent ()
+  "The shared core map keeps `special-mode-map' as its grandparent.
+So `special-mode' defaults (e.g. the scroll/quit chain) stay reachable
+below the org-air bindings in both views."
+  (should (eq (keymap-parent org-air-view-core-map) special-mode-map)))
+
 (provide 'org-air-round18-ui-test)
 ;;; org-air-round18-ui-test.el ends here

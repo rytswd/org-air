@@ -87,6 +87,17 @@ single `org-ql-select' pass over the configured files."
       (org-ql-select files (or query '(heading))
         :action #'org-air-query--item-at-point))))
 
+(defun org-air-query-items-in-files (files &optional query)
+  "Return `org-air-item' records for FILES, a subset of the configured set.
+
+Like `org-air-query-items' but restricted to FILES (already-expanded Org
+file paths), so the cold first-load query can be split into batches and
+run on an idle timer without blocking the frame (R19-1).  QUERY defaults
+to all headings."
+  (when files
+    (org-ql-select files (or query '(heading))
+      :action #'org-air-query--item-at-point)))
+
 (provide 'org-air-query)
 
 ;; Local Variables:

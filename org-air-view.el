@@ -188,6 +188,45 @@ font metrics (text-scale aware) so svg pills are sized to the exact cell.")
 (defvar org-air-view--pill-char-h nil
   "Device-pixel height of one text line for the current render (C2/C3).")
 
+(defvar org-air-view--pill-style-sig nil
+  "Snapshot of the pill-geometry defcustoms for the current render (R18 D-P1a).
+Bound once in `org-air-view--render' alongside the char metrics so every
+pane shares ONE style signature; folded into the svg image cache key so a
+change to any pill-geometry defcustom yields fresh keys (auto-invalidation)
+without advice or an epoch counter.")
+
+(defvar org-air-view--svg-image-cache (make-hash-table :test 'equal :size 512)
+  "Global memo of pixel-identical svg overlay images keyed on their inputs.
+\(R18 D-P1a).  Shared across boards/panes (panes render in temp buffers, so
+a buffer-local table would not persist, and the key fully captures the
+environment: text + resolved colours + char-metrics + style signature).")
+
+(defun org-air-view--svg-image-cached (key thunk)
+  "Return the cached svg image for KEY, else (funcall THUNK) and cache it.
+\(R18 D-P1a).  KEY must capture EVERYTHING that changes the pixels (text /
+resolved colours / char-metrics / style), so a font/theme/width/text-scale
+change re-keys to a fresh image automatically.  A soft cap keeps memory
+bounded under font/theme churn."
+  (let ((hit (gethash key org-air-view--svg-image-cache 'miss)))
+    (if (eq hit 'miss)
+        (progn
+          (when (> (hash-table-count org-air-view--svg-image-cache) 4000)
+            (clrhash org-air-view--svg-image-cache))
+          (puthash key (funcall thunk) org-air-view--svg-image-cache))
+      hit)))
+
+(defun org-air-view--svg-image-cache-clear (&rest _)
+  "Drop every cached svg overlay image (R18 D-P1a).
+Belt-and-braces theme invalidation: although the resolved colour strings
+are already in the cache key, clearing on a theme switch stops the table
+accumulating dead palettes.  Safe to call from `enable-theme-functions'."
+  (clrhash org-air-view--svg-image-cache))
+
+(when (boundp 'enable-theme-functions)
+  (add-hook 'enable-theme-functions #'org-air-view--svg-image-cache-clear))
+(when (boundp 'disable-theme-functions)
+  (add-hook 'disable-theme-functions #'org-air-view--svg-image-cache-clear))
+
 (defcustom org-air-date-column 12
   "Fixed width of the date cell in the item-row metadata table (V6).
 The date is left-justified in this many columns so every row's date
@@ -1158,13 +1197,19 @@ fallback)."
           (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
                  (ch (or org-air-view--pill-char-h (frame-char-height)))
                  (color (org-air-view--priority-color char))
-                 (size (max 3.0 (* 0.62 (min cw ch))))
-                 (x (/ (- cw size) 2.0))
-                 (y (/ (- ch size) 2.0))
-                 (svg (svg-create cw ch)))
-            (svg-rectangle svg x y size size :rx 1 :ry 1 :fill color)
-            (propertize text 'display
-                        (org-air-view--svg-line-image svg cw ch))))
+                 ;; R18 D-P1a: the square is a pure function of (colour, cw,
+                 ;; ch); build it once and share the image.
+                 (image
+                  (org-air-view--svg-image-cached
+                   (list 'priority-square color cw ch)
+                   (lambda ()
+                     (let* ((size (max 3.0 (* 0.62 (min cw ch))))
+                            (x (/ (- cw size) 2.0))
+                            (y (/ (- ch size) 2.0))
+                            (svg (svg-create cw ch)))
+                       (svg-rectangle svg x y size size :rx 1 :ry 1 :fill color)
+                       (org-air-view--svg-line-image svg cw ch))))))
+            (propertize text 'display image)))
         text)))
 
 (defun org-air-view--priority-slot (char)
@@ -1289,62 +1334,82 @@ mandatory fallback."
                                "gray"))
                    (alpha (max 0.0 (min 1.0 (float org-air-pill-fill-alpha))))
                    (desired-fs (max 7 (round (* ch org-air-pill-font-scale))))
-                   (natural-w (org-air-view--pill-label-width
-                               label desired-fs cw ch))
-                   ;; width fit: never exceed inner-w (the actual clip fix).
-                   (font-size (if (and (> natural-w inner-w) (> natural-w 0))
-                                  (max 7 (floor (* desired-fs
-                                                   (/ inner-w (float natural-w)))))
-                                desired-fs)))
+                   ;; R18 D-P1a: defer the (expensive) label measurement into
+                   ;; a thunk so it runs ONLY on a cache miss; width-fit never
+                   ;; exceeds inner-w (the clip fix).
+                   (fit-font-size
+                    (lambda ()
+                      (let ((natural-w (org-air-view--pill-label-width
+                                        label desired-fs cw ch)))
+                        (if (and (> natural-w inner-w) (> natural-w 0))
+                            (max 7 (floor (* desired-fs
+                                             (/ inner-w (float natural-w)))))
+                          desired-fs)))))
               (if (and (not (org-air-view--string-pixel-width-available-p))
-                       (> (org-air-view--pill-label-width label font-size cw ch)
+                       (> (org-air-view--pill-label-width
+                           label (funcall fit-font-size) cw ch)
                           inner-w))
                   ;; D-P1.FIT cannot guarantee a fit (no string-pixel-width
                   ;; AND the estimate already overruns) -> mandatory text
                   ;; fallback (plain padded coloured label, no pill).
                   text
-                (let* ((svg (svg-create box-w h))
-                       ;; D-P4: a salient priority border draws full strength;
-                       ;; the neutral tag/date border stays a hairline.
-                       (stroke-op (if border-color
-                                      1.0
-                                    (max 0.0 (min 1.0 (float org-air-pill-border-opacity)))))
-                       ;; D-P3: draw the capsule `org-air-pill-vinset' px
-                       ;; shorter top+bottom, vertically centred, so the
-                       ;; pill breathes INSIDE its cell while the cell grid
-                       ;; (and the `│' divider glyph) stays continuous.
-                       (vin (max 0.0 (min (/ (- h 2.0) 2.0)
-                                          (float org-air-pill-vinset))))
-                       (box-h (max 1.0 (- h (* 2 vin)))))
-                  (svg-rectangle svg 0.5 (+ vin 0.5)
-                                 (max 0 (- box-w 1.0)) (max 0 (- box-h 1.0))
-                                 :rx radius :ry radius
-                                 :fill (if (> alpha 0) fg "none")
-                                 :fill-opacity (if (> alpha 0) alpha 0)
-                                 :stroke border :stroke-width 1
-                                 ;; D-P2 #1: hairline border at reduced opacity.
-                                 :stroke-opacity stroke-op)
-                  ;; D-P1: label placement — centred (default) or right-hugged.
-                  (if (eq align 'right)
-                      (svg-text svg label
-                                :x (- box-w (* pad cw))
-                                :y (round (* ch 0.72))
-                                :text-anchor "end"
-                                :fill fg
-                                :font-size font-size)
-                    (svg-text svg label
-                              :x (/ box-w 2.0)
-                              :y (round (* ch 0.72))
-                              :text-anchor "middle"
-                              :fill fg
-                              :font-size font-size))
-                  ;; Lock the displayed image to the exact cell box so the
-                  ;; run of Ncols characters occupies Ncols*char-px pixels
-                  ;; — no more, no less (C2); D-P1.A integer-ascent clamp so
-                  ;; the image is exactly one line tall and never grows the
-                  ;; row (→ solid divider).
-                  (propertize text 'display
-                              (org-air-view--svg-line-image svg box-w h))))))
+                ;; R18 D-P1a: build the pixel-identical pill image ONCE and
+                ;; share it; `propertize' returns a FRESH string so a caller
+                ;; that later adds row props never mutates the shared image.
+                ;; The salient-border flag joins the key because `stroke-op'
+                ;; depends on whether an explicit BORDER-COLOR was passed,
+                ;; not only on the resolved `border' string.
+                (let ((image
+                       (org-air-view--svg-image-cached
+                        (list 'pill text fg border align cw ch
+                              (and border-color t)
+                              org-air-view--pill-style-sig)
+                        (lambda ()
+                          (let* ((font-size (funcall fit-font-size))
+                                 (svg (svg-create box-w h))
+                                 ;; D-P4: a salient priority border draws full
+                                 ;; strength; the neutral tag/date border stays
+                                 ;; a hairline.
+                                 (stroke-op
+                                  (if border-color 1.0
+                                    (max 0.0 (min 1.0
+                                                  (float org-air-pill-border-opacity)))))
+                                 ;; D-P3: draw the capsule `org-air-pill-vinset'
+                                 ;; px shorter top+bottom, vertically centred,
+                                 ;; so the pill breathes INSIDE its cell while
+                                 ;; the cell grid (and the `│' divider glyph)
+                                 ;; stays continuous.
+                                 (vin (max 0.0 (min (/ (- h 2.0) 2.0)
+                                                    (float org-air-pill-vinset))))
+                                 (box-h (max 1.0 (- h (* 2 vin)))))
+                            (svg-rectangle svg 0.5 (+ vin 0.5)
+                                           (max 0 (- box-w 1.0)) (max 0 (- box-h 1.0))
+                                           :rx radius :ry radius
+                                           :fill (if (> alpha 0) fg "none")
+                                           :fill-opacity (if (> alpha 0) alpha 0)
+                                           :stroke border :stroke-width 1
+                                           ;; D-P2 #1: hairline border at
+                                           ;; reduced opacity.
+                                           :stroke-opacity stroke-op)
+                            ;; D-P1: label placement — centred or right-hugged.
+                            (if (eq align 'right)
+                                (svg-text svg label
+                                          :x (- box-w (* pad cw))
+                                          :y (round (* ch 0.72))
+                                          :text-anchor "end"
+                                          :fill fg
+                                          :font-size font-size)
+                              (svg-text svg label
+                                        :x (/ box-w 2.0)
+                                        :y (round (* ch 0.72))
+                                        :text-anchor "middle"
+                                        :fill fg
+                                        :font-size font-size))
+                            ;; Lock the image to the exact cell box (C2) with
+                            ;; the D-P1.A integer-ascent clamp so it is exactly
+                            ;; one line tall and never grows the row.
+                            (org-air-view--svg-line-image svg box-w h))))))
+                  (propertize text 'display image)))))
           text))))
 
 (defcustom org-air-origin-icon-svg t
@@ -1371,30 +1436,36 @@ glyph is then the mandatory fallback)."
           (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
                  (ch (or org-air-view--pill-char-h (frame-char-height)))
                  (color (or (face-foreground 'org-air-face-group nil t) "gray"))
-                 (svg (svg-create cw ch))
-                 ;; margins so the page sits centred in the cell.
-                 (mx (max 1.0 (* cw 0.18)))
-                 (my (max 1.0 (* ch 0.18)))
-                 (x0 mx) (y0 my)
-                 (x1 (- cw mx)) (y1 (- ch my))
-                 ;; fold size at the top-right corner.
-                 (fold (max 2.0 (* (- x1 x0) 0.34))))
-            ;; page outline with a cut top-right corner (the fold).
-            (svg-polygon svg (list (cons x0 y0)
-                                   (cons (- x1 fold) y0)
-                                   (cons x1 (+ y0 fold))
-                                   (cons x1 y1)
-                                   (cons x0 y1))
-                         :fill "none" :stroke color :stroke-width 1
-                         :stroke-linejoin "round")
-            ;; the folded corner triangle.
-            (svg-polygon svg (list (cons (- x1 fold) y0)
-                                   (cons (- x1 fold) (+ y0 fold))
-                                   (cons x1 (+ y0 fold)))
-                         :fill "none" :stroke color :stroke-width 1
-                         :stroke-linejoin "round")
-            (propertize glyph 'display
-                        (org-air-view--svg-line-image svg cw ch))))
+                 ;; R18 D-P1a: one document icon per (glyph, colour, cw, ch);
+                 ;; one per row, so the highest-count overlay — build it once.
+                 (image
+                  (org-air-view--svg-image-cached
+                   (list 'icon glyph color cw ch)
+                   (lambda ()
+                     (let* ((svg (svg-create cw ch))
+                            ;; margins so the page sits centred in the cell.
+                            (mx (max 1.0 (* cw 0.18)))
+                            (my (max 1.0 (* ch 0.18)))
+                            (x0 mx) (y0 my)
+                            (x1 (- cw mx)) (y1 (- ch my))
+                            ;; fold size at the top-right corner.
+                            (fold (max 2.0 (* (- x1 x0) 0.34))))
+                       ;; page outline with a cut top-right corner (the fold).
+                       (svg-polygon svg (list (cons x0 y0)
+                                              (cons (- x1 fold) y0)
+                                              (cons x1 (+ y0 fold))
+                                              (cons x1 y1)
+                                              (cons x0 y1))
+                                    :fill "none" :stroke color :stroke-width 1
+                                    :stroke-linejoin "round")
+                       ;; the folded corner triangle.
+                       (svg-polygon svg (list (cons (- x1 fold) y0)
+                                              (cons (- x1 fold) (+ y0 fold))
+                                              (cons x1 (+ y0 fold)))
+                                    :fill "none" :stroke color :stroke-width 1
+                                    :stroke-linejoin "round")
+                       (org-air-view--svg-line-image svg cw ch))))))
+            (propertize glyph 'display image)))
         glyph)))
 
 (defun org-air-view--pill-pad-label (label face)
@@ -1950,10 +2021,17 @@ when svg is unavailable (the glyph itself is the TTY/GUI fallback)."
                  (h (+ ch (max 0 sp)))
                  (color (or (face-foreground 'org-air-face-pane-border nil t)
                             "gray"))
-                 (svg (svg-create cw h)))
-            (svg-rectangle svg (/ (- cw 1.0) 2.0) 0 1.0 h :fill color)
-            (propertize glyph 'display
-                        (svg-image svg :ascent 'center :width cw :height h))))
+                 ;; R18 D-P1a: the divider cell repeats on every body row in
+                 ;; two-pane/stacked — a pure function of (colour, cw, h); build
+                 ;; it once and share the image across all rows/renders.
+                 (image
+                  (org-air-view--svg-image-cached
+                   (list 'divider color cw h)
+                   (lambda ()
+                     (let ((svg (svg-create cw h)))
+                       (svg-rectangle svg (/ (- cw 1.0) 2.0) 0 1.0 h :fill color)
+                       (svg-image svg :ascent 'center :width cw :height h))))))
+            (propertize glyph 'display image)))
         glyph)))
 
 (defun org-air-view--divider ()
@@ -3542,7 +3620,14 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
          ;; current font/text-scale.
          (dims (org-air-view--char-dimensions))
          (org-air-view--pill-char-w (car dims))
-         (org-air-view--pill-char-h (cdr dims)))
+         (org-air-view--pill-char-h (cdr dims))
+         ;; R18 D-P1a: one pill-geometry snapshot per render, shared by every
+         ;; pane (folded into the svg image cache key for auto-invalidation
+         ;; on any pill-geometry defcustom change).
+         (org-air-view--pill-style-sig
+          (list org-air-pill-pad-cols org-air-pill-radius
+                org-air-pill-fill-alpha org-air-pill-font-scale
+                org-air-pill-border-opacity org-air-pill-vinset)))
     (erase-buffer)
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)

@@ -21,6 +21,7 @@
 (require 'org-air-layout)
 
 (declare-function org-ql--normalize-query "org-ql" t t)
+(declare-function org-air-view--svg-image-cached "org-air-view")
 (declare-function svg-create "svg")
 (declare-function svg-rectangle "svg")
 (declare-function svg-text "svg")
@@ -152,14 +153,25 @@ mandatory fallback; the buffer text (the bytes) is never touched."
                          "black"))
                  (radius (/ ch 6.0))
                  (fs (max 7 (round (* ch 0.7))))
-                 (svg (svg-create w h)))
-            (svg-rectangle svg 0.5 0.5 (max 0 (- w 1.0)) (max 0 (- h 1.0))
-                           :rx radius :ry radius :fill bg)
-            (svg-text svg (string-trim text)
-                      :x (/ w 2.0) :y (round (* ch 0.72))
-                      :text-anchor "middle" :fill fg :font-size fs)
-            (propertize text 'display
-                        (svg-image svg :ascent 'center :width w :height h))))
+                 ;; R18 D-P1a: the today cell is a pure function of
+                 ;; (text, bg, fg, cw, ch); memoise the image via the view
+                 ;; layer's svg cache when it is loaded (the dashboard always
+                 ;; loads it), else build it directly.
+                 (build (lambda ()
+                          (let ((svg (svg-create w h)))
+                            (svg-rectangle svg 0.5 0.5
+                                           (max 0 (- w 1.0)) (max 0 (- h 1.0))
+                                           :rx radius :ry radius :fill bg)
+                            (svg-text svg (string-trim text)
+                                      :x (/ w 2.0) :y (round (* ch 0.72))
+                                      :text-anchor "middle" :fill fg
+                                      :font-size fs)
+                            (svg-image svg :ascent 'center :width w :height h))))
+                 (image (if (fboundp 'org-air-view--svg-image-cached)
+                            (org-air-view--svg-image-cached
+                             (list 'today text bg fg cw ch) build)
+                          (funcall build))))
+            (propertize text 'display image)))
         text)))
 
 (defun org-air-calendar--weekdays ()

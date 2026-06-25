@@ -23,6 +23,7 @@
 (declare-function svg-create "svg")
 (declare-function svg-rectangle "svg")
 (declare-function svg-image "svg")
+(declare-function org-air-view--svg-image-cached "org-air-view")
 ;; Bound by `org-air-view--render' to the displaying window's live char
 ;; metrics (C2/C3); used here only to size the cosmetic header marker bar.
 (defvar org-air-view--pill-char-w)
@@ -255,10 +256,17 @@ reserved marker column's alignment is unchanged."
                      (frame-char-height)))
              (bw (max 1 (round (* cw 0.45))))
              (color (or (face-foreground 'org-air-face-rail-marker nil t) "gray"))
-             (svg (svg-create cw ch)))
-        (svg-rectangle svg 0.5 (* ch 0.1) bw (* ch 0.8)
-                       :rx (/ ch 6.0) :ry (/ ch 6.0) :fill color)
-        (svg-image svg :ascent 'center :width cw :height ch)))))
+             ;; R18 D-P1a: the rail/project marker bar repeats per header — a
+             ;; pure function of (colour, cw, ch); build it once and share the
+             ;; image via the view layer's svg cache when it is loaded.
+             (build (lambda ()
+                      (let ((svg (svg-create cw ch)))
+                        (svg-rectangle svg 0.5 (* ch 0.1) bw (* ch 0.8)
+                                       :rx (/ ch 6.0) :ry (/ ch 6.0) :fill color)
+                        (svg-image svg :ascent 'center :width cw :height ch)))))
+        (if (fboundp 'org-air-view--svg-image-cached)
+            (org-air-view--svg-image-cached (list 'marker color cw ch) build)
+          (funcall build))))))
 
 (cl-defun org-air-layout-rail-header-string (label width &key suffix
                                                    (suffix-face 'org-air-face-rail-header))

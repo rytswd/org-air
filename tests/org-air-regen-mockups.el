@@ -35,6 +35,11 @@ pane fills the whole window.  Written as layout-mockup-WIDTH.txt.")
   "Heights per width: natural (nil), overflow branch (24), fill (50).
 Blessed by design/orchestrator for the S6 regen.")
 
+(defconst org-air-regen-denote-widths '(80 120)
+  "Widths for the R17 long-Denote origin goldens (`denote-origin-WIDTH.txt').
+The isolated mini-board pins that a long Denote origin is CAPPED while the
+title survives (the title-min budget).")
+
 (defun org-air-regen--lines ()
   "Right-trimmed, trailing-blank-stripped lines of the current buffer."
   (org-air-viewport-test--drop-trailing-blanks
@@ -147,6 +152,16 @@ in --batch), right-trimmed."
       (split-string (org-air-regen--pane-dump dead-ctx) "\n"))
      (when (buffer-live-p buf) (kill-buffer buf)))))
 
+(defun org-air-regen--write-denote (width)
+  "Render the R17 isolated long-Denote board at WIDTH; write its golden.
+Emits tests/fixtures/denote-origin-WIDTH.txt from the SAME render path the
+byte test asserts (`org-air-viewport-test-denote-board-lines'), guards
+active.  Pins: the long Denote origin is capped at `org-air-origin-max-width'
+AND the flex title survives (the title-min budget)."
+  (let ((out (expand-file-name (format "denote-origin-%d.txt" width)
+                               org-air-test-fixture-dir)))
+    (org-air-regen--emit out (org-air-viewport-test-denote-board-lines width))))
+
 (defun org-air-regen-mockups ()
   "Regenerate every mockup fixture from the honest renderer.
 GTD board: widths × {natural, 24, 50} + the empty board at 120×50.
@@ -166,6 +181,9 @@ D-P3 view pane: the entry snapshot + dead-marker goldens."
   ;; R16 D-P3 view-pane goldens.
   (when (fboundp 'org-air-view-pane--render)
     (org-air-regen--write-entry-view))
+  ;; R17 D-P1 long-Denote origin goldens (isolated mini-board).
+  (dolist (width org-air-regen-denote-widths)
+    (org-air-regen--write-denote width))
   (message "regen: done — diff fixtures and route to design for re-blessing"))
 
 (provide 'org-air-regen-mockups)

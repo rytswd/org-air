@@ -649,5 +649,62 @@ line so the impl grind gets a precise punch list."
                  width (1+ i) (length expected) (length actual)
                  (nth i expected) (nth i actual)))))))
 
+;;;; -------------------------------------------------------------------
+;;;; R17 long-Denote origin board (shared by the byte test + the regen).
+;;;;
+;;;; An ISOLATED mini-board (one short-named item + one ~90-char Denote
+;;;; item) used by both `org-air-r17-denote-origin-byte-mockup' and
+;;;; `org-air-regen--write-denote' so the asserted bytes and the blessed
+;;;; fixture are produced by the SAME render path.  It is NOT part of the
+;;;; GTD board *.org set, so the 25 layout mockups stay byte-identical.
+
+(defconst org-air-viewport-test-denote-long-title
+  "Reconcile the quarterly invalidation report"
+  "The long-Denote item's heading (43 cols > `org-air-title-min-width').
+Used by the title-floor guard so the ERT exercises the `>= title-min'
+clause (the visible title must not collapse to a bare TODO ellipsis).")
+
+(defconst org-air-viewport-test-denote-fixture-specs
+  (list
+   (cons "inbox.org"
+         "* TODO File the receipts  :inbox:\nSCHEDULED: <2026-06-16 Tue>\n")
+   (cons "20260614T170000--weekly-invalidation-rate-upgrade-with-a-long-denote-slug__work_admin.org"
+         (format "* TODO %s  :work:admin:\nSCHEDULED: <2026-06-16 Tue>\n"
+                 org-air-viewport-test-denote-long-title)))
+  "Fixed mini-board for the R17 long-Denote origin goldens.
+One short non-Denote name + one ~90-char Denote name (its de-slugged
+title exceeds the origin cap).  Both carry tags so the right cluster is
+wide enough that the title-min fit pass genuinely shrinks the origin at
+the narrow tier.  Each value is the full org body.")
+
+(defun org-air-viewport-test-denote-board-lines (width)
+  "Render the R17 isolated long-Denote board at WIDTH; return trimmed lines.
+Frozen clock, GUI glyphs and the anti-tautology render guards are all
+active, so the bytes come from the REAL renderer.  Right-trimmed, with
+trailing blank lines dropped (the regen + byte-test contract)."
+  (let ((dir (make-temp-file "org-air-r17-denote-" t)))
+    (unwind-protect
+        (progn
+          (pcase-dolist (`(,name . ,content)
+                         org-air-viewport-test-denote-fixture-specs)
+            (with-temp-file (expand-file-name name dir) (insert content)))
+          (let ((org-air-files (directory-files dir t "\\.org\\'"))
+                (org-air-inbox-file (expand-file-name "inbox.org" dir)))
+            (org-air-viewport-test-as-gui
+              (org-air-viewport-test--with-frozen-now
+                (org-air-viewport-test--with-render-guards
+                  (let ((org-air-view-width width))
+                    (org-air)
+                    (unwind-protect
+                        (with-current-buffer "*org-air*"
+                          (org-air-viewport-test--drop-trailing-blanks
+                           (mapcar (lambda (l)
+                                     (string-trim-right
+                                      (substring-no-properties l)))
+                                   (org-air-viewport-test-lines))))
+                      (when (get-buffer "*org-air*")
+                        (kill-buffer "*org-air*")))))))))
+      (delete-directory dir t))))
+
 (provide 'org-air-viewport-helpers)
 ;;; org-air-viewport-helpers.el ends here

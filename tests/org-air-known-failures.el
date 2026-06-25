@@ -359,6 +359,12 @@
      . "R17 D-P1.C: origin capped at 26 cols, full long slug no longer surfaces; superseded by org-air-r17-long-denote-origin-keeps-title (test track reworks to capped prefix + cap assertion)")
     (org-air-v1b-origin-protected-on-overflow
      . "R17 D-P1.D: priority INVERTED to title-protected; origin now yields first (down to org-air-origin-min), no longer kept whole on overflow (test track reworks to the title-protected contract)")
+    ;; NEW R17 D-P1 #2 byte golden: the isolated long-Denote board fixtures
+    ;; (denote-origin-80/120.txt) do not exist yet -- the regen function
+    ;; (org-air-regen--write-denote) is landed but only the test track runs
+    ;; `make regen-mockups' + blesses the bytes.  Red until that closeout.
+    (org-air-r17-denote-origin-byte-mockup
+     . "R17 D-P1 #2: denote-origin-{80,120}.txt not blessed yet; test track regen+bless via org-air-regen--write-denote")
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

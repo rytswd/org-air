@@ -333,21 +333,24 @@ the full board."
     (should (null org-air-view--scope))))
 
 (ert-deftest org-air-r9-q1-rail-advertises-scope-reset ()
-  "Q1: the scope reset is discoverable.  When a scope is active the rail
-surfaces the reset cue in BOTH places the design/impl specify: the
-Filters block shows the literal `Scope: <name>  (S clears)' (D5e) and the
-Actions block surfaces the literal `S reset' cue (impl qqpuoqlv, swapping
-in for `TAB expand' while scoped)."
+  "Q1: the scope reset is discoverable.  R19-4d re-bless: the active scope
+now lives in its OWN labelled rail block (split crisply from the Filter
+block) carrying the in-place `s changes · S clears' hint, and the Actions
+block still surfaces the literal `S reset' cue (impl qqpuoqlv, swapping in
+for `TAB expand' while scoped)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
-    (org-air-viewport-test-with-dashboard 160
-      (setq org-air-view--scope '(:tag "work"))
-      (org-air-view--render-current)
-      (let ((text (substring-no-properties (buffer-string))))
-        ;; the active scope + its in-place (S clears) hint (D5e),
-        (should (string-match-p "Scope: #work  (S clears)" text))
-        ;; and the literal `S reset' cue in the Actions block (qqpuoqlv).
-        (should (string-match-p "S reset" text))))))
+    (let ((mk (org-air-layout-glyph 'rail-marker)))
+      (org-air-viewport-test-with-dashboard 160
+        (setq org-air-view--scope '(:tag "work"))
+        (org-air-view--render-current)
+        (let ((text (substring-no-properties (buffer-string))))
+          ;; the labelled Scope block (R19-4d),
+          (should (string-match-p (concat (regexp-quote mk) " Scope") text))
+          ;; the lens token + its in-place `s changes · S clears' hint,
+          (should (string-match-p "#work   s changes · S clears" text))
+          ;; and the literal `S reset' cue in the Actions block (qqpuoqlv).
+          (should (string-match-p "S reset" text)))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D5 — sidebar / context-rail refinement
@@ -401,20 +404,22 @@ rule can open with the rounded stub that echoes the pill's left edge."
   (should (equal (org-air-layout-glyph 'hrule-cap) "-")))
 
 (ert-deftest org-air-r9-d5a-rail-rule-family-has-cap ()
-  "D5a: Summary and Filters open with the SAME labelled rule led by the
+  "D5a: Summary and Filter open with the SAME labelled rule led by the
 ╶ hrule-cap (one rule family across the rail, not bare ── rules)."
   (skip-unless (locate-library "org-air"))
   ;; D-P6 re-bless (reverses round-9/10 D5a): rail headers are clean PREFIX
-  ;; MARKER headers `▌ Summary' / `▌ Filters' (rail-marker glyph + legible
+  ;; MARKER headers `▌ Summary' / `▌ Filter' (rail-marker glyph + legible
   ;; label, no `──── rule' glyphs); the svg accent bar is a non-byte overlay
-  ;; on the marker char (air/v0.4/org-air-round11-design.org §D-P6).
+  ;; on the marker char (air/v0.4/org-air-round11-design.org §D-P6).  R19-4d
+  ;; renamed the block header `▌ Filters' -> `▌ Filter' (singular; split from
+  ;; the new `▌ Scope' block).
   (org-air-viewport-test-as-gui
     (let ((cap (org-air-r9--hrule-cap))
           (mk (org-air-layout-glyph 'rail-marker)))
       (org-air-viewport-test-with-dashboard 160
         (let ((text (substring-no-properties (buffer-string))))
           (should (string-match-p (concat (regexp-quote mk) " Summary") text))
-          (should (string-match-p (concat (regexp-quote mk) " Filters") text))
+          (should (string-match-p (concat (regexp-quote mk) " Filter") text))
           ;; D-P6 retires the labelled rule: no `╶─ Summary' anywhere.
           (should-not (string-match-p (concat (regexp-quote cap) "─ Summary")
                                       text)))))))

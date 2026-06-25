@@ -376,54 +376,43 @@
     ;; touched (the impl landed D-P1/D-P2 in ruskyvwn+yuurwyro).  Round-17
     ;; manifest is EMPTY; the tests stay as permanent regression guards.
     ;; ===================================================================
-    ;; v0.5 ROUND-19 grind (impl track) — DELIBERATE text changes that
-    ;; move bytes under the design-blessed R19 contracts
-    ;; (air/v0.5/org-air-round19-design.org).  Impl-only round: fixtures
-    ;; are NOT edited here; these existing goldens/assertions are pinned
-    ;; expected-failures until the TEST track re-blesses them.
-    ;;
-    ;; 2026-06-25: R19-2(c) de-cryptify the dated-Inbox nudge — the row
-    ;; suffix `· file with r' becomes `· r to file' (press `r' to file it
-    ;; out of the inbox; `org-air-view--item-date-text').  The string is
-    ;; rendered ROW TEXT, so it re-blesses the two denote-origin goldens
-    ;; and the triage assertion that pins the OLD wording:
-    (org-air-r17-denote-origin-byte-mockup
-     . "R19-2(c): denote-origin-{80,120}.txt carry the nudge; `· file with \
- r' -> `· r to file' (re-bless on the test track)")
-    (org-air-triage-dated-inbox-row-carries-file-hint
-     . "R19-2(c): asserts the OLD `file with r' nudge; now `r to file' \
-(re-bless the assertion on the test track)")
-    ;;
-    ;; 2026-06-25: R19-4 rail / scope-filter polish — DELIBERATE rail TEXT
-    ;; changes (`org-air-view--insert-rail' + `--insert-rail-filters'):
-    ;;   (b) the active-Filter block now teaches BOTH verbs:
-    ;;       `Match: AND   M-/ toggles · \ clears'.
-    ;;   (c) the Filter block MOVES UP to between Calendar and Summary
-    ;;       (new order Calendar -> Filter -> Summary -> Inspector ->
-    ;;       Actions; only Actions stays foot-pinned).
-    ;;   (d) crisp Scope-vs-Filter split: distinct `▌ Filter' / `▌ Scope'
-    ;;       labels (was a single `▌ Filters' header + inline
-    ;;       `Scope: <name>  (S clears)'); scope reads `<name>   s changes
-    ;;       · S clears'.
-    ;; The rail-mode-line (a) is byte-invisible; the help (d) is a message.
-    ;; These re-bless the rail-bearing goldens + the two rail assertions
-    ;; (board-only/day fixtures have no rail and stay byte-identical;
-    ;; denote-origin-120's rail delta rides the already-listed R19-2
-    ;; `org-air-r17-denote-origin-byte-mockup'):
-    (org-air-layout-mockup-120
-     . "R19-4c/d: rail reorder (Filter up) + Filter/Scope labels move bytes")
-    (org-air-layout-mockup-160
-     . "R19-4c/d: rail reorder (Filter up) + Filter/Scope labels move bytes")
-    (org-air-layout-mockup-heights
-     . "R19-4c/d: rail-bearing height variants re-bless (Filter up + labels)")
-    (org-air-layout-mockup-thresholds
-     . "R19-4c/d: rail-bearing threshold widths re-bless (Filter up + labels)")
-    (org-air-r9-d5a-rail-rule-family-has-cap
-     . "R19-4d: header renamed `▌ Filters' -> `▌ Filter' (+ `▌ Scope'); \
-re-bless the assertion on the test track")
-    (org-air-r9-q1-rail-advertises-scope-reset
-     . "R19-4d: scope cue `Scope: #work  (S clears)' -> labelled `▌ Scope' \
-+ `s changes · S clears'; re-bless on the test track")
+    ;; v0.5 ROUND-19 CLOSEOUT (impl tip kpzqqxyw + test re-bless <this
+    ;; commit>).  ALL 7 grind entries CLOSED — the rail/nudge byte goldens
+    ;; regenerated from impl's render via the FROZEN-CLOCK renderer (make
+    ;; regen-mockups, guards active; verified NO HANG, exit 0) and the two
+    ;; rail assertions + the triage nudge assertion re-blessed to the
+    ;; design-blessed R19-2(c) / R19-4c/d contracts
+    ;; (air/v0.5/org-air-round19-design.org):
+    ;;   R19-2(c) de-cryptify the dated-Inbox nudge — the row suffix
+    ;;     `· file with r' -> `· r to file' (`org-air-view--item-date-text').
+    ;;     Re-blessed denote-origin-{80,120}.txt (the two goldens carrying
+    ;;     it) + the triage assertion org-air-triage-dated-inbox-row-
+    ;;     carries-file-hint (now asserts `r to file', forbids `file with
+    ;;     r').  The 2-col-shorter nudge frees title cells, so denote-80's
+    ;;     title de-truncates a hair (`File the …' -> `File the re…').
+    ;;   R19-4c/d rail reorder + crisp Scope/Filter split — the Filter
+    ;;     block MOVED UP to between Calendar and Summary (new order
+    ;;     Calendar -> Filter -> Scope -> Summary -> Inspector -> Actions;
+    ;;     only Actions stays foot-pinned), the single `▌ Filters' header
+    ;;     split into `▌ Filter' (live tags) + `▌ Scope' (structural lens)
+    ;;     with `s changes · S clears' on the Scope line.  Regen'd every
+    ;;     side-rail-bearing golden (layout-mockup 90/96/100/104/110/120/
+    ;;     160 + x24/x50 variants + empty-120x50 + denote-origin-120);
+    ;;     re-blessed org-air-r9-d5a-rail-rule-family-has-cap (`▌ Filters'
+    ;;     -> `▌ Filter') and org-air-r9-q1-rail-advertises-scope-reset
+    ;;     (inline `Scope: #work  (S clears)' -> labelled `▌ Scope' block +
+    ;;     `#work   s changes · S clears').  The rail-only mode-line (a) is
+    ;;     byte-invisible (per-buffer mode-line stripped by the goldens);
+    ;;     the `\ clears' hint (b) only shows with a filter ACTIVE so it is
+    ;;     covered by the new org-air-r19-4-clear-hint-shows-clear-key ERT,
+    ;;     not the unfiltered goldens; the help (d) is a `message'.
+    ;; The board-only (70) + top-rail (80) + project + entry-view fixtures
+    ;; are byte-identical (no side rail / no nudge), confirming the deltas
+    ;; are local to the rail and the Inbox nudge.  New R19 substantive ERTs
+    ;; (async first load, refile UX, editable view pane, rail order) added
+    ;; on the test track in tests/org-air-round19-test.el.  No .el SOURCE
+    ;; touched (the impl landed R19-1..R19-4 in ltpkvxvy..kpzqqxyw).
+    ;; Round-19 manifest is EMPTY; the tests stay as permanent guards.
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

@@ -161,8 +161,9 @@ never by a row-less phantom.  Data-variation board, GUI glyphs."
               (should (memq day bucket-days)))))))))
 
 (ert-deftest org-air-triage-dated-inbox-row-carries-file-hint ()
-  "Dated-unfiled inbox rows carry the 'scheduled · file with r' hint
-(ruling xsqrnoyn) so the user knows dating did not file the item."
+  "Dated-unfiled inbox rows carry the clarified `· r to file' nudge
+(R19-2(c), re-bless of ruling xsqrnoyn's cryptic `file with r') so the
+user knows dating did not file the item — press `r' to file it out."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-alt-dashboard 160
     (let ((found nil))
@@ -172,7 +173,9 @@ never by a row-less phantom.  Data-variation board, GUI glyphs."
           (setq found (buffer-substring-no-properties
                        (line-beginning-position) (line-end-position)))))
       (should found)
-      (should (string-match-p "file with r" found)))))
+      ;; R19-2(c): the clarified verb-first nudge (was `file with r').
+      (should (string-match-p "r to file" found))
+      (should-not (string-match-p "file with r" found)))))
 
 ;;;; Consistency invariant (ruling xsqrnoyn): calendar <-> buckets <-> total.
 

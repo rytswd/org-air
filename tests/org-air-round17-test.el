@@ -146,7 +146,8 @@ deliberately asserts on the long-Denote item, which IS the modeled row
 (square slot, no priority; `:work:admin:' so its date is bare, NOT the
 Inbox `· file with r' nudge).  `org-air-priority-style' is pinned to
 `square' so the asserted row's prefix geometry matches the budget model
-exactly and the floor is the genuine guarantee, not an accident."
+exactly and the floor is the genuine guarantee, not an accident.  (R19-2(c)
+clarified that nudge to `· r to file'.)"
   (skip-unless (locate-library "org-air"))
   ;; the render runs under `org-air-viewport-test-as-gui', so anchor the
   ;; truncation on the GUI ellipsis (computing it in the batch TTY context
@@ -166,8 +167,9 @@ exactly and the floor is the genuine guarantee, not an accident."
                  (text (buffer-string)))
             (should row)
             ;; the anchored row is the MODELED (bare-date, non-Inbox) row,
-            ;; NOT the Inbox-nudged `File the receipts' row.
-            (should-not (string-match-p "file with r"
+            ;; NOT the Inbox-nudged `File the receipts' row (R19-2(c):
+            ;; the nudge is now `· r to file', was `· file with r').
+            (should-not (string-match-p "r to file"
                                         (substring-no-properties row)))
             ;; (a) the title survived: its visible width >= the floor.
             (let ((vis (org-air-r17--visible-title-width row heading more))

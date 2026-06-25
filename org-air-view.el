@@ -533,6 +533,12 @@ Unknown keywords fall back to `org-air-face-todo'."
 
 (defvar-local org-air-view--items nil)
 (defvar-local org-air-view--items-key nil)
+(defvar-local org-air-view--classify-cache nil
+  "Per-board memo mapping an `org-air-item' to its cached bucket list.
+An `eq' hash (R18 D-P1c).  Auto-invalidates because a re-query yields new
+item objects; explicitly cleared on day-rollover and refresh.")
+(defvar-local org-air-view--classify-cache-day nil
+  "`time-to-days' the classify cache was built for; a rollover clears it.")
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
 (defvar-local org-air-view--day nil
@@ -878,15 +884,45 @@ Denote-style name."
                      (org-air-view--passes-filter-p item)))
               items))
 
+(defun org-air-view--classify-cache-ensure (&optional now)
+  "Ensure this board's classify cache table exists for NOW's day (R18 D-P1c).
+Called once in the MAIN board buffer at the start of a render so the temp
+pane buffers (`org-air-view--render-lines') can bind the cache var to the
+SAME table object; `puthash' there then persists back to this buffer.  A
+day rollover (or a missing table) rebuilds it."
+  (let ((day (time-to-days (or now (current-time)))))
+    (unless (and org-air-view--classify-cache
+                 (eql org-air-view--classify-cache-day day))
+      (setq org-air-view--classify-cache (make-hash-table :test 'eq :size 700)
+            org-air-view--classify-cache-day day))))
+
+(defun org-air-view--classify-cached (item &optional now)
+  "Return ITEM's bucket list, memoised per board (R18 D-P1c).
+Delegates to the pure `org-air-classify-item'; caches the result keyed on
+the item object (`eq').  Classify is DAY-granular (every predicate is a
+day-window comparison), so the cache key is the day of NOW: a render later
+the same day is a pure cache hit; a render after midnight rebuilds."
+  (let ((now (or now (current-time))))
+    (org-air-view--classify-cache-ensure now)
+    (let ((hit (gethash item org-air-view--classify-cache 'miss)))
+      (if (eq hit 'miss)
+          (puthash item (org-air-classify-item item now)
+                   org-air-view--classify-cache)
+        hit))))
+
 (defun org-air-view--items-for-bucket (bucket items)
   "Return visible ITEMS classified into BUCKET.
 Real-signal membership (ruling xsqrnoyn): an item appears in every bucket
 it genuinely qualifies for, so a dated inbox capture shows in BOTH Inbox
 and its date bucket.  The no-date attention default for inbox-dwellers is
-suppressed in `org-air-classify-item', not here, so no dedup is needed."
-  (seq-filter (lambda (item)
-                (memq bucket (org-air-classify-item item)))
-              (org-air-view--visible-items items)))
+suppressed in `org-air-classify-item', not here, so no dedup is needed.
+Classify is routed through `org-air-view--classify-cached' (R18 D-P1c) so
+each item is classified at most once per render; one NOW is bound for the
+whole call so every item classifies against a single instant."
+  (let ((now (current-time)))
+    (seq-filter (lambda (item)
+                  (memq bucket (org-air-view--classify-cached item now)))
+                (org-air-view--visible-items items))))
 
 (defun org-air-view--render-width ()
   "Return the width used for current org-air view rendering."
@@ -1833,7 +1869,12 @@ The order is stable so items sharing a date keep their incoming order."
         (scope org-air-view--scope)
         (expanded org-air-view--expanded-sections)
         (cal-month org-air-view--cal-month)
-        (day org-air-view--day))
+        (day org-air-view--day)
+        ;; R18 D-P1c: share the board's classify cache TABLE OBJECT into the
+        ;; temp pane so `puthash' persists back (buffer-local would reset to
+        ;; nil here and lose every entry on each render).
+        (classify-cache org-air-view--classify-cache)
+        (classify-cache-day org-air-view--classify-cache-day))
     (with-temp-buffer
       (let ((org-air-view--line-width width)
             (org-air-view--items items)
@@ -1842,7 +1883,9 @@ The order is stable so items sharing a date keep their incoming order."
             (org-air-view--scope scope)
             (org-air-view--expanded-sections expanded)
             (org-air-view--cal-month cal-month)
-            (org-air-view--day day))
+            (org-air-view--day day)
+            (org-air-view--classify-cache classify-cache)
+            (org-air-view--classify-cache-day classify-cache-day))
         (funcall render-fn)
         (org-air-view--string-lines (buffer-string) width)))))
 
@@ -2269,7 +2312,7 @@ appends the deadline mark."
 (defun org-air-view--inspector-bucket-line (item inset now)
   "Return the inspector derived-bucket line for ITEM at INSET, or nil.
 The classification is computed against NOW (D-P7)."
-  (let ((buckets (org-air-classify-item item now)))
+  (let ((buckets (org-air-view--classify-cached item now)))
     (when buckets
       (let* ((names (mapconcat #'org-air-view--inspector-bucket-name
                                (seq-remove (lambda (b) (eq b 'stale)) buckets)
@@ -3504,6 +3547,12 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)
           org-air-view--tag-filter tag-filter)
+    ;; R18 D-P1c: ensure the classify cache table exists for today in THIS
+    ;; board buffer BEFORE composing the panes.  The panes render in temp
+    ;; buffers (`org-air-view--render-lines') that bind the cache var to the
+    ;; SAME table object, so every `puthash' there persists back here and a
+    ;; TAB/month-nav re-render is a pure cache hit (zero re-classify).
+    (org-air-view--classify-cache-ensure)
     ;; R16 D-P1: seed the per-board popout flag from the INITIAL preference
     ;; on first render only (`unset' sentinel); thereafter the toggle /
     ;; reconciler own it.  The renderer never consults `org-air-rail-style'
@@ -3676,7 +3725,10 @@ body fill the height, so a height change must re-pad too)."
       (org-air-view-mode)
       (unless (and org-air-view--items
                    (equal org-air-view--items-key (list org-air-files org-air-inbox-file)))
-        (setq org-air-view--items (org-air-query-items))))
+        ;; R18 D-P1c: fresh structs from a re-query invalidate the classify
+        ;; cache (old `eq' entries can never be wrongly hit, but drop them).
+        (setq org-air-view--items (org-air-query-items)
+              org-air-view--classify-cache nil)))
     ;; Display the buffer first so width derivation measures the window
     ;; that actually shows the dashboard (U1), in a full-width window so
     ;; the rail/calendar are never pushed off-screen (D4), then render.
@@ -3694,7 +3746,11 @@ Preserves the active filter and the cursor's place."
   (interactive)
   (let ((token (org-air-view--save-position))
         (filter org-air-view--tag-filter))
-    (setq org-air-view--items (org-air-query-items))
+    ;; R18 D-P1c: a re-query builds fresh item structs, so drop the
+    ;; classify cache (bounds memory; picks up a changed classify-tuning
+    ;; defcustom on the next refresh).
+    (setq org-air-view--items (org-air-query-items)
+          org-air-view--classify-cache nil)
     (org-air-view--render org-air-view--items filter)
     (org-air-view--restore-position token)))
 
@@ -4090,7 +4146,7 @@ accessor; the triage spec's `T' key maps here."
       (if (and (eq (get-text-property (line-beginning-position) 'org-air-section)
                    nil)
                (get-text-property (line-beginning-position) 'org-air-item)
-               (memq 'inbox (org-air-classify-item
+               (memq 'inbox (org-air-view--classify-cached
                              (get-text-property (line-beginning-position)
                                                 'org-air-item))))
           (setq found t)

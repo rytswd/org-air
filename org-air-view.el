@@ -565,9 +565,12 @@ Unknown keywords fall back to `org-air-face-todo'."
   :type '(alist :key-type string :value-type face)
   :group 'org-air)
 
-(defcustom org-air-filter-match 'any
-  "How multiple tag filters match items: `any' or `all'."
-  :type '(choice (const any) (const all))
+(defcustom org-air-filter-match 'all
+  "How multiple tag filters combine: `all' (AND) or `any' (OR).
+R18 D-P2: the default is `all' so adding a second filter term NARROWS,
+as both tags must match; `M-/' (`org-air-filter-toggle-match') flips it
+to `any', where either tag matches.  The predicate honours both modes."
+  :type '(choice (const all) (const any))
   :group 'org-air)
 
 (defvar-local org-air-view--items nil)
@@ -674,6 +677,9 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "I") #'org-air-process-inbox)
     (define-key map (kbd "/") #'org-air-filter)
     (define-key map (kbd "\\") #'org-air-filter-clear)
+    ;; R18 D-P2: M-/ toggles the multi-tag combinator AND <-> OR (the
+    ;; sibling of the `/' filter key; `|' is already `org-air-rail-toggle').
+    (define-key map (kbd "M-/") #'org-air-filter-toggle-match)
     ;; Scope moves off the prime key so s = schedule (the triage verb).
     (define-key map (kbd "S") #'org-air-scope-clear)
     ;; B4: vim/evil g-prefix — "g r" refresh, "g g" top of pane, "g R"
@@ -1077,11 +1083,17 @@ keeping the date."
                  (format " · %d items" (length (org-air-view--visible-items items)))
                  'face (if org-air-header-accent-count
                            'org-air-face-count 'org-air-face-faded)))
-         (filter-text (let ((filters (org-air-view--filter-tags)))
+         ;; R18 D-P2.3: with >=2 active filter tags, join them with the
+         ;; combinator word (AND/OR) so the mode reads inline; a single tag
+         ;; shows no combinator (irrelevant).
+         (filter-text (let* ((filters (org-air-view--filter-tags))
+                             (sep (if (> (length filters) 1)
+                                      (concat " " (org-air-view--filter-combinator-word) " ")
+                                    " ")))
                         (when filters
                           (propertize
                            (concat " · "
-                                   (mapconcat (lambda (tag) (concat "#" tag)) filters " ")
+                                   (mapconcat (lambda (tag) (concat "#" tag)) filters sep)
                                    " " (org-air-view--glyph 'clear))
                            'face 'org-air-face-faded))))
          (scope-text (pcase org-air-view--scope
@@ -2175,11 +2187,23 @@ fallback) while a GUI frame reads it as an hl-block card header."
                   "\n")
         (progn
           (if filters
-              (insert inset
-                      (mapconcat (lambda (tag)
-                                   (concat "#" tag " " (org-air-view--glyph 'clear)))
-                                 filters " ")
-                      "\n")
+              (progn
+                ;; R18 D-P2.3: join the chips with the combinator word when
+                ;; >=2 are active, then a discoverability cue for the toggle.
+                (insert inset
+                        (mapconcat (lambda (tag) (concat "#" tag))
+                                   filters
+                                   (if (> (length filters) 1)
+                                       (concat " " (org-air-view--filter-combinator-word) " ")
+                                     " "))
+                        "  " (org-air-view--glyph 'clear)
+                        "\n")
+                (insert inset
+                        (propertize
+                         (format "Match: %s  (M-/ toggles)"
+                                 (org-air-view--filter-combinator-word))
+                         'face 'org-air-face-faded)
+                        "\n"))
             (insert inset
                     (propertize "No tag filters" 'face 'org-air-face-faded) "\n"))
           (insert inset
@@ -4020,18 +4044,25 @@ filters are preserved by `org-air-refresh'."
   (org-air-prev-item))
 
 (defun org-air-filter (tags)
-  "Filter dashboard to TAGS, a comma-separated or list value."
+  "Filter dashboard to TAGS, a comma-separated or list value.
+R18 D-P2: the prompt is PRE-FILLED with the active filter so each
+invocation continues narrowing instead of restarting; edit/extend the
+pre-filled value, or clear it to drop the filter."
   (interactive
    (let* ((tags (delete-dups (sort (seq-mapcat #'org-air-item-tags org-air-view--items)
                                    #'string<)))
-          (choice (completing-read-multiple "Tags: " tags nil nil)))
+          (initial (when (org-air-view--filter-tags)
+                     (mapconcat #'identity (org-air-view--filter-tags) ",")))
+          (choice (completing-read-multiple "Filter tags: " tags nil nil initial)))
      (list choice)))
   (setq org-air-view--tag-filter (unless (null tags) tags))
   (org-air-view--render-current))
 
 (defun org-air-filter-by-tag (tag)
-  "Compatibility wrapper: filter dashboard to TAG."
-  (interactive (list (read-string "Tag filter (empty clears): ")))
+  "Compatibility wrapper: filter dashboard to TAG.
+R18 D-P2: pre-fills with the first active filter tag (empty clears)."
+  (interactive (list (read-string "Tag filter (empty clears): "
+                                  (car (org-air-view--filter-tags)))))
   (setq org-air-view--tag-filter (unless (string-empty-p tag) (list tag)))
   (org-air-view--render-current))
 
@@ -4050,6 +4081,22 @@ filters are preserved by `org-air-refresh'."
   (interactive)
   (setq org-air-view--tag-filter nil)
   (org-air-view--render-current))
+
+(defun org-air-filter-toggle-match ()
+  "Toggle the multi-tag filter combinator: AND (`all') <-> OR (`any').
+R18 D-P2: `all' means every active tag must match (narrow); `any' means
+any one matches (widen).  Re-renders and echoes the new mode.  Bound to
+`M-/' in the board and project maps; the banner/rail show the active
+combinator beside the filter chips."
+  (interactive)
+  (setq org-air-filter-match (if (eq org-air-filter-match 'all) 'any 'all))
+  (org-air-view--render-current)
+  (message "Filter match: %s" (if (eq org-air-filter-match 'all) "AND" "OR")))
+
+(defun org-air-view--filter-combinator-word ()
+  "Return the active filter combinator as the literal word AND or OR.
+R18 D-P2: TTY-safe and deterministic for byte goldens."
+  (if (eq org-air-filter-match 'all) "AND" "OR"))
 
 (defun org-air-scope (scope)
   "Scope dashboard to SCOPE."

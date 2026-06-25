@@ -1,75 +1,510 @@
-#+title: org-air v0.5 round-18 (design) — perf + filter + project parity + view-pane UX
-#+FILETAGS: :perf:ui:filter:project:design:
+#+title: org-air v0.5 round-18 DESIGN: sub-100ms render at 583 entries (classify cache + svg pill cache + incremental redraw)
+#+state: ready
+#+FILETAGS: :perf:render:cache:critical:design:v0.5:
 
-* Note
-D-P1 (perf) specced by the orchestrator after the design seat crashed
-repeatedly (4×) on this round; profiled from the live render path. Review
-gates impl as usual. D-P2..D-P5 follow (design or orchestrator).
+* Status
+Design-led, impl-ready SPEC for round-18 D-P1 only (the findings spec is
+air/v0.5/org-air-round18.org P1).  CRITICAL: on the large 583-entry / 50-file
+dataset every interaction lags — TAB-expand a section, =<=/=>= month-nav,
+=g= refresh — because the dashboard does a FULL recompose on every action and
+recomputes everything (classify, svg pills, calendar marks) from scratch each
+time, with nothing memoised.
 
-* D-P1 [CRIT] — performance: cache svg pills + incremental render
-*Profiled bottleneck (org-air-view.el):* =org-air-view--render= does
-=erase-buffer= + a FULL recompose on every action (TAB-expand, calendar
-month-nav, refresh, toggle).  Items are ALREADY cached
-(=org-air-view--items=; only explicit refresh re-queries via
-=org-air-query-items=), so the cost is NOT org-ql.  The cost is svg: there
-are ≥4 =svg-create=/=svg-image= call sites (the date/tag pill
-=--svg-pillify=, the line-clamped =--svg-line-image=, the priority square
-=--svg-priority-square=) with NO cache — so every render regenerates EVERY
-pill image from scratch.  583 items × several pills each = thousands of
-=svg-create=+=svg-image= per keypress → the lag.
+This SPEC profiles where the time goes (below) and specifies THREE internal
+optimisations that keep the V6 pixel-lock + byte/TTY contract byte-identical
+(perf is internal — the fixtures must still pass):
+- *(c)* cache query/classify — classify once per item per render (single
+  pass), and re-render from the cached item/bucket set without re-querying;
+- *(a)* memoise svg pill images — key = label-text + colours + char-metrics;
+  invalidate on font/theme/width/text-scale change;
+- *(b)* incremental render — TAB-expand redraws only the affected SECTION
+  region; month-nav redraws only the CALENDAR block; never the full buffer.
 
-** D-P1.A — svg pill image CACHE (the primary win)
-- Add a buffer-or-global hash table =org-air-view--svg-cache=
-  (=make-hash-table :test 'equal=).
-- Wrap the image-producing path (the final =svg-image= return in
-  =--svg-pillify=, =--svg-line-image=, =--svg-priority-square=) so it FIRST
-  computes a *cache key* and returns a cached image on hit; on miss it
-  builds the svg + image once and =puthash=es it.
-- *Cache key* = everything the rendered image depends on: the trimmed label
-  TEXT, the resolved colours (fg / fill / border strings), the radius,
-  fill-alpha/border-opacity, the pad/vinset, the style symbol, AND the
-  current char metrics (=org-air-view--pill-char-w= . =-pill-char-h=) +
-  font/text-scale + theme generation.  (Two pills with the same text+face+
-  metrics ARE the same image — that is the whole point.)
-- *Invalidation:* clear the hash table whenever metrics/appearance change:
-  on =text-scale-mode-hook= / font change, on =enable-theme-functions= /
-  theme change, and when =--char-dimensions= differs from the cached value
-  (width/scale change).  A monotonically-bumped =org-air-view--svg-gen=
-  counter folded into the key is the simplest correct invalidation (bump on
-  theme/font/width change → all old keys miss → table can also be cleared).
-- Effect: a full recompose now does ~O(distinct pills) svg work (tens), not
-  O(all pills) (thousands).  Most renders become cache-hits → fast.
+Target: interactions feel instant (sub-100ms) at 583+ entries.  Impl + tests
++ REVIEW gate integration; nothing is integrated here.  Commits are per-item
+(R18 / Design round-18).  D-P2..D-P5 are dispatched separately — NOT here.
 
-** D-P1.B — incremental render (secondary, after A)
-Avoid the full =erase-buffer= recompose when only part changed:
-- *Calendar month-nav* (=org-air-calendar-prev/next=): re-render ONLY the
-  calendar block in the rail, not the whole buffer.  Use a marker-delimited
-  region (like the inspector =--inspector-beg/-end=): delete + reinsert just
-  the calendar lines under =inhibit-read-only=+=save-excursion=.
-- *TAB-expand* (show ±N more in a section): re-render ONLY that section's
-  rows (its marker region), not the buffer.  Keep point.
-- The board rows / rail otherwise unchanged → untouched.
-- Fall back to the full render only when orientation/width changes.
-- With D-P1.A the full render is already cheap, so D-P1.B is the polish for
-  truly instant nav; ship A first, then B.
+* Profile — where the time goes (precise, with line anchors on the round-18 trunk)
 
-** D-P1 verification
-- Byte fixtures UNCHANGED (perf is internal; the rendered text/images are
-  identical — the cache returns the same image object).  make check stays
-  green.
-- Add a micro-bench note (optional): render twice, assert the 2nd is a
-  cache-hit (e.g. an instrumented counter), and a cache-invalidation unit
-  (bump gen → miss).  Target: TAB-expand / month-nav feel instant (sub-100ms)
-  at 583 entries.
+Every interactive command funnels through ONE full-buffer rebuild:
 
-* D-P2..D-P5 (to be specced next)
-- D-P2 filter: prompt pre-fills current filter; AND combinator (toggle AND/OR);
-  show active filter + combinator.
-- D-P3 project view reuses the dashboard view core (filter/inspector/pane/keymaps).
-- D-P4 view pane: auto-follow (like inspector) + focusable; RET opens pane (2nd
-  RET focuses), org-air-visit-item → S-RET; board + project.
-- D-P5 rougier-nano/mu4e modernisation pass (focused).
+| command (key)                | entry                          | redraws        |
+|------------------------------+--------------------------------+----------------|
+| TAB expand/collapse section  | =org-air-toggle-section= L3868 | WHOLE buffer   |
+| =<= / =>= month-nav          | =org-air-calendar-{prev,next}= L4155/4164 | WHOLE buffer |
+| =g= refresh / scope / filter | =org-air-view--render-current= L3651 | WHOLE buffer |
+| window resize                | =org-air-view--resize-refresh= L3663 | WHOLE buffer |
+
+All of them call =org-air-view--render= (L3488), which begins with
+=erase-buffer= and re-composes the header band + the full item pane + the rail
+/ calendar + the footer, then re-walks EVERY line in
+=org-air-view--finalize-buffer-lines= (L2747).  So a TAB on one section, or a
+month click that touches only the calendar, pays the full board cost.  Three
+hot costs dominate that rebuild:
+
+** Hot cost 1 — classify runs 5×N times per render, and each call scans a buffer [DOMINANT]
+=org-air-view--insert-item-pane= (L2693) iterates the *five* section
+descriptors (=org-air-view--sections= L565) and calls
+=org-air-view--insert-section= (L1772) per section, which calls
+=org-air-view--items-for-bucket= (L881):
+#+begin_src elisp
+(seq-filter (lambda (item) (memq bucket (org-air-classify-item item)))
+            (org-air-view--visible-items items))
+#+end_src
+So per render:
+- =org-air-view--visible-items= (L874, re-filters ALL items by scope+filter)
+  runs *5 times* (once per section) — 5N predicate calls;
+- =org-air-classify-item= (org-air-classify.el L107) runs *5 times per item*
+  = 5N calls.  At N=583 that is *~2915 classify calls EVERY render*.
+
+And =org-air-classify-item= is NOT cheap — for any item with no explicit
+=CLOSED/SCHEDULED/DEADLINE= it falls through =org-air-classify--last-activity=
+(L96) to =org-air-classify--marker-timestamp-time= (L72), which does:
+#+begin_src elisp
+(with-current-buffer (marker-buffer marker)
+  (save-excursion (save-restriction
+    (goto-char marker) (org-back-to-heading t)
+    (let ((end (save-excursion (org-end-of-subtree t t))))
+      (re-search-forward org-ts-regexp-both end t) ...))))
+#+end_src
+— a live Org buffer scan (back-to-heading + end-of-subtree + regexp search)
+*per item*, plus =org-air-classify--done-keywords= (L43) which may
+=find-file-noselect= the item's file.  Multiply by 5 sections × 583 items and
+this is the single biggest cost.  It is also pure for a given item snapshot,
+so recomputing it on a TAB-expand (which changes nothing about the data) is
+wasted.
+
+** Hot cost 2 — every visible pill rebuilds its svg from scratch (no cache)
+=org-air-view--insert-row= (L1613) builds, for every rendered row, a date
+pill, one svg pill PER tag chip (L1389), and a priority token/slot (L1097),
+each via =org-air-view--svg-pillify= (L1208).  Each call:
+- measures the label with =string-pixel-width= inside a freshly-propertized
+  temp face (L1199, itself non-trivial),
+- =svg-create= + =svg-rectangle= + =svg-text=,
+- wraps it in =org-air-view--svg-line-image= → =svg-image= (L1191).
+Identical pills (same text, same face colour, same char metrics) — e.g. the
+date pill =3d=, the tag =@work=, a =#A= badge — are regenerated on EVERY
+render and EVERY row, never reused.  On a board with hundreds of visible
+chips that is hundreds of =svg-create=/=svg-image= calls per render, all
+recomputing pixel-identical output.
+
+** Hot cost 3 — the calendar recomputes its marks on every render, even when nothing calendar-related changed
+=org-air-view--insert-item-pane='s sibling rail/calendar path
+(=org-air-calendar-insert-month=, org-air-calendar.el L176) calls
+=org-air-calendar--marked-days items= (L95) — a full pass over all N items
+decoding every scheduled/deadline timestamp into a hash — on EVERY render,
+including a TAB-expand or a filter change that never touches the calendar.
+
+** Note — items ARE already cached; classify and pills are NOT
+=org-air-view--items= (L534) caches the org-ql query result, keyed by
+=org-air-view--items-key= (L535 = =(list org-air-files org-air-inbox-file)=),
+and =org-air-view--render-current= reuses it — so the org-ql SELECT does NOT
+re-run on TAB/month-nav (good, keep it).  The waste is DOWNSTREAM of the
+query: classify, pills and calendar-marks are recomputed from the cached
+items every time.  D-P1 caches those three derived layers and stops the
+full-buffer rebuild for the two localised actions (TAB, month-nav).
+
+* (c) Query/classify cache — classify each item ONCE per render, reuse across re-renders [DOMINANT WIN]
+
+The org-ql query result is already cached (=org-air-view--items=, kept across
+TAB/month-nav).  The waste is that =org-air-classify-item= — the expensive,
+buffer-scanning part — is re-run for every item at *every* call site of
+=org-air-view--items-for-bucket= / the banner / the summary, several times per
+render and again on every re-render.  Cache the classify result so each item
+is classified at most once per render and ZERO times on a TAB/month-nav
+re-render (same item objects).  This single change makes ALL the existing
+call sites cheap without restructuring them.
+
+** c.1 A memoising wrapper around =org-air-classify-item= (view layer)
+Keep =org-air-classify-item= (org-air-classify.el) a PURE function — its ERTs
+must not change.  Add the cache in the VIEW layer:
+#+begin_src elisp
+(defvar-local org-air-view--classify-cache nil
+  "Per-board memo: an `eq' hash mapping an `org-air-item' to its cached
+bucket list (R18 D-P1c).  Auto-invalidates because a re-query yields new
+item objects; explicitly cleared on day-rollover and refresh.")
+(defvar-local org-air-view--classify-cache-day nil
+  "`time-to-days' the classify cache was built for; a rollover clears it.")
+
+(defun org-air-view--classify-cached (item &optional now)
+  "Return ITEM's bucket list, memoised per board (R18 D-P1c).
+Delegates to the pure `org-air-classify-item'; caches the result keyed on
+the item object (`eq').  Classify is DAY-granular (every predicate is a
+day-window comparison), so the cache key is the day of NOW: a render later
+the same day is a pure cache hit; a render after midnight rebuilds."
+  (let* ((now (or now (current-time)))
+         (day (time-to-days now)))
+    (unless (and org-air-view--classify-cache
+                 (eql org-air-view--classify-cache-day day))
+      (setq org-air-view--classify-cache (make-hash-table :test 'eq :size 700)
+            org-air-view--classify-cache-day day))
+    (let ((hit (gethash item org-air-view--classify-cache 'miss)))
+      (if (eq hit 'miss)
+          (puthash item (org-air-classify-item item now)
+                   org-air-view--classify-cache)
+        hit))))
+#+end_src
+- Day-granularity is EXACT, not an approximation: =org-air-classify-item='s
+  upcoming/attention/stale tests are all =days-between= comparisons against
+  =now=, so two =now= values on the same calendar day yield identical buckets.
+  Caching on the day key therefore returns byte-identical buckets — the
+  fixtures (frozen clock) are unaffected.
+- =eq= on the item struct is the natural key: the same =org-air-item= objects
+  are reused across TAB/month-nav/resize re-renders (they all reuse
+  =org-air-view--items=), so those re-renders are pure cache hits — *zero*
+  buffer scans.  A re-query (refresh / files changed) builds fresh structs, so
+  old entries can never be wrongly hit.
+
+** c.2 Route every classify call through the wrapper (the only edits needed)
+Point the THREE direct =org-air-classify-item= callers in org-air-view.el at
+=org-air-view--classify-cached=; every =--items-for-bucket= / banner / summary
+/ rail / compute-meta call funnels through =--items-for-bucket=, so this is a
+tiny surface:
+- =org-air-view--items-for-bucket= (L888): =(memq bucket
+  (org-air-classify-item item))= → =(memq bucket
+  (org-air-view--classify-cached item now))=.  Bind ONE =now= for the call
+  (default =(current-time)=) and thread it in, so all items in a render
+  classify against one instant (also removes a latent per-item =current-time=
+  skew).
+- the inspector classify (L2272) and the inbox-membership check (L4093) →
+  =--classify-cached= as well, so the inspector follow-hook (which fires on
+  every cursor move) is a pure cache hit too.
+- =org-air-classify-item= keeps its public =(item &optional now)= signature
+  and behaviour; nothing in classify.el changes.
+
+** c.3 Invalidation (explicit, small)
+- *Day rollover* — handled by the day-stamp guard in c.1.
+- *Re-query / data change* — every mutator that can change bucket membership
+  (=org-air-set-schedule=, =org-air-set-tag=, the triage dispositions, =g=
+  refresh) already calls =org-air-refresh= → =org-air-query-items= → fresh
+  structs, so the cache is naturally correct.  Add a one-line
+  =(setq org-air-view--classify-cache nil)= on the refresh / items-key-change
+  path (where =org-air-view--items= is reassigned from a fresh query) purely
+  to bound memory and to pick up a changed =org-air-upcoming-days= /
+  =org-air-stale-days= defcustom (documented: a classify-tuning change takes
+  effect on the next refresh, not live).
+- *Never clear it inside =org-air-view--render=* — that is the TAB/month-nav
+  path and MUST keep the cache to be fast.  Clearing belongs only on the
+  query-assignment path.
+
+** c.4 (Secondary) compute the visible set once per render
+=org-air-view--visible-items= (scope+filter, L874) is re-run ~8× per render
+over all N items (banner, each section, summary, rail, compute-meta).  Its
+predicate is cheap (no buffer scan) but still O(N)×8.  OPTIONAL, lower
+priority than c.1: memoise it per render keyed on =(items scope filter)= via a
+render-scoped buffer-local (reset where the items/scope/filter change), so it
+is computed once.  Fold in only if profiling after c.1 still shows it; c.1 is
+the dominant win and ships first.
+
+** c.5 Calendar marks reuse (pairs with incremental (b))
+=org-air-calendar--marked-days= (org-air-calendar.el L95) is a full N-item
+pass run on every render.  Cache it per board keyed on the items object
+(=eq=) so a re-render reuses the marks hash; the incremental month-nav path
+(b) re-runs only this (cheap) computation for the new month, never the board.
+
+** Testability (c) — perf is provable WITHOUT a wall-clock flake
+1. A COUNT assertion (deterministic, not timing-based): advise/counter-wrap
+   =org-air-classify-item=; render a fixed board, then TAB-expand a section,
+   then month-nav.  Assert the call count for the FIRST render is ≤ N (each
+   item classified at most once) and that the TAB/month-nav re-renders add
+   *zero* further calls (pure cache hits).  This is the regression net for
+   "classify ran 5×N every render".
+2. BYTE-IDENTITY: every existing layout/board golden must stay byte-identical
+   (the cache returns the same buckets the direct call did).  =make clean=
+   then the full golden suite — the cache is invisible to the rendered bytes.
+3. A unit on =org-air-view--classify-cached=: same item twice → one
+   =org-air-classify-item= call; a different =now= day → recompute.
+
+* (a) SVG pill image cache — memoise the pixel-identical overlays
+
+=org-air-view--svg-pillify= (L1208) and its sibling overlay producers
+(=org-air-view--svg-file-icon= L1320 — one per row; the priority square
+L1134) rebuild a pixel-identical svg every call: =string-pixel-width= inside a
+temp face, =svg-create=, =svg-rectangle=, =svg-text=, then
+=org-air-view--svg-line-image= → =svg-image= (L1191).  The output is a PURE
+function of (label, colours, char-metrics, pill geometry) — so memoise the
+resulting image object.
+
+** a.1 The cache + a shared accessor
+#+begin_src elisp
+(defvar org-air-view--svg-image-cache (make-hash-table :test 'equal :size 512)
+  "Global memo: a pixel-identical svg overlay image keyed on its inputs
+\(R18 D-P1a).  Shared across boards/panes (panes render in temp buffers, so
+buffer-local would not persist, and the key fully captures the environment).")
+
+(defun org-air-view--svg-image-cached (key thunk)
+  "Return the cached image for KEY, else (funcall THUNK) and cache it (R18).
+KEY must capture EVERYTHING that changes the pixels (text/colours/metrics/
+style).  A soft cap keeps memory bounded under font/theme churn."
+  (let ((hit (gethash key org-air-view--svg-image-cache 'miss)))
+    (if (eq hit 'miss)
+        (progn
+          (when (> (hash-table-count org-air-view--svg-image-cache) 4000)
+            (clrhash org-air-view--svg-image-cache))
+          (puthash key (funcall thunk) org-air-view--svg-image-cache))
+      hit)))
+#+end_src
+
+** a.2 The cache KEY (captures font + theme + width + style)
+For a pill the image is determined by:
+- =text= — carries both the trimmed label AND the column count =ncols= (box
+  width = =ncols*cw=); so the raw =text= is in the key;
+- =fg= = =(face-foreground face nil t)= and =border= (the resolved COLOUR
+  strings) — a THEME change re-resolves these to different strings ⇒ a new key
+  ⇒ a fresh pill, so theme invalidation is automatic;
+- =align=;
+- =cw=/=ch= = =org-air-view--pill-char-w/-h= — a FONT change, =text-scale=
+  bump or a width change that alters the metrics yields new values ⇒ new key;
+- =style-sig= = =(list org-air-pill-pad-cols org-air-pill-radius
+  org-air-pill-fill-alpha org-air-pill-font-scale org-air-pill-border-opacity
+  org-air-pill-vinset)= — a one-shot snapshot (bound once per render in
+  =org-air-view--render=, alongside the metrics) so changing ANY pill-geometry
+  defcustom yields fresh keys without advice/epoch machinery.
+So =key = (list 'pill text fg border align cw ch style-sig)= (the leading
+=kind= tag keeps pill / file-icon / priority-square key-spaces disjoint).
+=string-width= is the only added per-pill work on a hit — trivially cheap.
+
+** a.3 Wire it into the producers (return a FRESH string, share the image)
+In =org-air-view--svg-pillify=, wrap ONLY the expensive build (the
+=svg-create=…=svg-line-image= block) in the accessor, then apply the cached
+image to the text:
+#+begin_src elisp
+;; inside the `ignore-errors' fit-OK branch, replacing the final
+;; `(propertize text 'display (org-air-view--svg-line-image svg box-w h))':
+(let ((image (org-air-view--svg-image-cached
+              (list 'pill text fg border align cw ch
+                    org-air-view--pill-style-sig)
+              (lambda ()
+                (let ((svg (svg-create box-w h)))
+                  ;; …existing svg-rectangle + svg-text…
+                  (org-air-view--svg-line-image svg box-w h))))))
+  (propertize text 'display image))
+#+end_src
+- =propertize= returns a FRESH string each call, so a caller that later adds
+  row-level text properties never mutates the shared cached image; the image
+  object itself is immutable (a plain list) and safe to alias across every
+  position it appears.
+- The =string-pixel-width= label-fit measurement (L1199) moves INSIDE the
+  thunk — it only runs on a cache miss, removing the other hot per-pill cost.
+- Apply the same =--svg-image-cached= wrapper to =org-air-view--svg-file-icon=
+  (key =('icon glyph color cw ch)= — one per row, high count) and the
+  priority square / =org-air-calendar--today-svg=.  Same pattern, disjoint
+  =kind= tag.
+- Bind =org-air-view--pill-style-sig= once in =org-air-view--render= next to
+  =org-air-view--pill-char-w/-h= (it is already the place the metrics are
+  captured), so every pane in that render shares one style snapshot.
+
+** a.4 Invalidation
+- *Theme* — automatic (resolved colour strings are in the key).  Belt-and-
+  braces: clear the cache from =enable-theme-functions= (Emacs 29) /
+  =org-air-faces= reconcile, so the table doesn't accumulate dead palettes.
+- *Font / text-scale / width* — automatic (metrics in the key); the soft cap
+  (a.1) bounds churn.
+- *Pill geometry defcustoms* — automatic (=style-sig= in the key).
+- The cache is GUI-only: the non-graphical / SVG-unavailable / cannot-fit
+  branches of =--svg-pillify= still return plain TEXT (untouched), so the
+  byte/TTY fallback — and every byte fixture — is unaffected.
+
+** Testability (a)
+1. COUNT assertion: counter-wrap =svg-image= (or =svg-create=); render a board
+   twice (same metrics) — the SECOND render makes *zero* new =svg-image= calls
+   for repeated pills; a render after a simulated metric change (rebind
+   =org-air-view--pill-char-w=) DOES rebuild.  Regression net for "every pill
+   rebuilt every render".
+2. BYTE-IDENTITY: all svg-bearing goldens stay byte-identical — the image is
+   the same object content, and fixtures assert the TEXT layer (svg is a
+   GUI-cosmetic display overlay with a TTY/byte fallback), so the cache is
+   invisible to the bytes.
+3. Unit: two =--svg-pillify= calls with identical args return =eq= =display=
+   images (shared); differing colour/metric/style args do not.
+
+* (b) Incremental render — redraw only the section / only the calendar
+
+With (a)+(c) in place even a full =org-air-view--render= is far cheaper
+(classify + pills are cache hits), but it still does =erase-buffer= + a full
+re-insert + a whole-buffer =--finalize-buffer-lines= pass over ~N lines.
+(b) removes that for the two localised actions by redrawing only the block
+that actually changed.
+
+** b.0 Scope honestly to the column-layout reality
+The rail (calendar/summary/inspector) is column-COMPOSED beside the board via
+=org-air-view--compose-columns= (temp-buffer panes joined into side-by-side
+lines).  So a block is splice-replaceable in place ONLY when it is NOT
+column-composed.  That gives two clean, provably-correct fast paths; every
+other case FALLS BACK to the now-cheap full =org-air-view--render-current=
+(correctness first, and still sub-100ms via the caches):
+
+| action      | orientation         | path                                    |
+|-------------+---------------------+-----------------------------------------|
+| TAB-expand  | board-only / side-window | section-region splice (b.1)        |
+| TAB-expand  | two-pane / stacked  | fall back to cheap full render          |
+| month-nav   | side-window         | re-render the rail buffer only (b.2)    |
+| month-nav   | two-pane / stacked  | fall back to cheap full render          |
+
+board-only / side-window (the full-width item pane) is exactly the wide
+583-entry configuration that triggered the report, so the fast paths cover the
+hot cases; the fallbacks keep every other layout correct.
+
+** b.1 TAB-expand: splice one section in place (full-width pane)
+=org-air-toggle-section= (L3868) currently flips
+=org-air-view--expanded-sections= then calls full =org-air-view--render=.
+Replace the render call with a dispatch:
+#+begin_src elisp
+(if (memq org-air-view--orientation '(board-only side-window))
+    (org-air-view--render-section bucket)   ; in-place splice
+  (org-air-view--render-current))           ; cheap full fallback
+#+end_src
+=org-air-view--render-section (bucket)=:
+1. bind the SAME render env the full path binds —
+   =org-air-view--pill-char-w/-h=, =--pill-style-sig=, =--line-width= = the
+   body width (=org-air-view--rendered-width=) — so spliced pills share the
+   (a) cache and land byte-identical;
+2. compose the one section's lines in a temp buffer via the existing pattern
+   (=org-air-view--insert-section= for that descriptor, then the pane's margin
+   /indent + =--pad-to width= used by =--insert-item-pane=) — NOT the whole
+   pane;
+3. find the live region of that section by text property: =beg= = first
+   position whose =org-air-section= = =bucket=; =end= = the next
+   =org-air-section= boundary (or =org-air-view--body-end=).  (Sections
+   already carry =org-air-section= on the heading + rows.)
+4. =inhibit-read-only=; delete =[beg,end)=; insert the new lines;
+5. *rebalance the fill* to preserve S6 full height: the body grew/shrank by
+   Δ lines; add/remove Δ blank fill-rows (=fill-row= = ="="" in board-only)
+   just above =org-air-view--body-end= so the footer stays pinned and
+   =org-air-view--rendered-height= is preserved — never re-pad the whole
+   buffer;
+6. cap ONLY the inserted lines (=--finalize-buffer-lines= scoped to the
+   spliced region), then restore point with the existing
+   =org-air-view--save-position= / =--restore-position= (land back on the
+   toggled section heading).
+
+This requires two cheap additions to the full render: buffer-local markers
+=org-air-view--body-beg= / =org-air-view--body-end= set around the body-band
+insertion in =org-air-view--render= (so the splice + fill-rebalance know the
+band), and nothing else changes about the full path.
+
+** b.2 month-nav: re-render only the calendar (side-window) — board untouched
+=org-air-calendar-{prev,next}= (L4155/4164) only mutate
+=org-air-view--cal-month=; items/sections/filter are identical, so the BOARD
+buffer must not move.  Dispatch:
+#+begin_src elisp
+(if (eq org-air-view--orientation 'side-window)
+    (org-air-view--render-calendar)   ; re-render the rail buffer only
+  (org-air-view--render-current))     ; cheap full fallback (column-composed)
+#+end_src
+=org-air-view--render-calendar=: in =side-window= the rail
+(calendar+summary+inspector+filters+actions) is a SEPARATE =*org-air-rail*=
+buffer (=org-air-rail--show=), so re-render just that buffer for the new
+=cal-month= — the board buffer is not touched at all.  Marks come from the
+(c.5) =--marked-days= cache (items unchanged ⇒ cache hit), so only the month
+grid re-lays; today/day svg overlays are (a)-cached.  This is the literal
+"month-nav redraws only the calendar block".
+- (Future, optional) an inline =org-air-block 'calendar= region splice for
+  two-pane/stacked would need the calendar's column band re-composed; deferred
+  — the fallback already meets the target with the caches.  Note for REVIEW.
+
+** b.3 What still goes through the full path (correct + cheap)
+=g= refresh, scope, filter and resize change the DATA or the GEOMETRY of the
+whole board, so they keep =org-air-view--render-current= — but it now reuses
+the classify cache where the item set is unchanged (scope/filter rebuild the
+visible set but classify per item is still a cache hit) and the pill cache
+always, so even these are well under target.  Refresh additionally clears the
+classify cache (c.3) to re-query.
+
+** Testability (b)
+1. TAB-expand splice: render a board-only board, TAB a section, assert the
+   header band + footer + the OTHER sections' lines are byte-identical to the
+   pre-toggle buffer (only the toggled section's region + the trailing fill
+   changed), and the total line count = =org-air-view--rendered-height=
+   (S6 preserved).
+2. A full-render-vs-incremental EQUIVALENCE golden: the buffer after an
+   incremental section splice is byte-identical to the buffer produced by a
+   full =org-air-view--render= with the same =expanded-sections= — proves the
+   fast path can never diverge from the source of truth.
+3. month-nav (side-window): assert the BOARD buffer is byte-identical before/
+   after =>= (only the rail buffer changed), and the rail shows the next
+   month.  Fall-back orientations: assert correctness via the existing
+   calendar goldens (unchanged).
+4. point preservation: after each, point is on the same section heading / item.
+
+* Constraints (carried from the findings spec)
+- *Perf is INTERNAL* — the V6 pixel-lock, svg line-height clamp and byte/TTY
+  fallback are all preserved; every byte fixture must stay byte-identical.
+  All three optimisations are invisible to the rendered bytes (the cache
+  returns the same classify buckets / the same pixel image; incremental
+  produces a buffer byte-identical to the full render — proven by the
+  equivalence golden b.2).
+- org-ql only; Emacs 29.1+.  Build on the round-18 trunk.  =make clean=
+  before every verify (stale .elc).  The classify wrapper keeps
+  =org-air-classify-item= a pure function (its ERTs unchanged).
+- No new dependency; =string-pixel-width= / =svg-*= already required.
+- Inspector stays inert in batch (no new live hooks here); the
+  classify cache makes the existing follow-hook a cache hit, not new work.
+
+* Order + risk (ship in this order; each is independently valuable)
+1. *(c) classify cache* — the dominant win, smallest surface (a wrapper + 3
+   re-points), zero byte change.  Ship first; re-profile.
+2. *(a) svg pill cache* — second win, contained to the overlay producers,
+   zero byte change.
+3. *(b) incremental render* — the polish; most code, so last.  Gated by the
+   equivalence golden so it can NEVER diverge from the full render.
+Targets: after (c)+(a) a full render should already be well under 100ms at
+583 entries; (b) removes the residual full-buffer text work for TAB / month-
+nav.  If (c)+(a) alone hit the target in review, (b) MAY be deferred — flag.
+
+* Routing (impl + test; REVIEW gates integration)
+- *Impl R18 D-P1c* (first commit): add =org-air-view--classify-cached= +
+  the two cache defvars; re-point =--items-for-bucket= (L888), the inspector
+  classify (L2272) and the inbox check (L4093); clear the cache on the
+  refresh / items-key-change path; (optional) the c.4 visible-set memo +
+  c.5 =--marked-days= cache.
+- *Impl R18 D-P1a* (second commit): add =org-air-view--svg-image-cache= +
+  =--svg-image-cached=; bind =org-air-view--pill-style-sig= in =--render=;
+  wrap the build in =--svg-pillify=, =--svg-file-icon=, the priority square
+  and =org-air-calendar--today-svg=; theme-clear hook.
+- *Impl R18 D-P1b* (third commit): =--render-section= + =--render-calendar=
+  + the body-band markers; the dispatch in =org-air-toggle-section= and
+  =org-air-calendar-{prev,next}=.
+- *Test track R18*: the classify COUNT ert + unit; the svg COUNT ert + unit;
+  the section-splice byte-equivalence golden + the side-window month-nav
+  board-untouched ert; full byte-golden suite stays byte-identical (the
+  proof perf is internal).  Add any spec-true-but-unmet tests to
+  tests/org-air-known-failures.el with the R18 reason; closeout deletes them
+  (empty manifest = gate).
+- *BLESS*: nothing new to bless — all existing goldens must stay
+  byte-identical; the equivalence golden is GENERATED from the full render,
+  not hand-blessed.
+
+* Open questions for REVIEW
+- classify cache key: =eq= on the item struct (proposed — auto-invalidates
+  on re-query) vs a content hash.  =eq= is correct because the query rebuilds
+  structs; flag if a reviewer wants content-keying for cross-session reuse.
+- svg cache memory: global with a 4000-entry soft-cap clrhash (proposed) vs
+  an LRU.  Soft-cap is simplest and the realistic key cardinality (tag vocab
+  × faces × one metric set) is small; flag if churn under text-scale sweeps
+  warrants an LRU.
+- (b) scope: section-splice limited to board-only/side-window + calendar to
+  side-window, full-render fallback elsewhere (proposed, correctness-first).
+  If review wants two-pane TAB incremental, it needs a column-band recompose
+  — larger; deferred with a note.
+- whether (b) is needed at all if (c)+(a) already hit sub-100ms in review —
+  proposed: ship (c)+(a), measure, then decide (b) vs defer.
 
 * Implementation History
-- (pending) D-P1 perf specced by orchestrator (design-seat crashes); profiled
-  the render path: full recompose + un-cached svg pills = the lag.
+- (pending) round-18 D-P1 design opened.  Profiled the 583-entry lag to a
+  full-buffer recompose on every action with three uncached derived layers:
+  classify re-run for every item at every =--items-for-bucket= / banner /
+  summary / rail call site (≈ a dozen× N per render, each call buffer-scanning
+  via =--marker-timestamp-time= / =--done-keywords=), per-row per-render svg
+  pill rebuilds (=svg-create=/=string-pixel-width=/=svg-image=), and a full
+  =--marked-days= calendar pass on every render.  Spec: *(c)* memoise
+  =org-air-classify-item= per item per board (=eq= hash, day-stamped) so each
+  item classifies once per render and zero times on TAB/month-nav re-renders;
+  *(a)* a global svg image cache keyed on text+resolved-colours+metrics+style
+  so pixel-identical pills/icons are built once (theme/font/width auto-
+  invalidate via the key); *(b)* incremental redraw — splice one section in
+  place on TAB (board-only/side-window) and re-render only the rail buffer on
+  month-nav (side-window), falling back to the now-cheap full render for the
+  column-composed layouts, gated by a byte-equivalence golden.  All three are
+  byte-invisible: V6 pixel-lock + svg line-height clamp + byte/TTY fallback
+  preserved, every existing fixture stays byte-identical.

@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-18: performance + AND-filter + project parity + view-pane UX
-#+state: ready
+#+state: complete
 #+FILETAGS: :perf:ui:filter:project:critical:
 
 * Summary

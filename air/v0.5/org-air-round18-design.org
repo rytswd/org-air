@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-18 DESIGN: perf (D-P1) · filter pre-fill+AND (D-P2) · project parity (D-P3) · view-pane auto-follow+RET-focus (D-P4) · nano/mu4e polish (D-P5)
-#+state: ready
+#+state: complete
 #+FILETAGS: :perf:render:cache:ui:filter:project:critical:design:v0.5:
 
 * Scope of this document

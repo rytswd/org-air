@@ -412,6 +412,18 @@ headers; the marker carries the GUI svg accent bar via
                          (list 'org-air-section (plist-get section :title)
                                'org-air-count-badge count))))
 
+(defun org-air-project--deslug-relpath (relpath)
+  "Return RELPATH with its Denote LEAF de-slugged (R17 D-P2).
+Keeps the directory prefix and replaces only the leaf with its de-slugged
+Denote title (`org-air-view--denote-title'), falling back to the raw leaf
+for a non-Denote name.  So a long Denote filename reads as its title --
+e.g. \"v0.1/weekly-invalidation-rate-upgr\" -- instead of the raw
+identifier--slug__tags.org; `org-air-view--pad-to' still bounds line 2."
+  (let* ((dir (file-name-directory relpath))
+         (leaf (file-name-nondirectory relpath))
+         (title (or (org-air-view--denote-title leaf) leaf)))
+    (concat (or dir "") title)))
+
 (defun org-air-project--doc-dates-str (doc)
   "Return the quiet `created …    updated …' detail for DOC (R14 D-P1.A)."
   (let* ((created (org-air-doc-created doc))
@@ -448,10 +460,14 @@ SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
                                             (org-air-view--glyph 'more))))
          (line1 (concat l1-prefix (propertize title 'face 'org-air-face-title)
                         gap tagstr))
-         ;; line 2: indented ▤ relpath + created/updated.
+         ;; line 2: indented ▤ relpath + created/updated.  R17 D-P2:
+         ;; de-slug the Denote LEAF of the relpath (keep the dir prefix) so
+         ;; a long Denote name reads as its title, not the raw id+slug.
          (origin-glyph (org-air-layout-glyph 'origin))
          (file-cell (org-air-view--svg-file-icon origin-glyph))
-         (relpath (propertize (org-air-doc-relpath doc) 'face 'org-air-face-faded))
+         (relpath (propertize
+                   (org-air-project--deslug-relpath (org-air-doc-relpath doc))
+                   'face 'org-air-face-faded))
          (line2 (concat l2-indent file-cell " " relpath "    "
                         (org-air-project--doc-dates-str doc))))
     (insert (org-air-view--pad-to line1 width) "\n")

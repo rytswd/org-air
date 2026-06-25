@@ -2307,12 +2307,25 @@ fields function while the core stays content-agnostic."
                               (when prio
                                 (org-air-view--priority-token prio))))))
       (when parts (push (concat inset (string-join parts "  ")) lines)))
-    ;; origin (group/file)
-    (let* ((grp (org-air-item-group item))
-           (file (and (org-air-item-file item)
-                      (file-name-nondirectory (org-air-item-file item))))
+    ;; origin (group/file) -- R17 D-P2: the leaf is the SAME de-slugged
+    ;; Denote title the board shows (`org-air-view--origin'), not the raw
+    ;; identifier--slug__tags.org, so the board and inspector agree.  Bind
+    ;; `org-air-show-group' nil so this resolves the FILE leaf.  The group
+    ;; defaults to the file basename (`org-air-query--group'), so keep the
+    ;; `group/' breadcrumb ONLY when it is a real CATEGORY distinct from
+    ;; that basename (else it is redundant with -- and, for a Denote file,
+    ;; the raw slug of -- the leaf); de-slug a Denote-style group too so a
+    ;; long raw basename can never leak.  `org-air-view--pad-to' in
+    ;; `org-air-view--inspector-lines' still bounds the line (no overflow).
+    (let* ((ifile (org-air-item-file item))
+           (origin (let ((org-air-show-group nil))
+                     (org-air-view--origin item)))
+           (grp (org-air-item-group item))
+           (grp (and grp ifile
+                     (not (equal grp (file-name-base ifile)))
+                     (or (org-air-view--denote-title grp) grp)))
            (org (concat (org-air-view--glyph 'origin) " "
-                        (if grp (concat grp "/") "") (or file ""))))
+                        (if grp (concat grp "/") "") (or origin ""))))
       (push (concat inset
                     (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
                     (propertize (substring org (length (org-air-view--glyph 'origin)))

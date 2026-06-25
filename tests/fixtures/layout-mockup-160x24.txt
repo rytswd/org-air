@@ -11,23 +11,23 @@
       TODO ■ Fix production outage runbook                     OVERDUE 5d      #projects   #work  …  ▤ projects.org │
       TODO   Book dentist appointment                          OVERDUE 3d      #personal   #health   ▤ personal.org │        ◆ due    ● sched    · created
       TODO   Dust off old archive project                      no date         #projects   #archive  ▤ projects.org │
-      TODO   Untracked idea with no dates                      no date         #projects   #someday  ▤ projects.org │ ▌ Summary
-             Reference notes without a todo state              no date         #projects   #note     ▤ projects.org │      3   Inbox
-      …and 2 more — press TAB on the title to expand                                                                │      8   Needs attention
-                                                                                                                    │      8   Upcoming
-  ◆ Upcoming 8                                                                                                      │      3   High priority
-      TODO   Renew library card                                Today           #personal   #admin    ▤ personal.org │      2   Stale
-      TODO   Water the garden                                  Today           #projects   #home     ▤ projects.org │    ────
-      TODO ■ Prep client presentation                          Tomorrow        #work   #client           ▤ work.org │     23   total
-      TODO   Prepare standup notes                             Tomorrow        #projects   #work     ▤ projects.org │
-      TODO   Email finance about budget                        Tomorrow        #work                     ▤ work.org │ ▌ Inspector
-      …and 3 more — press TAB on the title to expand                                                                │
-                                                                                                                    │ ▌ Filters
-  ★ High priority 3                                                                                                 │    No filters · all items
+      TODO   Untracked idea with no dates                      no date         #projects   #someday  ▤ projects.org │ ▌ Filter
+             Reference notes without a todo state              no date         #projects   #note     ▤ projects.org │    No filters · all items
+      …and 2 more — press TAB on the title to expand                                                                │ ▌ Scope
+                                                                                                                    │    all items
+  ◆ Upcoming 8                                                                                                      │
+      TODO   Renew library card                                Today           #personal   #admin    ▤ personal.org │ ▌ Summary
+      TODO   Water the garden                                  Today           #projects   #home     ▤ projects.org │      3   Inbox
+      TODO ■ Prep client presentation                          Tomorrow        #work   #client           ▤ work.org │      8   Needs attention
+      TODO   Prepare standup notes                             Tomorrow        #projects   #work     ▤ projects.org │      8   Upcoming
+      TODO   Email finance about budget                        Tomorrow        #work                     ▤ work.org │      3   High priority
+      …and 3 more — press TAB on the title to expand                                                                │      2   Stale
+                                                                                                                    │    ────
+  ★ High priority 3                                                                                                 │     23   total
       TODO ■ Ship quarterly report                             Wed             #projects   #work  …  ▤ projects.org │
-      TODO ■ Fix production outage runbook                     OVERDUE 5d      #projects   #work  …  ▤ projects.org │ ▌ Actions
-      TODO ■ Prep client presentation                          Tomorrow        #work   #client           ▤ work.org │    c capture    / filter      s scope
-                                                                                                                    │    g refresh    TAB expand    ? help
-  ○ Stale 2                                                                                                         │
-      TODO   Dust off old archive project                      · 225d quiet    #projects   #archive  ▤ projects.org │
+      TODO ■ Fix production outage runbook                     OVERDUE 5d      #projects   #work  …  ▤ projects.org │ ▌ Inspector
+      TODO ■ Prep client presentation                          Tomorrow        #work   #client           ▤ work.org │
+                                                                                                                    │ ▌ Actions
+  ○ Stale 2                                                                                                         │    c capture    / filter      s scope
+      TODO   Dust off old archive project                      · 225d quiet    #projects   #archive  ▤ projects.org │    g refresh    TAB expand    ? help
       TODO   Learn lute                                        · 273d quiet    #someday   #hobby      ▤ someday.org │

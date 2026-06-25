@@ -11,12 +11,17 @@
       Nothing scheduled in the next 7 days.                                           │
                                                                                       │       ◆ due    ● sched
   ★ High priority 0                                                                   │
-      No #A items.                                                                    │ ▌ Summary
+      No #A items.                                                                    │ ▌ Filter
+                                                                                      │    No filters · all items
+  ○ Stale 0                                                                           │ ▌ Scope
+      Nothing has gone stale.                                                         │    all items
+                                                                                      │
+      Nothing here yet. Press c to capture your first note.                           │ ▌ Summary
                                                                                       │      0   Inbox
-  ○ Stale 0                                                                           │      0   Needs attention
-      Nothing has gone stale.                                                         │      0   Upcoming
+                                                                                      │      0   Needs attention
+                                                                                      │      0   Upcoming
                                                                                       │      0   High priority
-      Nothing here yet. Press c to capture your first note.                           │      0   Stale
+                                                                                      │      0   Stale
                                                                                       │    ────
                                                                                       │      0   total
                                                                                       │
@@ -39,11 +44,6 @@
                                                                                       │
                                                                                       │
                                                                                       │
-                                                                                      │
-                                                                                      │
-                                                                                      │
-                                                                                      │ ▌ Filters
-                                                                                      │    No filters · all items
                                                                                       │
                                                                                       │ ▌ Actions
                                                                                       │    c capture / filter   s scope

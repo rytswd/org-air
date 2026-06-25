@@ -11,27 +11,28 @@
       TODO ■ Fix production outage r…  OVERDUE 5d      #projects … ▤ projects.… │
       TODO   Book dentist appointment  OVERDUE 3d      #personal … ▤ personal.… │     ◆ due    ● sched
       TODO   Dust off old archive pr…  no date         #projects … ▤ projects.… │
-      TODO   Untracked idea with no …  no date         #projects … ▤ projects.… │ ▌ Summary
-             Reference notes without…  no date         #projects … ▤ projects.… │    3   Inbox
-      …and 2 more — press TAB on the title to expand                            │    8   Needs attention
-                                                                                │    8   Upcoming
-  ◆ Upcoming 8                                                                  │    3   High priority
-      TODO   Renew library card        Today           #personal … ▤ personal.… │    2   Stale
-      TODO   Water the garden          Today           #projects … ▤ projects.… │  ────
-      TODO ■ Prep client presentation  Tomorrow        #work   #c…   ▤ work.org │   23   total
-      TODO   Prepare standup notes     Tomorrow        #projects … ▤ projects.… │
-      TODO   Email finance about bud…  Tomorrow        #work         ▤ work.org │ ▌ Inspector
-      …and 3 more — press TAB on the title to expand                            │  Quick note about org-air
+      TODO   Untracked idea with no …  no date         #projects … ▤ projects.… │ ▌ Filter
+             Reference notes without…  no date         #projects … ▤ projects.… │  No filters · all items
+      …and 2 more — press TAB on the title to expand                            │ ▌ Scope
+                                                                                │  all items
+  ◆ Upcoming 8                                                                  │
+      TODO   Renew library card        Today           #personal … ▤ personal.… │ ▌ Summary
+      TODO   Water the garden          Today           #projects … ▤ projects.… │    3   Inbox
+      TODO ■ Prep client presentation  Tomorrow        #work   #c…   ▤ work.org │    8   Needs attention
+      TODO   Prepare standup notes     Tomorrow        #projects … ▤ projects.… │    8   Upcoming
+      TODO   Email finance about bud…  Tomorrow        #work         ▤ work.org │    3   High priority
+      …and 3 more — press TAB on the title to expand                            │    2   Stale
+                                                                                │  ────
+  ★ High priority 3                                                             │   23   total
+      TODO ■ Ship quarterly report     Wed             #projects … ▤ projects.… │
+      TODO ■ Fix production outage r…  OVERDUE 5d      #projects … ▤ projects.… │ ▌ Inspector
+      TODO ■ Prep client presentation  Tomorrow        #work   #c…   ▤ work.org │  Quick note about org-air
                                                                                 │  idea
-  ★ High priority 3                                                             │  ▤ inbox.org
-      TODO ■ Ship quarterly report     Wed             #projects … ▤ projects.… │  #inbox
-      TODO ■ Fix production outage r…  OVERDUE 5d      #projects … ▤ projects.… │
-      TODO ■ Prep client presentation  Tomorrow        #work   #c…   ▤ work.org │
-                                                                                │  Bucket  Inbox
-  ○ Stale 2                                                                     │
-      TODO   Dust off old archive pr…  · 225d quiet    #projects … ▤ projects.… │
+  ○ Stale 2                                                                     │  ▤ inbox.org
+      TODO   Dust off old archive pr…  · 225d quiet    #projects … ▤ projects.… │  #inbox
       TODO   Learn lute                · 273d quiet    #someday  … ▤ someday.o… │
                                                                                 │
+                                                                                │  Bucket  Inbox
                                                                                 │
                                                                                 │
                                                                                 │
@@ -42,8 +43,7 @@
                                                                                 │
                                                                                 │
                                                                                 │
-                                                                                │ ▌ Filters
-                                                                                │  No filters · all items
+                                                                                │
                                                                                 │
                                                                                 │ ▌ Actions
                                                                                 │  c capture / filter   s sco…

@@ -2,7 +2,7 @@
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 1                                                                           │ ▌ June 2026                  ‹ ›
-      TODO   File the …  Tomorrow     · file with r  #inbox               ▤ inbox.org │       Su Mo Tu We Th Fr Sa
+      TODO   File the re…  Tomorrow     · r to file  #inbox               ▤ inbox.org │       Su Mo Tu We Th Fr Sa
                                                                                       │           1  2  3  4  5  6
   ▲ Needs attention 0                                                                 │        7  8  9 10 11 12 13
       Nothing overdue. Nice.                                                          │       14 15 16●17 18 19 20
@@ -11,19 +11,21 @@
       TODO   Reconcile the quarterly…  Tomorrow      #work   #admin  ▤ weekly-invali… │
       TODO   File the receipts         Tomorrow      #inbox               ▤ inbox.org │       ◆ due    ● sched
                                                                                       │
-  ★ High priority 0                                                                   │ ▌ Summary
-      No #A items.                                                                    │      1   Inbox
+  ★ High priority 0                                                                   │ ▌ Filter
+      No #A items.                                                                    │    No filters · all items
+                                                                                      │ ▌ Scope
+  ○ Stale 0                                                                           │    all items
+      Nothing has gone stale.                                                         │
+                                                                                      │ ▌ Summary
+                                                                                      │      1   Inbox
                                                                                       │      0   Needs attention
-  ○ Stale 0                                                                           │      2   Upcoming
-      Nothing has gone stale.                                                         │      0   High priority
+                                                                                      │      2   Upcoming
+                                                                                      │      0   High priority
                                                                                       │      0   Stale
                                                                                       │    ────
                                                                                       │      2   total
                                                                                       │
                                                                                       │ ▌ Inspector
-                                                                                      │
-                                                                                      │ ▌ Filters
-                                                                                      │    No filters · all items
                                                                                       │
                                                                                       │ ▌ Actions
                                                                                       │    c capture / filter   s scope

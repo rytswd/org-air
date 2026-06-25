@@ -11,23 +11,23 @@
       TODO ■ Fix production outage r…  OVERDUE 5d      #pro… ▤ projects.… │
       TODO   Book dentist appointment  OVERDUE 3d      #per… ▤ personal.… │     ◆ due    ● sched
       TODO   Dust off old archive pr…  no date         #pro… ▤ projects.… │
-      TODO   Untracked idea with no …  no date         #pro… ▤ projects.… │ ▌ Summary
-             Reference notes without…  no date         #pro… ▤ projects.… │    3   Inbox
-      …and 2 more — press TAB on the title to expand                      │    8   Needs attention
-                                                                          │    8   Upcoming
-  ◆ Upcoming 8                                                            │    3   High priority
-      TODO   Renew library card        Today           #per… ▤ personal.… │    2   Stale
-      TODO   Water the garden          Today           #pro… ▤ projects.… │  ────
-      TODO ■ Prep client presentation  Tomorrow        #wor…   ▤ work.org │   23   total
-      TODO   Prepare standup notes     Tomorrow        #pro… ▤ projects.… │
-      TODO   Email finance about bud…  Tomorrow        #wor…   ▤ work.org │ ▌ Inspector
-      …and 3 more — press TAB on the title to expand                      │
-                                                                          │ ▌ Filters
-  ★ High priority 3                                                       │  No filters · all items
+      TODO   Untracked idea with no …  no date         #pro… ▤ projects.… │ ▌ Filter
+             Reference notes without…  no date         #pro… ▤ projects.… │  No filters · all items
+      …and 2 more — press TAB on the title to expand                      │ ▌ Scope
+                                                                          │  all items
+  ◆ Upcoming 8                                                            │
+      TODO   Renew library card        Today           #per… ▤ personal.… │ ▌ Summary
+      TODO   Water the garden          Today           #pro… ▤ projects.… │    3   Inbox
+      TODO ■ Prep client presentation  Tomorrow        #wor…   ▤ work.org │    8   Needs attention
+      TODO   Prepare standup notes     Tomorrow        #pro… ▤ projects.… │    8   Upcoming
+      TODO   Email finance about bud…  Tomorrow        #wor…   ▤ work.org │    3   High priority
+      …and 3 more — press TAB on the title to expand                      │    2   Stale
+                                                                          │  ────
+  ★ High priority 3                                                       │   23   total
       TODO ■ Ship quarterly report     Wed             #pro… ▤ projects.… │
-      TODO ■ Fix production outage r…  OVERDUE 5d      #pro… ▤ projects.… │ ▌ Actions
-      TODO ■ Prep client presentation  Tomorrow        #wor…   ▤ work.org │  c capture / filter   s sco…
-                                                                          │  g refresh TAB expand ? help
-  ○ Stale 2                                                               │
-      TODO   Dust off old archive pr…  · 225d quiet    #pro… ▤ projects.… │
+      TODO ■ Fix production outage r…  OVERDUE 5d      #pro… ▤ projects.… │ ▌ Inspector
+      TODO ■ Prep client presentation  Tomorrow        #wor…   ▤ work.org │
+                                                                          │ ▌ Actions
+  ○ Stale 2                                                               │  c capture / filter   s sco…
+      TODO   Dust off old archive pr…  · 225d quiet    #pro… ▤ projects.… │  g refresh TAB expand ? help
       TODO   Learn lute                · 273d quiet    #som… ▤ someday.o… │

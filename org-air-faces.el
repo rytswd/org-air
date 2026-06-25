@@ -205,6 +205,22 @@ filter/scope tokens stay faded.  The assembled header string width is
 unchanged — only the per-segment face differs, so fixtures hold."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-modeline
+  '((t :inherit org-air-face-faded))
+  "Face for the calm nano-style org-air mode-line (R18 D-P5.1).
+A quiet, faded buffer/mode name; status already lives in the in-buffer
+banner, so the mode-line is just a soft label.  Mode-line is not part of
+the buffer-text fixtures, so this is byte-invisible."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-pane-title
+  '((t :inherit org-air-face-strong))
+  "Face for the SALIENT title segment of the bottom view-pane header (D-P5.2).
+mu4e-style chrome: the title is the one salient token; the file and state
+segments + the `·' separators ride the faded face around it.  The header
+TEXT is unchanged (faces only), so the pane byte golden holds."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-rail-card-header
   '((((class color) (min-colors 256) (background light))
      (:background "#F1EFEA" :overline "#D8D4CC" :weight normal))
@@ -407,6 +423,19 @@ add the colour."
 (no box), so the active state reads without adding chrome."
   :group 'org-air-faces)
 
+(defcustom org-air-tag-color nil
+  "When non-nil, tag chips carry their per-tag accent HUE (R18 D-P5.3).
+The default nil applies the calm nano-style colour discipline: tag chips
+ride the single faded `org-air-face-tag' tint so each row keeps ONE
+salient signal (the date / priority cue) instead of a rainbow of tag hues.
+Set it non-nil to restore the deterministic 6-hue per-tag palette.
+
+Faces are display-only — the byte/TTY fixtures assert the tag TEXT — so
+this never moves a golden.  REVIEW: the calm default (nil) is proposed per
+the round-18 D-P5.3 spec; flip to t if the per-tag hues should stay on."
+  :type 'boolean
+  :group 'org-air-faces)
+
 (defconst org-air-tag-accent-palette
   ;; (LIGHT-FG LIGHT-BG DARK-FG DARK-BG).  Round-6 restraint uses only the
   ;; FOREGROUNDS — tags are quiet coloured text, no boxes or background
@@ -445,13 +474,17 @@ mode for light/dark parity.")
 (org-air-faces--define-tag-accents)
 
 (defun org-air-faces-tag-face (tag)
-  "Return a deterministic accent face symbol for TAG (a string).
-The same TAG always maps to the same hue.  Use this so tag colours
-are stable across renders and sessions."
-  (let* ((n (length org-air-tag-accent-palette))
-         (hash (abs (sxhash-equal tag)))
-         (idx (1+ (mod hash n))))
-    (intern (format "org-air-face-tag-accent-%d" idx))))
+  "Return the face symbol for TAG (a string).
+R18 D-P5.3: with `org-air-tag-color' nil (the calm default) every tag uses
+the single faded `org-air-face-tag'; non-nil returns a deterministic
+per-tag accent hue so the same TAG always maps to the same colour, stable
+across renders and sessions."
+  (if (not org-air-tag-color)
+      'org-air-face-tag
+    (let* ((n (length org-air-tag-accent-palette))
+           (hash (abs (sxhash-equal tag)))
+           (idx (1+ (mod hash n))))
+      (intern (format "org-air-face-tag-accent-%d" idx)))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Calendar faces

@@ -125,12 +125,14 @@ every chip — the per-tag hue lives in the LABEL only, never the border."
   :type '(choice (const :tag "Auto (derive from faded)" nil) string)
   :group 'org-air)
 
-(defcustom org-air-pill-border-opacity 0.85
-  "Stroke opacity for the svg pill border (R13 D-P1.B, visible capsules).
-Round-13 raises the default 0.5 → 0.85: a clearly visible border (still a
-single hairline stroke, not a heavy chip) so the capsule is unmistakable.
-Round-12's 0.5 made the pills too faint.  Display-only (an svg attribute)
-— no byte change."
+(defcustom org-air-pill-border-opacity 0.7
+  "Stroke opacity for the svg pill border (R13 D-P1.B; R18 D-P5.4 calmer).
+R18 D-P5.4 nudges the default 0.85 → 0.7 for a calmer nano-style hairline,
+paired with the low `org-air-pill-fill-alpha' 0.08: the capsule still
+reads clearly but no longer shouts.  Round-13's 0.85 sat a touch loud;
+round-12's 0.5 was too faint.  Display-only (an svg attribute) — no byte
+change; the round-18 D-P1a image cache invalidates once on the new
+style-sig."
   :type 'number
   :group 'org-air)
 
@@ -155,6 +157,19 @@ nil leaves `line-spacing' at the frame default; a non-zero value
 re-introduces inter-row spacing (the divider then needs
 `org-air-divider-style' = `svg to stay solid)."
   :type '(choice (const :tag "Frame default" nil) number)
+  :group 'org-air)
+
+(defcustom org-air-modeline-style 'calm
+  "Mode-line style for the org-air board / project / pane buffers (R18 D-P5.1).
+org-air already shows status in the in-buffer banner and keeps the
+header-line nil (S1), so the default mode-line is redundant chrome.
+`calm' (default) installs a minimal, faded nano-style `mode-line-format'
+— a quiet name + a faded rule; `default' opts back into Emacs's normal
+mode-line.  The mode-line is NOT part of the buffer-text fixtures, so this
+is byte-invisible (and the 1-line height is unchanged, so the body height
+derivation is unaffected)."
+  :type '(choice (const :tag "Calm nano-style" calm)
+                 (const :tag "Emacs default" default))
   :group 'org-air)
 
 (defcustom org-air-pill-vinset 1
@@ -727,11 +742,28 @@ both views; per-mode domain verbs stay in each child map.")
 
 (defalias 'org-air-mode-map 'org-air-view-mode-map)
 
+(defconst org-air-view--calm-mode-line
+  '(:eval (propertize (concat "  " (format-mode-line mode-name) "  ")
+                      'face 'org-air-face-modeline))
+  "The minimal faded nano-style mode-line construct (R18 D-P5.1).
+A single quiet, faded segment — the mode name — since the real status
+lives in the in-buffer banner.")
+
+(defun org-air-view--install-modeline ()
+  "Install the calm nano-style mode-line per `org-air-modeline-style' (D-P5.1).
+No-op for `default' (keeps Emacs's normal mode-line).  Stays a single
+line, so the body-height derivation is unchanged; byte-invisible."
+  (when (eq org-air-modeline-style 'calm)
+    (setq-local mode-line-format (list org-air-view--calm-mode-line))))
+
 (define-derived-mode org-air-view-mode special-mode "org-air"
   "Major mode for the org-air dashboard."
   (setq-local truncate-lines t)
   ;; S1: the header band is in-buffer text only; never a header line.
   (setq-local header-line-format nil)
+  ;; R18 D-P5.1: a calm, faded nano-style mode-line (status lives in the
+  ;; in-buffer banner); byte-invisible (mode-line is not buffer text).
+  (org-air-view--install-modeline)
   ;; D-P3: `org-air-line-spacing' default 0 keeps the `│' divider glyph an
   ;; unbroken vertical rule (no gap below the row for the per-cell glyph
   ;; to skip).  The capsule breathing now lives inside each pill via
@@ -3402,6 +3434,15 @@ marker; nil shows the full subtree."
   :type '(choice (const :tag "Full subtree" nil) integer)
   :group 'org-air)
 
+(defcustom org-air-view-pane-line-spacing 0.15
+  "Buffer-local `line-spacing' for the bottom `*org-air-view*' pane (R18 D-P5.2).
+The pane has NO `│' divider (unlike the two-pane board), so a small
+positive leading is free and gives the entry snapshot a calmer, mu4e
+message-view rhythm.  Display-only — the pane is a side window, never part
+of the board fixture bytes.  nil leaves the frame default; 0 packs tight."
+  :type '(choice (const :tag "Frame default" nil) number)
+  :group 'org-air)
+
 (defcustom org-air-view-pane-follow-debounce 0.1
   "Idle seconds before follow redraws the bottom view pane (R16 D-P3).
 Mirrors `org-air-inspector-debounce': a short idle delay coalesces rapid
@@ -3420,7 +3461,11 @@ with hundreds of items across dozens of files stays responsive."
 A read-only snapshot of the selected item's Org entry with Org font-lock,
 `other-window'-reachable for reading/scrolling."
   (setq-local truncate-lines nil)
-  (setq-local line-spacing org-air-line-spacing)
+  ;; R18 D-P5.2: the pane has no `│' divider, so a small positive leading is
+  ;; free and gives a calmer mu4e message-view rhythm.
+  (setq-local line-spacing org-air-view-pane-line-spacing)
+  ;; R18 D-P5.1: the calm nano-style mode-line here too.
+  (org-air-view--install-modeline)
   (setq-local cursor-type t)
   (setq-local buffer-read-only t))
 
@@ -3535,15 +3580,25 @@ unavailable (e.g. batch)."
 
 (defun org-air-view-pane--header-line (ctx)
   "Return the `*org-air-view*' header-line string for context CTX (R16 D-P3).
-Text contract: `▤ <file>  ·  <title>  ·  <state>'."
+Text contract: `▤ <file>  ·  <title>  ·  <state>'.  R18 D-P5.2 gives it
+mu4e-style chrome: the TITLE is the one salient segment, the file/state
+and the `·' separators ride the faded face.  Faces only — the header TEXT
+is unchanged (the pane byte golden strips properties), so it holds."
   (let* ((icon (org-air-view--glyph 'view-pane))
-         (dot (concat "  " (org-air-view--glyph 'sep-dot) "  "))
+         (dot (concat "  "
+                      (propertize (org-air-view--glyph 'sep-dot)
+                                  'face 'org-air-face-faded)
+                      "  "))
          (file (let ((f (plist-get ctx :file)))
-                 (and f (file-name-nondirectory f))))
-         (title (plist-get ctx :title))
-         (state (plist-get ctx :state))
+                 (and f (propertize (file-name-nondirectory f)
+                                    'face 'org-air-face-faded))))
+         (title (let ((tt (plist-get ctx :title)))
+                  (and tt (propertize tt 'face 'org-air-face-pane-title))))
+         (state (let ((s (plist-get ctx :state)))
+                  (and s (propertize s 'face 'org-air-face-faded))))
          (parts (delq nil (list file title state))))
-    (concat icon " " (mapconcat #'identity parts dot))))
+    (concat (propertize icon 'face 'org-air-face-faded)
+            " " (mapconcat #'identity parts dot))))
 
 (defun org-air-view-pane--render (ctx)
   "Snapshot the entry described by CTX into the `*org-air-view*' pane.

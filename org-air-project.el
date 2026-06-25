@@ -984,6 +984,8 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
   (setq-local truncate-lines t)
   (setq-local cursor-type 'box)
   (setq-local line-spacing org-air-line-spacing)
+  ;; R18 D-P5.1: the calm nano-style mode-line (status lives in the header).
+  (org-air-view--install-modeline)
   ;; R14 D-P1.B: responsive re-render (two-pane <-> board-only) on resize,
   ;; riding the round-9 C1 window-size path.
   (setq-local org-air-layout-refresh-function #'org-air-project--resize-refresh)

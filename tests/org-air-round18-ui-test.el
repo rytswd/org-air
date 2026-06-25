@@ -277,5 +277,78 @@ So `special-mode' defaults (e.g. the scroll/quit chain) stay reachable
 below the org-air bindings in both views."
   (should (eq (keymap-parent org-air-view-core-map) special-mode-map)))
 
+;;;; ---------------------------------------------------------------------
+;;;; D-P5 — modernisation (calm mode-line, pane chrome, calmer colour, svg).
+;;;; All byte-invisible: faces / mode-line / line-spacing / svg-attr only.
+;;;; ---------------------------------------------------------------------
+
+(ert-deftest org-air-r18-dp5-modeline-style-default-is-calm ()
+  "`org-air-modeline-style' ships `calm' (the nano-style default, D-P5.1)."
+  (should (eq (default-value 'org-air-modeline-style) 'calm)))
+
+(ert-deftest org-air-r18-dp5-calm-mode-line-installed ()
+  "With `calm' the board installs the minimal faded nano-style mode-line.
+The construct is the shared `org-air-view--calm-mode-line' and carries the
+faded `org-air-face-modeline'; `default' opts back out (no override)."
+  (with-temp-buffer
+    (let ((org-air-modeline-style 'calm))
+      (org-air-view-mode)
+      (should (equal mode-line-format (list org-air-view--calm-mode-line)))
+      (should (memq 'org-air-face-modeline (flatten-tree mode-line-format)))))
+  (with-temp-buffer
+    (let ((org-air-modeline-style 'default))
+      (org-air-view-mode)
+      (should-not (equal mode-line-format
+                         (list org-air-view--calm-mode-line))))))
+
+(ert-deftest org-air-r18-dp5-pane-line-spacing-positive ()
+  "`org-air-view-pane-line-spacing' default is a small positive leading.
+The pane has no divider, so positive leading is free (mu4e-style, D-P5.2);
+`org-air-entry-view-mode' applies it buffer-locally."
+  (should (numberp (default-value 'org-air-view-pane-line-spacing)))
+  (should (> (default-value 'org-air-view-pane-line-spacing) 0))
+  (let ((org-air-view-pane-line-spacing 0.2))
+    (with-temp-buffer
+      (org-air-entry-view-mode)
+      (should (equal line-spacing 0.2)))))
+
+(ert-deftest org-air-r18-dp5-pane-header-chrome-faces ()
+  "D-P5.2: the pane header keeps its TEXT but the title rides a salient face.
+The R16 text contract (`<file> · <title> · <state>') is preserved (faces
+only, so the pane byte golden holds); the title segment is salient, the
+file segment faded."
+  (let ((hl (org-air-view-pane--header-line
+             (list :file "/x/foo.org" :title "A heading" :state "TODO"))))
+    ;; text contract preserved.
+    (should (string-match-p "foo\\.org" hl))
+    (should (string-match-p "A heading" hl))
+    (should (string-match-p "TODO" hl))
+    ;; the title segment carries the salient pane-title face.
+    (should (eq (get-text-property (string-match "A heading" hl) 'face hl)
+                'org-air-face-pane-title))
+    ;; the file segment is faded.
+    (should (eq (get-text-property (string-match "foo" hl) 'face hl)
+                'org-air-face-faded))))
+
+(ert-deftest org-air-r18-dp5-tag-color-default-calm ()
+  "D-P5.3: `org-air-tag-color' default nil -> tags ride ONE faded tint.
+Opt-in (t) restores the deterministic per-tag accent hue."
+  (should (eq (default-value 'org-air-tag-color) nil))
+  ;; calm default: every tag is the single faded face.
+  (let ((org-air-tag-color nil))
+    (should (eq (org-air-faces-tag-face "work") 'org-air-face-tag))
+    (should (eq (org-air-faces-tag-face "anything-else") 'org-air-face-tag)))
+  ;; opt-in: a deterministic accent hue, stable per tag.
+  (let ((org-air-tag-color t))
+    (should (string-prefix-p "org-air-face-tag-accent-"
+                             (symbol-name (org-air-faces-tag-face "work"))))
+    (should (eq (org-air-faces-tag-face "work")
+                (org-air-faces-tag-face "work")))))
+
+(ert-deftest org-air-r18-dp5-pill-border-softened ()
+  "D-P5.4: the svg pill border default is calmed to 0.7 (fill stays 0.08)."
+  (should (equal (default-value 'org-air-pill-border-opacity) 0.7))
+  (should (equal (default-value 'org-air-pill-fill-alpha) 0.08)))
+
 (provide 'org-air-round18-ui-test)
 ;;; org-air-round18-ui-test.el ends here

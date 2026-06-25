@@ -308,9 +308,14 @@ under batch); only the window I/O is stubbed (batch-safe, inspector model)."
 
 ;;;; D-P3 window-config (real side windows are GUI-only).
 
-(ert-deftest org-air-r16-d3-pane-window-is-bottom-side-and-reachable ()
-  "The pane is a BOTTOM side window, `other-window'-reachable (no
-`no-other-window'), showing `*org-air-view*'."
+(ert-deftest org-air-r16-d3-pane-window-is-board-split-and-reachable ()
+  "R19-3 re-bless: the pane SPLITS the board window
+\(`display-buffer-below-selected'), so it is NOT a frame-level side window
+\(`window-side' nil) — that is exactly what stops it from shortening the
+rail.  It is tagged `org-air-pane', dedicated, and stays
+`other-window'-reachable (no `no-other-window').  Found by the
+`org-air-pane' parameter, since under the default editable pane the window
+shows the per-heading indirect buffer, not `*org-air-view*'."
   (skip-unless (display-graphic-p))
   (save-window-excursion
     (delete-other-windows)
@@ -320,10 +325,10 @@ under batch); only the window I/O is stubbed (batch-safe, inspector model)."
       (unwind-protect
           (progn
             (org-air-view-pane--show ctx)
-            (let* ((buf (get-buffer org-air-view-pane-buffer-name))
-                   (win (get-buffer-window buf)))
+            (let ((win (org-air-view-pane--find-window)))
               (should (window-live-p win))
-              (should (eq (window-parameter win 'window-side) 'bottom))
+              (should-not (window-parameter win 'window-side)) ; NOT a side window
+              (should (window-parameter win 'org-air-pane))
               (should-not (window-parameter win 'no-other-window))))
         (org-air-view-pane--teardown)))))
 
@@ -361,14 +366,14 @@ under batch); only the window I/O is stubbed (batch-safe, inspector model)."
                 (org-air-view-pane--show ctx)
                 (let ((rail-win (get-buffer-window
                                  (get-buffer org-air-rail-buffer-name)))
-                      (pane-win (get-buffer-window
-                                 (get-buffer org-air-view-pane-buffer-name))))
+                      (pane-win (org-air-view-pane--find-window)))
                   (should (window-live-p rail-win))
                   (should (window-live-p pane-win))
                   (should (eq (window-parameter rail-win 'window-side)
                               org-air-rail-side))
-                  (should (eq (window-parameter pane-win 'window-side)
-                              'bottom))))
+                  ;; R19-3 re-bless: the pane is the board-window SPLIT, not
+                  ;; a frame-level side window (so the rail keeps its height).
+                  (should-not (window-parameter pane-win 'window-side))))
             (org-air-view-pane--teardown)
             (org-air-rail--hide board)))))))
 

@@ -393,6 +393,37 @@
     (org-air-triage-dated-inbox-row-carries-file-hint
      . "R19-2(c): asserts the OLD `file with r' nudge; now `r to file' \
 (re-bless the assertion on the test track)")
+    ;;
+    ;; 2026-06-25: R19-4 rail / scope-filter polish — DELIBERATE rail TEXT
+    ;; changes (`org-air-view--insert-rail' + `--insert-rail-filters'):
+    ;;   (b) the active-Filter block now teaches BOTH verbs:
+    ;;       `Match: AND   M-/ toggles · \ clears'.
+    ;;   (c) the Filter block MOVES UP to between Calendar and Summary
+    ;;       (new order Calendar -> Filter -> Summary -> Inspector ->
+    ;;       Actions; only Actions stays foot-pinned).
+    ;;   (d) crisp Scope-vs-Filter split: distinct `▌ Filter' / `▌ Scope'
+    ;;       labels (was a single `▌ Filters' header + inline
+    ;;       `Scope: <name>  (S clears)'); scope reads `<name>   s changes
+    ;;       · S clears'.
+    ;; The rail-mode-line (a) is byte-invisible; the help (d) is a message.
+    ;; These re-bless the rail-bearing goldens + the two rail assertions
+    ;; (board-only/day fixtures have no rail and stay byte-identical;
+    ;; denote-origin-120's rail delta rides the already-listed R19-2
+    ;; `org-air-r17-denote-origin-byte-mockup'):
+    (org-air-layout-mockup-120
+     . "R19-4c/d: rail reorder (Filter up) + Filter/Scope labels move bytes")
+    (org-air-layout-mockup-160
+     . "R19-4c/d: rail reorder (Filter up) + Filter/Scope labels move bytes")
+    (org-air-layout-mockup-heights
+     . "R19-4c/d: rail-bearing height variants re-bless (Filter up + labels)")
+    (org-air-layout-mockup-thresholds
+     . "R19-4c/d: rail-bearing threshold widths re-bless (Filter up + labels)")
+    (org-air-r9-d5a-rail-rule-family-has-cap
+     . "R19-4d: header renamed `▌ Filters' -> `▌ Filter' (+ `▌ Scope'); \
+re-bless the assertion on the test track")
+    (org-air-r9-q1-rail-advertises-scope-reset
+     . "R19-4d: scope cue `Scope: #work  (S clears)' -> labelled `▌ Scope' \
++ `s changes · S clears'; re-bless on the test track")
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

@@ -2282,41 +2282,49 @@ fallback) while a GUI frame reads it as an hl-block card header."
     (_ "all items")))
 
 (defun org-air-view--insert-rail-filters (width)
-  "Insert filters and scope block fitted to WIDTH."
+  "Insert the Filter + Scope block fitted to WIDTH (R19-4b/d).
+Names the two roles explicitly so the overlap is gone:
+ - Filter = LIVE tag narrowing (one or more tags, AND/OR); `/' edits,
+   `M-/' toggles AND<->OR, `\\' clears.  The block teaches BOTH verbs.
+ - Scope  = the structural LENS (all / @group / ⌂ file); `s' changes,
+   `S' clears.  Shown on its own labelled line.
+When neither is set the Filter line keeps the compact `No filters · all
+items' cue and Scope drops to a one-line `all items'."
   (when org-air-show-rail-filters
-    (org-air-view--rail-header "Filters" width)
     (let ((filters (org-air-view--filter-tags))
           (inset (org-air-view--rail-inset-str width)))
-      (if (and (null filters) (null org-air-view--scope))
-          (insert inset
-                  (propertize "No filters · all items" 'face 'org-air-face-faded)
-                  "\n")
-        (progn
-          (if filters
-              (progn
-                ;; R18 D-P2.3: join the chips with the combinator word when
-                ;; >=2 are active, then a discoverability cue for the toggle.
-                (insert inset
-                        (mapconcat (lambda (tag) (concat "#" tag))
-                                   filters
-                                   (if (> (length filters) 1)
-                                       (concat " " (org-air-view--filter-combinator-word) " ")
-                                     " "))
-                        "  " (org-air-view--glyph 'clear)
-                        "\n")
-                (insert inset
-                        (propertize
-                         (format "Match: %s  (M-/ toggles)"
-                                 (org-air-view--filter-combinator-word))
-                         'face 'org-air-face-faded)
-                        "\n"))
+      (org-air-view--rail-header "Filter" width)
+      (if filters
+          (progn
+            ;; R18 D-P2.3: join the chips with the combinator word when
+            ;; >=2 are active, then teach the toggle AND the clear key.
             (insert inset
-                    (propertize "No tag filters" 'face 'org-air-face-faded) "\n"))
-          (insert inset
-                  (propertize (concat "Scope: " (org-air-view--scope-label)
-                                      (when org-air-view--scope "  (S clears)"))
-                              'face 'org-air-face-faded)
-                  "\n"))))))
+                    (mapconcat (lambda (tag) (concat "#" tag))
+                               filters
+                               (if (> (length filters) 1)
+                                   (concat " " (org-air-view--filter-combinator-word) " ")
+                                 " "))
+                    "  " (org-air-view--glyph 'clear)
+                    "\n")
+            (insert inset
+                    (propertize
+                     (format "Match: %s   M-/ toggles · \\ clears"
+                             (org-air-view--filter-combinator-word))
+                     'face 'org-air-face-faded)
+                    "\n"))
+        (insert inset
+                (propertize (if org-air-view--scope "No tag filters"
+                              "No filters · all items")
+                            'face 'org-air-face-faded)
+                "\n"))
+      ;; R19-4d: Scope on its own labelled line so each role is named.
+      (org-air-view--rail-header "Scope" width)
+      (insert inset
+              (propertize
+               (concat (org-air-view--scope-label)
+                       (when org-air-view--scope "   s changes · S clears"))
+               'face 'org-air-face-faded)
+              "\n"))))
 
 (defun org-air-view--verb-cell (key desc width)
   "Return a rail Actions verb cell: KEY (keycap face) DESC (faded), padded.
@@ -2809,32 +2817,35 @@ serves both the board and the project view."
                                (current-buffer)))))
 
 (defun org-air-view--insert-rail (items width)
-  "Insert the context rail for ITEMS at WIDTH (D-P1 reordered sidebar).
-Top→bottom: Calendar, Summary, Inspector, Filters, Actions.  The
-Inspector occupies a FIXED reserved mid-rail region (top-aligned +
-blank-padded) computed once per render, and Filters + Actions are pinned
-to the rail foot beneath it (D-P1).  When the inspector is off the rail
-falls back to the D5 four-block flow (Calendar/Summary/Filters/Actions)."
+  "Insert the context rail for ITEMS at WIDTH (R19-4c reordered sidebar).
+Top→bottom: Calendar, Filter, Summary, Inspector, Actions.  The Filter
+block moves UP (between Calendar and Summary) so the active narrowing is
+seen BEFORE the Summary counts it explains; the Inspector occupies a FIXED
+reserved mid-rail region (top-aligned + blank-padded) computed once per
+render, and only ACTIONS is pinned to the rail foot beneath it.  When the
+inspector is off the rail falls back to the four-block flow of
+Calendar/Filter/Summary/Actions."
   (let ((org-air-view--line-width width))
     (org-air-calendar-insert-month org-air-view--cal-month
                                    (org-air-view--visible-items items)
                                    width (org-air-view--rail-inset width))
     (insert "\n")
+    ;; R19-4c: Filter UP, above Summary.
+    (org-air-view--insert-rail-filters width)
+    (insert "\n")
     (org-air-view--insert-summary items width)
     (insert "\n")
     (if org-air-show-inspector
-        ;; D-P1: Inspector in the fixed reserved middle; Filters + Actions
-        ;; pinned to the foot.  `insert-rail' is only ever called for the
-        ;; two-pane rail, so the orientation is implicitly two-pane here
-        ;; (the rail renders in a temp buffer where the buffer-local
-        ;; orientation is not carried).
+        ;; R19-4c: Inspector in the fixed reserved middle; ACTIONS alone
+        ;; pinned to the foot (Filter left the foot).  `insert-rail' is only
+        ;; ever called for the two-pane rail, so the orientation is
+        ;; implicitly two-pane here (the rail renders in a temp buffer where
+        ;; the buffer-local orientation is not carried).
         (let* ((top-used (count-lines (point-min) (point)))
-               ;; foot = the leading blank gap + Filters + blank + Actions.
+               ;; foot = the leading blank gap + Actions ONLY now.
                (foot-lines (org-air-view--render-lines
                             width
                             (lambda ()
-                              (org-air-view--insert-rail-filters width)
-                              (insert "\n")
                               (org-air-view--insert-actions width))))
                (foot-h (1+ (length foot-lines)))
                (target (max 1 (- (org-air-view--render-height)
@@ -2846,12 +2857,9 @@ falls back to the D5 four-block flow (Calendar/Summary/Filters/Actions)."
                       width reserved))
             (insert l "\n"))
           (insert "\n")
-          (org-air-view--insert-rail-filters width)
-          (insert "\n")
           (org-air-view--insert-actions width))
-      ;; No inspector: the historic D5 four-block rail.
+      ;; No inspector: the four-block flow (Filter already emitted above).
       (setq org-air-view--inspector-region-height nil)
-      (org-air-view--insert-rail-filters width)
       ;; D5f: optionally pin Actions to the rail foot.
       (when org-air-rail-anchor-actions
         (let* ((have (count-lines (point-min) (point)))
@@ -2882,14 +2890,15 @@ vertically, calendar first — always on-screen."
         (let ((cal-lines (org-air-view--render-lines col calendar-fn))
               (sum-lines (org-air-view--render-lines col summary-fn))
               (fil-lines (org-air-view--render-lines col filters-fn)))
+          ;; R19-4c: column order calendar / filter / summary (consistency).
           (dolist (line (org-air-view--compose-columns
                          (list (cons cal-lines col)
-                               (cons sum-lines col)
-                               (cons fil-lines col))
+                               (cons fil-lines col)
+                               (cons sum-lines col))
                          (make-string gutter ?\s)))
             (insert (org-air-view--pad-to line width) "\n")))
       (let ((band (min width col)))
-        (dolist (block (list calendar-fn summary-fn filters-fn))
+        (dolist (block (list calendar-fn filters-fn summary-fn))
           (dolist (line (org-air-view--render-lines band block))
             (insert (org-air-view--pad-to line width) "\n"))
           (insert "\n"))))))
@@ -3104,6 +3113,13 @@ A read-only buffer the user owns: it is `other-window'-reachable for
 reading/scrolling, and `q' pops the rail back inline on the board."
   (setq-local truncate-lines t)
   (setq-local header-line-format nil)
+  ;; R19-4a: the calm, faded nano-style mode-line in the rail too (mirrors
+  ;; the board + pane).  `org-air-view--install-modeline' uses `setq-local',
+  ;; so this is BUFFER-LOCAL to `*org-air-rail*' — it cannot bleed to other
+  ;; side windows; the (separate) window-divider concern is untouched.
+  ;; Byte-invisible (the mode-line is not buffer text; the rail goldens are
+  ;; the rail BUFFER content, which strips it).
+  (org-air-view--install-modeline)
   (setq-local line-spacing org-air-line-spacing)
   (setq-local cursor-type nil)
   (setq-local buffer-read-only t))
@@ -4561,12 +4577,14 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
   (interactive
    (progn
      (org-air-view--loading-guard)
-     (let* ((tags (delete-dups (seq-mapcat #'org-air-item-tags org-air-view--items)))
-            (groups (delete-dups (delq nil (mapcar #'org-air-item-group org-air-view--items))))
+     (let* ((groups (delete-dups (delq nil (mapcar #'org-air-item-group org-air-view--items))))
             (files (delete-dups (mapcar #'org-air-item-file org-air-view--items)))
+            ;; R19-4d: Scope is a purely STRUCTURAL lens now — all / @group /
+            ;; ⌂ file.  The `#tag' option is DROPPED here (it overlapped the
+            ;; live tag Filter, which does tags better: multi-tag + AND/OR +
+            ;; live).  Tags belong entirely to `/' (`org-air-filter').
             (candidates (append '("all")
                                 (mapcar (lambda (g) (concat "@" g)) groups)
-                                (mapcar (lambda (tag) (concat "#" tag)) tags)
                                 (mapcar (lambda (file) (concat "⌂ " (file-name-nondirectory file))) files)))
             (choice (completing-read "Scope: " candidates nil t)))
        (list choice))))
@@ -5017,7 +5035,9 @@ adjacent day; the rail calendar re-centres on the focused month."
 (defun org-air-help ()
   "Show org-air key bindings."
   (interactive)
-  (message "org-air: n/p items, TAB sections, RET visit, c capture, r refile, / filter, \\ clear, s scope, g refresh, q quit"))
+  ;; R19-4d: name the two roles distinctly — Filter is the LIVE tag
+  ;; narrowing (multi-tag, AND/OR), Scope is the structural LENS.
+  (message "org-air: n/p items, TAB sections, RET visit, c capture, r refile, / filter (tags, live) · \\ clear · M-/ AND↔OR, s scope (lens: file/group/all) · S clear, g refresh, q quit"))
 
 ;;;###autoload
 (defun org-air-visit-item (&optional item display)

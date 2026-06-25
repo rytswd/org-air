@@ -1,0 +1,863 @@
+#+title: org-air v0.5 round-20 DESIGN: stability · polish · performance (make it dogfoodable)
+#+state: ready
+#+FILETAGS: :perf:ui:stability:inbox:project:render:design:v0.5:
+
+* Scope of this document
+The round-20 DESIGN doc, written after the user TESTED R19 against real data
+— 2151 board items + the real Air repo at =~/Coding/github.com/withre/air= —
+and reported it "really really buggy, cannot dogfood".  This round is
+STABILITY + POLISH + PERFORMANCE so org-air becomes daily-usable.
+
+Each item carries a *reproduction* (measured / observed, not asserted), the
+fix SPEC, Testability, and Routing.  Nothing is integrated here — this is the
+impl-ready spec; commits are per-item (R20 / Design round-20).
+
+Honour the architecture invariants: V6 pixel-lock, svg-never-grows-line,
+text-is-the-contract, *one-renderer-two-views* (no fork), inspector inert
+under =noninteractive=, and KEEP the R18 perf caches (classify + svg +
+incremental) intact.
+
+Priorities, in order:
+- *R20-1* async load hangs — make first load SYNCHRONOUS but fast; drop the
+  fragile chained-idle-timer path. [CRITICAL — blocks dogfooding]
+- *R20-5* project view rebuild — match =airctl status -Da= grouping and truly
+  REUSE the dashboard core (same rail/keymap/filter/view-pane). [CRITICAL]
+- *R20-2* mode-line — stop the meaningless override; give the view-pane a
+  clear header-line boundary. [HIGH]
+- *R20-3* view pane — bind =q= to close it; debounce the live follow harder;
+  clear boundary. [HIGH]
+- *R20-4* refile — multi tag/category, shorter prompt, an OBVIOUS move-to-
+  file action. [HIGH]
+- *R20-6* perf pass — confirm org-ql + R18 caches give snappy interaction at
+  2151 items; fix any O(N) hot path. [PERF]
+
+* Status
+Design-led, impl-ready.  R20-1 and R20-5 are the blockers and are specced
+first.  Byte contract: R20-1 (load path), R20-2/R20-3 (mode-line / header-
+line / view-pane), R20-6 (perf) are GUI/interactive and INERT under
+=noninteractive=, so the board byte goldens stay byte-identical.  R20-5
+(project view) and R20-4 (refile prompts) carry deliberate TEXT changes that
+re-bless the affected fixtures, called out per item.
+
+* Measured baseline (reproduction harness)
+All numbers below are measured on this checkout (=make deps= then
+=emacs -Q --batch -l tests/org-air-test-init.el=) with
+=org-air-files= pointed at BOTH the real Air repo and the 50-file large demo
+set, giving 120 files / 2076 items — within ~3% of the user's 2151:
+
+#+begin_src elisp
+(setq org-air-files '("~/Coding/github.com/withre/air" "/tmp/org-air-large"))
+#+end_src
+
+| phase                                   | time    | notes                         |
+|-----------------------------------------+---------+-------------------------------|
+| cold =org-air-query-items= (120 files)  | ~1.5 s  | first org-element parse       |
+| warm =org-air-query-items= (re-query)   | ~0.06 s | org-element cache hot         |
+| classify 2076 items (uncached)          | ~0.96 s | warmed once into R18 cache    |
+| cold first =org-air-view--render=       | ~1.4 s  | cold classify + svg + compose |
+| warm re-render (R18 caches hot)         | ~0.33–0.40 s | text compose of 2076 rows |
+
+So a cold first open is query (~1.5 s) + render (~1.4 s) ≈ *~2.9 s one-time*;
+a re-open hits the warm org-element cache + R18 caches and is sub-second.
+The ~0.33–0.40 s warm re-render is the perf hot path (see R20-6).
+
+* R20-1 — async first load HANGS: make the first load synchronous-but-fast [CRITICAL]
+
+** Reproduction — two real failure modes, both rooted in the R19-1 design
+The R19-1 "chrome-first + timer-chunked query" loader (org-air-view.el) is
+the source of both symptoms the user hit ("Loading your board… never
+resolves" + "an EXTREMELY LONG message dumped to the echo area").
+
+*** Symptom 1: "Loading your board…" never resolves
+The loader chains =run-with-idle-timer 0 nil #'org-air-view--load-step= — each
+step queries =org-air-view-load-batch= (=8=) files, then *reschedules another
+idle-0 timer* (=org-air-view--load-step=, L4347–4374).  At 120 files that is
+=(ceiling 120 8)= = *15 chained idle-timer ticks*.  Two ways this never
+finishes:
+1. *Idle-0 starvation under input.*  An idle timer fires only after Emacs has
+   been idle for its delay; *every* input event resets the idle clock.  A
+   user who keeps moving point / scrolling the skeleton while it "loads"
+   keeps resetting the 0-second idle clock, so the next =--load-step= is
+   postponed indefinitely → the board stays the empty skeleton forever.
+2. *An errored step breaks the chain with no recovery.*  =--load-step= has
+   *no* =condition-case= / watchdog / completion guarantee (verified: lines
+   4327–4410 contain none).  If any batch signals (a transient org-element
+   parse error, a marker into a half-saved file, an org-ql edge), the step
+   throws, the *reschedule never runs*, and =org-air-view--loading= stays =t=
+   forever.  =org-air-view--loading-guard= (L4392) then makes every data
+   command =user-error= "Still loading your board…" permanently.
+
+*** Symptom 2: the EXTREMELY LONG echo-area message
+When a function run from a timer signals, Emacs's =timer-event-handler=
+reports it with =(message "Error running timer ...: %S" ERR)= — the *whole*
+error object, printed with =%S=.  org/org-element/org-ql errors routinely
+carry large data payloads (parse fragments, marker/list data).  Measured: an
+error whose data is a 2076-element list prints a *101,802-character*
+echo-area message:
+
+#+begin_src text
+Error running timer 'org-air-view--load-step': (error "org-ql query failed" ((:title "x" ...) ...))   ⇒ 101802 chars
+#+end_src
+
+So a single errored batch both (a) wedges the board (Symptom 1.2) and (b)
+spams a six-figure-character message.  This is intrinsic to running the query
+from a bare timer with no error containment.
+
+** Decision — DROP the chained-idle-timer path; first load is SYNCHRONOUS but fast
+Per the user's steer ("org-ql should give us all the performance we need …
+perf should come from org-ql being fast + the R18 caches, NOT fragile async
+gymnastics"), and because the cold cost is a *one-time* ~2.9 s that the warm
+org-element + R18 caches never pay again, the first load becomes
+*synchronous with an honest fast paint*:
+
+1. *Honest fast paint first.*  On a cold interactive =org-air-view=, after
+   =pop-to-buffer= paint the chrome skeleton (=org-air-view--render-loading=,
+   reused as-is) and force it visible with =(redisplay t)= so the frame +
+   "Loading your board…" line appear within one paint — BEFORE the query
+   runs.  This keeps the perceived-instant frame that R19-1 wanted, with zero
+   timers.
+2. *Then query + render synchronously.*  Run =org-air-query-items= and
+   =org-air-view--render= inline (the existing cache-hit / =noninteractive=
+   branch), wrapped in =unwind-protect= so =org-air-view--loading= is always
+   cleared even on error.  No batches, no idle timers, no token generation,
+   no progressive reflow.
+3. *Surface errors cleanly.*  Wrap the query+render in =condition-case=; on
+   error, clear =--loading=, render the normal empty board, and
+   =(message "org-air: load failed: %s" (error-message-string err))= —
+   a *truncated, single-line, human* message (never =%S= of the payload).
+
+This removes =org-air-view--load-async=, =--load-step=, =--load-finish=, the
+=--load-token= / =--load-remaining= / =--load-total= / =--load-accum= state,
+and the =org-air-view-load-batch= / =org-air-view-load-progressive=
+defcustoms.  Keep =org-air-view--render-loading= and =--loading= (now set/
+cleared around the synchronous body) and =org-air-view--loading-guard= (still
+guards the brief window during the synchronous load, harmless).
+
+*** Entry-point shape (org-air-view, L4400)
+#+begin_src elisp
+(defun org-air-view ()
+  (interactive)
+  (let* ((buffer (get-buffer-create org-air-view-buffer-name))
+         (cached (with-current-buffer buffer
+                   (org-air-view-mode)
+                   (and org-air-view--items
+                        (equal org-air-view--items-key
+                               (list org-air-files org-air-inbox-file))))))
+    (pop-to-buffer buffer (or org-air-display-action '(...)))
+    (with-current-buffer buffer
+      (cond
+       ;; Cache hit OR batch: synchronous, byte-stable (unchanged).
+       ((or cached noninteractive)
+        (unless cached
+          (setq org-air-view--items (org-air-query-items)
+                org-air-view--classify-cache nil))
+        (org-air-view--render org-air-view--items org-air-view--tag-filter))
+       ;; Cold interactive: honest fast paint, then synchronous query+render.
+       (t
+        (setq org-air-view--loading t)
+        (unwind-protect
+            (progn
+              (org-air-view--render-loading)
+              (redisplay t)               ; frame visible before the query
+              (condition-case err
+                  (progn
+                    (setq org-air-view--items (org-air-query-items)
+                          org-air-view--items-key (list org-air-files
+                                                        org-air-inbox-file)
+                          org-air-view--classify-cache nil)
+                    (org-air-view--render org-air-view--items
+                                          org-air-view--tag-filter))
+                (error
+                 (org-air-view--render nil org-air-view--tag-filter)
+                 (message "org-air: load failed: %s"
+                          (error-message-string err)))))
+          (setq org-air-view--loading nil)))))))
+#+end_src
+
+** If any async is retained (fallback option — NOT preferred)
+Should a later impl decision keep a deferred path, it MUST satisfy all three
+or it does not ship:
+1. *Guaranteed completion.*  A single =run-with-idle-timer= (not a chain) that
+   queries ALL remaining files in its body, plus a *watchdog* =run-with-timer=
+   (e.g. 5 s) that, if =--loading= is still =t=, forces the synchronous query
+   and clears the flag.  Never depend on N chained idle-0 ticks.
+2. *Error containment.*  The timer body is wrapped in =condition-case= (or
+   =with-demoted-errors=) so a failed batch never escapes to
+   =timer-event-handler=; on error fall back to the synchronous render.
+3. *No giant message, ever.*  Any user-facing message is a single truncated
+   line via =error-message-string=; never let =%S= of an error/payload reach
+   the echo area.
+The synchronous-with-honest-paint design above is strictly simpler and is the
+recommended shipping path; the async fallback exists only to bound the impl's
+options.
+
+** Batch / noninteractive contract (invariant #3)
+=noninteractive= keeps taking the cache-miss synchronous branch unchanged, so
+=make regen-mockups= and every byte golden are byte-identical.  The
+=redisplay= + =--loading= dance lives only in the cold-interactive =t= branch,
+which batch never reaches.
+
+** Testability (R20-1)
+- ERT: =org-air-view= in a non-cached, =noninteractive= context still
+  produces the full board (sync branch); =org-air-view--loading= ends =nil=.
+- ERT (regression for the wedge): simulate a query error in the cold path and
+  assert (a) =org-air-view--loading= is cleared, (b) the buffer shows the
+  empty board not the skeleton, (c) the echo message length is bounded
+  (< 200 chars) — locks out the 101 802-char dump.
+- Delete the R19-1 async ERTs that exercised =--load-step= / =--load-finish=
+  / token staleness (functions removed); the test seat removes them in the
+  same change so =make check= stays green with an EMPTY known-failures
+  manifest.
+- No new byte fixtures (interactive-only path).
+
+** Routing (R20-1)
+org-air-view.el only: replace the cold-interactive branch of =org-air-view=;
+delete =--load-async= / =--load-step= / =--load-finish= and the
+=--load-token= / =--load-remaining= / =--load-total= / =--load-accum=
+buffer-locals + the =load-batch= / =load-progressive= defcustoms; keep
+=--render-loading=, =--loading=, =--loading-guard=.  Update the R19-1 docstring
+references.  Test seat: drop the obsolete async ERTs, add the wedge-regression
+ERT.
+
+** Open questions (R20-1)
+- Keep =org-air-view--loading-guard= at all?  It only matters during the brief
+  synchronous window (the user cannot act mid-=redisplay=), so it is now
+  near-inert — keep it (cheap, harmless) unless lint objects to a dead guard.
+- Should the cold path show a one-line "Loaded 2076 items (1.5 s)" confirmation
+  after render?  Proposed: no — silent success; only failures message.
+
+* R20-5 — project view rebuild: match =airctl status -Da= + truly reuse the dashboard core [CRITICAL]
+
+** Reproduction — observed against ~/Coding/github.com/withre/air
+=M-x org-air-project= on the real Air repo (and the =tests/fixtures/air-
+project= set) shows three concrete regressions vs the goal:
+1. *Grouping is FLAT, not the airctl tree.*  =org-air-project--sections-by-
+   directory= (org-air-project.el L353) groups by ONLY the first path segment
+   — =(car (split-string (org-air-doc-relpath d) "/"))= — so a nested doc like
+   =v0.1/air-context/gamma-context.org= lands under a single flat =v0.1/ N=
+   heading sorted by name.  The default group is =state= (L79); neither mode
+   reproduces =airctl status -Da='s nested =v0.1/ -> air-context/ ->
+   air-template/ -> references/= tree, its per-directory state counts, or its
+   state-first within-dir order.
+2. *A bespoke rail.*  =org-air-project--insert-rail= (L668) emits only
+   *Summary + Inspector* — no Calendar, no Filter, no Scope, no Actions — so
+   the R18 "parity" never reached the project view; it does not look or behave
+   like the board.
+3. *A divergent keymap + mode-line.*  =org-air-project-mode-map= (L952) shadows
+   shared keys with domain verbs: =s= = group-by-state (board: scope), =d= =
+   group-by-directory (board: deadline), =t= = group-by-tag (board: set-tag),
+   =o=/=O= = sort (board: visit / visit-stay), =g= = refresh (board: g-prefix).
+   So "use the same keys" is false.  The mode lighter is the meaningless
+   "Org-Air-Project" (see R20-2).
+
+** Ground truth — the =airctl status -Da= structure to MATCH
+Captured from =~/Coding/github.com/withre/air= (70 files), stripped of ANSI:
+#+begin_src text
+┌─ v0.1/   🎯 Ready (5)    ✅ Complete (28)    🗑️ Dropped (10)    📝 Draft (10)
+│
+│  v0.1/    🎯 4 (+1)  ✅ 14 (+14)  🗑️ 1 (+9)  📝 2 (+8)
+│  │    airctl-aliases.org        🎯 Ready     ↻ 2026-04-05  #airctl #config
+│  │    … (Ready ×4, then Complete ×14, then Draft ×2, then Dropped ×1)
+│  ├─ ai-integration/    🗑️ 2
+│  │       ai-assisted-document-generation.org  🗑️ Dropped …
+│  ├─ air-template/    ✅ 4  🗑️ 1  📝 (+2)
+│  │  │    adr-integration.org    ✅ Complete …
+│  │  └─ references/    📝 2
+│  │          template-with-kep.org  📝 Draft …
+│  └─ time-machine/    🎯 1  ✅ 3
+└──────────────────────────────────────────────────────────────────────────
+#+end_src
+Decoded structure (this is the contract — match the STRUCTURE, render it in
+org-air's idiom; do NOT copy airctl's box-art bytes):
+- *Top-level dirs* (=v0.1/=, =v0.2/= …) are the outermost groups.  Each opens
+  with a *rolled-up header*: full state NAMES + parenthesised TOTALS over the
+  WHOLE subtree, only states present, in the order *Ready · Complete · Dropped
+  · Draft* (and Work-In-Progress · Review between Ready and Complete when
+  present).
+- Inside, a *nested directory tree*: the dir's OWN docs first, then child
+  directories (alphabetical), recursively to any depth.
+- *Per-directory state counts* on each directory's heading: =BADGE N (+M)=
+  where =N= = docs of that state DIRECTLY in the dir and =(+M)= = the same
+  state summed over descendant dirs; when =N=0= but =M>0= show =BADGE (+M)=
+  (no number); when =M=0= show =BADGE N=.  Same state order as the header.
+- *Docs are STATE-FIRST within a dir*: Ready, Work-In-Progress, Review,
+  Complete, Dropped, Draft; ties broken by name (natural sort).  (The prompt's
+  stated order =Ready, Complete, Dropped, Draft …= is honoured; this is also
+  airctl's count-badge order.  airctl's doc LISTING happens to swap Draft↔
+  Dropped — we normalise to ONE order for both the badges and the listing.)
+
+** R20-5(a) — nested directory-tree grouping
+Replace the flat =org-air-project--sections-by-directory= with a recursive
+tree model and make =directory= the DEFAULT group (=org-air-project-group=
+→ =directory=), since that is what =-Da= shows.
+
+*** Data: build the tree from relpaths
+New =org-air-project--directory-tree (docs)= → an ordered list of TOP-dir
+nodes.  A node is a plist:
+#+begin_src elisp
+(:dir "air-template" :depth 1 :relpath "v0.1/air-template"
+ :own-docs (… state-first …)        ; docs whose dirname = this node
+ :children (… child nodes …)        ; sub-dirs, name-sorted
+ :counts (("ready" 4 1) …)          ; (state direct descendant) per state
+ :total-counts (("ready" 5) …))     ; rolled up (top node header only)
+#+end_src
+Derive a doc's directory chain from =(file-name-directory (org-air-doc-relpath
+d))= split on ="/"=.  Each path prefix is a node; =own-docs= are docs whose
+full dir equals the node's path; =children= are the next-segment dirs.
+=:counts= are computed bottom-up (descendant =(+M)= = sum of children's
+direct+descendant for that state).
+
+*** Rendering: depth-indented sections, reuse the row primitive
+- Each top-dir node renders a *box header* line: =▌ v0.1/= + the rolled-up
+  state-name/total badges (reuse =org-air-view--rail-header='s marker idiom
+  and the existing =org-air-project--state-badge= / =--state-title= /
+  =--state-face=).
+- Each directory node (including the top dir's own-docs node) renders a
+  *count heading*: =▌·indent· dir/= + the =BADGE N (+M)= per-state cells.
+  Indentation = =:depth= × 2 cols so the nesting is visible (org-air idiom,
+  not airctl's =├─/└─= glyphs — though a faint connector glyph in the prefix
+  cell is acceptable if it stays in the svg/TTY-fallback contract).
+- Under each node, its =own-docs= render with the existing
+  =org-air-project--insert-doc-block= (two-line block, =show-state= t),
+  state-first; then recurse into =children=.
+- Reuse the single comparator =org-air-project--sort-section-docs= for the
+  within-state tiebreak so ordering stays uniform.
+- =board-only= (narrow) orientation renders the SAME tree full-width (no
+  rail), exactly as today's board-only path.
+
+*** State order constant
+Introduce =org-air-project--state-display-order= =
+=("ready" "work-in-progress" "review" "complete" "dropped" "draft")= and use
+it for BOTH the per-dir badges and the within-dir doc ordering, so the two can
+never drift.  (=org-air-project-states= / =-sections= stay for the legacy
+state/tag modes.)
+
+** R20-5(b) — truly reuse the dashboard core (no bespoke rail/keymap)
+*** Rail: call the board's =org-air-view--insert-rail=
+Delete =org-air-project--insert-rail= / =--insert-summary= /
+=--two-pane-body= and route the project's two-pane render through the SAME
+layout the board uses, so the rail shows *Calendar · Filter · Scope · Summary
+· Inspector · Actions* identically.  Because the board rail is item-typed,
+introduce a small buffer-local *view descriptor* the shared rail consults
+(invariant #4 — parameterise, do not fork):
+#+begin_src elisp
+(defvar-local org-air-view--rail-descriptor nil
+  "Plist of providers the shared rail uses; nil = the board defaults.")
+;; project sets:
+;;  :calendar-dates  -> (lambda (thing) (org-air-doc-updated thing))
+;;  :summary-fn      -> #'org-air-project--insert-summary  (state counts)
+;;  :scope-group-fn  -> (lambda (doc) (car (split-string relpath "/")))
+;;  :actions         -> the project verb list (same KEYS as the board)
+#+end_src
+=org-air-view--insert-rail= / =--insert-summary= / =--insert-rail-filters= /
+=--insert-actions= / the Calendar call gain a one-line "descriptor or board
+default" branch.  Filter (=org-air-view--tags-pass-filter-p=) + Inspector
+(generalised core, doc-fields already wired) are ALREADY shared — keep.  This
+removes the parallel project rail entirely.
+
+*** Filter: the SAME =/= · =M-/= · =\=
+=/= calls the shared filter UX (same prompt, pre-fill, AND default, live
+narrowing) operating on doc tags; =\= clear and =M-/= toggle are already
+inherited from =org-air-view-core-map=.  Drop the separate
+=org-air-project-filter= prompt wording in favour of the board's.
+
+*** Keymap: stop shadowing the shared keys
+Make =org-air-project-mode-map= a thin child of =org-air-view-core-map= that
+KEEPS the board's meanings for every shared key.  Specifically:
+- Remove the =s= / =d= / =t= group-switch bindings (directory-tree is the
+  default + matches =-Da=; group switching is no longer a primary verb).  If
+  state/tag views are retained at all, move them behind a =g=-prefix or =M-x=
+  so they never shadow =s=/=d=/=t=.
+- Remove =o= / =O= sort overrides (sorting within a state bucket stays the
+  name tiebreak; expose direction via =M-x= if needed).
+- =RET= / =mouse-1= (pane), =v= / =V= (pane open/close), =/= =\= =M-/=
+  (filter), =q= (quit/close), =g= (refresh — align to the board's =g r=) and
+  motion all behave as on the board.  =S-RET= visits the doc (the project's
+  visit target), mirroring the board's =S-RET= visit.
+Net: a user who knows the board keys drives the project view with no
+relearning.
+
+*** Mode-line + view pane
+- Mode-line: drop the "Org-Air-Project" lighter; use the board's calm mode-
+  line / default per R20-2 (no bespoke string).
+- View pane: already the shared post-command follow + =org-air-view-core-map=
+  =RET=/=v=/=V=; R20-2 (header-line boundary) and R20-3 (=q= closes it,
+  debounced follow) apply to BOTH views by construction.
+
+** Testability (R20-5)
+- RE-BLESS =tests/fixtures/project-view-dir.txt= to the NESTED tree (the
+  fixture set already contains a nested =v0.1/air-context/gamma-context.org=,
+  so the golden will show =v0.1/= own-docs + an =air-context/= child node
+  with its per-dir counts and the rolled-up =v0.1/= header).
+- New fixture =project-view-rail.txt=: the project two-pane render now carries
+  the FULL rail (Calendar/Filter/Scope/Summary/Inspector/Actions) — assert the
+  rail headers appear, proving the board rail is reused (text layer only).
+- ERT: =org-air-project--directory-tree= over a synthetic doc set asserts
+  (a) nesting (=v0.1 -> air-template -> references=), (b) per-dir =(state
+  direct descendant)= counts incl. =(+M)= roll-up, (c) state-first own-doc
+  order = =org-air-project--state-display-order= with name tiebreak.
+- ERT: =org-air-project-mode-map= lookup of =s=/=d=/=t=/=/=/=\=/=RET=/=q=
+  resolves to the SAME commands as =org-air-view-mode-map= for the shared
+  keys (a drift guard).
+- The state/tag fixtures (=project-view-state.txt= / =-tag.txt=) re-bless only
+  if those modes are retained; if dropped, delete them + their tests (test
+  seat, same change; known-failures manifest stays EMPTY).
+
+** Routing (R20-5)
+org-air-project.el: add =--directory-tree= + the recursive renderer; replace
+=--sections-by-directory=; default group → =directory=; delete
+=--insert-rail= / =--insert-summary= / =--two-pane-body=; add the
+=:rail-descriptor= the shared rail reads; thin the mode-map (remove
+=s=/=d=/=t=/=o=/=O= overrides).  org-air-view.el: teach
+=--insert-rail= / =--insert-summary= / =--insert-rail-filters= /
+=--insert-actions= the buffer-local =org-air-view--rail-descriptor= branch
+(board defaults when nil → board byte goldens unchanged).  Test seat:
+re-bless =project-view-dir.txt=, add =project-view-rail.txt= + the two ERTs.
+
+** Open questions (R20-5)
+- Keep the by-state / by-tag modes at all?  Proposal: keep them reachable via
+  =M-x org-air-project-group-by-state/-tag= (no default key) so the airctl
+  =-a= / =-Ta= parity exists without shadowing board keys; directory-tree is
+  the default.  If the test seat finds the extra modes unmaintainable, drop
+  them + their fixtures.
+- The =(+M)= descendant roll-up: include the dir's OWN docs in =N= only and
+  descendants in =M= (airctl's reading) — confirmed by the =v0.1/ 🎯 4 (+1)=
+  vs header =🎯 Ready (5)= example (4 own + 1 descendant = 5 total).
+- Connector glyphs: do we want a faint =│ ├ └= prefix column for the tree, or
+  pure indentation?  Proposal: pure indentation + the ▌ marker (org-air
+  idiom); a connector glyph is optional polish kept inside the svg/TTY
+  contract.
+
+* R20-2 — mode-line: stop the meaningless override · give the view pane a clear boundary [HIGH]
+
+** Reproduction
+=org-air-modeline-style= defaults to =calm= (org-air-view.el L162), so every
+org-air buffer installs =org-air-view--calm-mode-line= (L777) — a single
+=:eval= that prints ONLY =(format-mode-line mode-name)= in
+=org-air-face-modeline=.  Three problems:
+1. *Meaningless text.*  The board reads =org-air=, the popped-out rail reads
+   =org-air-rail= (=org-air-rail-mode=, L3110), the pane base reads
+   =org-air-view= (=org-air-entry-view-mode=, L3542).  None tells the user
+   anything they don't already see.
+2. *Invisible boundary.*  =org-air-face-modeline= just =:inherit org-air-face-
+   faded= (org-air-faces.el L208) — a dim foreground, NO background — so the
+   mode-line does not read as a horizontal rule.  When the view pane splits
+   the board window (=display-buffer-below-selected=), the board's bottom edge
+   IS this faded line, so the seam between the board (above) and the pane
+   (below) is hard to see.
+3. The rail mirrors the same faded line (R19-4a, L3116).
+
+** Decision — a USEFUL, VISIBLE calm mode-line (option b), with `default' as the opt-out
+Keep the nano aesthetic but make the mode-line earn its row AND mark the
+boundary.
+
+*** (1) Useful content — counts · filter · scope
+Replace the mode-name-only =:eval= with a compact status segment built from
+the data already on hand (no new state):
+- *Board* (=org-air-view-mode=): =N items= from
+  =(length (org-air-view--visible-items org-air-view--items))= of the total;
+  =filter:= the active =org-air-view--filter-tags= joined with the
+  =org-air-view--filter-combinator-word= (or =no filter=); =scope:= the
+  =org-air-view--scope-label=.  Example:
+  =org-air · 2076 items · filter #airctl AND #ui · scope all=.
+- *Project* (=org-air-project-mode=): doc count + active doc filter (no scope,
+  or the directory lens if R20-5 wires one).
+- *Pane / rail*: a minimal but VISIBLE label (the pane's real title lives in
+  its header-line, R20-2(2)); these need not carry counts.
+Implement as a single =org-air-view--status-mode-line= =:eval= that branches
+on =major-mode=, so the board and project share ONE construct (invariant #4).
+
+*** (2) Visible face — the mode-line becomes the boundary rule
+Give =org-air-face-modeline= a faint but real *background* distinct from the
+buffer background (and/or an =:overline= of =org-air-face-divider='s colour)
+so the row reads as a horizontal rule — calm, not loud.  This single change
+makes the board→pane seam obvious without any extra chrome.
+
+*** (3) `default' opt-out stays
+=org-air-modeline-style= keeps the =default= choice (Emacs's normal mode-
+line) for users who want the familiar boundary; the prompt explicitly allows
+either.  Recommendation: ship the USEFUL+VISIBLE calm line as the default;
+=default= is the documented escape hatch.
+
+** View-pane boundary — strengthen the existing header-line (R20-2 ↔ R20-3c)
+The pane ALREADY installs a header-line =▤ file · title · state=
+(=org-air-view-pane--header-line=, L3674; installed for snapshot AND editable
+indirect via =--install-chrome= / =--render-snapshot=).  To make the pane's
+TOP edge unmistakable:
+- Ensure the header-line is present on EVERY pane path — snapshot, editable
+  indirect, AND the dead-source case (today the dead-source snapshot still
+  sets it; keep that).
+- Give the pane header-line a visible *background or =:overline=* (a quiet
+  rule), mirroring the mode-line treatment, so the pane visibly STARTS at its
+  header.  The header TEXT contract (=▤ <file> · <title> · <state>=, properties
+  stripped in the golden) is UNCHANGED — faces only.
+
+** Byte / batch contract
+Mode-line and header-line are NOT buffer text, so every byte golden is
+byte-identical.  The =:eval= status reads only existing buffer-locals and is
+cheap; it is recomputed by redisplay, not by org-air, so it never enters the
+render hot path.  Under =noninteractive= nothing changes (mode-line is never
+materialised in batch fixtures).
+
+** Testability (R20-2)
+- ERT: =org-air-view--status-mode-line= =:eval= over a board buffer with a
+  known item set + active filter + scope returns a string CONTAINING the item
+  count, the filter tags joined by the combinator word, and the scope label
+  (assert substrings; faces ignored).
+- ERT: with no filter/scope it returns the calm =no filter · all= form.
+- ERT (project): the project buffer's status line reports the doc count.
+- No byte fixtures (mode-line/header-line are not buffer text).
+
+** Routing (R20-2)
+org-air-view.el: replace =org-air-view--calm-mode-line= with
+=org-air-view--status-mode-line= (mode-branching =:eval=); keep
+=org-air-view--install-modeline= + the =calm=/=default= defcustom.
+org-air-faces.el: =org-air-face-modeline= gains a faint background/overline;
+the pane header-line gains a quiet rule (reuse =org-air-face-divider= hue).
+org-air-project.el: inherits the shared status line via the project branch
+(no bespoke mode-line; ties into R20-5(b) dropping "Org-Air-Project").
+
+** Open questions (R20-2)
+- Background vs =:overline= for the boundary?  Proposal: a 1px =:overline= in
+  the divider hue + a hair of background — least visually heavy while still a
+  clear rule.  The test seat eyeballs the screenshot; design blesses.
+- Should the rail's popped-out mode-line carry counts too, or stay a bare
+  =rail= label?  Proposal: bare label — the rail's content already names every
+  block; counts there would duplicate the Summary.
+
+* R20-3 — view pane: close with `q' · debounce the live follow harder · clear boundary [HIGH]
+
+** Reproduction
+*** (a) cannot close while focused
+The pane buffer is =org-air-entry-view-mode= (snapshot) or, by default
+(=org-air-view-pane-editable= t, R19-3), a LIVE =org-mode= indirect buffer.
+Closing is bound only on the BOARD: =V= → =org-air-view-pane-close= (L3884).
+When the pane WINDOW is selected (=org-air-view-pane-focus=, or a second
+=RET=), there is no in-pane close key:
+- the editable indirect is plain =org-mode= → =q= SELF-INSERTS "q" into the
+  file (an edit!); only =M-x org-air-view-pane-close= or =C-x 0= dismisses it;
+- the snapshot inherits =special-mode='s =quit-window= on =q=, which buries
+  but does NOT kill the indirect / run the pane teardown cleanly.
+So the user "cannot close it while focused without an explicit function
+call" — exactly the report.
+
+*** (b) live follow slows down at scale
+The follow IS already debounced (=org-air-view--view-pane-post-command=,
+idle =org-air-view-pane-follow-debounce= = 0.1) and item-change-gated
+(=--view-pane-update-now= redraws only when =(eq item org-air-view--view-
+pane-item)= changes; the guard is =eq=-stable because the item/doc lives in a
+text property set once per render).  So spurious redraws are NOT the problem.
+The COST per REAL change is: =org-air-view-pane--show= →
+=--render-editable= → =make-indirect-buffer= (a fresh =org-mode= indirect) +
+=org-mode= init + font-lock + window-buffer swap + kill the old indirect —
+EVERY time the selected row changes.  Scrubbing across 2151 items rebuilds a
+whole indirect Org buffer on each settle → visible lag.
+
+*** (c) boundary
+The pane has a header-line already, but it is faint (R20-2).
+
+** R20-3(a) — `q' / standard quit closes the focused pane
+Add a single =org-air-view-pane-quit= command that, when called from the pane
+window, runs =org-air-view-pane--hide= (delete the window + kill the indirect/
+snapshot via the existing teardown) and re-selects the board window.  Bind it:
+- *Snapshot pane* (=org-air-entry-view-mode=, read-only): give the mode its
+  own =org-air-entry-view-mode-map= with =q= → =org-air-view-pane-quit=
+  (overrides =special-mode='s bury so the indirect is actually torn down).
+- *Editable indirect* (=org-mode=): =q= MUST stay self-insert (it is an
+  editable Org buffer), so install a tiny buffer-local keymap (an overlay/
+  minor map in =--install-chrome=) binding =C-c C-q= (and =C-c q=) →
+  =org-air-view-pane-quit=.  Also clean up the STANDARD quit: remap
+  =quit-window= locally so =C-x 0= / =quit-window= tear down the indirect too
+  (no lingering indirect buffer).
+- The active close key is SURFACED in the pane header-line hint
+  (=… · q close= for the snapshot, =… · C-c C-q close= for the editable
+  pane), so it is discoverable.
+- The board's =V= close stays.
+
+** R20-3(b) — make the follow cheap + debounce harder
+1. *Reuse the indirect; re-narrow instead of rebuild.*  In the follow path,
+   when the new item's BASE FILE equals the currently-shown indirect's base
+   buffer, REUSE that indirect and just =widen= + =org-narrow-to-subtree= at
+   the new heading (and update the header-line).  Only when the base FILE
+   changes do we build a fresh indirect.  Re-narrowing skips =make-indirect-
+   buffer= + =org-mode= init + font-lock — the dominant per-change cost — for
+   the common case (navigating items within one file).
+2. *Debounce harder.*  Raise =org-air-view-pane-follow-debounce= default
+   0.1 → 0.2 s so a scrub coalesces to ONE update at rest (the snappier the
+   per-update, the more this is just insurance).
+3. *Keep the eq item-change gate* (already correct) and skip work when the
+   pane window is dead (already guarded).
+4. *Cheap point check.*  =--view-pane-post-command= may early-out when
+   =(point)= has not moved since the last fire (store last-pos), so non-motion
+   commands never even call =thing-at-point=.
+Target: a settle re-narrows in well under a frame; scrubbing at 2151 items
+stays snappy (verified in R20-6).
+
+** R20-3(c) — clear boundary
+Inherit R20-2: the pane header-line gains a quiet rule (=:overline=/faint bg)
+so the pane's top edge is obvious; the board's now-visible status mode-line
+marks the board→pane seam.  No additional work here beyond R20-2.
+
+** Byte / batch contract
+All interactive: the follow hooks + the editable indirect are INERT under
+=noninteractive= (the snapshot path is the batch path), so every pane byte
+golden is byte-identical.  =org-air-view-pane-quit= and the re-narrow fast
+path never run in batch.
+
+** Testability (R20-3)
+- ERT: =org-air-view-pane-quit= from a simulated pane window calls the
+  teardown (window gone, indirect buffer killed) and selects the board — assert
+  no =*org-air-pane:*= indirect survives.
+- ERT: the editable indirect's local map resolves =C-c C-q= to
+  =org-air-view-pane-quit= while =q= stays =self-insert-command=.
+- ERT (follow reuse): two items in the SAME file → the follow path keeps the
+  SAME indirect buffer object (assert =eq= base before/after) and only the
+  narrowing bounds change; two items in DIFFERENT files → a new indirect.
+- No byte fixtures (interactive-only).
+
+** Routing (R20-3)
+org-air-view.el: add =org-air-view-pane-quit=; add =org-air-entry-view-mode-
+map= with =q=; install the editable-indirect local close map + =quit-window=
+remap in =--install-chrome=; add the same-base-file re-narrow fast path in
+=--render-editable= / =--show=; bump =org-air-view-pane-follow-debounce=
+default to 0.2; add the last-point early-out in =--view-pane-post-command=;
+add the close-key hint to =--header-line=.  Faces (R20-2) carry the boundary.
+
+** Open questions (R20-3)
+- =q= in the editable pane: confirmed it must stay self-insert; =C-c C-q= is
+  the close.  Acceptable, or prefer =C-c '= (org-edit-special's exit idiom)?
+  Proposal: =C-c C-q= (mnemonic = quit) + document in the header-line.
+- Re-narrow vs rebuild when the heading MOVED (file edited under us): the
+  marker still resolves; if =org-narrow-to-subtree= lands wrong, fall back to
+  a rebuild.  Proposal: try re-narrow, rebuild on any error.
+
+* R20-4 — refile: multi tag/category · shorter prompt · an OBVIOUS move-to-file action [HIGH]
+
+** Reproduction (org-air-inbox.el)
+=org-air-refile-item= drives ONE overloaded =completing-read=
+(=--refile-candidates=).  Three pain points:
+1. *Single-select metadata.*  Quick =#tag= candidates ADD exactly ONE tag;
+   =@group= sets ONE category.  Only the buried =# edit tags…= step does
+   multi (it already uses =completing-read-multiple= in =--edit-tags=).  Adding
+   three tags means three refile round-trips.
+2. *Over-long prompt.*  The prompt is =Refile "<full title>" [#tag #tag …] → =
+   — it embeds the FULL title AND every current tag (=--refile-item= interactive
+   spec), so a long title + many tags overflows the minibuffer.
+3. *Move-to-file is buried.*  The =⌂ <file>= targets and =⌂ other file…= sit
+   in the SAME flat list as =# edit tags…=, =@group=, =>today=, and every
+   =#tag= — the single most important action (move this inbox item to a real
+   project file) is one indistinct row among dozens.
+
+** R20-4(a) — multiple tags / categories (completing-read-multiple)
+- *Tags* → promote =--edit-tags= (already CRM, pre-filled with current tags,
+  add AND remove) to the PRIMARY tag action =Tags…=.  Drop the one-at-a-time
+  =#tag= adds as the main path (keep them only as optional fast inline
+  candidates AFTER the named actions, if retained at all).
+- *Category* → a new =Category…= action using =completing-read-multiple= over
+  the group vocab, pre-filled with the item's current category.  A single pick
+  is the common case; multiple picks set =:CATEGORY:= to the FIRST and add the
+  remaining as tags (so nothing the user typed is lost — see open question).
+
+** R20-4(b) — shorten the prompt
+- The top prompt becomes just =Refile "<title…>" → = with the title TRUNCATED
+  (e.g. =truncate-string-to-width= to ~24 cols) and the inline =[#tag #tag]=
+  block REMOVED.  Current tags are no longer crammed into the prompt — they are
+  shown (and editable) in the =Tags…= step's CRM pre-fill, where they belong.
+- The final confirmation shrinks to =Refiled → <file>= (basename), not the
+  full title.
+
+** R20-4(c) — an OBVIOUS, distinct move-to-file action
+Restructure the single mega-prompt into an ACTION-FIRST menu.  The top
+=completing-read= leads with a few NAMED actions, move first:
+#+begin_src text
+Refile "Pay the invoice" →
+  ⌂ Move to file…          ; the obvious, dedicated move path
+  Tags…                    ; completing-read-multiple (add/remove)
+  Category…                ; completing-read-multiple
+  Schedule: today          ; the >timeline quicks, spelled out
+  Schedule: tomorrow
+  Schedule: this week
+  Schedule: someday
+#+end_src
+=⌂ Move to file…= opens a DEDICATED sub-prompt: =Move to file: = over the REAL
+expanded Org files (=--file-candidates=, already disambiguated) + =Other
+file…= (=read-file-name=) + an optional =Under heading: =.  So moving an inbox
+item into another file is a first-class, self-evident action with its own
+focused picker — not a needle in the candidate haystack.  (Keep the inline
+=#tag= / =@group= fast candidates only if the test seat finds them worth the
+clutter; the named actions are the contract.)
+
+** Plumbing
+- =--refile-candidates= → returns the NAMED action list (move/tags/category/
+  schedule), not the flat tag/group/file soup.
+- =--decode-target= → dispatch on the named actions; =⌂ Move to file…= calls a
+  new =--read-move-target= (file picker + optional heading); =Tags…= →
+  =--edit-tags=; =Category…= → a new =--edit-categories= (CRM).
+- =--refile-item= interactive spec → the short truncated prompt; the
+  =completing-read= keeps =require-match= off only where free text is meant
+  (none now — the actions are fixed; sub-prompts handle free input).
+- Existing move-bug hardening (=--target-files= recurses dirs,
+  =--decode-file-choice= maps a candidate back to the REAL file) is REUSED
+  unchanged inside =--read-move-target= — the R19-2 fix is preserved.
+
+** Testability (R20-4)
+- RE-BLESS the R19-2 prompt test
+  (=org-air-r19-2-refile-prompt-shows-tags-and-move-relocates=): the prompt no
+  longer contains =[#urgent #work]= (assert it is SHORT — does NOT contain the
+  tag block — and that =⌂ Move to file…= is among the candidates); the move
+  still RELOCATES the heading (unchanged disk assertions).  Test seat updates
+  it in the same change.
+- KEEP =org-air-r19-2-edit-tags-prefills-current-and-replaces= (Tags… still
+  CRM pre-filled) and =--decode-target= move-resolution (reused).
+- ERT: =--edit-categories= is CRM, pre-filled with the current category;
+  selecting two yields a 2-element list.
+- ERT: =--decode-target= for =⌂ Move to file…= routes to =--read-move-target=
+  and yields the real target file (mock =completing-read= / =read-file-name=).
+- No byte fixtures (refile is interactive minibuffer UX, not buffer text).
+
+** Routing (R20-4)
+org-air-inbox.el only: restructure =--refile-candidates= (named actions),
+=--decode-target= (action dispatch), add =--read-move-target= +
+=--edit-categories=, shorten the =--refile-item= prompt + the final message.
+Test seat: re-bless the one R19-2 prompt assertion; add the category + move
+ERTs.
+
+** Open questions (R20-4)
+- Multiple CATEGORIES on one heading is non-idiomatic in Org (one =:CATEGORY:=).
+  Proposal: first pick = =:CATEGORY:=, extras = tags; OR keep Category… single
+  and reserve CRM for Tags…  Design leans: first-wins + extras-as-tags, since
+  the user explicitly asked for multi — but defer to the impl/test seat if it
+  reads confusingly in practice.
+- Keep the inline =#tag= / =@group= fast candidates at all?  Proposal: drop
+  them from the top menu (the named =Tags…= / =Category…= CRM steps cover it);
+  re-add only if power users miss the one-keystroke add.
+
+* R20-6 — perf pass: snappy at 2151 items (org-ql + R18 caches + kill the O(N) re-render passes) [PERF]
+
+** Profiled on 120 files / 2076 items (≈ the user's 2151)
+=elp= over =org-air-view--render= on a warm buffer (R18 caches hot).  The board
+DISPLAYS only ~35–52 lines (a sectioned summary with per-bucket
+=seq-take= limits) — yet a warm re-render costs *~0.43 s*.  Breakdown
+(per-render, averaged over 5):
+
+| function                       | per render | why                                   |
+|--------------------------------+------------+---------------------------------------|
+| =org-air-view--compute-meta-widths= | *0.240 s* | measures date/tags/origin over ALL 2076 items |
+| =org-air-view--items-for-bucket=    | 0.136 s | *17 redundant bucket passes* / render |
+| =org-air-view--visible-items=       | 0.084 s | *21 redundant calls* / render         |
+| =org-air-view--classify-cached=     | 0.050 s | *176 470 calls / 5 renders* = ~35 k/render (17×/item; cached, so cheap each) |
+| =org-air-view--insert-section= (rows)| 0.020 s | only ~35 rows actually inserted       |
+| inspector update (1 item)           | 0.00002 s | fine                                |
+| =org-ql= cold query                 | ~1.5 s (1×) | first org-element parse             |
+| =org-ql= warm re-query              | ~0.06 s | org-element cache hot                  |
+| cold first render (uncached)        | ~1.4 s (1×) | warms classify + svg caches         |
+
+*Diagnosis:* the cold costs are one-time (org-ql + warming the R18 caches —
+exactly where the user wanted the perf to come from, and it does).  The
+INTERACTIVE pain is the *warm re-render* (every live-filter keystroke / scope /
+refresh): it makes ~17 full O(N) passes over all 2076 items
+(meta-widths, per-bucket filtering, visible-items) even though it paints
+~35 rows.  org-ql + the R18 classify/svg caches are NOT the bottleneck — the
+redundant per-render passes are.
+
+** Fixes — one pass per render, measure only what is shown
+1. *Single bucket partition.*  Compute the visible set + the bucket→items
+   partition ONCE per render (one classify pass), and have every consumer —
+   sections, =--insert-summary= counts, the section-count badges, the
+   calendar, AND =--compute-meta-widths= — READ that partition instead of
+   re-deriving it.  Collapses the 17 =--items-for-bucket= passes and the
+   17×/item classify to *1×/item*.
+2. *=--visible-items= once.*  Compute it a single time at the top of
+   =--render= (or alongside the partition) and thread it through; today it is
+   recomputed 21×/render.
+3. *Meta-widths over the DISPLAYED items only.*  =--compute-meta-widths=
+   currently walks every bucket's FULL member list; instead measure date/tags/
+   origin over only the rows that are actually inserted (the per-bucket
+   =seq-take= subset, plus any expanded section).  Columns still align (the
+   contract is per-render alignment of WHAT IS SHOWN), and the cost drops from
+   2076 items to ~35 — the single biggest win (≈0.24 s → ≈0.005 s).
+4. *Keep the R18 caches* (classify + svg + incremental inspector) intact —
+   they are doing their job; this pass removes the redundant CALLERS, not the
+   caches.
+
+*Projected:* warm re-render ~0.43 s → *< 0.1 s* at 2076 items, so live filter/
+scope/refresh feel instant; cold first render also drops (meta-widths over the
+displayed subset).  Navigation (=n=/=p=) does not re-render at all — it moves
+point + the debounced inspector (0.00002 s) + the view-pane follow.
+
+** View-pane follow (the other interactive hot path)
+Covered by R20-3(b): the per-change cost is the editable-indirect REBUILD, not
+classification.  Reusing the indirect (re-narrow same-file) + the 0.2 s
+debounce makes the follow cheap at 2076 items.  No separate work here.
+
+** Invariants / byte contract
+The render output is UNCHANGED — this is a pure compute-once refactor of the
+SAME buckets/widths/visible set, so every byte golden stays byte-identical
+(the displayed rows + their measured columns are the same items in the same
+order).  Meta-widths measured over the displayed subset yields the SAME widths
+as today *whenever* the widest displayed cell equals the widest overall (the
+common case); where a hidden item was wider, the column now fits what is shown
+— a deliberate, tighter result.  IF any fixture shifts, it re-blesses with a
+design note; the expectation is zero shift for the current goldens (the
+displayed rows already contain the widest cells in these fixtures — the test
+seat verifies with =make regen-mockups= + a byte diff).
+
+** Testability (R20-6)
+- BENCH (not a gate): a repeatable =tests/org-air-bench.el= harness over a
+  generated large set asserts the warm re-render stays under a generous
+  ceiling (e.g. < 0.2 s) so a future O(N) regression trips — informational,
+  excluded from =make check= timing-sensitivity (skipped under CI load via a
+  =skip-unless= on an env flag).
+- ERT (correctness, the real guard): the single-partition refactor yields the
+  SAME bucket membership + the SAME section counts as the per-section path
+  (compare old vs new partition for a fixture item set) — proves the
+  compute-once path is behaviour-preserving.
+- ERT: =--compute-meta-widths= over the displayed subset returns widths ≥ the
+  widest DISPLAYED cell (alignment invariant) for a fixture set.
+- =make regen-mockups= + byte diff = 0 on the existing board goldens (the
+  contract); any shift is called out + design-blessed.
+
+** Routing (R20-6)
+org-air-view.el: add a once-per-render =(visible . partition)= computed in
+=--render= (or a memo bound for the render's dynamic extent); refactor
+=--insert-item-pane= / =--insert-section= / =--insert-summary= /
+=--compute-meta-widths= / the calendar call to READ it; restrict meta-widths
+to the displayed rows.  No data-layer change (org-ql stays one SELECT).  Test
+seat: add the partition-equivalence + meta-width ERTs and the bench harness;
+re-verify byte goldens.
+
+** Open questions (R20-6)
+- Thread the partition as an explicit argument vs a dynamic =let= bound for the
+  render extent?  Proposal: a dynamic =org-air-view--render-partition= bound in
+  =--render= (the temp-buffer =--render-lines= already re-binds the render
+  dynamics, L2079 — add it there) so the many consumers read it without a wide
+  signature change.
+- Bench in =make check= or out?  Proposal: OUT of the gate (timing is load-
+  sensitive); keep it a manual =make bench= + the informational ceiling.
+
+* History
+- *Round-20 design (this doc).*  Written after the user dogfood-tested R19 on
+  real data (2151 board items + the real Air repo at
+  =~/Coding/github.com/withre/air=) and found it "really really buggy".
+  STABILITY + POLISH + PERFORMANCE for daily use.  Every item was reproduced
+  against the package / the real Air repo before being specced; numbers are
+  measured (=emacs -Q --batch=, 120 files / 2076 items).  Per-item commits:
+  - R20-1 async hang → SYNCHRONOUS fast-paint first load (drop the chained-
+    idle-timer path; reproduced the idle-0 starvation, the no-watchdog wedge,
+    and the 101 802-char timer-error echo dump).
+  - R20-5 project view → match =airctl status -Da= nested directory tree
+    (per-dir state counts, state-first docs, rolled-up top-dir header) + truly
+    REUSE the dashboard core (shared rail via a view-descriptor, same
+    =/=/=M-/=/=\= filter, thin keymap that stops shadowing =s=/=d=/=t=/=o=/=O=,
+    shared view pane / mode-line).
+  - R20-2 mode-line → a USEFUL + VISIBLE calm status line (counts/filter/scope)
+    that doubles as the board→pane boundary; strengthen the pane header-line.
+  - R20-3 view pane → =q= / =C-c C-q= closes the focused pane; make the live
+    follow cheap (REUSE the indirect, re-narrow same-file; debounce 0.1→0.2).
+  - R20-4 refile → action-first menu with a DEDICATED move-to-file path; Tags…
+    + Category… via =completing-read-multiple=; short truncated prompt.
+  - R20-6 perf → profiled the warm re-render (0.43 s, dominated by O(N)
+    redundant passes); compute-once bucket partition + visible-items +
+    displayed-only meta-widths → projected < 0.1 s, byte-identical.
+  All items honour the architecture invariants and KEEP the R18 caches; the
+  blockers (R20-1, R20-5) lead.  Impl-ready; nothing integrated here.

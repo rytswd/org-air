@@ -569,80 +569,72 @@ docs with no directory fold into a leading node with an empty :path."
          (marker (propertize mk 'face 'org-air-face-rail-marker)))
     (if img (propertize marker 'display img) marker)))
 
-(defun org-air-project--rolled-up-badges (counts)
-  "Return the rolled-up `BADGE Title (N)' cells for COUNTS, display order.
-Only states present (N>0) appear; the top-dir box header uses this."
-  (let (cells)
-    (dolist (state org-air-project--state-display-order)
-      (let ((n (or (cdr (assoc state counts)) 0)))
-        (when (> n 0)
-          (push (concat
-                 (org-air-project--state-badge-cell state)
-                 " "
-                 (propertize (org-air-project--state-title state)
-                             'face 'org-air-face-section)
-                 " "
-                 (propertize (format "(%d)" n) 'face 'org-air-face-count))
-                cells))))
-    (mapconcat #'identity (nreverse cells) "    ")))
+(defun org-air-project--state-letter (state)
+  "Return STATE's single-letter token (R/W/V/C/X/D) for the count summary (R22-6).
+Derived from `org-air-project--state-token' (the `[R]'... TTY token) so it
+tracks `org-air-project-state-badges'; falls back to the upcased initial."
+  (let ((tok (org-air-project--state-token state)))
+    (if (string-match "\\[\\(.\\)\\]" tok)
+        (match-string 1 tok)
+      (upcase (substring state 0 1)))))
 
-(defun org-air-project--count-badges (direct desc)
-  "Return the per-dir `BADGE N (+M)' cells for DIRECT/DESC counts (R20-5).
-N>0 -> `BADGE N'; M>0 adds `(+M)'; N=0 & M>0 -> `BADGE (+M)' (no number);
-states absent from both are omitted.  Display order = the state constant."
+(defun org-air-project--dir-count-summary (direct desc)
+  "Return the calm `R4(+1) C14(+14) ...' count summary for a dir header (R22-6).
+DIRECT is the dir's OWN per-state counts, DESC its descendants' rollup.
+State as a quiet faded LETTER (not the coloured badge), own count, faded
+`(+M)' nested rollup; states absent from BOTH are omitted; display order =
+`org-air-project--state-display-order'.  Numerically identical to the old
+`--count-badges' / `airctl -Da' (own N + nested +M)."
   (let (cells)
     (dolist (state org-air-project--state-display-order)
       (let ((n (or (cdr (assoc state direct)) 0))
             (m (or (cdr (assoc state desc)) 0)))
         (when (or (> n 0) (> m 0))
-          (let ((badge (org-air-project--state-badge-cell state))
-                (num (when (> n 0)
-                       (propertize (number-to-string n)
-                                   'face 'org-air-face-count)))
-                (roll (when (> m 0)
-                        (propertize (format "(+%d)" m)
-                                    'face 'org-air-face-faded))))
-            (push (string-join (delq nil (list badge num roll)) " ") cells)))))
-    (mapconcat #'identity (nreverse cells) "  ")))
+          (push (concat
+                 (propertize (org-air-project--state-letter state)
+                             'face (org-air-project--state-face state))
+                 (when (> n 0) (propertize (number-to-string n)
+                                           'face 'org-air-face-count))
+                 (when (> m 0) (propertize (format "(+%d)" m)
+                                           'face 'org-air-face-faded)))
+                cells))))
+    (mapconcat #'identity (nreverse cells) " ")))
 
-(defun org-air-project--insert-dir-node (node width topp)
+(defun org-air-project--insert-dir-node (node width _topp)
   "Insert NODE (a dir tree node) and its subtree into the buffer at WIDTH.
-TOPP non-nil adds the rolled-up box header (top-dir nodes only); then a
-per-dir count heading (`BADGE N (+M)'), then the dir's OWN docs in
-state-first order, then recursion into the name-sorted children."
+ONE header per directory (R22-6): the depth-indented marker + `dir/' name on
+the LEFT, a quiet right-aligned letter-count summary (`R4(+1) C14(+14) ...')
+on the RIGHT; then the dir's OWN docs (state-first, indented one level
+DEEPER than the header), then recursion into the name-sorted children.  The
+old doubled header (a rolled-up box header + a per-dir count heading) is
+gone — the single header's own/+nested counts already encode the subtree
+totals.  _TOPP is accepted for the caller's uniform call but no longer
+special-cases a separate header."
   (let* ((depth (plist-get node :depth))
          (indent (make-string (* 2 depth) ?\s))
          (dir (plist-get node :dir))
          (path (plist-get node :path))
-         (label (concat indent (if (and dir (not (string-empty-p dir)))
-                                   (concat dir "/") "·"))))
-    ;; (1) Top-dir rolled-up box header: state NAMES + parenthesised totals.
-    (when topp
-      (let ((start (point))
-            (badges (org-air-project--rolled-up-badges
-                     (plist-get node :total-counts))))
-        (insert "  " (org-air-project--marker) " "
-                (propertize (concat (if (string-empty-p path) "·" path) "/")
-                            'face 'org-air-face-title)
-                (if (string-empty-p badges) "" "   ") badges "\n")
-        (add-text-properties start (point)
-                             (list 'org-air-section path))))
-    ;; (2) Per-dir count heading: BADGE N (+M).
-    (let ((start (point))
-          (badges (org-air-project--count-badges
+         (name (if (and dir (not (string-empty-p dir))) (concat dir "/") "·"))
+         (start (point))
+         ;; Indent the WHOLE header (marker included) by depth so the tree
+         ;; reads; the accent marker is the quiet section bullet, printed
+         ;; ONCE per header, never repeated mid-line.
+         (left (concat "  " indent (org-air-project--marker) " "
+                       (propertize name 'face 'org-air-face-section)))
+         ;; Quiet, right-aligned count summary (the badge wall is gone).
+         (summary (org-air-project--dir-count-summary
                    (plist-get node :direct-counts)
-                   (plist-get node :desc-counts))))
-      (insert "  " (org-air-project--marker) " "
-              (propertize label 'face 'org-air-face-section)
-              (if (string-empty-p badges) "" "   ") badges "\n")
-      (add-text-properties start (point)
-                           (list 'org-air-section path)))
-    ;; (3) Own docs, state-first, indented one level under this dir.
-    ;; R21-5: one board-style row per doc (state cell + title + meta
-    ;; cluster) via the shared primitive; the state cell is ALWAYS shown.
+                   (plist-get node :desc-counts)))
+         (header (if (string-empty-p summary)
+                     left
+                   (org-air-view--justify left summary width))))
+    (insert header "\n")
+    (add-text-properties start (point) (list 'org-air-section path))
+    ;; Own docs, state-first, indented one level UNDER this dir's header so a
+    ;; doc clearly hangs beneath its directory (R21-5 one board-style row).
     (dolist (doc (plist-get node :own-docs))
-      (org-air-project--insert-doc-row doc width (* 2 depth)))
-    ;; (4) Recurse into the children (name-sorted).
+      (org-air-project--insert-doc-row doc width (* 2 (1+ depth))))
+    ;; Recurse into the children (name-sorted).
     (dolist (child (plist-get node :children))
       (org-air-project--insert-dir-node child width nil))))
 

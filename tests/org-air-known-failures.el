@@ -495,6 +495,27 @@
      `org-air-visit-item'); GUI visit stays on S-RET, TTY visit moved to
      g RET. Test seat re-blesses.")
     ;; ===================================================================
+    ;; R22-6 PROJECT GROUPING (impl track) — the by-directory tree now emits
+    ;; ONE header per dir (the doubled rolled-up box header is gone), a quiet
+    ;; right-aligned letter-count summary (`R4(+1) C14(+14) ...', airctl -Da
+    ;; parity) instead of the coloured `[X] N' badge wall, and real depth
+    ;; indentation.  These three assert the OLD doubled-header / badge-wall
+    ;; layout (state-NAME totals + `[W] 1' cells); deliberate, design-blessed
+    ;; re-bless — the test seat regenerates project-view-dir.txt and rewrites
+    ;; the structural regexps to the one-header / letter-count / deeper-indent
+    ;; shape (numbers identical to airctl -Da).
+    (org-air-f5-project-view-byte-mockups
+     . "R22-6: project-view-dir.txt re-bless (one header/dir + right-aligned
+     letter-count summary + deeper doc indent). Test seat regen-mockups.")
+    (org-air-f5-grouping-toggle
+     . "R22-6: asserts the OLD rolled-up top-dir header (state NAMES) +
+     `| air-context/ [D]' badge format; the new tree uses a single header
+     with a right-aligned letter-count summary. Test seat re-blesses regexps.")
+    (org-air-r20-5-fix-directory-render-guards-divergence
+     . "R22-6: asserts the OLD per-dir `[W] 1  [X] 1  [D] 1' badge-wall
+     format; the new summary is the quiet `W1 X1 D1' letter-count (same
+     numbers, airctl -Da parity). Test seat re-blesses the format regexp.")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

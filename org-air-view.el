@@ -4143,16 +4143,40 @@ R22-2: line-based so a native/mouse landing on a dead column still follows."
       (org-air-view--row-property 'org-air-doc)
       (org-air-view--row-property 'org-air-marker)))
 
+(defun org-air-view-pane--row-thing-near-point ()
+  "Return (PROP . VALUE) for the doc/item at or after point, else nil (R24-4).
+Resolves the doc/item on THIS row, else on the NEAREST following row.  Lets
+RET/click on a dir-header or blank row open the first doc beneath it instead
+of erroring."
+  (or (let ((d (org-air-view--row-property 'org-air-doc)))  (and d (cons 'org-air-doc d)))
+      (let ((i (org-air-view--row-property 'org-air-item))) (and i (cons 'org-air-item i)))
+      ;; fall forward to the next doc/item row in the buffer.
+      (save-excursion
+        (let ((pos (or (next-single-property-change (point) 'org-air-doc)
+                       (next-single-property-change (point) 'org-air-item))))
+          (when pos
+            (goto-char pos)
+            (or (let ((d (org-air-view--row-property 'org-air-doc)))  (and d (cons 'org-air-doc d)))
+                (let ((i (org-air-view--row-property 'org-air-item))) (and i (cons 'org-air-item i)))))))))
+
 (defun org-air-view-pane--context-at-point ()
   "Return a plist describing the source to show for the item/doc at point.
 Keys: :marker (a marker or filepath string), :file, :title, :state.
 Works on the board (`org-air-item') and the project view (`org-air-doc')
 via the shared `org-air-marker' text property (R16 D-P3).
 R22-2: resolve each row property anywhere on the line (point-independent),
-so a native/mouse landing on the leading margin/rail/pad still resolves."
+so a native/mouse landing on the leading margin/rail/pad still resolves.
+R24-4: when the row has NO item/doc/marker (a dir-header or blank row),
+fall forward to the NEAREST following doc/item so RET/click still opens a
+pane instead of erroring (shared resolver; the board section headings benefit
+identically)."
   (let ((item (org-air-view--row-property 'org-air-item))
         (doc (org-air-view--row-property 'org-air-doc))
         (marker (org-air-view--row-property 'org-air-marker)))
+    (unless (or item doc marker)
+      (pcase (org-air-view-pane--row-thing-near-point)
+        (`(org-air-doc . ,d)  (setq doc d))
+        (`(org-air-item . ,i) (setq item i))))
     (cond
      (item
       (list :marker (or marker (org-air-item-marker item))

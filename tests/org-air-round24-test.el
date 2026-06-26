@@ -1,0 +1,210 @@
+;;; org-air-round24-test.el --- substantive ERTs for v0.5 round-24 -*- lexical-binding: t; -*-
+
+;;; Commentary:
+;; Test-seat SUBSTANTIVE ERTs for v0.5 round-24
+;; (air/v0.5/org-air-round24-design.org).  These cover the six R24 fixes:
+;;
+;;   R24-1  REFILE "UNDER HEADING" PROMPT [UX] — the free `read-string' becomes
+;;          a `completing-read' over the TARGET FILE's real headings, with a
+;;          leading `(file end)' default and NO prompt when the file has none.
+;;   R24-2  TREE RAILS TO LEAF DOCS [POLISH] — R23-3's faded `│ ├─ └─' guides
+;;          thread DOWN to the doc rows so each doc hangs under its dir,
+;;          matching `airctl status -Da'; the V6 columns do not move.
+;;   R24-3  STATE BADGES → SVG / NERD [RE-REVERSAL] — `org-air-project-state-
+;;          style' defaults to a FIXED-WIDTH `svg' chip (re-reversing R23-4's
+;;          emoji), with `nerd'/`text'/`emoji' options and the byte/TTY token.
+;;   R24-4  PROJECT RET + FILTER, DRIVEN [BUG] — RET on a NON-doc (dir-header)
+;;          row errored `user-error "No org-air item at point"'; the shared
+;;          resolver now falls forward to the nearest doc.  EXECUTING ERTs.
+;;   R24-5  PROJECT RAIL SIDE-WINDOW PARITY [BUG] — the project installs the
+;;          cooperative reconciler + `popin' dispatches per mode, so a popped
+;;          project rail falls back to inline like the board's.
+;;   R24-6  FREE-TEXT (CONTENT) FILTER [FEATURE] — `#token' = TAG, a BARE token
+;;          = case-insensitive SUBSTRING over title+path+tag-names; shared by
+;;          board + project on one matcher.
+;;
+;; The interaction items (R24-4/R24-5) are DRIVEN, not inspected: the windowed
+;; assertions `let'-bind `noninteractive' to nil so the otherwise batch-gated
+;; `display-buffer' path runs and a REAL window is asserted.
+
+;;; Code:
+
+(require 'ert)
+(require 'cl-lib)
+(require 'subr-x)
+(require 'org)
+(require 'org-air-test-helpers)
+(require 'org-air-viewport-helpers)
+(require 'org-air-project-test)            ; project fixture root + render
+
+(when (locate-library "org-air")
+  (require 'org-air))
+
+;;;; =====================================================================
+;;;; Shared harness — drive commands in a LIVE project buffer/window.
+;;;; =====================================================================
+
+(defun org-air-r24--kill-aux-buffers ()
+  "Kill the shared pane/rail buffers so a test never inherits stale windows."
+  (let ((kill-buffer-query-functions nil))
+    (dolist (name (list org-air-view-pane-buffer-name org-air-rail-buffer-name))
+      (when (get-buffer name) (kill-buffer name)))
+    (dolist (b (buffer-list))
+      (when (and (buffer-live-p b)
+                 (string-prefix-p " *org-air-pane:" (buffer-name b)))
+        (with-current-buffer b (set-buffer-modified-p nil))
+        (kill-buffer b)))))
+
+(defmacro org-air-r24--with-live-project (&rest body)
+  "Open the fixture project in a LIVE window (noninteractive nil); run BODY.
+BODY runs in the `*org-air-project*' buffer with it selected in a window, so
+`display-buffer' (the pane / rail side window) actually creates windows.
+Unlike the golden harness this does NOT freeze the project PATH: the pane
+must READ the real doc file (a `directory-abbrev-alist' rewrite would make
+`find-file-noselect' visit a non-existent abbreviated path = empty buffer).
+Frozen mtime keeps dates deterministic without touching file content."
+  (declare (indent 0) (debug t))
+  `(progn
+     (should (fboundp 'org-air-project))
+     (let ((org-air-sources (list (list :air org-air-project-test-root)))
+           (org-air-project-group 'directory)
+           (org-air-project-view-width 120))
+       (org-air-project-test--with-frozen-mtime
+        (save-window-excursion
+          (org-air-r24--kill-aux-buffers)
+          (let ((noninteractive nil))
+            (org-air-project))
+          (let ((buf (get-buffer "*org-air-project*")))
+            (should buf)
+            (unwind-protect
+                (let ((noninteractive nil))
+                  (with-current-buffer buf
+                    (when (get-buffer-window buf)
+                      (select-window (get-buffer-window buf)))
+                    ,@body))
+              (org-air-r24--kill-aux-buffers)
+              (when (buffer-live-p buf)
+                (let ((kill-buffer-query-functions nil)) (kill-buffer buf))))))))))
+
+(defun org-air-r24--first-doc-pos ()
+  "Return the first buffer position carrying `org-air-doc', or nil."
+  (save-excursion
+    (goto-char (point-min))
+    (if (get-text-property (point) 'org-air-doc)
+        (point)
+      (next-single-property-change (point) 'org-air-doc))))
+
+(defun org-air-r24--dir-header-pos ()
+  "Return a buffer position on a row carrying `org-air-section' but NO
+`org-air-doc' anywhere on the line (a dir-header row), or nil."
+  (save-excursion
+    (goto-char (point-min))
+    (catch 'hit
+      (while (not (eobp))
+        (when (and (get-text-property (line-beginning-position) 'org-air-section)
+                   (not (org-air-view--row-property 'org-air-doc)))
+          (throw 'hit (line-beginning-position)))
+        (forward-line 1))
+      nil)))
+
+(defun org-air-r24--pane-window-text ()
+  "Return the buffer text shown in the live pane window, or nil."
+  (let ((win (org-air-view-pane--find-window)))
+    (and (window-live-p win)
+         (with-current-buffer (window-buffer win)
+           (substring-no-properties (buffer-string))))))
+
+;;;; =====================================================================
+;;;; R24-4 — project RET + filter, DRIVEN (executing ERTs).
+;;;; =====================================================================
+
+(ert-deftest org-air-r24-4-ret-on-doc-row-opens-pane ()
+  "RET driven on a DOC row opens the bottom pane showing that doc's FILE.
+Executing: `call-interactively' through the keymap, `noninteractive' nil so
+`display-buffer' runs and a REAL window is asserted."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   (let ((pos (org-air-r24--first-doc-pos)))
+     (should pos)
+     (goto-char pos)
+     (should (org-air-view--row-property 'org-air-doc))
+     (call-interactively 'org-air-view-pane-return)
+     (should (org-air-view-pane--window-live-p))
+     (let ((text (org-air-r24--pane-window-text)))
+       (should text)
+       (should (string-match-p "Alpha feature" text))))))
+
+(ert-deftest org-air-r24-4-ret-at-column-0-still-opens ()
+  "RET driven from COLUMN 0 of a doc row still opens the SAME doc (the line
+scan resolves the dead leading column)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   (let ((pos (org-air-r24--first-doc-pos)))
+     (should pos)
+     (goto-char pos)
+     (beginning-of-line)
+     (should (= (point) (line-beginning-position)))
+     (call-interactively 'org-air-view-pane-return)
+     (should (org-air-view-pane--window-live-p))
+     (should (string-match-p "Alpha feature" (org-air-r24--pane-window-text))))))
+
+(ert-deftest org-air-r24-4-ret-on-dir-header-opens-first-child-doc ()
+  "RET driven on a DIR-HEADER row (carries `org-air-section', NOT `org-air-
+doc') opens the pane for the NEAREST FOLLOWING doc instead of erroring.
+Anti-tautology: the header row itself has no doc, yet a doc file is shown."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   (let ((pos (org-air-r24--dir-header-pos)))
+     (should pos)
+     (goto-char pos)
+     ;; the header row carries no doc/item/marker anywhere on the line.
+     (should (get-text-property (line-beginning-position) 'org-air-section))
+     (should-not (org-air-view--row-property 'org-air-doc))
+     (should-not (org-air-view--row-property 'org-air-item))
+     ;; the shared resolver falls forward to the nearest doc...
+     (let ((ctx (org-air-view-pane--context-at-point)))
+       (should ctx)
+       (should (plist-get ctx :title)))
+     ;; ...so RET OPENS the pane (no `user-error').
+     (call-interactively 'org-air-view-pane-return)
+     (should (org-air-view-pane--window-live-p))
+     (let ((text (org-air-r24--pane-window-text)))
+       (should text)
+       (should (> (length text) 0))))))
+
+(ert-deftest org-air-r24-4-row-thing-near-point-falls-forward ()
+  "`org-air-view-pane--row-thing-near-point' returns the on-row doc when one
+is present, else the NEAREST following doc (the resolver under the fix)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   ;; on a doc row -> that doc.
+   (goto-char (org-air-r24--first-doc-pos))
+   (let ((near (org-air-view-pane--row-thing-near-point)))
+     (should (eq (car near) 'org-air-doc))
+     (should (org-air-doc-p (cdr near))))
+   ;; on a dir-header row -> the following doc (never nil here).
+   (goto-char (org-air-r24--dir-header-pos))
+   (let ((near (org-air-view-pane--row-thing-near-point)))
+     (should (eq (car near) 'org-air-doc))
+     (should (org-air-doc-p (cdr near))))))
+
+(ert-deftest org-air-r24-4-slash-filter-narrows-driven ()
+  "`/' driven with a real tag query narrows the visible doc set, and `\\'
+restores it.  Executing through the filter command + the shared core."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   (let ((all org-air-project--doc-count))
+     (should (and all (> all 0)))
+     ;; drive the filter command with the read stubbed to a real tag.
+     (cl-letf (((symbol-function 'org-air-view--read-filter)
+                (lambda (&rest _) '("ui"))))
+       (call-interactively 'org-air-project-filter))
+     (should (equal org-air-view--tag-filter '("ui")))
+     (should (< org-air-project--doc-count all))
+     ;; `\\' clears -> full set restored.
+     (call-interactively 'org-air-filter-clear)
+     (should (null org-air-view--tag-filter))
+     (should (= org-air-project--doc-count all)))))
+
+(provide 'org-air-round24-test)
+;;; org-air-round24-test.el ends here

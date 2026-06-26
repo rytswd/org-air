@@ -333,37 +333,16 @@ in --batch)."
 (ert-deftest org-air-r17-project-line2-deslugs-leaf ()
   "D-P2: `org-air-project--deslug-relpath' de-slugs only the Denote LEAF
 of a relpath (keeping the directory prefix); a non-Denote leaf passes
-through verbatim.  And the two-line doc block's line 2 shows the
-de-slugged leaf without overflowing the width (pad-to guard)."
+through verbatim.
+The rendered-row coverage moved to the R21-5 project ERTs when the
+two-line doc block was replaced by the one-line `--insert-doc-row'."
   (skip-unless (locate-library "org-air"))
   ;; the leaf de-slug helper.
   (should (equal (org-air-project--deslug-relpath
                   "v0.1/20260101T120000--weekly-invalidation-rate-upgrade__work.org")
                  "v0.1/weekly-invalidation-rate-upgrade"))
   (should (equal (org-air-project--deslug-relpath "v0.1/feature-a.org")
-                 "v0.1/feature-a.org"))
-  ;; the rendered line 2 de-slugs and never overflows.
-  (let ((doc (org-air-doc-create
-              :name "Weekly invalidation rate upgrade"
-              :file "/r/v0.1/20260101T120000--weekly-invalidation-rate-upgrade-long__work_admin.org"
-              :state "draft" :tags '("work")
-              :relpath "v0.1/20260101T120000--weekly-invalidation-rate-upgrade-long__work_admin.org")))
-    (dolist (width '(40 80))
-      (ert-info ((format "width %d" width))
-        (with-temp-buffer
-          (org-air-project--insert-doc-block doc width t)
-          (let* ((lines (split-string (buffer-string) "\n"))
-                 (line2 (seq-find
-                         (lambda (l) (string-match-p "weekly-invalidation\\|20260101"
-                                                     (substring-no-properties l)))
-                         lines)))
-            (should line2)
-            (should (string-match-p "v0.1/weekly-invalidation"
-                                    (substring-no-properties line2)))
-            (should-not (string-match-p "20260101T120000\\|__work\\|__admin"
-                                        (substring-no-properties line2)))
-            (dolist (l lines)
-              (should (<= (string-width (substring-no-properties l)) width)))))))))
+                 "v0.1/feature-a.org")))
 
 (provide 'org-air-round17-test)
 ;;; org-air-round17-test.el ends here

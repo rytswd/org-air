@@ -395,6 +395,17 @@ between stacked and two-pane on every pixel."
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-rail-width-hysteresis 2
+  "Column dead-band around `org-air-rail-min-width' for a popped-out rail.
+When the rail is popped into its side window the board renders board-only
+width, sitting near `org-air-rail-min-width'; a 1-col hscroll/redisplay
+wobble there must not flip board-only <-> side-window (each flip is a real
+dimension change that drives a motion-time re-render).  Once `side-window',
+stay side-window until the board width drops more than this many columns
+below the threshold."
+  :type 'integer
+  :group 'org-air)
+
 (defcustom org-air-rail-style 'inline
   "INITIAL popout state of the context rail when the board opens (R16 D-P1).
 This is no longer a forceful render mode; it only seeds the per-board
@@ -2239,11 +2250,19 @@ board-only.  Within `org-air-layout-hysteresis' columns of the threshold
 the current `org-air-view--orientation' is kept so dragging across the
 boundary does not flap."
   (let ((base (< width org-air-rail-min-width)))
-    (if (and org-air-view--orientation
-             (<= (abs (- width org-air-rail-min-width))
-                 org-air-layout-hysteresis))
-        (eq org-air-view--orientation 'board-only)
-      base)))
+    (cond
+     ;; R21-1: side-window orientation hysteresis.  Once the rail is popped
+     ;; out and the board renders board-only-width, keep side-window until
+     ;; the board width drops more than `org-air-rail-width-hysteresis' below
+     ;; the threshold, so a 1-col redisplay/hscroll wobble never flips the
+     ;; orientation (and so never fires a motion-time re-render).
+     ((eq org-air-view--orientation 'side-window)
+      (< width (- org-air-rail-min-width org-air-rail-width-hysteresis)))
+     ((and org-air-view--orientation
+           (<= (abs (- width org-air-rail-min-width))
+               org-air-layout-hysteresis))
+      (eq org-air-view--orientation 'board-only))
+     (t base))))
 
 (defun org-air-view--two-pane-p (width)
   "Return non-nil when WIDTH should render two-pane (D1).
@@ -4516,30 +4535,53 @@ Falls back to the cheap full render when the rail is not a side window."
           (setq pos (next-single-property-change pos prop nil (point-max)))))
       found)))
 
+(defun org-air-view--restore-to-column (token)
+  "Move point to TOKEN's saved :column on the CURRENT row, clamped (R21-1).
+Never lands before the row's first visible glyph (so the cursor still reads
+on a real character, S5a); if the saved column runs past a now-narrower
+row's content it lands on the row's last visible glyph rather than the
+trailing newline.  This is what makes a point-preserving re-render keep
+the column the user was on instead of snapping to the row's leftmost glyph."
+  (org-air-view--beginning-of-visible)
+  (let ((first (current-column))
+        (want  (or (plist-get token :column) 0)))
+    (move-to-column (max first want))
+    (when (and (eolp) (> (current-column) first))
+      (backward-char 1))))
+
 (defun org-air-view--restore-position (token)
   "Restore the cursor to the location described by TOKEN (D5).
 Prefers the same item; if it vanished (refiled/done), lands on the
 nearest surviving item in the same section, then the section heading,
 falling back to the same line/column — never jumping to `point-min'
-unless nothing else is available."
+unless nothing else is available.  In every branch point is restored to
+TOKEN's saved column (clamped), so a re-render genuinely preserves point
+\(R21-1)."
   (let ((marker-pos (org-air-view--find-property
                      'org-air-marker (plist-get token :marker)))
         (section-pos (org-air-view--find-property
                       'org-air-section (plist-get token :section))))
     (cond
      (marker-pos
+      ;; SAME item survived: this is the point-preservation case.  Restore
+      ;; the saved column so the user stays on the SAME glyph (R21-1), not
+      ;; snapped to the row's leftmost glyph.
       (goto-char marker-pos)
-      (org-air-view--beginning-of-visible))
+      (org-air-view--restore-to-column token))
      (section-pos
-      ;; Nearest surviving item at/after the saved section heading.
+      ;; Item vanished, its section survived: land on the nearest surviving
+      ;; item.  No same-glyph to preserve, so use the safe first-visible
+      ;; landing (R21-2 routes this to the title).
       (goto-char (or (text-property-not-all section-pos (point-max)
                                             'org-air-item nil)
                      section-pos))
       (org-air-view--beginning-of-visible))
      (t
-      ;; Item vanished and its marker no longer matches (a re-query after
-      ;; auto-refresh rebuilds markers): land on the saved line but on its
-      ;; first VISIBLE char, never the indent whitespace (S5a regression).
+      ;; Item AND section vanished (a re-query after auto-refresh rebuilds
+      ;; markers, or a filter emptied the board): land on the saved line on
+      ;; its first VISIBLE char, never the indent whitespace (S5a).  The
+      ;; saved column is not preserved here — it belonged to a row that no
+      ;; longer exists (R21-2 routes this to the title).
       (goto-char (point-min))
       (forward-line (1- (or (plist-get token :line) 1)))
       (org-air-view--beginning-of-visible)))))

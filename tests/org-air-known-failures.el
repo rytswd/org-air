@@ -414,6 +414,24 @@
     ;; touched (the impl landed R19-1..R19-4 in ltpkvxvy..kpzqqxyw).
     ;; Round-19 manifest is EMPTY; the tests stay as permanent guards.
     ;; ===================================================================
+    ;; v0.5 ROUND-20 grind (impl track) — R20-5 project view rebuild.
+    ;;
+    ;; 2026-06-26: R20-5(a) NESTED directory tree landed (the project
+    ;; `directory' grouping now matches `airctl status -Da': a rolled-up
+    ;; top-dir box header with state-NAME totals, a per-dir `BADGE N (+M)'
+    ;; count heading with the descendant roll-up, state-first own docs, and
+    ;; depth-indented child dirs) — replacing the FLAT first-segment
+    ;; grouping.  The default group is now `directory'.  This re-blesses
+    ;; the project-view-dir.txt golden (and the state/tag goldens re-bless
+    ;; once R20-5(b) swaps in the shared board rail), so the byte-mockup
+    ;; test fails until the test seat regenerates the fixtures; the
+    ;; grouping-toggle test's dir-header regex (`v0.N/ <count>') no longer
+    ;; matches the badge-led tree header and is re-blessed there too.
+    (org-air-f5-project-view-byte-mockups
+     . "R20-5(a): nested dir tree + shared rail re-bless project-view-*.txt")
+    (org-air-f5-grouping-toggle
+     . "R20-5(a): dir grouping is now the airctl -Da nested tree (header form changed)")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

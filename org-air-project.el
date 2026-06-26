@@ -76,11 +76,22 @@ rail of Summary + Inspector); below it the view is board-only."
   :type 'boolean
   :group 'org-air)
 
-(defcustom org-air-project-group 'state
+(defcustom org-air-project-group 'directory
   "Default grouping for the Air project view: `state', `directory' or `tag'.
-Mirrors `airctl status' -a / -Da / -Ta; toggled in-view with s / d / t."
+Mirrors `airctl status' -a / -Da / -Ta.  R20-5: the default is `directory'
+— the NESTED directory tree that matches `airctl status -Da' (the most
+useful view).  The `state' / `tag' modes stay reachable via the commands
+`org-air-project-group-by-state' / `org-air-project-group-by-tag' (no key),
+so they never shadow the shared board keys s / d / t."
   :type '(choice (const state) (const directory) (const tag))
   :group 'org-air)
+
+(defconst org-air-project--state-display-order
+  '("ready" "work-in-progress" "review" "complete" "dropped" "draft")
+  "Canonical state order for the directory tree (R20-5), matching `airctl -Da'.
+Drives BOTH the per-dir count badges (Ready · Work-In-Progress · Review ·
+Complete · Dropped · Draft, only those present) AND the state-first
+ordering of a directory's own docs, so the two can never drift.")
 
 (defcustom org-air-project-sort-key 'name
   "INITIAL sort key for the Air project view (R16 D-P4).
@@ -320,7 +331,6 @@ Each section is a plist: :icon :icon-face :title :title-face :docs
 through the single comparator (`org-air-project--sort-section-docs') so
 state-then-sort-key composition is uniform across all group modes."
   (let ((sections (pcase org-air-project-group
-                    ('directory (org-air-project--sections-by-directory docs))
                     ('tag (org-air-project--sections-by-tag docs))
                     (_ (org-air-project--sections-by-state docs)))))
     (dolist (section sections sections)
@@ -350,25 +360,206 @@ Buckets with zero docs are omitted; any state not listed is appended."
                        :show-state nil))))
            order))))
 
-(defun org-air-project--sections-by-directory (docs)
-  "Return folder sections for DOCS, the dir hierarchy living in the path col."
-  (let ((dirs (seq-uniq
-               (mapcar (lambda (d)
-                         (car (split-string (org-air-doc-relpath d) "/")))
-                       docs))))
-    (mapcar
-     (lambda (dir)
-       (list :icon (org-air-layout-glyph 'origin)
-             :icon-face 'org-air-face-faded
-             :title (concat dir "/")
-             :title-face 'org-air-face-section
-             :docs (seq-filter
-                    (lambda (d)
-                      (equal dir (car (split-string (org-air-doc-relpath d) "/"))))
-                    docs)
-             :attention nil
-             :show-state t))
-     (sort dirs #'string-lessp))))
+;;;; ---------------------------------------------------------------------
+;;;; Nested directory tree (R20-5 — match airctl status -Da)
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-project--doc-dir-segments (doc)
+  "Return DOC's directory path as a list of segments (R20-5).
+\"v0.1/air-context/x.org\" -> (\"v0.1\" \"air-context\"); a root doc -> nil."
+  (let ((dir (file-name-directory (or (org-air-doc-relpath doc) ""))))
+    (and dir (split-string (directory-file-name dir) "/" t))))
+
+(defun org-air-project--state-display-rank (state)
+  "Return STATE's rank in `org-air-project--state-display-order' (unknown last)."
+  (or (seq-position org-air-project--state-display-order state #'equal)
+      (length org-air-project--state-display-order)))
+
+(defun org-air-project--state-first-lessp (a b)
+  "Non-nil when doc A precedes B state-first (display order) then by name (R20-5)."
+  (let ((ra (org-air-project--state-display-rank (org-air-doc-state a)))
+        (rb (org-air-project--state-display-rank (org-air-doc-state b))))
+    (if (/= ra rb) (< ra rb)
+      (org-air-project--doc-tiebreak-lessp a b))))
+
+(defun org-air-project--sort-own-docs (docs)
+  "Return DOCS state-first (display order) then by name (R20-5)."
+  (sort (copy-sequence docs) #'org-air-project--state-first-lessp))
+
+(defun org-air-project--count-by-state (docs)
+  "Return an alist STATE -> count over DOCS."
+  (let (table)
+    (dolist (d docs table)
+      (let ((cell (assoc (org-air-doc-state d) table)))
+        (if cell (setcdr cell (1+ (cdr cell)))
+          (push (cons (org-air-doc-state d) 1) table))))))
+
+(defun org-air-project--counts-add (a b)
+  "Return the per-state sum of count alists A and B."
+  (let ((out (copy-alist a)))
+    (dolist (cell b out)
+      (let ((o (assoc (car cell) out)))
+        (if o (setcdr o (+ (cdr o) (cdr cell)))
+          (push (cons (car cell) (cdr cell)) out))))))
+
+(defun org-air-project--make-dir-node (path depth subtree-docs)
+  "Build the tree node for the directory PATH (a list of segments) at DEPTH.
+SUBTREE-DOCS are all docs whose dir-segments have PATH as a prefix (or
+equal it).  A node is a plist (see `org-air-project--directory-tree').
+Counts are computed bottom-up: :direct-counts over the dir's OWN docs,
+:desc-counts summed over descendant dirs, :total-counts = direct+desc."
+  (let* ((plen (length path))
+         (own (seq-filter
+               (lambda (d)
+                 (= (length (org-air-project--doc-dir-segments d)) plen))
+               subtree-docs))
+         (deeper (seq-filter
+                  (lambda (d)
+                    (> (length (org-air-project--doc-dir-segments d)) plen))
+                  subtree-docs))
+         (groups nil))                  ; alist next-seg -> docs (reversed)
+    (dolist (d deeper)
+      (let* ((seg (nth plen (org-air-project--doc-dir-segments d)))
+             (cell (assoc seg groups)))
+        (if cell (setcdr cell (cons d (cdr cell)))
+          (push (cons seg (list d)) groups))))
+    (setq groups (sort groups (lambda (a b) (string-lessp (car a) (car b)))))
+    (let* ((children (mapcar
+                      (lambda (g)
+                        (org-air-project--make-dir-node
+                         (append path (list (car g)))
+                         (1+ depth)
+                         (nreverse (cdr g))))
+                      groups))
+           (direct (org-air-project--count-by-state own))
+           (desc (seq-reduce
+                  (lambda (acc c)
+                    (org-air-project--counts-add
+                     acc (org-air-project--counts-add
+                          (plist-get c :direct-counts)
+                          (plist-get c :desc-counts))))
+                  children nil)))
+      (list :dir (car (last path))
+            :depth depth
+            :path (string-join path "/")
+            :own-docs (org-air-project--sort-own-docs own)
+            :children children
+            :direct-counts direct
+            :desc-counts desc
+            :total-counts (org-air-project--counts-add direct desc)))))
+
+(defun org-air-project--directory-tree (docs)
+  "Return the ordered list of TOP-dir nodes for DOCS (R20-5).
+Groups DOCS by their first path segment (top dirs, name-sorted); root
+docs with no directory fold into a leading node with an empty :path."
+  (let (groups root-docs)
+    (dolist (d docs)
+      (let ((segs (org-air-project--doc-dir-segments d)))
+        (if (null segs)
+            (push d root-docs)
+          (let* ((seg (car segs)) (cell (assoc seg groups)))
+            (if cell (setcdr cell (cons d (cdr cell)))
+              (push (cons seg (list d)) groups))))))
+    (setq groups (sort groups (lambda (a b) (string-lessp (car a) (car b)))))
+    (let ((nodes (mapcar
+                  (lambda (g)
+                    (org-air-project--make-dir-node
+                     (list (car g)) 0 (nreverse (cdr g))))
+                  groups)))
+      (if root-docs
+          (cons (org-air-project--make-dir-node nil 0 (nreverse root-docs))
+                nodes)
+        nodes))))
+
+(defun org-air-project--marker ()
+  "Return the propertized rail-marker glyph (svg accent bar on GUI)."
+  (let* ((img (org-air-layout-marker-image))
+         (mk (org-air-layout-glyph 'rail-marker))
+         (marker (propertize mk 'face 'org-air-face-rail-marker)))
+    (if img (propertize marker 'display img) marker)))
+
+(defun org-air-project--rolled-up-badges (counts)
+  "Return the rolled-up `BADGE Title (N)' cells for COUNTS, display order.
+Only states present (N>0) appear; the top-dir box header uses this."
+  (let (cells)
+    (dolist (state org-air-project--state-display-order)
+      (let ((n (or (cdr (assoc state counts)) 0)))
+        (when (> n 0)
+          (push (concat
+                 (propertize (org-air-project--state-badge state)
+                             'face (org-air-project--state-face state))
+                 " "
+                 (propertize (org-air-project--state-title state)
+                             'face 'org-air-face-section)
+                 " "
+                 (propertize (format "(%d)" n) 'face 'org-air-face-count))
+                cells))))
+    (mapconcat #'identity (nreverse cells) "    ")))
+
+(defun org-air-project--count-badges (direct desc)
+  "Return the per-dir `BADGE N (+M)' cells for DIRECT/DESC counts (R20-5).
+N>0 -> `BADGE N'; M>0 adds `(+M)'; N=0 & M>0 -> `BADGE (+M)' (no number);
+states absent from both are omitted.  Display order = the state constant."
+  (let (cells)
+    (dolist (state org-air-project--state-display-order)
+      (let ((n (or (cdr (assoc state direct)) 0))
+            (m (or (cdr (assoc state desc)) 0)))
+        (when (or (> n 0) (> m 0))
+          (let ((badge (propertize (org-air-project--state-badge state)
+                                   'face (org-air-project--state-face state)))
+                (num (when (> n 0)
+                       (propertize (number-to-string n)
+                                   'face 'org-air-face-count)))
+                (roll (when (> m 0)
+                        (propertize (format "(+%d)" m)
+                                    'face 'org-air-face-faded))))
+            (push (string-join (delq nil (list badge num roll)) " ") cells)))))
+    (mapconcat #'identity (nreverse cells) "  ")))
+
+(defun org-air-project--insert-dir-node (node width topp)
+  "Insert NODE (a dir tree node) and its subtree into the buffer at WIDTH.
+TOPP non-nil adds the rolled-up box header (top-dir nodes only); then a
+per-dir count heading (`BADGE N (+M)'), then the dir's OWN docs in
+state-first order, then recursion into the name-sorted children."
+  (let* ((depth (plist-get node :depth))
+         (indent (make-string (* 2 depth) ?\s))
+         (dir (plist-get node :dir))
+         (path (plist-get node :path))
+         (label (concat indent (if (and dir (not (string-empty-p dir)))
+                                   (concat dir "/") "·"))))
+    ;; (1) Top-dir rolled-up box header: state NAMES + parenthesised totals.
+    (when topp
+      (let ((start (point))
+            (badges (org-air-project--rolled-up-badges
+                     (plist-get node :total-counts))))
+        (insert "  " (org-air-project--marker) " "
+                (propertize (concat (if (string-empty-p path) "·" path) "/")
+                            'face 'org-air-face-title)
+                (if (string-empty-p badges) "" "   ") badges "\n")
+        (add-text-properties start (point)
+                             (list 'org-air-section path))))
+    ;; (2) Per-dir count heading: BADGE N (+M).
+    (let ((start (point))
+          (badges (org-air-project--count-badges
+                   (plist-get node :direct-counts)
+                   (plist-get node :desc-counts))))
+      (insert "  " (org-air-project--marker) " "
+              (propertize label 'face 'org-air-face-section)
+              (if (string-empty-p badges) "" "   ") badges "\n")
+      (add-text-properties start (point)
+                           (list 'org-air-section path)))
+    ;; (3) Own docs, state-first, indented one level under this dir.
+    (dolist (doc (plist-get node :own-docs))
+      (org-air-project--insert-doc-block doc width t (* 2 depth)))
+    ;; (4) Recurse into the children (name-sorted).
+    (dolist (child (plist-get node :children))
+      (org-air-project--insert-dir-node child width nil))))
+
+(defun org-air-project--insert-directory-tree (nodes width)
+  "Insert the nested directory TREE (NODES) at content WIDTH (R20-5)."
+  (dolist (node nodes)
+    (org-air-project--insert-dir-node node width t)
+    (insert "\n")))
 
 (defun org-air-project--sections-by-tag (docs)
   "Return tag sections for DOCS (a doc may appear under several tags)."
@@ -435,8 +626,10 @@ identifier--slug__tags.org; `org-air-view--pad-to' still bounds line 2."
                               (format "updated %s" (format-time-string "%F" updated)))))))
     (propertize (mapconcat #'identity parts "    ") 'face 'org-air-face-faded)))
 
-(defun org-air-project--insert-doc-block (doc width &optional show-state)
+(defun org-air-project--insert-doc-block (doc width &optional show-state indent-cols)
   "Insert DOC as a TWO-LINE left-flowing block (R14 D-P1.A) fitted to WIDTH.
+INDENT-COLS (R20-5) adds extra leading columns so a doc nests visibly
+under its directory in the tree view (0 = the historical 2-col indent).
 Line 1 = <indent><state-chip?>Title  #tag #tag (calm pills, NOT
 right-pinned; the title truncates LAST).  Line 2 = <indent+line2-indent>
 ▤ relpath    created …    updated … (quieter, the document svg-file-icon
@@ -444,7 +637,7 @@ overlays the ▤ cell; the filename is NOT right-aligned).  Both lines carry
 `org-air-doc' + `org-air-marker' so point on EITHER identifies the doc.
 SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
   (let* ((start (point))
-         (indent "  ")
+         (indent (make-string (+ 2 (max 0 (or indent-cols 0))) ?\s))
          (l2-indent (concat indent (make-string (max 0 org-air-project-line2-indent) ?\s)))
          ;; line 1: indent + state-chip? + title + inline tags.
          (chip (if show-state (org-air-project--state-chip doc) ""))
@@ -682,18 +875,19 @@ first doc in the real buffer (buffer-locals set there)."
           (insert l "\n")))
     (setq org-air-view--inspector-region-height nil)))
 
-(defun org-air-project--two-pane-body (docs sections width)
-  "Return (BODY-LINES . FILL-ROW) composing DOCS | project-rail at WIDTH.
-LEFT = the two-line doc SECTIONS; RIGHT = the project rail (Summary +
-Inspector).  The rail is sized to the doc-pane height so the divider runs
-the full body and the layout is deterministic (no `window-height' seam)."
+(defun org-air-project--two-pane-body (docs left-fn width)
+  "Return (BODY-LINES . FILL-ROW) composing the LEFT pane | project-rail.
+LEFT-FN is a one-arg closure that inserts the left pane content at a given
+width (state/tag sections OR the R20-5 directory tree); the RIGHT rail is
+the project rail (Summary + Inspector) for DOCS.  The rail is sized to the
+doc-pane height so the divider runs the full body and the layout is
+deterministic."
   (let* ((rail-width (org-air-view--rail-width width))
          (divider (org-air-view--divider))
          (item-width (max 20 (- width rail-width (string-width divider))))
          (doc-lines (org-air-view--render-lines
                      item-width
-                     (lambda ()
-                       (org-air-project--insert-doc-sections sections item-width))))
+                     (lambda () (funcall left-fn item-width))))
          (doc-h (max 1 (length doc-lines)))
          (rail-lines (mapcar
                       (lambda (l) (org-air-view--pad-to l rail-width))
@@ -788,7 +982,14 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
                 (lambda (d) (org-air-view--tags-pass-filter-p
                              (org-air-doc-tags d)))
                 (org-air-project--collect-docs root)))
-         (sections (org-air-project--sections docs)))
+         ;; R20-5: `directory' renders the NESTED tree (matching airctl
+         ;; -Da); state/tag stay the flat state-bucket / tag sections.
+         (directoryp (eq org-air-project-group 'directory))
+         (tree (when directoryp (org-air-project--directory-tree docs)))
+         (sections (unless directoryp (org-air-project--sections docs)))
+         (left-fn (if directoryp
+                      (lambda (w) (org-air-project--insert-directory-tree tree w))
+                    (lambda (w) (org-air-project--insert-doc-sections sections w)))))
     ;; R14 D-P1.B: this buffer hosts the SHARED mid-rail inspector with the
     ;; project's property + fields function.
     (setq-local org-air-view--inspector-active (and org-air-project-show-inspector t)
@@ -812,13 +1013,13 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
               (propertize "No Air documents found here." 'face 'org-air-face-empty)
               "\n"))
      ((eq org-air-view--orientation 'two-pane)
-      (let ((body (car (org-air-project--two-pane-body docs sections width))))
+      (let ((body (car (org-air-project--two-pane-body docs left-fn width))))
         (org-air-view--insert-lines body)))
      (t
-      ;; board-only: the state summary + the full-width doc sections.
+      ;; board-only: the state summary + the full-width left pane.
       (setq org-air-view--inspector-region-height nil)
       (org-air-project--insert-state-summary-line docs)
-      (org-air-project--insert-doc-sections sections width)))
+      (funcall left-fn width)))
     ;; Drop the trailing newline so the buffer is exactly its line count.
     (goto-char (point-max))
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))

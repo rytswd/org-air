@@ -445,6 +445,18 @@
      . "R20-5(b): thin keymap drops s/o domain shadows (re-bless drift guard)")
     (org-air-r18-dp4-keymap-ret-and-sret-board-and-project
      . "R20-5(b): thin keymap drops O=sort-reverse / s=group-by-state shadows")
+    ;; 2026-06-26: R20-3(a) surfaces the active close key in the view-pane
+    ;; header-line (`· q close' for the read-only snapshot), so it is
+    ;; discoverable while focused.  The R16 pane byte goldens dump the
+    ;; header-line text (`%s' of `header-line-format') alongside the entry
+    ;; snapshot, so both pane goldens (entry-view-pane.txt + entry-view-
+    ;; dead.txt) gain the trailing `· q close' hint and need a one-shot
+    ;; re-bless via `make regen-mockups'.  The entry snapshot BODY bytes are
+    ;; unchanged; only the header-line hint is added.
+    (org-air-r16-d3-pane-content-byte-golden
+     . "R20-3(a): pane header-line gains the `q close' hint (re-bless golden)")
+    (org-air-r16-d3-pane-dead-marker-byte-golden
+     . "R20-3(a): pane header-line gains the `q close' hint (re-bless golden)")
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

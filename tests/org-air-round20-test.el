@@ -102,5 +102,155 @@ error whose `error-message-string' is six figures long."
     (should (<= (length short) 161))
     (should-not (string-match-p "\n" short))))
 
+;;;; ---------------------------------------------------------------------
+;;;; R20-3 — view pane: `q'/`C-c C-q' closes it; cheap same-file follow.
+;;;; ---------------------------------------------------------------------
+
+(defmacro org-air-r20--with-temp-org (spec &rest body)
+  "Bind dir/files per SPEC, write them, run BODY, clean up buffers + dir.
+SPEC is ((DIRVAR) (VAR PATH CONTENT)...): DIRVAR holds a fresh temp dir;
+each VAR is bound to an absolute path under it pre-populated with CONTENT."
+  (declare (indent 1) (debug t))
+  (let ((dirvar (caar spec))
+        (files (cdr spec)))
+    `(let* ((,dirvar (make-temp-file "org-air-r20-" t))
+            ,@(mapcar (lambda (f)
+                        `(,(nth 0 f) (expand-file-name ,(nth 1 f) ,dirvar)))
+                      files))
+       (unwind-protect
+           (progn
+             ,@(mapcar (lambda (f)
+                         `(with-temp-file ,(nth 0 f) (insert ,(nth 2 f))))
+                       files)
+             ,@body)
+         (let ((kill-buffer-query-functions nil))
+           (dolist (buf (buffer-list))
+             (let ((fn (buffer-file-name buf)))
+               (when (and fn (string-prefix-p ,dirvar fn))
+                 (with-current-buffer buf (set-buffer-modified-p nil))
+                 (kill-buffer buf)))))
+         (delete-directory ,dirvar t)))))
+
+(defun org-air-r20--marker-at (base re)
+  "Return a marker at the start of the line matching RE in BASE buffer."
+  (with-current-buffer base
+    (goto-char (point-min))
+    (re-search-forward re)
+    (goto-char (match-beginning 0))
+    (point-marker)))
+
+(defun org-air-r20--live-pane-indirects ()
+  "Return the list of LIVE ` *org-air-pane:*' indirect buffers."
+  (seq-filter (lambda (b)
+                (and (buffer-live-p b)
+                     (string-prefix-p " *org-air-pane:" (buffer-name b))))
+              (buffer-list)))
+
+(ert-deftest org-air-r20-3-pane-quit-tears-down-and-selects-board ()
+  "`org-air-view-pane-quit' called for a focused pane runs the teardown: the
+stashed indirect is killed (no ` *org-air-pane:*' survives), the host's
+`org-air-view--pane-indirect' is cleared, and the board window is selected."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r20--with-temp-org
+      ((dir)
+       (file "doc.org"
+             "* TODO First heading :a:\n  one\n* TODO Second heading :b:\n  two\n"))
+    (let* ((base (find-file-noselect file))
+           (mk (org-air-r20--marker-at base "^\\* TODO First heading"))
+           (ctx (list :marker mk :file file :title "First" :state "TODO"))
+           (host (get-buffer-create "*org-air-r20-3-board*")))
+      (unwind-protect
+          (save-window-excursion
+            (with-current-buffer host (org-air-view-mode))
+            (set-window-buffer (selected-window) host)
+            ;; build the editable indirect (the interactive follow path)
+            (with-current-buffer host
+              (let ((noninteractive nil))
+                (org-air-view-pane--render ctx))
+              (should (buffer-live-p org-air-view--pane-indirect)))
+            (should (org-air-r20--live-pane-indirects))
+            ;; quit from within the pane -> full teardown
+            (org-air-view-pane-quit)
+            (should-not (org-air-r20--live-pane-indirects))
+            (with-current-buffer host
+              (should-not org-air-view--pane-indirect))
+            ;; the board window is the selected one again
+            (should (eq (window-buffer (selected-window)) host)))
+        (when (buffer-live-p host) (kill-buffer host))
+        (dolist (b (org-air-r20--live-pane-indirects)) (kill-buffer b))))))
+
+(ert-deftest org-air-r20-3-editable-pane-cq-quits-while-q-self-inserts ()
+  "On the EDITABLE indirect pane the close verb is `C-c C-q' ->
+`org-air-view-pane-quit', while `q' stays `self-insert-command' (it is a
+live Org buffer); the snapshot `org-air-entry-view-mode-map' binds `q'."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r20--with-temp-org
+      ((dir)
+       (file "doc.org" "* TODO Solo heading :z:\n  body\n"))
+    (let* ((base (find-file-noselect file))
+           (mk (org-air-r20--marker-at base "^\\* TODO Solo heading"))
+           (ctx (list :marker mk :file file :title "Solo" :state "TODO"))
+           (host (get-buffer-create "*org-air-r20-3-km*"))
+           ind)
+      (unwind-protect
+          (with-current-buffer host
+            (org-air-view-mode)
+            (let ((noninteractive nil))
+              (setq ind (org-air-view-pane--render ctx)))
+            (should (buffer-live-p ind))
+            (with-current-buffer ind
+              (should (derived-mode-p 'org-mode))
+              (should (eq (key-binding (kbd "C-c C-q"))
+                          'org-air-view-pane-quit))
+              ;; `q' is NOT a close key in the editable pane -- it inserts
+              ;; (org-mode routes self-insert through `org-self-insert-command').
+              (should (memq (key-binding (kbd "q"))
+                            '(self-insert-command org-self-insert-command)))))
+        ;; the read-only snapshot pane closes on plain `q'
+        (should (eq (lookup-key org-air-entry-view-mode-map (kbd "q"))
+                    'org-air-view-pane-quit))
+        (when (buffer-live-p ind) (kill-buffer ind))
+        (when (buffer-live-p host) (kill-buffer host))))))
+
+(ert-deftest org-air-r20-3-follow-reuses-indirect-same-file-rebuilds-cross-file ()
+  "The R20-3b cheap follow: re-rendering an item in the SAME base file REUSES
+the existing indirect (same buffer object, only the narrowing moves); an
+item in a DIFFERENT file builds a FRESH indirect on the new base."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r20--with-temp-org
+      ((dir)
+       (a "a.org" "* TODO Head one :a:\n  one\n* TODO Head two :b:\n  two\n")
+       (b "b.org" "* TODO Elsewhere :c:\n  three\n"))
+    (let* ((basea (find-file-noselect a))
+           (baseb (find-file-noselect b))
+           (m1 (org-air-r20--marker-at basea "^\\* TODO Head one"))
+           (m2 (org-air-r20--marker-at basea "^\\* TODO Head two"))
+           (mb (org-air-r20--marker-at baseb "^\\* TODO Elsewhere"))
+           (c1 (list :marker m1 :file a :title "Head one" :state "TODO"))
+           (c2 (list :marker m2 :file a :title "Head two" :state "TODO"))
+           (cb (list :marker mb :file b :title "Elsewhere" :state "TODO"))
+           (host (get-buffer-create "*org-air-r20-3-follow*")))
+      (unwind-protect
+          (with-current-buffer host
+            (org-air-view-mode)
+            (let ((noninteractive nil))
+              (let ((buf1 (org-air-view-pane--render c1)))
+                (should (buffer-live-p buf1))
+                (should (eq (buffer-base-buffer buf1) basea))
+                ;; SAME file, different heading -> SAME indirect re-narrowed
+                (let ((buf2 (org-air-view-pane--render c2)))
+                  (should (eq buf2 buf1))
+                  (should (eq (buffer-base-buffer buf2) basea))
+                  ;; re-narrowed to the second subtree
+                  (with-current-buffer buf2
+                    (should (string-match-p "Head two" (buffer-string)))
+                    (should-not (string-match-p "Head one" (buffer-string)))))
+                ;; DIFFERENT file -> a FRESH indirect on the new base
+                (let ((buf3 (org-air-view-pane--render cb)))
+                  (should-not (eq buf3 buf1))
+                  (should (eq (buffer-base-buffer buf3) baseb))))))
+        (dolist (bb (org-air-r20--live-pane-indirects)) (kill-buffer bb))
+        (when (buffer-live-p host) (kill-buffer host))))))
+
 (provide 'org-air-round20-test)
 ;;; org-air-round20-test.el ends here

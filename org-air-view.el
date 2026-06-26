@@ -3570,11 +3570,14 @@ of the board fixture bytes.  nil leaves the frame default; 0 packs tight."
   :type '(choice (const :tag "Frame default" nil) number)
   :group 'org-air)
 
-(defcustom org-air-view-pane-follow-debounce 0.1
-  "Idle seconds before follow redraws the bottom view pane (R16 D-P3).
+(defcustom org-air-view-pane-follow-debounce 0.2
+  "Idle seconds before follow redraws the bottom view pane (R16 D-P3 / R20-3b).
 Mirrors `org-air-inspector-debounce': a short idle delay coalesces rapid
-point motion into a single snapshot+fontify so scrolling a large file
-with hundreds of items across dozens of files stays responsive."
+point motion into a single re-narrow so scrubbing a large file with
+hundreds of items across dozens of files stays responsive.  R20-3b raised
+the default 0.1 -> 0.2 so a scrub coalesces to ONE update at rest (the
+follow itself is now cheap: same-file changes re-narrow the existing
+indirect instead of rebuilding it)."
   :type 'number
   :group 'org-air)
 
@@ -3600,6 +3603,8 @@ only requires that it be ALLOWED."
 
 (defvar-local org-air-view--view-pane-item nil
   "Item last shown in the bottom view pane; the follow change-guard.")
+(defvar-local org-air-view--view-pane-last-pos nil
+  "Point position at the last follow fire; the cheap motion early-out (R20-3b).")
 (defvar-local org-air-view--view-pane-timer nil
   "Pending debounce timer for the follow view-pane update (R16 D-P3).")
 (defvar-local org-air-view--pane-indirect nil
@@ -3607,6 +3612,15 @@ only requires that it be ALLOWED."
 One at a time: replaced (old killed) on follow / re-open and killed on pane
 close.  Killing an indirect buffer never loses text — unsaved edits live in
 the base file buffer and stay savable.")
+
+(defvar org-air-entry-view-mode-map
+  (let ((map (make-sparse-keymap)))
+    ;; R20-3a: the snapshot pane is read-only, so `q' closes it (overrides
+    ;; `special-mode's bury so the pane is actually torn down) instead of
+    ;; merely burying the buffer and leaving the split behind.
+    (define-key map (kbd "q") #'org-air-view-pane-quit)
+    map)
+  "Keymap for `org-air-entry-view-mode' (the read-only snapshot pane).")
 
 (define-derived-mode org-air-entry-view-mode special-mode "org-air-view"
   "Major mode for the bottom `*org-air-view*' source/entry pane (R16 D-P3).
@@ -3740,12 +3754,14 @@ unavailable (e.g. batch)."
           (buffer-string)))
     (error text)))
 
-(defun org-air-view-pane--header-line (ctx)
+(defun org-air-view-pane--header-line (ctx &optional close-key)
   "Return the `*org-air-view*' header-line string for context CTX (R16 D-P3).
 Text contract: `▤ <file>  ·  <title>  ·  <state>'.  R18 D-P5.2 gives it
 mu4e-style chrome: the TITLE is the one salient segment, the file/state
-and the `·' separators ride the faded face.  Faces only — the header TEXT
-is unchanged (the pane byte golden strips properties), so it holds."
+and the `·' separators ride the faded face.  R20-3a surfaces the active
+CLOSE-KEY as a trailing `· <key> close' hint when given (so the in-pane
+close verb is discoverable).  The header is not buffer text (the pane byte
+golden strips it), so this is byte-invisible."
   (let* ((icon (org-air-view--glyph 'view-pane))
          (dot (concat "  "
                       (propertize (org-air-view--glyph 'sep-dot)
@@ -3760,7 +3776,11 @@ is unchanged (the pane byte golden strips properties), so it holds."
                   (and s (propertize s 'face 'org-air-face-faded))))
          (parts (delq nil (list file title state))))
     (concat (propertize icon 'face 'org-air-face-faded)
-            " " (mapconcat #'identity parts dot))))
+            " " (mapconcat #'identity parts dot)
+            (if close-key
+                (concat dot (propertize (concat close-key " close")
+                                        'face 'org-air-face-faded))
+              ""))))
 
 (defun org-air-view-pane--indirect (base pos title)
   "Return an `org-mode' indirect buffer on BASE narrowed to the subtree at POS.
@@ -3803,12 +3823,27 @@ Keeps the existing `▤ file · title · state' header-line contract and the
 R18 D-P5.2 `line-spacing'; enables `variable-pitch-mode' when
 `org-air-view-pane-variable-pitch' is on (allowed — the pane is not pixel-
 locked)."
-  (setq-local header-line-format (org-air-view-pane--header-line ctx))
+  (setq-local header-line-format
+              (org-air-view-pane--header-line ctx "C-c C-q"))
   (org-air-view-pane--install-header-rule)
+  (org-air-view-pane--install-close-map)
   (when (numberp org-air-view-pane-line-spacing)
     (setq-local line-spacing org-air-view-pane-line-spacing))
   (when org-air-view-pane-variable-pitch
     (variable-pitch-mode 1)))
+
+(defun org-air-view-pane--install-close-map ()
+  "Install a buffer-local close map on the EDITABLE indirect pane (R20-3a).
+`q' must stay self-insert in an editable Org buffer, so the close verb is a
+dedicated `org-air-view-pane-quit' key (surfaced in the header-line hint);
+`quit-window' is remapped so the standard quit key tears the indirect down
+cleanly too.  Built on the current local map (the parent), so every binding
+from `org-mode' still works underneath."
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map (current-local-map))
+    (define-key map (kbd "C-c C-q") #'org-air-view-pane-quit)
+    (define-key map [remap quit-window] #'org-air-view-pane-quit)
+    (use-local-map map)))
 
 (defun org-air-view-pane--render-snapshot (ctx src)
   "Render the READ-ONLY entry snapshot for CTX/SRC into `*org-air-view*'.
@@ -3831,7 +3866,7 @@ byte-identical (R19-3).  Returns the pane buffer."
             (insert text)
             (org-air-view-pane--apply-max-lines)))
         (setq-local header-line-format
-                    (org-air-view-pane--header-line ctx))
+                    (org-air-view-pane--header-line ctx "q"))
         (org-air-view-pane--install-header-rule)
         (goto-char (point-min))))
     buf))
@@ -3850,16 +3885,48 @@ pane never flickers a dead buffer)."
       (setq-local org-air-view--pane-indirect ind))
     ind))
 
+(defun org-air-view-pane--renarrow (ind src ctx)
+  "Re-narrow the existing indirect IND to SRC's heading, updating CTX's header.
+The dominant per-change follow cost is REBUILDING the indirect (a fresh
+`make-indirect-buffer' + `org-mode' init + font-lock); when the new item
+lives in the SAME base file we instead widen + `org-narrow-to-subtree' at
+the new heading and refresh the CTX header-line, skipping that cost
+entirely.  Returns IND on success, nil on any error so the caller falls
+back to a rebuild (R20-3b)."
+  (condition-case nil
+      (with-current-buffer ind
+        (widen)
+        (let ((pos (cdr src)))
+          (when pos
+            (goto-char pos)
+            (ignore-errors (org-back-to-heading t))
+            (if (org-before-first-heading-p)
+                (widen)
+              (org-narrow-to-subtree)))
+          (goto-char (point-min)))
+        (setq-local header-line-format
+                    (org-air-view-pane--header-line ctx "C-c C-q"))
+        ind)
+    (error nil)))
+
 (defun org-air-view-pane--render (ctx)
   "Show the entry described by CTX in the bottom pane; return its buffer.
 With `org-air-view-pane-editable' (default t) and a resolvable source, the
 pane is a LIVE, narrowed Org indirect buffer whose edits write through to
 the file (R19-3); otherwise (toggle off, batch, or a dead source) it is the
-unchanged read-only snapshot — so every byte fixture is byte-identical."
+unchanged read-only snapshot — so every byte fixture is byte-identical.
+R20-3b: when the live indirect already shows the SAME base file, REUSE it
+and re-narrow rather than rebuild."
   (let* ((marker (plist-get ctx :marker))
          (src (and marker (org-air-view-pane--source-buffer-pos marker))))
     (if (and src (not noninteractive) org-air-view-pane-editable)
-        (org-air-view-pane--render-editable ctx src)
+        (let ((ind (and (org-air-view--pane-host-p)
+                        (buffer-live-p org-air-view--pane-indirect)
+                        org-air-view--pane-indirect)))
+          (or (and ind
+                   (eq (buffer-base-buffer ind) (car src))
+                   (org-air-view-pane--renarrow ind src ctx))
+              (org-air-view-pane--render-editable ctx src)))
       (org-air-view-pane--render-snapshot ctx src))))
 
 (defun org-air-view-pane--apply-max-lines ()
@@ -3969,6 +4036,33 @@ board.  Visiting the file in the other window is `S-RET'
   (interactive)
   (org-air-view-pane--hide))
 
+(defun org-air-view-pane--board-window ()
+  "Return a live window showing the org-air board / project host, or nil."
+  (catch 'win
+    (dolist (w (window-list))
+      (with-current-buffer (window-buffer w)
+        (when (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
+          (throw 'win w))))
+    nil))
+
+(defun org-air-view-pane-quit ()
+  "Close the bottom view pane from WITHIN it and return to the board (R20-3a).
+Bound to `q' in the read-only snapshot pane, and to a dedicated quit key
+plus a `quit-window' remap in the editable indirect pane, so the pane is
+closable while focused without an explicit function call.  Tears the pane
+down cleanly (window deleted, indirect/snapshot killed via the existing
+teardown) and re-selects the board window."
+  (interactive)
+  (let* ((board (org-air-view-pane--board-window))
+         (host (and board (window-buffer board))))
+    ;; Run the teardown in the HOST buffer's context so `--kill-indirect'
+    ;; (which reads the host-local `org-air-view--pane-indirect') actually
+    ;; kills the indirect; `--find-window' locates the pane window globally.
+    (if (buffer-live-p host)
+        (with-current-buffer host (org-air-view-pane--hide))
+      (org-air-view-pane--hide))
+    (when (window-live-p board) (select-window board))))
+
 (defun org-air-view--view-pane-update-now (buf)
   "Redraw the follow view pane for BUF (debounce-timer callback).
 Redraws only when the item at point CHANGED and the pane window is live
@@ -3994,7 +4088,12 @@ does not run synchronously on every command (responsive on large files)."
   (when (and (not noninteractive)
              org-air-view-pane-follow
              (org-air-view--pane-host-p)
-             (org-air-view-pane--window-live-p))
+             (org-air-view-pane--window-live-p)
+             ;; R20-3b: cheap early-out — if point has not moved since the
+             ;; last fire, a non-motion command never even schedules the
+             ;; timer (so `thing-at-point' is not called).
+             (not (eql (point) org-air-view--view-pane-last-pos)))
+    (setq-local org-air-view--view-pane-last-pos (point))
     (when (timerp org-air-view--view-pane-timer)
       (cancel-timer org-air-view--view-pane-timer))
     (setq org-air-view--view-pane-timer

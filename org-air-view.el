@@ -836,14 +836,17 @@ both views; per-mode domain verbs stay in each child map.")
 Set once per board render so the redisplay :eval never re-scans all items.")
 
 (defun org-air-view--mode-line-filter-text ()
-  "Return the `filter …' / `no filter' segment from the active tag filter (R20-2)."
+  "Return the `filter …' / `filter none' segment from the active tag filter.
+R22-4: empty reads `filter none' (not `no filter') so the FILTER segment is
+named the same way whether empty or active, and never collides with the
+`source ...' segment's wording."
   (let ((filters (org-air-view--filter-tags)))
     (if filters
         (concat "filter "
                 (mapconcat (lambda (tg) (concat "#" tg)) filters
                            (concat " " (org-air-view--filter-combinator-word)
                                    " ")))
-      "no filter")))
+      "filter none")))
 
 (defun org-air-view--mode-line-content ()
   "Return the calm status text for the current org-air buffer (R20-2).
@@ -856,7 +859,9 @@ cheap in the redisplay :eval (no render-path work)."
    ((derived-mode-p 'org-air-view-mode)
     (let ((n (or org-air-view--mode-line-count
                  (length (org-air-view--visible-items org-air-view--items)))))
-      (format "org-air · %d item%s · %s · scope %s · sort %s"
+      ;; R22-4: `source <...>' (was `scope <...>') so the two segments no
+      ;; longer both read "all items"; the filter segment is `filter none'.
+      (format "org-air · %d item%s · %s · source %s · sort %s"
               n (if (= n 1) "" "s")
               (org-air-view--mode-line-filter-text)
               (org-air-view--scope-label)
@@ -2668,28 +2673,40 @@ the descriptor is nil so the board summary stays byte-identical."
               "\n")))))
 
 (defun org-air-view--scope-label ()
-  "Return active scope display label."
+  "Return active Source/scope display label; a file source carries ⌂ (R22-4)."
   (pcase org-air-view--scope
     (`(:tag ,tag) (concat "#" tag))
     (`(:group ,group) (concat "@" group))
-    (`(:file ,file) (file-name-nondirectory file))
+    (`(:file ,file) (concat "⌂ " (file-name-nondirectory file)))
     (_ "all items")))
 
+(defun org-air-view--scope-loaded-count ()
+  "Return M = items loaded under the active Source/scope (R22-4).
+The dataset size the Source selector returned: items passing the scope
+\(all loaded when unscoped, since `--passes-scope-p' is t for every item)."
+  (seq-count #'org-air-view--passes-scope-p org-air-view--items))
+
 (defun org-air-view--insert-rail-filters (width)
-  "Insert the Filter + Scope block fitted to WIDTH (R19-4b/d).
-Names the two roles explicitly so the overlap is gone:
- - Filter = LIVE tag narrowing (one or more tags, AND/OR); `/' edits,
-   `M-/' toggles AND<->OR, `\\' clears.  The block teaches BOTH verbs.
- - Scope  = the structural LENS (all / @group / ⌂ file); `s' changes,
-   `S' clears.  Shown on its own labelled line.
-When neither is set the Filter line keeps the compact `No filters · all
-items' cue and Scope drops to a one-line `all items'."
+  "Insert the Filter + Source block fitted to WIDTH (R19-4b/d; R22-4).
+Names the two roles UNMISTAKABLY (the user kept reading them as the same):
+ - Filter = the LIVE tag LENS (one or more tags, AND/OR); `/' edits, `M-/'
+   toggles AND<->OR, `\\' clears.  Empty reads `none' (no dataset claim);
+   when a filter narrows it reports `N of M shown'.
+ - Source = the structural DATASET selector (all / @group / ⌂ file) with an
+   `M loaded' count; `s' changes (re-runs org-ql), `S' clears.  The dataset
+   face + the count make it visibly NOT a second filter."
   (when org-air-show-rail-filters
-    (let ((filters (org-air-view--filter-tags))
-          (inset (org-air-view--rail-inset-str width)))
+    (let* ((filters (org-air-view--filter-tags))
+           (inset (org-air-view--rail-inset-str width))
+           (loaded (org-air-view--scope-loaded-count)))
       (org-air-view--rail-header "Filter" width)
       (if filters
-          (progn
+          ;; R22-4: the post-filter `N of M shown' count is a BOARD figure
+          ;; (`--visible-items' reads item tags); the project filters its
+          ;; docs upstream, so skip the narrowing count there (shown=loaded).
+          (let ((shown (if (derived-mode-p 'org-air-view-mode)
+                           (length (org-air-view--visible-items org-air-view--items))
+                         loaded)))
             ;; R18 D-P2.3: join the chips with the combinator word when
             ;; >=2 are active, then teach the toggle AND the clear key.
             (insert inset
@@ -2702,22 +2719,25 @@ items' cue and Scope drops to a one-line `all items'."
                     "\n")
             (insert inset
                     (propertize
-                     (format "Match: %s   M-/ toggles · \\ clears"
-                             (org-air-view--filter-combinator-word))
+                     (concat (format "Match: %s   M-/ toggles · \\ clears"
+                                     (org-air-view--filter-combinator-word))
+                             ;; R22-4: when the lens removed rows, report it.
+                             (when (< shown loaded)
+                               (format "   %d of %d shown" shown loaded)))
                      'face 'org-air-face-faded)
                     "\n"))
-        (insert inset
-                (propertize (if org-air-view--scope "No tag filters"
-                              "No filters · all items")
-                            'face 'org-air-face-faded)
-                "\n"))
-      ;; R19-4d: Scope on its own labelled line so each role is named.
-      (org-air-view--rail-header "Scope" width)
+        ;; R22-4: empty filter reads `none' — the dataset is the Source's job.
+        (insert inset (propertize "none" 'face 'org-air-face-faded) "\n"))
+      ;; R22-4: the SOURCE/DATASET selector, named + counted, on its own
+      ;; labelled line; the dataset name rides the readable origin face so
+      ;; it reads as a dataset chip, NOT a faded second filter.
+      (org-air-view--rail-header "Source" width)
       (insert inset
-              (propertize
-               (concat (org-air-view--scope-label)
-                       (when org-air-view--scope "   s changes · S clears"))
-               'face 'org-air-face-faded)
+              (propertize (org-air-view--scope-label) 'face 'org-air-face-origin)
+              (propertize (format " · %d loaded" loaded) 'face 'org-air-face-faded)
+              (if org-air-view--scope
+                  (propertize "   s changes · S clears" 'face 'org-air-face-faded)
+                "")
               "\n"))))
 
 (defun org-air-view--verb-cell (key desc width)
@@ -2762,7 +2782,8 @@ descriptor's :actions-fn; the board path runs when the descriptor is nil."
              (concat inset
                      (org-air-view--verb-cell "c" "capture" c1) gap
                      (org-air-view--verb-cell "/" "filter" c2) gap
-                     (org-air-view--verb-cell "s" "scope" 0))
+                     ;; R22-4: `source' (was `scope') — the dataset selector.
+                     (org-air-view--verb-cell "s" "source" 0))
              width)
             "\n")
     (insert (org-air-view--pad-to

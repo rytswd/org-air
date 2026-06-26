@@ -526,6 +526,47 @@
      mid-tier, AA) not `org-air-face-faded' (sub-AA); title stays strongest.
      Test seat re-blesses to the readable face + adds the WCAG ERTs.")
     ;; ===================================================================
+    ;; R22-4 SCOPE->SOURCE / FILTER wording (impl track) — the rail + the
+    ;; mode-line are reworded so the two roles stop both reading "all items":
+    ;;   Filter empty -> `none' (was `No filters · all items'); a narrowing
+    ;;     filter reports `N of M shown'.
+    ;;   `Scope' header -> `Source'; value is a dataset chip + `· M loaded'
+    ;;     count (faced on the readable origin tier).
+    ;;   mode-line `scope ...' -> `source ...'; `no filter' -> `filter none'.
+    ;;   Actions verb `s scope' -> `s source'.
+    ;; All deliberate, design-blessed.  The rail-bearing byte goldens re-bless
+    ;; (test seat regen-mockups) and the wording-assertion ERTs are rewritten
+    ;; to the Source/none/source vocabulary.  Item BODY rows are untouched.
+    (org-air-layout-mockup-120
+     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
+    (org-air-layout-mockup-160
+     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
+    (org-air-layout-mockup-heights
+     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
+    (org-air-layout-mockup-thresholds
+     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
+    (org-air-layout-empty-board-holds-shape
+     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
+    (org-air-r17-denote-origin-byte-mockup
+     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
+    (org-air-r9-d5b-content-spine
+     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
+    (org-air-r20-5-project-reuses-shared-board-rail
+     . "R22-4: project shares the board rail; its `Source' block now carries
+     the `· N loaded' doc count + `none' empty filter. Test seat re-blesses.")
+    (org-air-r19-4-rail-order-calendar-filter-summary-inspector-actions
+     . "R22-4: the rail header is `Source' now (was `Scope'); the order
+     Calendar/Filter/Summary/Inspector/Actions is unchanged. Re-bless header.")
+    (org-air-r20-2-board-status-calm-no-filter-form
+     . "R22-4: mode-line empty filter is `filter none' now (was `no filter').")
+    (org-air-r20-2-board-status-has-counts-filter-scope
+     . "R22-4: mode-line segment is `source ...' now (was `scope ...').")
+    (org-air-r4-footer-band-removed
+     . "R22-4: rail Actions verb is `s source' now (was `s scope').")
+    (org-air-r9-q1-rail-advertises-scope-reset
+     . "R22-4: rail header is `Source' now (was `Scope'); `S reset' verb +
+     the scope-active `s changes · S clears' cue are kept. Re-bless wording.")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

@@ -92,10 +92,13 @@ default)."
      :file file
      :marker (copy-marker (point-marker))
      :todo (org-get-todo-state)
-     :priority (let* ((heading (org-get-heading t t nil t))
-                      (priority (org-get-priority heading))
-                      (default-priority (org-get-priority "")))
-                 (and priority (/= priority default-priority) priority))
+     ;; R22-1: detect an EXPLICIT [#X] cookie via `org-priority-regexp'
+     ;; (group 2 = the letter, A..E), so [#B] is recorded even though its
+     ;; value equals `org-default-priority' (=?B); a cookie-LESS heading
+     ;; stays nil.  The old value-equals-default test dropped explicit [#B].
+     :priority (let ((heading (org-get-heading t t nil t)))
+                 (when (string-match org-priority-regexp heading)
+                   (org-get-priority heading)))
      :scheduled (org-air-query--timestamp "SCHEDULED")
      :deadline (org-air-query--timestamp "DEADLINE")
      :closed (org-air-query--timestamp "CLOSED")

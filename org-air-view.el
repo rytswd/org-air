@@ -543,20 +543,26 @@ Set via `kbd' syntax.  Kept out of the way of normal Org editing (T4)."
   :type 'string
   :group 'org-air)
 
-(defcustom org-air-priority-show '(?A)
-  "Priority cookies shown in item rows."
+(defcustom org-air-priority-show '(?A ?B ?C ?D ?E)
+  "Priority cookies shown in item rows.
+R22-1: show A..E by default (the user dogfooded `#A'-`#E').  The fixed 2-col
+slot still renders two blanks for a row with no shown priority, so titles
+stay V6-aligned."
   :type '(repeat character)
   :group 'org-air)
 
 (defcustom org-air-priority-colors
-  '((?A . ("#D32F2F" . "#BF616A"))
-    (?B . ("#E0631E" . "#D08770"))
-    (?C . ("#689F38" . "#A3BE8C")))
+  '((?A . ("#D32F2F" . "#BF616A"))   ; red       (hot)
+    (?B . ("#E0631E" . "#D08770"))   ; orange
+    (?C . ("#689F38" . "#A3BE8C"))   ; yellow-green
+    (?D . ("#0097A7" . "#88C0D0"))   ; teal/cyan  (cool)
+    (?E . ("#5C6BC0" . "#7E8CC0")))  ; indigo     (coolest)
   "Alist mapping a priority CHAR to its (LIGHT . DARK) badge colour (D-P4).
-Lower priority is cooler/quieter: A = red (hot), B = orange, C =
-yellow-green (cool).  Resolved against the frame background like the
-accent palette by `org-air-view--priority-color'.  Themable; reconciled
-with `org-air-face-priority-a/-b/-c' so the svg badge and the TTY text
+Lower priority is cooler/quieter, a hot->cool ramp: A = red (hot), B =
+orange, C = yellow-green, D = teal/cyan, E = indigo (coolest) (R22-1).
+Resolved against the frame background like the accent palette by
+`org-air-view--priority-color'.  Themable; reconciled with
+`org-air-face-priority-a/-b/-c/-d/-e' so the svg badge and the TTY text
 fallback agree."
   :type '(alist :key-type character
                 :value-type (cons string string))
@@ -1420,10 +1426,13 @@ ATTENTIONP means the count should use the attention badge face."
       'org-air-face-todo))
 
 (defun org-air-view--priority-face (char)
-  "Return the boxed-pill face for priority CHAR (T1b)."
+  "Return the boxed-pill face for priority CHAR (T1b; R22-1 covers D/E)."
   (pcase char
     (?A 'org-air-face-priority-a)
     (?B 'org-air-face-priority-b)
+    (?C 'org-air-face-priority-c)
+    (?D 'org-air-face-priority-d)
+    (?E 'org-air-face-priority-e)
     (_ 'org-air-face-priority-c)))
 
 (defun org-air-view--priority-color (char)

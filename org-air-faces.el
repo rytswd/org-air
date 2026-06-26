@@ -398,6 +398,26 @@ Reconciled with `org-air-priority-colors'."
 Reconciled with `org-air-priority-colors'."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-priority-d
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#0097A7"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#88C0D0"))
+    (t (:inherit org-air-face-faded)))
+  "[#D] cookie: teal/cyan text, the calm cool tier (R22-1).
+Reconciled with `org-air-priority-colors'."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-priority-e
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#5C6BC0"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#7E8CC0"))
+    (t (:inherit org-air-face-faded)))
+  "[#E] cookie: indigo text, the coolest tier (R22-1).
+Reconciled with `org-air-priority-colors'."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-date
   '((t :inherit org-air-face-faded))
   "Face for a neutral timestamp."

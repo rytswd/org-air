@@ -334,7 +334,8 @@ SCOPE label — all from buffer-locals already on hand."
   (with-temp-buffer
     (org-air-view-mode)
     (setq org-air-view--mode-line-count 2076)
-    (setq org-air-view--tag-filter '("airctl" "ui"))
+    ;; R24-6: tokens stored VERBATIM; `#tag' tokens show verbatim in the line.
+    (setq org-air-view--tag-filter '("#airctl" "#ui"))
     (setq org-air-view--scope '(:tag "work"))
     (let* ((org-air-filter-match 'all)
            (s (org-air-view--mode-line-content)))

@@ -114,9 +114,11 @@ the test never leaks the global default."
 Calls `org-air-view--insert-rail-filters' directly (layout-agnostic) with a
 two-tag filter and asserts the `Match: AND  (M-/ toggles)' cue + the joined
 chips; the OR mode swaps the word."
+  ;; R24-6: filter tokens are stored VERBATIM with the sigil; a `#tag' token
+  ;; shows verbatim, so the chip join reads `#work AND #home'.
   (with-temp-buffer
     (let ((org-air-show-rail-filters t)
-          (org-air-view--tag-filter '("work" "home"))
+          (org-air-view--tag-filter '("#work" "#home"))
           (org-air-view--scope nil)
           (org-air-filter-match 'all))
       (org-air-view--insert-rail-filters 40)
@@ -126,7 +128,7 @@ chips; the OR mode swaps the word."
         (should (string-match-p "M-/ toggles" text))))
     (erase-buffer)
     (let ((org-air-show-rail-filters t)
-          (org-air-view--tag-filter '("work" "home"))
+          (org-air-view--tag-filter '("#work" "#home"))
           (org-air-view--scope nil)
           (org-air-filter-match 'any))
       (org-air-view--insert-rail-filters 40)

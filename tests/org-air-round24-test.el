@@ -286,5 +286,112 @@ to the inline rail (on trunk the reconcile no-ops for the project)."
      (org-air-rail--reconcile))
    (should (null org-air-view--rail-popped-out))))
 
+;;;; =====================================================================
+;;;; R24-6 — free-text (content) filter: bare token = substring, #token = tag.
+;;;; =====================================================================
+
+(ert-deftest org-air-r24-6-bare-token-substring-matches-title ()
+  "A BARE token = case-insensitive SUBSTRING over the searchable text
+(title+path+tag-names); on trunk the tags-only matcher returned nil."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-filter-match 'all))
+    (let ((org-air-view--tag-filter '("feature")))
+      ;; the title carries "feature"; the tags do NOT.
+      (should (org-air-view--tokens-pass-filter-p "Alpha feature" '("ui" "core")))
+      ;; a doc whose title/path/tags lack "feature" does NOT pass.
+      (should-not (org-air-view--tokens-pass-filter-p "Beta CLI" '("core"))))))
+
+(ert-deftest org-air-r24-6-hash-token-tag-matches ()
+  "A `#tag' token = exact TAG membership; a BARE tag name still finds its
+tagged items (the tag NAME is in the searchable text) AND any title substring."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-filter-match 'all))
+    ;; #ui tag-matches a #ui doc; rejects a non-#ui doc even if its text is ui-less.
+    (let ((org-air-view--tag-filter '("#ui")))
+      (should (org-air-view--tokens-pass-filter-p "Alpha feature" '("ui" "core")))
+      (should-not (org-air-view--tokens-pass-filter-p "Beta CLI" '("core"))))
+    ;; bare `ui' passes BOTH the #ui doc (tag name in text) and a title with ui.
+    (let ((org-air-view--tag-filter '("ui")))
+      (should (org-air-view--tokens-pass-filter-p "Beta CLI" '("ui")))
+      (should (org-air-view--tokens-pass-filter-p "Delta UI exploration" '("core"))))))
+
+(ert-deftest org-air-r24-6-mixed-tokens-and-or ()
+  "Mixed #tag + bare tokens combine through the existing AND/OR combinator."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-view--tag-filter '("#ui" "plan")))
+    ;; AND: only a #ui doc whose text also says "plan".
+    (let ((org-air-filter-match 'all))
+      (should (org-air-view--tokens-pass-filter-p "Epsilon plan" '("ui" "context")))
+      (should-not (org-air-view--tokens-pass-filter-p "Alpha feature" '("ui" "core")))
+      (should-not (org-air-view--tokens-pass-filter-p "Master plan" '("core"))))
+    ;; OR: a #ui doc OR a doc whose text says "plan".
+    (let ((org-air-filter-match 'any))
+      (should (org-air-view--tokens-pass-filter-p "Alpha feature" '("ui" "core")))
+      (should (org-air-view--tokens-pass-filter-p "Master plan" '("core")))
+      (should-not (org-air-view--tokens-pass-filter-p "Beta CLI" '("core"))))))
+
+(ert-deftest org-air-r24-6-case-insensitive ()
+  "The substring match is case-insensitive in BOTH directions."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-filter-match 'all)
+        (org-air-view--tag-filter '("GIT")))
+    (should (org-air-view--tokens-pass-filter-p "migrate Git cache" '())))
+  (let ((org-air-filter-match 'all)
+        (org-air-view--tag-filter '("git")))
+    (should (org-air-view--tokens-pass-filter-p "Migrate GIT cache" '()))))
+
+(ert-deftest org-air-r24-6-board-passes-filter-shares-core ()
+  "The board `--passes-filter-p' routes through the SAME core, passing the
+item title+origin as searchable text: a `#tag' token tag-matches; a bare
+token substring-matches a title even with NO matching tag."
+  (skip-unless (locate-library "org-air"))
+  (let ((item (org-air-item-create
+               :title "migrate git cache" :tags '("core")
+               :file "/tmp/notes.org")))
+    (let ((org-air-filter-match 'all))
+      ;; bare token matches the TITLE though there is no #git tag.
+      (let ((org-air-view--tag-filter '("git")))
+        (should (org-air-view--passes-filter-p item)))
+      ;; #core tag-matches; #git does not (no such tag).
+      (let ((org-air-view--tag-filter '("#core")))
+        (should (org-air-view--passes-filter-p item)))
+      (let ((org-air-view--tag-filter '("#git")))
+        (should-not (org-air-view--passes-filter-p item))))))
+
+(ert-deftest org-air-r24-6-project-filter-bare-token-narrows-driven ()
+  "Driven end-to-end: `org-air-project-filter' with a BARE token narrows the
+project docs by TITLE substring (trunk: 0 docs), and the Alpha feature doc
+remains visible."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-project-view-width 120))
+    (org-air-project-test--render
+     (let ((all org-air-project--doc-count))
+       (should (and all (> all 0)))
+       (org-air-project-filter '("feature"))
+       ;; the bare token narrows (it is not a tag, yet matches a title).
+       (should (> org-air-project--doc-count 0))
+       (should (< org-air-project--doc-count all))
+       ;; the Alpha feature doc (title carries "feature") survives.
+       (should (string-match-p "Alpha feature"
+                               (substring-no-properties (buffer-string))))
+       ;; clearing restores the full set.
+       (org-air-filter-clear)
+       (should (= org-air-project--doc-count all))))))
+
+(ert-deftest org-air-r24-6-display-label-verbatim ()
+  "With `(#ui git)' active, the rail Filter line shows `#ui' verbatim and
+the bare token quoted (`\"git\"'), joined by the combinator word."
+  (skip-unless (locate-library "org-air"))
+  (with-temp-buffer
+    (let ((org-air-show-rail-filters t)
+          (org-air-view--tag-filter '("#ui" "git"))
+          (org-air-view--scope nil)
+          (org-air-filter-match 'all))
+      (org-air-view--insert-rail-filters 60)
+      (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+        (should (string-match-p "#ui" text))
+        (should (string-match-p "\"git\"" text))
+        (should (string-match-p "#ui AND \"git\"" text))))))
+
 (provide 'org-air-round24-test)
 ;;; org-air-round24-test.el ends here

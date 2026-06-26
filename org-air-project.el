@@ -1135,10 +1135,14 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
          (dims (org-air-view--char-dimensions))
          (org-air-view--pill-char-w (car dims))
          (org-air-view--pill-char-h (cdr dims))
-         ;; R18 D-P3: the shared filter core thins the docs by tag exactly
-         ;; as it thins board items (doc-aware `--tags-pass-filter-p').
+         ;; R18 D-P3 / R24-6: the shared filter core thins the docs exactly
+         ;; as it thins board items, now via `--tokens-pass-filter-p' so a
+         ;; bare token substring-matches the doc name + relpath (and tag
+         ;; names) while a `#tag' token still tag-matches.
          (docs (seq-filter
-                (lambda (d) (org-air-view--tags-pass-filter-p
+                (lambda (d) (org-air-view--tokens-pass-filter-p
+                             (concat (org-air-doc-name d) " "
+                                     (org-air-doc-relpath d))
                              (org-air-doc-tags d)))
                 (org-air-project--collect-docs root)))
          ;; R20-5: `directory' renders the NESTED tree (matching airctl

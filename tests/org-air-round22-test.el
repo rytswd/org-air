@@ -524,8 +524,9 @@ absent when no filter is set."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
+      ;; R24-6: a `#tag' filter token tag-matches AND shows verbatim (#work).
       (let* ((items org-air-view--items)
-             (narrowed (org-air-r22-4--rail-filters-text items '("work")))
+             (narrowed (org-air-r22-4--rail-filters-text items '("#work")))
              (open     (org-air-r22-4--rail-filters-text items nil)))
         ;; a narrowing filter reports `N of M shown' (and the chip + clear).
         (should (string-match-p "[0-9]+ of [0-9]+ shown" narrowed))

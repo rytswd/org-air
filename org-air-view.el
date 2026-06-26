@@ -844,7 +844,7 @@ named the same way whether empty or active, and never collides with the
   (let ((filters (org-air-view--filter-tags)))
     (if filters
         (concat "filter "
-                (mapconcat (lambda (tg) (concat "#" tg)) filters
+                (mapconcat #'org-air-view--filter-token-label filters
                            (concat " " (org-air-view--filter-combinator-word)
                                    " ")))
       "filter none")))
@@ -1128,29 +1128,62 @@ Denote-style name."
         (_ (or (org-air-view--denote-title file) leaf))))))
 
 (defun org-air-view--filter-tags ()
-  "Return active tag filters as a list."
+  "Return active filter tokens as a list (R24-6: tokens stored VERBATIM).
+Each token is either a `#tag' (a tag match) or a bare substring token."
   (cond
    ((null org-air-view--tag-filter) nil)
    ((listp org-air-view--tag-filter) org-air-view--tag-filter)
    ((stringp org-air-view--tag-filter) (list org-air-view--tag-filter))))
 
+(defun org-air-view--filter-token-label (token)
+  "Return TOKEN as it should appear in the filter lens display (R24-6).
+A `#tag' token reads verbatim; a bare substring token reads quoted
+\(`\"git\"') so the lens presents it as text, not a tag."
+  (if (string-prefix-p "#" token) token (format "%S" token)))
+
+(defun org-air-view--filter-token-match-p (token text tags)
+  "Non-nil when TOKEN matches TEXT/TAGS (R24-6 filter mini-language).
+A `#tag' token = exact TAG membership; a BARE token = case-insensitive
+SUBSTRING of TEXT (the caller builds it from the title + origin/path) plus
+the tag NAMES (so a bare tag name still finds its tagged items, the legacy
+behaviour as a subset).  Case-insensitive throughout."
+  (if (string-prefix-p "#" token)
+      (let ((tag (downcase (substring token 1))))
+        (and (member tag (mapcar #'downcase tags)) t))
+    (and (string-search (downcase token)
+                        (downcase (concat (or text "") " "
+                                          (string-join tags " "))))
+         t)))
+
+(defun org-air-view--tokens-pass-filter-p (text tags)
+  "Return non-nil when TEXT/TAGS satisfy the active filter tokens + combinator.
+SHARED by the board (item title+origin+tags) and the project (doc
+name+relpath+tags) — the one matcher both views call (R24-6, generalising
+R18 D-P3).  Empty filter passes everything; `org-air-filter-match' selects
+`all' (AND) or `any' (OR) and spans MIXED #tag / bare-substring tokens."
+  (let ((tokens (org-air-view--filter-tags)))
+    (or (null tokens)
+        (and (funcall (if (eq org-air-filter-match 'all) #'seq-every-p #'seq-some)
+                      (lambda (tok)
+                        (org-air-view--filter-token-match-p tok text tags))
+                      tokens)
+             t))))
+
 (defun org-air-view--tags-pass-filter-p (item-tags)
   "Return non-nil when ITEM-TAGS satisfy the active filter + combinator.
 R18 D-P3: the pure matcher SHARED by the board (`org-air-item-tags') and
-the project (`org-air-doc-tags') so both views filter identically.
-`org-air-filter-match' selects `all' (every active tag must match, AND) or
-`any' (one matches, OR)."
-  (let ((filters (org-air-view--filter-tags))
-        (tags (mapcar #'downcase item-tags)))
-    (or (null filters)
-        (let ((filters (mapcar #'downcase filters)))
-          (if (eq org-air-filter-match 'all)
-              (seq-every-p (lambda (tag) (member tag tags)) filters)
-            (seq-some (lambda (tag) (member tag tags)) filters))))))
+the project (`org-air-doc-tags').  R24-6: a thin tags-only wrapper over
+`org-air-view--tokens-pass-filter-p' (no searchable text) so any legacy
+caller still tag-matches; the real call sites pass the title/path text."
+  (org-air-view--tokens-pass-filter-p "" item-tags))
 
 (defun org-air-view--passes-filter-p (item)
-  "Return non-nil when ITEM passes active tag filters."
-  (org-air-view--tags-pass-filter-p (org-air-item-tags item)))
+  "Return non-nil when ITEM passes the active filter (R24-6).
+Passes the item's title + origin breadcrumb as the searchable TEXT so a
+bare token substring-matches the title; `#tag' tokens still tag-match."
+  (org-air-view--tokens-pass-filter-p
+   (concat (org-air-item-title item) " " (org-air-view--origin item))
+   (org-air-item-tags item)))
 
 (defun org-air-view--passes-scope-p (item)
   "Return non-nil when ITEM passes the active scope."
@@ -2722,7 +2755,7 @@ Names the two roles UNMISTAKABLY (the user kept reading them as the same):
             ;; R18 D-P2.3: join the chips with the combinator word when
             ;; >=2 are active, then teach the toggle AND the clear key.
             (insert inset
-                    (mapconcat (lambda (tag) (concat "#" tag))
+                    (mapconcat #'org-air-view--filter-token-label
                                filters
                                (if (> (length filters) 1)
                                    (concat " " (org-air-view--filter-combinator-word) " ")
@@ -5192,7 +5225,7 @@ doc tags).  View-agnostic: shared by `org-air-filter' and
 `org-air-project-filter' so the pre-fill + AND default + `M-/' toggle are
 coded once."
   (completing-read-multiple
-   "Filter tags: " candidate-tags nil nil
+   "Filter (#tag or text): " candidate-tags nil nil
    (when (org-air-view--filter-tags)
      (mapconcat #'identity (org-air-view--filter-tags) ","))))
 

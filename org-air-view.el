@@ -818,6 +818,14 @@ cheap in the redisplay :eval (no render-path work)."
               (org-air-view--mode-line-filter-text))))
    (t (format-mode-line mode-name))))
 
+;; The back-compat alias is declared BEFORE its referent so the byte
+;; compiler keeps `org-air-view--calm-mode-line' pointing at the canonical
+;; `org-air-view--status-mode-line' without the "alias should be declared
+;; before its referent" warning (a defvaralias whose base is already bound
+;; trips that check); 0 compile warnings.
+(defvaralias 'org-air-view--calm-mode-line 'org-air-view--status-mode-line
+  "Back-compat alias for the renamed status construct (R20-2).")
+
 (defconst org-air-view--status-mode-line
   '(:eval (propertize (concat "  " (org-air-view--mode-line-content) "  ")
                       'face 'org-air-face-modeline))
@@ -826,9 +834,6 @@ A single quiet :eval that earns its row — counts · filter · scope from the
 buffer-locals already on hand — in the faded `org-air-face-modeline' (which
 also draws the boundary overline).  Mode-line is not part of the buffer-
 text fixtures, so this is byte-invisible.")
-
-(defvaralias 'org-air-view--calm-mode-line 'org-air-view--status-mode-line
-  "Back-compat alias for the renamed status construct (R20-2).")
 
 (defun org-air-view--install-modeline ()
   "Install the calm nano-style status mode-line per `org-air-modeline-style'.

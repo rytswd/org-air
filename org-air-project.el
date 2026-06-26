@@ -180,6 +180,24 @@ The `air/' subdirectory when present, else ROOT itself."
   (let ((air (expand-file-name "air" root)))
     (if (file-directory-p air) air root)))
 
+(defconst org-air-project--non-tracked-file-stems '("readme" "overview" "skill")
+  "Reserved summary/metadata file stems Air EXCLUDES from document tracking.
+Mirrors airctl's `DocumentScanner::is_overview_file' (air-core scanner): a
+file whose stem (case-insensitive, sans any supported extension) is one of
+these is a directory-level summary (e.g. OVERVIEW.org) or tool metadata
+such as README or SKILL, NOT a trackable work item -- so it must never
+reach the per-dir state counts.")
+
+(defun org-air-project--overview-file-p (file)
+  "Non-nil when FILE is a non-trackable summary/metadata file (R20-5 fix).
+Matches airctl exactly: the file stem (sans extension), case-folded, is
+README, OVERVIEW or SKILL.  Air filters these directory-summary docs out
+of document scanning, so org-air must not count their (stateless) bodies
+as `draft' the way `org-air-project--collect-docs' silently did before."
+  (and file
+       (member (downcase (file-name-base file))
+               org-air-project--non-tracked-file-stems)))
+
 (defun org-air-project--read-keyword (key)
   "Return the first in-buffer #+KEY value as a string, or nil.
 Point-independent; scans from the top of the current buffer."
@@ -203,7 +221,10 @@ Point-independent; scans from the top of the current buffer."
          state tags title)
     (with-temp-buffer
       (insert-file-contents file)
-      (setq state (downcase (or (org-air-project--read-keyword "state") "draft"))
+      ;; R20-5 fix: a doc WITHOUT a #+state: keyword is `unknown', exactly as
+      ;; airctl does (`extracted.state.unwrap_or(DocumentState::Unknown)') --
+      ;; never silently `draft'.  `unknown' ranks last and renders faded.
+      (setq state (downcase (or (org-air-project--read-keyword "state") "unknown"))
             tags (org-air-project--parse-tags
                   (org-air-project--read-keyword "FILETAGS"))
             title (org-air-project--read-keyword "title")))
@@ -233,12 +254,18 @@ when present, else the file's status-change (ctime) attribute."
       (file-attribute-status-change-time (file-attributes file))))
 
 (defun org-air-project--collect-docs (root)
-  "Return the list of `org-air-doc' under ROOT's Air directory."
+  "Return the list of `org-air-doc' under ROOT's Air directory.
+Non-trackable summary/metadata files (OVERVIEW/README/SKILL) are EXCLUDED
+exactly as `airctl status' excludes them (R20-5 fix,
+`org-air-project--overview-file-p'), so the total doc count and every
+per-dir state badge match `airctl status -Da' instead of inflating Draft
+with the stateless directory-summary bodies."
   (let ((air (org-air-project--air-dir root)))
     (when (file-directory-p air)
       (mapcar (lambda (f) (org-air-project--read-doc f root))
-              (sort (directory-files-recursively air "\\.org\\'")
-                    #'string-lessp)))))
+              (seq-remove #'org-air-project--overview-file-p
+                          (sort (directory-files-recursively air "\\.org\\'")
+                                #'string-lessp))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Badges / glyphs

@@ -908,6 +908,12 @@ line, so the body-height derivation is unchanged; byte-invisible (R20-2)."
   ;; in batch; a separate consumer of board point from the inspector).
   (unless noninteractive
     (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t))
+  ;; R22-2b: snap point off the dead margin/rail/pad columns onto the row
+  ;; title after ANY command (incl. native arrow/C-n/C-p/mouse), so every
+  ;; row action resolves.  Idempotent on a propertized column (composes
+  ;; with R21-1's column-restore); inert under batch like the other hooks.
+  (unless noninteractive
+    (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
   (org-air-view--setup-evil)
   (org-air-layout-install-window-size-hook))
 
@@ -3301,6 +3307,34 @@ the first VISIBLE character of that row, never the indent whitespace."
   ;; R21-2: open lands on the first item's TITLE, not its keyword/priority.
   (org-air-view--goto-row-title))
 
+(defun org-air-view--row-property (prop)
+  "Return PROP found ANYWHERE on the current row (line), or nil (R22-2).
+A row's `org-air-item'/`org-air-doc'/`org-air-marker' covers only the board
+content between the leading margin and the rail; the margin, the rail columns
+and the trailing pad carry no row property, so a point-ONLY lookup fails there.
+Scan the whole line so an action resolves the row regardless of point's column."
+  (or (get-text-property (point) prop)
+      (let* ((bol (line-beginning-position))
+             (eol (line-end-position)))
+        (or (get-text-property bol prop)
+            (let ((pos (text-property-not-all bol eol prop nil)))
+              (and pos (get-text-property pos prop)))))))
+
+(defun org-air-view--normalize-point ()
+  "Snap point onto the row title when it lands on a DEAD column (R22-2b).
+Runs in `post-command-hook'.  Acts only when the current line owns a row
+\(`org-air-item'/`org-air-doc' present somewhere on it) AND point's column has
+NO row property (the leading margin, the rail, the trailing pad).  Idempotent:
+when point is already on a propertized column it does nothing, so it composes
+with R21-1's restored column and never reintroduces a col-0 snap."
+  (when (and (not (window-minibuffer-p))
+             (memq major-mode '(org-air-view-mode org-air-project-mode))
+             (not (get-text-property (point) 'org-air-item))
+             (not (get-text-property (point) 'org-air-doc))
+             (or (org-air-view--row-property 'org-air-item)
+                 (org-air-view--row-property 'org-air-doc)))
+    (org-air-view--goto-row-title)))
+
 (defun org-air-view--collapse-line-list (lines)
   "Collapse two or more consecutive blank LINES to a single blank line (D6)."
   (let (out (prev-blank nil))
@@ -3852,19 +3886,22 @@ both drive the same pane, so the follow hook fires in either."
 (defun org-air-view--view-pane-thing-at-point ()
   "Return the follow change-guard key for the row at point (R18 D-P3).
 The board item, else the project doc, else the shared `org-air-marker' —
-so the pane re-follows when the SELECTED ROW changes in either view."
-  (or (get-text-property (point) 'org-air-item)
-      (get-text-property (point) 'org-air-doc)
-      (get-text-property (point) 'org-air-marker)))
+so the pane re-follows when the SELECTED ROW changes in either view.
+R22-2: line-based so a native/mouse landing on a dead column still follows."
+  (or (org-air-view--row-property 'org-air-item)
+      (org-air-view--row-property 'org-air-doc)
+      (org-air-view--row-property 'org-air-marker)))
 
 (defun org-air-view-pane--context-at-point ()
   "Return a plist describing the source to show for the item/doc at point.
 Keys: :marker (a marker or filepath string), :file, :title, :state.
 Works on the board (`org-air-item') and the project view (`org-air-doc')
-via the shared `org-air-marker' text property (R16 D-P3)."
-  (let ((item (get-text-property (point) 'org-air-item))
-        (doc (get-text-property (point) 'org-air-doc))
-        (marker (get-text-property (point) 'org-air-marker)))
+via the shared `org-air-marker' text property (R16 D-P3).
+R22-2: resolve each row property anywhere on the line (point-independent),
+so a native/mouse landing on the leading margin/rail/pad still resolves."
+  (let ((item (org-air-view--row-property 'org-air-item))
+        (doc (org-air-view--row-property 'org-air-doc))
+        (marker (org-air-view--row-property 'org-air-marker)))
     (cond
      (item
       (list :marker (or marker (org-air-item-marker item))
@@ -5096,8 +5133,7 @@ hangs."
 (defun org-air-set-tag ()
   "Add TAG to the item at point."
   (interactive)
-  (let* ((item (or (get-text-property (point) 'org-air-item)
-                   (user-error "No org-air item at point")))
+  (let* ((item (org-air-view--item-at-point))
          (tag (read-string "Tag: ")))
     (with-current-buffer (find-file-noselect (org-air-item-file item))
       (goto-char (org-air-item-marker item))
@@ -5109,8 +5145,7 @@ hangs."
 (defun org-air-set-schedule (date)
   "Set SCHEDULED DATE on the item at point."
   (interactive "sSchedule (empty clears): ")
-  (let ((item (or (get-text-property (point) 'org-air-item)
-                  (user-error "No org-air item at point"))))
+  (let ((item (org-air-view--item-at-point)))
     (with-current-buffer (find-file-noselect (org-air-item-file item))
       (goto-char (org-air-item-marker item))
       (org-back-to-heading t)
@@ -5124,8 +5159,11 @@ hangs."
   "Source buffer of the most recent triage disposition (for `u' undo).")
 
 (defun org-air-view--item-at-point ()
-  "Return the org-air item at point, or signal a `user-error'."
-  (or (get-text-property (point) 'org-air-item)
+  "Return the org-air item at point, or signal a `user-error'.
+R22-2: line-based so a row action resolves from ANY column on the row (the
+leading margin / rail / trailing pad carry no item property; a point-only
+lookup there fails)."
+  (or (org-air-view--row-property 'org-air-item)
       (user-error "No org-air item at point")))
 
 (defmacro org-air-view--at-item-source (item &rest body)

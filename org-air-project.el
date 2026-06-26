@@ -1328,7 +1328,11 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
     (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t)
     ;; R18 D-P3/D-P4: the bottom view pane auto-follows here too (same hook
     ;; as the board; guarded on a live pane window, inert under batch).
-    (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t))
+    (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t)
+    ;; R22-2b: snap point off the dead margin/rail/pad columns onto the doc
+    ;; row title (project rows carry `org-air-doc' via the shared
+    ;; `--insert-row'); idempotent on a propertized column, inert in batch.
+    (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
   (org-air-layout-install-window-size-hook)
   (buffer-disable-undo))
 

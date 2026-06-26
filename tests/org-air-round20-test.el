@@ -361,5 +361,127 @@ merges the extra picks as tags (end-to-end through `org-air-refile-item')."
           (should (string-match-p ":keep:" text))
           (should (string-match-p ":q3:" text)))))))
 
+;;;; ---------------------------------------------------------------------
+;;;; R20-6 — perf: compute-once partition + displayed-only meta-widths.
+;;;; ---------------------------------------------------------------------
+
+(ert-deftest org-air-r20-6-partition-matches-per-section-path ()
+  "The compute-once partition is behaviour-preserving: its visible set and
+its per-bucket membership (and counts) are EQUAL to the old per-section
+`--visible-items' / `--items-for-bucket' path — same items, same order."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (with-temp-buffer
+      (org-air-view-mode)
+      (let* ((items (org-air-query-items))
+             (org-air-view--items items))
+        (setq org-air-view--tag-filter nil)
+        (org-air-view--classify-cache-ensure)
+        (let* ((part (org-air-view--compute-partition items))
+               (table (cddr part)))
+          ;; visible set == a fresh scan (no memo)
+          (let ((org-air-view--render-partition nil))
+            (should (equal (cadr part) (org-air-view--visible-items items))))
+          ;; per-bucket membership + counts == the fresh per-section path
+          (dolist (descriptor org-air-view--sections)
+            (let* ((bucket (car descriptor))
+                   (fresh (let ((org-air-view--render-partition nil))
+                            (org-air-view--items-for-bucket bucket items)))
+                   (memo (gethash bucket table)))
+              (should (equal memo fresh))
+              (should (= (length memo) (length fresh))))))))))
+
+(ert-deftest org-air-r20-6-meta-widths-cover-displayed-cells ()
+  "`--compute-meta-widths' (displayed-only) covers every DISPLAYED tag/origin
+cell (the alignment invariant) and is never WIDER than the all-items widths
+would be (the deliberate displayed-only tightening)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (with-temp-buffer
+      (org-air-view-mode)
+      (let* ((items (org-air-query-items))
+             (width 160))            ; wide -> the title-fit pass never shrinks
+        (setq org-air-view--items items
+              org-air-view--tag-filter nil)
+        (org-air-view--classify-cache-ensure)
+        (let ((org-air-view--render-partition
+               (org-air-view--compute-partition items))
+              (org-air-view--render-displayed
+               (cons items (make-hash-table :test 'eq))))
+          (org-air-view--compute-meta-widths items width)
+          (let ((disp-tags 0) (disp-orig 0) (all-tags 0) (all-orig 0)
+                (tagw (lambda (it)
+                        (let* ((tags (org-air-item-tags it))
+                                (n (length tags)))
+                          (string-width
+                           (org-air-view--item-tagstr
+                            tags (min org-air-tags-inline-max n) n)))))
+                (origw (lambda (it)
+                         (string-width (org-air-view--item-origin-raw it)))))
+            (dolist (descriptor org-air-view--sections)
+              (let ((bucket (car descriptor)))
+                (dolist (it (org-air-view--displayed-items-for-bucket bucket items))
+                  (setq disp-tags (max disp-tags (funcall tagw it))
+                        disp-orig (max disp-orig (funcall origw it))))
+                (dolist (it (org-air-view--items-for-bucket bucket items))
+                  (setq all-tags (max all-tags (funcall tagw it))
+                        all-orig (max all-orig (funcall origw it))))))
+            ;; covers the widest DISPLAYED cell (columns line up)
+            (should (>= org-air-view--meta-tags-w disp-tags))
+            (should (>= org-air-view--meta-origin-w
+                        (min disp-orig org-air-origin-max-width)))
+            ;; never wider than the all-items result (displayed-only tighten)
+            (should (<= org-air-view--meta-tags-w all-tags))
+            (should (<= org-air-view--meta-origin-w
+                        (min all-orig org-air-origin-max-width)))))))))
+
+(ert-deftest org-air-r20-6-warm-rerender-under-ceiling ()
+  "BENCH (informational, OUT of the gate — set ORG_AIR_BENCH to run): a warm
+re-render of a 2000-item board (R18 + R20-6 caches hot) stays under a
+generous ceiling, so a future O(N) re-render regression trips here."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (getenv "ORG_AIR_BENCH"))
+  (let ((dir (make-temp-file "org-air-r20-6-bench-" t)))
+    (unwind-protect
+        (progn
+          (dotimes (f 10)
+            (with-temp-file (expand-file-name (format "g-%d.org" f) dir)
+              (insert (format "#+title: G %d\n\n" f))
+              (dotimes (i 200)
+                (let* ((n (+ i (* f 200)))
+                       (todo (pcase (% n 4) (0 "TODO ") (1 "TODO ")
+                               (2 "NEXT ") (_ "")))
+                       (tags (pcase (% n 5) (0 "  :work:")
+                               (1 "  :home:errand:") (2 "  :project:") (_ "")))
+                       (day (1+ (% n 28))) (month (1+ (% n 12)))
+                       (pl (pcase (% n 3)
+                             (0 (format "SCHEDULED: <2026-%02d-%02d>\n" month day))
+                             (1 (format "DEADLINE: <2026-%02d-%02d>\n" month day))
+                             (_ ""))))
+                  (insert (format "* %sHeading %04d%s\n" todo n tags) pl
+                          (format "Body %d.\n" n))))))
+          (let ((org-air-files (directory-files dir t "\\.org\\'"))
+                (org-air-inbox-file (expand-file-name "g-0.org" dir))
+                (org-air-view-width 120) (org-air-view-height 50))
+            (let ((items (org-air-query-items)))
+              (should (>= (length items) 2000))
+              (with-temp-buffer
+                (org-air-view-mode)
+                (org-air-view--render items nil) ; cold: warms the caches
+                (let ((start (current-time)))
+                  (dotimes (_ 5) (org-air-view--render items nil))
+                  (let ((per (/ (float-time (time-subtract (current-time) start))
+                                5.0)))
+                    (message "R20-6 bench: warm re-render %.4fs/render at %d items"
+                             per (length items))
+                    (should (< per 0.2))))))))
+      (let ((kill-buffer-query-functions nil))
+        (dolist (buf (buffer-list))
+          (let ((fn (buffer-file-name buf)))
+            (when (and fn (string-prefix-p dir fn))
+              (with-current-buffer buf (set-buffer-modified-p nil))
+              (kill-buffer buf)))))
+      (delete-directory dir t))))
+
 (provide 'org-air-round20-test)
 ;;; org-air-round20-test.el ends here

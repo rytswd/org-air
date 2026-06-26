@@ -596,6 +596,24 @@ An `eq' hash (R18 D-P1c).  Auto-invalidates because a re-query yields new
 item objects; explicitly cleared on day-rollover and refresh.")
 (defvar-local org-air-view--classify-cache-day nil
   "`time-to-days' the classify cache was built for; a rollover clears it.")
+(defvar org-air-view--render-partition nil
+  "Per-render compute-once memo (ITEMS VISIBLE . TABLE) (R20-6).
+VISIBLE is the scope+filter visible subset of ITEMS computed ONCE; TABLE is
+an `eq' hash mapping each classify bucket to its visible members (source
+order).  Bound for the render's dynamic extent in `org-air-view--render'
+and rebound into the `org-air-view--render-lines' temp buffers, so every
+consumer (`--visible-items', `--items-for-bucket', the section/summary/
+badge/calendar counts, `--compute-meta-widths') reads ONE classify pass
+instead of re-deriving the visible set + per-bucket filtering O(N) times.
+nil outside a render -> consumers fall back to computing fresh.  The CAR is
+the ITEMS object the memo was built for; consumers use it only when the
+passed ITEMS is `eq' to it, so a stray off-render call is always correct.")
+(defvar org-air-view--render-displayed nil
+  "Per-render memo (ITEMS . TABLE) of `org-air-view--displayed-items-for-bucket'.
+TABLE is an `eq' hash bucket->the date-sorted, section-capped rows a section
+ACTUALLY renders.  Bound for the render extent (R20-6) so the section pass
+and the meta-width pass SHARE one sort+take per bucket instead of each
+paying it; nil outside a render.  CAR is the ITEMS the memo was built for.")
 (defvar-local org-air-view--loading nil
   "Non-nil during the brief synchronous fast-paint window of a cold load (R20-1).
 `org-air-view' sets it around the `redisplay'-then-query body so a stray
@@ -1062,11 +1080,33 @@ the project (`org-air-doc-tags') so both views filter identically.
     (_ t)))
 
 (defun org-air-view--visible-items (items)
-  "Return ITEMS after scope and filter."
-  (seq-filter (lambda (item)
-                (and (org-air-view--passes-scope-p item)
-                     (org-air-view--passes-filter-p item)))
-              items))
+  "Return ITEMS after scope and filter.
+Reads the compute-once `org-air-view--render-partition' when bound for the
+SAME ITEMS (R20-6), so a render computes the visible set exactly once
+instead of 21x; falls back to a fresh scan off-render."
+  (if (and org-air-view--render-partition
+           (eq items (car org-air-view--render-partition)))
+      (cadr org-air-view--render-partition)
+    (seq-filter (lambda (item)
+                  (and (org-air-view--passes-scope-p item)
+                       (org-air-view--passes-filter-p item)))
+                items)))
+
+(defun org-air-view--compute-partition (items &optional now)
+  "Build the compute-once render partition for ITEMS as of NOW (R20-6).
+Returns (ITEMS VISIBLE . TABLE): VISIBLE is `org-air-view--visible-items'
+in source order; TABLE is an `eq' hash mapping each classify bucket to its
+visible members in SOURCE order, byte-identical to what repeated
+`org-air-view--items-for-bucket' calls produced, in ONE classify pass."
+  (let* ((now (or now (current-time)))
+         (org-air-view--render-partition nil) ; force a true scan, not self
+         (visible (org-air-view--visible-items items))
+         (table (make-hash-table :test 'eq)))
+    (dolist (item visible)
+      (dolist (bucket (org-air-view--classify-cached item now))
+        (push item (gethash bucket table))))
+    (maphash (lambda (k v) (puthash k (nreverse v) table)) table)
+    (cons items (cons visible table))))
 
 (defun org-air-view--classify-cache-ensure (&optional now)
   "Ensure this board's classify cache table exists for NOW's day (R18 D-P1c).
@@ -1103,10 +1143,50 @@ suppressed in `org-air-classify-item', not here, so no dedup is needed.
 Classify is routed through `org-air-view--classify-cached' (R18 D-P1c) so
 each item is classified at most once per render; one NOW is bound for the
 whole call so every item classifies against a single instant."
-  (let ((now (current-time)))
-    (seq-filter (lambda (item)
-                  (memq bucket (org-air-view--classify-cached item now)))
-                (org-air-view--visible-items items))))
+  (if (and org-air-view--render-partition
+           (eq items (car org-air-view--render-partition)))
+      (gethash bucket (cddr org-air-view--render-partition))
+    (let ((now (current-time)))
+      (seq-filter (lambda (item)
+                    (memq bucket (org-air-view--classify-cached item now)))
+                  (org-air-view--visible-items items)))))
+
+(defun org-air-view--section-limit (bucket)
+  "Return the row cap a section renders for BUCKET (used when not expanded)."
+  (pcase bucket
+    ('attention 6)
+    ('upcoming 5)
+    (_ org-air-section-max)))
+
+(defun org-air-view--displayed-for-bucket-1 (bucket items)
+  "Compute (no memo) the BUCKET rows of ITEMS a section renders (R20-6).
+Mirrors `org-air-view--insert-section': the bucket members (date-sorted for
+attention/upcoming), capped to `org-air-view--section-limit' unless the
+section is expanded."
+  (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
+         (bucket-items (if (memq bucket '(attention upcoming))
+                           (org-air-view--sort-by-date bucket-items)
+                         bucket-items)))
+    (if (memq bucket org-air-view--expanded-sections)
+        bucket-items
+      (seq-take bucket-items (org-air-view--section-limit bucket)))))
+
+(defun org-air-view--displayed-items-for-bucket (bucket items)
+  "Return the BUCKET rows of ITEMS a section actually renders (R20-6).
+Memoised per render via `org-air-view--render-displayed' so the section
+pass and `org-air-view--compute-meta-widths' (which measures only THESE
+displayed rows, ~35, not every member) SHARE one sort+take per bucket
+instead of each paying it.  Falls back to a fresh compute off-render."
+  (if (and org-air-view--render-displayed
+           (eq items (car org-air-view--render-displayed)))
+      (let* ((memo (cdr org-air-view--render-displayed))
+             (hit (gethash bucket memo 'miss)))
+        (if (eq hit 'miss)
+            (puthash bucket
+                     (org-air-view--displayed-for-bucket-1 bucket items)
+                     memo)
+          hit))
+    (org-air-view--displayed-for-bucket-1 bucket items)))
 
 (defun org-air-view--render-width ()
   "Return the width used for current org-air view rendering."
@@ -1781,11 +1861,19 @@ xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
                 (or inbox-hint ""))))))
 
 (defun org-air-view--compute-meta-widths (items width)
-  "Set the V6 metadata column widths over the rendered ITEMS at WIDTH.
+  "Set the V6 metadata column widths over the DISPLAYED ITEMS at WIDTH.
 Walks the same section buckets the pane renders and records the widest
 date label (bare, no Inbox nudge), tag string and origin so date / tags /
 origin each occupy a fixed-width column down the whole list and line up
 vertically.  The date floor is `org-air-date-column'.
+
+R20-6: measures only the rows a section actually renders via
+`org-air-view--displayed-items-for-bucket' (the per-bucket `seq-take' subset,
+plus any expanded section), not every member.  The contract is per-render
+alignment of WHAT IS SHOWN, so the columns still align; the cost drops from
+O(N) over every item to O(shown) over ~35 rows -- the dominant warm re-render
+win.  Widths can only be <= the all-items result (tighter where a hidden item
+was widest), so the common case is byte-identical.
 
 R17: the origin column is capped at `org-air-origin-max-width' (it is
 already capped per-item at the source, this is belt-and-braces), then a
@@ -1798,7 +1886,7 @@ first."
   (let ((dw org-air-date-column) (tw 0) (ow 0) (rep 0) (tw-todo 0))
     (dolist (descriptor org-air-view--sections)
       (let* ((bucket (car descriptor))
-             (bucket-items (org-air-view--items-for-bucket bucket items)))
+             (bucket-items (org-air-view--displayed-items-for-bucket bucket items)))
         (dolist (item bucket-items)
           (when (org-air-view--item-repeat-timestamp item) (setq rep 2))
           (setq tw-todo (max tw-todo
@@ -2037,24 +2125,18 @@ The order is stable so items sharing a date keep their incoming order."
 (defun org-air-view--insert-section (descriptor items)
   "Insert section DESCRIPTOR from ITEMS."
   (pcase-let ((`(,bucket ,title ,empty) descriptor))
-    (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
-           (bucket-items (if (memq bucket '(attention upcoming))
-                             (org-air-view--sort-by-date bucket-items)
-                           bucket-items))
-           ;; S4: the badge counts exactly what the section renders
+    (let* (;; S4: the badge counts exactly what the section renders
            ;; (`items-for-bucket', which keeps inbox items out of the
-           ;; other buckets), so badge/summary/body always agree.
-           (count (length bucket-items))
+           ;; other buckets), so badge/summary/body always agree.  `length'
+           ;; is order-independent, so the unsorted member list is fine here.
+           (count (length (org-air-view--items-for-bucket bucket items)))
            (attentionp (and (> count 0) (memq bucket '(inbox attention))))
-           (expanded (memq bucket org-air-view--expanded-sections))
-           (limit (pcase bucket
-                    ('attention 6)
-                    ('upcoming 5)
-                    (_ org-air-section-max)))
-           (visible (if expanded bucket-items (seq-take bucket-items limit))))
+           ;; R20-6: the displayed subset (date-sorted, section-capped) is the
+           ;; SAME memoised list the meta-width pass measured — one sort+take.
+           (visible (org-air-view--displayed-items-for-bucket bucket items)))
       (insert "\n")
       (org-air-view--insert-section-heading bucket title count attentionp)
-      (if bucket-items
+      (if (> count 0)
           (progn
             (dolist (item visible)
               (org-air-view--insert-item item bucket))
@@ -2104,6 +2186,12 @@ The order is stable so items sharing a date keep their incoming order."
         ;; nil here and lose every entry on each render).
         (classify-cache org-air-view--classify-cache)
         (classify-cache-day org-air-view--classify-cache-day)
+        ;; R20-6: carry the compute-once partition into the pane temp buffer
+        ;; so the section/summary/badge/calendar/meta-width consumers read
+        ;; ONE classify pass instead of re-deriving the visible set + per-
+        ;; bucket filtering O(N) times each.
+        (render-partition org-air-view--render-partition)
+        (render-displayed org-air-view--render-displayed)
         ;; R20-5: carry the view descriptor into the rail temp buffer so the
         ;; SHARED rail consults the project's providers (nil for the board).
         (rail-descriptor org-air-view--rail-descriptor))
@@ -2118,6 +2206,8 @@ The order is stable so items sharing a date keep their incoming order."
             (org-air-view--day day)
             (org-air-view--classify-cache classify-cache)
             (org-air-view--classify-cache-day classify-cache-day)
+            (org-air-view--render-partition render-partition)
+            (org-air-view--render-displayed render-displayed)
             (org-air-view--rail-descriptor rail-descriptor))
         (funcall render-fn)
         (org-air-view--string-lines (buffer-string) width)))))
@@ -4159,22 +4249,30 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
          (org-air-view--pill-style-sig
           (list org-air-pill-pad-cols org-air-pill-radius
                 org-air-pill-fill-alpha org-air-pill-font-scale
-                org-air-pill-border-opacity org-air-pill-vinset)))
+                org-air-pill-border-opacity org-air-pill-vinset))
+         ;; R20-6: set the render dynamics the partition depends on
+         ;; (items/tag-filter) and ensure the classify cache table for today
+         ;; (R18 D-P1c) BEFORE composing the panes, THEN compute the
+         ;; compute-once partition (the visible set + the bucket->items map in
+         ;; ONE classify pass) and bind it for the whole render extent.  The
+         ;; pane temp buffers (`org-air-view--render-lines') rebind it, so
+         ;; every consumer reads ONE pass instead of re-deriving O(N).
+         (_ (progn
+              (setq org-air-view--items items
+                    org-air-view--items-key (list org-air-files org-air-inbox-file)
+                    org-air-view--tag-filter tag-filter)
+              (org-air-view--classify-cache-ensure)))
+         (org-air-view--render-partition
+          (org-air-view--compute-partition items))
+         ;; R20-6: the per-render displayed-rows memo (shared by the section
+         ;; pass + the meta-width pass so they sort+take each bucket once).
+         (org-air-view--render-displayed
+          (cons items (make-hash-table :test 'eq))))
     (erase-buffer)
-    (setq org-air-view--items items
-          org-air-view--items-key (list org-air-files org-air-inbox-file)
-          org-air-view--tag-filter tag-filter)
-    ;; R20-2: cache the visible count for the status mode-line :eval so
-    ;; redisplay never re-scans all items (the live filter/scope re-render
-    ;; refreshes it).
+    ;; R20-2 + R20-6: cache the visible count for the status mode-line :eval
+    ;; from the compute-once visible set (redisplay never re-scans all items).
     (setq-local org-air-view--mode-line-count
-                (length (org-air-view--visible-items items)))
-    ;; R18 D-P1c: ensure the classify cache table exists for today in THIS
-    ;; board buffer BEFORE composing the panes.  The panes render in temp
-    ;; buffers (`org-air-view--render-lines') that bind the cache var to the
-    ;; SAME table object, so every `puthash' there persists back here and a
-    ;; TAB/month-nav re-render is a pure cache hit (zero re-classify).
-    (org-air-view--classify-cache-ensure)
+                (length (cadr org-air-view--render-partition)))
     ;; R16 D-P1: seed the per-board popout flag from the INITIAL preference
     ;; on first render only (`unset' sentinel); thereafter the toggle /
     ;; reconciler own it.  The renderer never consults `org-air-rail-style'

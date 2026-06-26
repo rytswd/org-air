@@ -1,0 +1,1079 @@
+#+title: org-air v0.5 round-22 DESIGN: priorities A–E · cursor/RET robustness · board sort · scope/filter clarity · project pane/grouping · contrast
+#+state: ready
+#+FILETAGS: :ui:render:project:stability:sort:contrast:faces:design:v0.5:
+
+* Scope of this document
+The round-22 DESIGN doc, written after the user dogfooded R21 against real
+data (the demo board over their own org files + the real Air repo at
+=~/Coding/github.com/withre/air= via =M-x org-air-project=).  R21 landed the
+consistency pass + two navigation fixes; dogfooding surfaced *seven* concrete
+issues from real screenshots (the orchestrator saw them; the descriptions in
+the round brief are authoritative).  This round is bug-first: two are genuine
+*correctness* bugs (priorities only render #A; the cursor/RET still lands on a
+dead column), two are *missing features* the second view already has (board
+sort; project pane/rail-toggle), and three are *clarity / polish* (scope-vs-
+filter wording, project grouping visuals, view-pane + origin contrast).
+
+Each item carries a *reproduction* (measured / observed against THIS checkout,
+not asserted), a crisp impl SPEC with exact functions + line numbers, a
+Byte/batch contract, Testability (acceptance ERTs) and Routing.  Nothing is
+integrated here — this is the impl-ready spec; commits are per-item (=R22=
+prefix; Design round-22).
+
+Honour the architecture invariants (architecture.md): V6 pixel-lock, svg-
+never-grows-line, text-is-the-contract (every svg has a TTY/byte fallback),
+*one-renderer-two-views* (parameterise the shared =--insert-row= / view-core /
+rail / pane primitives, never fork), inspector inert under =noninteractive=.
+KEEP the R18 caches (classify + svg + incremental), the R20 compute-once
+partition and the R21 byte-invisible discipline intact.
+
+Priorities, in order (the user's "worst first"):
+- *R22-2* CURSOR/RET take-3 — RET on a row says "no org-air item" because point
+  lands on a column the item property does not cover.  [BUG — critical]
+- *R22-1* PRIORITIES A–E — only #A renders a marker; #B–#E render nothing.
+  [BUG]
+- *R22-6* PROJECT GROUPING — the by-directory tree doubles each top-dir header
+  and reads as a badge wall.  [POLISH — high]
+- *R22-7* VIEW-PANE + ORIGIN CONTRAST — the pane filename + the origin column
+  are below AA, near-invisible.  [POLISH]
+- *R22-3* DASHBOARD SORT — no way to sort the board; the project has o/O sort.
+  [FEATURE]
+- *R22-5* PROJECT PANE / RAIL-TOGGLE — wire =|= (and confirm v/V/RET-pane) into
+  the project view.  [FEATURE]
+- *R22-4* SCOPE vs FILTER clarity — both rail blocks say "all items".  [POLISH]
+
+* Status
+Design-led, impl-ready.  Byte contract per item: R22-2 (point/line resolution)
+and R22-7 + R22-4-labels (faces / chrome) and R22-5 (keymap) are GUI/interactive
+and INERT under =noninteractive=, so the board + project byte goldens stay
+byte-identical.  R22-1 (priority A–E) carries a deliberate TEXT change ONLY for
+fixtures that actually contain #B–#E headings (called out per item); the
+default-priority #B-suppression sub-fix likewise re-blesses any fixture with a
+bare =[#B]=.  R22-6 (project grouping) is a deliberate, design-blessed re-bless
+of the project-view fixtures (the header layout changes).  R22-3 (board sort) is
+byte-invisible by default (the default sort reproduces today's within-bucket
+date order) and only re-blesses a fixture if a non-default sort is captured.
+
+* Measured baseline (reproduction harness)
+All reproductions below were run on THIS checkout.  Two load modes matter:
+- =emacs -Q --batch -l tests/org-air-test-init.el= renders the board via the
+  =org-air-viewport-test-with-dashboard= / =-as-gui= helpers (frozen clock
+  =org-air-test-now= = Mon 2026-06-15); the project view via
+  =org-air-project-test--render= over =tests/fixtures/air-project= and over the
+  REAL Air repo.
+- The repo ships =*.elc= that are STALE relative to the =*.el= source (the
+  =.gitignore= ignores =*.elc=; they were left from a later build).  Every
+  reproduction here was re-run with =(setq load-prefer-newer t)= so it exercises
+  the =.el= SOURCE that impl will edit — the authoritative current behaviour.
+  (Loading the stale =.elc= shows a DIFFERENT project keymap + a flat tree; that
+  is the dogfooded binary, noted where it diverges so impl is not misled.)
+Interactive paths (motion, point, hooks) are driven directly since the live
+hooks are guarded inert under =noninteractive=.
+
+* R22-2 — cursor/RET take-3: RET on a row says "no org-air item" because point lands on a dead column [BUG — critical]
+
+** Reproduction — the item text-property does NOT span the whole visual row
+The user reports (post R21-1/R21-2): the cursor STILL sits on the leftmost
+char, and pressing RET there says "there is no org-air item".  R21-1 (restore
+saved column) and R21-2 (=--goto-row-title=) only fire on org-air's OWN motion
+commands; the user drives the board with NATIVE Emacs motion (=<up>/<down>=,
+=C-n/C-p=, =C-a=, mouse) which never calls =--goto-row-title=.  But the deeper,
+measured fault is that even when point IS on a row, the at-point lookup can
+fail — *the =org-air-item= text property does not cover the full visual line*.
+
+Measured (source, =org-air-view-width 120=, the default two-pane/inline-rail
+layout), first item row:
+#+begin_src text
+two-pane-p = t
+col 0  org-air-item: nil      <-- leftmost char: NO item property
+title  org-air-item: t
+at col 0: org-air-view-pane--context-at-point = nil   ==> RET: "No org-air item at point"
+item present somewhere on line: t (at col 2)           <-- the row DOES own an item, 2 cols in
+#+end_src
+Per-column property map of the row (=#= = has =org-air-item=, =.= = none):
+#+begin_src text
+..###################################################################...................................
+^^                                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+||                                                                  └ the rail columns + trailing pad: no item
+└┴ the 2-col `org-air-margin': no item
+#+end_src
+So the property spans only the BOARD content between the leading margin and the
+rail — col 0–1 (the margin) and everything right of the divider carry NO
+=org-air-item=.  Native motion (=C-a=, =<left>= to col 0, a mouse click on the
+margin/rail/pad) parks point in one of those DEAD zones; the point-only lookup
+in =org-air-view-pane--context-at-point= (org-air-view.el L3865) and
+=org-air-view--item-at-point= (L5126) then returns nil and every row action
+(=RET=, =v=, =r=, =D=, …) errors "No org-air item at point".
+
+** Reproduction — root mechanism: the margin + rail are composited WITHOUT the row props
+=org-air-view--insert-row= (L2011) DOES add =org-air-item= over the whole row it
+inserts (=add-text-properties start (point)= at L2099) — but in the two-pane
+layout the row is rendered at the NARROW =item-content-width= with
+=org-air-view--pane-indented t=, so its prefix is only =org-air-item-indent=,
+NOT the leading =org-air-margin=.  The 2-col =org-air-margin= is added DOWNSTREAM
+by =org-air-view--indent-pane-lines= (L3207) as a bare =(concat margin text)=
+where =margin= is a fresh =org-air-view--margin= (L953) string carrying NO
+properties; and the rail columns are composited on the right by
+=org-air-view--compose-columns= (L1251).  Net: the leading margin and the rail
+share the visual line but not the item property.  (In the BOARD-ONLY layout —
+narrow width / the popped-out side-window rail — the full line IS propertized,
+so col 0 works there; the bug is the DEFAULT two-pane layout, the most common
+view.)  This is why R21-1/R21-2 did not cure it: they normalise point only on
+org-air's own motion, and they cannot help a point-ONLY lookup that fails on a
+dead column the user reached natively.
+
+** Reproduction — native motion bypasses the title normaliser
+=org-air-view-mode-map= binds =n/p/j/k= (org-air motion → =--goto-row-title=)
+and =<mouse-1>= (→ =org-air-view-pane-return=) but binds NONE of =<up> <down>
+<left> <right> C-n C-p C-a C-e <home> <end>=.  So all arrow/emacs motion uses
+the native commands, which never call =--goto-row-title= and routinely leave
+point at col 0 (=C-a=, =<home>=, =<left>=) — squarely in the dead margin zone.
+
+** Decision — make row actions LINE-based, and normalise point off dead columns
+Belt + suspenders, exactly as the brief asks: (a) resolve the row's item from
+ANYWHERE on the line (point-independent), so an action works no matter where on
+the row point sits; (b) snap point off the dead columns onto the title on any
+landing, including native motion + mouse.
+
+*** (a) PRIMARY — a line-based row-property resolver, used by every row action
+Add one resolver that finds the row property anywhere on the current line:
+#+begin_src elisp
+(defun org-air-view--row-property (prop)
+  "Return PROP found ANYWHERE on the current row (line), or nil (R22-2).
+A row's `org-air-item'/`org-air-doc'/`org-air-marker' covers only the board
+content between the leading margin and the rail; the margin, the rail columns
+and the trailing pad carry no row property, so a point-ONLY lookup fails there.
+Scan the whole line so an action resolves the row regardless of point's column."
+  (or (get-text-property (point) prop)
+      (let* ((bol (line-beginning-position))
+             (eol (line-end-position)))
+        (or (get-text-property bol prop)
+            (let ((pos (text-property-not-all bol eol prop nil)))
+              (and pos (get-text-property pos prop)))))))
+#+end_src
+Route the at-point accessors through it (item first, then doc, then marker — so
+the board item / project doc on the LEFT of the line always wins over any rail
+property on the right):
+- =org-air-view--item-at-point= (L5126): =(or (org-air-view--row-property
+  'org-air-item) (user-error "No org-air item at point"))=.
+- =org-air-view-pane--context-at-point= (L3860) + =org-air-view--view-pane-
+  thing-at-point= (L3856): read each of =org-air-item= / =org-air-doc= /
+  =org-air-marker= via =--row-property= instead of =get-text-property (point)=.
+- The two inline lookups that bypass the helper — =org-air-set-tag= (L5099) and
+  =org-air-set-schedule= (L5112) — switch to =org-air-view--item-at-point= (so
+  there is ONE resolver).
+This ALONE makes RET / v / r / D / T / S-RET / TAB / inspector-follow work from
+any column on the row (margin, rail, pad), curing the "No org-air item" error.
+
+*** (b) SECONDARY — normalise point off dead columns to the title
+A buffer-local =post-command-hook= snaps point onto the row title ONLY when the
+command left point on a row line at a column the item property does not cover
+(the dead margin / rail / pad).  Crucially it is a NO-OP when point already
+sits on a propertized column — so it never fights R21-1 (the restored column is
+always within the item span) nor deliberate in-title motion:
+#+begin_src elisp
+(defun org-air-view--normalize-point ()
+  "Snap point onto the row title when it lands on a DEAD column (R22-2b).
+Runs in `post-command-hook'.  Acts only when the current line owns a row
+(`org-air-item'/`org-air-doc' present somewhere on it) AND point's column has
+NO row property (the leading margin, the rail, the trailing pad).  Idempotent:
+when point is already on a propertized column it does nothing, so it composes
+with R21-1's restored column and never reintroduces a col-0 snap."
+  (when (and (not (window-minibuffer-p))
+             (memq major-mode '(org-air-view-mode org-air-project-mode))
+             (not (get-text-property (point) 'org-air-item))
+             (not (get-text-property (point) 'org-air-doc))
+             (or (org-air-view--row-property 'org-air-item)
+                 (org-air-view--row-property 'org-air-doc)))
+    (org-air-view--goto-row-title)))
+#+end_src
+Install it (inert under =noninteractive=, like the other view hooks) in
+=org-air-view-mode= and =org-air-project-mode= alongside the inspector / view-
+pane post-command hooks (org-air-view.el ~L890; org-air-project.el ~L1330).
+Because it only moves point (no re-render) and short-circuits on the common
+"already on the item" case, it is cheap in =post-command-hook=.
+
+*** Interaction with R21-1 / R21-2 / the inspector follow
+- R21-2 already lands org-air motion on the title; R22-2b extends that to
+  NATIVE motion + mouse without rebinding every key.
+- R21-1 restores the user's SAVED column on a re-render; that column is within
+  the item span (propertized), so =--normalize-point= is a no-op after it — no
+  col-0 snap reintroduced.
+- The inspector / view-pane follow reads the row via =--view-pane-thing-at-
+  point=, now line-based, so it follows the row regardless of point's column and
+  never fights the normaliser (which runs first / is idempotent).
+
+** Byte / batch contract
+=--row-property= and =--normalize-point= read text properties and move point
+only; they touch no buffer text and are inert under =noninteractive= (the hook
+is not installed in batch; the cold render still ends on =--goto-first-item=,
+unchanged).  Every board + project byte golden is byte-identical.
+
+** Testability (R22-2)
+- ERT (the guard, FAILS on trunk): render the board at width 120 (two-pane),
+  =--goto-first-item=, then =(beginning-of-line)= (col 0, the dead margin);
+  assert =(get-text-property (point) 'org-air-item)= is nil there, yet
+  =org-air-view--item-at-point= returns the row's item (line-based) and
+  =org-air-view-pane--context-at-point= is non-nil — so RET resolves.  Anti-
+  tautology: the failing column is col 0 and the asserted item equals the title-
+  column item.
+- ERT (mouse/native landing): place point in the rail region (right of the
+  divider) of an item line; assert =--item-at-point= still returns THAT row's
+  item (the board item left of the divider wins over any rail property).
+- ERT (normalise): with the post-command machinery driven directly, point at
+  col 0 of an item row → =--normalize-point= moves it onto the
+  =org-air-row-title= mark; point already on the title → =--normalize-point= is
+  a NO-OP (=(point)= unchanged); point on a section heading / blank line → NO-OP.
+- ERT (compose with R21-1): move into the title (col > first-visible),
+  =--render-current=, then =--normalize-point=; assert point is STILL on the
+  saved title column (the normaliser did not snap it back).
+- ERT (board-only unaffected): at width 80 (board-only) col 0 already carries
+  =org-air-item=; assert =--item-at-point= and =--normalize-point= leave point
+  byte-identical (no regression in the layout that already worked).
+- No byte fixtures (point/property only).
+
+** Routing (R22-2)
+org-air-view.el: add =org-air-view--row-property= + =org-air-view--normalize-
+point=; repoint =org-air-view--item-at-point= (L5126), =org-air-view-pane--
+context-at-point= (L3860), =org-air-view--view-pane-thing-at-point= (L3856),
+=org-air-set-tag= (L5099) and =org-air-set-schedule= (L5112) at the line-based
+resolver; install =--normalize-point= in the =org-air-view-mode= hook block
+(~L890).  org-air-project.el: install =--normalize-point= in the project hook
+block (~L1330) — the project rows already carry =org-air-doc= via the shared
+=--insert-row=, so no other project change.  Test seat: the line-based +
+normalise + compose ERTs.
+
+** Open questions (R22-2)
+- Should the leading =org-air-margin= ALSO be made part of the propertized row
+  (eliminate the dead-zone at the source) instead of / in addition to the line-
+  based resolver?  Proposal: keep the resolver as the robust primary (it also
+  covers the rail + pad dead zones a margin fix would not), and OPTIONALLY have
+  =org-air-view--indent-pane-lines= copy the row's leading property onto the
+  margin so col 0 is live too (belt) — cheap, but the resolver is the contract.
+- Bind the native motion keys (=<up>/<down>/C-a/…=) to org-air wrappers as a
+  third belt, or rely on the post-command normaliser?  Proposal: the normaliser
+  (catches mouse + every motion without enumerating keys); add explicit binds
+  only if a command slips past the hook.
+
+* R22-1 — priorities A–E: only #A renders a marker; #B–#E render nothing [BUG]
+
+** Reproduction — three stacked faults; #A is the only one that survives them
+The user wants priority markers for #A THROUGH #E; today only #A shows a small
+coloured square.  Measured (source, =load-prefer-newer=):
+#+begin_src text
+org-air-priority-show       = (65)            ; = '(?A) — ONLY A is "shown"
+org-air-priority-colors keys = (65 66 67)     ; = A B C — no D, no E
+--priority-face for D        = org-air-face-priority-c   ; D falls into the `_ catch-all
+--priority-face for E        = org-air-face-priority-c   ; E too
+#+end_src
+*Fault 1 (the dominant one).*  =org-air-view--priority-slot= (org-air-view.el
+L1478) and the inline =--insert-item= branch (L2125) gate the square on
+=(member char org-air-priority-show)=.  With =org-air-priority-show= = ='(?A)=
+ONLY #A passes; #B–#E render the blank 2-col slot — even though their priority
+char IS computed.  This is why "only #A shows".
+*Fault 2.*  =org-air-priority-colors= (L551) and =org-air-view--priority-face=
+(L1416, a =pcase= with cases =?A/?B/?C= and a =_= → =priority-c=) only know
+A/B/C.  So #D and #E would draw with C's yellow-green colour/face even once
+shown — no distinct hue.  org-air-faces.el L370/381/391 declare only =org-air-
+face-priority-a/-b/-c=.
+*Fault 3 (subtle, found by reading the parser).*  Even after showing #B,
+=[#B]= records NO priority at all.  =org-air-query--item-at-point= (org-air-
+query.el L95) computes =:priority= as
+#+begin_src elisp
+(let* ((heading (org-get-heading t t nil t))
+       (priority (org-get-priority heading))
+       (default-priority (org-get-priority "")))
+  (and priority (/= priority default-priority) priority))
+#+end_src
+The =(/= priority default-priority)= test means to drop the "no cookie" case
+(a cookie-less heading returns the DEFAULT priority value), but Org's
+=org-default-priority= is =?B= — so an EXPLICIT =[#B]= has =priority ==
+default-priority= and is suppressed to nil.  Measured on bare headings (default
+Org, =org-priority-lowest= = ?C):
+#+begin_src text
+heading [#A] -> get-priority 2000  default 1000  recorded 2000  char A
+heading [#B] -> get-priority 1000  default 1000  recorded nil   char nil   <-- #B LOST
+heading [#C] -> get-priority    0  default 1000  recorded 0     char C
+heading [#D] -> get-priority -1000 default 1000  recorded -1000 char D
+heading [#E] -> get-priority -2000 default 1000  recorded -2000 char E
+#+end_src
+So #B is doubly invisible (Fault 1 hides it, Fault 3 erases its value).  Note
+#D/#E DO parse and =org-air-view--priority-char= (L1021,
+=(- org-priority-lowest (/ priority 1000))=) recovers them correctly even with
+=org-priority-lowest= = ?C — so NO change to =org-priority-lowest= is needed;
+the gap is purely show-set + colours/faces + the #B parser bug.
+
+** Decision — show A..E, add D/E colours + faces, and record explicit #B
+*** (1) Show all five by default
+=org-air-priority-show= default → ='(?A ?B ?C ?D ?E)= (the brief: "up to #E").
+Keep the blank-slot pixel-lock: =--priority-slot= still reserves the fixed
+2-col slot and renders two blanks when the row has no shown priority, so all
+titles stay V6-aligned.
+*** (2) Extend the hot→cool colour ramp to D and E
+=org-air-priority-colors= gains D and E, continuing A=hot … E=coolest:
+#+begin_src elisp
+(defcustom org-air-priority-colors
+  '((?A . ("#D32F2F" . "#BF616A"))   ; red      (hot)
+    (?B . ("#E0631E" . "#D08770"))   ; orange
+    (?C . ("#689F38" . "#A3BE8C"))   ; yellow-green
+    (?D . ("#0097A7" . "#88C0D0"))   ; teal/cyan  (cool)
+    (?E . ("#5C6BC0" . "#7E8CC0")))  ; indigo     (coolest)
+  ...)
+#+end_src
+(The exact D/E hues are a tuning detail for the test seat; the contract is a
+distinct, progressively cooler hue per level, reconciled with the faces below.)
+*** (3) Faces + face resolver for D and E
+Add =org-air-face-priority-d= / =org-air-face-priority-e= in org-air-faces.el
+(mirroring the A/B/C blocks: 256-colour light/dark fg from the ramp + a TTY
+=t= inherit — D inherits a calm faded/cool tier, E the coolest), and extend
+=org-air-view--priority-face= (L1416) so it returns them:
+#+begin_src elisp
+(defun org-air-view--priority-face (char)
+  (pcase char
+    (?A 'org-air-face-priority-a) (?B 'org-air-face-priority-b)
+    (?C 'org-air-face-priority-c) (?D 'org-air-face-priority-d)
+    (?E 'org-air-face-priority-e) (_ 'org-air-face-priority-c)))
+#+end_src
+=--priority-char= (L1021) already yields A..E unchanged; the svg square
+(=--svg-priority-square= L1448) is a pure function of (colour, cw, ch) so it
+draws the D/E hue automatically once the colour/face exist — no svg change.
+*** (4) Record an explicit #B (fix Fault 3 at the source)
+Detect the explicit cookie via the priority regexp instead of the value-equals-
+default heuristic, so =[#B]= is recorded while a cookie-LESS heading stays nil:
+#+begin_src elisp
+:priority (let ((heading (org-get-heading t t nil t)))
+            (when (string-match org-priority-regexp heading)   ; explicit [#X] present
+              (org-get-priority heading)))
+#+end_src
+Measured: this records A/B/C/D/E for explicit cookies and nil for no-cookie
+headings (verified on the bare-heading fixture above; =org-priority-regexp=
+group 2 is the letter, A..E all match).  The high-priority bucket gate
+(org-air-classify.el L129, =>= get-priority "[#A]"=) is unchanged — still only
+#A counts as high-priority, which is correct.
+
+** Byte / batch contract — a DELIBERATE, scoped re-bless
+SVG squares are GUI-only (inert in batch), so the GUI marker change is byte-
+invisible.  What CAN move the text layer: (i) showing the =■= TTY glyph for
+#B–#E rows that previously rendered the blank slot, and (ii) recording #B where
+it was dropped.  Only fixtures that contain bare #B–#E headings re-bless (via
+=make regen-mockups=, design-blessed); fixtures using only #A (or no priority)
+are byte-identical.  The test seat audits which board goldens move and re-
+blesses them; impl records them in the known-failures manifest.
+
+** Testability (R22-1)
+- ERT (defaults): =org-air-priority-show= contains =?A ?B ?C ?D ?E=;
+  =org-air-priority-colors= has keys A..E; =org-air-view--priority-face= returns
+  a DISTINCT face for each of A/B/C/D/E (no two equal, none is the =_= fallback
+  for D/E).
+- ERT (parse, FAILS on trunk for B): query a file with bare =* [#A]/[#B]/[#C]/
+  [#D]/[#E]= headings (no =#+TODO:=, default Org); assert =--priority-char= =
+  A/B/C/D/E respectively — in particular #B is recorded (not nil) and #D/#E
+  recover correctly under =org-priority-lowest= = ?C.
+- ERT (render): for an item at each of #A..#E, =--priority-slot= emits a NON-
+  blank cell (the =■= glyph + the per-level face), and a no-priority row emits
+  the 2-blank slot — proving the pixel-lock and that all five now render.
+- ERT (no-cookie still nil): a heading with no cookie records =:priority= nil
+  (the regexp gate did not over-trigger).
+- ERT (faces exist): =org-air-face-priority-d= / =-e= are =facep=.
+- Re-bless only the goldens whose fixtures use #B–#E (test seat).
+
+** Routing (R22-1)
+org-air-view.el: default =org-air-priority-show= → A..E (L546); extend =org-air-
+priority-colors= with D/E (L551); add the =?D/?E= cases to =org-air-view--
+priority-face= (L1416).  org-air-faces.el: add =org-air-face-priority-d= /
+=-e= (after L391).  org-air-query.el: switch the =:priority= computation
+(L95) to the explicit-cookie regexp test.  org-air-classify.el: no change.
+Test seat: the defaults / parse / render / faces ERTs; re-bless #B–#E fixtures.
+
+** Open questions (R22-1)
+- D/E hues: the proposed teal + indigo continue the cool end; the test seat may
+  retune so D/E read clearly distinct from C (yellow-green) and from each other
+  at small size — the contract is "five distinguishable, progressively cooler"
+  not the exact hex.
+- Should the high-priority BUCKET widen below #A (e.g. include #B)?  Proposal:
+  NO — keep #A-only (the classify gate is unchanged); R22-1 is about RENDERING
+  all five, not re-bucketing.  Flag if the user later wants #A/#B "high".
+- Default show A..E vs A..C?  The brief is explicit ("up to #E") → A..E.  A
+  user who wants fewer can still customise =org-air-priority-show=.
+
+* R22-6 — project by-directory grouping: ONE header per dir, quiet aligned counts, clear nesting [POLISH — high]
+
+** Reproduction — every top dir is doubled, and the counts are a badge wall
+=M-x org-air-project= on the REAL Air repo (=~/Coding/github.com/withre/air=,
+=org-air-project-group-by-directory=, source via =load-prefer-newer=, w110)
+renders each top directory on TWO consecutive header lines, then a wall of
+count badges per sub-dir:
+#+begin_src text
+  | v0.1/   [R] Ready (5)    [C] Complete (28)    [X] Dropped (10)    [D] Draft (10)   <- (1) rolled-up box header
+  | v0.1/   [R] 4 (+1)  [C] 14 (+14)  [X] 1 (+9)  [D] 2 (+8)                            <- (2) per-dir counts: DUPLICATE "v0.1/"
+      [R] Natural Sorting Imple...  ~ 2026-04-15  #airctl           . v0.1/na...
+      [R] Subcommand and Config...  ~ 2026-04-15  #airctl   #con... . v0.1/ai...
+      ...
+  |   ai-integration/   [X] 2
+        [X] AI assisted documen...  ~ 2026-04-05  #ai               . v0.1/ai...
+  |   air-context/   [C] 2  [X] 2  [D] 1
+  |   air-template/   [C] 4  [X] 1  [D] (+2)
+        [C] Air File Templates      ~ 2026-04-05  #airctl   #tem... . v0.1/ai...
+  |     references/   [D] 2
+          [D] Template with KEP     ~ 2026-02-27  #airctl   #tem... . v0.1/ai...
+#+end_src
+Three concrete problems (matching the screenshot report):
+1. *Doubled top-dir header.*  =org-air-project--insert-dir-node= (org-air-
+   project.el L607) runs, for a TOP node (=topp=), BOTH step (1) the rolled-up
+   box header (=--rolled-up-badges=, subtree state NAMES + totals, L572) AND
+   step (2) the per-dir count heading (=--count-badges=, own =N (+M)=, L584) —
+   so =v0.1/= prints twice on adjacent lines.  Pure noise + duplication.
+2. *Badge wall.*  Both headers render a long horizontal run of state badge
+   cells (=[C] 4  [X] 1  [D] (+2)= …) via the coloured =--state-badge-cell=
+   (L375).  In every dir header this reads as a cluttered row of chips, not a
+   calm count.
+3. *Nesting is murky.*  Every header (top and child) starts with the SAME
+   leading =  | = rail marker; the only nesting cue is a 2-col indent inside
+   the LABEL (=label= = =indent + dir + "/"=, L617), so =references/= under
+   =air-template/= barely steps in and the marker column never moves — the
+   tree does not read as a tree.
+The numbers themselves are CORRECT and match =airctl status -Da= (v0.1/ own
+=🎯 4 (+1)  ✅ 14 (+14)  🗑️ 1 (+9)  📝 2 (+8)=); the problem is layout, not
+arithmetic.  (Note: the stale =.elc= renders a FLAT, single-header tree with no
+nesting at all — a different, older shape; the SOURCE above is what the user
+dogfooded and what impl edits.)
+
+** Decision — one header per directory, a quiet right-aligned count, real indent
+Collapse the two header lines to ONE per directory, replace the badge wall with
+a calm right-aligned count summary, and indent the whole header (marker + name)
+by depth so the tree reads.  Keep the numbers identical to =airctl -Da=.
+
+*** (1) Drop the rolled-up box header; ONE header per dir node
+In =org-air-project--insert-dir-node= remove step (1) entirely (the =when topp=
+block) so a directory name prints ONCE.  The subtree totals it showed are not
+lost — the single header's =own (+nested)= counts already encode them
+(=v0.1/= = =R4(+1)= ⇒ 4 here + 1 nested = the old "Ready (5)").  =org-air-
+project--rolled-up-badges= (L572) becomes unused → delete (or repurpose for the
+mode-line summary only).
+
+*** (2) Quiet, right-aligned count summary (kill the badge wall)
+The single header line becomes:
+#+begin_src text
+<indent><marker> <dir>/ <flex-gap> <counts-right-aligned-to-a-fixed-column>
+#+end_src
+=counts= is a COMPACT, calm string — the state as a quiet faded LETTER (not the
+coloured svg chip), the own count, and a faded =(+M)= nested rollup, joined by
+single spaces and RIGHT-justified to one fixed counts column so every dir
+header's counts line up vertically down the view (the V6 "fixed column" idiom,
+nano-calm):
+#+begin_src elisp
+(defun org-air-project--dir-count-summary (direct desc)
+  "Return the calm `R4(+1) C14(+14) …' count summary for a dir header (R22-6).
+State as a quiet faded LETTER (not the coloured badge), own count, faded
+`(+M)' nested rollup; states absent from BOTH omitted; display order =
+`org-air-project--state-display-order'.  Numerically identical to the old
+`--count-badges' / `airctl -Da'."
+  (let (cells)
+    (dolist (state org-air-project--state-display-order)
+      (let ((n (or (cdr (assoc state direct)) 0))
+            (m (or (cdr (assoc state desc)) 0)))
+        (when (or (> n 0) (> m 0))
+          (push (concat
+                 (propertize (org-air-project--state-letter state)   ; "R"/"C"/"X"/"D"
+                             'face (org-air-project--state-face state))
+                 (when (> n 0) (propertize (number-to-string n)
+                                           'face 'org-air-face-count))
+                 (when (> m 0) (propertize (format "(+%d)" m)
+                                           'face 'org-air-face-faded)))
+                cells))))
+    (mapconcat #'identity (nreverse cells) " ")))
+#+end_src
+The header inserter right-justifies this summary into a fixed counts column
+(reuse =org-air-view--pad-to= / a right-justify against the render WIDTH), so
+the directory NAME owns the left and the counts form a quiet aligned right
+column — no chip wall.  (The per-state colour survives only as the single
+LETTER's face, a hair of hue; the loud =[X] N= badge cell is gone.)
+
+*** (3) Real tree indentation
+Indent the WHOLE header (marker included) by depth, and reserve the marker only
+as the section bullet:
+#+begin_src text
+  v0.1/                                              R4(+1) C14(+14) X1(+9) D2(+8)
+    [R] Natural Sorting Implementa…   ~2026-04-15  #airctl            v0.1/natural-sortin…
+    …
+    ai-integration/                                                   X2
+      [X] AI assisted document gen…   ~2026-04-05  #ai                v0.1/ai-integration…
+    air-context/                                              C2 X2 D1
+      …
+    air-template/                                            C4 X1 D(+2)
+      [C] Air File Templates          ~2026-04-05  #airctl #templ…    v0.1/air-template/f…
+      …
+      references/                                                     D2
+        [D] Template with KEP         ~2026-02-27  #airctl #templ…    v0.1/air-template/r…
+#+end_src
+Concretely: the header label = =(make-string (* 2 depth) ?\s)= indent + the
+marker + =dir "/"=; doc rows stay one level deeper (=--insert-doc-row doc width
+(* 2 (1+ depth))=) so a doc clearly hangs UNDER its dir.  =references/= now sits
+two indents in under =air-template/= and its docs three — the nesting is
+visible.  The accent marker (=org-air-project--marker=) prints once per header
+as the quiet bullet; it is NOT repeated mid-line.
+
+*** Numerical parity with airctl -Da
+=direct-counts= / =desc-counts= already feed the summary; the own =N= and
+nested =(+M)= match =airctl status -Da= cell-for-cell.  A test asserts the org-
+air summary for =v0.1/= equals =R4(+1) C14(+14) X1(+9) D2(+8)= (the airctl
+numbers).
+
+** Byte / batch contract — a DELIBERATE, design-blessed re-bless
+The project-view goldens (=tests/fixtures/project-view-dir.txt= primarily; the
+state/tag goldens only if they share the header path) change at the TEXT layer:
+one header line per dir instead of two, the compact letter-count summary
+instead of the badge cells, and the deeper doc indent.  Re-blessed via =make
+regen-mockups= with a reviewed diff; the BOARD goldens are untouched.  The
+state-grouping and tag-grouping modes keep their section headings (only the
+DIRECTORY tree's dir headers change), so their goldens move only if the shared
+header builder is reused there.
+
+** Testability (R22-6)
+- ERT (no doubled header): render the directory tree over =tests/fixtures/air-
+  project=; assert each directory NAME (=v0.1/=, =air-context/=, …) appears on
+  exactly ONE header line (count lines matching =DIR/= = 1) — locks out the
+  rolled-up duplicate.
+- ERT (airctl parity): =org-air-project--dir-count-summary= for a node with
+  known direct/desc counts equals the expected =R4(+1) …= string (numbers match
+  =airctl -Da=); states absent from both are omitted.
+- ERT (alignment): the count summaries of two sibling dir headers start at the
+  SAME column (right-aligned to the fixed counts column).
+- ERT (nesting): a child dir header is indented deeper than its parent, and a
+  doc row is indented one level deeper than its dir header (assert leading-space
+  counts strictly increase parent→child→doc).
+- RE-BLESS =project-view-dir.txt= (and any header-sharing state/tag golden) to
+  the one-header/quiet-count/deeper-indent shape (test seat owns the regen +
+  blessed diff; impl records the change).
+- The R20-5 structural ERTs (per-dir counts present, state-first doc order,
+  name-sorted children) stay GREEN — only the header LAYOUT changed.
+
+** Routing (R22-6)
+org-air-project.el: in =org-air-project--insert-dir-node= (L607) delete the
+=when topp= rolled-up block (step 1), replace step (2)'s =--count-badges= with
+the right-aligned =--dir-count-summary=, and indent the header + push doc rows
+one level deeper; add =org-air-project--dir-count-summary= +
+=org-air-project--state-letter= (the one-char state token); delete/repurpose
+=org-air-project--rolled-up-badges= (L572).  =org-air-project--state-face=
+already exists (it faces the letter).  Test seat: the no-double / parity /
+alignment / nesting ERTs + the project-view-dir re-bless.
+
+** Open questions (R22-6)
+- Show the per-dir DOC TOTAL too (e.g. =v0.1/ … 31=) next to the per-state
+  letters, like the rail summary?  Proposal: omit — the per-state cells already
+  sum to it and a total would re-widen the header; add only if the user asks.
+- Keep the state LETTER's hue, or render the whole summary in one faded tone
+  for maximum calm?  Proposal: keep a hair of hue on the letter (it disambiguates
+  states at a glance) but everything else faded; drop to mono if it still reads
+  busy in the screenshot.
+- Right-align the counts to a fixed column (proposed) vs trailing them right
+  after the name?  Proposal: right-align — it is the calm, scannable nano look
+  and it makes sibling dirs comparable at a glance.
+
+* R22-7 — view-pane filename/title + origin column contrast (still below AA after R21-6) [POLISH]
+
+** Reproduction — R21-6 fixed the base + title but left the filename FADED
+Opening the view pane (=RET=/=v= on an item → the editable indirect-buffer
+pane) shows a header-line =▤ <file> · <title> · <state>=.  R21-6 raised the
+pane-header BASE foreground and made the TITLE strong — but the filename + state
+segments are STILL explicitly faced =org-air-face-faded= in =org-air-view-pane--
+header-line= (org-air-view.el L3944/L3949):
+#+begin_src elisp
+(file  (propertize (file-name-nondirectory f) 'face 'org-air-face-faded))  ; L3944
+(title (propertize tt 'face 'org-air-face-pane-title))                     ; L3947 (strong, OK)
+(state (propertize s  'face 'org-air-face-faded))                          ; L3949
+#+end_src
+The explicit =org-air-face-faded= OVERRIDES the readable base the header-line
+face-remap (=--install-header-rule= L3986, remaps =header-line= →
+=org-air-face-pane-header=) provides, so the filename renders at the faded tone
+on the pane-header bg.  Measured WCAG contrast (relative luminance) against the
+pane-header bg (=#ECEAE4= light / =#353B47= dark):
+#+begin_src text
+file/state  faded  #90A4AE / #677691   on header bg   => 2.15:1 light / 2.45:1 dark   FAIL (needs 4.5)
+title       strong #263238 / #FFFFFF   on header bg   => 10.94:1 / 11.24:1            PASS  (R21-6 already)
+base        inspector-label #455A64/#D8DEE9            => 6.02:1 / 8.32:1              PASS
+#+end_src
+So the FILENAME (and state) are the near-invisible elements — exactly the
+report.  R21-6's own open question proposed "drop the explicit faded on the
+file/state segments so they inherit the readable base"; that half was never
+applied (the source still hard-codes =org-air-face-faded= there).  The title is
+already strong; it only LOOKS lost next to a header where the filename — the
+left-most, first-read element — is at 2.15:1.
+
+** Reproduction — the ORIGIN column is dim too
+The dashboard/project ORIGIN cells (rightmost file-path, e.g.
+=v0.1/natural-sorting-im…=) are faced =org-air-face-group= (org-air-view.el
+=--insert-item= L2147; project =--insert-doc-row=), which inherits
+=org-air-face-faded= (org-air-faces.el L421).  Measured on the BOARD default bg
+(=#FFFFFF= light / =#2E3440= dark):
+#+begin_src text
+origin/group faded  #90A4AE on #FFFFFF => 2.48:1   FAIL
+origin/group faded  #677691 on #2E3440 => 2.72:1   FAIL
+#+end_src
+Legible enough to glance, but below AA and visibly dim — the user's "reads quite
+dim too".
+
+** Decision — readable pane filename/title (faces only), a measured origin bump
+*** (1) Pane header: filename + state to the readable mid-tier; title stays strongest
+In =org-air-view-pane--header-line= face the filename + state (and the =·=
+separators + the =▤= icon + the close-key hint) with the mid-tier READABLE face
+already used by the pane-header base (=org-air-face-inspector-label=, 6.02:1 /
+8.32:1) instead of =org-air-face-faded=; keep the TITLE on =org-air-face-pane-
+title= (strong, ~11:1).  Equivalent and even simpler: DROP the explicit
+=org-air-face-faded= on those segments so they inherit the readable pane-header
+base via the existing remap (R21-6's intended-but-unapplied half).  Result — the
+title is the strongest element, the filename/state are clearly readable but
+quieter:
+#+begin_src text
+after — file/state on header bg:  6.02:1 light / 8.32:1 dark   PASS AA
+        title (strong) on header bg: 10.94:1 / 11.24:1         PASS (unchanged, still the salient one)
+#+end_src
+Faces only; the header TEXT contract (=▤ file · title · state · key close=) is
+unchanged, so the pane byte golden (which strips the header-line) holds.  This
+covers BOTH the snapshot pane and the editable indirect pane (both call
+=--header-line= via =--install-chrome= / =--render-snapshot=).
+*** (2) Origin column: a small, measured contrast bump (quieter than the title)
+Give the origin cells a face one tier above =faded= so they reach AA on the
+board bg while staying clearly below the title's strength.  Reuse the same mid-
+tier readable colour (=#455A64= light / =#D8DEE9= dark) — either by retinting
+=org-air-face-group= directly or (cleaner, no collateral on other =face-group=
+uses) introducing =org-air-face-origin= = that mid-tier and pointing the row's
+=:origin-face= at it (board =--insert-item= L2147 + project =--insert-doc-row=):
+#+begin_src text
+after — origin #455A64 on #FFFFFF => 6.02:1 ; #D8DEE9 on #2E3440 => ~7-8:1   PASS AA
+title  org-air-face-title (#37474F/#ECEFF4) stays higher-weight/the row salient
+#+end_src
+The origin stays the quiet right-edge metadata (mid-tier, not strong), just no
+longer sub-AA.  (=org-air-face-group= is also used as the project ORIGIN face,
+so a dedicated =org-air-face-origin= avoids retinting unrelated group labels;
+impl picks — the contract is "origin ≥ 4.5:1, quieter than the title".)
+
+** Byte / batch contract — byte-INVISIBLE
+The pane header-line is not buffer text (the pane golden strips it) and the
+origin face change is colour-only over UNCHANGED cell text.  Every board +
+project byte golden is byte-identical — a pure face change.
+
+** Testability (R22-7) — WCAG helper, like R21-6
+- ERT (pane filename, FAILS on trunk): with the reusable
+  =org-air-test--contrast= helper, assert the pane header FILENAME segment's
+  foreground vs the pane-header bg ≥ 4.5 in BOTH light and dark (2.15/2.45 →
+  6.02/8.32).  Same for the STATE segment.
+- ERT (title strongest): the pane title foreground vs the header bg ≥ 4.5 AND
+  strictly GREATER than the filename's contrast (title remains the salient
+  element).
+- ERT (origin): the origin face foreground vs the board default bg ≥ 4.5 in both
+  themes (2.48/2.72 → ≥6), AND ≤ the title's contrast (quieter than the title).
+- ERT (text unchanged): the =--header-line= visible text (properties stripped)
+  is still =▤ <file> · <title> · <state>= — proves faces-only.
+- No byte fixtures (chrome / faces are not buffer text).
+
+** Routing (R22-7)
+org-air-view.el: in =org-air-view-pane--header-line= (L3930) re-face file /
+state / separators / icon / close-key off =org-air-face-faded= to the readable
+mid-tier (or drop the explicit face so they inherit the pane-header base); point
+the row =:origin-face= at the bumped origin face in =--insert-item= (L2147).
+org-air-project.el: point =--insert-doc-row='s =:origin-face= at the same
+(currently =org-air-face-group=).  org-air-faces.el: add =org-air-face-origin=
+(mid-tier) if not retinting =org-air-face-group=.  Test seat: the contrast ERTs
+(reuse / extend the R21-6 =org-air-test--contrast= helper).
+
+** Open questions (R22-7)
+- Retint =org-air-face-group= vs add a dedicated =org-air-face-origin=?
+  Proposal: a dedicated =org-air-face-origin= (the origin is the only cell that
+  needs the bump; =face-group= is also a generic group label) — least
+  collateral.
+- Mid-tier (~6:1) vs strong (~10:1) for the pane filename?  Proposal: mid-tier
+  (AA + calm, keeps the title the single strongest token); bump to strong only
+  if the screenshot still reads dim.
+
+* R22-3 — dashboard sort (o/O), within buckets, mirroring the project's mechanism [FEATURE]
+
+** Reproduction — the board has no user sort; the project does
+The Actions rail on the board lists =c / / / s / g / TAB / ?= but no sort, and
+the board keymap binds =o= / =O= to VISIT, not sort (org-air-view.el L758 =o=
+→ =org-air-visit-item-stay=, L744 =O= → =org-air-visit-item=, a TTY alias of
+=S-RET=).  Items within a bucket are sorted ONLY by date — =org-air-view--
+render= calls =org-air-view--sort-by-date= per bucket (L1193) with no user
+control.  The PROJECT view, by contrast, has a full per-buffer sort: a key
+(=org-air-project--sort-key=, name/created/updated), a direction, =o= cycle /
+=O= reverse (=org-air-project-sort-cycle=/=-reverse= L1209/1220), a comparator
+funnel (=org-air-project--sort-section-docs= L843) and a top-right indicator
+=↕ <key> <dir>= (=org-air-project--sort-indicator= L849, rendered as =| name ^=
+in TTY).  The board should have the same — sorting WITHIN each bucket (buckets
+stay), with the same keys idiom.
+
+** Decision — extract a SHARED sort core into view-core; board + project consume it
+The project's sort plumbing is good but lives in =org-air-project.el= over
+=org-air-doc= accessors.  Per invariant #4 (reuse, don't fork) the cleanest
+design is to lift the GENERIC parts into =org-air-view-core= and have BOTH views
+consume them, so the two sorts cannot drift and the board gets the project's
+exact UX.
+
+*** (1) Shared sort STATE + commands (view-core)
+Add buffer-local =org-air-view--sort-key= / =org-air-view--sort-direction= and
+two generic commands that read a per-mode SORT SPEC (the ordered key list + the
+refresh fn) from buffer-locals, so one pair of commands drives both views:
+#+begin_src elisp
+(defvar-local org-air-view--sort-keys nil
+  "Ordered list of sort keys for THIS view (the board / the project sets it).")
+(defvar-local org-air-view--sort-refresh nil
+  "The per-mode refresh fn the sort commands call after changing key/dir.")
+
+(defun org-air-view-sort-cycle ()      ; bound to `o' in BOTH views
+  "Cycle to the next sort key for this view and refresh."
+  (interactive)
+  (let* ((keys org-air-view--sort-keys)
+         (cur  (or org-air-view--sort-key (car keys)))
+         (next (or (cadr (memq cur keys)) (car keys))))
+    (setq-local org-air-view--sort-key next)
+    (funcall org-air-view--sort-refresh)
+    (message "org-air: sort by %s" next)))
+
+(defun org-air-view-sort-reverse ()    ; bound to `O' in BOTH views
+  "Toggle the sort direction for this view and refresh."
+  (interactive)
+  (setq-local org-air-view--sort-direction
+              (if (eq org-air-view--sort-direction 'descending) 'ascending 'descending))
+  (funcall org-air-view--sort-refresh)
+  (message "org-air: sort %s" org-air-view--sort-direction))
+
+(defun org-air-view--sort-indicator-text (key dir)
+  "Return the shared `↕ <key> <dir>' badge text (the project's builder, lifted)."
+  ...) ; = the body of org-air-project--sort-indicator, parameterised on key+dir
+#+end_src
+Bind =o= → =org-air-view-sort-cycle= and =O= → =org-air-view-sort-reverse= in
+=org-air-view-core-map= (org-air-view.el L714) so BOTH the board and the project
+inherit them — the project's =org-air-project-sort-cycle/-reverse= are RETIRED
+in favour of the shared pair (its keys/refresh/indicator are seeded from the
+project spec, so its behaviour is unchanged).  The project already binds o/O to
+its sort, so this is a like-for-like swap there (R22-5 keeps them).
+
+*** (2) Board sort spec — keys, default, comparator
+The board seeds, in =org-air-view-mode=:
+- =org-air-view--sort-keys= = =(date priority title recency)= and
+  =org-air-view--sort-refresh= = =#'org-air-view--render-current=.
+- defcustoms =org-air-sort-key= (default =date=) + =org-air-sort-direction=
+  (default =ascending=) seed the buffer-locals.
+A board item comparator keyed on the active key, applied WITHIN each bucket:
+#+begin_src elisp
+(defun org-air-view--sort-items (items)
+  "Order ITEMS within a bucket by the active board sort key/direction (R22-3)."
+  (pcase (or org-air-view--sort-key org-air-sort-key)
+    ('date     (org-air-view--sort-by-date items))               ; the EXISTING order
+    ('priority (org-air-view--stable-sort items #'> #'org-air-view--item-priority-rank))
+    ('title    (org-air-view--stable-sort items #'string-lessp
+                                          (lambda (i) (downcase (or (org-air-item-title i) "")))))
+    ('recency  (org-air-view--stable-sort items #'time-less-p #'org-air-view--item-activity)))
+  ...) ; honour org-air-view--sort-direction (reverse for descending); stable tiebreak by title
+#+end_src
+Replace the per-bucket =org-air-view--sort-by-date= call (L1193) with
+=org-air-view--sort-items=.  *Default key = =date= reproduces today's within-
+bucket order exactly*, so the board byte goldens are byte-identical UNLESS a
+non-default sort is captured (then the test seat re-blesses that one fixture).
+Buckets are NEVER reordered — only the items inside each.
+
+*** (3) Indicator + Actions hint + mode-line
+- The board renders the shared =--sort-indicator-text= top-right of its banner,
+  exactly where the project shows =| name ^= (mirror the project's banner
+  placement) and on a rail line.
+- Add an Actions-rail verb cell =o/O sort= (=org-air-view--verb-cell= L2538) so
+  the verb is discoverable (the brief's "Actions hint").
+- The mode-line (=org-air-view--mode-line-content= L817) gains a =· sort <key>=
+  segment so the active sort is visible without the rail.
+
+*** (4) The displaced visit verbs
+=o= (visit-in-other-window-stay) and the =O= TTY visit alias move off those keys
+(now sort).  GUI visit stays on =S-RET= / =<S-return>=; the rare TTY-without-
+S-RET visit + the stay variant relocate under the =g= (goto) prefix
+(=org-air-g-prefix-map=, L785) as =g RET= (visit) / =g o= (visit-stay), keeping
+them reachable without shadowing the cross-view =o/O= sort.  (Open question on
+the exact relocation keys.)
+
+** Byte / batch contract — byte-invisible by DEFAULT
+The default sort key (=date=) yields the current within-bucket order, so every
+board golden is byte-identical out of the box.  The indicator + Actions verb +
+mode-line segment are GUI chrome / not part of the asserted board body text
+(the goldens strip the mode-line; the banner indicator IS body text — see open
+question, it may be added only when a non-default sort is active to keep the
+default goldens identical, OR the default-sort goldens are re-blessed once to
+carry a neutral =↕ date ↑= indicator, the test seat's call).
+
+** Testability (R22-3)
+- ERT (default order unchanged): with the default sort, a bucket's item order
+  equals =org-air-view--sort-by-date='s order (byte-identical default).
+- ERT (cycle): =org-air-view-sort-cycle= advances =date→priority→title→recency→
+  date= and =--sort-items= reorders a bucket accordingly (e.g. priority puts #A
+  before #C within the bucket; title alphabetises).
+- ERT (reverse): =org-air-view-sort-reverse= flips the direction and the within-
+  bucket order reverses (stable tiebreak holds).
+- ERT (buckets intact): the SET of buckets and their membership are unchanged
+  across any sort (only intra-bucket order changes).
+- ERT (shared): the board and project both bind =o=/=O= to =org-air-view-sort-
+  cycle=/=-reverse= (one pair) and both produce a =↕ <key> <dir>= indicator via
+  the shared builder.
+- ERT (indicator): the indicator text reflects the active key + direction
+  glyph.
+- Re-bless only a NON-default-sort board fixture if one is captured (test seat).
+
+** Routing (R22-3)
+org-air-view.el: add the shared sort state + =org-air-view-sort-cycle=/=-reverse=
++ =--sort-indicator-text= (lift =org-air-project--sort-indicator='s body) +
+=org-air-view--sort-items= + =org-air-sort-key=/=-direction= defcustoms; bind
+=o=/=O= in =org-air-view-core-map= (L714); seed the board spec in
+=org-air-view-mode=; swap the L1193 sort call; render the indicator in the
+banner + a rail line; add the Actions verb cell + the mode-line segment; relocate
+visit/visit-stay under =g=.  org-air-project.el: seed =--sort-keys= /
+=--sort-refresh= / =--sort-key= / =--sort-direction= from the project spec and
+RETIRE =org-air-project-sort-cycle/-reverse= (the shared pair replaces them);
+keep =--sort-section-docs= / =--doc-compare= as the project's comparator.  Test
+seat: the cycle/reverse/buckets-intact/shared ERTs.
+
+** Open questions (R22-3)
+- Render the banner indicator ALWAYS (re-bless the default board goldens once to
+  carry =↕ date ↑=) or only when a non-default sort is active (keep defaults
+  byte-identical)?  Proposal: ALWAYS, one blessed re-bless — it matches the
+  project (which always shows it) and the consistency is the point; the test
+  seat owns the diff.
+- =priority= sort direction semantics: ascending = #A first (hottest) or last?
+  Proposal: ascending = #A first (most urgent on top), matching the high-
+  priority bucket's intuition; =O= flips it.
+- =recency= source: the item's =updated= stamp if present else file mtime (the
+  =org-air-classify--last-activity= signal already used for the Stale bucket) —
+  reuse it so "recency" means the same thing everywhere.
+
+* R22-5 — project view: wire | (rail toggle) + confirm v/V/RET-pane show the doc [FEATURE]
+
+** Reproduction — v/V/RET ARE inherited and WORK; | is unbound; the toggle is board-only
+The brief asks to verify what the project keymap actually binds.  Measured
+(source, =load-prefer-newer=, =M-x org-air-project= over =tests/fixtures/air-
+project=):
+#+begin_src text
+key o    -> undefined            ; (the stale .elc bound o/O/s/d/t; the SOURCE does not)
+key O    -> undefined
+key v    -> org-air-view-pane          (inherited from org-air-view-core-map)
+key V    -> org-air-view-pane-close     (inherited)
+key RET  -> org-air-view-pane-return    (inherited)
+key |    -> undefined              <-- the gap
+doc@point = t   marker = …/air-project/v0.1/air-context/gamma-context.org
+org-air-view-pane on a doc: OK (pane buffer created; resolves the doc's FILE)
+#+end_src
+So v/V/RET-pane ARE bound (via =org-air-view-core-map=, L724-727) and resolve
+the doc: =org-air-view-pane--context-at-point= has a =org-air-doc= branch (org-
+air-view.el L3870) returning =:marker= = the doc FILE, and =--source-buffer-pos=
+(L3882) opens a filepath marker with =pos= nil → the pane shows the WHOLE Org
+file (widened).  The user's "no view pane" is the STALE binary (or not finding
+the keys); the real, confirmed gaps are:
+1. =|= is UNDEFINED on the project (and on =org-air-view-core-map=); the board
+   binds it only in its OWN map (org-air-view.el L794).
+2. =org-air-rail-toggle= (L3588) is BOARD-ONLY: it guards =(unless (derived-
+   mode-p 'org-air-view-mode) (user-error "Not in an org-air board buffer"))=,
+   uses the board-local =org-air-view--rail-popped-out=, and calls the board
+   =org-air-view--render-current=.  So merely BINDING =|= on the project would
+   error — the toggle itself must be generalised.
+The project DOES have a rail to pop: =org-air-project--two-pane-body= (L973)
+composes the doc pane =|= a project rail (Summary + Inspector + Actions +
+Calendar) above =org-air-rail-min-width=.
+
+** Decision — generalise the rail toggle to both views; bind | in view-core
+*** (1) Promote | into the shared map
+Move =(define-key map (kbd "|") #'org-air-rail-toggle)= from =org-air-view-mode-
+map= (L794) into =org-air-view-core-map= (L714), so BOTH the board and the
+project inherit it (one binding, no fork; the board's own binding is removed as
+redundant).
+*** (2) Make =org-air-rail-toggle= view-agnostic
+Replace the board-only guard + board re-render with the shared per-mode seam
+that already exists (=org-air-layout-refresh-function= — the board sets it to
+its resize-refresh, the project sets =org-air-project--resize-refresh=, org-air-
+project.el L1322), and a SHARED popped-out flag:
+#+begin_src elisp
+(defun org-air-rail-toggle ()
+  "Toggle the context rail inline <-> side window in the board OR project (R22-5)."
+  (interactive)
+  (unless (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
+    (user-error "Not in an org-air board or project buffer"))
+  (setq-local org-air-view--rail-popped-out (not org-air-view--rail-popped-out))
+  (if org-air-view--rail-popped-out
+      (progn (org-air-view--refresh-current)      ; dispatch: board or project render
+             (when org-air-rail-focus-on-popout … select the side window))
+    (org-air-rail--hide (current-buffer))
+    (org-air-view--refresh-current)))
+#+end_src
+where =org-air-view--refresh-current= dispatches on mode (board → =org-air-view
+--render-current=; project → =org-air-project--render-current= / =org-air-
+project-refresh=).  The project render path must honour =org-air-view--rail-
+popped-out=: when set, render the doc pane LEFT-ONLY at the shrunk width and
+push the project rail into the shared =*org-air-rail*= side window — reusing the
+SAME rail side-window primitives the board uses (=org-air-rail--show= / =--hide=
+/ the compositing), since both rails are built through =org-air-view--insert-
+rail= / the shared rail helpers.  (=org-air-rail--reconcile= already lives on the
+project too via the shared hooks.)
+*** (3) Confirm + lock the pane shows the doc's whole file
+v/V/RET-pane already resolve the doc; add a regression test that =org-air-view-
+pane= on a project doc row opens the pane on the doc's Org FILE from the top
+(=pos= nil → widened), so "RET opens the pane showing the project DOC" is
+guaranteed and cannot regress.  No code change needed beyond the test if the
+doc branch keeps returning the file marker.
+
+** Byte / batch contract — byte-invisible
+Keymap + interactive toggle + side-window layout are GUI/interactive and inert
+under =noninteractive=; the project body TEXT is unchanged.  Every project (and
+board) byte golden is byte-identical.  (The board's =|= binding moving up to
+the shared map does not change behaviour — the board still toggles its rail.)
+
+** Testability (R22-5)
+- ERT (bindings): in BOTH =org-air-view-mode= and =org-air-project-mode=,
+  =(key-binding (kbd "|"))= = =org-air-rail-toggle=, and =v/V/RET= resolve to the
+  shared pane commands (proves the project inherits the full pane + rail-toggle
+  set).
+- ERT (toggle no error in project): calling =org-air-rail-toggle= in a project
+  buffer flips =org-air-view--rail-popped-out= and re-renders WITHOUT the board-
+  only =user-error= (it errored on trunk) — and toggling back restores inline.
+- ERT (pane shows doc file): =org-air-view-pane= on a project doc row yields a
+  pane whose source buffer visits the doc's FILE, shown from =point-min=
+  (whole-file, widened) — locks "RET opens the doc pane".
+- ERT (board unaffected): the board's =|= still toggles its rail (the binding
+  moved maps, behaviour identical).
+- No byte fixtures (keymap / interactive / point).
+
+** Routing (R22-5)
+org-air-view.el: move =|= → =org-air-view-core-map= (from L794); generalise
+=org-air-rail-toggle= (L3588) to board+project via =org-air-view--refresh-
+current= dispatch + the shared =org-air-view--rail-popped-out=.  org-air-
+project.el: honour =org-air-view--rail-popped-out= in the project render (left-
+only + rail to the side window, reusing the shared rail side-window primitives);
+provide =org-air-project--render-current= for the dispatch.  Test seat: the
+bindings / toggle-no-error / pane-shows-file / board-unaffected ERTs.
+
+** Open questions (R22-5)
+- Does the project render need ANY new code to push its rail to the side window,
+  or does the shared =org-air-rail--show/--hide= already accept a project host?
+  Verify during impl; if the rail compositing is fully shared (it is built via
+  =org-air-view--insert-rail= + =--compose-columns=), the generalisation is just
+  the toggle + the popped-out branch in the project render.
+- Should =o/O= (project SORT, present in the dogfooded binary) be RE-BOUND on the
+  project as part of R22-3's shared sort core?  Proposal: yes — R22-3 binds
+  =o/O= in =org-air-view-core-map=, so the project gets the shared sort
+  automatically; R22-5 just ensures =|=/=v=/=V=/=RET= are not shadowed.
+
+* R22-4 — scope vs filter clarity: both rail blocks say "all items" [POLISH]
+
+** Reproduction — the two roles are already separated in BEHAVIOUR but not in WORDS
+The user has asked three times to tell SCOPE from FILTER because they LOOK
+identical.  Measured (source) — the rail's =org-air-view--insert-rail-filters=
+(org-air-view.el L2490) renders, with nothing active:
+#+begin_src text
+Filter
+  No filters · all items          <- says "all items"
+Scope
+  all items                       <- ALSO says "all items"
+#+end_src
+and the mode-line (=--mode-line-content= L817) reads
+=org-air · N items · no filter · scope all items= — again "all items" twice.
+The canonical meaning IS already implemented distinctly:
+- SCOPE (=s=) is a purely STRUCTURAL source lens — =org-air-scope= (L4942)
+  offers =all / @group / ⌂ file= ONLY; the =#tag= option was DROPPED in R19-4d
+  (the comment at L4951 is explicit: "Scope is a purely STRUCTURAL lens now …
+  Tags belong entirely to =/=").  So the brief's option (iii) "fold tag-scope
+  into filter" is ALREADY shipped — scope no longer overlaps tags.
+- FILTER (=/=) is the live tag lens — AND/OR (=M-/=), =\\= clears.
+The ONLY remaining confusion is WORDING + visual: both empty-states say "all
+items", and =--scope-label= (L2482) returns the bare "all items" with no cue
+that it is the SOURCE/DATASET selector.  So this is a labelling fix, not a
+behaviour change.
+
+** Decision — name SCOPE as the SOURCE/DATASET (with a count); FILTER as the lens
+Make each block self-evident by VERB + a count, and give them distinct visual
+language.  No behaviour change (the fold is done).
+
+*** (1) FILTER block = the live tag lens; empty-state stops claiming the dataset
+- Empty: =none= (faded) — drop "· all items" (the dataset is Scope's job).
+- Active: the tag PILLS joined by the combinator word (=#a AND #b=), then
+  =Match: AND   M-/ toggles · \\ clears= — unchanged, already clear.
+- When a filter narrows the loaded set, append =N of M shown= (visible-after-
+  filter of loaded-under-scope) so the lens reports what it removed.
+- Visual: keep the lens = tag PILLS (the existing svg tag idiom).
+
+*** (2) SCOPE block = the SOURCE selector, named and counted
+- Rename the rail header =Scope= → =Source= (the word the user keeps reaching
+  for) — it is a SOURCE/DATASET selector, not a second filter.
+- Value reads as a dataset + a count:
+  - no scope: =all items · M loaded=
+  - group:    =@group · M loaded= (=M= = items the org-ql scope returned)
+  - file:     =⌂ file.org · M loaded=
+  then =s changes · S clears= when a scope is active.
+- Visual: a DATASET chip — a distinct leading glyph (=⊟= / the source glyph) and
+  the dataset face (e.g. =org-air-face-group=/the bumped origin face), visibly
+  different from the filter's tag pills, so "source vs lens" reads at a glance.
+The verbs in the value separate too: SOURCE teaches =s/S= (re-runs org-ql),
+FILTER teaches =/ \\ M-/= (instant, no reload) — so the distinction (reload vs
+live) is taught in-line.
+
+*** (3) Mode-line + Actions hint
+- Mode-line: =org-air · N items · filter <none|#a AND #b> · source <all items|⌂
+  file.org>= — relabel =scope= → =source= and =no filter= → =filter none=, so
+  the two segments no longer both read "all items" (=--mode-line-filter-text=
+  L807 and the =scope= segment L831).
+- Actions rail hint: distinguish the two verbs explicitly — =/ filter (tags)= and
+  =s source (file/group)= — instead of a bare =s scope=.
+
+** Byte / batch contract — a SMALL, deliberate rail/mode-line re-bless
+The rail block TEXT changes ("No filters · all items"→"none"; "Scope"→"Source";
+"all items"→"all items · M loaded"), so any board golden that captures the rail
+(the two-pane fixtures with =org-air-show-rail-filters= on) re-blesses via =make
+regen-mockups= — a small, design-blessed diff (test seat).  The mode-line is not
+buffer text (goldens strip it), so that part is byte-invisible.  Item BODY rows
+are untouched.
+
+** Testability (R22-4)
+- ERT (no "all items" in Filter): with no filter + no scope, the Filter block
+  text is =none= and does NOT contain "all items"; the Source block contains
+  "all items" exactly once with a loaded count.
+- ERT (Source naming): the rail header reads =Source= (not =Scope=); with a file
+  scope the value reads =⌂ <file> · M loaded= and teaches =s/S=.
+- ERT (Filter narrowing count): with a filter active the block reports =N of M
+  shown= where M = loaded-under-scope, N = visible-after-filter.
+- ERT (mode-line): =--mode-line-content= contains =source = (not =scope =) and
+  =filter = and never the same "all items" phrase in both segments.
+- ERT (behaviour unchanged): =org-air-scope= candidates are still
+  =all/@group/⌂file= (no =#tag=) — the fold stays; tags remain the Filter's job.
+- RE-BLESS the rail-bearing board fixtures to the new wording (test seat).
+
+** Routing (R22-4)
+org-air-view.el: in =org-air-view--insert-rail-filters= (L2490) reword the empty
+Filter state to =none=, rename the Scope header to =Source= and build the
+dataset value + count + distinct chip; add the loaded/shown counts (=length
+org-air-view--items= for M, the visible count for N); reword =--mode-line-
+content= (L817/L831) =scope=→=source=, =no filter=→=filter none=; reword the
+Actions verb cells.  org-air-faces.el: optionally a dataset-chip face (or reuse
+the R22-7 origin face).  Test seat: the wording / count / behaviour ERTs + the
+rail re-bless.
+
+** Open questions (R22-4)
+- Rename the rail header to =Source= (proposed, clearest) vs keep =Scope= and
+  only reword the value?  Proposal: rename to =Source= — the user reaches for
+  "source/dataset", and "Scope" reading as a filter is the whole confusion.
+  Keep =org-air-scope=/=org-air-scope-clear= command NAMES (muscle memory) but
+  label the UI "Source".
+- Show =M loaded= always (even unscoped) or only when scoped?  Proposal: always
+  — the count is the strongest "this is the dataset" signal and disambiguates
+  from the Filter block at a glance.
+
+* History
+- 2026-06-26: Design round-22 authored (state ready).  Seven items specced
+  impl-ready after dogfooding R21 against the demo board + the real Air repo
+  (=~/Coding/github.com/withre/air=).  Each item carries a measured
+  reproduction (run against the =.el= SOURCE via =load-prefer-newer=, since the
+  shipped =.elc= is stale), an exact-function/line impl SPEC, a byte/batch
+  contract, acceptance ERTs and routing.  Committed per-item (=R22= prefix):
+  R22-2 (cursor/RET take-3 — line-based row resolution + dead-column
+  normalise), R22-1 (priorities A–E + the explicit-#B parser fix), R22-6
+  (project grouping: one header/dir + quiet aligned counts + real indent),
+  R22-7 (view-pane filename/origin contrast to AA, measured), R22-3 (dashboard
+  sort via a shared view-core sort core), R22-5 (project | rail-toggle
+  generalised + pane confirmed), R22-4 (scope→Source / filter wording +
+  counts).  Cross-item notes: R22-2/R22-5 reuse the line-based row resolver +
+  the shared view-core map; R22-3/R22-5 both extend the shared view-core
+  (sort core; generalised rail-toggle) rather than fork; R22-1/R22-6 carry
+  scoped, design-blessed re-blesses; R22-2/R22-4/R22-7 compose with the R21
+  fixes (R21-1 column-restore, R21-2 title-mark, R21-6 contrast) without
+  fighting them.

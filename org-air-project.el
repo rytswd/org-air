@@ -62,13 +62,6 @@ Integer pins an exact composition width (the batch/test seam, mirroring
   :type '(choice (const :tag "Live window" nil) integer)
   :group 'org-air)
 
-(defcustom org-air-project-line2-indent 2
-  "Extra indent (cols) of a doc block's second line under its title (R14 D-P1.A).
-The `▤ relpath  created… updated…' detail line sits this many columns to
-the right of the title so it reads as a secondary detail of line 1."
-  :type 'integer
-  :group 'org-air)
-
 (defcustom org-air-project-show-inspector t
   "When non-nil, the project view hosts a mid-rail inspector (R14 D-P1.B).
 Mirrors `org-air-show-inspector' for the board: above
@@ -271,14 +264,6 @@ with the stateless directory-summary bodies."
 ;;;; Badges / glyphs
 ;;;; ---------------------------------------------------------------------
 
-(defun org-air-project--state-badge (state)
-  "Return the display badge string for STATE (emoji on GUI, else TTY text)."
-  (let ((pair (cdr (assoc state org-air-project-state-badges))))
-    (cond
-     ((null pair) (format "[%s]" (upcase (substring state 0 1))))
-     ((display-graphic-p) (car pair))
-     (t (cdr pair)))))
-
 (defun org-air-project--state-face (state)
   "Return the face for STATE's badge."
   (pcase state
@@ -381,8 +366,8 @@ task row share column positions (board parity, invariant #4)."
 (defun org-air-project--state-token (state)
   "Return the terse TTY/byte state token for STATE (e.g. \"[R]\"; R21-5).
 This is the bracket token the board/project byte contract shows; R21-4
-overlays the svg keyword/state badge on it for GUI.  Unlike
-`org-air-project--state-badge' it never returns the GUI emoji."
+overlays the svg keyword/state badge on it for GUI; it never returns an
+emoji (R21.1 retired the GUI state-emoji path entirely)."
   (let ((pair (cdr (assoc state org-air-project-state-badges))))
     (if pair (cdr pair)
       (format "[%s]" (upcase (substring state 0 1))))))
@@ -408,14 +393,6 @@ keyword/state badge on GUI."
   (concat (org-air-view--pad-to
            (org-air-project--state-badge-cell state)
            org-air-project--state-cell-w)
-          " "))
-
-(defun org-air-project--state-chip (doc)
-  "Return a small leading state chip for DOC (dir/tag modes; D-P5.C).
-When grouping by something other than state, the state is no longer the
-section, so each row's prefix carries the doc's state as a small chip."
-  (concat (propertize (org-air-project--state-badge (org-air-doc-state doc))
-                      'face (org-air-project--state-face (org-air-doc-state doc)))
           " "))
 
 ;;;; ---------------------------------------------------------------------
@@ -729,62 +706,6 @@ identifier--slug__tags.org; `org-air-view--pad-to' still bounds line 2."
          (title (or (org-air-view--denote-title leaf) leaf)))
     (concat (or dir "") title)))
 
-(defun org-air-project--doc-dates-str (doc)
-  "Return the quiet `created …    updated …' detail for DOC (R14 D-P1.A)."
-  (let* ((created (org-air-doc-created doc))
-         (updated (org-air-doc-updated doc))
-         (parts (delq nil
-                      (list (when created
-                              (format "created %s" (format-time-string "%F" created)))
-                            (when updated
-                              (format "updated %s" (format-time-string "%F" updated)))))))
-    (propertize (mapconcat #'identity parts "    ") 'face 'org-air-face-faded)))
-
-(defun org-air-project--insert-doc-block (doc width &optional show-state indent-cols)
-  "Insert DOC as a TWO-LINE left-flowing block (R14 D-P1.A) fitted to WIDTH.
-INDENT-COLS (R20-5) adds extra leading columns so a doc nests visibly
-under its directory in the tree view (0 = the historical 2-col indent).
-Line 1 = <indent><state-chip?>Title  #tag #tag (calm pills, NOT
-right-pinned; the title truncates LAST).  Line 2 = <indent+line2-indent>
-▤ relpath    created …    updated … (quieter, the document svg-file-icon
-overlays the ▤ cell; the filename is NOT right-aligned).  Both lines carry
-`org-air-doc' + `org-air-marker' so point on EITHER identifies the doc.
-SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
-  (let* ((start (point))
-         (indent (make-string (+ 2 (max 0 (or indent-cols 0))) ?\s))
-         (l2-indent (concat indent (make-string (max 0 org-air-project-line2-indent) ?\s)))
-         ;; line 1: indent + state-chip? + title + inline tags.
-         (chip (if show-state (org-air-project--state-chip doc) ""))
-         (tagstr (org-air-project--doc-tagstr doc))
-         (gap (if (string-empty-p tagstr) "" "  "))
-         (l1-prefix (concat indent chip))
-         (avail (max 1 (- width (string-width l1-prefix)
-                          (string-width gap) (string-width tagstr))))
-         (title (org-air-doc-name doc))
-         (title (if (<= (string-width title) avail)
-                    title
-                  (truncate-string-to-width title avail nil nil
-                                            (org-air-view--glyph 'more))))
-         (line1 (concat l1-prefix (propertize title 'face 'org-air-face-title)
-                        gap tagstr))
-         ;; line 2: indented ▤ relpath + created/updated.  R17 D-P2:
-         ;; de-slug the Denote LEAF of the relpath (keep the dir prefix) so
-         ;; a long Denote name reads as its title, not the raw id+slug.
-         (origin-glyph (org-air-layout-glyph 'origin))
-         (file-cell (org-air-view--svg-file-icon origin-glyph))
-         (relpath (propertize
-                   (org-air-project--deslug-relpath (org-air-doc-relpath doc))
-                   'face 'org-air-face-faded))
-         (line2 (concat l2-indent file-cell " " relpath "    "
-                        (org-air-project--doc-dates-str doc))))
-    (insert (org-air-view--pad-to line1 width) "\n")
-    (insert (org-air-view--pad-to line2 width) "\n")
-    (add-text-properties start (point)
-                         (list 'org-air-doc doc
-                               'org-air-marker (org-air-doc-file doc)
-                               'mouse-face 'org-air-face-cursor
-                               'font-lock-face 'org-air-face-title))))
-
 (defun org-air-project--insert-doc-row (doc _width &optional indent-cols)
   "Insert DOC as ONE board-style row via the shared primitive (R21-5).
 Maps DOC onto `org-air-view--insert-row' exactly as the board maps a task
@@ -794,8 +715,8 @@ cell, the #tags the SAME svg pills as the board, and the relpath the
 right-justified ORIGIN cell.  INDENT-COLS nests the row under its
 directory in the tree.  The whole row carries `org-air-doc' +
 `org-air-marker' so point on ANY cell identifies the doc (RET/visit still
-resolve).  Replaces the old two-line `org-air-project--insert-doc-block'
-body so the project rows match the board's clean one-line table."
+resolve).  Replaced the old two-line doc block (R21-5) so the project rows
+match the board's clean one-line table."
   (let* ((state  (org-air-doc-state doc))
          (prefix (concat (org-air-view--item-margin)
                          (make-string (max 0 (or indent-cols 0)) ?\s)

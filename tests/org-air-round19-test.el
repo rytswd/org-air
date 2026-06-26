@@ -6,13 +6,11 @@
 ;; impl (no fixture re-derivation — the byte goldens are re-blessed in the
 ;; regen commit; these are behaviour/assertion tests):
 ;;
-;;   R19-1  async first load — chrome paints BEFORE the org-ql query runs,
-;;          the deferred batches accumulate, and the final render is
-;;          byte-identical to the one-shot synchronous render.  Driven
-;;          synchronously so the batch run never hangs (the idle timer
-;;          `org-air-view--load-async' schedules never fires under
-;;          `noninteractive'; we pump `--load-step' by hand and cancel any
-;;          leftovers).
+;;   R19-1  cold first load — the `org-air-query-items-in-files' subset
+;;          building block and the chrome-only loading skeleton survive
+;;          R20-1; the chained-idle-timer loader is gone (its async ERTs
+;;          moved to org-air-round20-test.el as the synchronous fast-paint
+;;          contract).
 ;;   R19-2  refile UX — the prompt SHOWS the current tags, the edit-tags
 ;;          step PRE-FILLS them, and move-to-another-file actually
 ;;          RELOCATES the heading (incl. the directory-source decode bug
@@ -40,20 +38,6 @@
 ;;;; ---------------------------------------------------------------------
 ;;;; Shared helpers.
 ;;;; ---------------------------------------------------------------------
-
-(defun org-air-r19--drive-load (buffer)
-  "Pump the async first load in BUFFER to completion, SYNCHRONOUSLY.
-Calls `org-air-view--load-step' with the live token until the load clears
-`org-air-view--loading' — the design's async-equals-sync drive (the idle
-timer never fires under `noninteractive', so this can never hang).  Cancels
-any timers the loader scheduled afterwards so nothing leaks across tests."
-  (with-current-buffer buffer
-    (let ((token org-air-view--load-token) (guard 0))
-      (while (and org-air-view--loading (< guard 200))
-        (org-air-view--load-step buffer token)
-        (cl-incf guard))
-      (should (< guard 200))))
-  (cancel-function-timers #'org-air-view--load-step))
 
 (defmacro org-air-r19--with-temp-org (spec &rest body)
   "Bind dir/files per SPEC, write them, run BODY, clean up buffers + dir.
@@ -109,101 +93,6 @@ batchable building block the timer-chunked loader stands on)."
         (should subset-titles)
         (should (equal subset-titles full-restricted))))))
 
-(ert-deftest org-air-r19-1-async-paints-chrome-before-query-completes ()
-  "The frame/chrome PAINTS before the query runs, then the deferred batches
-fill in the real board.  `org-air-view--load-async' renders the loading
-skeleton and schedules the FIRST batch on an idle timer (inert in batch);
-at that instant the board shows `Loading your board…' with NO items, then
-pumping the steps swaps in the real content."
-  (skip-unless (locate-library "org-air"))
-  (org-air-test-with-fixtures
-    (org-air-viewport-test--with-frozen-now
-      (let ((org-air-view-width 120)
-            (org-air-view-height 50)
-            (org-air-view-load-batch 1)         ; force MANY batches
-            (buf (get-buffer-create "*org-air-r19-async*")))
-        (unwind-protect
-            (with-current-buffer buf
-              (org-air-view-mode)
-              ;; cold buffer: no items cached yet.
-              (should (null org-air-view--items))
-              (org-air-view--load-async buf)
-              ;; (1) chrome is up BEFORE any query ran:
-              (should org-air-view--loading)
-              (should (null org-air-view--load-accum)) ; nothing queried yet
-              (let ((skeleton (substring-no-properties (buffer-string))))
-                (should (string-match-p "Loading your board" skeleton))
-                ;; the real board content has NOT appeared.
-                (should-not (string-match-p "Ship quarterly report" skeleton)))
-              ;; (2) drive the deferred batches; the final render swaps in.
-              (org-air-r19--drive-load buf)
-              (should-not org-air-view--loading)
-              (should org-air-view--items)
-              (let ((final (substring-no-properties (buffer-string))))
-                (should-not (string-match-p "Loading your board" final))
-                (should (string-match-p "Ship quarterly report" final))))
-          (cancel-function-timers #'org-air-view--load-step)
-          (when (buffer-live-p buf) (kill-buffer buf)))))))
-
-(ert-deftest org-air-r19-1-async-render-equals-sync-render ()
-  "The async loader can never diverge from the source of truth: driven to
-completion, the board buffer is BYTE-IDENTICAL to a one-shot synchronous
-`org-air-view--render (org-air-query-items)' (the correctness net)."
-  (skip-unless (locate-library "org-air"))
-  (org-air-test-with-fixtures
-    (org-air-viewport-test--with-frozen-now
-      (let ((org-air-view-width 120)
-            (org-air-view-height 50)
-            (org-air-view-load-batch 1)
-            (sync-buf (get-buffer-create "*org-air-r19-sync*"))
-            (async-buf (get-buffer-create "*org-air-r19-async2*")))
-        (unwind-protect
-            (let (sync async)
-              (with-current-buffer sync-buf
-                (org-air-view-mode)
-                (org-air-view--render (org-air-query-items) nil)
-                (setq sync (substring-no-properties (buffer-string))))
-              (with-current-buffer async-buf
-                (org-air-view-mode)
-                (org-air-view--load-async async-buf)
-                (org-air-r19--drive-load async-buf)
-                (setq async (substring-no-properties (buffer-string))))
-              (should (> (length sync) 0))
-              (should (equal sync async)))
-          (cancel-function-timers #'org-air-view--load-step)
-          (when (buffer-live-p sync-buf) (kill-buffer sync-buf))
-          (when (buffer-live-p async-buf) (kill-buffer async-buf)))))))
-
-(ert-deftest org-air-r19-1-async-stale-token-cancels ()
-  "A newer load/refresh (a bumped `--load-token') makes an in-flight
-`--load-step' a NO-OP: it neither accumulates items nor finishes the load,
-so a superseded load can never clobber a fresh one (cancellation)."
-  (skip-unless (locate-library "org-air"))
-  (org-air-test-with-fixtures
-    (org-air-viewport-test--with-frozen-now
-      (let ((org-air-view-width 120)
-            (org-air-view-height 50)
-            (org-air-view-load-batch 1)
-            (buf (get-buffer-create "*org-air-r19-cancel*")))
-        (unwind-protect
-            (with-current-buffer buf
-              (org-air-view-mode)
-              (org-air-view--load-async buf)
-              (let ((stale org-air-view--load-token)
-                    (accum-before org-air-view--load-accum)
-                    (remaining-before org-air-view--load-remaining))
-                ;; a refresh/reopen bumps the token.
-                (setq org-air-view--load-token (1+ org-air-view--load-token))
-                ;; the stale step is inert: no accumulation, no progress.
-                (org-air-view--load-step buf stale)
-                (should (equal org-air-view--load-accum accum-before))
-                (should (equal org-air-view--load-remaining remaining-before))
-                ;; and it did NOT finish the load.
-                (should org-air-view--loading)
-                (should (null org-air-view--items))))
-          (cancel-function-timers #'org-air-view--load-step)
-          (when (buffer-live-p buf) (kill-buffer buf)))))))
-
 (ert-deftest org-air-r19-1-loading-skeleton-is-chrome-only ()
   "The loading skeleton is a deterministic chrome paint: banner + rule +
 a centred `Loading your board…' body + footer, sized to the render seam,
@@ -217,9 +106,7 @@ carrying NO item rows."
         (unwind-protect
             (with-current-buffer buf
               (org-air-view-mode)
-              (setq org-air-view--loading t
-                    org-air-view--load-total 50
-                    org-air-view--load-remaining (make-list 38 nil)) ; 12/50
+              (setq org-air-view--loading t)
               (org-air-view--render-loading)
               (let ((text (substring-no-properties (buffer-string))))
                 (should (string-match-p "Loading your board" text))

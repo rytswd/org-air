@@ -499,24 +499,6 @@ off-screen (D4)."
   :type '(choice (const :tag "Default (full-width)" nil) sexp)
   :group 'org-air)
 
-(defcustom org-air-view-load-batch 8
-  "Files queried per idle-timer tick during the cold async first load (R19-1).
-A cold `org-air-view' paints the chrome immediately, then runs the org-ql
-query over `org-air-query-files' in batches of this many files on an idle
-timer, keeping the frame responsive.  Larger = fewer ticks but longer
-per-tick pauses; smaller = smoother but more ticks.  Inert under
-`noninteractive' (batch takes the synchronous path)."
-  :type 'integer
-  :group 'org-air)
-
-(defcustom org-air-view-load-progressive nil
-  "When non-nil, re-render accumulated items each batch during async load.
-The board \"fills in\" as files are queried (R19-1).  Default nil: paint a
-calm loading skeleton with a live file-count, then do ONE real render when
-the query completes (no mid-load reflow churn)."
-  :type 'boolean
-  :group 'org-air)
-
 (defcustom org-air-layout-style 'rule
   "Rule and box treatment for the org-air viewport layout."
   :type '(choice (const plain) (const rule) (const boxed))
@@ -615,19 +597,11 @@ item objects; explicitly cleared on day-rollover and refresh.")
 (defvar-local org-air-view--classify-cache-day nil
   "`time-to-days' the classify cache was built for; a rollover clears it.")
 (defvar-local org-air-view--loading nil
-  "Non-nil while the cold first-load async query is in flight (R19-1).
-When set, the banner shows a `loading N/M' progress segment and the
-data-dependent commands soft-error via `org-air-view--loading-guard'.")
-(defvar-local org-air-view--load-token 0
-  "Generation counter for the async first load (R19-1).
-A newer load/refresh bumps it; an in-flight `org-air-view--load-step'
-with a stale token is a no-op (cancellation).")
-(defvar-local org-air-view--load-remaining nil
-  "Files still to query in the async first load (R19-1).")
-(defvar-local org-air-view--load-total 0
-  "Total file count for the in-flight async first load (R19-1).")
-(defvar-local org-air-view--load-accum nil
-  "Items gathered so far across batches of the async first load (R19-1).")
+  "Non-nil during the brief synchronous fast-paint window of a cold load (R20-1).
+`org-air-view' sets it around the `redisplay'-then-query body so a stray
+data-dependent command in that window soft-errors via
+`org-air-view--loading-guard'; it is always cleared by the body's
+`unwind-protect', so the board can never wedge in a loading state.")
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
 (defvar-local org-air-view--day nil
@@ -1175,16 +1149,13 @@ keeping the date."
          ;; assembled width is unchanged (propertize never alters it).
          (date (propertize (format-time-string "%a %d %b" (current-time))
                            'face 'org-air-face-header-date))
-         ;; R19-1: during the cold async first load the count slot becomes a
-         ;; live `loading N/M' progress segment instead of the item count.
+         ;; R20-1: during the brief synchronous fast-paint window the count
+         ;; slot shows a static `loading…' cue instead of the item count.
          ;; `org-air-view--loading' is nil on every normal render, so this
          ;; collapses to the unchanged item count (byte-identical).
          (count (propertize
                  (if org-air-view--loading
-                     (format " · loading %d/%d"
-                             (max 0 (- org-air-view--load-total
-                                       (length org-air-view--load-remaining)))
-                             (max 0 org-air-view--load-total))
+                     " · loading…"
                    (format " · %d items" (length (org-air-view--visible-items items))))
                  'face (if (and (not org-air-view--loading) org-air-header-accent-count)
                            'org-air-face-count 'org-air-face-faded)))
@@ -4274,11 +4245,11 @@ body fill the height, so a height change must re-pad too)."
       (org-air-view--render-current))))
 
 (defun org-air-view--render-loading (&optional _progress)
-  "Paint the chrome-only loading skeleton for the cold async first load (R19-1).
+  "Paint the chrome-only loading skeleton for the cold fast-paint load (R20-1).
 Reuses the banner + rule + footer bands at `board-only' orientation with a
-single centred \"Loading your board…\" body line and a live file-count in
-the banner (driven by `org-air-view--load-remaining'/`--load-total').  The
-frame is therefore visible within one paint, before any query runs."
+single centred \"Loading your board…\" body line.  `org-air-view' paints
+this once and forces it visible with `redisplay' so the frame appears
+within one paint, BEFORE the synchronous query runs."
   (let* ((inhibit-read-only t)
          (width (org-air-view--render-width))
          (height (org-air-view--render-height))
@@ -4324,85 +4295,38 @@ frame is therefore visible within one paint, before any query runs."
       (delete-char -1))
     (goto-char (point-min))))
 
-(defun org-air-view--load-async (buffer)
-  "Start the cold async first load for the board BUFFER (R19-1).
-Snapshots the file set, paints the loading skeleton, and schedules the
-first timer-chunked query batch.  A bumped `--load-token' captures THIS
-load's identity so a later refresh/reopen cancels it."
-  (with-current-buffer buffer
-    (let ((files (org-air-query-files)))
-      (setq org-air-view--load-remaining files
-            org-air-view--load-total (length files)
-            org-air-view--load-accum nil
-            org-air-view--loading t
-            org-air-view--load-token (1+ org-air-view--load-token))
-      (org-air-view--render-loading)
-      (if (null files)
-          ;; Nothing to query (no configured files): finish to the normal
-          ;; empty-board render immediately.
-          (org-air-view--load-finish buffer org-air-view--load-token)
-        (let ((token org-air-view--load-token))
-          (run-with-idle-timer 0 nil #'org-air-view--load-step buffer token))))))
-
-(defun org-air-view--load-step (buffer token)
-  "Query the next batch of the async first load in BUFFER and reschedule (R19-1).
-A stale TOKEN (a refresh/reopen started meanwhile) makes this a no-op, so
-a superseded load can never accumulate or render.  This function is the
-correctness mirror of the synchronous `org-air-query-items' pass: driven
-to completion it yields exactly the same item set."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (when (and org-air-view--loading (= token org-air-view--load-token))
-        (let ((batch (seq-take org-air-view--load-remaining
-                               (max 1 org-air-view-load-batch))))
-          (setq org-air-view--load-remaining
-                (seq-drop org-air-view--load-remaining (length batch))
-                org-air-view--load-accum
-                (nconc org-air-view--load-accum
-                       (org-air-query-items-in-files batch)))
-          (if org-air-view--load-remaining
-              (progn
-                ;; Progress cue: a single final render is the default, so
-                ;; just re-paint the cheap chrome skeleton with the new
-                ;; count; under `org-air-view-load-progressive' fill in the
-                ;; accumulated items instead so the board grows.
-                (if org-air-view-load-progressive
-                    (org-air-view--render org-air-view--load-accum
-                                          org-air-view--tag-filter)
-                  (org-air-view--render-loading))
-                (run-with-idle-timer 0 nil #'org-air-view--load-step buffer token))
-            (org-air-view--load-finish buffer token)))))))
-
-(defun org-air-view--load-finish (buffer token)
-  "Install gathered items in BUFFER and do the real render once load ends (R19-1).
-Guarded on TOKEN so a stale completion never clobbers a fresh load.  The
-final `org-air-view--render' warms the R18 classify + svg caches in one
-pass, so every subsequent TAB/month-nav/scope/filter is a pure cache hit."
-  (when (buffer-live-p buffer)
-    (with-current-buffer buffer
-      (when (= token org-air-view--load-token)
-        (setq org-air-view--items org-air-view--load-accum
-              org-air-view--items-key (list org-air-files org-air-inbox-file)
-              org-air-view--classify-cache nil
-              org-air-view--loading nil
-              org-air-view--load-remaining nil
-              org-air-view--load-accum nil)
-        (org-air-view--render org-air-view--items org-air-view--tag-filter)))))
+(defun org-air-view--short-error (err)
+  "Return a bounded single-line human string for the load error ERR (R20-1).
+The first line of `error-message-string', capped at 160 chars.  org/org-ql
+errors routinely carry large data payloads (a re-query of N items can make
+`error-message-string' six figures long); this guarantees the cold-load
+failure message can never become the 101 802-char echo-area dump the bare
+timer path produced — a truncated, single-line, human message."
+  (let* ((msg (error-message-string err))
+         (line (car (split-string msg "\n"))))
+    (if (> (length line) 160)
+        (concat (substring line 0 160) "…")
+      line)))
 
 (defun org-air-view--loading-guard ()
-  "Soft-error while the async first load is still in flight (R19-1).
+  "Soft-error during the brief synchronous fast-paint window (R20-1).
 Guards the data-dependent commands (filter/scope/TAB) so they never act on
-an empty skeleton; navigation over the skeleton stays harmless."
+an empty skeleton; navigation over the skeleton stays harmless.  Now
+near-inert: the load window is a single synchronous body the user cannot
+interrupt, but the guard is cheap and harmless."
   (when org-air-view--loading
     (user-error "Still loading your board…")))
 
 ;;;###autoload
 (defun org-air-view ()
   "Open the org-air dashboard buffer.
-A cold first load paints the chrome immediately and runs the org-ql query
-in the background on an idle timer (R19-1); a re-open with the item cache
-warm, or any `noninteractive' (batch) call, takes the synchronous path so
-every byte fixture is produced exactly as before."
+A cold first load paints the chrome skeleton and forces it visible with
+`redisplay', then runs the org-ql query + render SYNCHRONOUSLY (R20-1): no
+idle timers, no progressive reflow.  A re-open with the item cache warm, or
+any `noninteractive' (batch) call, takes the same synchronous path so every
+byte fixture is produced exactly as before.  Load errors are surfaced as a
+single truncated line and the board falls back to the empty render; the
+buffer can never wedge in a loading state."
   (interactive)
   (let* ((buffer (get-buffer-create org-air-view-buffer-name))
          (cached (with-current-buffer buffer
@@ -4418,23 +4342,45 @@ every byte fixture is produced exactly as before."
                        '((display-buffer-reuse-window
                           display-buffer-same-window
                           display-buffer-full-frame))))
-    (cond
-     ;; Cache hit, or batch/noninteractive (the byte goldens never see the
-     ;; async loader): synchronous path — unchanged behaviour, byte-stable.
-     ((or cached noninteractive)
-      (with-current-buffer buffer
+    (with-current-buffer buffer
+      (cond
+       ;; Cache hit, or batch/noninteractive (the byte goldens never see the
+       ;; fast-paint path): synchronous — unchanged behaviour, byte-stable.
+       ((or cached noninteractive)
         (unless cached
           ;; R18 D-P1c: fresh structs from a re-query invalidate the
           ;; classify cache (old `eq' entries can never be wrongly hit, but
           ;; drop them).
           (setq org-air-view--items (org-air-query-items)
                 org-air-view--classify-cache nil))
-        (org-air-view--render org-air-view--items org-air-view--tag-filter)))
-     ;; Cold interactive load: chrome is already painted; query in the
-     ;; background and swap in the real render when complete (R19-1).
-     (t
-      (with-current-buffer buffer
-        (org-air-view--load-async buffer))))))
+        (org-air-view--render org-air-view--items org-air-view--tag-filter))
+       ;; Cold interactive load (R20-1): honest fast paint, then a
+       ;; SYNCHRONOUS query + render.  `unwind-protect' always clears
+       ;; `--loading' so an error can never wedge the board; `condition-case'
+       ;; surfaces any failure as a single truncated line (never `%S' of the
+       ;; error payload — that produced the six-figure-char echo dump) and
+       ;; renders the empty board so the buffer is always usable.
+       (t
+        (setq org-air-view--loading t)
+        (unwind-protect
+            (progn
+              (org-air-view--render-loading)
+              (redisplay t)            ; frame visible BEFORE the query
+              (condition-case err
+                  (progn
+                    (setq org-air-view--items (org-air-query-items)
+                          org-air-view--items-key (list org-air-files
+                                                        org-air-inbox-file)
+                          org-air-view--classify-cache nil)
+                    (org-air-view--render org-air-view--items
+                                          org-air-view--tag-filter))
+                (error
+                 (setq org-air-view--items nil
+                       org-air-view--classify-cache nil)
+                 (org-air-view--render nil org-air-view--tag-filter)
+                 (message "org-air: load failed: %s"
+                          (org-air-view--short-error err)))))
+          (setq org-air-view--loading nil)))))))
 
 (defun org-air-refresh ()
   "Re-query files and refresh the current org-air dashboard.

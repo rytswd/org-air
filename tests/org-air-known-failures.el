@@ -474,6 +474,27 @@
     ;; point column / title mark / svg overlay / chrome faces), confirmed
     ;; by the new substantive ERTs in org-air-round21-test.el.
     ;; ===================================================================
+    ;; R22-3 DASHBOARD SORT (impl track) — o/O are now the SHARED within-view
+    ;; sort (`org-air-view-sort-cycle'/`-reverse', bound once in
+    ;; `org-air-view-core-map'); the board's old o/O=visit relocated under
+    ;; the g-prefix (g RET visit / g o visit-stay) and the project now
+    ;; INHERITS o/O sort.  These four assert the OLD keymap (o/O=visit on the
+    ;; board, o/O unbound on the project); the test seat re-blesses them to
+    ;; the shared-sort contract.
+    (org-air-r18-dp4-keymap-ret-and-sret-board-and-project
+     . "R22-3: board `O' is sort-reverse now (was visit); project `O' is the
+     inherited sort-reverse (was null). Test seat re-blesses to shared sort.")
+    (org-air-r18-dp3-project-keymap-inherits-core
+     . "R22-3: project `o' inherits `org-air-view-sort-cycle' (was null). Test
+     seat re-blesses to shared sort.")
+    (org-air-r20-5-project-keymap-shares-board-keys-no-shadow
+     . "R22-3: project `o' inherits `org-air-view-sort-cycle' (was null). Test
+     seat re-blesses to shared sort.")
+    (org-air-view-ret-bound-to-visit
+     . "R22-3: board `O' is `org-air-view-sort-reverse' now (was
+     `org-air-visit-item'); GUI visit stays on S-RET, TTY visit moved to
+     g RET. Test seat re-blesses.")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

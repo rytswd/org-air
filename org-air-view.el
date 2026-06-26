@@ -580,6 +580,21 @@ display overlay."
   :type '(choice (const square) (const badge) (const text))
   :group 'org-air)
 
+(defcustom org-air-sort-key 'date
+  "Default within-bucket sort key for the board (R22-3).
+One of `date' / `priority' / `title' / `recency'.  Seeds the per-buffer
+`org-air-view--sort-key'; `o' cycles it.  The default `date' reproduces the
+historical within-bucket order exactly, so the board byte goldens are
+byte-identical out of the box."
+  :type '(choice (const date) (const priority) (const title) (const recency))
+  :group 'org-air)
+
+(defcustom org-air-sort-direction 'ascending
+  "Default within-bucket sort direction for the board (R22-3).
+Seeds the per-buffer `org-air-view--sort-direction'; `O' toggles it."
+  :type '(choice (const ascending) (const descending))
+  :group 'org-air)
+
 (defcustom org-air-keyword-style 'badge
   "How a TODO keyword / Air state renders (R21-4).
 `badge' overlays the reserved keyword/state cell with a small coloured
@@ -714,8 +729,14 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "r") #'org-air-refresh)
     (define-key map (kbd "g") #'org-air-goto-top)
     (define-key map (kbd "R") #'org-air-refresh-all)
+    ;; R22-3: o/O now drive the shared SORT (view-core), so the board's
+    ;; visit verbs relocate under the g-prefix: `g RET' visits in the other
+    ;; window, `g o' visits but stays.  GUI visit stays on S-RET.
+    (define-key map (kbd "RET") #'org-air-visit-item)
+    (define-key map (kbd "o") #'org-air-visit-item-stay)
     map)
-  "Transient g-prefix map (B4): r refresh, g top of pane, R refresh+clear.")
+  "Transient g-prefix map (B4): r refresh, g top of pane, R refresh+clear.
+R22-3: g RET visit, g o visit-stay (o/O are the shared sort now).")
 
 (defvar org-air-view-core-map
   (let ((map (make-sparse-keymap)))
@@ -733,6 +754,11 @@ of whether the wrapping pane margin is added later (D6).")
     (define-key map (kbd "V") #'org-air-view-pane-close)
     (define-key map (kbd "\\") #'org-air-filter-clear)
     (define-key map (kbd "M-/") #'org-air-filter-toggle-match)
+    ;; R22-3: the shared within-view SORT — `o' cycles the key, `O' reverses
+    ;; the direction — bound ONCE here so the board and the project inherit
+    ;; the same UX (no fork); each seeds its own key list + refresh fn.
+    (define-key map (kbd "o") #'org-air-view-sort-cycle)
+    (define-key map (kbd "O") #'org-air-view-sort-reverse)
     map)
   "Shared view-core keymap, parent of the board + project mode maps (R18 D-P3).
 Reuse the core, override the bespoke: the keys here are identical across
@@ -747,7 +773,6 @@ both views; per-mode domain verbs stay in each child map.")
     ;; pane (inherited from the core map).
     (define-key map (kbd "<S-return>") #'org-air-visit-item)
     (define-key map (kbd "S-RET") #'org-air-visit-item)
-    (define-key map (kbd "O") #'org-air-visit-item)
     (define-key map (kbd "n") #'org-air-next-item)
     (define-key map (kbd "p") #'org-air-prev-item)
     ;; R3: vim-ish line navigation; j/k are NOT destructive.
@@ -761,7 +786,6 @@ both views; per-mode domain verbs stay in each child map.")
     (define-key map (kbd "M-n") #'org-air-forward-section)
     (define-key map (kbd "M-p") #'org-air-back-section)
     (define-key map (kbd "SPC") #'org-air-peek-item)
-    (define-key map (kbd "o") #'org-air-visit-item-stay)
     (define-key map (kbd "c") #'org-air-capture)
     (define-key map (kbd "m") #'org-air-toggle-mark)
     ;; Triage disposition vocabulary (air/v0.2/org-air-triage.org).
@@ -831,10 +855,11 @@ cheap in the redisplay :eval (no render-path work)."
    ((derived-mode-p 'org-air-view-mode)
     (let ((n (or org-air-view--mode-line-count
                  (length (org-air-view--visible-items org-air-view--items)))))
-      (format "org-air · %d item%s · %s · scope %s"
+      (format "org-air · %d item%s · %s · scope %s · sort %s"
               n (if (= n 1) "" "s")
               (org-air-view--mode-line-filter-text)
-              (org-air-view--scope-label))))
+              (org-air-view--scope-label)
+              (org-air-view--sort-active-key))))
    ((derived-mode-p 'org-air-project-mode)
     (let ((n (or (and (boundp 'org-air-project--doc-count)
                       org-air-project--doc-count)
@@ -883,6 +908,15 @@ line, so the body-height derivation is unchanged; byte-invisible (R20-2)."
   (setq-local line-spacing org-air-line-spacing)
   (setq-local cursor-type 'bar)
   (setq-local org-air-layout-refresh-function #'org-air-view--resize-refresh)
+  ;; R22-3: seed the shared sort spec — the board's key list + the refresh fn
+  ;; the shared `o'/`O' commands call; the default key `date' reproduces the
+  ;; historical within-bucket order so the goldens stay byte-identical.
+  (setq-local org-air-view--sort-keys '(date priority title recency))
+  (setq-local org-air-view--sort-refresh #'org-air-view--render-current)
+  (unless org-air-view--sort-key
+    (setq-local org-air-view--sort-key org-air-sort-key))
+  (unless org-air-view--sort-direction
+    (setq-local org-air-view--sort-direction org-air-sort-direction))
   (setq-local buffer-read-only t)
   ;; T6: re-fit when the font/text size changes (text-scale alters how many
   ;; columns/rows fit), debounced through the same window-size path.
@@ -1201,9 +1235,10 @@ Mirrors `org-air-view--insert-section': the bucket members (date-sorted for
 attention/upcoming), capped to `org-air-view--section-limit' unless the
 section is expanded."
   (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
-         (bucket-items (if (memq bucket '(attention upcoming))
-                           (org-air-view--sort-by-date bucket-items)
-                         bucket-items)))
+         ;; R22-3: order WITHIN the bucket by the active sort key/direction.
+         ;; The default key `date' reproduces the historical order exactly
+         ;; (attention/upcoming date-sorted, the rest query order).
+         (bucket-items (org-air-view--sort-items bucket-items bucket)))
     (if (memq bucket org-air-view--expanded-sections)
         bucket-items
       (seq-take bucket-items (org-air-view--section-limit bucket)))))
@@ -1355,6 +1390,15 @@ keeping the date."
                                         (concat " · " (file-name-nondirectory file))
                                         'face 'org-air-face-faded))
                        (_ nil)))
+         ;; R22-3: the within-bucket sort indicator, shown ONLY when a
+         ;; non-default sort is active (default `date'/ascending -> nil ->
+         ;; the default banner is byte-identical); sheds first under narrow
+         ;; widths.
+         (sort-text (unless (org-air-view--sort-default-p)
+                      (concat (propertize " · " 'face 'org-air-face-faded)
+                              (org-air-view--sort-indicator-text
+                               (org-air-view--sort-active-key)
+                               (org-air-view--sort-active-direction)))))
          ;; Budget for the status: window minus the left token, a >=2-col
          ;; gap, and the reserved one-column right margin.
          (budget (- w (string-width left) 2 1))
@@ -1362,10 +1406,11 @@ keeping the date."
                      (concat date
                              (unless (memq :count shed) count)
                              (unless (memq :filter shed) (or filter-text ""))
-                             (unless (memq :scope shed) (or scope-text "")))))
+                             (unless (memq :scope shed) (or scope-text ""))
+                             (unless (memq :sort shed) (or sort-text "")))))
          (status (catch 'fit
-                   (dolist (shed '(() (:filter) (:filter :scope)
-                                   (:filter :scope :count))
+                   (dolist (shed '(() (:sort) (:sort :filter) (:sort :filter :scope)
+                                   (:sort :filter :scope :count))
                                  date)
                      (let ((s (funcall assemble shed)))
                        (when (<= (string-width s) budget)
@@ -2190,6 +2235,132 @@ The order is stable so items sharing a date keep their incoming order."
                        (ta t)
                        (tb nil)
                        (t (< (car a) (car b))))))))))
+
+;;;; ---------------------------------------------------------------------
+;;;; Shared sort core (R22-3) — one cycle/reverse pair + indicator for BOTH
+;;;; the board and the project; per-mode the SPEC (key list + refresh fn) is
+;;;; seeded into buffer-locals so the commands never fork.
+;;;; ---------------------------------------------------------------------
+
+(defvar-local org-air-view--sort-key nil
+  "Active per-buffer sort KEY for this view (R22-3).
+The board seeds it from `org-air-sort-key' (date/priority/title/recency);
+the project from `org-air-project-sort-key' (name/created/updated).")
+(defvar-local org-air-view--sort-direction nil
+  "Active per-buffer sort DIRECTION (`ascending'/`descending') (R22-3).")
+(defvar-local org-air-view--sort-keys nil
+  "Ordered list of sort keys for THIS view (the board / the project sets it).")
+(defvar-local org-air-view--sort-refresh nil
+  "The per-mode refresh fn the sort commands call after changing key/dir (R22-3).")
+
+(defun org-air-view-sort-cycle ()
+  "Cycle to the next sort key for this view and refresh (R22-3).
+Bound to `o' in BOTH the board and the project via `org-air-view-core-map'."
+  (interactive)
+  (let* ((keys org-air-view--sort-keys)
+         (cur  (or org-air-view--sort-key (car keys)))
+         (next (or (cadr (memq cur keys)) (car keys))))
+    (setq-local org-air-view--sort-key next)
+    (when org-air-view--sort-refresh (funcall org-air-view--sort-refresh))
+    (message "org-air: sort by %s" next)))
+
+(defun org-air-view-sort-reverse ()
+  "Toggle the sort direction for this view and refresh (R22-3).
+Bound to `O' in BOTH views via `org-air-view-core-map'."
+  (interactive)
+  (setq-local org-air-view--sort-direction
+              (if (eq org-air-view--sort-direction 'descending)
+                  'ascending 'descending))
+  (when org-air-view--sort-refresh (funcall org-air-view--sort-refresh))
+  (message "org-air: sort %s" org-air-view--sort-direction))
+
+(defun org-air-view--sort-indicator-text (key dir)
+  "Return the shared `\u2195 <key> <dir>' badge text for KEY + DIR (R22-3).
+Lifted from the project's builder, parameterised on key+dir so the board
+and the project show one indicator.  Plain text (svg-free) + quiet faces."
+  (let* ((mk (org-air-layout-glyph 'sort-key))
+         (arrow (org-air-layout-glyph
+                 (if (eq dir 'descending) 'sort-desc 'sort-asc))))
+    (concat (propertize mk 'face 'org-air-face-faded)
+            " "
+            (propertize (if (symbolp key) (symbol-name key) (format "%s" key))
+                        'face 'org-air-face-summary-label)
+            " "
+            (propertize arrow 'face 'org-air-face-faded))))
+
+(defun org-air-view--sort-active-key ()
+  "Return the board's active sort key, seeding from the defcustom (R22-3)."
+  (or org-air-view--sort-key org-air-sort-key))
+
+(defun org-air-view--sort-active-direction ()
+  "Return the board's active sort direction, seeding from the defcustom (R22-3)."
+  (or org-air-view--sort-direction org-air-sort-direction))
+
+(defun org-air-view--sort-default-p ()
+  "Return non-nil when the board sort is the byte-identical default (R22-3)."
+  (and (eq (org-air-view--sort-active-key) 'date)
+       (eq (org-air-view--sort-active-direction) 'ascending)))
+
+(defun org-air-view--item-priority-rank (item)
+  "Return ITEM's numeric priority rank for sorting (R22-3).
+Higher = more urgent (#A is highest); a cookie-less item gets the lowest
+rank, so it is ordered last."
+  (or (org-air-item-priority item) most-negative-fixnum))
+
+(defun org-air-view--item-activity (item)
+  "Return ITEM's last-activity time for the `recency' sort (R22-3).
+Reuses `org-air-classify--last-activity' (the Stale-bucket signal); a
+missing signal is treated as the oldest (epoch)."
+  (or (org-air-classify--last-activity item) '(0 0)))
+
+(defun org-air-view--sort-by (items lessp keyfn &optional desc)
+  "Return ITEMS stably ordered by KEYFN under LESSP (R22-3).
+Equal keys tiebreak by lowercased title then incoming order (byte-stable);
+DESC reverses the whole resulting order."
+  (let* ((i 0)
+         (indexed (mapcar
+                   (lambda (it)
+                     (prog1 (list i (funcall keyfn it)
+                                  (downcase (or (org-air-item-title it) "")) it)
+                       (setq i (1+ i))))
+                   items))
+         (sorted (sort indexed
+                       (lambda (a b)
+                         (let ((ka (nth 1 a)) (kb (nth 1 b)))
+                           (cond
+                            ((funcall lessp ka kb) t)
+                            ((funcall lessp kb ka) nil)
+                            ((string-lessp (nth 2 a) (nth 2 b)) t)
+                            ((string-lessp (nth 2 b) (nth 2 a)) nil)
+                            (t (< (nth 0 a) (nth 0 b))))))))
+         (result (mapcar (lambda (e) (nth 3 e)) sorted)))
+    (if desc (nreverse result) result)))
+
+(defun org-air-view--sort-items (items bucket)
+  "Order ITEMS within BUCKET by the active board sort key/direction (R22-3).
+Buckets are NEVER reordered, only the items inside each.  The default key
+`date' reproduces the historical within-bucket order EXACTLY (only the
+attention/upcoming buckets were date-sorted; the rest kept query order),
+so the board byte goldens are byte-identical by default."
+  (let ((key  (org-air-view--sort-active-key))
+        (desc (eq (org-air-view--sort-active-direction) 'descending)))
+    (pcase key
+      ('date
+       ;; EXACTLY today's behaviour: only attention/upcoming sort by date,
+       ;; the rest keep query order.  `O' reverses the within-bucket order.
+       (let ((sorted (if (memq bucket '(attention upcoming))
+                         (org-air-view--sort-by-date items)
+                       items)))
+         (if desc (reverse sorted) sorted)))
+      ('priority
+       (org-air-view--sort-by items #'> #'org-air-view--item-priority-rank desc))
+      ('title
+       (org-air-view--sort-by items #'string-lessp
+                              (lambda (it) (downcase (or (org-air-item-title it) "")))
+                              desc))
+      ('recency
+       (org-air-view--sort-by items #'time-less-p #'org-air-view--item-activity desc))
+      (_ items))))
 
 (defun org-air-view--insert-section (descriptor items)
   "Insert section DESCRIPTOR from ITEMS."

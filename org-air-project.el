@@ -768,12 +768,16 @@ state string in `org-air-project--doc-compare', not by this integer."
       (length org-air-project-sections)))
 
 (defun org-air-project--sort-key-active ()
-  "Return the active sort key, seeding from the defcustom when unset."
-  (or org-air-project--sort-key org-air-project-sort-key))
+  "Return the active sort key (R22-3: the SHARED sort state wins).
+The project now drives `o'/`O' through `org-air-view--sort-key' (the shared
+core); the project-local var remains a fallback (let-bindable in tests),
+then the defcustom."
+  (or org-air-view--sort-key org-air-project--sort-key org-air-project-sort-key))
 
 (defun org-air-project--sort-direction-active ()
-  "Return the active sort direction, seeding from the defcustom when unset."
-  (or org-air-project--sort-direction org-air-project-sort-direction))
+  "Return the active sort direction (R22-3: the SHARED sort state wins)."
+  (or org-air-view--sort-direction org-air-project--sort-direction
+      org-air-project-sort-direction))
 
 (defun org-air-project--doc-key-value (doc key)
   "Return DOC's value for sort KEY (`name'/`created'/`updated') (R16 D-P4)."
@@ -848,17 +852,12 @@ the single source of truth for display order."
 
 (defun org-air-project--sort-indicator ()
   "Return the active-sort badge text `↕ <key> <dir>' (R16 D-P4).
-Plain text (svg-free) so it is part of every project fixture's byte
-contract; quiet faces."
-  (let* ((key (symbol-name (org-air-project--sort-key-active)))
-         (dir (org-air-project--sort-direction-active))
-         (mk (org-air-layout-glyph 'sort-key))
-         (arrow (org-air-layout-glyph (if (eq dir 'descending) 'sort-desc 'sort-asc))))
-    (concat (propertize mk 'face 'org-air-face-faded)
-            " "
-            (propertize key 'face 'org-air-face-summary-label)
-            " "
-            (propertize arrow 'face 'org-air-face-faded))))
+R22-3: delegates to the shared `org-air-view--sort-indicator-text' builder
+so the board and the project show one indicator; byte-identical to the old
+local builder (same glyphs + faces)."
+  (org-air-view--sort-indicator-text
+   (org-air-project--sort-key-active)
+   (org-air-project--sort-direction-active)))
 
 (defun org-air-project--filter-segment ()
   "Return the active filter + combinator as a header segment, or empty string.
@@ -1207,31 +1206,25 @@ between two-pane and board-only."
   (org-air-project-refresh))
 
 (defun org-air-project-sort-cycle ()
-  "Cycle the sort key name -> created -> updated -> name and refresh (R16 D-P4)."
+  "Cycle the project sort key and refresh (R22-3: shared sort core).
+Thin alias of `org-air-view-sort-cycle' (the inherited `o'); the project
+mode seeds the shared spec (name/created/updated + refresh)."
   (interactive)
-  (setq-local org-air-project--sort-key
-              (pcase (org-air-project--sort-key-active)
-                ('name 'created)
-                ('created 'updated)
-                (_ 'name)))
-  (org-air-project-refresh)
-  (message "org-air project: sort by %s" org-air-project--sort-key))
+  (org-air-view-sort-cycle))
 
 (defun org-air-project-sort-reverse ()
-  "Toggle the sort direction ascending <-> descending and refresh (R16 D-P4)."
+  "Toggle the project sort direction and refresh (R22-3: shared sort core).
+Thin alias of `org-air-view-sort-reverse' (the inherited `O')."
   (interactive)
-  (setq-local org-air-project--sort-direction
-              (if (eq (org-air-project--sort-direction-active) 'descending)
-                  'ascending 'descending))
-  (org-air-project-refresh)
-  (message "org-air project: %s" org-air-project--sort-direction))
+  (org-air-view-sort-reverse))
 
 (defun org-air-project-sort-set (key)
-  "Set the sort KEY directly (name/created/updated) and refresh (R16 D-P4)."
+  "Set the sort KEY directly (name/created/updated) and refresh (R16 D-P4).
+R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
   (interactive
    (list (intern (completing-read "Sort by: " '("name" "created" "updated")
                                   nil t))))
-  (setq-local org-air-project--sort-key key)
+  (setq-local org-air-view--sort-key key)
   (org-air-project-refresh)
   (message "org-air project: sort by %s" key))
 
@@ -1322,6 +1315,14 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
   ;; R14 D-P1.B: responsive re-render (two-pane <-> board-only) on resize,
   ;; riding the round-9 C1 window-size path.
   (setq-local org-air-layout-refresh-function #'org-air-project--resize-refresh)
+  ;; R22-3: seed the SHARED sort spec so the inherited o/O cycle/reverse
+  ;; drive the project's name/created/updated sort (one core, no fork).
+  (setq-local org-air-view--sort-keys '(name created updated))
+  (setq-local org-air-view--sort-refresh #'org-air-project-refresh)
+  (unless org-air-view--sort-key
+    (setq-local org-air-view--sort-key org-air-project-sort-key))
+  (unless org-air-view--sort-direction
+    (setq-local org-air-view--sort-direction org-air-project-sort-direction))
   ;; R14 D-P1.B: the project view hosts the shared mid-rail inspector; the
   ;; debounced point-tracking hook is INERT under batch (P0 contract).
   (unless noninteractive

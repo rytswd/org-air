@@ -113,48 +113,60 @@ is a distinct major mode (the tree renderer, not the GTD board)."
 ;;;; F5d — tree render structural invariants (byte-testable text).
 
 (ert-deftest org-air-f5-tree-structure ()
-  "D-P1 [byte] re-bless (round-14): the project view is a TWO-LINE doc
-component per doc inside state-bucket sections, in a two-pane body (docs
-LEFT, project rail RIGHT).  Line 1 = title + inline left-flowing tags;
-line 2 = an indented, quieter `▤ relpath  created YYYY-MM-DD  updated
-YYYY-MM-DD' (filename NOT right-aligned).  Section headers adopt the
-round-11 `▌' prefix marker (TTY `|'): `▌ [badge] State N'.  The old
-single-row right-aligned cluster + the `~ date' updated token are GONE
-(air/v0.4/org-air-round14-design.org §D-P1).  No box-drawing tree."
+  "R21-5 [byte] re-bless: the project view renders each doc as ONE
+board-style row through the SHARED `org-air-view--insert-row' (state cell +
+clean title + the V6 date/tags/origin meta cluster), DROPPING the old
+two-line emoji block.  Row shape: `[badge] Title  <date>  #tags  <glyph>
+relpath' on a single line.  The old `created…/updated…' second line and its
+labels are GONE — the date is now the single V6 `↻ YYYY-MM-DD' cell (TTY
+`~ …').  The nested directory tree, per-dir counts and the shared rail are
+UNCHANGED; section headers keep the round-11 `▌'/`|' prefix + `[badge]
+State N'.  No box-drawing tree (air/v0.5/org-air-round21-design.org
+§R21-5)."
   (skip-unless (locate-library "org-air"))
-  ;; Render at the blessed fixture width (100) so the two-line titles are
-  ;; whole for the title search.
+  ;; Render at the blessed fixture width (100).
   (let ((org-air-project-view-width 100))
    (org-air-project-test--render
     ;; Grouping is a persistent global toggle; pin it to state so this test
     ;; is order-independent of the grouping-toggle test.
     (when (commandp 'org-air-project-group-by-state)
       (call-interactively 'org-air-project-group-by-state))
-    (let ((text (buffer-string)))
+    (let ((lines (split-string (buffer-string) "\n"))
+          (text (buffer-string)))
       ;; NO box-drawing tree frame / branches (the TTY pane divider is a
       ;; plain `|', not a box glyph).
       (should-not (string-match-p "[┌┐└┘├┤┬┴┼]" text))
-      ;; NO (+N) roll-up counts.
+      ;; State grouping carries no descendant roll-up.
       (should-not (string-match-p "(\\+[0-9]+)" text))
-      ;; Every fixture doc renders by its TITLE on line 1.
+      ;; Every fixture doc renders by its TITLE.
       (dolist (doc org-air-project-test-docs)
         (should (string-match-p (regexp-quote (plist-get (cdr doc) :title))
                                 text)))
-      ;; D-P1.A line 2: indented `<glyph> relpath' with the version path
-      ;; visible (not the basename) + `created'/`updated' date labels.
+      ;; R21-5 ONE-LINE shape: a doc's state badge, clean TITLE, the V6 date
+      ;; cell and the relpath origin all sit on the SAME buffer line (the
+      ;; two-line block is gone).
+      (should (cl-some
+               (lambda (l)
+                 (string-match-p
+                  "\\[R\\] Alpha feature .*~ 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].*v0\\.1/"
+                  l))
+               lines))
+      ;; The SINGLE V6 date cell (`~ YYYY-MM-DD'); the OLD two-line
+      ;; `created…/updated…' labels are GONE.
+      (should (string-match-p "~ [0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" text))
+      (should-not (string-match-p "created [0-9]" text))
+      (should-not (string-match-p "updated [0-9]" text))
+      ;; The version path is visible in the origin cell (not the basename).
       (should (string-match-p "v0\\.1/" text))
       (should (string-match-p "v0\\.2/" text))
-      (should (string-match-p "created [0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" text))
-      (should (string-match-p "updated [0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" text))
       ;; TTY state badges (batch is a TTY): all five states.
       (dolist (badge '("[D]" "[R]" "[W]" "[C]" "[X]"))
         (should (string-match-p (regexp-quote badge) text)))
-      ;; Tags as accent text (line 1, inline).
+      ;; Tags as accent text, inline on the row.
       (should (string-match-p "#ui\\|#core\\|#context" text))
-      ;; D-P1 section header: `▌'/`|' prefix marker + `[badge] State N'.
+      ;; Section header: `▌'/`|' prefix marker + `[badge] State N'.
       (should (string-match-p "| \\[[DRWCX]\\] [A-Z][A-Za-z ]+ [0-9]" text))
-      ;; D-P1.B: the project rail carries a `Summary' and an `Inspector'
-      ;; block (the mid-rail inspector reflecting the first doc).
+      ;; The project rail still carries a `Summary' and an `Inspector' block.
       (should (string-match-p "| Summary" text))
       (should (string-match-p "| Inspector" text))))))
 

@@ -439,6 +439,104 @@ state cell / title / right cluster never move."
             (should (= col (+ margin-w (* 2 (1+ 1)))))))))))
 
 ;;;; =====================================================================
+;;;; R24-3 — project state badges: fixed-width SVG (default) / nerd / token.
+;;;; =====================================================================
+
+(ert-deftest org-air-r24-3-default-style-is-svg ()
+  "R24-3 re-reverses R23-4: `org-air-project-state-style' default flips
+`emoji' -> `svg' (a fixed-width cell-locked chip that cannot jitter rails)."
+  (skip-unless (locate-library "org-air"))
+  (should (eq (default-value 'org-air-project-state-style) 'svg)))
+
+(ert-deftest org-air-r24-3-batch-state-cell-is-token-byte-guard ()
+  "BYTE GUARD: under --batch (no graphical frame) with the `svg' DEFAULT the
+state cell's TRUE text is the terse `[R]'... token — no emoji, no nerd glyph
+leaks (the R21-4 contract holds; the project goldens are unchanged)."
+  (skip-unless (locate-library "org-air"))
+  (should-not (display-graphic-p))                 ; batch precondition
+  (should (eq org-air-project-state-style 'svg))   ; the shipped default
+  (pcase-dolist (`(,state . ,token)
+                 '(("ready" . "[R] ") ("complete" . "[C] ")
+                   ("dropped" . "[X] ") ("draft" . "[D] ")))
+    (let ((cell (substring-no-properties (org-air-project--state-cell state))))
+      (should (equal cell token))
+      ;; no nerd PUA glyph + no emoji code point leaked into the batch cell.
+      (dolist (g org-air-project-state-nerd-glyphs)
+        (should-not (string-match-p (regexp-quote (cdr g)) cell))))))
+
+(ert-deftest org-air-r24-3-svg-badge-on-gui-is-cell-locked-image ()
+  "On a graphical frame (stubbed) `--state-svg-badge' returns the token
+carrying a `display' IMAGE whose width is the token's cell box (Ncols *
+char-px), and the TRUE text stays `[R]' (the contract)."
+  (skip-unless (locate-library "org-air"))
+  (let* ((dims (org-air-view--char-dimensions))
+         (org-air-view--pill-char-w (or (car dims) 8))
+         (org-air-view--pill-char-h (or (cdr dims) 16)))
+    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&optional _) t)))
+      (should (org-air-view--svg-available-p))
+      (let* ((badge (org-air-project--state-svg-badge "ready"))
+             (disp (get-text-property 0 'display badge)))
+        (should (equal (substring-no-properties badge) "[R]"))
+        (should (imagep disp))
+        (should (integerp (image-property disp :width)))
+        (should (> (image-property disp :width) 0))))))
+
+(ert-deftest org-air-r24-3-nerd-and-text-styles ()
+  "With style `nerd' (GUI, glyph displayable) `--state-nerd' returns the
+configured glyph; with `text' the cell is the plain token; with `emoji' it
+routes through `--state-emoji'."
+  (skip-unless (locate-library "org-air"))
+  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&optional _) t))
+            ((symbol-function 'char-displayable-p) (lambda (_c) t)))
+    ;; nerd: the configured PUA glyph.
+    (should (equal (substring-no-properties (org-air-project--state-nerd "ready"))
+                   (cdr (assoc "ready" org-air-project-state-nerd-glyphs))))
+    (let ((org-air-project-state-style 'nerd))
+      (should (equal (substring-no-properties
+                      (org-air-project--state-badge-cell "ready"))
+                     (cdr (assoc "ready" org-air-project-state-nerd-glyphs)))))
+    ;; text: plain token only (no image, no glyph).
+    (let ((org-air-project-state-style 'text))
+      (let ((cell (org-air-project--state-badge-cell "ready")))
+        (should (equal (substring-no-properties cell) "[R]"))
+        (should-not (get-text-property 0 'display cell))))
+    ;; emoji: routes through --state-emoji.
+    (let ((org-air-project-state-style 'emoji))
+      (should (string-match-p (regexp-quote (org-air-project--state-emoji "ready"))
+                              (org-air-project--state-badge-cell "ready"))))))
+
+(ert-deftest org-air-r24-3-state-cell-text-fits-fixed-cell ()
+  "PIXEL-LOCK: for EVERY state the TEXT-layer width of `--state-badge-cell'
+is <= `org-air-project--state-cell-w', so `--state-cell' always pads it to
+the fixed cell and the title left edge / R24-2 rails never shift."
+  (skip-unless (locate-library "org-air"))
+  (dolist (state '("draft" "ready" "work-in-progress" "review"
+                   "complete" "dropped" "unknown"))
+    (ert-info ((format "state %s" state))
+      (should (<= (string-width (substring-no-properties
+                                 (org-air-project--state-badge-cell state)))
+                  org-air-project--state-cell-w)))))
+
+(ert-deftest org-air-r24-3-rails-stay-aligned-under-svg-default ()
+  "Cross-item: with the `svg' DEFAULT the directory tree's doc-row state
+cells stay V6-locked (batch => the `[R]' token), so the R24-2 rails align
+— a doc's `[' state-cell column equals margin + (* 2 (1+ depth))."
+  (skip-unless (locate-library "org-air"))
+  (should (eq org-air-project-state-style 'svg))
+  (let* ((docs (org-air-r24-2--fixture-docs))
+         (tree (org-air-project--directory-tree docs))
+         (margin-w (string-width (org-air-view--item-margin))))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r24-2--insert-tree tree 100)
+          (goto-char (point-min))
+          (should (re-search-forward "\\[R\\] Alpha feature" nil t))
+          (let ((col (save-excursion (goto-char (match-beginning 0))
+                                     (current-column))))
+            (should (= col (+ margin-w (* 2 (1+ 0)))))))))))
+
+;;;; =====================================================================
 ;;;; R24-1 — refile "Under heading" prompt: complete over the file's headings.
 ;;;; =====================================================================
 

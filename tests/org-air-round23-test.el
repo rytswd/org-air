@@ -336,11 +336,13 @@ collapses ├/└ to `+')."
 ;;;; R23-4 — legible project state badges (emoji default; token fallback).
 ;;;; =====================================================================
 
-(ert-deftest org-air-r23-4-default-style-is-emoji ()
-  "R23-4: `org-air-project-state-style' ships `emoji' (colour state icons on
-a GUI, matching `airctl status -Da')."
+(ert-deftest org-air-r23-4-default-style-is-svg ()
+  "R24-3 RE-REVERSAL (was R23-4 `emoji'): `org-air-project-state-style' now
+ships `svg' — a fixed-width, cell-locked filled colour chip that cannot
+jitter the R24-2 rails/columns the way the emoji advance width did.  `emoji'
+is demoted to an explicit opt-in."
   (skip-unless (locate-library "org-air"))
-  (should (eq (default-value 'org-air-project-state-style) 'emoji)))
+  (should (eq (default-value 'org-air-project-state-style) 'svg)))
 
 (ert-deftest org-air-r23-4-batch-state-cell-is-token-byte-stable ()
   "R23-4 BYTE GUARD: under --batch (no graphical frame) the `emoji' default

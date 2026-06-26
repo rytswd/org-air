@@ -134,18 +134,36 @@ consistent width-2, matching the icons `airctl status -Da' prints."
   :type '(alist :key-type string :value-type (cons string string))
   :group 'org-air)
 
-(defcustom org-air-project-state-style 'emoji
-  "How the project per-doc STATE badge renders (R23-4).
-`emoji' (default) shows the colour state emoji (\N{DIRECT HIT}/\N{WHITE
-HEAVY CHECK MARK}/...) on a graphical frame — icon-legible at a glance and
-matching `airctl status -Da' — falling back to the svg keyword chip / the
-`[R]' token off-GUI; `badge' keeps the R21-4 small coloured svg chip over
-the token; `text' is the plain coloured token only.  Either way the TTY/
-byte layer stays the terse `[R]'... token, so the byte goldens are
+(defcustom org-air-project-state-style 'svg
+  "How the project per-doc STATE badge renders (R24-3).
+`svg' (default) draws a LEGIBLE, cell-locked filled colour chip on a
+graphical frame (`org-air-project--state-svg-badge', reusing
+`org-air-view--svg-pillify'), occupying EXACTLY the token's text-cell box so
+it can never jitter the R24-2 rails/columns; `nerd' shows a fixed nerd-font
+glyph (`org-air-project-state-nerd-glyphs'); `text' is the plain coloured
+token; `emoji' is the R23-4 colour emoji (opt-in, may misalign on some
+fonts); `badge' keeps the R21-4 small hairline chip.  Every non-`svg' choice
+degrades to the byte/TTY `[R]'... token off-GUI, so the byte goldens are
 unchanged and the cell never grows past `org-air-project--state-cell-w'."
-  :type '(choice (const :tag "Colour emoji on GUI" emoji)
-                 (const :tag "Small svg chip" badge)
-                 (const :tag "Plain token text" text))
+  :type '(choice (const :tag "Filled svg chip on GUI" svg)
+                 (const :tag "Nerd-font glyph" nerd)
+                 (const :tag "Plain token text" text)
+                 (const :tag "Colour emoji (opt-in)" emoji)
+                 (const :tag "Small hairline svg chip" badge))
+  :group 'org-air)
+
+(defcustom org-air-project-state-nerd-glyphs
+  '(("draft"            . "\uf040")   ; nf-fa-pencil
+    ("ready"            . "\uf192")   ; nf-fa-dot_circle_o  (target)
+    ("work-in-progress" . "\uf013")   ; nf-fa-cog
+    ("review"           . "\uf002")   ; nf-fa-search
+    ("complete"         . "\uf058")   ; nf-fa-check_circle
+    ("dropped"          . "\uf014"))  ; nf-fa-trash
+  "Per-state nerd-font glyph for `org-air-project-state-style' = `nerd' (R24-3).
+Used only on a graphical frame whose font can display the glyph; otherwise
+the terse `[R]'... token shows.  Codepoints are the Nerd Fonts private-use
+area; remap to taste (e.g. nf-md-* / nf-cod-*)."
+  :type '(alist :key-type string :value-type string)
   :group 'org-air)
 
 ;;;; ---------------------------------------------------------------------
@@ -400,23 +418,55 @@ back to the terse `[R]'... token (the byte/TTY contract)."
          (char-displayable-p (aref emoji 0))
          emoji)))
 
+(defun org-air-project--state-svg-badge (state)
+  "Return STATE's token carrying a LEGIBLE filled colour SVG chip (R24-3).
+Reuses `org-air-view--svg-pillify' (shared box/pixel-lock/fallback) with the
+state colour as BOTH a salient border and a stronger fill, plus a contrast
+label, so the chip reads larger + clearer than the R21-4 hairline badge while
+occupying EXACTLY the token's text-cell box (no advance-width jitter).
+Returns the plain token unchanged off-GUI / when svg is unavailable."
+  (let* ((face  (org-air-project--state-face state))
+         (token (propertize (org-air-project--state-token state) 'face face))
+         (color (face-foreground face nil t)))
+    (if (not (org-air-view--svg-available-p))
+        token
+      ;; stronger fill + contrast label = legible; the box is still
+      ;; Ncols*char-px, so the cell is pixel-locked and the R24-2 rails stay
+      ;; aligned (a calm legibility boost, not a `:height' grow).
+      (let ((org-air-pill-fill-alpha (max org-air-pill-fill-alpha 0.22))
+            (org-air-pill-font-scale (max org-air-pill-font-scale 0.82)))
+        (org-air-view--svg-pillify token face :border-color color)))))
+
+(defun org-air-project--state-nerd (state)
+  "Return STATE's nerd glyph when a graphical frame can show it, else nil.
+Mirrors `org-air-project--state-emoji': offered only on a graphical frame
+whose font can display the glyph, so `--batch' returns nil and the cell
+falls back to the terse `[R]'... token (the byte/TTY contract)."
+  (let ((g (cdr (assoc state org-air-project-state-nerd-glyphs))))
+    (and g (display-graphic-p) (char-displayable-p (aref g 0))
+         (propertize g 'face (org-air-project--state-face state)))))
+
 (defun org-air-project--state-badge-cell (state)
-  "Return STATE's badge cell per `org-air-project-state-style' (R23-4).
-`text' is the plain coloured token; `badge' is the R21-4 small svg chip;
-`emoji' (the default) shows STATE's colour emoji on a graphical frame and
-otherwise falls through to the SAME svg/token fallback as `badge' — so the
-byte gate (non-graphic) stays byte-identical (`[R]'... token).  The emoji
-is the cell TEXT at the normal line height (never a `:height' face), so the
-row never grows (svg-never-grows-line); `--state-cell' pads whatever this
-returns to the fixed `org-air-project--state-cell-w' so the title left edge
-stays V6-locked."
+  "Return STATE's badge cell per `org-air-project-state-style' (R24-3).
+`svg' (the default) draws the LEGIBLE filled colour chip
+\(`org-air-project--state-svg-badge'); `nerd' a fixed nerd-font glyph;
+`text' the plain coloured token; `emoji' the R23-4 colour emoji; `badge' the
+R21-4 hairline chip.  Every branch degrades to the byte/TTY `[R]'... token
+off-GUI, so the byte gate (non-graphic) stays byte-identical.  Whatever this
+returns is the cell TEXT at the normal line height (never a `:height' face),
+so the row never grows (svg-never-grows-line); `--state-cell' pads it to the
+fixed `org-air-project--state-cell-w' so the title left edge / the R24-2
+rails stay V6-locked."
   (let* ((face  (org-air-project--state-face state))
          (token (propertize (org-air-project--state-token state) 'face face)))
     (pcase org-air-project-state-style
       ('text  token)
       ('badge (org-air-view--svg-keyword-badge token face))
-      (_      (or (org-air-project--state-emoji state)
-                  (org-air-view--svg-keyword-badge token face))))))
+      ('emoji (or (org-air-project--state-emoji state)
+                  (org-air-project--state-svg-badge state)))
+      ('nerd  (or (org-air-project--state-nerd state)
+                  (org-air-project--state-svg-badge state)))
+      (_      (org-air-project--state-svg-badge state)))))
 
 (defun org-air-project--state-cell (state)
   "Return a FIXED-width reserved STATE cell for the project row (R21-5).

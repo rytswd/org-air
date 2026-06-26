@@ -1,0 +1,869 @@
+#+title: org-air v0.5 round-21 DESIGN: consistency · cursor-stability · keyword/state SVG (dogfood polish)
+#+state: ready
+#+FILETAGS: :ui:render:project:stability:svg:faces:design:v0.5:
+
+* Scope of this document
+The round-21 DESIGN doc, written after the user dogfooded R20 against real
+data (the real Air repo at =~/Coding/github.com/withre/air= + the board over
+their own org files).  R20 fixed the load hang and rebuilt the project tree;
+what is LEFT is *consistency* (the project view + keyword rendering still do
+not look like the dashboard) plus *two real navigation bugs*.  This round is
+mostly cosmetic-correctness — make the second view + the keyword/state cells
+speak the SAME visual language as the board — and two pointed bug fixes.
+
+Each item carries a *reproduction* (measured / observed against the package,
+not asserted), the fix SPEC, a Byte/batch contract, Testability and Routing.
+Nothing is integrated here — this is the impl-ready spec; commits are
+per-item (=R21= prefix; Design round-21).
+
+Honour the architecture invariants (architecture.md): V6 pixel-lock, svg-
+never-grows-line (integer-=:ascent= clamp), text-is-the-contract (every svg
+has a TTY/byte fallback; fixtures assert the text layer), *one-renderer-two-
+views* (parameterise, never fork), inspector inert under =noninteractive=.
+KEEP the R18 caches (classify + svg + incremental) and the R20-1 synchronous
+fast-paint load + R20-6 compute-once partition intact.
+
+Priorities, in order (the user's "worst first"):
+- *R21-1* CURSOR JUMPS TO COLUMN 0 when the rail side window is open — point
+  must stay where the user put it. [BUG — critical]
+- *R21-5* PROJECT VIEW redo — render each doc as a ONE-LINE dashboard row via
+  the shared =org-air-view--insert-row=; drop the two-line emoji block; keep
+  the R20 directory tree + shared rail. [CONSISTENCY — critical]
+- *R21-3* NEXT keyword not handled correctly — recognise NEXT/WAIT/… so they
+  render as keyword cells, not swallowed into the title. [BUG]
+- *R21-4* KEYWORD AS SVG — one shared svg badge for board keywords AND project
+  states, colour per keyword/state, byte/TTY fallback. [CONSISTENCY]
+- *R21-2* POINT DEFAULTS TO TITLE on row entry (not the keyword/priority
+  cell). [POLISH]
+- *R21-6* CONTRAST — mode-line legible, view-pane header-line not blue-on-blue.
+  [POLISH]
+
+* Status
+Design-led, impl-ready.  R21-1 (cursor) and R21-5 (project redo) are the
+worst and are specced first.  Byte contract: R21-1 (motion/point) and R21-6
+(mode-line / header-line faces) are GUI/interactive and INERT under
+=noninteractive=, so the board byte goldens stay byte-identical.  R21-5
+(one-line project rows) and R21-3 (NEXT recognised) carry deliberate TEXT
+changes that re-bless the affected fixtures, called out per item.  R21-4
+(keyword/state svg) is a GUI overlay on the UNCHANGED keyword/badge text, so
+it is byte-invisible — the badge *text* (=NEXT=, =[R]=) is still the contract.
+R21-2 changes the COLUMN point lands on within a row, not buffer text, so it
+is also byte-invisible (fixtures strip point).
+
+* Measured baseline (reproduction harness)
+All reproductions below were run on this checkout with
+=emacs -Q --batch -l tests/org-air-test-init.el= (interactive paths are
+exercised by driving the same functions the post-command hooks/timers call,
+since the live hooks are guarded inert under =noninteractive=).  Two synthetic
+org sets are used: a tiny 3-item file for the motion/keyword repros, and the
+real Air repo / =tests/fixtures/air-project= for the project view.  Frozen
+clock = 2026-06-26 (=org-air-test-now=).
+
+* R21-1 — cursor jumps to column 0 on motion when the rail side window is open [BUG — critical]
+
+** Reproduction — the "point-preserving" re-render discards the column
+The user's report: moving the cursor around the board (*especially moving
+RIGHT*) snaps point back to the leftmost character, *only* when the rail is
+popped into its side window (=*org-air-rail*=).  Measured root mechanism:
+
+=org-air-view--render-current= (org-air-view.el L4547) is the re-render that
+EVERY live event routes through and that documents itself as
+"preserving point".  It saves a token, re-renders, and restores:
+#+begin_src elisp
+(defun org-air-view--render-current ()
+  (let ((token (org-air-view--save-position)))
+    (org-air-view--render ...)
+    (org-air-view--restore-position token)))
+#+end_src
+=org-air-view--save-position= (L4502) DOES record =:column (current-column)=.
+But =org-air-view--restore-position= (L4519) THROWS IT AWAY on the common
+"same item survived" branch:
+#+begin_src elisp
+(cond
+ (marker-pos                              ; same item found by marker
+  (goto-char marker-pos)
+  (org-air-view--beginning-of-visible))   ; <-- snaps to col 0 / first glyph
+ (section-pos ...)
+ (t ...))                                 ; line/column fallback ALSO ignores :column
+#+end_src
+=org-air-view--beginning-of-visible= (L3209) is exactly
+=beginning-of-line= + =skip-chars-forward " \t"= — it parks point on the row's
+first VISIBLE glyph and never consults the saved =:column=.  So *any* re-render
+that is supposed to keep point actually moves it to the leftmost char of the
+row.  Measured directly (tiny 3-item file, =org-air-view-width 120=):
+#+begin_src text
+BEFORE re-render: col=18 char=? (inside the title)
+AFTER  --render-current: col=6 char=84 ("T")  same-item=t
+==> COLUMN LOST (jumped to leftmost): t
+#+end_src
+Point moved from column 18 (mid-title) to column 6 (the row's first visible
+glyph) while staying on the SAME item — the exact "jump back to the leftmost
+character" the user saw.
+
+** Reproduction — why ONLY with the side window, and why "esp. moving RIGHT"
+The column-loss above is latent in EVERY re-render; what differs with the
+rail side window is how OFTEN a re-render fires during plain motion:
+- *Inline rail (two-pane, the default-ish before popout):* the board buffer
+  also holds the rail columns + the =│= divider, so each row is full of
+  content to the right; =right-char= traverses that content and a re-render is
+  rare during motion — the latent bug stays hidden.
+- *Side-window rail (popped out):* the board renders =board-only= at the
+  shrunk board-window width, and =org-air-view--finalize-buffer-lines= (L3177)
+  RIGHT-TRIMS each row (no trailing pad).  With =truncate-lines t= the narrow
+  board auto-hscrolls as point moves right; and crucially the side window
+  participates in the GLOBAL layout hooks — =org-air-layout--window-size-
+  change= is on BOTH =window-size-change-functions= and =window-configuration-
+  change-hook= (org-air-layout.el L456-460), and the board also carries
+  =org-air-rail--reconcile= on =window-configuration-change-hook= (L886) plus
+  the rail-inspector follow on =post-command-hook= (L872).  The side window
+  sits the board right at the =org-air-rail-min-width= board-only threshold,
+  so redisplay-time window churn (resize/scroll/inspector-follow as the user
+  scrubs) drives the debounced =org-air-view--resize-refresh= →
+  =org-air-view--render-current= far more readily than inline ever does.  Each
+  such re-render fires the column-loss above → the visible "jump to leftmost",
+  most noticeable while moving RIGHT (the motion that most reliably hscrolls
+  the narrow board and re-evaluates the layout).
+So there are TWO faults stacked: (1) =--restore-position= discards the saved
+column (the real bug — point is NOT preserved); (2) the side-window layout
+churns re-renders during ordinary motion, exposing (1) on nearly every move.
+
+** Decision — make point actually preserved; stop the motion-time churn
+*** (1) PRIMARY FIX — =--restore-position= honours the saved =:column=
+On the "same item" (and the section / line) branches, after landing on the
+target row, restore the saved column instead of snapping to the first glyph:
+#+begin_src elisp
+(defun org-air-view--restore-to-column (token)
+  "Move point to TOKEN's saved :column on the CURRENT row, clamped (R21-1).
+Never lands before the row's first visible glyph (so the cursor still reads
+on a real character, S5a), never past end-of-line."
+  (let* ((first (progn (org-air-view--beginning-of-visible) (current-column)))
+         (want  (or (plist-get token :column) first))
+         (eol   (progn (end-of-line) (current-column))))
+    (move-to-column (max first (min want eol)))))
+#+end_src
+and use it in all three =cond= branches of =--restore-position= in place of
+the bare =org-air-view--beginning-of-visible= (marker / section / line).  Net:
+=--render-current= becomes genuinely point-preserving — a re-render that finds
+the same item keeps point on the SAME glyph the user was on (clamped into the
+row), so even when a re-render fires on motion, *point stays where the user
+put it*.  (The token already records =:column=; this is a pure use-site fix —
+no new state.)
+
+This is the fix the prompt asks for ("Point must stay where the user put it");
+it is also the belt that makes the secondary churn fix non-load-bearing.
+
+*** (2) SECONDARY — do not re-render on PLAIN motion with the side window
+Even point-preserving, a full re-render on every keystroke is wasteful and was
+the trigger.  Tighten so plain motion never re-renders:
+- *Strict dimension gate (already present, keep + harden).*  =org-air-view--
+  resize-refresh= (L4556) re-renders only when =--render-width=/=--render-
+  height= actually changed vs =org-air-view--rendered-width/-height=.  Confirm
+  this gate holds under the side window (measured: with a live board window +
+  a real =display-buffer-in-side-window= rail, =render-width/height= equal the
+  stored =rendered-width/height=, so the gate returns "no re-render").  The
+  hook may FIRE on motion-driven redisplay, but the gate must keep it a no-op.
+- *Threshold hysteresis (root of the churn).*  The board sitting exactly at
+  =org-air-rail-min-width= can oscillate board-only ↔ side-window between
+  redisplays, each flip a real dimension change → a real re-render.  Add a
+  small hysteresis band (reuse/introduce =org-air-rail-width-hysteresis=, ~2
+  cols): once =side-window=, stay side-window until the board width drops more
+  than the band below =org-air-rail-min-width=, and vice-versa — so a 1-col
+  hscroll/redisplay wobble never flips the orientation.
+- *Inspector follow + reconcile never re-render or move BOARD point on motion.*
+  Confirmed by construction today (the whole-region rail-inspector update runs
+  in the RAIL buffer under =save-excursion=; =--reconcile= no-ops while the
+  rail is shown).  Add a regression assertion (Testability) that the rail-
+  inspector update leaves board point byte-identical, so a future edit can't
+  reintroduce a board-touching path.
+
+** Interaction with R21-2 (point defaults to title)
+R21-2 makes *motion commands and first-open* land point on the TITLE column.
+R21-1's fix is about RE-RENDER restoring the column the user was ON.  They
+compose cleanly: R21-2 changes where point lands when you MOVE; R21-1 keeps
+that column across a re-render.  Concretely, =--restore-to-column= uses the
+SAVED column (what the user was on) — never overriding it with the title — so
+the two never fight.  The first-open / vanished-item FALLBACK (no saved item)
+defers to R21-2's title normaliser for consistency (see R21-2).
+
+** Byte / batch contract
+=--restore-position= / =--render-current= run only on interactive re-render
+(resize, reconcile, after-save, command refresh); the cold/batch path renders
+once via =--render= (which still ends on =--goto-first-item=, unchanged) and
+never restores.  =move-to-column= touches only point, not buffer text.  So
+every board/project byte golden is byte-identical.  The hysteresis band is a
+GUI dimension decision (inert under the =org-air-view-width= seam batch uses).
+
+** Testability (R21-1)
+- ERT (the real guard): render a board, place point at a non-zero column on an
+  item row, call =org-air-view--render-current=, assert =(current-column)=
+  EQUALS the saved column (clamped) and the same item — locks out the column-
+  loss (this test FAILS on trunk today, passes after the fix).
+- ERT: restore lands ≥ the first-visible column (never on indent whitespace)
+  and ≤ end-of-line (clamp invariant), incl. a row whose saved column exceeds
+  the new, shorter row width (clamps to eol, no error).
+- ERT (no board-point side effect): with a side-window-style whole-region
+  inspector target, call =org-air-view--maybe-update-inspector= and assert
+  board =(point)= is byte-identical before/after (the follow never moves board
+  point).
+- ERT (gate): with stable dims, =org-air-view--resize-refresh= does NOT call
+  =--render= (advice/flag); after a real width change it does — proves the
+  gate, so plain motion (no dim change) cannot re-render.
+- No new byte fixtures (interactive/point-only).
+
+** Routing (R21-1)
+org-air-view.el only: add =org-air-view--restore-to-column=; use it in the
+three branches of =org-air-view--restore-position=; add the orientation
+hysteresis band to the =board-only-p= / =side-window= decision in =--render=
+(L4297) + a =org-air-rail-width-hysteresis= defcustom (org-air-faces.el knobs
+or the layout group).  Test seat: add the column-preservation + clamp + no-
+board-point + gate ERTs.
+
+** Open questions (R21-1)
+- Should =--render-current= ALSO preserve =window-start= / hscroll (so a re-
+  render does not visually jump the viewport even though point is kept)?
+  Proposal: yes, cheap insurance — capture =(window-hscroll)= /
+  =(window-start)= in the token and restore via =set-window-hscroll= /
+  =set-window-start= when the displaying window is live; keep it optional if
+  it complicates batch.
+- Hysteresis band width: 2 cols proposed; the test seat eyeballs that a slow
+  drag across the breakpoint no longer flickers the rail in/out.
+
+* R21-5 — project view REDO: one-line dashboard rows (drop the two-line emoji block) [CONSISTENCY — critical]
+
+** Reproduction — the project rows look NOTHING like the dashboard
+=M-x org-air-project= on the real Air repo (and =tests/fixtures/air-project=,
+the golden =tests/fixtures/project-view-dir.txt=) renders each doc as a
+*TWO-LINE block* with an *emoji state chip*, via =org-air-project--insert-doc-
+block= (org-air-project.el L657).  The current golden shows it literally:
+#+begin_src text
+[R] Alpha feature   #ui   #core
+  . v0.1/alpha-feature.org    created 2026-04-01    updated 2026...
+[C] Beta CLI   #core
+  . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01
+|   air-context/   [D] 1
+  [D] Gamma context   #context
+    . v0.1/air-context/gamma-context.org    created 2026-04-01  ...
+#+end_src
+Three concrete divergences from the board's clean one-line table:
+1. *Two lines per doc.*  Line 1 = =<state-chip> Title  #tags=; line 2 =
+   =. relpath    created…    updated…= (=org-air-project--insert-doc-block=
+   L657-700 inserts TWO =--pad-to= lines).  The board is ONE line per task.
+2. *Emoji state icons.*  =org-air-project--state-badge= (L274) returns the
+   GUI emoji from =org-air-project-state-badges= — =🎯/✅/📝/🗑/⚙/🔎= — many of
+   which render as *tofu boxes* in the user's font, and which never appear on
+   the board.  (The TTY layer shows =[R]/[C]/[D]/…= — that is what the golden
+   captures.)
+3. *Not the row primitive.*  The doc rows do NOT flow through the shared
+   =org-air-view--insert-row= (the board's V6 fixed-column table); they are a
+   bespoke =concat= of two =--pad-to= lines.  So the columns (date/tags/origin)
+   do NOT line up with the board's, and the title is not flex-truncated the
+   board way — the two views visibly drift.
+The R20-5 nested directory tree, the per-dir =BADGE N (+M)= counts, the rolled-
+up top-dir header and the SHARED rail/keymap/filter are all GOOD and STAY —
+only the per-doc ROW is wrong.
+
+** Decision — render each doc as a ONE-LINE board-style row via the SHARED primitive
+Replace =org-air-project--insert-doc-block='s two-line body with a single
+=org-air-view--insert-row= call, mapping the DOC onto the row args exactly as
+=org-air-view--insert-item= maps a task (invariant #4: parameterise the shared
+primitive, do not fork).  The doc's STATE becomes the row PREFIX as an svg
+badge (R21-4), not an emoji; the relpath becomes the ORIGIN cell on the right;
+the updated stamp becomes the DATE cell; the tags become the SAME svg tag
+pills the board uses.  The two-line layout (the old R14 D-P1.A requirement) is
+DROPPED — consistency with the board wins.
+
+*** Row mapping (the new =org-air-project--insert-doc-row=)
+#+begin_src elisp
+(defun org-air-project--insert-doc-row (doc width &optional indent-cols)
+  "Insert DOC as ONE board-style row via the shared primitive (R21-5)."
+  (let* ((state  (org-air-doc-state doc))
+         (prefix (concat (org-air-view--item-margin)
+                         (make-string (max 0 (or indent-cols 0)) ?\s)
+                         (org-air-project--state-cell state)))   ; R21-4 svg badge
+         (date   (org-air-project--doc-date-text doc))           ; "↻ 2026-05-01"
+         (tags   (org-air-project--doc-tagstr doc))              ; shared svg tag pills
+         (origin (org-air-project--doc-origin-text doc)))        ; "⌂ v0.1/alpha-feature.org"
+    (org-air-view--insert-row
+     :prefix prefix
+     :title (org-air-doc-name doc)
+     :date-text date
+     :tags tags
+     :origin-text origin
+     :origin-face 'org-air-face-group
+     :widths (list org-air-project--meta-date-w
+                   org-air-project--meta-tags-w
+                   org-air-project--meta-origin-w)
+     :props (list 'org-air-doc doc
+                  'org-air-marker (org-air-doc-file doc)
+                  'mouse-face 'org-air-face-cursor)
+     :face 'org-air-face-title)))
+#+end_src
+- *State cell* = a FIXED-width reserved prefix slot (mirroring the board's
+  =org-air-view--todo-cell=) holding the doc state as the shared svg keyword/
+  state badge (R21-4): GUI = the coloured badge; TTY/byte = the short token
+  (=[R]= / =Ready=, see open question on the token text).  Fixed width so all
+  doc titles share one left edge, exactly like the keyword column on the board.
+  The state cell is ALWAYS shown in the project view (it replaces the section
+  in the directory tree), so there is no =show-state= conditional anymore.
+- *Date* = =org-air-project--doc-date-text= (already "↻ YYYY-MM-DD", faded) —
+  reused unchanged as the board's date cell.
+- *Tags* = =org-air-project--doc-tagstr= (already routes through =org-air-
+  view--item-tagstr= → the SAME D-P1 svg pills as the board) — reused.
+- *Origin* = =org-air-project--doc-origin-text= ("⌂ relpath"), right-justified
+  in the origin column, =org-air-face-group= — same column/face as the board's
+  origin.  (Keep the R17 D-P2 Denote de-slug for the leaf if desired; see open
+  question — the relpath is the doc's identity / RET target.)
+
+*** Fixed column widths over the DISPLAYED docs (V6 + R20-6 parity)
+Compute =(DCOL TCOL OCOL)= once per render over the docs that are actually
+rendered (mirror =org-air-project--doc-widths=, L322, but feed it the
+displayed set), and bind them as =org-air-project--meta-date-w= / =-tags-w= /
+=-origin-w= for the render extent — so the project columns line up down the
+list exactly as the board's =org-air-view--meta-*-w= do.  This is the same
+"measure only what is shown" discipline R20-6 gave the board; no O(N) blow-up.
+
+*** Tree integration — rows nest, headers unchanged
+=org-air-project--insert-dir-node= (L549) step (3) currently calls
+=--insert-doc-block doc width t (* 2 depth)=; change it to
+=--insert-doc-row doc width (* 2 depth)= (one line, indented under the dir).
+The (1) rolled-up box header and (2) per-dir =BADGE N (+M)= count headings are
+UNCHANGED (they already use =--state-badge= / =--state-title= as count cells;
+R21-4 upgrades those badges to svg too, byte-invisibly).  The flat state/tag
+modes' =org-air-project--insert-doc-sections= (L854) likewise swaps the block
+for the row (a doc under a state/tag section still carries its state cell, so
+the row is identical in every grouping).
+
+** Byte / batch contract — a DELIBERATE, called-out re-bless
+This collapses two golden lines per doc into one and moves the relpath/dates
+to the right cluster, so =tests/fixtures/project-view-dir.txt=,
+=project-view-state.txt= and =project-view-tag.txt= ALL change at the text
+layer and are re-blessed.  New shape (board-style, one line per doc):
+#+begin_src text
+  | v0.1/   Ready (1)    Complete (1)    Draft (1)
+  | v0.1/   [R] 1  [C] 1  [D] (+1)
+  [R] Alpha feature              ↻ 2026-05-01   #ui #core   ⌂ v0.1/alpha-feature.org
+  [C] Beta CLI                   ↻ 2026-05-01   #core       ⌂ v0.1/beta-cli.org
+  |   air-context/   [D] 1
+    [D] Gamma context            ↻ 2026-05-01   #context    ⌂ v0.1/air-context/gamma-context.org
+#+end_src
+(=[R]= etc. are the TTY/byte state tokens; on GUI they are the R21-4 svg
+badge.)  The board fixtures are untouched.  The re-bless is recorded in the
+known-failures manifest by impl and re-blessed by the test seat via
+=make regen-mockups= + a reviewed diff.
+
+** Testability (R21-5)
+- RE-BLESS =project-view-dir.txt= / =project-view-state.txt= /
+  =project-view-tag.txt= to the one-line board-style rows (the test seat owns
+  the regen + the design-blessed diff; impl only records the change).
+- ERT (parity): a doc row and a board task row of the same title/tags/date/
+  origin widths produce the SAME column positions — assert the date/tags/
+  origin cells start at identical columns (the shared-primitive guarantee).
+- ERT: =org-air-project--insert-doc-row= over a fixture doc emits ONE buffer
+  line carrying =org-air-doc= + =org-air-marker= across the whole row (point on
+  any cell identifies the doc; RET/visit still resolve).
+- ERT (no two-line residue): the rendered project body has one line per doc
+  (count lines carrying =org-air-doc= = number of docs), proving the second
+  =. relpath …= line is gone.
+- The directory-tree structural ERTs (per-dir counts, state-first order,
+  roll-up) from R20-5 stay GREEN unchanged (only the doc ROW changed).
+
+** Routing (R21-5)
+org-air-project.el: add =org-air-project--insert-doc-row= +
+=org-air-project--state-cell= (the fixed-width state prefix, R21-4 badge) +
+the per-render =--meta-date-w/-tags-w/-origin-w= width binding; repoint
+=--insert-dir-node= step (3) and =--insert-doc-sections= at the row;
+DELETE =org-air-project--insert-doc-block= and the now-unused
+=org-air-project-line2-indent= defcustom + =--doc-dates-str= second-line
+helper (or keep =--doc-dates-str= if the inspector reuses it).  org-air-
+view.el: no change (the row primitive already supports this; the project just
+calls it).  Test seat: re-bless the three project fixtures, add the parity +
+one-line ERTs.
+
+** Open questions (R21-5)
+- *State token text (TTY/byte fallback).*  Keep the terse =[R]/[C]/[W]/[V]/
+  [X]/[D]= (compact, matches today's golden, fewer fixture churn) OR spell the
+  state =Ready/Complete/…= (more legible, matches =airctl=).  Proposal: keep
+  the terse bracket token as the byte contract (the svg badge carries the full
+  colour/shape on GUI; the count headers already spell the state name) — least
+  fixture churn, and the row stays narrow.
+- *Origin = full relpath vs de-slugged leaf.*  The board shows a compact
+  origin; the project's relpath is the dir-grouping signal AND the doc
+  identity.  Proposal: show the full =relpath= (the tree already groups by dir,
+  but the relpath disambiguates same-named docs across dirs) with the R17 D-P2
+  Denote leaf de-slug applied to the LEAF only; truncate-last in the origin
+  column like the board.
+- *Unknown state* (the =[U]= "Eta notes" row in the current golden): render it
+  with a neutral faded badge (=[U]= / =Unknown=) — confirm the R20-5 stateless→
+  unknown ruling still holds and the unknown badge has a face (faded).
+
+* R21-3 — NEXT keyword not handled correctly: recognise NEXT/WAIT/… so they are keyword cells [BUG]
+
+** Reproduction — NEXT is SWALLOWED INTO THE TITLE
+=org-air-query--item-at-point= (org-air-query.el L60) reads the keyword via
+=(org-get-todo-state)=, which only returns a word as a TODO keyword when that
+word is in the BUFFER's =org-todo-keywords=.  Org's DEFAULT keyword set is
+=TODO | DONE= only.  So a heading =* NEXT Foo= in a file *without* a =#+TODO:=
+line (and a user whose global =org-todo-keywords= lacks NEXT) is parsed as a
+plain heading whose TITLE is "NEXT Foo" and whose todo state is =nil=.
+Measured (frozen clock 2026-06-26):
+#+begin_src text
+--- A: no #+TODO header (default keywords TODO|DONE) ---
+  todo="TODO" title="Plain todo no date"      buckets=(attention)
+  todo=nil    title="NEXT Next item no date"  buckets=(attention)   <-- NEXT in TITLE
+  todo=nil    title="WAIT Waiting item no date" buckets=(attention) <-- WAIT in TITLE
+--- B: WITH "#+TODO: TODO NEXT WAIT | DONE" ---
+  todo="TODO" title="Plain"        buckets=(attention)
+  todo="NEXT" title="Next item"    buckets=(attention)              <-- correct
+  todo="WAIT" title="Waiting item" buckets=(attention)
+#+end_src
+Consequences in case A (the common GTD config that org-air itself ANTICIPATES
+— =org-air-todo-keyword-faces=, org-air-view.el L566, already lists NEXT,
+STARTED, WAIT, WAITING, HOLD, BLOCKED):
+- the keyword CELL is empty (=org-air-view--todo-cell= gets =nil=), so the row
+  shows no coloured keyword;
+- the word "NEXT" / "WAIT" appears as literal grey TITLE text;
+- the item is not visibly an actionable task (no keyword), only a heading that
+  happens to be bucketed by date/priority.
+So org-air styles NEXT/WAIT (faces exist) but never ensures Org *recognises*
+them — a self-inconsistency.  Bucketing is otherwise unaffected (classify
+gates on =--done-p=, and NEXT/WAIT are not done), so this is a RECOGNITION +
+RENDERING bug, not a mis-bucketing one.
+
+** Decision — ensure org-air's keyword vocabulary is recognised during the scan
+Introduce the keyword set org-air understands and make the org-ql scan
+recognise it even for files with no =#+TODO:= line, WITHOUT overriding a file
+that declares its own.
+
+*** (1) A defcustom for the actionable + done vocabulary
+#+begin_src elisp
+(defcustom org-air-todo-keywords
+  '(:not-done ("TODO" "NEXT" "STARTED" "WAIT" "WAITING" "HOLD" "BLOCKED")
+    :done     ("DONE" "CANCELLED" "CANCELED" "KILL"))
+  "TODO keyword vocabulary org-air recognises when a file declares none.
+The active (not-done) and done keyword sets org-air falls back to so a
+heading like `* NEXT Foo' is parsed as a NEXT task even in a file without a
+`#+TODO:' line.  A file's OWN `#+TODO:'/`#+SEQ_TODO:' always wins; this only
+fills the gap.  Defaults mirror the keys of `org-air-todo-keyword-faces'."
+  :type 'plist :group 'org-air)
+#+end_src
+
+*** (2) Recognise the vocabulary in =org-air-query-items=
+Wrap the org-ql scan so that, for each scanned file, Org's effective keyword
+set INCLUDES the org-air vocabulary.  Two viable implementations (impl
+chooses; behaviour is the contract):
+- *Preferred — augment the global default for the scan extent.*  =let=-bind
+  =org-todo-keywords= around =org-ql-select= to a merged set
+  =(default ∪ org-air-todo-keywords)=, so a file that does NOT set its own
+  =#+TODO:= inherits org-air's vocabulary, while a file WITH a =#+TODO:= line
+  still parses with its own (Org's per-file =#+TODO:= takes precedence over the
+  default when the buffer is set up).  Equivalent to the user having NEXT/WAIT
+  in their global config — the common, correct GTD case (matches measured
+  case B).
+- *Fallback — per-file post-parse keyword inference.*  In =org-air-query--
+  item-at-point=, when =(org-get-todo-state)= is nil but the heading text
+  begins with a word in =org-air-todo-keywords= AND the buffer's
+  =org-todo-keywords-1= is the bare default (no per-file =#+TODO:=), strip the
+  leading keyword off the title and set =:todo= to it.  Narrower blast radius;
+  use only if let-binding the global proves to interact badly with org-element
+  caching.
+Either way, keep a doc note that a file's own =#+TODO:= is authoritative.
+
+*** (3) classify done-detection stays correct
+=org-air-classify--done-keywords= reads =org-done-keywords= from the item's
+buffer; with the vocabulary recognised, CANCELLED/KILL are correctly treated
+as done (no longer leaking onto the board as actionable).  No classify change
+needed beyond the recognition fix; verify with a CANCELLED fixture row that it
+drops off the board.
+
+*** (4) (Optional polish) keyword-aware order within a bucket
+GTD convention ranks NEXT above plain TODO.  Within the non-date buckets
+(attention / inbox / high-priority / stale, currently source-order), an
+OPTIONAL secondary sort by a keyword rank (=NEXT < STARTED < TODO < WAIT/HOLD/
+BLOCKED=) would put next-actions first.  Proposed as a follow-up knob
+(=org-air-todo-keyword-rank=), NOT shipped in R21-3's core fix — the core fix
+is recognition + rendering.  Flag in Open questions; default OFF so no fixture
+churn unless adopted.
+
+** Byte / batch contract — a DELIBERATE re-bless where a fixture used NEXT/WAIT
+Any board golden whose source fixtures contain bare NEXT/WAIT headings without
+a =#+TODO:= line will now render those as a keyword CELL + a shorter title
+(keyword stripped) instead of literal title text — a deliberate, design-blessed
+re-bless via =make regen-mockups=.  Fixtures that already declare =#+TODO:=
+(or use only TODO) are byte-identical.  The test seat audits which goldens move
+and re-blesses them; impl records them in the manifest.
+
+** Testability (R21-3)
+- ERT (the guard, FAILS on trunk): query a file =* NEXT Foo / * WAIT Bar=
+  with NO =#+TODO:= line; assert =:todo= = "NEXT" / "WAIT" and =:title= =
+  "Foo" / "Bar" (keyword stripped) — locks the recognition.
+- ERT: a file WITH =#+TODO: TODO NEXT WAIT | DONE= is unchanged (NEXT/WAIT
+  already recognised) — proves the file's own =#+TODO:= still wins / is not
+  double-applied.
+- ERT: =* CANCELLED Old= (no =#+TODO:=) classifies as done (no buckets) — the
+  done vocabulary recognised.
+- ERT (render): a NEXT item renders a keyword cell faced =org-air-face-todo-
+  next= (not literal title text) — assert the keyword cell carries "NEXT".
+- Re-bless only the goldens whose fixtures used bare NEXT/WAIT (test seat).
+
+** Routing (R21-3)
+org-air-query.el: add =org-air-todo-keywords=; wrap =org-ql-select= in
+=org-air-query-items= / =-in-files= with the merged-keyword =let= (or the
+per-file inference in =--item-at-point=).  org-air-classify.el: no change
+(done-detection already reads the buffer's done set).  org-air-faces.el /
+org-air-view.el: no change (faces + keyword cell already exist).  Test seat:
+add the recognition/render ERTs; re-bless any NEXT/WAIT board fixtures.
+
+** Open questions (R21-3)
+- Global let-bind vs per-file inference: the let-bind is simpler and matches
+  the user's expectation (NEXT works like in their config), but mutates the
+  effective keyword set for the scan; confirm it does not perturb org-element
+  cache state across the org-ql pass (org-ql opens files read-only).  Proposal:
+  let-bind; fall back to inference only if the cache interaction misbehaves.
+- Ship the keyword-rank ordering (NEXT-before-TODO) now or defer?  Proposal:
+  DEFER (knob OFF) — the core bug is recognition/rendering; ordering is a
+  separate preference with fixture cost.
+- Should the recognised vocabulary be derived from =org-air-todo-keyword-faces=
+  keys (single source of truth) rather than a second list?  Proposal: yes —
+  default =org-air-todo-keywords= from the faces map's keys split into done/
+  not-done (by membership in the default done set), so the two cannot drift.
+
+* R21-4 — keyword AS SVG: one shared badge for board keywords AND project states [CONSISTENCY]
+
+** Reproduction — keywords are plain text; states are emoji
+Today the board's keyword cell is PLAIN coloured text: =org-air-view--todo-
+cell= (org-air-view.el L1956) emits =(propertize todo 'face (--todo-face
+todo))= — no svg, no chip — while the board's priority is a crisp svg SQUARE
+and the tags/dates are svg PILLS.  The keyword is the odd one out.  The project
+state, meanwhile, is an EMOJI (=org-air-project--state-badge=, L274) that
+renders as tofu in many fonts.  So the two most state-bearing cells in the two
+views are the only ones NOT in the svg-pill idiom — the inconsistency the user
+sees.
+
+** Decision — a shared svg KEYWORD/STATE badge (reuse the pill cache + text fallback)
+Add ONE badge builder used by BOTH the board keyword cell and the project
+state cell, drawn through the existing svg pill/line-image cache, with the
+mandatory text fallback.  A badge is a small rounded chip whose COLOUR comes
+from the keyword/state face (so NEXT is the popout hue, WAIT amber, Ready
+popout, Complete green, Dropped faded-struck, Draft faded) — colour per
+keyword/state, in the svg-tag idiom, NOT an emoji.
+
+*** The builder
+#+begin_src elisp
+(defcustom org-air-keyword-style 'badge
+  "How a TODO keyword / Air state renders: `badge' (svg chip) or `text'.
+`badge' overlays the reserved keyword/state cell with a small coloured svg
+chip (GUI); `text' keeps the plain coloured keyword text.  The svg is a
+display overlay over the UNCHANGED cell text, so the byte/TTY layer always
+shows the keyword/token text either way."
+  :type '(choice (const badge) (const text)) :group 'org-air)
+
+(defun org-air-view--svg-keyword-badge (text face)
+  "Return TEXT carrying a small coloured keyword/state svg chip (R21-4).
+Reuses `org-air-view--svg-pillify' with FACE's colour as BOTH the label and
+the (salient, full-strength) border, so the chip reads as a coloured badge —
+distinct from the calm monochrome tag/date pills.  Returns TEXT unchanged
+when svg is unavailable (the plain coloured keyword text is the fallback)."
+  (if (or (not (eq org-air-keyword-style 'badge))
+          (not (org-air-view--svg-available-p))
+          (string-empty-p (string-trim text)))
+      text
+    (let ((color (face-foreground face nil t)))
+      (org-air-view--svg-pillify text face :border-color color))))
+#+end_src
+- *Reuse, don't reinvent.*  =org-air-view--svg-pillify= already box-fits the
+  chip to its text cell (=Ncols × char-px=, V6 pixel-lock), clamps it to the
+  line height (integer =:ascent=, never grows the row), caches the image, and
+  width-fits the label.  Passing =:border-color= = the keyword colour makes it
+  draw the full-strength salient border (the existing priority-badge path),
+  giving a coloured BADGE rather than the hairline tag pill — one code path,
+  one cache, no new svg primitive.
+- *Optional fill.*  If a stronger "filled badge" look is wanted, the same call
+  can pass a faint =fill= via the existing =org-air-pill-fill-alpha= path or a
+  new per-badge alpha; default keeps the calm bordered-chip (colour in the
+  label + border) consistent with the rest of the UI.  (Open question.)
+
+*** Board wiring — keyword cell overlays the badge
+=org-air-view--todo-cell= keeps emitting the SAME reserved fixed-width text
+(=todo= padded to =org-air-view--meta-todo-w= + separator — the byte contract),
+and additionally overlays the badge:
+#+begin_src elisp
+;; inside --todo-cell, when todo non-empty:
+(org-air-view--svg-keyword-badge
+ (propertize todo 'face (org-air-view--todo-face todo))
+ (org-air-view--todo-face todo))
+#+end_src
+The cell WIDTH and TEXT are unchanged (the badge is a =display= overlay on the
+existing padded keyword text), so V6 alignment and every board golden hold.
+
+*** Project wiring — the state cell uses the SAME badge
+=org-air-project--state-cell= (R21-5's fixed-width state prefix) emits the
+state TOKEN text (=[R]= / =Ready=, the byte contract) faced with =org-air-
+project--state-face=, overlaid with =org-air-view--svg-keyword-badge= — the
+SAME badge style as the board keyword.  The directory-tree count headers'
+=--rolled-up-badges= / =--count-badges= ALSO route their per-state badge cells
+through =--svg-keyword-badge= (byte-invisibly), so the whole project view drops
+emoji for the shared svg badge.  This RETIRES =org-air-project-state-badges='s
+emoji on GUI (the TTY token stays the fallback); the defcustom can keep the
+TTY tokens and drop the emoji column, or be replaced by a token-only map.
+
+** Byte / batch contract — byte-INVISIBLE
+The badge is a =display= overlay over the UNCHANGED keyword/token text; svg is
+GUI-only (=org-air-view--svg-available-p= is nil in batch), so under
+=noninteractive= nothing draws and every board AND project golden is byte-
+identical to its R21-5 text.  The keyword text (=NEXT=) and the state token
+(=[R]=) remain the contract.  (Note: dropping the project EMOJI does not change
+the byte layer because the byte layer already showed the TTY token, not the
+emoji — see =project-view-dir.txt=, which shows =[R]/[C]/…=.)
+
+** Testability (R21-4)
+- ERT: =org-air-view--svg-keyword-badge= with svg UNAVAILABLE returns its TEXT
+  argument =eq=-unchanged (mandatory fallback) — covers batch/TTY.
+- ERT: with =org-air-keyword-style= = =text= the builder is a no-op (returns
+  text) — the opt-out path.
+- ERT (shared): the board keyword cell and a project state cell of the same
+  width both call =--svg-keyword-badge= and yield strings whose TRUE text
+  (properties stripped) is the keyword/token — proving the badge is overlay-
+  only and the two views share the one builder.
+- No byte fixtures (GUI overlay only); the board + project goldens are asserted
+  byte-identical to their R21-5 text (a regression guard that the overlay never
+  leaked into the text layer).
+
+** Routing (R21-4)
+org-air-view.el: add =org-air-keyword-style= + =org-air-view--svg-keyword-
+badge=; overlay it in =org-air-view--todo-cell=.  org-air-project.el: route
+=org-air-project--state-cell= + =--rolled-up-badges= + =--count-badges= through
+the shared badge; reduce =org-air-project-state-badges= to the TTY tokens (drop
+the GUI emoji column) or replace with a token map.  org-air-faces.el: no new
+faces (the keyword/state faces already supply the per-keyword/state colour).
+Test seat: add the fallback/opt-out/shared ERTs; assert byte goldens unchanged.
+
+** Open questions (R21-4)
+- Bordered chip (colour in label + border, calm) vs faintly FILLED badge
+  (colour wash)?  Proposal: bordered chip first (consistent with priority
+  badge + tag pills, calm); expose a per-badge fill alpha knob if the user
+  wants the filled look.
+- Should DONE/CANCELLED keywords get a badge too, or stay plain faded text
+  (they rarely appear on the board)?  Proposal: same badge, faded face — uniform
+  rule, and the project's Complete/Dropped states already need it.
+- One shared knob =org-air-keyword-style= for BOTH views, or separate board /
+  project knobs?  Proposal: ONE shared knob (the whole point is consistency);
+  split only if a user asks.
+
+* R21-2 — point defaults to the TITLE on row entry (not the keyword / priority cell) [POLISH]
+
+** Reproduction — motion lands point on the keyword/priority, not the title
+Every row-motion command and the first-open land via =org-air-view--beginning-
+of-visible= (org-air-view.el L3209) = =beginning-of-line= + skip indent.  That
+parks point on the row's FIRST visible glyph, which is the leading prefix —
+the TODO/NEXT keyword (or, with =org-air-priority-style= = =square=, the
+priority square slot), NOT the title.  Callers: =org-air-next-line= /
+=org-air-prev-line= (L4875/4881), =org-air-next-item= / =org-air-prev-item=
+(L4887/4897), =org-air-toggle-section= (L4958), =org-air-view--goto-first-item=
+(L3215), and the project equivalents.  So pressing =n=/=p=/=j=/=k= or opening
+the board leaves the cursor sitting on "TODO"/"NEXT"/the priority square — the
+user wants it on the TITLE (the row's identity), which reads better and is
+where editing/peeking intent points.
+
+** Decision — mark the title boundary in the shared row, normalise to it
+The title is the first character AFTER the reserved prefix (margin + keyword
+cell + priority slot), but the prefix WIDTH varies (keyword present/absent,
+priority shown/blank) and the row-wide =font-lock-face= =org-air-face-title=
+is applied over the WHOLE row in =org-air-view--insert-row= (it is appended to
+the props over =start..point=, prefix included) — so neither the face nor the
+=org-air-item= span distinguishes the title.  The robust fix is to MARK the
+title boundary when the shared row is built, then normalise to that mark.
+
+*** (1) Mark the title start in =org-air-view--insert-row=
+=--insert-row= already computes =left = (concat prefix title)=; tag the first
+glyph of the TITLE with a one-char property so any caller can find it:
+#+begin_src elisp
+;; in --insert-row, after composing LEFT, before inserting:
+(when (> (length title) 0)
+  (put-text-property 0 1 'org-air-row-title t title))   ; on the title's 1st glyph
+#+end_src
+This is a text PROPERTY, not visible text — byte goldens (which assert the
+visible characters) are byte-identical.  Both the board's =--insert-item= and
+the project's =--insert-doc-row= (R21-5) flow through =--insert-row=, so BOTH
+views get the mark for free (invariant #4).
+
+*** (2) Normalise to the mark
+#+begin_src elisp
+(defun org-air-view--row-title-pos ()
+  "Return the position of the TITLE start on the current row, or first-visible.
+Finds the `org-air-row-title' mark `--insert-row' put on the title's first
+glyph; falls back to the row's first visible glyph (section headings / rows
+with no title)."
+  (save-excursion
+    (let* ((eol (line-end-position))
+           (bol (line-beginning-position))
+           (pos (if (get-text-property bol 'org-air-row-title) bol
+                  (next-single-property-change bol 'org-air-row-title nil eol))))
+      (if (and pos (get-text-property pos 'org-air-row-title)) pos
+        (progn (org-air-view--beginning-of-visible) (point))))))
+
+(defun org-air-view--goto-row-title ()
+  "Move point to the TITLE column of the current row (R21-2)."
+  (goto-char (org-air-view--row-title-pos)))
+#+end_src
+- Replace the trailing =org-air-view--beginning-of-visible= in =org-air-next-
+  line=, =-prev-line=, =-next-item=, =-prev-item=, =-toggle-section= (and the
+  project view's motion, which shares the core map) with =org-air-view--goto-
+  row-title=.
+- =org-air-view--goto-first-item= lands on the first item's TITLE too (open
+  defaults to the title).
+- A row with no title mark (a section heading, the empty board) falls back to
+  first-visible — headings are unaffected.
+
+** Interaction with R21-1 (cursor stability)
+R21-2 sets where point lands on a fresh MOVE/OPEN; R21-1 keeps the column the
+user is ON across a re-render.  They must not fight:
+- Motion commands call =--goto-row-title= → point lands on the title; the next
+  =--save-position= records THAT column; a subsequent re-render restores THAT
+  column (R21-1) — consistent.
+- =--restore-position='s VANISHED-item / first-open FALLBACK (no saved item)
+  uses =--goto-row-title= (not bare first-visible), so a refresh that rebuilds
+  markers also lands on the title — one consistent landing rule.
+- The SAME-item branch still restores the user's SAVED column (R21-1), never
+  forcing the title — if the user deliberately moved into the title mid-word, a
+  re-render keeps them there.
+
+** Byte / batch contract
+Point position is not buffer text; fixtures strip it.  =--goto-row-title= moves
+only point.  So every byte golden is byte-identical.  (Under =noninteractive=
+the open path still runs =--goto-first-item=, now landing on the title column —
+still not part of the asserted text.)
+
+** Testability (R21-2)
+- ERT: after =org-air-next-item= / =org-air-next-line= on a board with keyword
+  + priority rows, =(get-text-property (point) 'org-air-row-title)= is non-nil
+  (point on the title mark), NOT on the keyword/priority cell — for a row WITH
+  a keyword, a row WITHOUT a keyword, and a row with a priority square.
+- ERT: =org-air-view--goto-first-item= lands on the first item's title (the
+  =org-air-row-title= mark).
+- ERT (project): project-view motion lands on the doc title (past the state
+  cell).
+- ERT (compose with R21-1): move to title, =--render-current=, assert point is
+  STILL on the title column (R21-1 preserves it; R21-2 set it).
+- No byte fixtures.
+
+** Routing (R21-2)
+org-air-view.el: mark the title's first glyph with =org-air-row-title= in
+=org-air-view--insert-row=; add =org-air-view--row-title-pos= + =--goto-row-
+title=; swap the trailing =--beginning-of-visible= in the five motion/open
+commands + =--goto-first-item= + =--restore-position='s fallback branches.
+org-air-project.el: inherits the mark via =--insert-row= (R21-5) and the shared
+core map's =n=/=p=, so its motion lands on the doc title with no extra wiring.
+Test seat: add the title-landing ERTs.
+
+** Open questions (R21-2)
+- Keep =org-air-view--beginning-of-visible= for the non-row cases (section
+  headings, empty board) and only swap the ITEM-row landings?  Proposal: yes —
+  =--goto-row-title= falls back to first-visible when there is no title mark, so
+  headings keep their current landing; only item/doc rows move to the title.
+- Should the title mark live on the title's first glyph (proposed) or be a
+  named region?  Proposal: a single-glyph =org-air-row-title= mark is enough for
+  point landing and is the cheapest; widen to a region only if a future verb
+  needs the title bounds.
+
+* R21-6 — contrast: legible mode-line + a readable (non blue-on-blue) pane header-line [POLISH]
+
+** Reproduction — measured WCAG contrast failures
+*** Mode-line too dim
+=org-air-face-modeline= (org-air-faces.el L208) is =:inherit org-air-face-
+faded= (fg =#90A4AE= light / =#677691= dark) over its own faint bg (=#ECEAE4=
+light / =#353B47= dark).  Measured contrast (WCAG 2.x relative luminance):
+#+begin_src text
+mode-line light: faded #90A4AE on bg #ECEAE4  => 2.15:1   (AA normal needs 4.5; large 3.0)
+mode-line dark : faded #677691 on bg #353B47  => 2.45:1   FAIL
+#+end_src
+So "org-air · N items · no filter · scope all items" is barely visible — both
+themes fail AA (and even large-text AA).  This is the user's "TOO DIM to read".
+
+*** View-pane header-line blue-on-blue
+The pane header-line (=org-air-view-pane--header-line=, org-air-view.el L3852)
+faces the file/state segments =org-air-face-faded= and the title =org-air-face-
+pane-title= (=strong=), over the =org-air-face-pane-header= bg (=#353B47= dark,
+a blue slate) via =face-remap-add-relative= (L3913).  Measured:
+#+begin_src text
+pane-hdr faded file/state, dark: #677691 on #353B47 => 2.45:1   FAIL (the dim text)
+pane-hdr salient blue title, dark: #81A1C1 on #353B47 => 4.18:1 (blue-on-blue slate — low perceived contrast)
+#+end_src
+The faded file/state segments are unreadable (2.45:1) and the bluish title on
+the blue slate bg reads as "blue-on-blue" — exactly the report.
+
+** Decision — a calm-but-READABLE mode-line + an explicit, contrasting pane header
+Tune faces only (no text change).  Target: AA on normal text where practical,
+"calm" meaning mid-tier rather than max-strength.  Reuse the EXISTING mid-tier
+readable tier (=org-air-face-inspector-label=: =#455A64= light / =#D8DEE9=
+dark — already the project's "WCAG-AA, calm at slight weight" colour), so the
+chrome matches the inspector's proven legibility.
+
+*** (1) Mode-line — bump the foreground to the mid-tier
+=org-air-face-modeline=: replace the faded foreground with the mid-tier
+readable colour at a slight weight, KEEP the faint bg + the divider-hue
+=:overline= (the boundary rule R20-2 added).  Measured after:
+#+begin_src text
+mode-line light: #455A64 on #ECEAE4 => 6.02:1   PASS AA
+mode-line dark : #D8DEE9 on #353B47 => 8.32:1   PASS AA
+#+end_src
+Calm (mid-tier, not the 10:1 =strong=) yet clearly legible.  (=strong=
+=#263238=/=#ECEFF4= measures ~10:1 — available if the test seat wants it
+louder, but mid-tier is the proposal.)
+
+*** (2) Pane header-line — explicit readable foregrounds, kill the blue-on-blue
+- Give =org-air-face-pane-header= an explicit BASE foreground (the mid-tier
+  readable colour), so the =▤= icon, the =·= separators, and any unstyled glyph
+  are legible on the header bg (today they inherit faded → dim).
+- File / state segments: face them with the mid-tier readable face (the same
+  one), not =org-air-face-faded= — 2.45:1 → 8.32:1 (dark).  Keep them quieter
+  than the title via weight, not via an unreadable colour.
+- Title segment: face it =org-air-face-pane-title= but resolve the blue-on-blue
+  — make =org-air-face-pane-title= the high-contrast =strong= foreground
+  (=#263238=/=#ECEFF4=, ~10:1) rather than the salient BLUE that collides with
+  the blue slate bg.  The title then reads as the salient (bold, high-contrast)
+  segment WITHOUT the hue clash.
+Result: every header segment has an explicit foreground that contrasts the
+header bg; no segment is blue-on-blue; the header TEXT contract (=▤ file ·
+title · state · key close=) is unchanged (faces only).
+
+*** Keep it calm / themeable
+All three changes are colour/weight on existing faces; the light/dark specs are
+explicit (the palette already carries both).  The TTY/mono tier keeps only the
+foreground (the bg/overline do not paint), and these foregrounds are AA on the
+default bg there too.  Users who want the old dim look can re-customise the
+faces; the =default= mode-line opt-out (=org-air-modeline-style=) is untouched.
+
+** Byte / batch contract
+Mode-line and header-line are NOT buffer text; no byte golden materialises
+them (the fixtures strip the mode-line and the pane header).  So every golden
+is byte-identical — this is a pure face change, byte-invisible.
+
+** Testability (R21-6)
+- ERT (contrast guard): a small helper computes WCAG relative-luminance
+  contrast; assert =org-air-face-modeline= foreground vs its background ≥ 4.5
+  (normal AA) in BOTH light and dark specs — FAILS on trunk (2.15 / 2.45),
+  passes after (6.02 / 8.32).  Locks the legibility so a future retint can't
+  silently dim it again.
+- ERT: =org-air-face-pane-header= base foreground vs its bg ≥ 4.5; and the
+  pane-title foreground vs the header bg ≥ 4.5 (no blue-on-blue) — both specs.
+- No byte fixtures (chrome faces are not buffer text).
+
+** Routing (R21-6)
+org-air-faces.el only: retint =org-air-face-modeline= (mid-tier fg + keep bg/
+overline), =org-air-face-pane-header= (add an explicit base fg), and
+=org-air-face-pane-title= (strong fg instead of salient blue); optionally face
+the header file/state segments via the mid-tier face in =org-air-view-pane--
+header-line= (org-air-view.el) if they cannot be lifted via the base face
+alone.  Test seat: add the contrast-ratio ERTs (a reusable
+=org-air-test--contrast= helper).
+
+** Open questions (R21-6)
+- Mid-tier (=#455A64=/=#D8DEE9=, ~6–8:1) vs strong (~10:1) for the mode-line?
+  Proposal: mid-tier (calm + AA); the test seat eyeballs the screenshot and may
+  bump to strong if the user still finds it dim.
+- Should the pane file/state segments lift via the pane-header BASE foreground
+  (one face change) or be explicitly re-faced in the header builder (precise
+  per-segment control)?  Proposal: set the base foreground on =org-air-face-
+  pane-header= AND drop the explicit =faded= on the file/state segments so they
+  inherit the readable base — fewest moving parts, and the title stays the one
+  salient (strong) segment.

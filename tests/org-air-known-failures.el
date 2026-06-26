@@ -526,35 +526,50 @@
     ;; vmuunmts).  Round-22 manifest is EMPTY; the tests stay as permanent
     ;; regression guards.
     ;; ===================================================================
-    ;; v0.5 ROUND-23 grind (impl track) — tests that re-bless under the
-    ;; design-blessed R23 contracts (air/v0.5/org-air-round23-design.org).
-    ;; The IMPL landed the product code; the TEST seat will re-bless /
-    ;; retarget these and regenerate the moved golden, then DELETE the
-    ;; entries (their deletion is the closeout).  Per item:
-    ;;
-    ;; R23-2 (mode-line off by default): the shipped default of
-    ;;   `org-air-modeline-style' flips `calm' -> `default' so org-air no
-    ;;   longer clobbers the user's own mode-line (calm stays opt-in).  The
-    ;;   one ERT that pinned the OLD `calm' default now fails by design;
-    ;;   retarget to assert `default' (test seat).  byte-INVISIBLE (the
-    ;;   mode-line is not buffer text; every golden is byte-identical).
-    (org-air-r18-dp5-modeline-style-default-is-calm
-     . "R23-2: default flipped calm->default; retarget to assert `default'")
-    ;;
-    ;; R23-3 (project tree connectors): child dir headers now lead with
-    ;;   faded `box' tree connectors (TTY `+- ' / `|  ', GUI `├─ └─ │')
-    ;;   threaded down `--insert-dir-node' instead of an indented marker, so
-    ;;   nesting reads unmistakably.  Top dirs keep the `| v0.N/' marker; doc
-    ;;   rows + counts + airctl `-Da' parity are unchanged.  The DIR-view
-    ;;   golden re-blesses on its child-dir HEADER lines, and two assertions
-    ;;   that pinned the child marker (`| +air-context/') move to the
-    ;;   connector form (test seat: regen project-view-dir.txt + retarget).
-    (org-air-f5-project-view-byte-mockups
-     . "R23-3: dir-view golden gains child-dir tree connectors; regen project-view-dir.txt")
-    (org-air-r22-6-nesting-indents-deepen
-     . "R23-3: child marker -> connector; retarget metric to connector-depth/name-column")
-    (org-air-f5-grouping-toggle
-     . "R23-3: child-dir heading now `+- air-context/' (connector), not `| air-context/'; retarget regex")
+    ;; v0.5 ROUND-23 CLOSEOUT (impl tips qupwuplw..xsrptorp + test re-bless
+    ;; <this commit>).  ALL 4 grind entries CLOSED — the ONE moved golden
+    ;; regenerated from impl's render via the FROZEN-CLOCK renderer (make
+    ;; regen-mockups, guards active; verified NO HANG, exit 0) and the three
+    ;; assertion ERTs re-blessed to the design-blessed R23 contracts
+    ;; (air/v0.5/org-air-round23-design.org):
+    ;;   R23-2 (mode-line off by default): `org-air-modeline-style' default
+    ;;     flipped `calm' -> `default' (org-air leaves the user's own mode-
+    ;;     line alone; calm is opt-in), and `--install-modeline' is symmetric
+    ;;     (kill-local-variable on the non-calm path).  Retargeted +renamed
+    ;;     org-air-r18-dp5-modeline-style-default-is-calm ->
+    ;;     -is-default (asserts the `default' ship).  byte-INVISIBLE (the
+    ;;     mode-line is not buffer text; every golden is byte-identical).
+    ;;   R23-3 (project tree connectors): child dir headers now lead with
+    ;;     faded `box' tree connectors (batch `+- ' / `|  ', GUI `├─ └─ │')
+    ;;     in `org-air-face-air-tree', threaded down `--insert-dir-node' via
+    ;;     new rails/lastp params; top dirs keep the `▌'/`|' accent marker;
+    ;;     doc rows + counts + airctl `-Da' parity UNCHANGED.  Regenerated
+    ;;     ONLY project-view-dir.txt (child-dir HEADER lines `    | air-
+    ;;     context/' -> `  +- air-context/'); the state/tag goldens + every
+    ;;     board golden are byte-identical (verified jj diff --stat = 1 file).
+    ;;     Retargeted org-air-r22-6-nesting-indents-deepen (metric ->
+    ;;     connector NAME column, since the connector sits at the marker's
+    ;;     leading column) and org-air-f5-grouping-toggle (child-dir regex
+    ;;     `| air-context/' -> `+- air-context/').  airctl `status -Da'
+    ;;     parity RE-VERIFIED on ~/Coding/github.com/withre/air: v0.1/ own
+    ;;     R4 C14 X1 D2 + desc +1 +14 +9 +8 unchanged by the connectors
+    ;;     (org-air-r22-6-dir-count-summary-matches-airctl stays green).
+    ;;     org-air-f5-project-view-byte-mockups passes on the regen'd golden.
+    ;; SUBSTANTIVE new ERTs added on the test track (tests/org-air-round23-
+    ;; test.el): R23-1 refile face-leak (source strip from a fontified
+    ;; buffer + the defensive `--insert-row' strip GUARD + a real
+    ;; refile->refresh end-to-end proving the moved row carries org-air
+    ;; faces ONLY + V6 width-lock), R23-2 mode-line (default leaves the user
+    ;; line across board/rail/pane/project; calm installs; runtime toggle-
+    ;; back restores), R23-3 connectors (child connector faced air-tree +
+    ;; top marker; depth-2 ancestor rail + last-vs-tee under the GUI stub),
+    ;; R23-4 emoji badges (default emoji; batch token byte-stable; emoji on
+    ;; GUI + text/badge styles; cell pixel-lock; VS16 + airctl glyph parity).
+    ;; R23-1/R23-2/R23-4 are byte-INVISIBLE (text-property strip / mode-line
+    ;; not buffer text / GUI-gated emoji with the batch token fallback), so
+    ;; no board/state/tag/entry/denote golden moved.  No .el SOURCE touched
+    ;; (the impl landed R23-1..R23-4 in qupwuplw..xsrptorp).  Round-23
+    ;; manifest is EMPTY; the tests stay as permanent regression guards.
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

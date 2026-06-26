@@ -687,23 +687,35 @@ DIFFERENT lengths yet share the same right edge."
       (should-not (= s1 s2)))))
 
 (ert-deftest org-air-r22-6-nesting-indents-deepen ()
-  "R22-6: real tree indentation — a CHILD dir header is indented DEEPER than
-its parent, and a doc row hangs one level DEEPER than its dir header, so the
-leading-space counts strictly increase parent -> child -> doc."
+  "R22-6/R23-3 re-bless: real tree nesting — a CHILD dir header's NAME sits
+DEEPER (higher column) than its parent dir's name, and a doc row hangs one
+level DEEPER still, so the NAME / content columns strictly increase
+parent -> child -> doc.  R23-3 leads child dirs with a tree CONNECTOR
+\(`+- ' in batch, faded `box-bottom-left'/`box-tee-left' + `box-horizontal')
+at the SAME leading column as the top-dir marker, so the pure leading-SPACE
+no longer distinguishes parent from child — the metric is now the NAME
+column (the connector pushes the child name one column past the parent's)."
   (skip-unless (locate-library "org-air"))
   (let* ((lines (org-air-r22-6--dir-lines))
-         (indent (lambda (l) (- (length l) (length (string-trim-left l)))))
          (pick (lambda (rx) (cl-find-if (lambda (l) (string-match-p rx l)) lines)))
+         (col-of (lambda (l rx) (and l (string-match rx l))))
          ;; the parent v0.1/ header, its nested air-context/ child header,
          ;; and the child's own doc row (Gamma lives under air-context/).
          (parent (funcall pick "| v0\\.1/"))
-         (child  (funcall pick "| +air-context/"))
-         (doc    (funcall pick "\\[D\\] Gamma context")))
+         (child  (funcall pick "\\+- air-context/"))
+         (doc    (funcall pick "\\[D\\] Gamma context"))
+         (parent-col (funcall col-of parent "v0\\.1/"))
+         (child-col  (funcall col-of child "air-context/"))
+         (doc-col    (funcall col-of doc "\\[D\\]")))
     (should parent) (should child) (should doc)
-    ;; child dir is indented deeper than its parent dir,
-    (should (> (funcall indent child) (funcall indent parent)))
-    ;; and the child's doc row deeper still than the child dir header.
-    (should (> (funcall indent doc) (funcall indent child)))))
+    ;; child dir NAME column is deeper than its parent dir NAME column,
+    (should (> child-col parent-col))
+    ;; and the child's doc-row content is deeper still than the child header.
+    (should (> doc-col child-col))
+    ;; R23-3: the child is led by a tree CONNECTOR (batch `+-'), never the
+    ;; `|' rail-marker that is reserved for top dirs.
+    (should (string-match-p "^ *\\+- air-context/" child))
+    (should-not (string-match-p "^ *| air-context/" child))))
 
 ;;;; =====================================================================
 ;;;; R22-7 — pane filename/state + origin column contrast (WCAG AA).

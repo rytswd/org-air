@@ -301,9 +301,13 @@ below the org-air bindings in both views."
 ;;;; All byte-invisible: faces / mode-line / line-spacing / svg-attr only.
 ;;;; ---------------------------------------------------------------------
 
-(ert-deftest org-air-r18-dp5-modeline-style-default-is-calm ()
-  "`org-air-modeline-style' ships `calm' (the nano-style default, D-P5.1)."
-  (should (eq (default-value 'org-air-modeline-style) 'calm)))
+(ert-deftest org-air-r18-dp5-modeline-style-default-is-default ()
+  "R23-2 re-bless: `org-air-modeline-style' now ships `default' (was `calm').
+The default-flip drops org-air's custom bottom mode-line so the user's OWN
+normal Emacs mode-line shows on every org-air surface (board/project/rail/
+pane); `calm' is the opt-in faded nano line.  The old `calm' default (which
+clobbered the user line) is gone."
+  (should (eq (default-value 'org-air-modeline-style) 'default)))
 
 (ert-deftest org-air-r18-dp5-calm-mode-line-installed ()
   "With `calm' the board installs the minimal faded nano-style mode-line.

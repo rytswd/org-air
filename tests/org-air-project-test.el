@@ -272,13 +272,19 @@ descendant roll-up and the deeper child-dir indent survive."
                            (string-match-p
                             "v0\\.[0-9]+/ +\\[[RWCXD]\\] +[A-Z][a-z]" l))
                          dir))
-    ;;  (2) a NESTED child-directory heading (DEEPER indented than its
-    ;;      parent) — the proof the tree recurses past the first path
-    ;;      segment: `v0.1/air-context/' renders as its OWN `air-context/'
-    ;;      node with its letter-count (never a heading in state/tag).
+    ;;  (2) a NESTED child-directory heading — the proof the tree recurses
+    ;;      past the first path segment: `v0.1/air-context/' renders as its
+    ;;      OWN `air-context/' node with its letter-count (never a heading in
+    ;;      state/tag).  R23-3 re-bless: a child dir is led by a faded tree
+    ;;      CONNECTOR (`+- ' in batch, GUI `└─'/`├─'), NOT the `|' marker
+    ;;      reserved for top dirs, so nesting reads unmistakably.
     (should (cl-some (lambda (l)
-                       (string-match-p "| +air-context/ +[RWCXDU][0-9]" l))
+                       (string-match-p "\\+- air-context/ +[RWCXDU][0-9]" l))
                      dir))
+    ;;      and that child heading is NOT led by the top-dir `|' marker.
+    (should-not (cl-some (lambda (l)
+                           (string-match-p "| +air-context/ +[RWCXDU][0-9]" l))
+                         dir))
     ;;  (3) a `(+N)' DESCENDANT roll-up count on a dir heading (the Draft
     ;;      Gamma lives in the child dir, so `v0.1/' shows `D(+1)') —
     ;;      neither state nor tag grouping carries a roll-up.

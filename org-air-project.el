@@ -686,15 +686,24 @@ gets the ascii `|  ' / `+- ' fallback."
                                           "  "))))))
     (insert header "\n")
     (add-text-properties start (point) (list 'org-air-section path))
-    ;; Own docs, state-first, indented one level UNDER this dir's header so a
-    ;; doc clearly hangs beneath its directory (R21-5 one board-style row).
-    (dolist (doc (plist-get node :own-docs))
-      (org-air-project--insert-doc-row doc width (* 2 (1+ depth))))
-    ;; Recurse into the children (name-sorted), threading rails + last-child.
-    (let ((n (length children)) (i 0))
-      (dolist (child children)
-        (org-air-project--insert-dir-node child width child-rails (= (1+ i) n))
-        (setq i (1+ i))))))
+    ;; R24-2: thread the rail DOWN to the OWN docs so each doc visibly hangs
+    ;; under its directory (matching airctl -Da).  Own docs are emitted
+    ;; BEFORE the child dirs, so the `last child overall' corner (└─) lands
+    ;; on the FINAL own-doc ONLY when this dir has no child dirs; otherwise
+    ;; the own docs are tees (├─) and the corner goes to the last child dir.
+    (let* ((docs (plist-get node :own-docs))
+           (ndocs (length docs))
+           (nkids (length children))
+           (i 0))
+      (dolist (doc docs)
+        (setq i (1+ i))
+        (org-air-project--insert-doc-row
+         doc width depth child-rails (and (= i ndocs) (zerop nkids))))
+      ;; Recurse into the children (name-sorted), threading rails + last-child.
+      (let ((j 0))
+        (dolist (child children)
+          (setq j (1+ j))
+          (org-air-project--insert-dir-node child width child-rails (= j nkids)))))))
 
 (defun org-air-project--insert-directory-tree (nodes width)
   "Insert the nested directory TREE (NODES) at content WIDTH (R20-5/R23-3).
@@ -760,21 +769,46 @@ identifier--slug__tags.org; `org-air-view--pad-to' still bounds line 2."
          (title (or (org-air-view--denote-title leaf) leaf)))
     (concat (or dir "") title)))
 
-(defun org-air-project--insert-doc-row (doc _width &optional indent-cols)
-  "Insert DOC as ONE board-style row via the shared primitive (R21-5).
+(defun org-air-project--insert-doc-row (doc _width &optional depth rails lastp)
+  "Insert DOC as ONE board-style row via the shared primitive (R21-5/R24-2).
 Maps DOC onto `org-air-view--insert-row' exactly as the board maps a task
 \(invariant #4: parameterise the shared primitive, do not fork): the doc
 STATE is the row PREFIX as a fixed-width cell, the updated stamp the DATE
 cell, the #tags the SAME svg pills as the board, and the relpath the
-right-justified ORIGIN cell.  INDENT-COLS nests the row under its
-directory in the tree.  The whole row carries `org-air-doc' +
+right-justified ORIGIN cell.  The whole row carries `org-air-doc' +
 `org-air-marker' so point on ANY cell identifies the doc (RET/visit still
-resolve).  Replaced the old two-line doc block (R21-5) so the project rows
-match the board's clean one-line table."
+resolve).
+
+R24-2: in the DIRECTORY tree DEPTH is the dir's depth, RAILS the faded
+ancestor rail string and LASTP the corner selector — the leading gutter is
+PAINTED with the `org-air-face-air-tree' ancestor rails + this doc's own
+`box-tee-left'/`box-bottom-left' connector, sized to EXACTLY the width the
+old plain indent produced so the state cell / title / right cluster stay
+V6-locked (the rail glyphs live purely in the left gutter; glyphs route
+through `org-air-layout-glyph' for the TTY/batch `|`/`+-' fallback).  With
+DEPTH nil (state-/tag-grouping, no dir tree) the prefix is the old plain
+margin + state cell, byte-identical to today."
   (let* ((state  (org-air-doc-state doc))
-         (prefix (concat (org-air-view--item-margin)
-                         (make-string (max 0 (or indent-cols 0)) ?\s)
-                         (org-air-project--state-cell state)))
+         (prefix
+          (if (null depth)
+              ;; No dir tree (state/tag grouping): the old plain prefix.
+              (concat (org-air-view--item-margin)
+                      (org-air-project--state-cell state))
+            ;; Directory tree: paint the faded ancestor rails + connector
+            ;; into the gutter, to the SAME width the old plain indent
+            ;; produced (so nothing to the right of the gutter moves).
+            (let* ((margin-w (string-width (org-air-view--item-margin)))
+                   (old-indent (* 2 (1+ depth)))
+                   (gutter-w (+ margin-w old-indent))
+                   (guide-raw (concat "  " (or rails "")
+                                      (org-air-layout-glyph
+                                       (if lastp 'box-bottom-left 'box-tee-left))
+                                      (org-air-layout-glyph 'box-horizontal) " "))
+                   (guide (org-air-view--pad-to
+                           (propertize (truncate-string-to-width guide-raw gutter-w)
+                                       'face 'org-air-face-air-tree)
+                           gutter-w)))
+              (concat guide (org-air-project--state-cell state)))))
          (date   (org-air-project--doc-date-text doc))
          (tags   (org-air-project--doc-tagstr doc))
          (origin (org-air-project--doc-origin-text doc)))

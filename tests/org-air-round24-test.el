@@ -287,6 +287,158 @@ to the inline rail (on trunk the reconcile no-ops for the project)."
    (should (null org-air-view--rail-popped-out))))
 
 ;;;; =====================================================================
+;;;; R24-2 — tree rails extend DOWN to the leaf doc rows.
+;;;; =====================================================================
+
+(defun org-air-r24-2--fixture-docs ()
+  "Return the fixture project's docs (frozen path/mtime not needed here)."
+  (org-air-project--collect-docs org-air-project-test-root))
+
+(defun org-air-r24-2--insert-tree (tree width)
+  "Insert TREE at WIDTH into the current buffer with the project render
+dynamics bound (char dims + meta widths) so doc rows (incl. the GUI svg
+pill path) render without unbound globals."
+  (let* ((dims (org-air-view--char-dimensions))
+         (org-air-view--pill-char-w (car dims))
+         (org-air-view--pill-char-h (cdr dims))
+         (org-air-view-width width)
+         (mw (org-air-project--fit-meta-widths (org-air-r24-2--fixture-docs) width))
+         (org-air-project--meta-date-w (nth 0 mw))
+         (org-air-project--meta-tags-w (nth 1 mw))
+         (org-air-project--meta-origin-w (nth 2 mw)))
+    (org-air-project--insert-directory-tree tree width)))
+
+(ert-deftest org-air-r24-2-doc-row-carries-tree-rail ()
+  "A DOC row's leading gutter carries a faded tree CONNECTOR (box-tee-left/
+box-bottom-left + box-horizontal, ascii `+-' in batch) in `org-air-face-air-
+tree' — the rail reaches the leaf (on trunk the doc gutter was pure spaces)."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r24-2--fixture-docs))
+         (tree (org-air-project--directory-tree docs)))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r24-2--insert-tree tree 100)
+          (goto-char (point-min))
+          ;; the top dir's own doc `Alpha feature' leads with a connector at
+          ;; the marker column (NO leading ancestor rail char before it).
+          (should (re-search-forward "^ *\\([-+|]\\)\\([-+|]\\) +\\[R\\] Alpha feature"
+                                     nil t))
+          (let ((c1 (match-beginning 1)) (c2 (match-beginning 2)))
+            (should (member (char-to-string (char-after c1))
+                            (list (org-air-layout-glyph 'box-bottom-left)
+                                  (org-air-layout-glyph 'box-tee-left))))
+            (should (equal (char-to-string (char-after c2))
+                           (org-air-layout-glyph 'box-horizontal)))
+            (should (eq (get-text-property c1 'face) 'org-air-face-air-tree))
+            (should (eq (get-text-property c2 'face) 'org-air-face-air-tree))
+            ;; anti-tautology: a TOP doc's connector sits at the marker column
+            ;; (no rail glyph in the two leading columns before it).
+            (should (string-match-p "\\` *\\'"
+                                    (buffer-substring-no-properties
+                                     (line-beginning-position) c1)))))))))
+
+(ert-deftest org-air-r24-2-nested-doc-has-ancestor-rail ()
+  "Anti-tautology: a doc under a NON-last depth-1 dir carries a faded
+`box-vertical' ANCESTOR rail (batch `|') to the LEFT of its own connector,
+faced `org-air-face-air-tree' — the rail threads the leaf down the branch."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r24-2--fixture-docs))
+         (doc (car docs))
+         (tree (list
+                (list :dir "v0.1" :depth 0 :path "v0.1" :own-docs nil
+                      :direct-counts nil :desc-counts nil
+                      :children
+                      (list
+                       (list :dir "air-template" :depth 1
+                             :path "v0.1/air-template" :own-docs (list doc)
+                             :direct-counts nil :desc-counts nil :children nil)
+                       (list :dir "config" :depth 1 :path "v0.1/config"
+                             :own-docs nil :direct-counts nil
+                             :desc-counts nil :children nil)))))
+         (vrail (org-air-layout-glyph 'box-vertical)))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r24-2--insert-tree tree 100)
+          (goto-char (point-min))
+          ;; find the doc row (it carries `org-air-doc').
+          (let ((pos (text-property-not-all (point-min) (point-max)
+                                            'org-air-doc nil)))
+            (should pos)
+            (goto-char pos)
+            (let* ((bol (line-beginning-position))
+                   (line (buffer-substring bol (line-end-position)))
+                   (rail-pos (string-match (regexp-quote vrail) line)))
+              (should rail-pos)
+              (should (eq (get-text-property rail-pos 'face line)
+                          'org-air-face-air-tree)))))))))
+
+(ert-deftest org-air-r24-2-last-own-doc-uses-corner ()
+  "A dir whose ONLY children are docs (GUI stub): its LAST own doc uses
+`box-bottom-left' (└), the earlier ones `box-tee-left' (├)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (let* ((docs (org-air-r24-2--fixture-docs))
+           (d1 (nth 0 docs)) (d2 (nth 1 docs))
+           (tree (list (list :dir "v9" :depth 0 :path "v9"
+                             :own-docs (list d1 d2) :children nil
+                             :direct-counts nil :desc-counts nil)))
+           (tee    (org-air-layout-glyph 'box-tee-left))
+           (corner (org-air-layout-glyph 'box-bottom-left)))
+      (should-not (equal tee corner))
+      (org-air-test-with-frozen-project-path org-air-project-test-root
+        (org-air-project-test--with-frozen-mtime
+          (with-temp-buffer
+            (org-air-r24-2--insert-tree tree 100)
+            ;; collect the DOC rows by their `org-air-doc' property (the state
+            ;; cell is a GUI badge here, not the `[R]' token).
+            (let (doc-lines)
+              (goto-char (point-min))
+              (while (not (eobp))
+                (when (text-property-not-all (line-beginning-position)
+                                             (line-end-position)
+                                             'org-air-doc nil)
+                  (push (buffer-substring (line-beginning-position)
+                                          (line-end-position))
+                        doc-lines))
+                (forward-line 1))
+              (setq doc-lines (nreverse doc-lines))
+              (should (= (length doc-lines) 2))
+              ;; first own doc -> tee; last own doc -> corner.
+              (should (string-match-p (concat "^ *" (regexp-quote tee))
+                                      (nth 0 doc-lines)))
+              (should (string-match-p (concat "^ *" (regexp-quote corner))
+                                      (nth 1 doc-lines))))))))))
+
+(ert-deftest org-air-r24-2-v6-state-cell-column-locked ()
+  "V6 lock: the rail repaints only the leading gutter — a doc's state cell
+starts at EXACTLY the old indent column (margin + (* 2 (1+ depth))), so the
+state cell / title / right cluster never move."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r24-2--fixture-docs))
+         (tree (org-air-project--directory-tree docs))
+         (margin-w (string-width (org-air-view--item-margin))))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r24-2--insert-tree tree 100)
+          ;; v0.1/ own doc `Alpha feature' (depth 0): `[' at margin + 2.
+          (goto-char (point-min))
+          (should (re-search-forward "\\[R\\] Alpha feature" nil t))
+          (let ((col (save-excursion
+                       (goto-char (match-beginning 0))
+                       (current-column))))
+            (should (= col (+ margin-w (* 2 (1+ 0))))))
+          ;; air-context/ own doc `Gamma context' (depth 1): `[' at margin + 4.
+          (goto-char (point-min))
+          (should (re-search-forward "\\[D\\] Gamma context" nil t))
+          (let ((col (save-excursion
+                       (goto-char (match-beginning 0))
+                       (current-column))))
+            (should (= col (+ margin-w (* 2 (1+ 1)))))))))))
+
+;;;; =====================================================================
 ;;;; R24-1 — refile "Under heading" prompt: complete over the file's headings.
 ;;;; =====================================================================
 

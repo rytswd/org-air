@@ -571,6 +571,34 @@
     ;; (the impl landed R23-1..R23-4 in qupwuplw..xsrptorp).  Round-23
     ;; manifest is EMPTY; the tests stay as permanent regression guards.
     ;; ===================================================================
+    ;; v0.5 ROUND-24 (impl track) — the ONE design-blessed byte golden that
+    ;; changes under R24-2 (tree rails extend DOWN to the leaf doc rows).
+    ;;
+    ;; 2026-06-27: R24-2 landed in org-air-project.el — `--insert-dir-node'
+    ;; now threads the dir's rails/last-child flag into its OWN docs (emitted
+    ;; before the child dirs) and `--insert-doc-row' PAINTS the doc's leading
+    ;; gutter with the faded `org-air-face-air-tree' ancestor rails + the
+    ;; doc's own `├─'/`└─' connector (ascii `+-'/`|' in batch), sized to
+    ;; EXACTLY the old plain-indent width so the state cell / title / right
+    ;; date-tag-origin cluster stay V6-locked.  This is the design-blessed
+    ;; re-bless of the DIRECTORY golden's DOC-row gutters only: in
+    ;; tests/fixtures/project-view-dir.txt the doc rows' leading SPACES
+    ;; (`        [R]') become tree glyphs (`  +-    [R]'; nested docs gain a
+    ;; `|' ancestor rail).  The dir-header lines (already railed by R23-3),
+    ;; the right-pinned cluster, and the STATE-/TAG-grouping goldens are
+    ;; byte-IDENTICAL (verified: state/tag renders equal the fixtures; only
+    ;; the dir grouping differs).  Per the impl brief the fixture is NOT
+    ;; edited here — the golden comparison is manifested expected-to-fail
+    ;; until the test-track re-blesses project-view-dir.txt via
+    ;; `make regen-mockups'.  Counts + airctl `-Da' parity unchanged
+    ;; (org-air-r22-6-* stay green); the R24-2 rail/last-corner/V6-lock
+    ;; behaviour is covered by org-air-round24-test.el (org-air-r24-2-*).
+    (org-air-f5-project-view-byte-mockups
+     . "R24-2: directory golden doc-row gutters gain ├─/└─/│ tree rails \
+(ascii +-/| in batch); state/tag goldens byte-identical.  Fixture re-bless \
+deferred to the test track (make regen-mockups) per the do-not-touch-fixtures \
+impl brief; behaviour covered by org-air-r24-2-* ERTs.")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

@@ -21,6 +21,31 @@
 
 (defvar org-air-files)
 
+(defcustom org-air-todo-keywords
+  '(:not-done ("TODO" "NEXT" "STARTED" "WAIT" "WAITING" "HOLD" "BLOCKED")
+    :done     ("DONE" "CANCELLED" "CANCELED" "KILL"))
+  "TODO keyword vocabulary org-air recognises when a file declares none.
+The active (:not-done) and :done keyword sets org-air falls back to so a
+heading like `* NEXT Foo' is parsed as a NEXT task even in a file without
+a `#+TODO:' line.  A file's OWN `#+TODO:'/`#+SEQ_TODO:' always wins; this
+only fills the gap.  Defaults mirror the keys of
+`org-air-todo-keyword-faces' plus the standard done keywords (R21-3)."
+  :type '(plist :key-type symbol :value-type (repeat string))
+  :group 'org-air)
+
+(defun org-air-query--scan-todo-keywords ()
+  "Return an `org-todo-keywords' value merging org-air's vocabulary (R21-3).
+One sequence: the :not-done keywords, then `|', then the :done keywords.
+Let-bound around the org-ql scan so a file WITHOUT its own `#+TODO:'
+inherits org-air's NEXT/WAIT/... vocabulary (otherwise the keyword is
+swallowed into the title), while a file WITH a `#+TODO:'/`#+SEQ_TODO:'
+line still parses with its own (Org's per-file keywords win over the
+default)."
+  `((sequence
+     ,@(plist-get org-air-todo-keywords :not-done)
+     "|"
+     ,@(plist-get org-air-todo-keywords :done))))
+
 (cl-defstruct (org-air-item
                (:constructor org-air-item-create)
                (:copier nil))
@@ -82,7 +107,10 @@
 
 When QUERY is nil, return all headings from `org-air-files'.  The scan is a
 single `org-ql-select' pass over the configured files."
-  (let ((files (org-air-query-files)))
+  (let ((files (org-air-query-files))
+        ;; R21-3: recognise org-air's NEXT/WAIT/... vocabulary for files
+        ;; with no `#+TODO:' line (a file's own `#+TODO:' still wins).
+        (org-todo-keywords (org-air-query--scan-todo-keywords)))
     (when files
       (org-ql-select files (or query '(heading))
         :action #'org-air-query--item-at-point))))
@@ -95,8 +123,10 @@ file paths), so the cold first-load query can be split into batches and
 run on an idle timer without blocking the frame (R19-1).  QUERY defaults
 to all headings."
   (when files
-    (org-ql-select files (or query '(heading))
-      :action #'org-air-query--item-at-point)))
+    ;; R21-3: same keyword recognition as `org-air-query-items'.
+    (let ((org-todo-keywords (org-air-query--scan-todo-keywords)))
+      (org-ql-select files (or query '(heading))
+        :action #'org-air-query--item-at-point))))
 
 (provide 'org-air-query)
 

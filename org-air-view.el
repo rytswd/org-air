@@ -762,19 +762,62 @@ both views; per-mode domain verbs stay in each child map.")
 
 (defalias 'org-air-mode-map 'org-air-view-mode-map)
 
-(defconst org-air-view--calm-mode-line
-  '(:eval (propertize (concat "  " (format-mode-line mode-name) "  ")
+(defvar-local org-air-view--mode-line-count nil
+  "Cached visible-item count for the calm status mode-line (R20-2).
+Set once per board render so the redisplay :eval never re-scans all items.")
+
+(defun org-air-view--mode-line-filter-text ()
+  "Return the `filter …' / `no filter' segment from the active tag filter (R20-2)."
+  (let ((filters (org-air-view--filter-tags)))
+    (if filters
+        (concat "filter "
+                (mapconcat (lambda (tg) (concat "#" tg)) filters
+                           (concat " " (org-air-view--filter-combinator-word)
+                                   " ")))
+      "no filter")))
+
+(defun org-air-view--mode-line-content ()
+  "Return the calm status text for the current org-air buffer (R20-2).
+Branches on `major-mode' so the board and project share ONE construct per
+invariant #4: the board reports its visible item count · filter · scope;
+the project reports its doc count · filter; rail/pane buffers fall back to
+the bare mode name.  Reads only buffer-locals already on hand, so it is
+cheap in the redisplay :eval (no render-path work)."
+  (cond
+   ((derived-mode-p 'org-air-view-mode)
+    (let ((n (or org-air-view--mode-line-count
+                 (length (org-air-view--visible-items org-air-view--items)))))
+      (format "org-air · %d item%s · %s · scope %s"
+              n (if (= n 1) "" "s")
+              (org-air-view--mode-line-filter-text)
+              (org-air-view--scope-label))))
+   ((derived-mode-p 'org-air-project-mode)
+    (let ((n (or (and (boundp 'org-air-project--doc-count)
+                      org-air-project--doc-count)
+                 0)))
+      (format "org-air · project · %d doc%s · %s"
+              n (if (= n 1) "" "s")
+              (org-air-view--mode-line-filter-text))))
+   (t (format-mode-line mode-name))))
+
+(defconst org-air-view--status-mode-line
+  '(:eval (propertize (concat "  " (org-air-view--mode-line-content) "  ")
                       'face 'org-air-face-modeline))
-  "The minimal faded nano-style mode-line construct (R18 D-P5.1).
-A single quiet, faded segment — the mode name — since the real status
-lives in the in-buffer banner.")
+  "The calm nano-style STATUS mode-line construct (R18 D-P5.1 / R20-2).
+A single quiet :eval that earns its row — counts · filter · scope from the
+buffer-locals already on hand — in the faded `org-air-face-modeline' (which
+also draws the boundary overline).  Mode-line is not part of the buffer-
+text fixtures, so this is byte-invisible.")
+
+(defvaralias 'org-air-view--calm-mode-line 'org-air-view--status-mode-line
+  "Back-compat alias for the renamed status construct (R20-2).")
 
 (defun org-air-view--install-modeline ()
-  "Install the calm nano-style mode-line per `org-air-modeline-style' (D-P5.1).
+  "Install the calm nano-style status mode-line per `org-air-modeline-style'.
 No-op for `default' (keeps Emacs's normal mode-line).  Stays a single
-line, so the body-height derivation is unchanged; byte-invisible."
+line, so the body-height derivation is unchanged; byte-invisible (R20-2)."
   (when (eq org-air-modeline-style 'calm)
-    (setq-local mode-line-format (list org-air-view--calm-mode-line))))
+    (setq-local mode-line-format (list org-air-view--status-mode-line))))
 
 (define-derived-mode org-air-view-mode special-mode "org-air"
   "Major mode for the org-air dashboard."
@@ -3742,6 +3785,18 @@ own markers/classify scans of that file."
       (goto-char (point-min)))
     ind))
 
+(defvar-local org-air-view-pane--header-ruled nil
+  "Non-nil once the pane `header-line' boundary rule has been remapped (R20-2).")
+
+(defun org-air-view-pane--install-header-rule ()
+  "Remap the pane `header-line' to the boundary-rule face once (R20-2 #2).
+Gives the pane's TOP edge a quiet overline/background so the pane visibly
+starts at its header; display-only (the header TEXT is untouched), so it is
+byte-invisible.  Guarded so repeated chrome installs never stack remaps."
+  (unless org-air-view-pane--header-ruled
+    (setq-local org-air-view-pane--header-ruled t)
+    (face-remap-add-relative 'header-line 'org-air-face-pane-header)))
+
 (defun org-air-view-pane--install-chrome (ctx)
   "Install the pane header-line + leading on the current buffer for CTX (R19-3).
 Keeps the existing `▤ file · title · state' header-line contract and the
@@ -3749,6 +3804,7 @@ R18 D-P5.2 `line-spacing'; enables `variable-pitch-mode' when
 `org-air-view-pane-variable-pitch' is on (allowed — the pane is not pixel-
 locked)."
   (setq-local header-line-format (org-air-view-pane--header-line ctx))
+  (org-air-view-pane--install-header-rule)
   (when (numberp org-air-view-pane-line-spacing)
     (setq-local line-spacing org-air-view-pane-line-spacing))
   (when org-air-view-pane-variable-pitch
@@ -3776,6 +3832,7 @@ byte-identical (R19-3).  Returns the pane buffer."
             (org-air-view-pane--apply-max-lines)))
         (setq-local header-line-format
                     (org-air-view-pane--header-line ctx))
+        (org-air-view-pane--install-header-rule)
         (goto-char (point-min))))
     buf))
 
@@ -4008,6 +4065,11 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)
           org-air-view--tag-filter tag-filter)
+    ;; R20-2: cache the visible count for the status mode-line :eval so
+    ;; redisplay never re-scans all items (the live filter/scope re-render
+    ;; refreshes it).
+    (setq-local org-air-view--mode-line-count
+                (length (org-air-view--visible-items items)))
     ;; R18 D-P1c: ensure the classify cache table exists for today in THIS
     ;; board buffer BEFORE composing the panes.  The panes render in temp
     ;; buffers (`org-air-view--render-lines') that bind the cache var to the

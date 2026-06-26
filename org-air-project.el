@@ -679,6 +679,9 @@ SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
 (defvar-local org-air-project--root nil
   "Air root rendered in this project-view buffer.")
 
+(defvar-local org-air-project--doc-count nil
+  "Cached doc count for the calm status mode-line (R20-2); set per render.")
+
 (defvar-local org-air-project--rendered-width nil
   "Width of the most recent project-view render (R14 D-P1.B resize guard).")
 
@@ -1023,6 +1026,8 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
          (left-fn (if directoryp
                       (lambda (w) (org-air-project--insert-directory-tree tree w))
                     (lambda (w) (org-air-project--insert-doc-sections sections w)))))
+    ;; R20-2: cache the doc count for the status mode-line :eval.
+    (setq-local org-air-project--doc-count (length docs))
     ;; R14 D-P1.B: this buffer hosts the SHARED mid-rail inspector with the
     ;; project's property + fields function.
     (setq-local org-air-view--inspector-active (and org-air-project-show-inspector t)

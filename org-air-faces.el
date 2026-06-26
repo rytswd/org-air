@@ -206,11 +206,32 @@ unchanged — only the per-segment face differs, so fixtures hold."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-modeline
-  '((t :inherit org-air-face-faded))
-  "Face for the calm nano-style org-air mode-line (R18 D-P5.1).
-A quiet, faded buffer/mode name; status already lives in the in-buffer
-banner, so the mode-line is just a soft label.  Mode-line is not part of
-the buffer-text fixtures, so this is byte-invisible."
+  '((((class color) (min-colors 256) (background light))
+     (:inherit org-air-face-faded :background "#ECEAE4" :overline "#D8D4CC"))
+    (((class color) (min-colors 256) (background dark))
+     (:inherit org-air-face-faded :background "#353B47" :overline "#4C566A"))
+    (t (:inherit org-air-face-faded)))
+  "Face for the calm nano-style org-air STATUS mode-line (R18 D-P5.1 / R20-2).
+A quiet, faded status row (counts · filter · scope).  R20-2 #2: it gains a
+faint background distinct from the buffer plus a 1px `:overline' in the
+divider hue so the row reads as a horizontal RULE — the board→pane seam
+becomes obvious without any extra chrome.  The mono/TTY tier keeps only the
+faded foreground (the bg/overline simply do not paint), and the mode-line
+is not part of the buffer-text fixtures, so this is byte-invisible."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-pane-header
+  '((((class color) (min-colors 256) (background light))
+     (:background "#ECEAE4" :overline "#D8D4CC"))
+    (((class color) (min-colors 256) (background dark))
+     (:background "#353B47" :overline "#4C566A"))
+    (t nil))
+  "Face for the bottom view-pane HEADER-LINE rule (R20-2 #2 / R20-3c).
+A quiet 1px `:overline' in the divider hue + a hair of background, remapped
+onto the pane's `header-line' so the pane's TOP edge is unmistakable.  It
+is the base face only — the segment faces (`org-air-face-pane-title' /
+faded) override the foreground, so the header TEXT contract is unchanged.
+The mono/TTY tier paints nothing (the header text is the substrate)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-pane-title

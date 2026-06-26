@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-22 DESIGN: priorities A–E · cursor/RET robustness · board sort · scope/filter clarity · project pane/grouping · contrast
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:render:project:stability:sort:contrast:faces:design:v0.5:
 
 * Scope of this document

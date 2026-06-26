@@ -206,5 +206,85 @@ restores it.  Executing through the filter command + the shared core."
      (should (null org-air-view--tag-filter))
      (should (= org-air-project--doc-count all)))))
 
+;;;; =====================================================================
+;;;; R24-5 — project rail side-window lifecycle parity (executing ERTs).
+;;;; =====================================================================
+
+(defun org-air-r24--rail-window ()
+  "Return the live `*org-air-rail*' side window on the selected frame, or nil."
+  (get-buffer-window org-air-rail-buffer-name (selected-frame)))
+
+(ert-deftest org-air-r24-5-bar-pops-shared-rail-in-project ()
+  "`|' driven in the project pops the SAME `*org-air-rail*' side window the
+board uses: a REAL window, the rail back-pointer is the PROJECT buffer, and
+the carried inspector property is `org-air-doc' (the rail inspects DOCS)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   (execute-kbd-macro (kbd "|"))
+   (should (eq org-air-view--rail-popped-out t))
+   (should (window-live-p (org-air-r24--rail-window)))
+   (with-current-buffer org-air-rail-buffer-name
+     (should (eq org-air-rail--board-buffer (get-buffer "*org-air-project*")))
+     (should (eq org-air-view--inspector-property 'org-air-doc)))))
+
+(ert-deftest org-air-r24-5-rail-blocks-shared-with-board ()
+  "The popped PROJECT rail emits the SAME block headers as the board, each
+faced `org-air-face-rail-header' (shared rail render, not forked)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   (execute-kbd-macro (kbd "|"))
+   (with-current-buffer org-air-rail-buffer-name
+     (dolist (head '("Filter" "Source" "Summary" "Inspector" "Actions"))
+       (goto-char (point-min))
+       (should (search-forward head nil t))
+       (let* ((faces (get-text-property (match-beginning 0) 'face))
+              (fl (if (listp faces) faces (list faces))))
+         (should (memq 'org-air-face-rail-header fl)))))))
+
+(ert-deftest org-air-r24-5-inspector-shows-the-doc-in-side-window ()
+  "With the inspector region reserved (tall), the popped PROJECT rail's
+Inspector shows the DOC at point: its title + the State + Path fields fill
+in the side window (the doc inspector, not the board's item inspector)."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-view-height 60))
+    (org-air-r24--with-live-project
+     (goto-char (org-air-r24--first-doc-pos))
+     (org-air-view--goto-row-title)
+     (execute-kbd-macro (kbd "|"))
+     (org-air-view--inspector-update-now (current-buffer))
+     (with-current-buffer org-air-rail-buffer-name
+       (let ((txt (substring-no-properties (buffer-string))))
+         (should (string-match-p "Alpha feature" txt))
+         (should (string-match-p "State" txt))
+         (should (string-match-p "Path" txt)))))))
+
+(ert-deftest org-air-r24-5-reconcile-hook-installed-in-project ()
+  "The project mode init installs the SHARED cooperative reconciler on the
+buffer-local `window-configuration-change-hook' (trunk: absent for project).
+The mode init ran with `noninteractive' nil inside the live harness."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   (should (memq 'org-air-rail--reconcile
+                 (buffer-local-value 'window-configuration-change-hook
+                                     (current-buffer))))))
+
+(ert-deftest org-air-r24-5-native-close-reconciles-to-inline ()
+  "Pop the project rail OUT, close the side window NATIVELY (`delete-window'),
+run the reconciler: `org-air-view--rail-popped-out' flips to nil = fall back
+to the inline rail (on trunk the reconcile no-ops for the project)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   (execute-kbd-macro (kbd "|"))
+   (should (window-live-p (org-air-r24--rail-window)))
+   ;; native close.
+   (delete-window (org-air-r24--rail-window))
+   (should-not (org-air-rail--window-live-p))
+   ;; reconcile with a wide render width so it is a genuine user-close
+   ;; (not a responsive board-only teardown that keeps the flag).
+   (let ((org-air-view-width 120))
+     (should (org-air-rail--user-closed-p (current-buffer)))
+     (org-air-rail--reconcile))
+   (should (null org-air-view--rail-popped-out))))
+
 (provide 'org-air-round24-test)
 ;;; org-air-round24-test.el ends here

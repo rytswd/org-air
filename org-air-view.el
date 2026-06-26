@@ -3902,9 +3902,12 @@ inline via the reconciler.  The refresh is dispatched per-mode via
 
 (defun org-air-rail-popin ()
   "Pop the context rail back INLINE if it is a side window (R16 D-P1).
-Works from the board OR from inside the rail buffer (`q')."
+Works from the board OR the project OR from inside the rail buffer (`q').
+R24-5: dispatch the re-render per host mode via `org-air-view--refresh-
+current' (the rail back-pointer points at the PROJECT buffer when the
+project popped it) so a project rail falls back to inline like the board's."
   (interactive)
-  (let ((board (if (derived-mode-p 'org-air-view-mode)
+  (let ((board (if (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
                    (current-buffer)
                  (or (and (boundp 'org-air-rail--board-buffer)
                           org-air-rail--board-buffer)
@@ -3914,7 +3917,7 @@ Works from the board OR from inside the rail buffer (`q')."
         (when org-air-view--rail-popped-out
           (setq-local org-air-view--rail-popped-out nil)
           (org-air-rail--hide board)
-          (org-air-view--render-current)))
+          (org-air-view--refresh-current)))
       ;; If `q' was pressed inside the rail, hop focus back to the board.
       (when (not (eq (current-buffer) board))
         (let ((win (get-buffer-window board (selected-frame))))
@@ -3933,11 +3936,12 @@ re-pops the side window (R16 D-P1, design transition table)."
 
 (defun org-air-rail--reconcile ()
   "React when the user closes the popped-out rail with a native command.
-Added to the board buffer's `window-configuration-change-hook'.  Purely
-REACTIVE: if the rail is flagged popped-out but its buffer no longer shows
-in any window on the board's frame, fall back to the inline rail (never
-proactively re-open a window the user closed) (R16 D-P1)."
-  (when (and (derived-mode-p 'org-air-view-mode)
+Added to the board OR project buffer's `window-configuration-change-hook'.
+Purely REACTIVE: if the rail is flagged popped-out but its buffer no longer
+shows in any window on the host's frame, fall back to the inline rail (never
+proactively re-open a window the user closed) (R16 D-P1; R24-5: the guard +
+re-render dispatch are mode-generic so the PROJECT reconciles too)."
+  (when (and (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
              org-air-view--rail-popped-out
              (not org-air-rail--reconciling)
              (not noninteractive))
@@ -3947,6 +3951,7 @@ proactively re-open a window the user closed) (R16 D-P1)."
         (setq-local org-air-view--rail-popped-out nil)
         (org-air-rail--hide board)
         ;; Re-render AFTER the window-config settles (never inside the hook).
+        ;; R24-5: dispatch per host mode so the PROJECT reconciles too.
         (run-with-timer
          0 nil
          (lambda ()
@@ -3954,7 +3959,7 @@ proactively re-open a window the user closed) (R16 D-P1)."
              (with-current-buffer board
                (let ((org-air-rail--reconciling t))
                  (when (get-buffer-window board (selected-frame))
-                   (org-air-view--render-current)))))))))))
+                   (org-air-view--refresh-current)))))))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R16 D-P3: mu4e-style bottom source/entry view pane (*org-air-view*).

@@ -1425,6 +1425,12 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
   ;; project buffer is killed (it must not outlive its host), mirroring the
   ;; board's kill-buffer-hook.
   (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
+  ;; R24-5: install the SAME cooperative reconciler the board has, so a
+  ;; natively-closed popped-out PROJECT rail falls back to the inline rail
+  ;; (the reconcile guard + popin dispatch are now mode-generic).  Reactive
+  ;; only; inert under batch (the window-config hook never fires there).
+  (unless noninteractive
+    (add-hook 'window-configuration-change-hook #'org-air-rail--reconcile nil t))
   (org-air-layout-install-window-size-hook)
   (buffer-disable-undo))
 

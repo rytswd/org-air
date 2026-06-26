@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-23 DESIGN: refile face-leak bug · mode-line off-by-default · project tree connectors · legible project state badges
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:render:project:stability:faces:modeline:design:v0.5:
 
 * Scope of this document

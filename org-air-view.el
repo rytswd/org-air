@@ -2093,7 +2093,13 @@ this one primitive, faces, truncation, alignment and svg pills)."
          (width (org-air-view--render-width))
          (prefix (or prefix ""))
          (prefix-w (string-width prefix))
-         (title (or title ""))
+         ;; R23-1 (defensive): normalise the incoming title to PLAIN text
+         ;; before any width math, so the row is rendered purely via org-air's
+         ;; own font-lock-face/propertize and never inherits a caller's
+         ;; face/display/org property (e.g. the `org-level-1' that
+         ;; `org-get-heading' leaks from a fontified buffer post-refile).  The
+         ;; R21-2 step then re-adds only org-air's own title mark.
+         (title (substring-no-properties (or title "")))
          (gap 2)
          (dcol (or (nth 0 widths) 0))
          (tcol (or (nth 1 widths) 0))

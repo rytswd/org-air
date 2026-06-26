@@ -87,7 +87,12 @@ default)."
   "Build an `org-air-item' for the heading at point."
   (let ((file (or (buffer-file-name) "")))
     (org-air-item-create
-     :title (org-get-heading t t t t)
+     ;; R23-1: `org-get-heading' returns a FONTIFIED title (with `face
+     ;; org-level-1') once the source Org buffer is live + fontified (e.g.
+     ;; after a refile).  Strip all text-properties at the data layer so the
+     ;; struct title is a plain string and no caller leaks org heading faces
+     ;; into the calm one-line row (V6 pixel-lock).
+     :title (substring-no-properties (org-get-heading t t t t))
      :tags (org-get-tags nil nil)
      :file file
      :marker (copy-marker (point-marker))

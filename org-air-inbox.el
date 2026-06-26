@@ -73,7 +73,10 @@
   "Return an org-air item at point in either dashboard or Org buffer."
   (or (get-text-property (point) 'org-air-item)
       (org-air-item-create
-       :title (org-get-heading t t t t)
+       ;; R23-1: strip properties off the at-point title (this item is built
+       ;; inside a fontified Org buffer, so `org-get-heading' carries `face
+       ;; org-level-1') so the moved item's row stays calm post-refile.
+       :title (substring-no-properties (org-get-heading t t t t))
        :tags (org-get-tags nil nil)
        :file (or (buffer-file-name) "")
        :marker (copy-marker (point-marker))

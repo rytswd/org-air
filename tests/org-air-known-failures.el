@@ -431,6 +431,20 @@
      . "R20-5(a): nested dir tree + shared rail re-bless project-view-*.txt")
     (org-air-f5-grouping-toggle
      . "R20-5(a): dir grouping is now the airctl -Da nested tree (header form changed)")
+    ;; 2026-06-26: R20-5(b) truly REUSE the dashboard core landed: the
+    ;; project rail is now the SHARED board rail (Calendar/Filter/Scope/
+    ;; Summary/Inspector/Actions) driven by a buffer-local view descriptor
+    ;; (`org-air-view--rail-descriptor'), and the project keymap is a THIN
+    ;; child of `org-air-view-core-map' that no longer SHADOWS the shared
+    ;; board keys — s / d / t / o / O are gone (state/tag/sort move to
+    ;; M-x).  The two R18 keymap drift-guards asserted the OLD project-
+    ;; specific bindings (s=group-by-state, o=sort-cycle, O=sort-reverse),
+    ;; so they fail until the test seat re-blesses them to the R20-5 thin
+    ;; keymap (the new drift guard: shared keys resolve to the board's).
+    (org-air-r18-dp3-project-keymap-inherits-core
+     . "R20-5(b): thin keymap drops s/o domain shadows (re-bless drift guard)")
+    (org-air-r18-dp4-keymap-ret-and-sret-board-and-project
+     . "R20-5(b): thin keymap drops O=sort-reverse / s=group-by-state shadows")
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

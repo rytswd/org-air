@@ -604,6 +604,20 @@ data-dependent command in that window soft-errors via
 `unwind-protect', so the board can never wedge in a loading state.")
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
+(defvar-local org-air-view--rail-descriptor nil
+  "Plist of providers the SHARED rail consults; nil = the board defaults (R20-5).
+When a non-board view (the project) renders the rail it sets this so the
+one rail construct serves both views (invariant #4: parameterise, do not
+fork).  All keys are optional; the board path is used for any that are
+absent, so the board byte goldens stay byte-identical (descriptor nil).
+Keys:
+  :visible-fn      (THINGS) -> the scope+filter visible subset
+  :calendar-fn     (VISIBLE WIDTH INSET) -> inserts the month calendar
+  :summary-fn      (THINGS WIDTH) -> inserts the Summary block
+  :first-thing-fn  (THINGS) -> the thing the inspector seeds on (nil ok)
+  :actions-fn      (WIDTH) -> inserts the Actions block
+  :rail-target-height N -> the inspector reserved-region target height
+    (the project sizes the rail to its doc-pane height, not the window).")
 (defvar-local org-air-view--day nil
   "When non-nil, an Emacs time focusing the single-day view (R6).")
 (defvar-local org-air-view--expanded-sections nil)
@@ -2046,7 +2060,10 @@ The order is stable so items sharing a date keep their incoming order."
         ;; temp pane so `puthash' persists back (buffer-local would reset to
         ;; nil here and lose every entry on each render).
         (classify-cache org-air-view--classify-cache)
-        (classify-cache-day org-air-view--classify-cache-day))
+        (classify-cache-day org-air-view--classify-cache-day)
+        ;; R20-5: carry the view descriptor into the rail temp buffer so the
+        ;; SHARED rail consults the project's providers (nil for the board).
+        (rail-descriptor org-air-view--rail-descriptor))
     (with-temp-buffer
       (let ((org-air-view--line-width width)
             (org-air-view--items items)
@@ -2057,7 +2074,8 @@ The order is stable so items sharing a date keep their incoming order."
             (org-air-view--cal-month cal-month)
             (org-air-view--day day)
             (org-air-view--classify-cache classify-cache)
-            (org-air-view--classify-cache-day classify-cache-day))
+            (org-air-view--classify-cache-day classify-cache-day)
+            (org-air-view--rail-descriptor rail-descriptor))
         (funcall render-fn)
         (org-air-view--string-lines (buffer-string) width)))))
 
@@ -2211,8 +2229,30 @@ fallback) while a GUI frame reads it as an hl-block card header."
     (add-face-text-property start (max start (1- (point)))
                             'org-air-face-rail-card-header t)))
 
+(defun org-air-view--rail-visible (things)
+  "Return THINGS after scope+filter via the rail descriptor (R20-5).
+The board's `org-air-view--visible-items' runs when the descriptor's
+:visible-fn is absent; a non-board view (the project) provides its own."
+  (if-let* ((f (plist-get org-air-view--rail-descriptor :visible-fn)))
+      (funcall f things)
+    (org-air-view--visible-items things)))
+
+(defun org-air-view--rail-first-thing (things)
+  "Return the thing the rail inspector seeds on, via the descriptor (R20-5).
+Defaults to the board's `org-air-view--first-actionable-item' over THINGS;
+a non-board view may return nil (the inspector is then filled from point by
+`org-air-view--setup-inspector')."
+  (if (plist-member org-air-view--rail-descriptor :first-thing-fn)
+      (funcall (plist-get org-air-view--rail-descriptor :first-thing-fn) things)
+    (org-air-view--first-actionable-item things)))
+
 (defun org-air-view--insert-summary (items width)
-  "Insert summary block for ITEMS fitted to WIDTH."
+  "Insert summary block for ITEMS fitted to WIDTH.
+R20-5: a non-board view supplies its own Summary via the rail descriptor's
+:summary-fn (e.g. the project's per-state counts); the board path runs when
+the descriptor is nil so the board summary stays byte-identical."
+  (if-let* ((f (plist-get org-air-view--rail-descriptor :summary-fn)))
+      (funcall f items width)
   (when org-air-show-summary
     (org-air-view--rail-header "Summary" width)
     (let ((counts (org-air-view--section-counts items))
@@ -2242,7 +2282,7 @@ fallback) while a GUI frame reads it as an hl-block card header."
       (insert inset (propertize (format "%3d" total)
                                 'face 'org-air-face-summary-number)
               "   " (propertize "total" 'face 'org-air-face-summary-label)
-              "\n"))))
+              "\n")))))
 
 (defun org-air-view--scope-label ()
   "Return active scope display label."
@@ -2312,7 +2352,15 @@ column alignment (D5f); a WIDTH of 0 (the trailing column) is as-is."
 (defun org-air-view--insert-actions (width)
   "Insert the named D5f Actions block fitted to rail content WIDTH.
 Two column-aligned verb rows, inset to the spine, the leading key token in
-the quiet keycap face; the columns do the separating (no dotted prose)."
+the quiet keycap face; the columns do the separating (no dotted prose).
+R20-5: a non-board view supplies its own verb rows via the rail
+descriptor's :actions-fn; the board path runs when the descriptor is nil."
+  (if-let* ((f (plist-get org-air-view--rail-descriptor :actions-fn)))
+      (funcall f width)
+    (org-air-view--insert-actions-default width)))
+
+(defun org-air-view--insert-actions-default (width)
+  "Insert the BOARD Actions block fitted to rail content WIDTH."
   (org-air-view--rail-header "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
          ;; Round-9 Q1: when a scope is active the second row's middle verb
@@ -2797,9 +2845,12 @@ render, and only ACTIONS is pinned to the rail foot beneath it.  When the
 inspector is off the rail falls back to the four-block flow of
 Calendar/Filter/Summary/Actions."
   (let ((org-air-view--line-width width))
-    (org-air-calendar-insert-month org-air-view--cal-month
-                                   (org-air-view--visible-items items)
-                                   width (org-air-view--rail-inset width))
+    (if-let* ((f (plist-get org-air-view--rail-descriptor :calendar-fn)))
+        (funcall f (org-air-view--rail-visible items)
+                 width (org-air-view--rail-inset width))
+      (org-air-calendar-insert-month org-air-view--cal-month
+                                     (org-air-view--visible-items items)
+                                     width (org-air-view--rail-inset width)))
     (insert "\n")
     ;; R19-4c: Filter UP, above Summary.
     (org-air-view--insert-rail-filters width)
@@ -2819,12 +2870,16 @@ Calendar/Filter/Summary/Actions."
                             (lambda ()
                               (org-air-view--insert-actions width))))
                (foot-h (1+ (length foot-lines)))
-               (target (max 1 (- (org-air-view--render-height)
-                                 3 (if org-air-show-footer 2 0))))
+               ;; R20-5: a non-board view sizes the rail to its own pane
+               ;; height (the project's doc pane), not the window height.
+               (target (or (plist-get org-air-view--rail-descriptor
+                                      :rail-target-height)
+                           (max 1 (- (org-air-view--render-height)
+                                     3 (if org-air-show-footer 2 0)))))
                (reserved (max 1 (- target top-used foot-h))))
           (setq org-air-view--inspector-region-height reserved)
           (dolist (l (org-air-view--inspector-rail-lines
-                      (org-air-view--first-actionable-item items)
+                      (org-air-view--rail-first-thing items)
                       width reserved))
             (insert l "\n"))
           (insert "\n")

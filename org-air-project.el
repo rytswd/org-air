@@ -28,6 +28,7 @@
 (require 'org-air-faces)
 (require 'org-air-layout)
 (require 'org-air-view)
+(require 'org-air-calendar)
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Configuration (F5a)
@@ -858,22 +859,44 @@ summary moved into the rail)."
                             'face 'org-air-face-summary-label)
                 "\n")))))
 
-(defun org-air-project--insert-rail (docs rail-width target-h)
-  "Insert the project rail (Summary + Inspector) for DOCS at RAIL-WIDTH (D-P1.B).
-The inspector fills the fixed reserved region to TARGET-H (the doc pane
-height) so the divider spans the docs; there are no Filters/Actions here.
-The reserved region is rendered with a nil thing (just reserves height +
-the `Inspector' header); `org-air-view--setup-inspector' fills it with the
-first doc in the real buffer (buffer-locals set there)."
-  (org-air-project--insert-summary docs rail-width)
-  (insert "\n")
-  (if org-air-project-show-inspector
-      (let* ((top-used (count-lines (point-min) (point)))
-             (reserved (max 1 (- target-h top-used))))
-        (setq org-air-view--inspector-region-height reserved)
-        (dolist (l (org-air-view--inspector-rail-lines nil rail-width reserved))
-          (insert l "\n")))
-    (setq org-air-view--inspector-region-height nil)))
+(defun org-air-project--calendar-marks (docs)
+  "Return a date-key -> `created mark table over DOCS' updated stamps (R20-5).
+The shared rail's Calendar marks each doc on the day it was last updated
+with a quiet `created'-style dot, so the project Calendar reads like the
+board's without needing Org deadline/scheduled timestamps."
+  (let ((table (make-hash-table :test #'equal)))
+    (dolist (doc docs table)
+      (when-let* ((u (org-air-doc-updated doc)))
+        (let ((d (decode-time u)))
+          (puthash (org-air-calendar--date-key (decoded-time-month d)
+                                               (decoded-time-day d)
+                                               (decoded-time-year d))
+                   'created table))))))
+
+(defun org-air-project--insert-actions (width)
+  "Insert the project rail Actions block fitted to rail content WIDTH (R20-5).
+Same SHAPE + keycap idiom as the board's Actions, with the project's verbs
+— open / filter / refresh, then visit / clear / quit — on the SAME keys a
+board user already knows."
+  (org-air-view--rail-header "Actions" width)
+  (let* ((inset (org-air-view--rail-inset-str width))
+         (c1 (max (+ 4 (length "open")) (+ 6 (length "visit"))))
+         (c2 (max (+ 2 (length "filter")) (+ 2 (length "clear"))))
+         (gap (if (>= width 38) "    " " ")))
+    (insert (org-air-view--pad-to
+             (concat inset
+                     (org-air-view--verb-cell "RET" "open" c1) gap
+                     (org-air-view--verb-cell "/" "filter" c2) gap
+                     (org-air-view--verb-cell "g" "refresh" 0))
+             width)
+            "\n")
+    (insert (org-air-view--pad-to
+             (concat inset
+                     (org-air-view--verb-cell "S-RET" "visit" c1) gap
+                     (org-air-view--verb-cell "\\" "clear" c2) gap
+                     (org-air-view--verb-cell "q" "quit" 0))
+             width)
+            "\n")))
 
 (defun org-air-project--two-pane-body (docs left-fn width)
   "Return (BODY-LINES . FILL-ROW) composing the LEFT pane | project-rail.
@@ -889,12 +912,22 @@ deterministic."
                      item-width
                      (lambda () (funcall left-fn item-width))))
          (doc-h (max 1 (length doc-lines)))
-         (rail-lines (mapcar
-                      (lambda (l) (org-air-view--pad-to l rail-width))
-                      (org-air-view--render-lines
-                       rail-width
-                       (lambda ()
-                         (org-air-project--insert-rail docs rail-width doc-h))))))
+         ;; R20-5(b): render the SHARED board rail, sized (via the
+         ;; descriptor's :rail-target-height) to MAX(doc pane, window body)
+         ;; so the inspector fills the rail in a real (tall) window while
+         ;; the divider still spans a long doc list (doc-h > the window).
+         ;; `org-air-show-inspector' follows the project's own toggle.
+         (target-h (max doc-h (max 1 (- (org-air-view--render-height) 3))))
+         (rail-lines
+          (let ((org-air-view--rail-descriptor
+                 (plist-put (copy-sequence org-air-view--rail-descriptor)
+                            :rail-target-height target-h))
+                (org-air-show-inspector org-air-project-show-inspector))
+            (mapcar
+             (lambda (l) (org-air-view--pad-to l rail-width))
+             (org-air-view--render-lines
+              rail-width
+              (lambda () (org-air-view--insert-rail docs rail-width)))))))
     (setq org-air-view--inspector-geom
           (list :item-width item-width :divider divider :rail-width rail-width
                 :region-height org-air-view--inspector-region-height))
@@ -996,6 +1029,21 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
                 org-air-view--inspector-property 'org-air-doc
                 org-air-view--inspector-fields-function
                 #'org-air-project--inspector-doc-fields)
+    ;; R20-5(b): drive the SHARED board rail (Calendar/Filter/Scope/Summary/
+    ;; Inspector/Actions) via a view descriptor, so the project rail is the
+    ;; board rail — no bespoke parallel rail.
+    (setq-local org-air-view--rail-descriptor
+                (list :visible-fn (lambda (ds) ds)
+                      :calendar-fn
+                      (lambda (ds w inset)
+                        (org-air-calendar-insert-month
+                         org-air-view--cal-month ds w inset
+                         (org-air-project--calendar-marks ds)))
+                      :summary-fn #'org-air-project--insert-summary
+                      ;; The inspector fills from point (`--setup-inspector');
+                      ;; seed it on nothing, exactly as the old project rail.
+                      :first-thing-fn (lambda (_ds) nil)
+                      :actions-fn #'org-air-project--insert-actions))
     ;; R16 D-P4: seed the per-buffer sort state from the defcustoms once.
     (unless org-air-project--sort-key
       (setq-local org-air-project--sort-key org-air-project-sort-key))
@@ -1152,29 +1200,24 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
 
 (defvar org-air-project-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; R18 D-P3: inherit the SHARED view-core keys (RET pane, mouse-1, v/V,
-    ;; \ filter-clear, M-/ AND/OR toggle) so they can never drift from the
-    ;; board.  This child overrides only its motion, its DOMAIN verbs, its
-    ;; per-mode `/' doc filter and its S-RET visit target.
+    ;; R20-5(b): a THIN child of the shared view-core map.  Every shared
+    ;; board key keeps the board's meaning by INHERITANCE (RET pane,
+    ;; mouse-1, v/V pane open/close, \ filter-clear, M-/ AND/OR toggle); the
+    ;; old domain verbs that SHADOWED s / d / t / o / O are GONE — a user
+    ;; who knows the board drives the project with no relearning.  The
+    ;; state / tag groupings and the sort cycle stay reachable via
+    ;; `M-x org-air-project-group-by-state' / `-by-tag' / `-sort-cycle', so
+    ;; the airctl -a / -Ta parity exists without stealing the shared keys.
     (set-keymap-parent map org-air-view-core-map)
-    (define-key map (kbd "s") #'org-air-project-group-by-state)
-    (define-key map (kbd "d") #'org-air-project-group-by-directory)
-    (define-key map (kbd "t") #'org-air-project-group-by-tag)
     (define-key map (kbd "n") #'org-air-project-next)
     (define-key map (kbd "p") #'org-air-project-prev)
-    ;; R18 D-P4: RET (inherited) opens the pane; visiting the doc in the
-    ;; other window is S-RET (the project's visit target).  The board's `O'
-    ;; TTY alias is unavailable here (`O' = sort-reverse).
+    ;; RET (inherited) opens the pane; S-RET visits the doc (the project's
+    ;; visit target), mirroring the board's S-RET visit.
     (define-key map (kbd "<S-return>") #'org-air-project-visit)
     (define-key map (kbd "S-RET") #'org-air-project-visit)
-    ;; R18 D-P3: the per-mode doc-tag filter (shares the board's pre-fill +
-    ;; AND default + M-/ toggle core).
+    ;; The per-mode doc-tag filter (shares the board's pre-fill + AND
+    ;; default + M-/ toggle core); `g' refreshes, `q' quits.
     (define-key map (kbd "/") #'org-air-project-filter)
-    ;; R16 D-P4: sort the doc rows — `o' cycles the key, `O' flips direction.
-    ;; `org-air-project-sort-set' selects a key directly (M-x; `g' here is a
-    ;; single-key refresh, so it cannot also host a `g s' prefix).
-    (define-key map (kbd "o") #'org-air-project-sort-cycle)
-    (define-key map (kbd "O") #'org-air-project-sort-reverse)
     (define-key map (kbd "g") #'org-air-project-refresh)
     (define-key map (kbd "q") #'org-air-project-quit)
     map)

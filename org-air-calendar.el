@@ -185,13 +185,16 @@ mandatory fallback; the buffer text (the bytes) is never touched."
   (mod (- calendar-dow org-air-calendar-week-start) 7))
 
 ;;;###autoload
-(defun org-air-calendar-insert-month (&optional date items width inset)
+(defun org-air-calendar-insert-month (&optional date items width inset marks)
   "Insert a compact month calendar for DATE marking dashboard ITEMS.
 WIDTH is the available content width; it selects the responsive day-cell
 width (3 vs 4 columns) when `org-air-calendar-day-spacing' is `auto'.
 INSET (D5b) is the content-spine indent in columns applied to the weekday
 row, the day grid and the legend so the calendar shares the rail's single
-left edge; the labelled-rule header itself spans the full WIDTH."
+left edge; the labelled-rule header itself spans the full WIDTH.
+MARKS (R20-5), when non-nil, is a precomputed date-key -> mark-kind table
+used instead of deriving the marks from ITEMS (so a non-board view can mark
+by its own dates, e.g. the project's per-doc updated stamp)."
   (let* ((inset (or inset 0))
          ;; D5b: the content spine eats INSET columns, so the day-cell
          ;; width must be chosen from the width that REMAINS for the grid —
@@ -205,7 +208,7 @@ left edge; the labelled-rule header itself spans the full WIDTH."
          (today-key (org-air-calendar--date-key (decoded-time-month today)
                                                 (decoded-time-day today)
                                                 (decoded-time-year today)))
-         (marks (org-air-calendar--marked-days items))
+         (marks (or marks (org-air-calendar--marked-days items)))
          (first-day (org-air-calendar--column
                      (calendar-day-of-week (list month 1 year))))
          (last-day (calendar-last-day-of-month month year))

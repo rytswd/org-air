@@ -207,39 +207,50 @@ unchanged — only the per-segment face differs, so fixtures hold."
 
 (custom-declare-face 'org-air-face-modeline
   '((((class color) (min-colors 256) (background light))
-     (:inherit org-air-face-faded :background "#ECEAE4" :overline "#D8D4CC"))
+     (:inherit org-air-face-inspector-label :background "#ECEAE4" :overline "#D8D4CC"))
     (((class color) (min-colors 256) (background dark))
-     (:inherit org-air-face-faded :background "#353B47" :overline "#4C566A"))
-    (t (:inherit org-air-face-faded)))
+     (:inherit org-air-face-inspector-label :background "#353B47" :overline "#4C566A"))
+    (t (:inherit org-air-face-inspector-label)))
   "Face for the calm nano-style org-air STATUS mode-line (R18 D-P5.1 / R20-2).
-A quiet, faded status row (counts · filter · scope).  R20-2 #2: it gains a
-faint background distinct from the buffer plus a 1px `:overline' in the
-divider hue so the row reads as a horizontal RULE — the board→pane seam
-becomes obvious without any extra chrome.  The mono/TTY tier keeps only the
-faded foreground (the bg/overline simply do not paint), and the mode-line
-is not part of the buffer-text fixtures, so this is byte-invisible."
+A quiet status row (counts · filter · scope).  R20-2 #2: it gains a faint
+background distinct from the buffer plus a 1px `:overline' in the divider
+hue so the row reads as a horizontal RULE — the board→pane seam becomes
+obvious without any extra chrome.  R21-6: the foreground is the mid-tier
+readable `org-air-face-inspector-label' tier (#455A64 light / #D8DEE9
+dark) instead of `org-air-face-faded' — the faded fg measured 2.15:1 light
+/ 2.45:1 dark (fails WCAG AA, the too-dim-to-read report); the mid-tier
+is 6.02:1 / 8.32:1 (passes AA) while staying calm.  The mono/TTY tier
+keeps only the readable foreground (the bg/overline do not paint), and the
+mode-line is not buffer text, so this is byte-invisible."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-pane-header
   '((((class color) (min-colors 256) (background light))
-     (:background "#ECEAE4" :overline "#D8D4CC"))
+     (:inherit org-air-face-inspector-label :background "#ECEAE4" :overline "#D8D4CC"))
     (((class color) (min-colors 256) (background dark))
-     (:background "#353B47" :overline "#4C566A"))
-    (t nil))
+     (:inherit org-air-face-inspector-label :background "#353B47" :overline "#4C566A"))
+    (t (:inherit org-air-face-inspector-label)))
   "Face for the bottom view-pane HEADER-LINE rule (R20-2 #2 / R20-3c).
 A quiet 1px `:overline' in the divider hue + a hair of background, remapped
-onto the pane's `header-line' so the pane's TOP edge is unmistakable.  It
-is the base face only — the segment faces (`org-air-face-pane-title' /
-faded) override the foreground, so the header TEXT contract is unchanged.
-The mono/TTY tier paints nothing (the header text is the substrate)."
+onto the pane's `header-line' so the pane's TOP edge is unmistakable.
+R21-6: it now carries an explicit mid-tier readable BASE foreground
+\(`org-air-face-inspector-label', 6.02:1 light / 8.32:1 dark) so the `▤'
+icon, the `·' separators and any unstyled glyph are legible on the header
+bg (they were dim faded before); the salient title segment
+\(`org-air-face-pane-title') still overrides it, so the header TEXT
+contract is unchanged.  The mono/TTY tier keeps only the readable
+foreground."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-pane-title
   '((t :inherit org-air-face-strong))
-  "Face for the SALIENT title segment of the bottom view-pane header (D-P5.2).
-mu4e-style chrome: the title is the one salient token; the file and state
-segments + the `·' separators ride the faded face around it.  The header
-TEXT is unchanged (faces only), so the pane byte golden holds."
+  "Face for the strong title segment of the bottom view-pane header (D-P5.2).
+mu4e-style chrome: the title is the one salient token.  R21-6: it is the
+high-contrast `org-air-face-strong' foreground (#263238 light / white
+dark, ~11:1 on the header bg) — a strong, legible title, NOT a salient
+blue that would collide with the blue-slate header bg (blue-on-blue).  The
+file/state segments + the `·' separators ride the faded face around it.
+The header TEXT is unchanged (faces only), so the pane byte golden holds."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-rail-card-header

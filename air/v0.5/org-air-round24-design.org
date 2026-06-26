@@ -1,0 +1,1064 @@
+#+title: org-air v0.5 round-24 DESIGN: refile-heading completion · tree rails to leaf docs · SVG/nerd state badges · project RET+filter (executing) · project rail side-window parity · free-text filter
+#+state: ready
+#+FILETAGS: :ui:render:project:inbox:filter:rail:faces:keybindings:design:v0.5:
+
+* Scope of this document
+The round-24 DESIGN doc, written after the user dogfooded R23 against real
+data (the demo board over their own org files + the real Air repo at
+=~/Coding/github.com/withre/air= via =M-x org-air-project=).  Six issues, most
+about *PROJECT-VIEW PARITY* — several behaviours earlier rounds *claimed* work
+because a keymap-assertion test found the binding, yet the command FAILS (or
+under-delivers) when actually driven in a project buffer.  This round closes
+that false-confidence gap: every interaction item below is REPRODUCED by
+*driving the command* in a live project buffer (=execute-kbd-macro= /
+=call-interactively= with =noninteractive= bound nil for the windowed paths)
+and OBSERVED, not merely inspected in the keymap.
+
+Each item carries a *measured reproduction* (run against THIS checkout's =.el=
+SOURCE via =load-prefer-newer=, since the shipped =.elc= is stale — =.gitignore=
+ignores =*.elc=), a crisp impl SPEC with exact functions + line numbers, a
+Byte/batch contract, Testability (acceptance ERTs that EXECUTE the behaviour),
+and Routing.  Nothing is integrated here — this is the impl-ready spec; commits
+are per-item (=R24= prefix; Design round-24), each with an
+=ever pub org-air3.work.design.done= signal.
+
+Honour the architecture invariants (architecture.md): V6 pixel-lock, svg-
+never-grows-line, text-is-the-contract (every svg/GUI element has a TTY/byte
+fallback), *one-renderer-two-views* (parameterise the shared =--insert-row= /
+view-core / rail / pane primitives, never fork), inspector inert under
+=noninteractive=.  KEEP the R18 caches (classify + svg + incremental), the R20
+compute-once partition and the R21/R23 byte-invisible discipline intact.
+
+Items, in order:
+- *R24-1* REFILE "UNDER HEADING" PROMPT — replace the free =read-string= with a
+  =completing-read= over the TARGET FILE's actual headings; RET/empty = file
+  end; skip the prompt when the file has no headings. [UX]
+- *R24-2* TREE RAILS TO LEAF DOCS — R23-3 railed child DIRS only; extend the
+  faded =│ ├─ └─= guides DOWN to the doc rows so each doc visibly hangs under
+  its dir, matching =airctl status -Da='s rail-to-every-leaf shape. [POLISH]
+- *R24-3* STATE BADGES → SVG / NERD-FONT (not emoji) — re-reverse R23-4: emoji
+  advance-width jitters the rails/columns; ship a FIXED-WIDTH, legible SVG badge
+  by default (reusing =--svg-keyword-badge=), a =nerd= option, =text=/TTY token,
+  =emoji= opt-in. [POLISH / RE-REVERSAL]
+- *R24-4* PROJECT RET + FILTER, driven — RET errors on a non-doc (dir-header)
+  row (=user-error "No org-air item at point"=) so it "doesn't open"; fix the
+  shared resolver to fall back to the nearest doc; prove BOTH RET and =/= by
+  EXECUTING them. [BUG + executing ERTs]
+- *R24-5* PROJECT RAIL SIDE-WINDOW PARITY — the project never installs the
+  cooperative reconciler and =popin= calls the BOARD renderer, so a popped-out
+  project rail can't fall back to inline like the board's; generalise the rail
+  lifecycle to the project. [BUG]
+- *R24-6* FREE-TEXT (CONTENT) FILTER — the filter matches TAGS only; let a
+  =#token= mean a TAG and a BARE token mean a case-insensitive SUBSTRING match
+  on the title (and path / heading text), shared by board + project. [FEATURE]
+
+* Status
+Design-led, impl-ready.  Byte contract per item:
+- *R24-1* is byte-INVISIBLE — it changes only the INTERACTIVE refile prompt
+  (=completing-read= vocabulary); no render path, no fixture moves.  A couple of
+  inbox ERTs assert the candidate set.
+- *R24-2* is a DELIBERATE, design-blessed re-bless of the DIRECTORY-view golden
+  (=tests/fixtures/project-view-dir.txt=): the doc rows' leading gutter SPACES
+  become faded =│=/=├─=/=└─= tree glyphs (ascii =|=/=+-= in batch).  The state
+  cell + title + the date/tag/origin cluster do NOT move (V6 pixel-lock); the
+  state-/tag-grouping goldens (no dir tree) are byte-identical.
+- *R24-3* is byte-INVISIBLE in batch — the SVG/nerd/emoji paths are all gated on
+  a graphical frame, and the byte gate runs under =--batch= (no graphical
+  frame), so the project state cell still renders the =[R]=/=[C]=/... token in
+  batch IDENTICALLY.  The DEFAULT of =org-air-project-state-style= flips
+  =emoji= → =svg= (re-reversing R23-4); two state-style ERTs re-bless.  No
+  golden moves.
+- *R24-4* is byte-INVISIBLE — RET / the pane / the filter are interactive and
+  inert under =--batch= (the pane =--show= is gated on =(not noninteractive)=),
+  so no golden moves.  The fix is in the shared context resolver; the new ERTs
+  EXECUTE the commands (binding =noninteractive= nil for the windowed assertion)
+  — these executing tests ARE the fix for the false-confidence gap.
+- *R24-5* is byte-INVISIBLE — the rail lifecycle (reconciler / popin dispatch)
+  is interactive; no buffer-text golden captures it.  Executing ERTs drive the
+  toggle.
+- *R24-6* is byte-INVISIBLE for the DEFAULT (unfiltered) render — every golden
+  is captured with no active filter, so the matcher change is invisible there.
+  New ERTs drive the filter with bare + =#= tokens and assert the narrowed set.
+
+* Measured baseline (reproduction harness)
+All reproductions below were run on THIS checkout against the =.el= SOURCE:
+- =emacs -Q --batch -l tests/org-air-test-init.el= with =(setq load-prefer-newer
+  t)= so the stale =.elc= never shadows the =.el= impl will edit.
+- The project view via =org-air-project= over =tests/fixtures/air-project= (the
+  deterministic fixture, frozen mtime/path) AND the REAL Air repo
+  (=~/Coding/github.com/withre/air=, 63 docs).
+- *Interaction items are DRIVEN, not inspected*: =execute-kbd-macro= /
+  =call-interactively= run the actual command through the keymap; the windowed
+  assertions (pane window, side window) =let=-bind =noninteractive= to nil so
+  the otherwise-batch-gated =display-buffer= path runs and a real window is
+  asserted.  This is the discipline the brief mandates — every R24-4/R24-5 ERT
+  EXECUTES a command, never just =lookup-key=.
+- =airctl status -Da= was run on the real repo to capture the ground-truth tree
+  shape that R24-2 matches.
+
+A worked example of the harness (the exact failing reproduction for R24-4 RET):
+#+begin_src elisp
+;; open the project, walk to a DIR-HEADER row (where native down-arrow lands),
+;; then drive RET and observe it FAIL:
+(let ((org-air-sources (list (list :air R24-fixture)))
+      (org-air-project-group 'directory) (org-air-project-view-width 100))
+  (org-air-project R24-fixture))
+;; ... point on "  | v0.1/ ..." (carries `org-air-section', NOT `org-air-doc')
+(call-interactively 'org-air-view-pane-return)
+  => (user-error "No org-air item at point")   ; RET "doesn't even open"
+#+end_src
+
+* R24-1 — refile "Under heading" prompt: complete over the file's real headings [UX]
+
+** Reproduction — the heading is a FREE =read-string= (the user can't see the headings)
+The dedicated =⌂ Move to file…= picker, after resolving the target file, asks
+for the sub-heading with a *bare* =read-string= (org-air-inbox.el:169, inside
+=org-air-inbox--read-move-target=):
+#+begin_src elisp
+(let* ((files  (org-air-inbox--target-files item))
+       (cands  (append (org-air-inbox--file-candidates files) '("⌂ other file…")))
+       (choice (completing-read "Move to file: " cands nil t))
+       (file   (org-air-inbox--decode-file-choice choice item))
+       (heading (read-string "Under heading (empty for file end): ")))   ; <-- free text
+  (cons file (unless (string-empty-p heading) heading)))
+#+end_src
+The user has just picked a FILE they may not author — they have no idea which
+top-level headings exist, so the free prompt is a guessing game.  Measured: the
+candidates that =org-air-inbox--target-position= can actually resolve are the
+file's headings, and they are trivially collectable:
+#+begin_src text
+;; target file with: "* Projects / ** Alpha / * Someday / * Reading list"
+collected headings (org-heading-regexp + org-get-heading) =>
+  ("Projects" "Alpha" "Someday" "Reading list")
+(org-air-inbox--target-position FILE "Someday") => #<marker at 48>   ; resolves
+(org-air-inbox--target-position FILE "")         => #<marker at 63>  ; = point-max (file end)
+#+end_src
+So the matcher already accepts a heading STRING (it builds
+=org-complex-heading-regexp-format= from it) and already treats empty as
+file-end — only the PROMPT is unhelpful.
+
+** Decision — =completing-read= over the file's headings; default "(file end)"; skip when none
+Replace the free =read-string= with a =completing-read= whose vocabulary is the
+TARGET FILE's own headings, with a clear =(file end)= default that maps to the
+current append-at-end behaviour, and SKIP the prompt entirely when the file has
+no headings.
+
+*** (1) A heading collector for the target file
+Add =org-air-inbox--file-headings= (org-air-inbox.el, near =--target-position=
+L53): visit the target with =find-file-noselect= in a widened buffer and collect
+the heading TEXT via =org-get-heading= (property-stripped, so no face leak — the
+R23-1 discipline), top-level AND nested (so a doc can be filed under =** Alpha=).
+The candidate STRING is exactly what =--target-position= matches:
+#+begin_src elisp
+(defun org-air-inbox--file-headings (file)
+  "Return FILE's heading titles (top-level + nested) as plain strings (R24-1).
+Plain text (no fontification) so the completion vocabulary never carries an
+org heading face; the order is buffer order so the list reads top-to-bottom."
+  (when (and file (file-readable-p (expand-file-name file)))
+    (with-current-buffer (find-file-noselect (expand-file-name file))
+      (org-with-wide-buffer
+       (let (out)
+         (goto-char (point-min))
+         (while (re-search-forward (concat "^" org-outline-regexp) nil t)
+           (push (substring-no-properties (org-get-heading t t t t)) out))
+         (nreverse out))))))
+#+end_src
+
+*** (2) The prompt uses it; =(file end)= is the default; no headings = skip
+=org-air-inbox--read-move-target= (L157) builds the heading interactively from
+the collected list, with a sentinel =(file end)= candidate FIRST (the default),
+and skips the prompt when there are no headings:
+#+begin_src elisp
+(defun org-air-inbox--read-heading (file)
+  "Read an optional target HEADING in FILE via completion (R24-1).
+Candidates are FILE's real headings plus a leading `(file end)' default;
+`(file end)' / empty / RET => nil (append at file end, the current
+behaviour).  Returns nil with NO prompt when FILE has no headings."
+  (let ((headings (org-air-inbox--file-headings file)))
+    (when headings
+      (let* ((file-end "(file end)")
+             (choice (completing-read
+                      "Under heading (default file end): "
+                      (cons file-end headings) nil nil nil nil file-end)))
+        (unless (or (string-empty-p choice) (string= choice file-end))
+          choice)))))
+;; in --read-move-target, replace the bare read-string with:
+;;   (heading (org-air-inbox--read-heading file))
+#+end_src
+The =cons (file-end headings)= keeps =--target-position='s contract:
+=--read-heading= returns either nil (file end) or a heading STRING that
+=--target-position= resolves; nothing else in the move path changes
+(=org-air-refile-item= still passes =target-heading= straight through, and the
+=(cons file (unless ... heading))= shape is unchanged).
+
+** Byte / batch contract — byte-INVISIBLE
+The change is confined to the INTERACTIVE prompt; there is no render-path edit,
+so every board + project byte golden is byte-identical.  =--file-headings= reads
+with =substring-no-properties= (no face leak into a candidate string).
+
+** Testability (R24-1)
+- ERT (candidates from the file): write a temp Org file with =* Projects /
+  ** Alpha / * Someday=; assert =org-air-inbox--file-headings= returns
+  =("Projects" "Alpha" "Someday")= (top + nested) and that each is a PLAIN
+  string (=text-properties-at 0= = nil — no leaked org face).
+- ERT (default = file end): stub =completing-read= to return =(file end)= (or
+  ""), call =org-air-inbox--read-heading=; assert it returns nil; and
+  =org-air-inbox--target-position FILE nil= lands at =point-max= (append).
+- ERT (a chosen heading resolves): stub =completing-read= to return =Someday=;
+  assert =--read-heading= returns ="Someday"= and =--target-position FILE
+  "Someday"= returns a marker at the END of the =Someday= subtree (the existing
+  resolver, exercised end-to-end).
+- ERT (no headings = no prompt): a file with NO headings — assert
+  =org-air-inbox--read-heading= returns nil WITHOUT calling =completing-read=
+  (cl-letf a throwing stub to prove it is never invoked).
+- ERT (anti-tautology, completion vocabulary): drive =--read-move-target= with
+  =completing-read= captured; assert the SECOND prompt's COLLECTION argument
+  contains the file's headings (not a free read) and leads with =(file end)=.
+- No byte fixtures.
+
+** Routing (R24-1)
+org-air-inbox.el: add =org-air-inbox--file-headings= (near L53) +
+=org-air-inbox--read-heading=; in =org-air-inbox--read-move-target= (L157)
+replace =(heading (read-string "Under heading…"))= (L169) with =(heading
+(org-air-inbox--read-heading file))=.  =org-air-inbox--target-position= (L53) and
+=org-air-refile-item= are UNCHANGED.  Test seat: the candidates / default /
+resolve / no-headings / vocabulary ERTs.  No golden re-bless.
+
+** Open questions (R24-1)
+- Offer nested headings as =Projects/Alpha= breadcrumbs, or the bare =Alpha=?
+  Proposal: bare heading text (what =--target-position= matches verbatim via
+  =org-complex-heading-regexp-format=); a breadcrumb would need a decode step
+  and risks an ambiguous match.  Flag if duplicate heading names appear common.
+- Allow a NEW heading (type a name not in the list)?  Proposal: YES —
+  =completing-read= with =require-match= nil already lets the user type a fresh
+  name; =--target-position= simply won't find it and appends at file end (a
+  reasonable, non-destructive fallback).  A future round could CREATE the typed
+  heading; out of scope here.
+
+* R24-2 — extend the tree rails DOWN to the leaf doc rows [POLISH]
+
+** Reproduction — R23-3 rails CHILD DIRS only; doc rows have NO vertical rail
+R23-3 added classic connectors (=├─ └─ │=, faded =org-air-face-air-tree=) to the
+dir HEADERS (=org-air-project--insert-dir-node=, org-air-project.el:638), but the
+dir's OWN docs still get a *plain-space* indent — =org-air-project--insert-doc-
+row doc width (* 2 (1+ depth))= (L763) — so no rail connects a doc to the dir it
+belongs to.  Measured shape today (fixture, =directory= group, w100; the dir
+headers carry connectors, the docs carry only spaces):
+#+begin_src text
+  ▌ v0.1/                                       R1 C1 D(+1)
+        [R] Alpha feature           ~ 2026-05-01  #ui…   v0.1/al…   <- 8 leading SPACES, no rail
+        [C] Beta CLI                ~ 2026-05-01  #core  v0.1/be…
+  ├─ air-context/                                       D1
+          [D] Gamma context         ~ 2026-05-01  #co…   v0.1/ai…   <- 10 leading SPACES, no rail
+#+end_src
+A doc "floats" — nothing visually ties =Gamma context= to =air-context/=.
+
+** Reproduction — =airctl status -Da= draws the rail down to EVERY leaf
+Ground truth on the real repo (=airctl status -Da=, ANSI stripped) — the rail
+threads through to each doc:
+#+begin_src text
+│  v0.1/    🎯 4 (+1)  ✅ 14 (+14)  🗑️ 1 (+9)  📝 2 (+8)
+│  │    airctl-aliases.org              🎯 Ready     ↻ 2026-04-05  #airctl #config
+│  │    airctl-archive.org              🎯 Ready     ↻ 2026-04-05  #airctl
+│  ├─ ai-integration/    🗑️ 2
+│  │       ai-assisted-document-generation.org   🗑️ Dropped  …
+│  ├─ air-template/    ✅ 4  🗑️ 1  📝 (+2)
+│  │  │    adr-integration.org          ✅ Complete  …
+#+end_src
+Every doc row carries the ancestor =│= rails of its directory — the doc reads as
+a leaf of the tree, exactly the cue our project view is missing.
+
+** Decision — thread R23-3's =rails=/=lastp= into the doc rows; PAINT the gutter, keep V6
+Reuse R23-3's rail machinery (no fork): the SAME =rails= string +=lastp= that
+=--insert-dir-node= already threads to its child DIRS is now threaded to its OWN
+DOCS, and =--insert-doc-row= PAINTS the doc's leading gutter with the faded
+ancestor =│= rails + the doc's own =├─=/=└─= connector — *replacing the leading
+SPACES that are already there*, so the state cell, the title and the
+date/tag/origin cluster do NOT move (V6 pixel-lock; the rail glyphs live purely
+in the left gutter).  Concrete before/after (fixture, GUI glyphs shown literal;
+the guide is faded):
+#+begin_src text
+BEFORE (R23-3: dir headers railed, docs float on plain spaces):
+  ▌ v0.1/                                       R1 C1 D(+1)
+        [R] Alpha feature           ~ 2026-05-01  #ui…   v0.1/al…
+        [C] Beta CLI                ~ 2026-05-01  #core  v0.1/be…
+  ├─ air-context/                                       D1
+          [D] Gamma context         ~ 2026-05-01  #co…   v0.1/ai…
+
+AFTER (R24-2: the rail threads down to every doc; columns unchanged):
+  ▌ v0.1/                                       R1 C1 D(+1)
+  ├─    [R] Alpha feature           ~ 2026-05-01  #ui…   v0.1/al…
+  ├─    [C] Beta CLI                ~ 2026-05-01  #core  v0.1/be…
+  ├─ air-context/                                       D1
+  │  └─ [D] Gamma context           ~ 2026-05-01  #co…   v0.1/ai…
+#+end_src
+Now =Alpha=/=Beta= hang under =▌ v0.1/= as siblings of the =├─ air-context/=
+child, and =Gamma= hangs under =air-context/= with the =│= rail leading the eye
+down v0.1's branch — the same rail-to-leaf shape as =airctl -Da=.  Note the
+date/tag/origin columns are byte-for-byte where they were (right-pinned); only
+leading gutter SPACES became =│=/=├─=/=└─= glyphs.
+
+*** (1) Thread own-docs as children of the dir (so =├─=/=└─= are correct)
+In =--insert-dir-node= the own-docs are emitted BEFORE the child dirs, so a
+dir's children, in order, are =[own-docs… child-dirs…]=.  The =└─= corner goes
+to the *last child overall*: the last child-dir, or — when the dir has NO child
+dirs — the last own-doc.  Compute the child rail context ONCE (the existing
+=child-rails=) and the running last-child flag across the combined list:
+#+begin_src elisp
+;; in org-air-project--insert-dir-node, replacing the bare own-docs loop:
+(let* ((docs (plist-get node :own-docs))
+       (kids (plist-get node :children))
+       (ndocs (length docs)) (nkids (length kids))
+       (i 0))
+  ;; own-docs: never `last' while child dirs follow; the final own-doc is
+  ;; `last' ONLY when there are no child dirs.
+  (dolist (doc docs)
+    (setq i (1+ i))
+    (org-air-project--insert-doc-row
+     doc width depth child-rails (and (= i ndocs) (zerop nkids))))
+  ;; child dirs: unchanged, but `lastp' now accounts for the leading docs.
+  (let ((j 0))
+    (dolist (child kids)
+      (setq j (1+ j))
+      (org-air-project--insert-dir-node child width child-rails (= j nkids)))))
+#+end_src
+(=child-rails= is the rail string =--insert-dir-node= already computes for its
+children; a TOP dir's =child-rails= is "" — its own-docs rail at the marker
+column with no leading =│=, matching R23-3's "top dirs aren't railed" choice.)
+
+*** (2) =--insert-doc-row= paints the gutter, keeping the state-cell column locked
+=--insert-doc-row= takes the rail context instead of a bare indent and builds the
+gutter to the SAME width the old =indent-cols= produced (so the state cell stays
+at its V6 column), filling it with the faded rails + connector + padding:
+#+begin_src elisp
+(defun org-air-project--insert-doc-row (doc _width &optional depth rails lastp)
+  ...
+  (let* ((state  (org-air-doc-state doc))
+         ;; The gutter occupies EXACTLY the old indent width so nothing to the
+         ;; right moves: lead "  ", the faded ancestor rails, the doc's own
+         ;; tee/corner connector, then pad to the old state-cell column.
+         (margin-w (string-width (org-air-view--item-margin)))   ; the 6-col margin
+         (old-indent (* 2 (1+ (or depth 0))))      ; the R21-5/R23-3 indent width
+         (gutter-w (+ margin-w old-indent))        ; the V6-locked gutter total
+         (guide-raw (concat "  " (or rails "")
+                            (org-air-layout-glyph (if lastp 'box-bottom-left
+                                                    'box-tee-left))
+                            (org-air-layout-glyph 'box-horizontal) " "))
+         (guide (org-air-view--pad-to
+                 (propertize (truncate-string-to-width guide-raw gutter-w)
+                             'face 'org-air-face-air-tree)
+                 gutter-w))
+         (prefix (concat guide (org-air-project--state-cell state)))
+         ...)
+    (org-air-view--insert-row :prefix prefix :title (org-air-doc-name doc) ...)))
+#+end_src
+The =guide= is faded =org-air-face-air-tree= and routes every glyph through
+=org-air-layout-glyph= (so a TTY/batch frame gets =|  =/=+- =).  Because the
+gutter width =gutter-w= == the old =item-margin + (* 2 (1+ depth))=, the state cell / title
+/ right cluster are byte-stable.  (When a VERY deep rail string would exceed the
+old indent — depth ≳ 4 in practice — the gutter grows by whole rail cells and
+the state cell shifts right with it; this is the only case anything moves, it is
+deliberate, and it still never touches the right-pinned date/tag/origin cluster.)
+
+*** (3) Counts + parity UNCHANGED
+=org-air-project--dir-count-summary= and the =airctl -Da= COUNT parity (R22-6)
+are untouched — only the doc-row LEFT gutter changed.  The state-/tag-grouping
+views (no dir tree) call =--insert-doc-row= with no rail context (=rails= nil,
+=depth= nil) so they render exactly as today.
+
+** Byte / batch contract — DELIBERATE re-bless (doc-row gutters in the dir golden only)
+Only =tests/fixtures/project-view-dir.txt= moves, and only on its DOC rows'
+leading gutter (=        [R]= → =  ├─    [R]=, ascii =+-= in batch; nested docs
+gain =│=/=|= ancestor rails).  The dir-header lines (already railed by R23-3),
+the right-aligned date/tag/origin cluster, the state-grouping and tag-grouping
+goldens are byte-identical.  Re-blessed via =make regen-mockups= with a reviewed
+diff (test seat).
+
+** Testability (R24-2)
+- ERT (doc carries a rail, FAILS on trunk): render the directory tree over
+  =tests/fixtures/air-project=; assert a DOC row's leading gutter carries a tree
+  connector glyph (=box-tee-left=/=box-bottom-left=, ascii =+-= in batch) faced
+  =org-air-face-air-tree= — proving the rail reaches the leaf (trunk's doc gutter
+  is pure spaces).
+  - Anti-tautology: the SAME assertion on a TOP dir's own-doc finds the
+    connector at the marker column (no leading =│=), while a DEPTH-1 dir's doc
+    finds an ANCESTOR =│= (=box-vertical=) to the LEFT of its connector.
+- ERT (last own-doc corner): a dir whose ONLY children are docs — its LAST
+  own-doc uses =box-bottom-left= (=└=), the earlier ones =box-tee-left= (=├=).
+- ERT (V6 lock — columns frozen): for the SAME doc, the column of the state cell
+  =[R]=, the title, and each of date/tag/origin is IDENTICAL before/after the
+  rail (compare against the right-pinned cluster columns) — the rail only repaints
+  leading gutter glyphs, never shifts the metadata.  (Run by asserting the
+  date/tag/origin columns equal those of a state-grouping row, which has no rail.)
+- ERT (airctl COUNT parity intact): =--dir-count-summary= for =v0.1/= still
+  equals the airctl =-Da= numbers (R22-6 parity stays green).
+- RE-BLESS =project-view-dir.txt= (doc-row gutters) via =make regen-mockups=.
+
+** Routing (R24-2)
+org-air-project.el: in =--insert-dir-node= (L638) emit own-docs with the dir's
+=child-rails= + a combined-last-child flag (own-docs before child-dirs); rework
+=--insert-doc-row= (L763) to take =depth=/=rails=/=lastp= and paint the faded
+gutter (rails + =box-tee-left=/=box-bottom-left= + =box-horizontal=) to the old
+indent width, via =org-air-layout-glyph=, faced =org-air-face-air-tree=.  No
+data-model change (=:own-docs=/=:children= already present); counts + parity
+untouched.  Test seat: the doc-rail / last-corner / V6-lock / parity ERTs + the
+=project-view-dir.txt= re-bless.
+
+** Open questions (R24-2)
+- =airctl= rails docs with a plain =│= (no per-doc =├─/└─=); the brief asks for
+  =├─/└─= on docs.  Proposal: use =├─/└─= (more classic-tree, and the brief is
+  explicit) — the rail-to-leaf SHAPE matches airctl, the per-doc corner is a
+  readability improvement.  Flag if the test seat finds the corners too busy on
+  a long doc list (fallback: plain =│= rail like airctl).
+- Rail the state-/tag-grouping doc rows too?  Proposal: NO — those views have no
+  directory tree (docs are grouped by state/tag), so a rail would be meaningless;
+  =--insert-doc-row= keeps its no-rail path there (byte-identical).
+
+* R24-3 — project state badges: fixed-width SVG / nerd-font, drop emoji default [POLISH / RE-REVERSAL]
+
+** Reproduction — the R23-4 colour EMOJI misaligns the rails + columns
+R23-4 made =org-air-project-state-style= default =emoji= (org-air-project.el:137)
+and shows a VS16 colour emoji per state on a graphical frame
+(=org-air-project--state-emoji= / =--state-badge-cell=, L391/L403).  Measured
+badge table (L122):
+#+begin_src text
+org-air-project-state-style            => emoji            ; the R23-4 default
+org-air-project-state-badges (emoji halves):
+  draft 📝  ready 🎯  wip ⚙️  review 🔍  complete ✅  dropped 🗑️
+#+end_src
+The problem the user reports: an emoji's GLYPH ADVANCE WIDTH is not a clean
+1-or-2 cells across fonts/builds — =⚙️=/=🗑️= in particular render between 1 and 2
+cells — so although =--state-cell= pads the cell by =string-width=, the DISPLAYED
+emoji over/under-fills its box, nudging the title's left edge and (now that
+R24-2 rails the docs) jittering the =│=/=├─= rails that must align under the dir
+connectors.  The user: "use a nerd font or svg instead, I don't think it would
+ever work with direct airctl status translation."  This is the inherent
+limitation of font emoji metrics; =string-width= (a logical width) cannot
+guarantee the PIXEL advance.
+
+** Decision — SVG by default (legible, cell-locked), nerd option, token fallback; re-reverse R23-4
+Drop emoji as the DEFAULT and render the state badge as a FIXED-WIDTH SVG that
+occupies EXACTLY the token's text-cell box (so it can never jitter), reusing +
+extending the R21-4 =org-air-view--svg-keyword-badge= so the board keyword cell
+and the project state cell share one badge primitive (no fork).  Offer a
+=nerd= option for nerd-font users, keep =text= (and the TTY/batch =[R]= token),
+and keep =emoji= as an explicit OPT-IN.  This RE-REVERSES the R23-4 default flip
+— sanctioned by the user (emoji was readable but misaligns).
+
+*** (1) The style knob gains =svg= (default) and =nerd=
+=org-air-project-state-style= (L137): choices =svg= [default] / =nerd= / =text=
+/ =emoji= [opt-in].  Docstring: =svg= draws a legible, cell-locked colour chip
+(GUI); =nerd= a nerd-font icon; =text= the plain coloured token; =emoji= the
+R23-4 colour emoji (may misalign on some fonts).  All non-=svg= choices keep the
+byte/TTY =[R]= contract (every path falls back to the token).
+
+*** (2) A LEGIBLE filled SVG badge (the R22 "too small" gripe)
+The existing =--svg-keyword-badge= draws a calm bordered chip (no fill); for the
+project STATE badge the user wants it BIGGER / higher-contrast.  Add a filled
+variant that reuses =org-air-view--svg-pillify= (so the box math + the pixel-
+lock + the TTY fallback are shared) but fills the capsule with the STATE colour
+and draws a high-contrast label, keyed off the same =--state-face=:
+#+begin_src elisp
+(defun org-air-project--state-svg-badge (state)
+  "Return STATE's token carrying a LEGIBLE filled colour SVG chip (R24-3).
+Reuses `org-air-view--svg-pillify' (shared box/pixel-lock/fallback) with the
+state colour as BOTH the salient border and a stronger fill, and a contrast
+label, so the chip reads larger + clearer than the R21-4 hairline badge while
+occupying EXACTLY the token's text-cell box (no advance-width jitter).  Returns
+the plain token unchanged off-GUI / when svg is unavailable (the contract)."
+  (let* ((face  (org-air-project--state-face state))
+         (token (propertize (org-air-project--state-token state) 'face face))
+         (color (face-foreground face nil t)))
+    (if (not (org-air-view--svg-available-p))
+        token
+      ;; stronger fill + contrast label = legible; box is still Ncols*char-px,
+      ;; so the cell is pixel-locked and the R24-2 rails stay aligned.
+      (let ((org-air-pill-fill-alpha (max org-air-pill-fill-alpha 0.22))
+            (org-air-pill-font-scale (max org-air-pill-font-scale 0.82)))
+        (org-air-view--svg-pillify token face :border-color color)))))
+#+end_src
+(=--svg-pillify= already centres + width-fits the label inside the box and locks
+the image to =Ncols * char-px= × line-height, so turning the badge on/off changes
+ZERO column positions — the C2/D-P1 invariant — which is exactly the cell-lock the
+emoji could not give.  Tuning the fill/scale is a calm legibility boost, not a
+=:height= grow, so svg-never-grows-line holds.)
+
+*** (3) A nerd-font option (single fixed cell)
+Add =org-air-project-state-nerd-glyphs= (alist STATE → nerd glyph string) and a
+=--state-nerd= reader that returns the glyph only when a graphical frame can
+display it (else nil → token), mirroring =--state-emoji=:
+#+begin_src elisp
+(defcustom org-air-project-state-nerd-glyphs
+  '(("draft"            . "\uf040")   ; nf-fa-pencil
+    ("ready"            . "\uf192")   ; nf-fa-dot_circle_o  (target)
+    ("work-in-progress" . "\uf013")   ; nf-fa-cog
+    ("review"           . "\uf002")   ; nf-fa-search
+    ("complete"         . "\uf058")   ; nf-fa-check_circle
+    ("dropped"          . "\uf014"))  ; nf-fa-trash
+  "Per-state nerd-font glyph for `org-air-project-state-style' = `nerd' (R24-3).
+Used only on a graphical frame whose font can display the glyph; otherwise the
+terse `[R]'... token shows.  Codepoints are the Nerd Fonts private-use area;
+remap to taste (e.g. nf-md-* / nf-cod-*)." :type '(alist :key-type string
+  :value-type string) :group 'org-air)
+
+(defun org-air-project--state-nerd (state)
+  "Return STATE's nerd glyph when a graphical frame can show it, else nil."
+  (let ((g (cdr (assoc state org-air-project-state-nerd-glyphs))))
+    (and g (display-graphic-p) (char-displayable-p (aref g 0))
+         (propertize g 'face (org-air-project--state-face state)))))
+#+end_src
+
+*** (4) Dispatch — svg default, nerd/text/emoji branches, token fallback
+=--state-badge-cell= (L403) routes on the knob; every branch degrades to the
+token so batch/TTY is byte-identical:
+#+begin_src elisp
+(defun org-air-project--state-badge-cell (state)
+  (let* ((face  (org-air-project--state-face state))
+         (token (propertize (org-air-project--state-token state) 'face face)))
+    (pcase org-air-project-state-style
+      ('text  token)
+      ('emoji (or (org-air-project--state-emoji state)
+                  (org-air-project--state-svg-badge state)))   ; opt-in; svg fallback off-GUI
+      ('nerd  (or (org-air-project--state-nerd state)
+                  (org-air-project--state-svg-badge state)))
+      (_      (org-air-project--state-svg-badge state)))))      ; `svg' DEFAULT
+#+end_src
+=--state-cell= (L421) is UNCHANGED — it still =pad-to='s to =org-air-project--
+state-cell-w= (3) by =string-width=, and the badge text is the 3-col token =[R]=,
+so the title left edge + the R24-2 rails stay V6-locked.  The state-grouping
+section icons (which reuse =--state-badge-cell=) get the SVG too — consistent.
+
+** Byte / batch contract — byte-INVISIBLE (batch is the token; default flips)
+All of =svg=/=nerd=/=emoji= are gated on a graphical frame, and the byte gate
+runs under =--batch= (NO graphical frame), so =--state-cell "ready"= renders the
+=[R]= token IDENTICALLY in batch — the R21-4 contract ERT (=...-keep-text-
+contract=) stays GREEN.  No project golden moves.  The only re-bless is the
+DEFAULT of =org-air-project-state-style= (=emoji= → =svg=): the two state-style
+default ERTs flip (test seat).
+
+** Testability (R24-3)
+- ERT (default flipped, FAILS on trunk): =(default-value 'org-air-project-state-
+  style)= = =svg= (was =emoji=).  Re-bless of the R23-4 default ERT.
+- ERT (batch is token — byte guard): under =--batch= (=display-graphic-p= nil)
+  with the =svg= default, =--state-cell "ready"= has TRUE text (properties
+  stripped) =[R]= and contains NO emoji / NO nerd glyph — the R21-4 contract
+  holds (re-assert explicitly).
+- ERT (svg on GUI, driven): with =org-air-view--svg-available-p= stubbed non-nil,
+  =--state-svg-badge "ready"= returns the token carrying a =display= image
+  (=imagep (get-text-property 0 'display ...))=) whose width == the token's
+  cell box (=Ncols * char-px=) — cell-locked, no jitter.
+- ERT (nerd option): with style =nerd= and the glyph =char-displayable-p=,
+  =--state-nerd "ready"= returns the configured glyph; with style =text= the
+  cell is the plain token; with =emoji= it routes through =--state-emoji=.
+- ERT (pixel-lock fit): for EVERY state, =string-width= of =--state-badge-cell=
+  (text layer) ≤ =org-air-project--state-cell-w= — so =--state-cell= always pads
+  to the fixed cell, never overflowing the title's left edge / the R24-2 rail.
+- ERT (rails stay aligned — cross-item): render the directory tree with the =svg=
+  default; assert a doc row's rail/connector column equals the column under its
+  dir header's connector (the badge does not perturb the gutter).  This is the
+  test the emoji path would FAIL on a font with fractional advance.
+- No byte fixtures (GUI-gated; batch stays token).
+
+** Routing (R24-3)
+org-air-project.el: flip =org-air-project-state-style= default (L137) =emoji= →
+=svg= + add the =svg=/=nerd= choices + docstring; add =org-air-project--state-
+svg-badge=, =org-air-project-state-nerd-glyphs= + =--state-nerd=; rework
+=--state-badge-cell= (L403) dispatch.  =--state-token= (L383), =--state-emoji=
+(L391), =--state-cell= (L421) and the section-icon use are unchanged (route
+through =--state-badge-cell=).  org-air-view.el: =--svg-keyword-badge= /
+=--svg-pillify= unchanged (the filled badge passes a higher fill-alpha + scale
+via dynamic binding; the board keyword cells keep the hairline chip).  Test
+seat: default-style / batch-token / svg-image / nerd / fit / rails-aligned ERTs;
+no golden re-bless.
+
+** Open questions (R24-3)
+- Should the BOARD keyword cells (TODO/NEXT/WAIT) also get the FILLED look?
+  Proposal: NO — the board reads fine with the hairline chip and its goldens are
+  unaffected; only the project STATE badge gets the filled legibility boost.
+- Ship a nerd-font dependency check?  Proposal: NO hard dependency — =nerd= is
+  opt-in and =char-displayable-p= already degrades to the token when the user
+  has no nerd font; documenting the codepoints in the defcustom is enough.
+- Tune the exact fill-alpha / font-scale now or let the test seat eyeball it?
+  Proposal: ship the conservative 0.22 / 0.82 here (legible but still calm) and
+  let the test seat bump it after a real screenshot; the values are defcustom-
+  reachable (=org-air-pill-fill-alpha=/=-font-scale=) so no code change to tune.
+
+* R24-4 — project RET + filter, ROOT-CAUSED by DRIVING the commands [BUG + executing ERTs]
+
+** The false-confidence gap, measured (the brief's suspects are corrected)
+The brief flags RET "doesn't even open" and =/= "cannot search", and warns that
+the R22-5 keymap-assertion tests proved the BINDINGS exist but never EXECUTED
+them.  So this item was root-caused by DRIVING the commands in a live project
+buffer over the fixture AND the real repo.  The brief's two named suspects are
+FALSE (verified, R23-1 style):
+#+begin_src text
+;; project opened (directory group, w120); point lands on the first DOC row:
+(get-text-property (point) 'org-air-doc)        => #s(org-air-doc "Alpha feature" ...)  ; NOT nil
+(org-air-view--row-property 'org-air-doc)        => same (line scan handles col 0 too)
+(org-air-view-pane--context-at-point)            => (:marker ".../alpha-feature.org" :title "Alpha feature" ...)
+;; RET driven through the keymap, noninteractive bound nil:
+(execute-kbd-macro (kbd "RET"))  => pane window LIVE, shows "#+title: Alpha feature ..."
+;; second RET focuses the pane (selected-window => *org-air-pane:Alpha feature*)
+;; `/' driven with a real query:
+(execute-kbd-macro (vconcat (kbd "/") (kbd "u i") (kbd "RET")))
+   => docs 7 -> 4   ; the filter DOES run + narrow
+#+end_src
+So =--row-property= / =--context-at-point= DO resolve =org-air-doc= (the brief's
+"resolve org-air-ITEM only" suspect is wrong), point DOES land on a doc after
+open, RET on a DOC row DOES open the pane, and =/= DOES narrow.  The R22-2 work
+already generalised those.  The REAL failure is narrower — and only shows when
+you drive RET from where the user actually is:
+
+** Reproduction (the REAL bug) — RET on a NON-doc row errors "No org-air item at point"
+The project's directory tree is DENSE with non-doc rows: dir-HEADER lines (carry
+=org-air-section=, NOT =org-air-doc=) and blank separators.  The project map
+binds doc motion to =n=/=p= (which skip to docs), but the user also has plain
+=special-mode= motion (down-arrow / =C-n= / mouse) that lands on ANY line.  Drive
+RET from a header row:
+#+begin_src text
+;; point on "  | v0.1/   R1 C1 D(+1) ..."  (a dir header: org-air-section, no doc)
+(org-air-view--row-property 'org-air-doc)    => nil
+(org-air-view-pane--context-at-point)         => nil
+(call-interactively 'org-air-view-pane-return)
+   => (user-error "No org-air item at point")     ;  <<<<  RET "doesn't even open"
+#+end_src
+=org-air-view-pane= (org-air-view.el:4472) =user-error='s when
+=--context-at-point= is nil; =--context-at-point= (L4146) returns nil because the
+header row carries no =org-air-item=/=org-air-doc=/=org-air-marker= ANYWHERE on
+the line.  =org-air-view--normalize-point= (L3538) deliberately does NOT snap off
+a header (it acts only when the line OWNS a doc), so point sits on the header and
+RET dies.  This is exactly "RET doesn't open" — reproducible, and invisible to a
+keymap-assertion test.
+
+** Reproduction (the =/= half) — mechanically RUNS; "cannot search" is tags-only semantics
+Driven, =/= narrows correctly (7→4 above), so it is NOT a mechanical break.  The
+"cannot search" complaint is that the matcher is TAGS-ONLY — a bare query the user
+expects to match a TITLE finds nothing:
+#+begin_src text
+(org-air-project-filter '("feature"))   ; "Alpha feature" TITLE, but no #feature tag
+   => docs 0     ; the user typed a word, everything vanished -> "cannot search"
+#+end_src
+That SEMANTIC gap is *R24-6* (free-text filter).  R24-4's =/= deliverable is to
+LOCK the executing behaviour (the command runs + narrows on a real query); the
+substring power lands in R24-6 on the same shared core.
+
+** Decision — the shared resolver falls back to the nearest doc; both verbs EXECUTING-tested
+*** (1) RET resolves the nearest doc when the current row has none
+Generalise the SHARED resolver =org-air-view-pane--context-at-point= (L4146) so
+that when the current line carries no item/doc/marker it falls back to the
+NEAREST FOLLOWING doc/item row (the dir header's first child) — so RET / click
+ALWAYS opens a pane instead of erroring.  Shared → the board's section-heading
+RET benefits identically (no fork):
+#+begin_src elisp
+(defun org-air-view-pane--row-thing-near-point ()
+  "Return (PROP . VALUE) for the doc/item on THIS row, else on the NEAREST
+following row, else nil (R24-4).  Lets RET/click on a dir-header or blank row
+open the first doc beneath it instead of erroring."
+  (or (let ((d (org-air-view--row-property 'org-air-doc)))  (and d (cons 'org-air-doc d)))
+      (let ((i (org-air-view--row-property 'org-air-item))) (and i (cons 'org-air-item i)))
+      ;; fall forward to the next doc/item row in the buffer.
+      (save-excursion
+        (let ((pos (or (next-single-property-change (point) 'org-air-doc)
+                       (next-single-property-change (point) 'org-air-item))))
+          (when pos
+            (goto-char pos)
+            (or (let ((d (org-air-view--row-property 'org-air-doc)))  (and d (cons 'org-air-doc d)))
+                (let ((i (org-air-view--row-property 'org-air-item))) (and i (cons 'org-air-item i)))))))))
+#+end_src
+=--context-at-point= uses it (keeping the marker/file resolution it already has):
+when the on-row lookups miss, build the ctx from =--row-thing-near-point='s
+doc/item.  =org-air-view-pane= then opens that pane; no more =user-error= on a
+header.  (The PASSIVE follow guard =--view-pane-thing-at-point=, L4137, is left
+CONSERVATIVE — it returns nil on a header so merely MOVING onto a header does not
+yank the pane to the next doc; only the EXPLICIT RET/click resolves forward.)
+*** (2) =/= is generalised-to-docs already; lock it executing
+=org-air-project-filter= (L1346) already shares =org-air-view--read-filter= +
+=--tags-pass-filter-p= and re-renders; no code change for the MECHANICS (R24-6
+extends the matcher).  The deliverable is the EXECUTING ERT below.
+
+** Byte / batch contract — byte-INVISIBLE
+RET / the pane / the filter are interactive; the pane =--show= is gated on
+=(not noninteractive)= and the goldens are buffer text (no pane), so no golden
+moves.  The resolver fallback only ever turns a former =user-error= into an
+opened pane — a pure improvement, invisible to every fixture.
+
+** Testability (R24-4) — the ERTs EXECUTE the commands (this is the fix for the gap)
+All drive the actual command in a live project buffer; the windowed assertions
+=let=-bind =noninteractive= to nil so =display-buffer= runs and a REAL window is
+asserted (never =lookup-key=).
+- ERT (RET on a DOC row opens the pane): open the project, put point on the
+  first doc row (assert =org-air-doc= present), =(let ((noninteractive nil))
+  (call-interactively 'org-air-view-pane-return))=; assert
+  =(org-air-view-pane--window-live-p)= and the pane window's buffer shows the
+  doc's FILE (=#+title:= of =alpha-feature.org=).
+- ERT (RET at COLUMN 0 still opens): =beginning-of-line= on a doc row, drive RET;
+  assert the pane opens the SAME doc (the line-scan resolves col 0).
+- ERT (RET on a DIR-HEADER row opens the first child doc — FAILS on trunk):
+  walk point to a row carrying =org-air-section= but NOT =org-air-doc=; on trunk
+  =call-interactively 'org-air-view-pane-return= SIGNALS =user-error "No org-air
+  item at point"= (assert =should-error= to document trunk); after the fix it
+  OPENS the pane for the first doc under that header (assert the pane window is
+  live + shows a doc file).  Anti-tautology: the header row has no doc; the
+  opened pane shows the NEXT doc's file.
+- ERT (=/= narrows, driven): open the project; drive =execute-kbd-macro (vconcat
+  (kbd "/") (kbd "u i") (kbd "RET"))= (or =call-interactively= with
+  =completing-read-multiple= stubbed to =("ui")=); assert the VISIBLE doc set
+  narrows (=org-air-view--items= count drops; the rendered doc-row count drops)
+  and that =org-air-view--tag-filter= = =("ui")=.
+- ERT (=\= clears, driven): after a filter, drive =\= (=org-air-filter-clear=);
+  assert the doc set is restored.
+- No byte fixtures.
+
+** Routing (R24-4)
+org-air-view.el: add =org-air-view-pane--row-thing-near-point=; use it as the
+fallback in =org-air-view-pane--context-at-point= (L4146) so RET/click on a row
+with no on-line doc/item resolves the nearest FOLLOWING doc/item.  Leave the
+passive follow guard =--view-pane-thing-at-point= (L4137) conservative.  No
+change to =org-air-project-filter= (L1346) — its mechanics already share the core;
+R24-6 extends the matcher.  Test seat: the RET-on-doc / RET-col-0 / RET-on-
+header / =/=-narrows / =\=-clears EXECUTING ERTs (the standing guard against the
+false-confidence gap).  No golden re-bless.
+
+** Open questions (R24-4)
+- Should RET on a header SNAP point to the opened doc, or keep point on the
+  header?  Proposal: keep point on the header (least surprise; the pane opens the
+  nearest doc, =n= then moves into the list).  Flag if the user prefers RET to
+  also move the cursor.
+- Extend the forward-fallback to the board's section headings too?  It already
+  does (shared resolver) — board RET on a section heading now opens the first item
+  under it instead of erroring.  Proposal: KEEP (a strict improvement; no board
+  golden is affected since the pane is interactive).  Note for the test seat in
+  case any board ERT asserted the old user-error (none found).
+
+* R24-5 — project rail side-window lifecycle parity with the board [BUG]
+
+** Reproduction — the =|= toggle ALREADY pops the shared rail (R22-5); the LIFECYCLE diverges
+Driven, =|= in the project DOES pop the SAME =*org-air-rail*= side window the
+board uses, with the project's blocks + the doc inspector (R22-5 wired this):
+#+begin_src text
+;; project, w120, noninteractive nil:
+(execute-kbd-macro (kbd "|"))
+  => rail-popped-out=t  orientation=side-window
+  => *org-air-rail* live; back-ptr -> *org-air-project*; inspector-property=org-air-doc
+  rail blocks  (June Filter Source Summary Inspector Actions) == the BOARD's, same faces
+  inspector (tall window) shows the DOC: "Alpha feature / State [R] Ready / Path / #ui #core / ..."
+#+end_src
+So the structural side-window MECHANISM is already shared.  What DIVERGES is the
+rail LIFECYCLE — the cooperative "native close → fall back to inline" behaviour
+the board has but the project lacks.  Three measured gaps:
+#+begin_src text
+BOARD   has `org-air-rail--reconcile' on window-configuration-change-hook: t
+PROJECT has `org-air-rail--reconcile' on window-configuration-change-hook: nil   <- MISSING
+`org-air-rail--reconcile' body guards: org-air-view-mode ONLY (no project)
+`org-air-rail-popin' calls `org-air-view--render-current' (BOARD renderer): t   <- wrong for project
+#+end_src
+Consequence: pop the project rail out with =|=, then close the side window with a
+native command (=C-x 0=) or =q= inside the rail — the board would reconcile back
+to its inline two-pane rail; the PROJECT does not.  =org-air-view--rail-popped-
+out= stays =t= with no rail window, and =q='s =popin= would even run the BOARD's
+=--render-current= against the project buffer.  That is the user's "project
+doesn't use the same rail setup" — it's the lifecycle, not the pop itself.
+
+** Root cause — the reconcile hook + reconcile guard + popin dispatch are board-only
+- org-air-view.el:951 — the board mode init adds =window-configuration-change-
+  hook → org-air-rail--reconcile=; =org-air-project-mode= init (org-air-project.el
+  ~L1409) never does.
+- =org-air-rail--reconcile= (L3934) opens =(when (and (derived-mode-p 'org-air-
+  view-mode) ...))= — it no-ops in a project buffer even if hooked.
+- =org-air-rail-popin= (L3903) calls =org-air-view--render-current= (the BOARD
+  renderer) instead of the mode-dispatching =org-air-view--refresh-current=
+  (which already routes board→=--render-current= / project→=org-air-project--
+  render-current=, used by =org-air-rail-toggle= L3866).
+
+** Decision — generalise the rail lifecycle to both host modes (no fork)
+*** (1) Reconcile fires in the project too
+=org-air-rail--reconcile= (L3934): widen the mode guard to the shared host
+predicate and dispatch the re-render through =--refresh-current=:
+#+begin_src elisp
+(defun org-air-rail--reconcile ()
+  "Fall back to the inline rail when the user natively closes the popped-out
+side window (R16 D-P1; R24-5: board OR project)."
+  (when (and (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
+             org-air-view--rail-popped-out
+             (not org-air-rail--reconciling)
+             (not noninteractive))
+    (let ((board (current-buffer)))
+      (when (org-air-rail--user-closed-p board)
+        (let ((org-air-rail--reconciling t))
+          (setq-local org-air-view--rail-popped-out nil)
+          (org-air-rail--hide board)
+          (org-air-view--refresh-current))))))   ; was: org-air-view--render-current
+#+end_src
+(=org-air-rail--user-closed-p= already uses the generic =--render-width= /
+=--board-only-p=, so it needs no change.)
+*** (2) The project installs the reconcile hook
+=org-air-project-mode= init: add the SAME guarded hook the board has, so a native
+close reconciles in the project:
+#+begin_src elisp
+;; in define-derived-mode org-air-project-mode, beside the kill-buffer-hook:
+(unless noninteractive
+  (add-hook 'window-configuration-change-hook #'org-air-rail--reconcile nil t))
+#+end_src
+*** (3) =popin= dispatches per-mode
+=org-air-rail-popin= (L3903): re-render via =org-air-view--refresh-current= (mode-
+dispatch) instead of =org-air-view--render-current=, and resolve the host buffer
+from the rail back-pointer for BOTH modes (the rail's =q= already routes through
+=org-air-rail--board-buffer=, which points at the project buffer when the project
+popped it):
+#+begin_src elisp
+;; inside org-air-rail-popin, in the (with-current-buffer board ...) clause:
+(when org-air-view--rail-popped-out
+  (setq-local org-air-view--rail-popped-out nil)
+  (org-air-rail--hide board)
+  (org-air-view--refresh-current))      ; was: org-air-view--render-current
+#+end_src
+Now =|= (toggle), a native close (reconcile) and the rail's =q= (popin) behave
+IDENTICALLY in the project and the board — same buffer, same faces, same order,
+same fall-back-to-inline — the parity the brief asks for.
+
+** Byte / batch contract — byte-INVISIBLE
+The reconcile hook + popin are interactive (guarded =(not noninteractive)=; the
+window-config hook never fires under batch).  No buffer-text golden captures the
+rail lifecycle.  Nothing re-blesses.
+
+** Testability (R24-5) — EXECUTE the toggle + lifecycle in a project buffer
+- ERT (=|= pops the shared rail — driven): open the project, =(let
+  ((noninteractive nil)) (execute-kbd-macro (kbd "|")))=; assert
+  =org-air-view--rail-popped-out= = t, a REAL side window shows the SHARED
+  =*org-air-rail*= buffer, its back-pointer (=org-air-rail--board-buffer=) is the
+  PROJECT buffer, and =org-air-view--inspector-property= (carried to the rail) =
+  =org-air-doc= (the rail inspects DOCS).
+- ERT (rail blocks == board): assert the popped project rail's block order +
+  header face equal the board's (Calendar/Filter/Source/Summary/Inspector/
+  Actions, =org-air-face-rail-header=) — shared, not forked.
+- ERT (inspector shows the DOC — tall): with =org-air-view-height= large (so the
+  inspector region reserves), drive =|=, put point on a doc, force the inspector
+  update; assert the rail's Inspector region contains the doc's title + =State=
+  + =Path= fields (proves the doc inspector fills in the side window).
+- ERT (reconcile hook installed — FAILS on trunk): in a project buffer (mode init
+  with =noninteractive= nil), assert =org-air-rail--reconcile= is on the buffer-
+  local =window-configuration-change-hook= (trunk: absent).
+- ERT (native close → inline — driven): pop the project rail out, delete the rail
+  side window natively (=delete-window=), run =org-air-rail--reconcile=; assert
+  =org-air-view--rail-popped-out= flips to nil and the project re-renders inline
+  (orientation ≠ =side-window=).  (On trunk the reconcile no-ops for the project
+  — =should= the flag stay t — documenting the bug.)
+- No byte fixtures.
+
+** Routing (R24-5)
+org-air-view.el: widen =org-air-rail--reconcile= (L3934) mode guard to =org-air-
+view-mode 'org-air-project-mode= and dispatch via =org-air-view--refresh-
+current=; switch =org-air-rail-popin= (L3903) from =--render-current= to
+=--refresh-current=.  org-air-project.el: add the =window-configuration-change-
+hook → org-air-rail--reconcile= to =org-air-project-mode= init (guarded =(not
+noninteractive)=).  =org-air-rail-toggle= (L3866) is already mode-dispatching (no
+change).  Test seat: the =|=-pops / blocks-equal / doc-inspector / hook-installed
+/ native-close-reconciles EXECUTING ERTs.  No golden re-bless.
+
+** Open questions (R24-5)
+- =org-air-rail-popout= (L3884) still guards =org-air-view-mode= only; generalise
+  it too?  Proposal: low priority — the project pops via =|= (=org-air-rail-
+  toggle=, already generalised); =popout= is a board convenience alias.  Could
+  widen it for symmetry, flag if a project user calls it directly.
+- Should a project that opens with =org-air-view--rail-popped-out= already set
+  remember the popout across =g= refresh?  It does (the flag is buffer-local and
+  =--render= honours it); no change needed.
+
+* R24-6 — free-text (content) filter: bare token = substring, =#token= = tag [FEATURE]
+
+** Reproduction — the filter matches TAGS ONLY; a bare word finds nothing
+The shared matcher =org-air-view--tags-pass-filter-p= (org-air-view.el:1137)
+takes only the item/doc TAGS, so a query that the user expects to match a TITLE
+yields nothing:
+#+begin_src text
+(org-air-project-filter '("feature"))   ; matches "Alpha feature" TITLE? -> docs 0
+(org-air-project-filter '("ui"))         ; #ui is a real tag        -> docs 4
+#+end_src
+So =#git=-style tag filtering works, but the user's "type =git=, match anything
+that mentions git" does not.  Both the board (=--passes-filter-p=, L1151) and the
+project (the =--render= =seq-filter= over =org-air-doc-tags=) route through the
+tags-only matcher.
+
+** Decision — a tiny filter mini-language on the SHARED core (board + project)
+Extend the filter so each active token is either a TAG match (=#token=, the
+current AND/OR semantics) or a case-insensitive SUBSTRING match (a BARE token)
+over the item/doc's searchable TEXT — title + origin/path + the tag NAMES (so a
+bare tag name still finds its tagged items, preserving today's behaviour as a
+subset).  Mixed tokens combine through the existing =org-air-filter-match=
+all/any combinator (=M-/=).  One core, both views (no fork).
+
+*** (1) The token matcher + the shared per-item predicate
+#+begin_src elisp
+(defun org-air-view--filter-token-match-p (token text tags)
+  "Non-nil when TOKEN matches: a `#tag' token = exact TAG membership; a BARE
+token = case-insensitive SUBSTRING of TEXT (which the caller builds from the
+title + origin/path + tag names).  Case-insensitive throughout (R24-6)."
+  (if (string-prefix-p "#" token)
+      (let ((tag (downcase (substring token 1))))
+        (and (member tag (mapcar #'downcase tags)) t))
+    (and (string-search (downcase token)
+                        (downcase (concat text " " (string-join tags " "))))
+         t)))
+
+(defun org-air-view--tokens-pass-filter-p (text tags)
+  "Return non-nil when TEXT/TAGS satisfy the active filter tokens + combinator.
+SHARED by the board (item title+file+tags) and the project (doc name+relpath+
+tags) — the one matcher both views call (R24-6, generalising R18 D-P3)."
+  (let ((tokens (org-air-view--filter-tags)))
+    (or (null tokens)
+        (funcall (if (eq org-air-filter-match 'all) #'seq-every-p #'seq-some)
+                 (lambda (tok) (org-air-view--filter-token-match-p tok text tags))
+                 tokens))))
+#+end_src
+=org-air-view--tags-pass-filter-p= (L1137) becomes a thin tags-only wrapper
+(=(org-air-view--tokens-pass-filter-p "" item-tags)=) so any legacy caller still
+works; the real call sites pass the text:
+#+begin_src elisp
+;; board (org-air-view.el:1151):
+(defun org-air-view--passes-filter-p (item)
+  (org-air-view--tokens-pass-filter-p
+   (concat (org-air-item-title item) " " (org-air-view--origin item))
+   (org-air-item-tags item)))
+;; project (org-air-project--render seq-filter):
+(org-air-view--tokens-pass-filter-p
+ (concat (org-air-doc-name d) " " (org-air-doc-relpath d))
+ (org-air-doc-tags d))
+#+end_src
+
+*** (2) Tokens stored VERBATIM; display shows the sigil; prompt hint + clear
+The filter list (=org-air-view--tag-filter=) stores tokens AS TYPED — =#git= for
+a tag, =git= for a substring — so the matcher can read the sigil and the display
+can show it.  Replace the forced =#=-prefix in the two display sites with a
+verbatim label:
+#+begin_src elisp
+(defun org-air-view--filter-token-label (token)
+  "Return TOKEN for display: a `#tag' shows verbatim; a bare substring token
+shows quoted (`\"git\"') so the lens reads as text, not a tag (R24-6)."
+  (if (string-prefix-p "#" token) token (format "%S" token)))
+#+end_src
+- =org-air-view--insert-rail-filters= (L2701) and =org-air-view--mode-line-
+  filter-text= (L839): join via =--filter-token-label= instead of =(concat "#"
+  tag)=.
+- =org-air-view--read-filter= (L5159) prompt: ="Filter (#tag or text): "= (teach
+  the mini-language); the pre-fill still joins the active tokens with =,=.
+- =\= (=org-air-filter-clear=) and =M-/= (=org-air-filter-toggle-match=) are
+  UNCHANGED — clear drops all tokens; the combinator now spans mixed tokens.
+
+** Byte / batch contract — byte-INVISIBLE for the default render
+Every board + project golden is captured with NO active filter
+(=org-air-view--tag-filter= nil), so =--tokens-pass-filter-p= short-circuits on
+=(null tokens)= and the rendered set is byte-identical.  The display helpers only
+change output when a filter is ACTIVE (no default golden has one).  A few ERTs
+that explicitly set a tag filter and assert the rail label re-bless from =#ui= to
+the verbatim label (test seat).
+
+** Testability (R24-6)
+- ERT (bare token matches a TITLE, no tag — FAILS on trunk): set
+  =org-air-view--tag-filter= to =("feature")=; assert =org-air-view--tokens-pass-
+  filter-p "Alpha feature" '("ui" "core")= is non-nil (substring on the title)
+  and that a doc whose title/tags lack "feature" does NOT pass.  Drive
+  =org-air-project-filter '("feature")= end-to-end and assert the narrowed set
+  contains the =Alpha feature= doc (trunk: 0 docs).
+- ERT (=#tag= still tag-matches): =("#ui")= passes a #ui doc and rejects a
+  non-#ui doc whose TITLE merely contains "ui"-less text; bare =("ui")= passes
+  BOTH the #ui doc (tag name in searchable text) and any title containing "ui".
+- ERT (mixed AND/OR): with =org-air-filter-match= = =all=, =("#ui" "plan")=
+  passes only a #ui doc whose text says "plan"; toggle to =any= (drive =M-/=) and
+  it passes a #ui doc OR a "plan" doc — the existing combinator spans mixed
+  tokens.
+- ERT (case-insensitive): =("GIT")= matches a title "migrate Git cache".
+- ERT (board parity): the SAME =--tokens-pass-filter-p= drives the board —
+  =("#git")= tag-matches a board item, bare =("git")= matches a board item whose
+  TITLE says git but carries no #git tag.
+- ERT (display label): with =("#ui" "git")= active, the rail Filter line shows
+  =#ui= and ="git"= (verbatim label), joined by the combinator word; re-bless of
+  any rail-label ERT (test seat).
+- No DEFAULT-render byte fixtures (unfiltered goldens unchanged).
+
+** Routing (R24-6)
+org-air-view.el: add =org-air-view--filter-token-match-p= +
+=--tokens-pass-filter-p= + =--filter-token-label=; make =--tags-pass-filter-p=
+(L1137) a thin wrapper; have =--passes-filter-p= (L1151) pass title+origin;
+update the rail-filter (L2701) + mode-line-filter (L839) display to the verbatim
+label; teach the =--read-filter= prompt (L5159).  org-air-project.el: the
+=--render= filter =seq-filter= calls =--tokens-pass-filter-p= with the doc
+name+relpath+tags.  =\= / =M-/= unchanged.  Test seat: the bare-substring /
+=#tag= / mixed-AND-OR / case / board-parity / display-label ERTs.  No default
+golden re-bless.
+
+** Open questions (R24-6)
+- Search the doc BODY / heading text too (not just title+path)?  Proposal: ship
+  title + origin/path + tag names now (cheap, no file read on every keystroke);
+  a body grep is a heavier follow-up (would need an org-ql content query / a
+  cache) — note it for a later round, out of scope here.
+- A bare token that is ALSO a literal =#= in text (rare)?  Proposal: =#= only
+  leads a TAG token; a substring needing a literal =#= is an edge case we can add
+  an escape for later.  Flag if it bites.
+- Display bare tokens quoted (=\"git\"=) vs a leading marker (=~git=)?  Proposal:
+  quoted reads as "text" without inventing a new sigil; the test seat may pick a
+  marker if quotes look noisy in the rail.
+
+* History
+- 2026-06-26: Design round-24 R24-6 authored (state ready).  Reproduced that the
+  shared filter matches TAGS only (=--tags-pass-filter-p=), so a bare query that
+  the user expects to hit a TITLE returns 0 (=feature= over "Alpha feature").
+  Fix = a filter mini-language on the SHARED core: =#token= = exact TAG, a BARE
+  token = case-insensitive SUBSTRING over title+origin/path+tag-names; mixed
+  tokens combine via the existing =M-/= all/any combinator; tokens stored
+  verbatim with the sigil, display shows them verbatim (=#ui= / ="git"=), the
+  =/= prompt teaches the language, =\=/=M-/= unchanged.  Board + project both
+  call =--tokens-pass-filter-p= (no fork).  Byte-invisible for the unfiltered
+  goldens.  Committed =R24-6=.  All six R24 specs committed (state ready).
+- 2026-06-26: Design round-24 R24-5 authored (state ready).  Drove =|= in the
+  project and CONFIRMED R22-5 already shares the side-window mechanism (same
+  =*org-air-rail*= buffer, blocks, faces, doc inspector).  The real divergence is
+  the LIFECYCLE: the project never installs =window-configuration-change-hook →
+  org-air-rail--reconcile=, the reconcile body guards =org-air-view-mode= only,
+  and =org-air-rail-popin= calls the BOARD =--render-current= — so a natively-
+  closed project rail can't fall back to inline.  Fix = widen the reconcile guard
+  to both host modes + dispatch via =--refresh-current=, install the reconcile
+  hook in =org-air-project-mode=, and switch =popin= to =--refresh-current=.
+  Byte-invisible (interactive lifecycle).  EXECUTING ERTs drive =|= + the native-
+  close reconcile.  Committed =R24-5=.
+- 2026-06-26: Design round-24 R24-4 authored (state ready).  DROVE RET + =/= in a
+  live project buffer (fixture + real repo) and CORRECTED the brief's suspects:
+  =--row-property=/=--context-at-point= already resolve =org-air-doc=, point
+  lands on a doc after open, RET on a doc opens the pane, =/= narrows — all
+  measured.  The REAL bug: RET on a NON-doc row (dir header / blank, dense in the
+  tree, reached by native motion) returns nil ctx → =user-error "No org-air item
+  at point"= = "doesn't open".  Fix = a shared =--row-thing-near-point= fallback
+  in =--context-at-point= so RET/click opens the nearest following doc; the
+  passive follow guard stays conservative.  =/= mechanically runs (the "cannot
+  search" semantics is tags-only → R24-6).  Delivered EXECUTING ERTs (RET on
+  doc/col-0/header, =/= narrows, =\= clears) that drive the commands with
+  =noninteractive= bound nil — the standing fix for the false-confidence gap.
+  Byte-invisible.  Committed =R24-4=.
+- 2026-06-26: Design round-24 R24-3 authored (state ready).  Reproduced that the
+  R23-4 colour emoji (default =org-air-project-state-style= = =emoji=) has a
+  font-dependent advance width (=⚙️=/=🗑️= ~1.5 cells) that =string-width= padding
+  cannot pixel-lock, jittering the title edge + the new R24-2 rails.  Fix =
+  re-reverse the default to =svg= (a LEGIBLE filled chip via the shared =--svg-
+  keyword-badge= / =--svg-pillify=, occupying EXACTLY the token cell box), add a
+  =nerd= option (=org-air-project-state-nerd-glyphs=), keep =text= + =emoji=
+  opt-in, token as the batch/TTY fallback.  Byte-invisible (batch = token; only
+  the default ERTs re-bless).  Committed =R24-3=.
+- 2026-06-26: Design round-24 R24-2 authored (state ready).  Reproduced that
+  R23-3 railed only the dir HEADERS while doc rows kept a plain-space indent
+  (=--insert-doc-row=, org-air-project.el:763), and captured =airctl status -Da=
+  on the real repo — it threads the =│= rail down to EVERY leaf doc.  Fix =
+  thread R23-3's =rails=/=lastp= into the own-docs (emitted before child dirs;
+  =└─= to the last child overall) and PAINT the doc gutter (faded =org-air-face-
+  air-tree= =│=/=├─=/=└─= via =org-air-layout-glyph=) to the EXISTING indent width
+  so the state cell / title / right cluster stay V6-locked.  Deliberate re-bless
+  of =project-view-dir.txt= doc-row gutters only; counts + airctl parity
+  unchanged.  Committed =R24-2=.
+- 2026-06-26: Design round-24 R24-1 authored (state ready).  Reproduced that the
+  refile =⌂ Move to file…= heading prompt is a bare =read-string=
+  (org-air-inbox.el:169) the user can't answer for an unfamiliar file, and
+  measured that the file's headings are collectable (=org-heading-regexp= +
+  =org-get-heading=) and that =org-air-inbox--target-position= already resolves
+  a heading string / treats empty as file-end.  Fix = =org-air-inbox--file-
+  headings= + =--read-heading= (=completing-read= over the file's headings, a
+  leading =(file end)= default, prompt skipped when none), wired into
+  =--read-move-target=; the move/resolve path is unchanged.  Byte-invisible
+  (interactive prompt only).  Committed =R24-1=.

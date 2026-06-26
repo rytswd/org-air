@@ -1,0 +1,672 @@
+#+title: org-air v0.5 round-23 DESIGN: refile face-leak bug · mode-line off-by-default · project tree connectors · legible project state badges
+#+state: ready
+#+FILETAGS: :ui:render:project:stability:faces:modeline:design:v0.5:
+
+* Scope of this document
+The round-23 DESIGN doc, written after the user dogfooded R22 against real
+data (the demo board over their own org files + the real Air repo at
+=~/Coding/github.com/withre/air= via =M-x org-air-project=).  R22 landed the
+seven-item correctness + polish pass; dogfooding surfaced *four* concrete
+issues from real screenshots (the orchestrator saw them; the descriptions in
+the round brief are authoritative — design cannot see the screenshots).  One
+is a genuine *correctness* bug (refile leaks raw org heading faces into the
+dashboard row), one is a *default-flip* the user asked for three rounds
+running (drop the custom mode-line), and two are *clarity / legibility* polish
+on the project view (subdirectory nesting; state badges).
+
+Each item carries a *measured reproduction* (run against THIS checkout's =.el=
+SOURCE via =load-prefer-newer=, since the shipped =.elc= is stale — the
+=.gitignore= ignores =*.elc=), a crisp impl SPEC with exact functions + line
+numbers, a Byte/batch contract, Testability (acceptance ERTs) and Routing.
+Nothing is integrated here — this is the impl-ready spec; commits are per-item
+(=R23= prefix; Design round-23).
+
+Honour the architecture invariants (architecture.md): V6 pixel-lock, svg-
+never-grows-line, text-is-the-contract (every svg/GUI element has a TTY/byte
+fallback), *one-renderer-two-views* (parameterise the shared =--insert-row= /
+view-core / rail / pane primitives, never fork), inspector inert under
+=noninteractive=.  KEEP the R18 caches (classify + svg + incremental), the R20
+compute-once partition and the R21 byte-invisible discipline intact.
+
+Items, in order:
+- *R23-1* REFILE FACE-LEAK — after a refile the moved item's row renders in raw
+  org heading face (org-level-1, big/orange), breaking the pixel-lock. [BUG]
+- *R23-2* DROP THE CUSTOM MODE-LINE BY DEFAULT — fall back to the user's own
+  mode-line; keep =calm= as opt-in. [DEFAULT FLIP]
+- *R23-3* PROJECT TREE CONNECTORS — make subdirectory nesting unmistakable with
+  =├─ └─ │= guides in the faded tree face. [POLISH]
+- *R23-4* LEGIBLE PROJECT STATE BADGES — bigger / more readable; bring back the
+  emoji for project STATES (sanctioned partial reversal of R21.4). [POLISH]
+
+* Status
+Design-led, impl-ready.  Byte contract per item:
+- R23-1 is byte-INVISIBLE — it strips text-properties off the title STRING; the
+  rendered TEXT (properties stripped) is unchanged, so every board + project
+  byte golden is byte-identical.  The fix only removes leaked =face= properties
+  that the goldens never captured.
+- R23-2 is byte-INVISIBLE — the mode-line is not part of the buffer-text
+  fixtures (goldens strip it); only a handful of mode-line ERTs re-bless (the
+  default value flips =calm= → =default=).  Noted for the test seat.
+- R23-3 is a DELIBERATE, design-blessed re-bless of the project DIRECTORY-view
+  golden (=project-view-dir.txt=): the dir headers gain leading tree-connector
+  glyphs.  The state/tag-grouping goldens are untouched (they have no dir tree).
+- R23-4 is byte-INVISIBLE — the emoji path is gated on a GRAPHICAL frame, and
+  the byte gate runs under =--batch= (no graphical frame), so the project state
+  cell still renders the =[R]=/=[C]=/... token in batch.  No golden moves; the
+  R21-4 text-contract ERT stays green.
+
+* Measured baseline (reproduction harness)
+All reproductions below were run on THIS checkout against the =.el= SOURCE:
+- =emacs -Q --batch -l tests/org-air-test-init.el= with =(setq load-prefer-newer
+  t)= so the stale =.elc= never shadows the =.el= impl will edit.
+- The board via =org-air-viewport-test-with-dashboard= / direct =--insert-item=
+  calls (frozen clock =org-air-test-now= = Mon 2026-06-15).
+- The project view via =M-x org-air-project= over the REAL Air repo
+  (=~/Coding/github.com/withre/air=) and =tests/fixtures/air-project=.
+Interactive paths (motion, point, hooks, the GUI emoji/svg overlays) are inert
+under =noninteractive=, so the byte goldens are stable; GUI-only behaviour is
+reasoned from the source + the displayable/graphic predicates.
+
+* R23-1 — refile face-leak: the moved item's row renders in raw org heading face [BUG]
+
+** Reproduction — =org-get-heading= returns a FONTIFIED title; the row faces leak
+After refiling an inbox item (=r= → =⌂ Move to file…=), that item's row in the
+dashboard renders in RAW org-mode heading format — a big/orange =org-level-1=
+headline — instead of the calm one-line row, breaking the V6 pixel-lock.
+
+Root mechanism, measured.  The title string org-air carries on each item comes
+from =org-get-heading=, which returns the heading text WITH the buffer's
+font-lock =face= text-properties whenever that Org buffer has been fontified:
+#+begin_src text
+;; org buffer fontified (font-lock-ensure), heading "* TODO Ship quarterly report"
+(org-get-heading t t t t)
+  => #("Ship quarterly report" 0 21 (face org-level-1))
+  text-properties-at 0 => (face org-level-1)        ; the org-level-1 face RIDES ALONG
+#+end_src
+That fontified title flows verbatim into the renderer — =org-air-query--item-
+at-point= (org-air-query.el L90) sets =:title (org-get-heading t t t t)=, and
+=org-air-view--insert-item= (org-air-view.el L2209 =:title (org-air-item-title
+item)=) passes it straight to the shared =org-air-view--insert-row= (L2077), which inserts the title string UNCHANGED (it only ADDS its own
+=font-lock-face=).  Rendering that item directly:
+#+begin_src text
+;; item whose :title carries (face org-level-1), rendered via --insert-item
+rendered row: "      TODO   Ship quarterly report ..."
+  at the title:  face = org-level-1            <-- LEAKED from org-get-heading
+                 font-lock-face = org-air-face-title   <-- org-air's own face
+  org-level-1 present in the title's face: t   <-- the big/orange headline rides along
+#+end_src
+Both =face= (the leaked =org-level-1=, big/orange in most themes) AND =font-
+lock-face= (org-air's title face) apply to the same glyphs; the display engine
+honours the explicit =face= property, so the title renders as the org headline
+and the row grows / recolours — exactly the report.
+
+** Reproduction — WHY only after refile (the buffer becomes live + fontified)
+Before any refile, =org-air-query-items= scans the configured files through
+=org-ql=, which visits them in background buffers that are NOT fontified, so
+=org-get-heading= returns plain (property-free) titles and the rows render
+calm.  The refile path makes the moved item's file buffer LIVE: =org-air-
+refile-item= (org-air-inbox.el) opens the source and target with =find-file-
+noselect= and runs =org-back-to-heading= / =org-set-tags= / =org-schedule= /
+=save-buffer= on them — under the user's interactive Emacs (=global-font-lock-
+mode=) those buffers get fontified.  =org-air-refresh= (org-air-view.el L5087)
+then re-queries =org-air-query-items=, and =org-ql= reuses the SAME now-live,
+now-fontified buffer, so =org-get-heading= now returns the title with =face
+org-level-1= — and only the moved item's file (freshly visited) is affected,
+which is why the user sees it on "that item's row".  The brief's second
+hypothesis ("the re-render reuses a buffer still in org-mode") is FALSE and was
+verified: =org-air-refresh= re-renders the SAME =*org-air*= buffer in =org-air-
+view-mode= via =org-air-view--render= (a full erase + re-insert); the fault is
+purely the leaked title properties, not a stale buffer/mode.
+
+** Decision — strip ALL text-properties off titles (and any re-extracted text)
+Belt + suspenders: clean the title at the SOURCE (so the =org-air-item= struct
+NEVER carries fontified text — the contract), AND defensively at the shared
+render primitive (so any re-extracted text is clean no matter the caller).
+
+*** (a) PRIMARY — clean the title where it is extracted
+=org-air-query--item-at-point= (org-air-query.el L90):
+#+begin_src elisp
+:title (substring-no-properties (org-get-heading t t t t))
+#+end_src
+=org-air-inbox--interactive-item= (org-air-inbox.el L76) — the at-point item
+built in an Org buffer (which IS fontified) — likewise:
+#+begin_src elisp
+:title (substring-no-properties (org-get-heading t t t t))
+#+end_src
+This makes the struct title a plain string at the data layer, so every consumer
+(board rows, the inspector, messages, the pane header, sort keys) gets clean
+text without each having to strip.
+
+*** (b) SECONDARY — defensive strip in the shared row primitive
+In =org-air-view--insert-row= (org-air-view.el L2096) normalise the incoming
+title to plain text before any width math, so the row is rendered PURELY via
+org-air's own =font-lock-face=/explicit propertize and never inherits a caller's
+face/display/org property:
+#+begin_src elisp
+(title (substring-no-properties (or title "")))   ; was: (or title "")
+#+end_src
+The existing R21-2 step then re-adds ONLY org-air's own =org-air-row-title= mark
+on the (now clean) copy, and the trailing =add-text-properties= adds ONLY org-
+air's =font-lock-face= — so the row carries org-air faces ONLY.  Because the
+project view also funnels its doc titles through =--insert-row=, this covers the
+project rows too (defence in depth; the project titles come from a non-fontified
+=with-temp-buffer= keyword read, so they were already clean — this just locks
+it).
+
+*** (c) Confirm the post-refile re-render is clean
+No change needed: =org-air-refresh= already does a full clean re-render (re-query
+→ =org-air-view--render= erase+reinsert) in the same =org-air-view-mode= buffer.
+With (a) the re-queried items are property-free, so the re-render is calm.  (If
+impl wants extra certainty it MAY also call =font-lock-unfontify-region= is NOT
+needed — the strip is the fix.)
+
+** Byte / batch contract — byte-INVISIBLE
+=substring-no-properties= changes only the title's TEXT PROPERTIES, never its
+characters; the byte goldens assert the TEXT layer (properties stripped) and so
+are byte-identical.  The fix removes a leaked =face= property the goldens never
+captured.  No fixture re-bless.
+
+** Testability (R23-1)
+- ERT (the guard, FAILS on trunk): build an =org-air-item= whose =:title=
+  carries =(face org-level-1)= (as =org-get-heading= returns from a fontified
+  buffer); render it via =org-air-view--insert-item=; assert the inserted
+  title glyphs carry =font-lock-face= = =org-air-face-title= and carry NO =face=
+  property (no =org-level-1=, no inherited big/coloured face) and NO =display=
+  property.  Anti-tautology: the INPUT title carries =org-level-1=; the OUTPUT
+  must not.
+- ERT (source strip): in a fontified Org buffer with =* TODO Ship quarterly
+  report=, =org-air-query--item-at-point= returns an item whose =org-air-item-
+  title= has =text-properties-at 0= = nil (plain string) — proving the data-
+  layer clean.  Same for =org-air-inbox--interactive-item= at a fontified
+  heading.
+- ERT (refile end-to-end): under =org-air-test-with-fixtures=, render the board,
+  refile an inbox item to a fixture file (drive =org-air-refile-item= with
+  explicit args), pre-fontify the target buffer to force the leak condition,
+  then =org-air-refresh=; assert the moved item's row title carries org-air
+  faces ONLY (no =org-level-N=) AND the row's =string-width= equals the render
+  width (V6 pixel-lock height proxy: a clean one-line row, no face-driven
+  growth).
+- ERT (insert-row defensive): call =org-air-view--insert-row= with a =:title=
+  carrying =(face org-level-1 display "X")=; assert the inserted title has
+  neither =face= nor =display= (only org-air's =font-lock-face= + the =org-air-
+  row-title= mark).
+- No byte fixtures (text-property-only change).
+
+** Routing (R23-1)
+org-air-query.el: wrap =:title= at L90 in =substring-no-properties=.  org-air-
+inbox.el: wrap =:title= at L76 in =substring-no-properties=.  org-air-view.el:
+=(title (substring-no-properties (or title "")))= at L2096 in =org-air-view--
+insert-row=.  Test seat: the guard / source-strip / refile-end-to-end / insert-
+row-defensive ERTs.  No golden re-bless.
+
+** Open questions (R23-1)
+- Strip at the source ONLY, or also defensively in =--insert-row=?  Proposal:
+  BOTH — the source strip is the contract (clean struct), the render strip is
+  the safety net for any future caller that re-extracts heading text (e.g. a new
+  inline lookup).  Cheap (=substring-no-properties= on a short string per row).
+- Should the date / tags / origin cells also be defensively stripped in
+  =--insert-row=?  Proposal: NO — those are org-air-BUILT strings (pills, date
+  text) that intentionally carry org-air faces; only the TITLE flows from
+  =org-get-heading=.  Strip the title only, leave the org-air cells intact.
+
+* R23-2 — drop the custom mode-line by default; fall back to the user's own [DEFAULT FLIP]
+
+** Reproduction — the calm mode-line is installed by DEFAULT and overrides theirs
+The user has asked (again) to be rid of the custom bottom mode-line ("org-air ·
+583 items · filter none · source all items · sort date") and to fall back to
+their OWN default mode-line.  Measured (source):
+#+begin_src text
+(default-value 'org-air-modeline-style)  => calm        ; the SHIPPED default
+;; a fresh board buffer under the default style:
+(local-variable-p 'mode-line-format)     => t           ; org-air OVERRODE it
+mode-line-format = ((:eval (propertize (concat "  "
+                    (org-air-view--mode-line-content) "  ")
+                    'face 'org-air-face-modeline)))
+#+end_src
+So the default =org-air-modeline-style= = =calm= (org-air-view.el L162) makes
+=org-air-view--install-modeline= (L895) =setq-local mode-line-format= the calm
+nano construct, clobbering whatever mode-line the user runs.  =--install-
+modeline= is called in FOUR buffers — the board (=org-air-view-mode=, L909), the
+popped-out rail (=org-air-rail-mode=, L3601), the source/entry pane (=org-air-
+entry-view-mode=, L4080) and the project (=org-air-project.el= L1339) — so the
+override lands on every org-air surface.
+
+** Reproduction — =default= already opts out cleanly; the default is just wrong
+With the style explicitly set to =default=, =--install-modeline= is a no-op and
+the buffer keeps the inherited mode-line (measured):
+#+begin_src text
+(let ((org-air-modeline-style 'default)) (org-air-view-mode)
+  (local-variable-p 'mode-line-format))  => nil   ; NO override — the user's own
+#+end_src
+So the machinery to honour the user's mode-line ALREADY exists; the only fault
+is that the SHIPPED default is =calm=.  The fix is a default flip (+ a small
+robustness tweak so a runtime flip actively restores the inherited line).
+
+** Decision — ship =default=; keep =calm= as opt-in; restore on the non-calm path
+*** (1) Flip the default
+=org-air-modeline-style= defcustom (org-air-view.el L162): default =calm= →
+=default=.  Update the docstring so =default= (the new default) "leaves the
+mode-line untouched (your own)" and =calm= is the opt-in nano-style.  Keep BOTH
+the =calm= construct (=org-air-view--status-mode-line=) and =org-air-view--mode-
+line-content= intact (no deletion) so anyone who liked the calm line just sets
+=(setq org-air-modeline-style 'calm)=.
+*** (2) Make the non-calm path actively restore the user's mode-line
+=org-air-view--install-modeline= (L895) currently only ACTS on =calm= (a bare
+=when=), so it never CLEARS a stale local override (harmless on a fresh buffer,
+but a runtime =calm→default= flip would leave the old local set).  Make it
+symmetric so =default=/=nil=/anything-non-=calm= drops any buffer-local override
+and restores the inherited (user) line:
+#+begin_src elisp
+(defun org-air-view--install-modeline ()
+  "Install the calm nano-style mode-line, or restore the user's own (R23-2).
+`calm' installs the minimal faded nano construct; ANY other value
+(`default'/nil) drops any buffer-local override so the user's normal
+mode-line shows.  Single line either way, so the body-height derivation is
+unchanged; byte-invisible (the mode-line is not buffer text)."
+  (if (eq org-air-modeline-style 'calm)
+      (setq-local mode-line-format (list org-air-view--status-mode-line))
+    (kill-local-variable 'mode-line-format)))
+#+end_src
+This covers all four surfaces uniformly (board / rail / pane / project) — each
+calls the one helper — so =default= cleanly restores the normal mode-line
+everywhere, INCLUDING the rail/project/pane buffers the brief flagged.
+*** (3) Leave the TOP header-line as-is
+The "title bar" the user likes (=org-air … Fri 26 Jun · 583 items=) is the
+in-buffer banner (the modes set =header-line-format nil= — there is NO real
+header line); it is SEPARATE from the bottom mode-line and looks fine.  Per the
+brief, leave it untouched — this item flips ONLY the bottom mode-line default.
+
+** Byte / batch contract — byte-INVISIBLE
+The mode-line is not part of the buffer-text fixtures (the goldens strip it), so
+no board/project/rail/pane golden moves.  Only the mode-line ERTs re-bless (the
+default value flips).  The mode-line stays a single line, so the body-height
+derivation is unchanged.
+
+** Testability (R23-2)
+- ERT (default flipped, FAILS on trunk): =(default-value 'org-air-modeline-
+  style)= = =default= (was =calm=).  This is the explicit re-bless of =org-air-
+  r18-dp5-modeline-style-default-is-calm= (tests/org-air-round18-ui-test.el
+  L304) → rename/retarget to assert =default=.
+- ERT (default leaves the user line): with the (new default) =default= style,
+  =org-air-view-mode= leaves =mode-line-format= NON-local (=local-variable-p= →
+  nil), i.e. the inherited/user mode-line — in the board AND in =org-air-rail-
+  mode= / =org-air-entry-view-mode= / =org-air-project-mode=.
+- ERT (calm opt-in still works): with =org-air-modeline-style= bound to =calm=,
+  the board installs =(list org-air-view--status-mode-line)= carrying =org-air-
+  face-modeline= (the existing =org-air-r18-dp5-calm-mode-line-installed= test,
+  L308, stays green — it binds =calm= explicitly).
+- ERT (runtime restore): in a buffer where =calm= installed the local line,
+  rebinding to =default= and re-running =--install-modeline= drops the local
+  (=local-variable-p 'mode-line-format= → nil).
+- No byte fixtures (mode-line is not buffer text).  Note for the test seat:
+  re-bless only the two L304/L308-area mode-line ERTs; every golden is
+  byte-identical.
+
+** Routing (R23-2)
+org-air-view.el: flip the =org-air-modeline-style= defcustom default (L162)
+=calm= → =default= + docstring; make =org-air-view--install-modeline= (L895)
+symmetric (=if calm … else kill-local-variable=).  No call-site change (board
+L909, rail L3601, pane L4080, project org-air-project.el L1339 all route through
+the one helper).  Test seat: retarget =modeline-style-default-is-calm= →
+=…-is-default=; add the default-leaves-user-line ERT across the four modes.
+
+** Open questions (R23-2)
+- Add =nil= as an explicit defcustom choice, or rely on the =else= branch?
+  Proposal: keep the type =(choice (const default) (const calm))= (default
+  first) — the =else= branch already handles a stray =nil= gracefully; a third
+  choice would just clutter the customize UI.
+- Remove the calm construct entirely?  Proposal: NO — the brief says keep =calm=
+  as an opt-in for anyone who liked it; only the DEFAULT changes.
+
+* R23-3 — project tree connectors: make subdirectory nesting unmistakable [POLISH]
+
+** Reproduction — nesting is a 2-col indent of the marker only; too subtle
+=M-x org-air-project= on the REAL Air repo (=~/Coding/github.com/withre/air=,
+=org-air-project-group-by-directory=, source via =load-prefer-newer=, w110)
+renders the by-directory tree.  Measured leading columns of the MARKER (=|=
+ascii / =▌= GUI) per dir header:
+#+begin_src text
+dir                       depth   marker col   name col
+v0.1/                       0          2           4
+  ai-integration/           1          4           6
+  air-template/             1          4           6
+    references/             2          6           8
+#+end_src
+The ONLY nesting cue is that the marker steps 2 cols right per level (R22-6's
+real-indent).  =references/= (marker col 6) under =air-template/= (marker col 4)
+is a single 2-col step — and =air-template/='s OWN docs sit at col 10 (further
+right than =references/= at col 6), so the eye cannot tell that =references/= is
+a CHILD of =air-template/= rather than a sibling/doc.  The user's report exactly:
+"references/ is a child of air-template/ but the indentation difference is too
+subtle to read as nesting."
+
+** Reproduction — the primitives for a real tree already exist
+The layout glyph table (org-air-layout.el L46-57) already ships =box-vertical=
+(=│=/=|=), =box-tee-left= (=├=/=+=), =box-bottom-left= (=└=/=+=) and =box-
+horizontal= (=─=/=-=), and =org-air-face-air-tree= (org-air-faces.el L774, a
+faint face inheriting the pane border) EXISTS for exactly these "box/branch
+glyphs (┌ │ ├─ └─)".  The tree node plist already carries =:depth= +
+=:children= (=org-air-project--make-dir-node= L496); the recursion in =org-air-
+project--insert-dir-node= (L603) iterates children in order, so "is-last-child"
+and the ancestor rail are computable with no data-model change — only the
+header's LEFT guide changes.
+
+** Decision — connectors on dir headers, ancestor rails threaded down, calm
+Draw classic tree connectors on the dir HEADERS (faded =org-air-face-air-tree=),
+thread the ancestor rails down the recursion, and keep the doc rows EXACTLY as
+they are (they already sit deeper than the connectors).  Concrete before/after
+(GUI glyphs; the faded tree guide shown literal):
+#+begin_src text
+BEFORE (marker steps 2 cols/level — the subtle cue):
+  ▌ v0.1/                                       R4(+1) C14(+14) X1(+9) D2(+8)
+        [R] Natural Sorting Imp…  ~2026-04-15  #airctl         v0.1/natural-sorti…
+    ▌ ai-integration/                                                       X2
+          [X] AI assisted docu…  ~2026-04-05  #ai             v0.1/ai-integratio…
+    ▌ air-template/                                               C4 X1 D(+2)
+          [C] Air File Templates ~2026-04-05  #airctl #tem…   v0.1/air-template/…
+      ▌ references/                                                         D2
+            [D] Template with KEP ~2026-02-27  #airctl #tem…   v0.1/air-template/…
+
+AFTER (├─ └─ │ connectors — nesting unmistakable):
+  ▌ v0.1/                                       R4(+1) C14(+14) X1(+9) D2(+8)
+        [R] Natural Sorting Imp…  ~2026-04-15  #airctl         v0.1/natural-sorti…
+  ├─ ai-integration/                                                        X2
+          [X] AI assisted docu…  ~2026-04-05  #ai             v0.1/ai-integratio…
+  ├─ air-template/                                               C4 X1 D(+2)
+          [C] Air File Templates ~2026-04-05  #airctl #tem…   v0.1/air-template/…
+  │  └─ references/                                                          D2
+            [D] Template with KEP ~2026-02-27  #airctl #tem…   v0.1/air-template/…
+  ├─ config-management/                                                  C1 X2
+#+end_src
+Now =└─ references/= hangs visibly under =air-template/= with the =│= rail at
+col 2 leading the eye down air-template's branch (which continues to =config-
+management/=); the =├─= siblings read as one list under =v0.1/=.  Calm: the
+guides are faded, the doc rows are untouched.
+
+*** (1) Guide construction (3-col cells, faded)
+Each guide level is a fixed 3-col cell: a RAIL cell =│= + 2 spaces (=box-
+vertical=), a BLANK cell = 3 spaces, a connector cell =├─= / =└─= + 1 space
+(=box-tee-left=/=box-bottom-left= + =box-horizontal=).  All faced =org-air-face-
+air-tree=; all via =org-air-layout-glyph= (so TTY/byte = =|  = / =+- =).  TOP
+dirs (depth 0) keep the accent =org-air-project--marker= (=▌=) as the section
+bullet — they are independent sections, blank-line separated, never railed.
+
+*** (2) Thread rails + last-child through =--insert-dir-node=
+Replace the unused =_topp= param with =rails= (the accumulated ancestor guide
+string) + =lastp= (is this node the last of its siblings):
+#+begin_src elisp
+(defun org-air-project--insert-dir-node (node width &optional rails lastp)
+  (let* ((depth (plist-get node :depth))
+         (children (plist-get node :children))
+         (dir (plist-get node :dir))
+         (name (if (and dir (not (string-empty-p dir))) (concat dir "/") "·"))
+         (guide (if (zerop depth)
+                    (concat "  " (org-air-project--marker) " ")     ; top: marker
+                  (concat "  "
+                          (propertize rails 'face 'org-air-face-air-tree)
+                          (propertize
+                           (concat (org-air-layout-glyph
+                                    (if lastp 'box-bottom-left 'box-tee-left))
+                                   (org-air-layout-glyph 'box-horizontal) " ")
+                           'face 'org-air-face-air-tree))))
+         (start (point))
+         (left (concat guide (propertize name 'face 'org-air-face-section)))
+         (summary (org-air-project--dir-count-summary
+                   (plist-get node :direct-counts) (plist-get node :desc-counts)))
+         (header (if (string-empty-p summary) left
+                   (org-air-view--justify left summary width)))
+         ;; children of a TOP dir get no rail (top dirs aren't railed); deeper
+         ;; nodes extend the rail when THIS node has a following sibling.
+         (child-rails (if (zerop depth) ""
+                        (concat rails (if lastp "   "
+                                        (concat (org-air-layout-glyph 'box-vertical)
+                                                "  "))))))
+    (insert header "\n")
+    (add-text-properties start (point) (list 'org-air-section (plist-get node :path)))
+    (dolist (doc (plist-get node :own-docs))
+      (org-air-project--insert-doc-row doc width (* 2 (1+ depth))))  ; UNCHANGED
+    (let ((n (length children)) (i 0))
+      (dolist (child children)
+        (org-air-project--insert-dir-node child width child-rails (= (1+ i) n))
+        (setq i (1+ i))))))
+#+end_src
+and the top-level driver passes empty rails + per-node last-child:
+#+begin_src elisp
+(defun org-air-project--insert-directory-tree (nodes width)
+  (let ((n (length nodes)) (i 0))
+    (dolist (node nodes)
+      (org-air-project--insert-dir-node node width "" (= (1+ i) n))
+      (setq i (1+ i))
+      (insert "\n"))))
+#+end_src
+
+*** (3) Doc rows + counts UNCHANGED
+The own-doc indent stays =(* 2 (1+ depth))=; with the 6-col =item-margin= a
+depth-d doc sits at col =6 + 2(1+d)= (8/10/12 for d=0/1/2), always DEEPER than
+that dir's name (col 4/5/8) and deeper than any child-dir connector — so docs
+remain clearly under their dir with no doc-row re-bless.  The right-aligned
+=--dir-count-summary= and =airctl -Da= parity are untouched (only the LEFT
+guide changed).
+
+** Byte / batch contract — a DELIBERATE, design-blessed re-bless (dir headers only)
+Only the DIRECTORY-view golden (=tests/fixtures/project-view-dir.txt=) moves,
+and only on its dir-HEADER lines (the leading =  | v0.N/= / =    | child/= gains
+the ascii connectors =├─→+-=, =└─→+-=, =│→|=).  Doc rows, the state-grouping
+and tag-grouping goldens (no dir tree) are byte-identical.  Re-blessed via =make
+regen-mockups= with a reviewed diff (test seat).
+
+** Testability (R23-3)
+- ERT (connector present, FAILS on trunk): render the directory tree over
+  =tests/fixtures/air-project=; assert a CHILD dir header line carries a tree
+  connector glyph (=box-tee-left=/=box-bottom-left=, ascii =+-= in batch) at its
+  guide, while a TOP dir header carries the =rail-marker= (=|=) — proving roots
+  use the marker and children use connectors.
+- ERT (last vs non-last): in a dir with ≥ 2 children, the LAST child header uses
+  =box-bottom-left= (=└=/last) and a non-last uses =box-tee-left= (=├=/tee).
+- ERT (ancestry rail deepens): a depth-2 dir header (e.g. =references/= under
+  =air-template/=) carries an ANCESTOR rail cell (=box-vertical= =|=) to the LEFT
+  of its connector, so its connector column is strictly deeper than a depth-1
+  sibling's — the nesting metric is the CONNECTOR column (re-bless of the R22-6
+  =org-air-r22-6-nesting-indents-deepen= ERT, which measured pure leading-space:
+  the connector now sits at the same leading column as the marker, so that test
+  must move to connector-depth/name-column — noted for the test seat).
+- ERT (airctl parity intact): =org-air-project--dir-count-summary= for =v0.1/=
+  still equals the airctl =-Da= numbers (R22-6 parity test stays green — the
+  summary is unchanged).
+- ERT (one header per dir intact): each dir name still appears on exactly ONE
+  header line (R22-6 =one-header-per-dir= stays green; top dirs keep =| v0.N/=).
+- RE-BLESS =project-view-dir.txt= (dir-header lines) + retarget the R22-6
+  nesting ERT (test seat).
+
+** Routing (R23-3)
+org-air-project.el: rework =org-air-project--insert-dir-node= (L603) to thread
+=rails= + =lastp= and build the faded connector/rail guide (replacing the plain
+=indent= spaces); update =org-air-project--insert-directory-tree= (L641) to pass
+empty rails + per-node last-child.  No data-model change (=:depth=/=:children=
+already present); doc-row + summary + parity unchanged.  Glyphs via =org-air-
+layout-glyph= (=box-vertical=/=box-tee-left=/=box-bottom-left=/=box-horizontal=),
+faced =org-air-face-air-tree=.  Test seat: the connector / last-vs-tee /
+ancestry-rail ERTs + the =project-view-dir.txt= re-bless + the R22-6 nesting ERT
+retarget.
+
+** Open questions (R23-3)
+- Draw rails THROUGH the doc rows too (a continuous =│= down a dir's docs)?
+  Proposal: NO — a rail on every board-style doc row would re-introduce a busy
+  "rail wall" (the calm the user wanted after the badge wall); the connector on
+  the child dir header + the ancestor =│= already make nesting unmistakable.
+- Give TOP dirs a connector too (drop the marker) for full uniformity?
+  Proposal: NO — keep the =▌= accent on roots (they are the section bullets,
+  blank-line separated); connectors are the NESTING language for children.
+- Use =│  = (rail + 2 sp) 3-col cells (proposed) vs a tighter =│ = (2-col)?
+  Proposal: 3-col cells — they align the connector under the parent NAME and read
+  as a calm, even tree; the test seat may tighten if the golden looks airy.
+
+* R23-4 — legible project state badges: bring the emoji back for project STATES [POLISH]
+
+** Reproduction — the project state cell is a cramped =[R]= inside a tiny svg pill
+The per-doc project state badge is the terse bracket token =[R]=/=[C]=/=[D]=/
+=[X]=/=[W]=/=[V]= wrapped in the shared svg keyword chip.  Measured (source):
+#+begin_src text
+org-air-project--state-cell "ready"     => "[R] "   (string-width 4)
+org-air-project--state-cell "complete"  => "[C] "
+org-air-project--state-cell-w           => 3        (token cell, + 1 sep)
+org-air-keyword-style                   => badge    (GUI: tiny svg pill over [R])
+;; the EMOJI half of the badge table is present but UNUSED on GUI (R21.1/R21.4
+;; retired the GUI emoji path):
+org-air-project-state-badges =>
+  draft 📝|[D]  ready 🎯|[R]  wip ⚙|[W]  review 🔍|[V]  complete ✅|[C]  dropped 🗑|[X]
+#+end_src
+On a GUI the cell draws a small coloured svg pill (=org-air-view--svg-keyword-
+badge=, org-air-view.el L2040) around the 3-char =[R]= — a cramped, low-legible
+chip whose meaning (R=Ready, C=Complete, X=Dropped, D=Draft, W=WIP, V=Review)
+the user must DECODE.  The user's report: the badges are too small/hard to read
+& parse, and "you can consider putting back the emoji if it makes it easier to
+read and parse."  Note: =airctl status -Da= ITSELF prints emoji (=🎯 4 (+1)  ✅ 14
+(+14)  🗑️ 1 (+9)  📝 2 (+8)=) — so the user already reads these icons in the CLI.
+
+** Evaluate (a) boost the svg chip vs (b) bring back emoji
+*(a) Enlarge / boost the svg keyword badge.*  Fill the chip with the state
+colour, white/high-contrast text, more padding, maybe a wider cell.  PRO: stays
+all-svg, deterministic, perfect pixel-lock, clean =[R]= TTY fallback.  CON: it
+is STILL a bracketed LETTER the user must decode; "more readable" but not "easier
+to parse"; a wider cell re-blesses the token layer.
+*(b) Bring back the EMOJI for project states.*  =🎯 ✅ 🗑️ 📝 ⚙️ 🔍= are
+ICON-recognisable at a glance (no letter-decode), carry their OWN colour, and
+MATCH the airctl CLI the user already reads.  CON: emoji width is font/build-
+dependent in Emacs, which must not break the V6 pixel-lock; needs a clean TTY
+fallback.
+*Pick (b)* — emoji read best at a glance, the user explicitly invited them and
+prefers legibility over the all-svg purity, and they give CLI↔GUI parity.  The
+EMOJI half of =org-air-project-state-badges= already exists (R21.4 retired only
+the GUI PATH, not the data), so this is a minimal, USER-SANCTIONED partial
+reversal scoped to the PROJECT state cell.  The board keyword cells (TODO/NEXT/
+WAIT) read fine and are UNCHANGED (the shared svg badge stays).
+
+** Decision — emoji on a graphical frame, token in batch/TTY, a style knob
+*** (1) A state-style knob (don't delete the svg path)
+Add =org-air-project-state-style= (choices =emoji= [default] / =badge= [the
+R21-4 svg chip] / =text= [plain token]).  Keeps the svg-chip code as an opt-in,
+so nothing is deleted (the brief: "don't delete the code").
+*** (2) Force colour emoji + airctl-matching set
+=org-air-project-state-badges=: append =\N{VARIATION SELECTOR-16}= to each emoji
+so it renders in COLOUR presentation and at a consistent width-2 (the bare
+=\N{GEAR}= / =\N{WASTEBASKET}= currently measure width 1 / render mono).  The
+set already matches airctl (=🎯=ready =✅=complete =🗑️=dropped =📝=draft), plus
+=⚙️=wip =🔍=review.
+*** (3) Dispatch in the state cell, GUI-gated, token fallback
+#+begin_src elisp
+(defun org-air-project--state-emoji (state)
+  "Return STATE's colour emoji when a graphical frame can show it, else nil."
+  (let ((emoji (car (cdr (assoc state org-air-project-state-badges)))))
+    (and emoji (display-graphic-p)
+         (char-displayable-p (aref emoji 0))
+         emoji)))
+
+(defun org-air-project--state-badge-cell (state)   ; was: always the svg chip
+  (let* ((face  (org-air-project--state-face state))
+         (token (propertize (org-air-project--state-token state) 'face face)))
+    (pcase org-air-project-state-style
+      ('text  token)
+      ('badge (org-air-view--svg-keyword-badge token face))
+      (_      ;; `emoji' (default): colour emoji on GUI, else the SAME svg/token
+              ;;  fallback as today — so batch (non-graphic) stays byte-identical.
+       (or (org-air-project--state-emoji state)
+           (org-air-view--svg-keyword-badge token face))))))
+#+end_src
+=org-air-project--state-cell= (L386) is UNCHANGED — it still =pad-to='s the cell
+to =org-air-project--state-cell-w= (3) using =string-width=, so the emoji
+(width 2) pads to 3 and the title left-edge stays V6-locked; the byte/TTY token
+(width 3) fills the cell exactly.  The state-grouping SECTION icons (L445) reuse
+=--state-badge-cell=, so they get the emoji on GUI too — consistent.
+*** (4) Do NOT enlarge via face :height
+The emoji is the cell TEXT at the normal line height — never given a =:height=
+face (that would grow the row and break the svg-never-grows-line invariant).
+"Bigger/more readable" is satisfied by the colourful ICON replacing the thin
+=[R]= — it reads far larger at the same point size.  =state-cell-w= stays 3 (no
+token-layer re-bless).
+
+** Byte / batch contract — byte-INVISIBLE
+The emoji path is gated on =display-graphic-p=, and the byte gate runs under
+=--batch= (NO graphical frame), so the project state cell still renders the
+=[R]=/=[C]=/... token in batch — IDENTICALLY to today (the =emoji= default falls
+through to the same =--svg-keyword-badge= token fallback).  No project golden
+moves; the R21-4 text-contract ERT (=org-air-r21-4-keyword-and-state-cells-keep-
+text-contract=, tests/org-air-round21-test.el L369, asserts the batch cell is
+=[R]= and carries NO emoji) STAYS GREEN.
+
+** Testability (R23-4)
+- ERT (default style): =(default-value 'org-air-project-state-style)= = =emoji=.
+- ERT (batch is token — byte guard): under =--batch= (=display-graphic-p= nil)
+  with the =emoji= default, =org-air-project--state-cell "ready"= has TRUE text
+  (properties stripped) =[R]= and contains NO emoji — i.e. the existing R21-4
+  contract test is unaffected (re-assert it explicitly for R23-4).
+- ERT (emoji on GUI, driven): with =display-graphic-p= stubbed non-nil and the
+  emoji =char-displayable-p=, =org-air-project--state-emoji "ready"= returns the
+  =🎯= emoji, and =--state-badge-cell "ready"= contains it; with style =text= it
+  returns the token; with style =badge= it routes through =--svg-keyword-badge=.
+- ERT (pixel-lock fit): every configured state emoji has =string-width= ≤
+  =org-air-project--state-cell-w= (so =--state-cell= always pads it to the fixed
+  cell, never overflows the title's left edge).
+- ERT (variation selector): each emoji in =org-air-project-state-badges= ends in
+  =\N{VARIATION SELECTOR-16}= (colour presentation) — guards a future edit that
+  drops it.
+- ERT (airctl glyph parity): the ready/complete/dropped/draft emoji equal
+  airctl's =🎯=/=✅=/=🗑️=/=📝= (CLI↔GUI consistency).
+- No byte fixtures (GUI-gated; batch stays token).
+
+** Routing (R23-4)
+org-air-project.el: add =org-air-project-state-style= defcustom; append =\N{VAR-
+IATION SELECTOR-16}= to each emoji in =org-air-project-state-badges= (L122); add
+=org-air-project--state-emoji=; dispatch in =org-air-project--state-badge-cell=
+(L375).  =org-air-project--state-token= (L366), =--state-cell= (L386) and the
+section-icon use (L445) are unchanged (they route through =--state-badge-cell=).
+org-air-view.el: =--svg-keyword-badge= unchanged (board keyword cells keep it).
+Test seat: the default-style / batch-token / GUI-emoji / fit / VS16 / airctl-
+parity ERTs; no golden re-bless.
+
+** Open questions (R23-4)
+- Default =emoji= for everyone, or keep =badge= default and let users opt into
+  =emoji=?  Proposal: default =emoji= — the user explicitly asked for it and it
+  matches airctl; =badge=/=text= remain for anyone who prefers the svg chip / a
+  pure-text terminal.
+- Should the BOARD keyword cells (TODO/NEXT/WAIT) also switch to glyphs?
+  Proposal: NO — the brief says they read fine; keep the shared svg badge there
+  (minimal blast radius, board goldens untouched).
+- Emoji for the state-grouping SECTION headings too (they share =--state-badge-
+  cell=)?  Proposal: YES, automatically — it is consistent and still batch-token
+  (byte-identical); flag only if a section heading needs a different treatment.
+
+* History
+- 2026-06-26: Design round-23 R23-1 authored (state ready).  Refile face-leak
+  root-caused by reading org-air-query.el / org-air-inbox.el / org-air-view.el
+  (=--insert-row= / =--insert-item= / =org-air-refresh=) and MEASURED: =org-get-
+  heading= returns a fontified title (=face org-level-1=) once the moved item's
+  buffer is live + fontified after refile, and the renderer never strips it, so
+  the org headline face rides into the row.  Fix = =substring-no-properties= at
+  the two extraction sites + a defensive strip in the shared row primitive;
+  byte-invisible (text-property-only).  Committed =R23-1=.
+- 2026-06-26: R23-2 authored.  Measured that the shipped default =org-air-
+  modeline-style= = =calm= overrides the user's mode-line in all four org-air
+  surfaces, while =default= already opts out cleanly.  Fix = flip the default to
+  =default= + make =--install-modeline= symmetric (=kill-local-variable= on the
+  non-=calm= path so a runtime flip restores the inherited line); keep =calm= as
+  opt-in; leave the top in-buffer banner alone.  Byte-invisible (mode-line is
+  not buffer text); only two mode-line ERTs re-bless.  Committed =R23-2=.
+- 2026-06-26: R23-3 authored.  Reproduced on the REAL Air repo that by-directory
+  nesting was a too-subtle 2-col marker step (=air-template/= → =references/=).
+  Fix = classic tree connectors (=├─ └─ │=, faded =org-air-face-air-tree=, glyphs
+  already in the layout table) on the dir HEADERS, ancestor rails threaded down
+  =--insert-dir-node= via new =rails=/=lastp= params; top dirs keep the =▌=
+  marker; doc rows + counts + airctl parity unchanged.  Deliberate re-bless of
+  =project-view-dir.txt= dir-header lines + the R22-6 nesting ERT (metric →
+  connector depth).  Committed =R23-3=.
+- 2026-06-26: R23-4 authored.  Evaluated (a) boost the svg chip vs (b) emoji and
+  PICKED emoji for the PROJECT state cell — icon-legible at a glance, matches
+  airctl =-Da=, user-sanctioned partial reversal of R21.4 (the emoji data was
+  never deleted).  Fix = =org-air-project-state-style= knob (=emoji= default /
+  =badge= svg chip / =text=), VS16 colour emoji matching airctl, GUI-gated
+  dispatch in =--state-badge-cell= with the token as the batch/TTY fallback;
+  =state-cell-w= + pad-to keep V6 pixel-lock; no =:height= growth.  Byte-
+  invisible (batch is non-graphic → token; the R21-4 contract ERT stays green).
+  Board keyword cells unchanged.  Committed =R23-4=.  All four R23 specs
+  committed (state ready).

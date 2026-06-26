@@ -1,30 +1,30 @@
   org-air · project                                                                       | name ^
 
   | [D] Draft 2                                                       | | June 2026              < >
-  Epsilon plan   #context   #ui                                       |     Su Mo Tu We Th Fr Sa
-    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |         1  2  3  4  5  6
-  Gamma context   #context                                            |      7  8  9 10 11 12 13
-    . v0.1/air-context/gamma-context.org    created 2026-04-01    ... |     14 15 16 17 18 19 20
-                                                                      |     21 22 23 24 25 26 27
-  | [R] Ready 1                                                       |     28 29 30
-  Alpha feature   #ui   #core                                         |
-    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |     ! due    o sched
+      [D] Epsilon plan              ~ 2026-05-01  #co... . v0.2/ep... |     Su Mo Tu We Th Fr Sa
+      [D] Gamma context             ~ 2026-05-01  #co... . v0.1/ai... |         1  2  3  4  5  6
+                                                                      |      7  8  9 10 11 12 13
+  | [R] Ready 1                                                       |     14 15 16 17 18 19 20
+      [R] Alpha feature             ~ 2026-05-01  #ui... . v0.1/al... |     21 22 23 24 25 26 27
+                                                                      |     28 29 30
+  | [W] Work In Progress 1                                            |
+      [W] Zeta work in progress     ~ 2026-05-01  #co... . v0.2/ze... |     ! due    o sched
                                                                       |
-  | [W] Work In Progress 1                                            | | Filter
-  Zeta work in progress   #core   #ui                                 |  No filters · all items
-    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   | | Scope
-                                                                      |  all items
-  | [C] Complete 1                                                    |
-  Beta CLI   #core                                                    | | Summary
-    . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |    2  Draft
-                                                                      |    1  Ready
-  | [X] Dropped 1                                                     |    1  Work In Progress
-  Delta UI exploration   #ui                                          |    0  Review
-    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |    1  Complete
+  | [C] Complete 1                                                    | | Filter
+      [C] Beta CLI                  ~ 2026-05-01  #core  . v0.1/be... |  No filters · all items
+                                                                      | | Scope
+  | [X] Dropped 1                                                     |  all items
+      [X] Delta UI exploration      ~ 2026-05-01  #ui    . v0.2/de... |
+                                                                      | | Summary
+  | [U] Unknown 1                                                     |    2  Draft
+      [U] Eta notes                 ~ 2026-05-01  #no... . v0.2/et... |    1  Ready
+                                                                      |    1  Work In Progress
+                                                                      |    0  Review
+                                                                      |    1  Complete
                                                                       |    1  Dropped
-  | [U] Unknown 1                                                     |
-  Eta notes   #notes                                                  | | Inspector
-    . v0.2/eta-notes.org    created 2026-04-01    updated 2026-05-01  |
+                                                                      |
+                                                                      | | Inspector
+                                                                      |
                                                                       | | Actions
                                                                       |  RET open    / filter g r...
                                                                       |  S-RET visit \ clear  q quit

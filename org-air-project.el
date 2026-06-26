@@ -1247,9 +1247,11 @@ between two-pane and board-only."
         (org-air-project--render org-air-project--root)))))
 
 (defun org-air-project--next-doc ()
-  "Move point to the next doc row, if any."
+  "Move point to the next doc row, if any (landing on its title; R21-2)."
   (let ((pos (next-single-property-change (point) 'org-air-doc)))
-    (when pos (goto-char pos))))
+    (when pos
+      (goto-char pos)
+      (org-air-view--goto-row-title))))
 
 
 ;;;; ---------------------------------------------------------------------
@@ -1310,21 +1312,24 @@ between two-pane and board-only."
   (message "org-air project: sort by %s" key))
 
 (defun org-air-project-next ()
-  "Move point to the next doc row."
+  "Move point to the next doc row, landing on its title (R21-2)."
   (interactive)
   (let ((pos (next-single-property-change
               (line-end-position) 'org-air-doc)))
-    (when pos (goto-char pos))))
+    (when pos
+      (goto-char pos)
+      (org-air-view--goto-row-title))))
 
 (defun org-air-project-prev ()
-  "Move point to the previous doc row."
+  "Move point to the previous doc row, landing on its title (R21-2)."
   (interactive)
   (let ((pos (previous-single-property-change
               (line-beginning-position) 'org-air-doc)))
     (when pos
       (goto-char pos)
       (goto-char (or (previous-single-property-change pos 'org-air-doc)
-                     (line-beginning-position))))))
+                     (line-beginning-position)))
+      (org-air-view--goto-row-title))))
 
 (defun org-air-project-visit ()
   "Visit the Air doc on the current row."

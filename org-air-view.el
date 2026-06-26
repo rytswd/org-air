@@ -2067,6 +2067,15 @@ this one primitive, faces, truncation, alignment and svg pills)."
                   (truncate-string-to-width
                    title (max 1 avail-title) nil nil
                    (org-air-view--glyph 'more))))
+         ;; R21-2: mark the TITLE's first glyph so motion/open can land
+         ;; point on the title (not the keyword/priority prefix).  A text
+         ;; property, not visible text — byte goldens are byte-identical.
+         ;; Copy first so the source item/doc title string is not mutated.
+         (title (if (> (length title) 0)
+                    (let ((tt (copy-sequence title)))
+                      (put-text-property 0 1 'org-air-row-title t tt)
+                      tt)
+                  title))
          (left (concat prefix title))
          ;; V6 (D-P1.PAD fix): the cluster MUST start at the fixed column
          ;; `width - cluster-w' regardless of prefix/title/pad.  At the
@@ -3260,6 +3269,26 @@ whitespace it reads as tofu, so park point on the first real glyph."
   (beginning-of-line)
   (skip-chars-forward " \t" (line-end-position)))
 
+(defun org-air-view--row-title-pos ()
+  "Return the position of the TITLE start on the current row (R21-2).
+Finds the `org-air-row-title' mark `org-air-view--insert-row' put on the
+title's first glyph; falls back to the row's first visible glyph (section
+headings / rows with no title), so headings keep their current landing."
+  (save-excursion
+    (let* ((bol (line-beginning-position))
+           (eol (line-end-position))
+           (pos (if (get-text-property bol 'org-air-row-title) bol
+                  (next-single-property-change bol 'org-air-row-title nil eol))))
+      (if (and pos (get-text-property pos 'org-air-row-title)) pos
+        (progn (org-air-view--beginning-of-visible) (point))))))
+
+(defun org-air-view--goto-row-title ()
+  "Move point to the TITLE column of the current row (R21-2).
+Lands on the title (the row's identity) rather than the leading keyword /
+priority cell on motion and open; falls back to first-visible for rows
+with no title mark (section headings, the empty board)."
+  (goto-char (org-air-view--row-title-pos)))
+
 (defun org-air-view--goto-first-item ()
   "Place point on the first actionable item row (D4 / S5a).
 Lands on the first `org-air-item' (first non-empty section), then the
@@ -3269,7 +3298,8 @@ the first VISIBLE character of that row, never the indent whitespace."
   (goto-char (or (text-property-not-all (point-min) (point-max) 'org-air-item nil)
                  (text-property-not-all (point-min) (point-max) 'org-air-section nil)
                  (point-min)))
-  (org-air-view--beginning-of-visible))
+  ;; R21-2: open lands on the first item's TITLE, not its keyword/priority.
+  (org-air-view--goto-row-title))
 
 (defun org-air-view--collapse-line-list (lines)
   "Collapse two or more consecutive blank LINES to a single blank line (D6)."
@@ -4604,16 +4634,17 @@ TOKEN's saved column (clamped), so a re-render genuinely preserves point
       (goto-char (or (text-property-not-all section-pos (point-max)
                                             'org-air-item nil)
                      section-pos))
-      (org-air-view--beginning-of-visible))
+      ;; R21-2: one consistent landing rule — the surviving item's TITLE.
+      (org-air-view--goto-row-title))
      (t
       ;; Item AND section vanished (a re-query after auto-refresh rebuilds
-      ;; markers, or a filter emptied the board): land on the saved line on
-      ;; its first VISIBLE char, never the indent whitespace (S5a).  The
-      ;; saved column is not preserved here — it belonged to a row that no
-      ;; longer exists (R21-2 routes this to the title).
+      ;; markers, or a filter emptied the board): land on the saved line.
+      ;; The saved column is not preserved here — it belonged to a row that
+      ;; no longer exists; land on the TITLE (R21-2), falling back to the
+      ;; first visible char for a heading / empty board.
       (goto-char (point-min))
       (forward-line (1- (or (plist-get token :line) 1)))
-      (org-air-view--beginning-of-visible)))))
+      (org-air-view--goto-row-title)))))
 
 (defun org-air-view--render-current ()
   "Re-render the dashboard from `org-air-view--items', preserving point.
@@ -4944,36 +4975,36 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
   (org-air-view--render-current))
 
 (defun org-air-next-line ()
-  "Move point down one line, landing on its first visible char (R3, vim j)."
+  "Move point down one line, landing on its title (R3, vim j; R21-2)."
   (interactive)
   (forward-line 1)
-  (org-air-view--beginning-of-visible))
+  (org-air-view--goto-row-title))
 
 (defun org-air-prev-line ()
-  "Move point up one line, landing on its first visible char (R3, vim k)."
+  "Move point up one line, landing on its title (R3, vim k; R21-2)."
   (interactive)
   (forward-line -1)
-  (org-air-view--beginning-of-visible))
+  (org-air-view--goto-row-title))
 
 (defun org-air-next-item ()
-  "Move point to the next item row."
+  "Move point to the next item row, landing on its title (R21-2)."
   (interactive)
   (let ((pos (next-single-property-change (point) 'org-air-item nil (point-max))))
     (while (and pos (not (get-text-property pos 'org-air-item)) (< pos (point-max)))
       (setq pos (next-single-property-change pos 'org-air-item nil (point-max))))
     (when pos
       (goto-char pos)
-      (org-air-view--beginning-of-visible))))
+      (org-air-view--goto-row-title))))
 
 (defun org-air-prev-item ()
-  "Move point to the previous item row."
+  "Move point to the previous item row, landing on its title (R21-2)."
   (interactive)
   (let ((pos (previous-single-property-change (point) 'org-air-item nil (point-min))))
     (while (and pos (not (get-text-property (max (point-min) (1- pos)) 'org-air-item)) (> pos (point-min)))
       (setq pos (previous-single-property-change pos 'org-air-item nil (point-min))))
     (when pos
       (goto-char (max (point-min) (1- pos)))
-      (org-air-view--beginning-of-visible))))
+      (org-air-view--goto-row-title))))
 
 (defun org-air-view--line-section ()
   "Return the `org-air-section' bucket anywhere on the current line, or nil.
@@ -5027,7 +5058,9 @@ hangs."
       (let ((pos (org-air-view--find-property 'org-air-section bucket)))
         (when pos
           (goto-char pos)
-          (org-air-view--beginning-of-visible))))))
+          ;; A section header has no title mark, so this falls back to
+          ;; first-visible (R21-2) — point stays on the header.
+          (org-air-view--goto-row-title))))))
 
 (defun org-air-next-section ()
   "Move point to the next section heading."

@@ -22,9 +22,9 @@
   Delta UI exploration   #ui                                          |    0  Review
     . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |    1  Complete
                                                                       |    1  Dropped
-                                                                      |
-                                                                      | | Inspector
-                                                                      |
+  | [U] Unknown 1                                                     |
+  Eta notes   #notes                                                  | | Inspector
+    . v0.2/eta-notes.org    created 2026-04-01    updated 2026-05-01  |
                                                                       | | Actions
                                                                       |  RET open    / filter g r...
                                                                       |  S-RET visit \ clear  q quit

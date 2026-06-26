@@ -14,17 +14,17 @@
   [C] Beta CLI   #core                                                |  No filters · all items
     . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   | | Scope
                                                                       |  all items
-  | #ui 4                                                             |
-  [D] Epsilon plan   #context   #ui                                   | | Summary
-    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    2  Draft
-  [R] Alpha feature   #ui   #core                                     |    1  Ready
-    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |    1  Work In Progress
-  [W] Zeta work in progress   #core   #ui                             |    0  Review
-    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |    1  Complete
-  [X] Delta UI exploration   #ui                                      |    1  Dropped
-    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |
-                                                                      | | Inspector
-                                                                      |
-                                                                      | | Actions
-                                                                      |  RET open    / filter g r...
+  | #notes 1                                                          |
+  [U] Eta notes   #notes                                              | | Summary
+    . v0.2/eta-notes.org    created 2026-04-01    updated 2026-05-01  |    2  Draft
+                                                                      |    1  Ready
+  | #ui 4                                                             |    1  Work In Progress
+  [D] Epsilon plan   #context   #ui                                   |    0  Review
+    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    1  Complete
+  [R] Alpha feature   #ui   #core                                     |    1  Dropped
+    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |
+  [W] Zeta work in progress   #core   #ui                             | | Inspector
+    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |
+  [X] Delta UI exploration   #ui                                      | | Actions
+    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |  RET open    / filter g r...
                                                                       |  S-RET visit \ clear  q quit

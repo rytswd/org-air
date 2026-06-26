@@ -1,0 +1,8 @@
+#+title: Eta notes
+#+FILETAGS: :notes:
+* Notes
+A real work doc that carries NO =#+state:= keyword.  airctl classifies a
+stateless doc as =DocumentState::Unknown= (=state.unwrap_or(Unknown)=),
+NOT =draft= — so it must never inflate the Draft count.  org-air mirrors
+that (R20-5 fix): this doc classifies as UNKNOWN and renders with the
+faded [U] badge, last in state order.

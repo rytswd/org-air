@@ -18,8 +18,8 @@
     . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   | | Summary
   [D] Epsilon plan   #context   #ui                                   |    2  Draft
     . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    1  Ready
-                                                                      |    1  Work In Progress
-                                                                      |    0  Review
+  [U] Eta notes   #notes                                              |    1  Work In Progress
+    . v0.2/eta-notes.org    created 2026-04-01    updated 2026-05-01  |    0  Review
                                                                       |    1  Complete
                                                                       |    1  Dropped
                                                                       |

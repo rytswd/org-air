@@ -151,6 +151,87 @@ global grouping (the group-by commands `setq' it) cannot perturb us."
               'directory)))
 
 ;;;; ---------------------------------------------------------------------
+;;;; R20-5 FIX-GUARD — exclude OVERVIEW/README/SKILL + stateless->unknown.
+;;;;
+;;;; Closes the fixture GAP review flagged: the ./air fixture now carries
+;;;; `v0.2/OVERVIEW.org' (a directory-summary doc, even `#+state: ready')
+;;;; AND `v0.2/eta-notes.org' (NO `#+state:'), so the divergence the fix
+;;;; corrects is EXERCISED end-to-end (data model + the directory-tree
+;;;; goldens).  Pins airctl `-Da' parity: a summary doc is never a tracked
+;;;; row and a stateless doc is UNKNOWN, never silently Draft.
+;;;; ---------------------------------------------------------------------
+
+(ert-deftest org-air-r20-5-fix-overview-file-p-matches-airctl ()
+  "`org-air-project--overview-file-p' mirrors airctl's `is_overview_file':
+the file STEM (sans extension), case-folded, is README / OVERVIEW / SKILL
+-> non-trackable; any other stem (and nil) -> trackable."
+  (skip-unless (locate-library "org-air"))
+  ;; the reserved stems, in every case / extension airctl folds.
+  (dolist (f '("a/OVERVIEW.org" "a/overview.org" "a/Overview.org"
+               "a/README.org" "a/readme.md" "a/SKILL.org" "deep/dir/skill.org"))
+    (should (org-air-project--overview-file-p f)))
+  ;; ordinary work docs (incl. the fixture's) are trackable.
+  (dolist (f '("v0.1/alpha-feature.org" "v0.2/eta-notes.org"
+               "a/overview-of-pricing.org" "a/my-readme-notes.org"))
+    (should-not (org-air-project--overview-file-p f)))
+  ;; nil is safe (defensive).
+  (should-not (org-air-project--overview-file-p nil)))
+
+(ert-deftest org-air-r20-5-fix-collect-excludes-overview-stateless-unknown ()
+  "Over the REAL ./air fixture, `org-air-project--collect-docs' enacts the
+R20-5 fix divergence:
+ (a) `v0.2/OVERVIEW.org' is EXCLUDED -- no doc row, and its `#+state:
+     ready' never leaks into the Ready count (Ready stays 1 = Alpha);
+ (b) `v0.2/eta-notes.org' (NO `#+state:') is present and classifies as
+     `unknown' -- NEVER `draft', so Draft stays 2 (Epsilon + Gamma)
+     instead of inflating to 3/4 the way the pre-fix `unwrap_or draft'
+     silently did."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-project--collect-docs org-air-project-test-root))
+         (relpaths (mapcar #'org-air-doc-relpath docs))
+         (eta (seq-find (lambda (d)
+                          (equal (org-air-doc-relpath d) "v0.2/eta-notes.org"))
+                        docs))
+         (by-state (seq-group-by #'org-air-doc-state docs)))
+    ;; (a) OVERVIEW excluded -- not by relpath, not by any reserved stem.
+    (should-not (member "v0.2/OVERVIEW.org" relpaths))
+    (should-not (seq-find #'org-air-project--overview-file-p
+                          (mapcar #'org-air-doc-file docs)))
+    ;; its `ready' state did not leak: Ready is still ONLY Alpha.
+    (should (= (length (cdr (assoc "ready" by-state))) 1))
+    ;; (b) the stateless doc IS tracked, and it is UNKNOWN not DRAFT.
+    (should eta)
+    (should (equal (org-air-doc-state eta) "unknown"))
+    (should-not (equal (org-air-doc-state eta) "draft"))
+    ;; unknown ranks LAST (after every named state incl. draft).
+    (should (> (org-air-project--state-display-rank "unknown")
+               (org-air-project--state-display-rank "draft")))
+    ;; the stateless body did NOT inflate Draft: still the two real drafts.
+    (should (= (length (cdr (assoc "draft" by-state))) 2))
+    (should (= (length (cdr (assoc "unknown" by-state))) 1))))
+
+(ert-deftest org-air-r20-5-fix-directory-render-guards-divergence ()
+  "The DIRECTORY-tree render (the shipped default, the goldens) shows the
+fix where it matters: the stateless `Eta notes' renders with the faded
+`[U]' chip (UNKNOWN, never `[D]'/`[R]'), the v0.2 per-dir Draft badge is
+NOT inflated (`[D] 1', Epsilon only), and `OVERVIEW.org' contributes
+NOTHING -- no title row, no `#summary' tag, no Ready badge in v0.2."
+  (skip-unless (locate-library "org-air"))
+  (let ((text (string-join
+               (org-air-project-test--render-lines
+                'org-air-project-group-by-directory 100)
+               "\n")))
+    ;; stateless doc -> UNKNOWN chip, never Draft/Ready.
+    (should (string-match-p "\\[U\\] Eta notes" text))
+    (should-not (string-match-p "\\[[DR]\\] Eta notes" text))
+    ;; v0.2 per-dir count badges are NOT inflated by the unknown/excluded
+    ;; docs: Work-In-Progress 1, Dropped 1, Draft 1 (Epsilon only).
+    (should (string-match-p "v0\\.2/ +\\[W\\] 1  \\[X\\] 1  \\[D\\] 1" text))
+    ;; OVERVIEW.org contributes NOTHING to the render.
+    (should-not (string-match-p "Overview" text))
+    (should-not (string-match-p "#summary" text))))
+
+;;;; ---------------------------------------------------------------------
 ;;;; R20-5(b) — truly REUSE the dashboard core (shared rail + thin keymap).
 ;;;; ---------------------------------------------------------------------
 

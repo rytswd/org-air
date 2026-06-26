@@ -1,0 +1,10 @@
+#+title: v0.2 Overview
+#+state: ready
+#+FILETAGS: :summary:
+* Overview
+This is a directory-level SUMMARY doc (an =OVERVIEW.org=), not a trackable
+work item.  airctl's =DocumentScanner::is_overview_file= excludes it from
+document scanning by file stem, so org-air must NOT render it as a doc row
+and its =#+state: ready= must NOT inflate the v0.2 per-dir Ready count
+(R20-5 fix guard — if exclusion regressed, a phantom Ready/#summary doc
+would surface here).

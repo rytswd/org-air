@@ -1106,6 +1106,11 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
                 (org-air-project--insert-doc-sections sections w))))))
     ;; R20-2: cache the doc count for the status mode-line :eval.
     (setq-local org-air-project--doc-count (length docs))
+    ;; R22-5: expose the docs as the shared `org-air-view--items' so a
+    ;; POPPED-OUT project rail (the shared `org-air-rail--render', which
+    ;; reads this back-pointer) renders the project's docs in the side
+    ;; window — the same primitive the board uses.
+    (setq-local org-air-view--items docs)
     ;; R14 D-P1.B: this buffer hosts the SHARED mid-rail inspector with the
     ;; project's property + fields function.
     (setq-local org-air-view--inspector-active (and org-air-project-show-inspector t)
@@ -1133,10 +1138,17 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
     (unless org-air-project--sort-direction
       (setq-local org-air-project--sort-direction org-air-project-sort-direction))
     (erase-buffer)
+    ;; R22-5: when the rail is POPPED OUT, render the doc pane LEFT-ONLY and
+    ;; push the project rail into the shared `*org-air-rail*' side window
+    ;; (reusing the board's side-window primitives).  `unset' (the initial
+    ;; sentinel) is NOT popped out.
     (setq org-air-view--orientation
-          (if (and org-air-project-show-inspector
-                   (not (org-air-view--board-only-p width)))
-              'two-pane 'board-only))
+          (cond
+           ((eq org-air-view--rail-popped-out t) 'side-window)
+           ((and org-air-project-show-inspector
+                 (not (org-air-view--board-only-p width)))
+            'two-pane)
+           (t 'board-only)))
     (insert (org-air-project--header-line width) "\n\n")
     (cond
      ((null docs)
@@ -1146,6 +1158,10 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
      ((eq org-air-view--orientation 'two-pane)
       (let ((body (car (org-air-project--two-pane-body docs left-fn width))))
         (org-air-view--insert-lines body)))
+     ((eq org-air-view--orientation 'side-window)
+      ;; R22-5: the rail lives in the side window now — doc pane only.
+      (setq org-air-view--inspector-region-height nil)
+      (funcall left-fn width))
      (t
       ;; board-only: the state summary + the full-width left pane.
       (setq org-air-view--inspector-region-height nil)
@@ -1158,7 +1174,16 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
     (org-air-project--next-doc)
     (setq org-air-project--rendered-width width)
     ;; Locate + fill the inspector region (real buffer; buffer-locals set).
-    (org-air-view--setup-inspector)))
+    (org-air-view--setup-inspector)
+    ;; R22-5: side-window rail lifecycle, mirroring the board: show/refresh
+    ;; the popped-out rail; a responsive narrow teardown hides it.  Two-pane
+    ;; (inline rail) leaves any rail buffer untouched — the pop-IN path in
+    ;; `org-air-rail-toggle' hides the side window before re-rendering.
+    (cond
+     ((eq org-air-view--orientation 'side-window)
+      (org-air-rail--show (current-buffer) width))
+     ((eq org-air-view--orientation 'board-only)
+      (org-air-rail--hide (current-buffer))))))
 
 (defun org-air-project--resize-refresh ()
   "Re-render the project view when the displaying window changed (R14 D-P1.B).
@@ -1184,6 +1209,13 @@ between two-pane and board-only."
 (defun org-air-project-refresh ()
   "Re-render the current Air project view."
   (interactive)
+  (when org-air-project--root
+    (org-air-project--render org-air-project--root)))
+
+(defun org-air-project--render-current ()
+  "Re-render the current project view (R22-5: the rail-toggle dispatch target).
+Non-interactive sibling of `org-air-project-refresh' used by the shared
+`org-air-view--refresh-current' so the rail toggle never forks."
   (when org-air-project--root
     (org-air-project--render org-air-project--root)))
 
@@ -1334,6 +1366,10 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
     ;; row title (project rows carry `org-air-doc' via the shared
     ;; `--insert-row'); idempotent on a propertized column, inert in batch.
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
+  ;; R22-5: tear down a popped-out rail side window + buffer when the
+  ;; project buffer is killed (it must not outlive its host), mirroring the
+  ;; board's kill-buffer-hook.
+  (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
   (org-air-layout-install-window-size-hook)
   (buffer-disable-undo))
 

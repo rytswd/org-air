@@ -759,6 +759,9 @@ R22-3: g RET visit, g o visit-stay (o/O are the shared sort now).")
     ;; the same UX (no fork); each seeds its own key list + refresh fn.
     (define-key map (kbd "o") #'org-air-view-sort-cycle)
     (define-key map (kbd "O") #'org-air-view-sort-reverse)
+    ;; R22-5: pop the context rail in/out of a native side window — shared
+    ;; so BOTH the board and the project toggle their rail with `|'.
+    (define-key map (kbd "|") #'org-air-rail-toggle)
     map)
   "Shared view-core keymap, parent of the board + project mode maps (R18 D-P3).
 Reuse the core, override the bespoke: the keys here are identical across
@@ -820,8 +823,6 @@ both views; per-mode domain verbs stay in each child map.")
     (define-key map (kbd ">") #'org-air-calendar-next)
     (define-key map (kbd ".") #'org-air-calendar-today)
     (define-key map (kbd "?") #'org-air-help)
-    ;; R16 D-P1: pop the context rail in/out of a native side window.
-    (define-key map (kbd "|") #'org-air-rail-toggle)
     ;; R16 D-P3 / R18 D-P3: v/V open+close the bottom view pane — inherited
     ;; from `org-air-view-core-map' now (shared with the project).
     (define-key map (kbd "q") #'org-air-quit)
@@ -3633,7 +3634,15 @@ inspector update re-finds + re-fills the region (Phase 2)."
                         :scope org-air-view--scope
                         :expanded org-air-view--expanded-sections
                         :cal-month org-air-view--cal-month
-                        :day org-air-view--day)))
+                        :day org-air-view--day
+                        ;; R22-5: carry the host's rail descriptor +
+                        ;; inspector config so a POPPED-OUT PROJECT rail
+                        ;; renders the project blocks (not the board's),
+                        ;; reusing the same side-window primitives.
+                        :rail-descriptor org-air-view--rail-descriptor
+                        :inspector-property org-air-view--inspector-property
+                        :inspector-fields-function
+                        org-air-view--inspector-fields-function)))
          (dims (with-current-buffer board-buffer
                  (org-air-view--char-dimensions)))
          (rheight (or height
@@ -3653,6 +3662,9 @@ inspector update re-finds + re-fills the region (Phase 2)."
             (org-air-view--expanded-sections (plist-get state :expanded))
             (org-air-view--cal-month (plist-get state :cal-month))
             (org-air-view--day (plist-get state :day))
+            (org-air-view--rail-descriptor (plist-get state :rail-descriptor))
+            (org-air-view--inspector-fields-function
+             (plist-get state :inspector-fields-function))
             (org-air-view--inspector-region-height nil))
         (erase-buffer)
         ;; Phase 2: the inspector renders here (in the rail buffer); the
@@ -3680,13 +3692,22 @@ the rail buffer and syncs once to the board's item-at-point.  Thereafter the
 board's debounced `post-command-hook' redraws the rail inspector."
   (let ((rail-buf (or (buffer-local-value 'org-air-view--rail-buffer
                                           board-buffer)
-                      (org-air-rail--get-buffer))))
+                      (org-air-rail--get-buffer)))
+        ;; R22-5: carry the host's inspector property + fields fn so a
+        ;; popped-out PROJECT rail inspects DOCS (`org-air-doc' +
+        ;; `org-air-project--inspector-doc-fields'), not board items.
+        (host-prop (or (buffer-local-value 'org-air-view--inspector-property
+                                           board-buffer)
+                       'org-air-item))
+        (host-fields (buffer-local-value 'org-air-view--inspector-fields-function
+                                         board-buffer)))
     (with-current-buffer rail-buf
       (setq org-air-view--inspector-beg nil
             org-air-view--inspector-end nil
             org-air-view--inspector-item nil)
       (setq-local org-air-view--inspector-active org-air-show-inspector)
-      (setq-local org-air-view--inspector-property 'org-air-item)
+      (setq-local org-air-view--inspector-property host-prop)
+      (setq-local org-air-view--inspector-fields-function host-fields)
       (when (and org-air-view--inspector-active
                  org-air-view--inspector-geom)
         (let ((rh (or (plist-get org-air-view--inspector-geom :region-height) 0))
@@ -3799,22 +3820,38 @@ count (R16 D-P1)."
 ;;;; R16 D-P1: cooperative, command-driven popout + reconciler.
 ;;;; ---------------------------------------------------------------------
 
+(defun org-air-view--refresh-current ()
+  "Re-render the current org-air buffer, dispatching on mode (R22-5).
+The shared rail-toggle uses this so it never hard-codes the board renderer:
+the board re-renders via `org-air-view--render-current'; the project via
+`org-air-project--render-current'."
+  (cond
+   ((derived-mode-p 'org-air-view-mode) (org-air-view--render-current))
+   ((derived-mode-p 'org-air-project-mode) (org-air-project--render-current))))
+
 (defun org-air-rail-toggle ()
-  "Toggle the context rail between inline and a popped-out side window (R16 D-P1).
-Command-driven and cooperative: popping out renders the board board-only
-and shows the `*org-air-rail*' side window; popping in restores the inline
-two-pane rail.  Native window management always wins — closing the side
-window with any native command falls back to inline via the reconciler."
+  "Toggle the context rail between inline and a side window (R16 D-P1; R22-5).
+Command-driven and cooperative in the board OR the project: popping out
+renders the host pane-only and shows the `*org-air-rail*' side window;
+popping in restores the inline two-pane rail.  Native window management
+always wins — closing the side window with any native command falls back to
+inline via the reconciler.  The refresh is dispatched per-mode via
+`org-air-view--refresh-current' so the toggle never forks."
   (interactive)
-  (unless (derived-mode-p 'org-air-view-mode)
-    (user-error "Not in an org-air board buffer"))
+  (unless (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
+    (user-error "Not in an org-air board or project buffer"))
+  ;; The project never seeds the flag during its normal render, so it may
+  ;; still be the `unset' sentinel (which is truthy) — normalise it to nil
+  ;; so the FIRST toggle pops OUT, not in.
+  (when (eq org-air-view--rail-popped-out 'unset)
+    (setq-local org-air-view--rail-popped-out nil))
   (if org-air-view--rail-popped-out
       (progn
         (setq-local org-air-view--rail-popped-out nil)
         (org-air-rail--hide (current-buffer))
-        (org-air-view--render-current))
+        (org-air-view--refresh-current))
     (setq-local org-air-view--rail-popped-out t)
-    (org-air-view--render-current)
+    (org-air-view--refresh-current)
     (when org-air-rail-focus-on-popout
       (let ((win (and (org-air-rail--window-live-p)
                       (get-buffer-window org-air-rail-buffer-name

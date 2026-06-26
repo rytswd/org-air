@@ -1,2 +1,2 @@
-# entry-view-missing.org  -  Missing entry  -  TODO
+# entry-view-missing.org  -  Missing entry  -  TODO  -  q close
 (entry no longer available)

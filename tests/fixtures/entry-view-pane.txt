@@ -1,4 +1,4 @@
-# entry-view-source.org  -  A heading  -  TODO
+# entry-view-source.org  -  A heading  -  TODO  -  q close
 * TODO A heading :foo:bar:
 SCHEDULED: <2026-06-20 Sat>
 :PROPERTIES:

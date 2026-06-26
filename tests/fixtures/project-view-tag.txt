@@ -1,26 +1,30 @@
   org-air · project                                                                       | name ^
 
-  | #context 2                                                        | | Summary
-  [D] Epsilon plan   #context   #ui                                   |    2  Draft
-    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    1  Ready
-  [D] Gamma context   #context                                        |    1  Work In Progress
-    . v0.1/air-context/gamma-context.org    created 2026-04-01    ... |    0  Review
-                                                                      |    1  Complete
-  | #core 3                                                           |    1  Dropped
+  | #context 2                                                        | | June 2026              < >
+  [D] Epsilon plan   #context   #ui                                   |     Su Mo Tu We Th Fr Sa
+    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |         1  2  3  4  5  6
+  [D] Gamma context   #context                                        |      7  8  9 10 11 12 13
+    . v0.1/air-context/gamma-context.org    created 2026-04-01    ... |     14 15 16 17 18 19 20
+                                                                      |     21 22 23 24 25 26 27
+  | #core 3                                                           |     28 29 30
   [R] Alpha feature   #ui   #core                                     |
-    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... | | Inspector
-  [W] Zeta work in progress   #core   #ui                             |  Epsilon plan
-    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  State   [D] Draft
-  [C] Beta CLI   #core                                                |  Path    ~air/v0.2/epsilo...
-    . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |  #context #ui
-                                                                      |  Group   v0.2
-  | #ui 4                                                             |
-  [D] Epsilon plan   #context   #ui                                   |  Created 2026-04-01  (75d...
-    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |  Updated 2026-05-01  (45d...
-  [R] Alpha feature   #ui   #core                                     |
-    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |
+    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |     ! due    o sched
   [W] Zeta work in progress   #core   #ui                             |
-    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |
-  [X] Delta UI exploration   #ui                                      |
+    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   | | Filter
+  [C] Beta CLI   #core                                                |  No filters · all items
+    . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   | | Scope
+                                                                      |  all items
+  | #ui 4                                                             |
+  [D] Epsilon plan   #context   #ui                                   | | Summary
+    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    2  Draft
+  [R] Alpha feature   #ui   #core                                     |    1  Ready
+    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |    1  Work In Progress
+  [W] Zeta work in progress   #core   #ui                             |    0  Review
+    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |    1  Complete
+  [X] Delta UI exploration   #ui                                      |    1  Dropped
     . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |
+                                                                      | | Inspector
                                                                       |
+                                                                      | | Actions
+                                                                      |  RET open    / filter g r...
+                                                                      |  S-RET visit \ clear  q quit

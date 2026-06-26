@@ -191,16 +191,21 @@ The board's S-RET visits the item; the project's S-RET visits the doc."
               'org-air-visit-item))
   (should (eq (lookup-key org-air-view-mode-map (kbd "O"))
               'org-air-visit-item))
-  ;; Project map (mirrored until D-P3 folds the keymaps).
+  ;; Project map (a thin child of the shared core since R20-5(b)).
   (should (eq (lookup-key org-air-project-mode-map (kbd "RET"))
               'org-air-view-pane-return))
   (should (eq (lookup-key org-air-project-mode-map (kbd "<S-return>"))
               'org-air-project-visit))
-  ;; The project's domain verbs are NOT shadowed by the mirror.
-  (should (eq (lookup-key org-air-project-mode-map (kbd "O"))
-              'org-air-project-sort-reverse))
-  (should (eq (lookup-key org-air-project-mode-map (kbd "s"))
-              'org-air-project-group-by-state)))
+  ;; R20-5(b) re-bless: the project view DROPPED the domain shadows.  The
+  ;; old `O' = sort-reverse / `s' = group-by-state overrides are GONE
+  ;; (state/tag/sort moved to `M-x'), so a user who knows the board needs
+  ;; no relearning — `O'/`s' resolve to NO project-specific command.
+  (should-not (eq (lookup-key org-air-project-mode-map (kbd "O"))
+                  'org-air-project-sort-reverse))
+  (should-not (eq (lookup-key org-air-project-mode-map (kbd "s"))
+                  'org-air-project-group-by-state))
+  (should (null (lookup-key org-air-project-mode-map (kbd "O"))))
+  (should (null (lookup-key org-air-project-mode-map (kbd "s")))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P3 — project parity: shared filter core + shared keymap parent.
@@ -263,11 +268,12 @@ per-mode doc filter; the project DOMAIN verbs are NOT shadowed."
               'org-air-project-filter))
   (should (eq (lookup-key org-air-view-mode-map (kbd "/"))
               'org-air-filter))
-  ;; Domain verbs are NOT shadowed by the shared parent.
-  (should (eq (lookup-key org-air-project-mode-map (kbd "s"))
-              'org-air-project-group-by-state))
-  (should (eq (lookup-key org-air-project-mode-map (kbd "o"))
-              'org-air-project-sort-cycle))
+  ;; R20-5(b): the thin keymap no longer SHADOWS the shared board keys.
+  ;; The old domain verbs `s' = group-by-state / `o' = sort-cycle are GONE
+  ;; (state/tag/sort moved to `M-x'); only the project's own non-shared
+  ;; verbs remain (`g' refresh, `q' quit, S-RET visit, n/p motion).
+  (should (null (lookup-key org-air-project-mode-map (kbd "s"))))
+  (should (null (lookup-key org-air-project-mode-map (kbd "o"))))
   (should (eq (lookup-key org-air-project-mode-map (kbd "g"))
               'org-air-project-refresh)))
 

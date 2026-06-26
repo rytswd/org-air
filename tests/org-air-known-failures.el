@@ -414,49 +414,48 @@
     ;; touched (the impl landed R19-1..R19-4 in ltpkvxvy..kpzqqxyw).
     ;; Round-19 manifest is EMPTY; the tests stay as permanent guards.
     ;; ===================================================================
-    ;; v0.5 ROUND-20 grind (impl track) — R20-5 project view rebuild.
-    ;;
-    ;; 2026-06-26: R20-5(a) NESTED directory tree landed (the project
-    ;; `directory' grouping now matches `airctl status -Da': a rolled-up
-    ;; top-dir box header with state-NAME totals, a per-dir `BADGE N (+M)'
-    ;; count heading with the descendant roll-up, state-first own docs, and
-    ;; depth-indented child dirs) — replacing the FLAT first-segment
-    ;; grouping.  The default group is now `directory'.  This re-blesses
-    ;; the project-view-dir.txt golden (and the state/tag goldens re-bless
-    ;; once R20-5(b) swaps in the shared board rail), so the byte-mockup
-    ;; test fails until the test seat regenerates the fixtures; the
-    ;; grouping-toggle test's dir-header regex (`v0.N/ <count>') no longer
-    ;; matches the badge-led tree header and is re-blessed there too.
-    (org-air-f5-project-view-byte-mockups
-     . "R20-5(a): nested dir tree + shared rail re-bless project-view-*.txt")
-    (org-air-f5-grouping-toggle
-     . "R20-5(a): dir grouping is now the airctl -Da nested tree (header form changed)")
-    ;; 2026-06-26: R20-5(b) truly REUSE the dashboard core landed: the
-    ;; project rail is now the SHARED board rail (Calendar/Filter/Scope/
-    ;; Summary/Inspector/Actions) driven by a buffer-local view descriptor
-    ;; (`org-air-view--rail-descriptor'), and the project keymap is a THIN
-    ;; child of `org-air-view-core-map' that no longer SHADOWS the shared
-    ;; board keys — s / d / t / o / O are gone (state/tag/sort move to
-    ;; M-x).  The two R18 keymap drift-guards asserted the OLD project-
-    ;; specific bindings (s=group-by-state, o=sort-cycle, O=sort-reverse),
-    ;; so they fail until the test seat re-blesses them to the R20-5 thin
-    ;; keymap (the new drift guard: shared keys resolve to the board's).
-    (org-air-r18-dp3-project-keymap-inherits-core
-     . "R20-5(b): thin keymap drops s/o domain shadows (re-bless drift guard)")
-    (org-air-r18-dp4-keymap-ret-and-sret-board-and-project
-     . "R20-5(b): thin keymap drops O=sort-reverse / s=group-by-state shadows")
-    ;; 2026-06-26: R20-3(a) surfaces the active close key in the view-pane
-    ;; header-line (`· q close' for the read-only snapshot), so it is
-    ;; discoverable while focused.  The R16 pane byte goldens dump the
-    ;; header-line text (`%s' of `header-line-format') alongside the entry
-    ;; snapshot, so both pane goldens (entry-view-pane.txt + entry-view-
-    ;; dead.txt) gain the trailing `· q close' hint and need a one-shot
-    ;; re-bless via `make regen-mockups'.  The entry snapshot BODY bytes are
-    ;; unchanged; only the header-line hint is added.
-    (org-air-r16-d3-pane-content-byte-golden
-     . "R20-3(a): pane header-line gains the `q close' hint (re-bless golden)")
-    (org-air-r16-d3-pane-dead-marker-byte-golden
-     . "R20-3(a): pane header-line gains the `q close' hint (re-bless golden)")
+    ;; v0.5 ROUND-20 CLOSEOUT (impl tip urnnozpp + test re-bless <this
+    ;; commit>).  ALL 6 grind entries CLOSED — the project + view-pane byte
+    ;; goldens regenerated from impl's render via the FROZEN-CLOCK renderer
+    ;; (make regen-mockups, guards active; verified NO HANG, exit 0) and the
+    ;; three assertion tests re-blessed to the design-blessed R20-5 / R20-3
+    ;; contracts (air/v0.5/org-air-round20-design.org):
+    ;;   R20-5(a) NESTED directory tree — the `directory' grouping now
+    ;;     matches `airctl status -Da' (verified against the REAL Air repo
+    ;;     ~/Coding/github.com/withre/air): a rolled-up top-dir header with
+    ;;     state-NAME totals (`| v0.1/  [R] Ready (1) …'), a per-dir
+    ;;     `BADGE N (+M)' count heading with the `(+M)' descendant roll-up,
+    ;;     state-first own docs, and a depth-indented child node
+    ;;     (`|   air-context/  [D] 1') — replacing the FLAT first-segment
+    ;;     grouping.  `directory' is the DEFAULT group now.
+    ;;     project-view-dir.txt re-blessed wholesale; org-air-f5-grouping-
+    ;;     toggle's dir-header regex re-blessed from `v0.N/ <count>' to the
+    ;;     three nested-tree hallmarks (rolled-up header / nested child dir
+    ;;     heading / `(+N)' roll-up, with state+tag asserted roll-up-FREE).
+    ;;   R20-5(b) shared dashboard core — the project rail is now the SHARED
+    ;;     board rail (Calendar/Filter/Scope/Summary/Inspector/Actions) via
+    ;;     the buffer-local `org-air-view--rail-descriptor', and the project
+    ;;     keymap is a THIN child of `org-air-view-core-map' that no longer
+    ;;     SHADOWS s/d/t/o/O (state/tag/sort move to `M-x').  ALL three
+    ;;     project goldens (dir/state/tag) re-blessed to carry the full
+    ;;     rail; the two R18 keymap drift-guards re-blessed to the thin
+    ;;     keymap (s/o/O drop their project-specific overrides; the shared
+    ;;     core keys RET/v/V/\/M-/ still resolve identically board↔project).
+    ;;   R20-3(a) pane close-key hint — both view-pane goldens (entry-view-
+    ;;     pane.txt + entry-view-dead.txt) gain the trailing `· q close'
+    ;;     header-line hint; the entry snapshot BODY bytes are unchanged.
+    ;; The R20-1/R20-2/R20-3/R20-6 changes are GUI/interactive and INERT
+    ;; under `noninteractive', so EVERY board byte golden (layout-mockup-*,
+    ;; denote-origin-*) is byte-identical — only the 5 project+pane fixtures
+    ;; moved, confirming the change is project-view / pane-local.  New R20
+    ;; substantive ERTs (sync first load + wedge guard, pane q/C-c C-q close
+    ;; + cheap same-file follow, refile action-first menu + CRM category +
+    ;; move-to-file, perf partition + displayed-only meta-widths + bench;
+    ;; PLUS the test-seat additions: airctl-tree directory model, shared
+    ;; rail/keymap parity, status mode-line) cover the live behaviour.  No
+    ;; .el SOURCE touched (the impl landed R20-1..R20-6 in votptnto..
+    ;; urnnozpp).  Round-20 manifest is EMPTY; the tests stay as permanent
+    ;; regression guards.
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

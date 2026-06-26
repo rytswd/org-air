@@ -1,24 +1,30 @@
   org-air · project                                                                       | name ^
 
-  | [D] Draft 2                                                       | | Summary
-  Epsilon plan   #context   #ui                                       |    2  Draft
-    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |    1  Ready
-  Gamma context   #context                                            |    1  Work In Progress
-    . v0.1/air-context/gamma-context.org    created 2026-04-01    ... |    0  Review
-                                                                      |    1  Complete
-  | [R] Ready 1                                                       |    1  Dropped
+  | [D] Draft 2                                                       | | June 2026              < >
+  Epsilon plan   #context   #ui                                       |     Su Mo Tu We Th Fr Sa
+    . v0.2/epsilon-plan.org    created 2026-04-01    updated 2026-... |         1  2  3  4  5  6
+  Gamma context   #context                                            |      7  8  9 10 11 12 13
+    . v0.1/air-context/gamma-context.org    created 2026-04-01    ... |     14 15 16 17 18 19 20
+                                                                      |     21 22 23 24 25 26 27
+  | [R] Ready 1                                                       |     28 29 30
   Alpha feature   #ui   #core                                         |
-    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... | | Inspector
-                                                                      |  Epsilon plan
-  | [W] Work In Progress 1                                            |  State   [D] Draft
-  Zeta work in progress   #core   #ui                                 |  Path    ~air/v0.2/epsilo...
-    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   |  #context #ui
-                                                                      |  Group   v0.2
+    . v0.1/alpha-feature.org    created 2026-04-01    updated 2026... |     ! due    o sched
+                                                                      |
+  | [W] Work In Progress 1                                            | | Filter
+  Zeta work in progress   #core   #ui                                 |  No filters · all items
+    . v0.2/zeta-wip.org    created 2026-04-01    updated 2026-05-01   | | Scope
+                                                                      |  all items
   | [C] Complete 1                                                    |
-  Beta CLI   #core                                                    |  Created 2026-04-01  (75d...
-    . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |  Updated 2026-05-01  (45d...
+  Beta CLI   #core                                                    | | Summary
+    . v0.1/beta-cli.org    created 2026-04-01    updated 2026-05-01   |    2  Draft
+                                                                      |    1  Ready
+  | [X] Dropped 1                                                     |    1  Work In Progress
+  Delta UI exploration   #ui                                          |    0  Review
+    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |    1  Complete
+                                                                      |    1  Dropped
                                                                       |
-  | [X] Dropped 1                                                     |
-  Delta UI exploration   #ui                                          |
-    . v0.2/delta-ui.org    created 2026-04-01    updated 2026-05-01   |
+                                                                      | | Inspector
                                                                       |
+                                                                      | | Actions
+                                                                      |  RET open    / filter g r...
+                                                                      |  S-RET visit \ clear  q quit

@@ -220,12 +220,12 @@ stability; --batch renders the TTY [D]/[R]/[W]/[C]/[X] badge forms."
 The three renders must be pairwise BYTE-DIFFERENT — they group by
 different sections (states vs directories vs tags), so a fallback that
 renders dir/tag the same as state (the design-caught regression) can
-never pass here.  D-P1.B [byte] re-bless (round-14): the project view is
-now a TWO-PANE body (docs LEFT, rail RIGHT), so a section header no
-longer ENDS the line (the rail follows after the `|' divider).  A section
-HEADER leads with the `▌'/`|' prefix marker + its grouping key — dir
-grouping with a version folder + count, tag grouping with a #tag + count,
-state grouping with a `[badge] State N' header."
+never pass here.  R20-5(a) [byte] re-bless: the DIRECTORY grouping is now
+the `airctl status -Da' NESTED directory tree (rolled-up top-dir header
+with state-NAME totals, per-dir `BADGE N (+M)' counts, depth-indented
+child dirs), replacing the old flat first-segment `v0.N/ <count>'
+heading.  State grouping keeps its `[badge] State N' headers; tag
+grouping its `#tag count' headers."
   (skip-unless (locate-library "org-air"))
   (let ((state (org-air-project-test--render-lines
                 'org-air-project-group-by-state 100))
@@ -242,12 +242,28 @@ state grouping with a `[badge] State N' header."
     ;; a plain `|', not a box glyph).
     (dolist (lines (list state dir tag))
       (should-not (cl-some (lambda (l) (string-match-p "[┌┐└┘├┤┬┴┼]" l)) lines)))
-    ;; A DIR section header is the `|' marker + a version folder + count
-    ;; (`| . v0.1/ 3'); doc-line-2 paths read `v0.1/<sub>' with NO space
-    ;; after the slash, so `v0.N/ <count>' uniquely marks a header.
+    ;; R20-5(a): the DIRECTORY grouping is the `airctl status -Da' NESTED
+    ;; tree.  Assert the three structural hallmarks the OLD flat
+    ;; first-segment grouping could never produce:
+    ;;  (1) a rolled-up TOP-dir header — version folder + state NAME totals
+    ;;      in parens (`| v0.1/   [R] Ready (1)   [C] Complete (1) …').
     (should (cl-some (lambda (l)
-                       (string-match-p "v0\\.[0-9]+/ [0-9]+" l))
+                       (string-match-p "v0\\.[0-9]+/ +\\[[RWCXD]\\] +[A-Z][a-z]"
+                                       l))
                      dir))
+    ;;  (2) a NESTED child-directory heading (depth-indented) — the proof
+    ;;      the tree recurses past the first path segment: the fixture's
+    ;;      `v0.1/air-context/' renders as its OWN `air-context/' node with
+    ;;      per-dir badge counts (never a heading in state/tag grouping).
+    (should (cl-some (lambda (l)
+                       (string-match-p "| +air-context/ +\\[[RWCXD]\\]" l))
+                     dir))
+    ;;  (3) a `(+N)' DESCENDANT roll-up count on a dir heading (the Draft
+    ;;      Gamma lives in the child dir, so `v0.1/' shows `[D] (+1)') —
+    ;;      neither state nor tag grouping carries a roll-up.
+    (should (cl-some (lambda (l) (string-match-p "(\\+[0-9]+)" l)) dir))
+    (should-not (cl-some (lambda (l) (string-match-p "(\\+[0-9]+)" l)) state))
+    (should-not (cl-some (lambda (l) (string-match-p "(\\+[0-9]+)" l)) tag))
     ;; A TAG section header is the `|' marker + a `#tag count' (`| #core 3');
     ;; doc rows carry `#tag' inline but never `| #tag N'.
     (should (cl-some (lambda (l)

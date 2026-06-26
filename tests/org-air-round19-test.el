@@ -120,11 +120,11 @@ carrying NO item rows."
 ;;;; ---------------------------------------------------------------------
 
 (ert-deftest org-air-r19-2-refile-prompt-shows-tags-and-move-relocates ()
-  "The refile prompt SHOWS the item's current tags `[#urgent #work]', the
-`⌂' move candidate is offered, and choosing it actually RELOCATES the
-heading to the target file (gone from A, present in B on disk).  Driven
-with a DIRECTORY `org-air-files' — the exact config that broke the move
-before R19-2."
+  "R20-4 re-bless: the refile prompt is now SHORT (no `[#urgent #work]' tag
+block), the action-first menu leads with `⌂ Move to file…', and choosing it
+opens a dedicated picker whose `⌂ <file>' target actually RELOCATES the
+heading (gone from A, present in B on disk).  Driven with a DIRECTORY
+`org-air-files' — the exact config that broke the move before R19-2."
   (skip-unless (locate-library "org-air"))
   (org-air-r19--with-temp-org
       ((dir)
@@ -134,21 +134,35 @@ before R19-2."
            (org-air-inbox-file a)
            (b-cand (concat "⌂ " (file-name-nondirectory b)))
            (captured-prompt nil)
-           (captured-coll nil))
+           (captured-menu nil)
+           (captured-move-coll nil))
       (cl-letf (((symbol-function 'completing-read)
                  (lambda (prompt coll &rest _)
-                   (setq captured-prompt prompt captured-coll coll)
-                   b-cand)))
+                   (cond
+                    ;; the top action-first menu
+                    ((string-prefix-p "Refile " prompt)
+                     (setq captured-prompt prompt captured-menu coll)
+                     "⌂ Move to file…")
+                    ;; the dedicated move sub-picker
+                    ((string-prefix-p "Move to file: " prompt)
+                     (setq captured-move-coll coll)
+                     b-cand)
+                    (t ""))))
+                ((symbol-function 'read-string) (lambda (&rest _) "")))
         (with-current-buffer (find-file-noselect a)
           (goto-char (point-min))
           (re-search-forward "^\\* TODO Pay the invoice")
           (goto-char (line-beginning-position))
           (let ((inhibit-message t))
             (call-interactively 'org-air-refile-item))))
-      ;; (a) the prompt surfaced the CURRENT tags.
-      (should (string-match-p (regexp-quote "[#urgent #work]") captured-prompt))
-      ;; the real `⌂' file target was actually among the candidates.
-      (should (member b-cand captured-coll))
+      ;; (a) the prompt is SHORT — the current-tags block is GONE.
+      (should-not (string-match-p (regexp-quote "[#urgent #work]")
+                                  captured-prompt))
+      (should (string-match-p (regexp-quote "Pay the invoice") captured-prompt))
+      ;; the dedicated move action leads the top menu...
+      (should (member "⌂ Move to file…" captured-menu))
+      ;; ...and the real `⌂' file target is offered in its sub-picker.
+      (should (member b-cand captured-move-coll))
       ;; (b) the heading RELOCATED.
       (with-temp-buffer
         (insert-file-contents a)
@@ -160,10 +174,11 @@ before R19-2."
         (should (string-match-p ":urgent:work:" (buffer-string)))))))
 
 (ert-deftest org-air-r19-2-decode-target-directory-source-resolves-real-file ()
-  "Regression net for the move bug: with `org-air-files' a DIRECTORY,
-`org-air-inbox--decode-target' for a `⌂ <file>' choice resolves to the
-REAL expanded target path (from `org-air-query-files'), NOT the item's own
-file (the old silent fallback that made the move a no-op)."
+  "Regression net for the move bug (R20-4 re-bless): with `org-air-files' a
+DIRECTORY, `org-air-inbox--decode-file-choice' — the R19-2 resolver REUSED
+UNCHANGED inside the R20-4 `⌂ Move to file…' picker — resolves a `⌂ <file>'
+choice to the REAL expanded target path (from `org-air-query-files'), NOT
+the item's own file (the old silent fallback that made the move a no-op)."
   (skip-unless (locate-library "org-air"))
   (org-air-r19--with-temp-org
       ((dir)
@@ -175,10 +190,9 @@ file (the old silent fallback that made the move a no-op)."
                   :marker (with-current-buffer (find-file-noselect a)
                             (goto-char (point-min)) (point-marker))))
            (cand (concat "⌂ " (file-name-nondirectory b)))
-           (decoded (org-air-inbox--decode-target cand item)))
-      ;; decoded = (ITEM TARGET-FILE HEADING TAGS SCHEDULED).
-      (should (equal (file-truename (nth 1 decoded)) (file-truename b)))
-      (should-not (equal (file-truename (nth 1 decoded)) (file-truename a))))))
+           (resolved (org-air-inbox--decode-file-choice cand item)))
+      (should (equal (file-truename resolved) (file-truename b)))
+      (should-not (equal (file-truename resolved) (file-truename a))))))
 
 (ert-deftest org-air-r19-2-edit-tags-prefills-current-and-replaces ()
   "The `# edit tags…' step opens `completing-read-multiple' PRE-FILLED with

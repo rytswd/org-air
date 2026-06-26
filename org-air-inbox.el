@@ -109,24 +109,21 @@ so each `⌂' entry maps to exactly one file."
             files)))
 
 (defun org-air-inbox--refile-candidates (item)
-  "Return design-style refile candidates for ITEM (R19-2).
-A `# edit tags…' candidate opens the FULL tag set pre-filled (add OR
-remove); the quick `#tag' candidates still ADD on top of the now-visible
-set.  The `⌂' file targets are the REAL expanded Org files (so move-to-
-another-file actually works), and `⌂ other file…' reaches an arbitrary
-`read-file-name' target."
-  (let* ((groups (delete-dups (delq nil (mapcar #'org-air-item-group
-                                                (ignore-errors (org-air-query-items))))))
-         (tags (delete-dups (seq-mapcat #'org-air-item-tags
-                                        (ignore-errors (org-air-query-items)))))
-         (file-cands (org-air-inbox--file-candidates
-                      (org-air-inbox--target-files item))))
-    (append '("# edit tags…")
-            (mapcar (lambda (group) (concat "@" group)) groups)
-            '(">today" ">tomorrow" ">week" ">someday")
-            (mapcar (lambda (tag) (concat "#" tag)) tags)
-            file-cands
-            '("⌂ other file…"))))
+  "Return the action-first refile menu for ITEM (R20-4c).
+Leads with the dedicated `⌂ Move to file…' action (the single most
+important move-this-item-to-a-real-file path, with its own focused
+picker), then `Tags…' and `Category…' (both `completing-read-multiple',
+add/remove), then the spelled-out `Schedule: …' quicks.  The named
+actions are the contract — no flat tag/group/file soup, so the move is a
+first-class entry rather than a needle in a candidate haystack."
+  (ignore item)
+  (list "⌂ Move to file…"
+        "Tags…"
+        "Category…"
+        "Schedule: today"
+        "Schedule: tomorrow"
+        "Schedule: this week"
+        "Schedule: someday"))
 
 (defun org-air-inbox--edit-tags (item)
   "Read a REPLACEMENT tag list for ITEM, pre-filled with its current tags (R19-2).
@@ -139,6 +136,35 @@ add OR remove; the returned list replaces the tags."
     (completing-read-multiple
      "Tags: " vocab nil nil
      (when current (mapconcat #'identity current ",")))))
+
+(defun org-air-inbox--edit-categories (item)
+  "Read a pre-filled category list for ITEM (R20-4a).
+Uses `completing-read-multiple' seeded with the item's current category (its
+`org-air-item-group') over the group vocabulary so a single pick is the
+common case (add/remove from there).  Multiple
+picks are allowed: the caller makes the FIRST the `:CATEGORY:' and adds any
+extras as tags, so nothing the user typed is lost."
+  (let ((current (org-air-item-group item))
+        (vocab (delete-dups (delq nil (mapcar #'org-air-item-group
+                                              (ignore-errors (org-air-query-items)))))))
+    (completing-read-multiple
+     "Category: " vocab nil nil
+     (when (and current (not (string-empty-p current))) current))))
+
+(defun org-air-inbox--read-move-target (item)
+  "Read the DEDICATED `⌂ Move to file…' target for ITEM (R20-4c).
+A focused picker over the REAL expanded Org files
+\(`org-air-inbox--file-candidates', disambiguated) plus `⌂ other file…'
+\(`read-file-name'), then an optional `Under heading: '.  Resolution reuses
+the R19-2 `org-air-inbox--decode-file-choice' move-bug hardening UNCHANGED,
+so a chosen candidate maps to the actual file.  Returns (FILE . HEADING)."
+  (let* ((files (org-air-inbox--target-files item))
+         (cands (append (org-air-inbox--file-candidates files)
+                        '("⌂ other file…")))
+         (choice (completing-read "Move to file: " cands nil t))
+         (file (org-air-inbox--decode-file-choice choice item))
+         (heading (read-string "Under heading (empty for file end): ")))
+    (cons file (unless (string-empty-p heading) heading))))
 
 (defun org-air-inbox--decode-file-choice (choice item)
   "Resolve a `⌂ …' refile CHOICE for ITEM to a real target file path (R19-2).
@@ -155,55 +181,58 @@ rather than the item's own file by accident — the original move bug."
           (org-air-item-file item)))))
 
 (defun org-air-inbox--decode-target (choice item)
-  "Decode refile CHOICE for ITEM into argument values."
+  "Decode the named refile CHOICE for ITEM into `org-air-refile-item' args.
+Dispatches the R20-4 action-first menu: `⌂ Move to file…' opens the
+dedicated `org-air-inbox--read-move-target' picker; `Tags…' / `Category…'
+run the `completing-read-multiple' editors; the `Schedule: …' quicks map to
+Org shift strings.  Returns (ITEM FILE HEADING TAGS SCHEDULED CATEGORY)."
   (cond
-   ((string= choice "# edit tags…")
+   ((string= choice "⌂ Move to file…")
+    (let ((target (org-air-inbox--read-move-target item)))
+      (list item (car target) (cdr target) nil nil nil)))
+   ((string= choice "Tags…")
     (list item (org-air-item-file item) nil
-          (org-air-inbox--edit-tags item) nil))
-   ((string= choice "⌂ other file…")
-    (list item (org-air-inbox--decode-file-choice choice item) nil nil nil))
-   ((string-prefix-p "#" choice)
+          (org-air-inbox--edit-tags item) nil nil))
+   ((string= choice "Category…")
+    (let* ((cats (org-air-inbox--edit-categories item))
+           (cat (car cats))
+           (extra (cdr cats)))
+      (list item (org-air-item-file item) nil
+            (and extra (delete-dups (append extra (org-air-item-tags item))))
+            nil cat)))
+   ((string= choice "Schedule: today")
+    (list item (org-air-item-file item) nil nil "." nil))
+   ((string= choice "Schedule: tomorrow")
+    (list item (org-air-item-file item) nil nil "+1d" nil))
+   ((string= choice "Schedule: this week")
+    (list item (org-air-item-file item) nil nil "+1w" nil))
+   ((string= choice "Schedule: someday")
     (list item (org-air-item-file item) nil
-          (delete-dups (cons (substring choice 1) (org-air-item-tags item))) nil))
-   ((string-prefix-p ">" choice)
-    (pcase (substring choice 1)
-      ("today" (list item (org-air-item-file item) nil nil "."))
-      ("tomorrow" (list item (org-air-item-file item) nil nil "+1d"))
-      ("week" (list item (org-air-item-file item) nil nil "+1w"))
-      ("someday" (list item (org-air-item-file item) nil
-                       (delete-dups (cons "someday" (org-air-item-tags item))) ""))
-      (_ (list item (org-air-item-file item) nil nil nil))))
-   ((string-prefix-p "@" choice)
-    (list item (org-air-item-file item) (substring choice 1) nil nil))
-   ((string-prefix-p "⌂ " choice)
-    (list item (org-air-inbox--decode-file-choice choice item) nil nil nil))
-   (t (list item (read-file-name "Refile to file: ")
-            (read-string "Under heading (empty for file end): ") nil nil))))
+          (delete-dups (cons "someday" (org-air-item-tags item))) "" nil))
+   (t
+    ;; free-text / unmatched fallback: treat as a move-to-file target.
+    (let ((target (org-air-inbox--read-move-target item)))
+      (list item (car target) (cdr target) nil nil nil)))))
 
 ;;;###autoload
-(defun org-air-refile-item (item target-file &optional target-heading tags scheduled)
+(defun org-air-refile-item (item target-file &optional target-heading tags scheduled category)
   "Move ITEM to TARGET-FILE under TARGET-HEADING.
 
-Interactively, dashboard items use the single org-air refile prompt, whose
-title shows the item's CURRENT tags, with category (@), timeline (>), quick
-tag-add (#), a `# edit tags…' step (the full set, pre-filled, add OR
-remove), real file targets (⌂), and `⌂ other file…' candidates (R19-2).
-TAGS replaces the item's tags when non-nil.  SCHEDULED is an Org timestamp
-string; empty clears the schedule."
+Interactively, dashboard items use the R20-4 action-first refile menu: a
+short, truncated `Refile \"<title…>\" → ' prompt leading with the dedicated
+`⌂ Move to file…' picker, then `Tags…' / `Category…' (both
+`completing-read-multiple', add/remove) and the spelled-out `Schedule: …'
+quicks.  TAGS replaces the item's tags when non-nil; CATEGORY sets the
+moved heading's `:CATEGORY:' property; SCHEDULED is an Org timestamp string
+\(empty clears the schedule)."
   (interactive
    (let* ((item (org-air-inbox--interactive-item))
-          (current-tags (org-air-item-tags item))
           (choice (completing-read
-                   (format "Refile \"%s\"%s → "
-                           (org-air-item-title item)
-                           (if current-tags
-                               (concat " ["
-                                       (mapconcat (lambda (tg) (concat "#" tg))
-                                                  current-tags " ")
-                                       "]")
-                             ""))
+                   (format "Refile \"%s\" → "
+                           (truncate-string-to-width
+                            (org-air-item-title item) 24 nil nil "…"))
                    (org-air-inbox--refile-candidates item)
-                   nil nil)))
+                   nil t)))
      (org-air-inbox--decode-target choice item)))
   (let ((text nil))
     (with-current-buffer (org-air-inbox--source-buffer item)
@@ -224,10 +253,13 @@ string; empty clears the schedule."
           (goto-char insert-marker)
           (org-back-to-heading t)
           (when tags (org-set-tags tags))
+          (when (and category (not (string-empty-p category)))
+            (org-set-property "CATEGORY" category))
           (when scheduled
             (org-schedule nil (unless (string-empty-p scheduled) scheduled)))))
       (save-buffer)))
-  (message "Refiled %s" (org-air-item-title item))
+  (message "Refiled → %s"
+           (file-name-nondirectory (expand-file-name target-file)))
   (when (derived-mode-p 'org-air-view-mode)
     (when (fboundp 'org-air-refresh)
       (org-air-refresh))))

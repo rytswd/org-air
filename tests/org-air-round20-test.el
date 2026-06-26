@@ -252,5 +252,114 @@ item in a DIFFERENT file builds a FRESH indirect on the new base."
         (dolist (bb (org-air-r20--live-pane-indirects)) (kill-buffer bb))
         (when (buffer-live-p host) (kill-buffer host))))))
 
+;;;; ---------------------------------------------------------------------
+;;;; R20-4 — refile: action-first menu, dedicated move, CRM tags/category.
+;;;; ---------------------------------------------------------------------
+
+(ert-deftest org-air-r20-4-refile-menu-is-action-first-move-leads ()
+  "The refile menu is the NAMED action list — it LEADS with the dedicated
+`⌂ Move to file…' action, carries `Tags…' / `Category…', the spelled-out
+`Schedule: …' quicks, and NO flat `#tag' / `@group' soup."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (let* ((item (org-air-item-create
+                  :title "x" :tags '("a") :file (car org-air-files)
+                  :marker (point-marker)))
+           (cands (org-air-inbox--refile-candidates item)))
+      ;; move is FIRST and obvious
+      (should (equal (car cands) "⌂ Move to file…"))
+      (should (member "Tags…" cands))
+      (should (member "Category…" cands))
+      (should (member "Schedule: today" cands))
+      (should (member "Schedule: someday" cands))
+      ;; no one-at-a-time tag/group rows
+      (should-not (seq-find (lambda (c) (string-prefix-p "#" c)) cands))
+      (should-not (seq-find (lambda (c) (string-prefix-p "@" c)) cands)))))
+
+(ert-deftest org-air-r20-4-edit-categories-crm-prefilled ()
+  "`org-air-inbox--edit-categories' is `completing-read-multiple' PRE-FILLED
+with the item's current category; picking two yields a 2-element list (the
+caller makes the first the `:CATEGORY:' and the rest tags)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (let* ((item (org-air-item-create
+                  :title "x" :tags '("a") :file (car org-air-files)
+                  :group "work" :marker (point-marker)))
+           (captured-initial 'unset))
+      (cl-letf (((symbol-function 'completing-read-multiple)
+                 (lambda (_prompt _coll &optional _pred _req initial &rest _)
+                   (setq captured-initial initial)
+                   '("work" "finance"))))
+        (let ((result (org-air-inbox--edit-categories item)))
+          ;; pre-filled with the CURRENT category
+          (should (equal captured-initial "work"))
+          ;; multi-pick -> a 2-element list
+          (should (equal result '("work" "finance"))))))))
+
+(ert-deftest org-air-r20-4-decode-category-first-is-category-rest-are-tags ()
+  "`Category…' decoding makes the FIRST pick the `:CATEGORY:' arg and adds any
+EXTRA picks as tags (merged onto the item's current tags) — nothing is lost."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (let ((item (org-air-item-create
+                 :title "x" :tags '("keep") :file (car org-air-files)
+                 :group "work" :marker (point-marker))))
+      (cl-letf (((symbol-function 'completing-read-multiple)
+                 (lambda (&rest _) '("finance" "q3"))))
+        ;; decoded = (ITEM FILE HEADING TAGS SCHEDULED CATEGORY)
+        (let ((decoded (org-air-inbox--decode-target "Category…" item)))
+          (should (equal (nth 5 decoded) "finance"))      ; FIRST -> category
+          (should (member "q3" (nth 3 decoded)))          ; EXTRA -> tag
+          (should (member "keep" (nth 3 decoded))))))))   ; current tag kept
+
+(ert-deftest org-air-r20-4-decode-move-routes-to-read-move-target ()
+  "`⌂ Move to file…' decoding routes through `--read-move-target' and yields
+the REAL target file + heading (mocking the file picker + heading prompt)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r20--with-temp-org
+      ((dir)
+       (a "a.org" "* TODO H :x:\n")
+       (b "b.org" "* Existing\n"))
+    (let* ((org-air-files (list dir))
+           (item (org-air-item-create
+                  :title "H" :tags '("x") :file a
+                  :marker (with-current-buffer (find-file-noselect a)
+                            (goto-char (point-min)) (point-marker))))
+           (b-cand (concat "⌂ " (file-name-nondirectory b))))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) b-cand))
+                ((symbol-function 'read-string)
+                 (lambda (&rest _) "Under here")))
+        (let ((decoded (org-air-inbox--decode-target "⌂ Move to file…" item)))
+          ;; decoded = (ITEM FILE HEADING TAGS SCHEDULED CATEGORY)
+          (should (equal (file-truename (nth 1 decoded)) (file-truename b)))
+          (should (equal (nth 2 decoded) "Under here"))
+          (should-not (nth 3 decoded))
+          (should-not (nth 5 decoded)))))))
+
+(ert-deftest org-air-r20-4-refile-applies-category-property ()
+  "A `Category…' refile sets the moved heading's `:CATEGORY:' property and
+merges the extra picks as tags (end-to-end through `org-air-refile-item')."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r20--with-temp-org
+      ((dir)
+       (a "a.org" "* TODO Pay invoice :keep:\n  body\n"))
+    (let* ((org-air-files (list dir))
+           (item (org-air-item-create
+                  :title "Pay invoice" :tags '("keep") :file a :group "inbox"
+                  :marker (with-current-buffer (find-file-noselect a)
+                            (goto-char (point-min))
+                            (re-search-forward "^\\* TODO Pay invoice")
+                            (goto-char (match-beginning 0)) (point-marker)))))
+      (let ((inhibit-message t))
+        (org-air-refile-item item a nil '("keep" "q3") nil "finance"))
+      (with-temp-buffer
+        (insert-file-contents a)
+        (let ((text (buffer-string)))
+          (should (string-match-p ":CATEGORY:" text))
+          (should (string-match-p "finance" text))
+          (should (string-match-p ":keep:" text))
+          (should (string-match-p ":q3:" text)))))))
+
 (provide 'org-air-round20-test)
 ;;; org-air-round20-test.el ends here

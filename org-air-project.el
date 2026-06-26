@@ -120,15 +120,32 @@ the board's empty sections."
   :group 'org-air)
 
 (defcustom org-air-project-state-badges
-  '(("draft"            . ("\N{MEMO}"               . "[D]"))
-    ("ready"            . ("\N{DIRECT HIT}"         . "[R]"))
-    ("work-in-progress" . ("\N{GEAR}"               . "[W]"))
-    ("review"           . ("\N{LEFT-POINTING MAGNIFYING GLASS}" . "[V]"))
-    ("complete"         . ("\N{WHITE HEAVY CHECK MARK}" . "[C]"))
-    ("dropped"          . ("\N{WASTEBASKET}"        . "[X]")))
+  '(("draft"            . ("\N{MEMO}\N{VARIATION SELECTOR-16}"               . "[D]"))
+    ("ready"            . ("\N{DIRECT HIT}\N{VARIATION SELECTOR-16}"         . "[R]"))
+    ("work-in-progress" . ("\N{GEAR}\N{VARIATION SELECTOR-16}"               . "[W]"))
+    ("review"           . ("\N{LEFT-POINTING MAGNIFYING GLASS}\N{VARIATION SELECTOR-16}" . "[V]"))
+    ("complete"         . ("\N{WHITE HEAVY CHECK MARK}\N{VARIATION SELECTOR-16}" . "[C]"))
+    ("dropped"          . ("\N{WASTEBASKET}\N{VARIATION SELECTOR-16}"        . "[X]")))
   "Per-state badge as (STATE . (EMOJI . TTY)).
-The GUI shows EMOJI; the byte gate (no graphical frame) shows TTY."
+The GUI shows EMOJI (R23-4) when `org-air-project-state-style' is `emoji';
+the byte gate (no graphical frame) always shows TTY.  Each emoji ends in
+`\N{VARIATION SELECTOR-16}' so it renders in COLOUR presentation at a
+consistent width-2, matching the icons `airctl status -Da' prints."
   :type '(alist :key-type string :value-type (cons string string))
+  :group 'org-air)
+
+(defcustom org-air-project-state-style 'emoji
+  "How the project per-doc STATE badge renders (R23-4).
+`emoji' (default) shows the colour state emoji (\N{DIRECT HIT}/\N{WHITE
+HEAVY CHECK MARK}/...) on a graphical frame — icon-legible at a glance and
+matching `airctl status -Da' — falling back to the svg keyword chip / the
+`[R]' token off-GUI; `badge' keeps the R21-4 small coloured svg chip over
+the token; `text' is the plain coloured token only.  Either way the TTY/
+byte layer stays the terse `[R]'... token, so the byte goldens are
+unchanged and the cell never grows past `org-air-project--state-cell-w'."
+  :type '(choice (const :tag "Colour emoji on GUI" emoji)
+                 (const :tag "Small svg chip" badge)
+                 (const :tag "Plain token text" text))
   :group 'org-air)
 
 ;;;; ---------------------------------------------------------------------
@@ -372,16 +389,34 @@ emoji (R21.1 retired the GUI state-emoji path entirely)."
     (if pair (cdr pair)
       (format "[%s]" (upcase (substring state 0 1))))))
 
+(defun org-air-project--state-emoji (state)
+  "Return STATE's colour emoji when a graphical frame can show it, else nil.
+The emoji carries `\N{VARIATION SELECTOR-16}' for colour presentation; it
+is only offered on a graphical frame whose font can display the base glyph,
+so `--batch' (no graphical frame) always returns nil and the cell falls
+back to the terse `[R]'... token (the byte/TTY contract)."
+  (let ((emoji (car (cdr (assoc state org-air-project-state-badges)))))
+    (and emoji (display-graphic-p)
+         (char-displayable-p (aref emoji 0))
+         emoji)))
+
 (defun org-air-project--state-badge-cell (state)
-  "Return STATE's token faced + the shared svg keyword/state badge (R21-4).
-The terse token text (`[R]'...) is the byte/TTY contract; on GUI the
-shared `org-air-view--svg-keyword-badge' overlays a small coloured chip
-\(state colour from `org-air-project--state-face'), the SAME badge idiom
-as the board keyword cell -- retiring the project emoji on GUI."
-  (org-air-view--svg-keyword-badge
-   (propertize (org-air-project--state-token state)
-               'face (org-air-project--state-face state))
-   (org-air-project--state-face state)))
+  "Return STATE's badge cell per `org-air-project-state-style' (R23-4).
+`text' is the plain coloured token; `badge' is the R21-4 small svg chip;
+`emoji' (the default) shows STATE's colour emoji on a graphical frame and
+otherwise falls through to the SAME svg/token fallback as `badge' — so the
+byte gate (non-graphic) stays byte-identical (`[R]'... token).  The emoji
+is the cell TEXT at the normal line height (never a `:height' face), so the
+row never grows (svg-never-grows-line); `--state-cell' pads whatever this
+returns to the fixed `org-air-project--state-cell-w' so the title left edge
+stays V6-locked."
+  (let* ((face  (org-air-project--state-face state))
+         (token (propertize (org-air-project--state-token state) 'face face)))
+    (pcase org-air-project-state-style
+      ('text  token)
+      ('badge (org-air-view--svg-keyword-badge token face))
+      (_      (or (org-air-project--state-emoji state)
+                  (org-air-view--svg-keyword-badge token face))))))
 
 (defun org-air-project--state-cell (state)
   "Return a FIXED-width reserved STATE cell for the project row (R21-5).

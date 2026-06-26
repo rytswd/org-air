@@ -387,6 +387,17 @@ overlays the svg keyword/state badge on it for GUI.  Unlike
     (if pair (cdr pair)
       (format "[%s]" (upcase (substring state 0 1))))))
 
+(defun org-air-project--state-badge-cell (state)
+  "Return STATE's token faced + the shared svg keyword/state badge (R21-4).
+The terse token text (`[R]'...) is the byte/TTY contract; on GUI the
+shared `org-air-view--svg-keyword-badge' overlays a small coloured chip
+\(state colour from `org-air-project--state-face'), the SAME badge idiom
+as the board keyword cell -- retiring the project emoji on GUI."
+  (org-air-view--svg-keyword-badge
+   (propertize (org-air-project--state-token state)
+               'face (org-air-project--state-face state))
+   (org-air-project--state-face state)))
+
 (defun org-air-project--state-cell (state)
   "Return a FIXED-width reserved STATE cell for the project row (R21-5).
 Mirrors the board's `org-air-view--todo-cell': the state TOKEN in its
@@ -395,8 +406,7 @@ plus a single trailing separator, so every doc title shares one left
 edge.  The token text is the byte/TTY contract; R21-4 overlays the svg
 keyword/state badge on GUI."
   (concat (org-air-view--pad-to
-           (propertize (org-air-project--state-token state)
-                       'face (org-air-project--state-face state))
+           (org-air-project--state-badge-cell state)
            org-air-project--state-cell-w)
           " "))
 
@@ -587,8 +597,7 @@ Only states present (N>0) appear; the top-dir box header uses this."
       (let ((n (or (cdr (assoc state counts)) 0)))
         (when (> n 0)
           (push (concat
-                 (propertize (org-air-project--state-badge state)
-                             'face (org-air-project--state-face state))
+                 (org-air-project--state-badge-cell state)
                  " "
                  (propertize (org-air-project--state-title state)
                              'face 'org-air-face-section)
@@ -606,8 +615,7 @@ states absent from both are omitted.  Display order = the state constant."
       (let ((n (or (cdr (assoc state direct)) 0))
             (m (or (cdr (assoc state desc)) 0)))
         (when (or (> n 0) (> m 0))
-          (let ((badge (propertize (org-air-project--state-badge state)
-                                   'face (org-air-project--state-face state)))
+          (let ((badge (org-air-project--state-badge-cell state))
                 (num (when (> n 0)
                        (propertize (number-to-string n)
                                    'face 'org-air-face-count)))

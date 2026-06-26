@@ -574,6 +574,15 @@ display overlay."
   :type '(choice (const square) (const badge) (const text))
   :group 'org-air)
 
+(defcustom org-air-keyword-style 'badge
+  "How a TODO keyword / Air state renders (R21-4).
+`badge' overlays the reserved keyword/state cell with a small coloured
+svg chip (GUI); `text' keeps the plain coloured keyword text.  The svg is
+a display overlay over the UNCHANGED cell text, so the byte/TTY layer
+always shows the keyword/token text either way (`NEXT', `[R]')."
+  :type '(choice (const badge) (const text))
+  :group 'org-air)
+
 (defcustom org-air-todo-keyword-faces
   '(("TODO" . org-air-face-todo)
     ("NEXT" . org-air-face-todo-next)
@@ -1962,6 +1971,22 @@ first."
           org-air-view--meta-date-repeat rep
           org-air-view--meta-todo-w tw-todo)))
 
+(defun org-air-view--svg-keyword-badge (text face)
+  "Return TEXT carrying a small coloured keyword/state svg chip (R21-4).
+Reuses `org-air-view--svg-pillify' with FACE's foreground as the salient
+\(full-strength) border, so the chip reads as a coloured BADGE -- distinct
+from the calm monochrome tag/date pills.  Shared by the board keyword
+cell and the project state cell.  Returns TEXT unchanged (the plain
+coloured keyword/token text) when `org-air-keyword-style' is `text', when
+svg is unavailable, or when TEXT is blank -- the mandatory fallback, so
+the byte/TTY layer always keeps the keyword text."
+  (if (or (not (eq org-air-keyword-style 'badge))
+          (not (org-air-view--svg-available-p))
+          (string-empty-p (string-trim text)))
+      text
+    (let ((color (face-foreground face nil t)))
+      (org-air-view--svg-pillify text face :border-color color))))
+
 (defun org-air-view--todo-cell (todo width)
   "Return a fixed-width reserved TODO-keyword cell (R15 D-P1).
 WIDTH is the board-wide widest keyword (`org-air-view--meta-todo-w').
@@ -1969,12 +1994,16 @@ When WIDTH is 0 no rendered item has a keyword, so return an empty
 string (no wasted column).  Otherwise return TODO in its todo-face (or
 WIDTH blanks when absent), left-justified and padded to WIDTH, plus a
 single trailing space separator -- so every row contributes WIDTH+1
-columns here and all titles share one left edge."
+columns here and all titles share one left edge.  R21-4: when TODO is
+present, overlay the shared svg keyword badge on the (unchanged) padded
+keyword text -- a `display' overlay, so the byte/TTY layer is identical."
   (if (<= width 0)
       ""
     (concat (org-air-view--pad-to
              (if todo
-                 (propertize todo 'face (org-air-view--todo-face todo))
+                 (org-air-view--svg-keyword-badge
+                  (propertize todo 'face (org-air-view--todo-face todo))
+                  (org-air-view--todo-face todo))
                "")
              width)
             " ")))

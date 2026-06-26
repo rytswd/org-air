@@ -2205,7 +2205,8 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
      :date-text date-text
      :tags tagstr
      :origin-text origin-raw
-     :origin-face 'org-air-face-group
+     ;; R22-7: the origin reads at AA (mid-tier) instead of sub-AA faded.
+     :origin-face 'org-air-face-origin
      :widths (list dcol tcol ocol)
      :props (list 'org-air-item item
                   'org-air-marker (org-air-item-marker item)
@@ -4192,21 +4193,26 @@ golden strips it), so this is byte-invisible."
   (let* ((icon (org-air-view--glyph 'view-pane))
          (dot (concat "  "
                       (propertize (org-air-view--glyph 'sep-dot)
-                                  'face 'org-air-face-faded)
+                                  'face 'org-air-face-inspector-label)
                       "  "))
+         ;; R22-7: face the filename + state (+ the separators / icon /
+         ;; close-key) with the readable mid-tier `org-air-face-inspector-
+         ;; label' (6.02:1 light / 8.32:1 dark) instead of `org-air-face-
+         ;; faded' (2.15:1 / 2.45:1, sub-AA) so the FIRST-read filename is
+         ;; legible; the TITLE stays the strongest segment (pane-title ~11:1).
          (file (let ((f (plist-get ctx :file)))
                  (and f (propertize (file-name-nondirectory f)
-                                    'face 'org-air-face-faded))))
+                                    'face 'org-air-face-inspector-label))))
          (title (let ((tt (plist-get ctx :title)))
                   (and tt (propertize tt 'face 'org-air-face-pane-title))))
          (state (let ((s (plist-get ctx :state)))
-                  (and s (propertize s 'face 'org-air-face-faded))))
+                  (and s (propertize s 'face 'org-air-face-inspector-label))))
          (parts (delq nil (list file title state))))
-    (concat (propertize icon 'face 'org-air-face-faded)
+    (concat (propertize icon 'face 'org-air-face-inspector-label)
             " " (mapconcat #'identity parts dot)
             (if close-key
                 (concat dot (propertize (concat close-key " close")
-                                        'face 'org-air-face-faded))
+                                        'face 'org-air-face-inspector-label))
               ""))))
 
 (defun org-air-view-pane--indirect (base pos title)

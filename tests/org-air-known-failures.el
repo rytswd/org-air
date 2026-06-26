@@ -516,6 +516,16 @@
      format; the new summary is the quiet `W1 X1 D1' letter-count (same
      numbers, airctl -Da parity). Test seat re-blesses the format regexp.")
     ;; ===================================================================
+    ;; R22-7 CONTRAST (impl track) — the pane header FILENAME/state segments
+    ;; were re-faced off sub-AA `org-air-face-faded' (2.15:1 / 2.45:1) onto
+    ;; the readable mid-tier `org-air-face-inspector-label' (6.02:1 / 8.32:1);
+    ;; the title stays strongest.  This ERT asserts the OLD faded filename;
+    ;; the test seat re-blesses it to the readable mid-tier (+ the WCAG ERTs).
+    (org-air-r18-dp5-pane-header-chrome-faces
+     . "R22-7: pane filename is `org-air-face-inspector-label' now (readable
+     mid-tier, AA) not `org-air-face-faded' (sub-AA); title stays strongest.
+     Test seat re-blesses to the readable face + adds the WCAG ERTs.")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

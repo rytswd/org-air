@@ -722,7 +722,8 @@ match the board's clean one-line table."
      :date-text date
      :tags tags
      :origin-text origin
-     :origin-face 'org-air-face-group
+     ;; R22-7: the origin reads at AA (mid-tier) instead of sub-AA faded.
+     :origin-face 'org-air-face-origin
      :widths (list org-air-project--meta-date-w
                    org-air-project--meta-tags-w
                    org-air-project--meta-origin-w)

@@ -443,6 +443,21 @@ Reconciled with `org-air-priority-colors'."
   "Face for an item's category/group label and origin breadcrumb."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-origin
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#455A64"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#D8DEE9"))
+    (t (:inherit org-air-face-faded)))
+  "Face for the row's right-edge ORIGIN cell (board + project) (R22-7).
+A dedicated mid-tier readable tone (#455A64 light / #D8DEE9 dark) bumped
+off `org-air-face-group'/`-faded' (which measured 2.48:1 light / 2.72:1
+dark, sub-AA) to AA (6.02:1 / ~7-8:1) while staying clearly QUIETER than
+the row title — the origin is the calm right-edge metadata, no longer
+near-invisible.  Dedicated (not a retint of `org-air-face-group') so the
+generic group label is untouched."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-empty
   '((t :inherit org-air-face-faded :slant italic))
   "Face for empty-state placeholder text."

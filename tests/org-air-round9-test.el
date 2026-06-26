@@ -333,11 +333,12 @@ the full board."
     (should (null org-air-view--scope))))
 
 (ert-deftest org-air-r9-q1-rail-advertises-scope-reset ()
-  "Q1: the scope reset is discoverable.  R19-4d re-bless: the active scope
-now lives in its OWN labelled rail block (split crisply from the Filter
-block) carrying the in-place `s changes · S clears' hint, and the Actions
-block still surfaces the literal `S reset' cue (impl qqpuoqlv, swapping in
-for `TAB expand' while scoped)."
+  "Q1: the scope reset is discoverable.  R19-4d / R22-4 re-bless: the active
+source lens now lives in its OWN labelled rail block (the `Source' header,
+renamed from `Scope' in R22-4, split crisply from the Filter block)
+carrying the dataset count + the in-place `s changes · S clears' hint, and
+the Actions block still surfaces the literal `S reset' cue (impl qqpuoqlv,
+swapping in for `TAB expand' while scoped)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (let ((mk (org-air-layout-glyph 'rail-marker)))
@@ -345,10 +346,12 @@ for `TAB expand' while scoped)."
         (setq org-air-view--scope '(:tag "work"))
         (org-air-view--render-current)
         (let ((text (substring-no-properties (buffer-string))))
-          ;; the labelled Scope block (R19-4d),
-          (should (string-match-p (concat (regexp-quote mk) " Scope") text))
-          ;; the lens token + its in-place `s changes · S clears' hint,
-          (should (string-match-p "#work   s changes · S clears" text))
+          ;; the labelled Source block (R22-4 renamed Scope -> Source),
+          (should (string-match-p (concat (regexp-quote mk) " Source") text))
+          ;; the lens token + its dataset count + the in-place
+          ;; `s changes · S clears' hint (R22-4 adds the `· N loaded' count),
+          (should (string-match-p "#work · [0-9]+ loaded   s changes · S clears"
+                                  text))
           ;; and the literal `S reset' cue in the Actions block (qqpuoqlv).
           (should (string-match-p "S reset" text)))))))
 
@@ -497,7 +500,10 @@ centred off that spine."
              (pick (lambda (rx)
                      (cl-find-if (lambda (l) (string-match-p rx l)) rail)))
              (weekday (funcall pick "Su .*Mo .*Tu"))
-             (filters (funcall pick "No filters"))
+             ;; R22-4: the empty Filter block's placeholder reads `none'
+             ;; now (was `No filters · all items'); it is the rail's first
+             ;; left-aligned text block, still on the content spine.
+             (filters (funcall pick "\\bnone\\b"))
              (actions (funcall pick "c capture")))
         (should (and weekday filters actions))
         ;; The text blocks (filters / actions) share one left edge — the

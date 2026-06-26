@@ -12,9 +12,9 @@
       TODO   Book dentist appointment  OVERDUE 3d      #personal … ▤ personal.… │     ◆ due    ● sched
       TODO   Dust off old archive pr…  no date         #projects … ▤ projects.… │
       TODO   Untracked idea with no …  no date         #projects … ▤ projects.… │ ▌ Filter
-             Reference notes without…  no date         #projects … ▤ projects.… │  No filters · all items
-      …and 2 more — press TAB on the title to expand                            │ ▌ Scope
-                                                                                │  all items
+             Reference notes without…  no date         #projects … ▤ projects.… │  none
+      …and 2 more — press TAB on the title to expand                            │ ▌ Source
+                                                                                │  all items · 23 loaded
   ◆ Upcoming 8                                                                  │
       TODO   Renew library card        Today           #personal … ▤ personal.… │ ▌ Summary
       TODO   Water the garden          Today           #projects … ▤ projects.… │    3   Inbox
@@ -46,5 +46,5 @@
                                                                                 │
                                                                                 │
                                                                                 │ ▌ Actions
-                                                                                │  c capture / filter   s sco…
+                                                                                │  c capture / filter   s sou…
                                                                                 │  g refresh TAB expand ? help

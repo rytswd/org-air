@@ -12,9 +12,9 @@
       TODO   File the receipts         Tomorrow      #inbox               ▤ inbox.org │       ◆ due    ● sched
                                                                                       │
   ★ High priority 0                                                                   │ ▌ Filter
-      No #A items.                                                                    │    No filters · all items
-                                                                                      │ ▌ Scope
-  ○ Stale 0                                                                           │    all items
+      No #A items.                                                                    │    none
+                                                                                      │ ▌ Source
+  ○ Stale 0                                                                           │    all items · 2 loaded
       Nothing has gone stale.                                                         │
                                                                                       │ ▌ Summary
                                                                                       │      1   Inbox
@@ -28,5 +28,5 @@
                                                                                       │ ▌ Inspector
                                                                                       │
                                                                                       │ ▌ Actions
-                                                                                      │    c capture / filter   s scope
+                                                                                      │    c capture / filter   s source
                                                                                       │    g refresh TAB expand ? help

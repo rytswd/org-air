@@ -11,9 +11,9 @@
       [W] Zeta work in progress     ~ 2026-05-01  #co... . v0.2/ze... |     ! due    o sched
                                                                       |
   | [C] Complete 1                                                    | | Filter
-      [C] Beta CLI                  ~ 2026-05-01  #core  . v0.1/be... |  No filters · all items
-                                                                      | | Scope
-  | [X] Dropped 1                                                     |  all items
+      [C] Beta CLI                  ~ 2026-05-01  #core  . v0.1/be... |  none
+                                                                      | | Source
+  | [X] Dropped 1                                                     |  all items · 7 loaded
       [X] Delta UI exploration      ~ 2026-05-01  #ui    . v0.2/de... |
                                                                       | | Summary
   | [U] Unknown 1                                                     |    2  Draft

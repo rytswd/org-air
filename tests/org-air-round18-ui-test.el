@@ -183,28 +183,35 @@ second call sees a LIVE pane => focus t (select the pane window)."
 
 (ert-deftest org-air-r18-dp4-keymap-ret-and-sret-board-and-project ()
   "RET -> pane-return and S-RET -> visit in BOTH the board and project maps.
-The board's S-RET visits the item; the project's S-RET visits the doc."
+The board's S-RET visits the item; the project's S-RET visits the doc.
+R22-3 re-bless: `O' is the SHARED `org-air-view-sort-reverse' now (was the
+board's TTY visit alias) in BOTH views (inherited from `org-air-view-core-
+map'); the board's TTY visit relocated under the g-prefix (`g RET')."
   ;; Board map.
   (should (eq (lookup-key org-air-view-mode-map (kbd "RET"))
               'org-air-view-pane-return))
   (should (eq (lookup-key org-air-view-mode-map (kbd "<S-return>"))
               'org-air-visit-item))
+  ;; R22-3: `O' is the shared within-view sort-reverse (was visit); the
+  ;; board's TTY visit moved to the g-prefix `g RET'.
   (should (eq (lookup-key org-air-view-mode-map (kbd "O"))
+              'org-air-view-sort-reverse))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "g RET"))
               'org-air-visit-item))
   ;; Project map (a thin child of the shared core since R20-5(b)).
   (should (eq (lookup-key org-air-project-mode-map (kbd "RET"))
               'org-air-view-pane-return))
   (should (eq (lookup-key org-air-project-mode-map (kbd "<S-return>"))
               'org-air-project-visit))
-  ;; R20-5(b) re-bless: the project view DROPPED the domain shadows.  The
-  ;; old `O' = sort-reverse / `s' = group-by-state overrides are GONE
-  ;; (state/tag/sort moved to `M-x'), so a user who knows the board needs
-  ;; no relearning — `O'/`s' resolve to NO project-specific command.
+  ;; R22-3 re-bless: the project's `O' is the inherited shared sort-reverse
+  ;; (was nil on trunk; the old bespoke `org-air-project-sort-reverse' is
+  ;; RETIRED).  `s' stays a NON-project key (state grouping moved to `M-x').
+  (should (eq (lookup-key org-air-project-mode-map (kbd "O"))
+              'org-air-view-sort-reverse))
   (should-not (eq (lookup-key org-air-project-mode-map (kbd "O"))
                   'org-air-project-sort-reverse))
   (should-not (eq (lookup-key org-air-project-mode-map (kbd "s"))
                   'org-air-project-group-by-state))
-  (should (null (lookup-key org-air-project-mode-map (kbd "O"))))
   (should (null (lookup-key org-air-project-mode-map (kbd "s")))))
 
 ;;;; ---------------------------------------------------------------------
@@ -268,12 +275,18 @@ per-mode doc filter; the project DOMAIN verbs are NOT shadowed."
               'org-air-project-filter))
   (should (eq (lookup-key org-air-view-mode-map (kbd "/"))
               'org-air-filter))
-  ;; R20-5(b): the thin keymap no longer SHADOWS the shared board keys.
-  ;; The old domain verbs `s' = group-by-state / `o' = sort-cycle are GONE
-  ;; (state/tag/sort moved to `M-x'); only the project's own non-shared
-  ;; verbs remain (`g' refresh, `q' quit, S-RET visit, n/p motion).
+  ;; R22-3 re-bless: `o'/`O' are now the SHARED within-view sort, inherited
+  ;; from `org-air-view-core-map' identically board <-> project (the old
+  ;; bespoke `org-air-project-sort-cycle/-reverse' are retired); the project
+  ;; DOMAIN verb `s' (state grouping) is GONE (moved to `M-x') so it no
+  ;; longer shadows the board.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "o"))
+              'org-air-view-sort-cycle))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "O"))
+              'org-air-view-sort-reverse))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "o"))
+              (lookup-key org-air-view-mode-map (kbd "o"))))
   (should (null (lookup-key org-air-project-mode-map (kbd "s"))))
-  (should (null (lookup-key org-air-project-mode-map (kbd "o"))))
   (should (eq (lookup-key org-air-project-mode-map (kbd "g"))
               'org-air-project-refresh)))
 
@@ -321,8 +334,9 @@ The pane has no divider, so positive leading is free (mu4e-style, D-P5.2);
 (ert-deftest org-air-r18-dp5-pane-header-chrome-faces ()
   "D-P5.2: the pane header keeps its TEXT but the title rides a salient face.
 The R16 text contract (`<file> · <title> · <state>') is preserved (faces
-only, so the pane byte golden holds); the title segment is salient, the
-file segment faded."
+only, so the pane byte golden holds); the title segment is salient.  R22-7
+re-bless: the file segment rides the readable mid-tier
+`org-air-face-inspector-label' (>= WCAG AA), no longer the sub-AA faded."
   (let ((hl (org-air-view-pane--header-line
              (list :file "/x/foo.org" :title "A heading" :state "TODO"))))
     ;; text contract preserved.
@@ -332,9 +346,13 @@ file segment faded."
     ;; the title segment carries the salient pane-title face.
     (should (eq (get-text-property (string-match "A heading" hl) 'face hl)
                 'org-air-face-pane-title))
-    ;; the file segment is faded.
+    ;; R22-7 re-bless: the file segment is the READABLE mid-tier
+    ;; `org-air-face-inspector-label' now (>= AA), not the sub-AA
+    ;; `org-air-face-faded' it carried on trunk; the title stays strongest.
     (should (eq (get-text-property (string-match "foo" hl) 'face hl)
-                'org-air-face-faded))))
+                'org-air-face-inspector-label))
+    (should-not (eq (get-text-property (string-match "foo" hl) 'face hl)
+                    'org-air-face-faded))))
 
 (ert-deftest org-air-r18-dp5-tag-color-default-calm ()
   "D-P5.3: `org-air-tag-color' default nil -> tags ride ONE faded tint.

@@ -213,9 +213,12 @@ R20-5 fix divergence:
 (ert-deftest org-air-r20-5-fix-directory-render-guards-divergence ()
   "The DIRECTORY-tree render (the shipped default, the goldens) shows the
 fix where it matters: the stateless `Eta notes' renders with the faded
-`[U]' chip (UNKNOWN, never `[D]'/`[R]'), the v0.2 per-dir Draft badge is
-NOT inflated (`[D] 1', Epsilon only), and `OVERVIEW.org' contributes
-NOTHING -- no title row, no `#summary' tag, no Ready badge in v0.2."
+`[U]' chip (UNKNOWN, never `[D]'/`[R]'), the v0.2 per-dir Draft count is
+NOT inflated (Epsilon only), and `OVERVIEW.org' contributes NOTHING -- no
+title row, no `#summary' tag, no Ready badge in v0.2.  R22-6 re-bless: the
+per-dir counts are the quiet right-aligned LETTER-count summary
+(`W1 X1 D1', same numbers / `airctl -Da' parity) now, not the old
+`[W] 1  [X] 1  [D] 1' badge wall."
   (skip-unless (locate-library "org-air"))
   (let ((text (string-join
                (org-air-project-test--render-lines
@@ -224,9 +227,11 @@ NOTHING -- no title row, no `#summary' tag, no Ready badge in v0.2."
     ;; stateless doc -> UNKNOWN chip, never Draft/Ready.
     (should (string-match-p "\\[U\\] Eta notes" text))
     (should-not (string-match-p "\\[[DR]\\] Eta notes" text))
-    ;; v0.2 per-dir count badges are NOT inflated by the unknown/excluded
-    ;; docs: Work-In-Progress 1, Dropped 1, Draft 1 (Epsilon only).
-    (should (string-match-p "v0\\.2/ +\\[W\\] 1  \\[X\\] 1  \\[D\\] 1" text))
+    ;; R22-6: the v0.2 per-dir count summary is the letter-count `W1 X1 D1'
+    ;; (Work-In-Progress 1, Dropped 1, Draft 1 = Epsilon only) — NOT inflated
+    ;; by the unknown/excluded docs, same numbers as the old badge wall.
+    (should (string-match-p "v0\\.2/ +W1 X1 D1" text))
+    (should-not (string-match-p "\\[W\\] 1  \\[X\\] 1  \\[D\\] 1" text))
     ;; OVERVIEW.org contributes NOTHING to the render.
     (should-not (string-match-p "Overview" text))
     (should-not (string-match-p "#summary" text))))
@@ -238,9 +243,12 @@ NOTHING -- no title row, no `#summary' tag, no Ready badge in v0.2."
 (ert-deftest org-air-r20-5-project-reuses-shared-board-rail ()
   "The project view drives the SHARED board rail via a buffer-local view
 descriptor (no bespoke parallel rail): the rendered rail carries
-Calendar · Filter · Scope · Summary · Inspector · Actions — the bespoke
+Calendar · Filter · Source · Summary · Inspector · Actions — the bespoke
 pre-R20 project rail had ONLY Summary + Inspector, so the new blocks
-(Calendar grid, Filter, Scope, Actions) prove the board rail is reused."
+(Calendar grid, Filter, Source, Actions) prove the board rail is reused.
+R22-4 re-bless: the structural-lens block header is `Source' now (was
+`Scope'); the shared block carries the `none' empty filter + the `N
+loaded' dataset count."
   (skip-unless (locate-library "org-air"))
   (let ((org-air-project-view-width 100))
     (org-air-project-test--render
@@ -250,9 +258,11 @@ pre-R20 project rail had ONLY Summary + Inspector, so the new blocks
      (should (plist-get org-air-view--rail-descriptor :actions-fn))
      (should (plist-get org-air-view--rail-descriptor :calendar-fn))
      (let ((text (buffer-string)))
-       ;; shared-rail blocks the OLD bespoke rail never had:
+       ;; shared-rail blocks the OLD bespoke rail never had (R22-4:
+       ;; `Source' replaces the `Scope' header):
        (should (string-match-p "| Filter" text))
-       (should (string-match-p "| Scope" text))
+       (should (string-match-p "| Source" text))
+       (should-not (string-match-p "| Scope\\b" text))
        (should (string-match-p "| Actions" text))
        ;; the calendar grid (weekday header) — the board's calendar, reused
        (should (string-match-p "Su Mo Tu We Th Fr Sa" text))
@@ -269,18 +279,27 @@ pre-R20 project rail had ONLY Summary + Inspector, so the new blocks
 key and never shadows the board verbs.
  - parent is the shared core; the core keys RET/v/V/\\\\/M-/ resolve to the
    SAME command in the board AND the project map;
+ - R22-3: `o'/`O' are now the SHARED within-view sort, inherited from the
+   core, so they resolve IDENTICALLY board <-> project (not project-local);
  - the per-mode `/' filter stays per-view (different candidate source);
- - the old project domain verbs s/d/t/o/O are GONE (state/tag/sort moved
-   to `M-x'), so they no longer shadow the board."
+ - the old project domain verbs s/d/t are GONE (state/tag moved to `M-x'),
+   so they no longer shadow the board."
   (skip-unless (locate-library "org-air"))
   ;; thin child of the shared core
   (should (eq (keymap-parent org-air-project-mode-map) org-air-view-core-map))
-  ;; SHARED core keys resolve identically board <-> project
-  (dolist (key '("RET" "v" "V" "\\" "M-/"))
+  ;; SHARED core keys resolve identically board <-> project.  R22-3 adds the
+  ;; within-view sort pair `o'/`O' to the shared core, so they too resolve
+  ;; identically across the two views (the project's old bespoke sort retired).
+  (dolist (key '("RET" "v" "V" "\\" "M-/" "o" "O"))
     (should (eq (lookup-key org-air-project-mode-map (kbd key))
                 (lookup-key org-air-view-mode-map (kbd key))))
     ;; and they are genuinely BOUND (not both nil)
     (should (lookup-key org-air-view-core-map (kbd key))))
+  ;; the shared sort pair is exactly the cross-view cycle/reverse commands.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "o"))
+              'org-air-view-sort-cycle))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "O"))
+              'org-air-view-sort-reverse))
   ;; `\\' clear + `M-/' toggle are the shared filter keys
   (should (eq (lookup-key org-air-project-mode-map (kbd "\\"))
               'org-air-filter-clear))
@@ -291,8 +310,9 @@ key and never shadows the board verbs.
               'org-air-project-filter))
   (should (eq (lookup-key org-air-view-mode-map (kbd "/"))
               'org-air-filter))
-  ;; the board domain verbs are NOT shadowed by a project override
-  (dolist (key '("s" "d" "t" "o" "O"))
+  ;; the board domain verbs s/d/t are NOT shadowed by a project override
+  ;; (state/tag/deadline moved to `M-x'); o/O are SHARED, asserted above.
+  (dolist (key '("s" "d" "t"))
     (should (null (lookup-key org-air-project-mode-map (kbd key)))))
   ;; the project keeps only its OWN non-shared verbs
   (should (eq (lookup-key org-air-project-mode-map (kbd "g"))
@@ -320,7 +340,9 @@ SCOPE label — all from buffer-locals already on hand."
            (s (org-air-view--mode-line-content)))
       (should (string-match-p "2076 items" s))
       (should (string-match-p "filter #airctl AND #ui" s))
-      (should (string-match-p "scope #work" s)))
+      ;; R22-4: the source segment reads `source <...>' now (was `scope').
+      (should (string-match-p "source #work" s))
+      (should-not (string-match-p "scope #work" s)))
     ;; OR combinator joins with the literal word OR
     (let* ((org-air-filter-match 'any)
            (s (org-air-view--mode-line-content)))
@@ -328,7 +350,8 @@ SCOPE label — all from buffer-locals already on hand."
 
 (ert-deftest org-air-r20-2-board-status-calm-no-filter-form ()
   "With no filter and no scope the board status reads the calm
-`no filter · scope all items' form, and singular counts drop the `s'."
+`filter none · source all items' form (R22-4 wording), and singular counts
+drop the `s'."
   (skip-unless (locate-library "org-air"))
   (with-temp-buffer
     (org-air-view-mode)
@@ -338,8 +361,13 @@ SCOPE label — all from buffer-locals already on hand."
     (let ((s (org-air-view--mode-line-content)))
       (should (string-match-p "1 item\\b" s))     ; singular, no trailing s
       (should-not (string-match-p "1 items" s))
-      (should (string-match-p "no filter" s))
-      (should (string-match-p "scope all items" s)))))
+      ;; R22-4: empty filter reads `filter none' (was `no filter'); the
+      ;; source segment reads `source all items' (was `scope all items')
+      ;; so the two roles no longer both say "all items".
+      (should (string-match-p "filter none" s))
+      (should-not (string-match-p "no filter" s))
+      (should (string-match-p "source all items" s))
+      (should-not (string-match-p "scope all items" s)))))
 
 (ert-deftest org-air-r20-2-project-status-reports-doc-count ()
   "The PROJECT status mode-line reports the doc count (shared construct,

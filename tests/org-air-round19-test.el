@@ -344,11 +344,12 @@ header `▌ June 2026' -> \"June\")."
     (nreverse out)))
 
 (ert-deftest org-air-r19-4-rail-order-calendar-filter-summary-inspector-actions ()
-  "R19-4c reorder: the rail blocks run Calendar -> Filter -> Summary ->
-Inspector -> Actions (the Filter block MOVED UP, between Calendar and
-Summary, so the active narrowing is seen before the Summary counts it
-explains), with the new R19-4d `Scope' block sitting between Filter and
-Summary."
+  "R19-4c reorder: the rail blocks run Calendar -> Filter -> Source ->
+Summary -> Inspector -> Actions (the Filter block MOVED UP, between
+Calendar and Summary, so the active narrowing is seen before the Summary
+counts it explains), with the R19-4d source-lens block sitting between
+Filter and Summary.  R22-4 re-bless: that block's header is `Source' now
+(renamed from `Scope'); the order is unchanged."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (let ((mk (org-air-layout-glyph 'rail-marker)))
@@ -356,17 +357,17 @@ Summary."
         (let* ((text (substring-no-properties (buffer-string)))
                (headers (org-air-r19--rail-headers text mk))
                (idx (lambda (h) (cl-position h headers :test #'equal))))
-          ;; every block is present,
-          (dolist (h '("June" "Filter" "Scope" "Summary" "Inspector" "Actions"))
+          ;; every block is present (R22-4: `Source' was `Scope'),
+          (dolist (h '("June" "Filter" "Source" "Summary" "Inspector" "Actions"))
             (should (funcall idx h)))
           ;; the canonical R19-4c vertical order,
           (should (< (funcall idx "June") (funcall idx "Filter")))
           (should (< (funcall idx "Filter") (funcall idx "Summary")))
           (should (< (funcall idx "Summary") (funcall idx "Inspector")))
           (should (< (funcall idx "Inspector") (funcall idx "Actions")))
-          ;; and Scope is wedged between Filter and Summary (R19-4d).
-          (should (< (funcall idx "Filter") (funcall idx "Scope")))
-          (should (< (funcall idx "Scope") (funcall idx "Summary"))))))))
+          ;; and Source is wedged between Filter and Summary (R19-4d/R22-4).
+          (should (< (funcall idx "Filter") (funcall idx "Source")))
+          (should (< (funcall idx "Source") (funcall idx "Summary"))))))))
 
 (ert-deftest org-air-r19-4-clear-hint-shows-clear-key-when-filter-active ()
   "R19-4b: with a filter active the Filter block teaches BOTH verbs —

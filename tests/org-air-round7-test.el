@@ -110,9 +110,10 @@ defaults to 0 (users can set 1 for Monday)."
 (ert-deftest org-air-r4-footer-band-removed ()
   "R4 [byte]: the bottom `[c]apture [g]refresh …' footer band is gone
 (`org-air-show-footer' defaults nil); the verbs live in the rail's D5
-Actions block (c capture / filter  s scope ...).  Rendered wide (160) so
-the mid-tier elision (D5f narrow tiers truncate with …) does not clip
-`s scope'."
+Actions block (c capture / filter  s source ...).  R22-4 re-bless: the
+dataset verb is `s source' now (was `s scope') — the rail's Source/dataset
+selector.  Rendered wide (160) so the mid-tier elision (D5f narrow tiers
+truncate with …) does not clip `s source'."
   (skip-unless (locate-library "org-air"))
   (should (boundp 'org-air-show-footer))
   (should (null org-air-show-footer))
@@ -123,7 +124,9 @@ the mid-tier elision (D5f narrow tiers truncate with …) does not clip
         (should-not (string-match-p "\\[c\\]apture" text))
         ;; …but the rail still carries the verbs (D5 Actions block).
         (should (string-match-p "c capture" text))
-        (should (string-match-p "s scope" text))))))
+        ;; R22-4: the dataset verb reads `s source' now (was `s scope').
+        (should (string-match-p "s source" text))
+        (should-not (string-match-p "s scope" text))))))
 
 ;;;; R10 — title left & clean; one right-aligned [date] <=2 tags origin.
 

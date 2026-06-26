@@ -171,8 +171,8 @@ under a filter that hides every item."
 (ert-deftest org-air-layout-empty-board-holds-shape ()
   "With zero items the layout keeps its full skeleton.  Spec §5.2:
 five section headings with 0 badges, the per-section empty placeholder
-lines, a summary with a total row, the filters placeholder, and the
-calendar grid all render."
+lines, a summary with a total row, the Filter `none' placeholder + Source
+dataset count (R22-4 wording), and the calendar grid all render."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-empty-dashboard 120
     (let ((text (buffer-string)))
@@ -189,9 +189,13 @@ calendar grid all render."
       (should (string-match-p "Nothing overdue\\.\\s-+Nice\\.\\|Nothing overdue\\. Nice\\." text))
       ;; In-buffer header band reports an empty board (§5.2).
       (should (string-match-p "· 0 items" text))
-      ;; Rail: summary total, filters placeholder, calendar grid.
+      ;; Rail: summary total, the Filter empty-state `none' placeholder +
+      ;; the Source `all items · M loaded' dataset line (R22-4: was the
+      ;; single `No filters · all items'), calendar grid.
       (should (string-match-p "0\\s-+total" text))
-      (should (string-match-p "No filters · all items" text))
+      (should (string-match-p "\\bnone\\b" text))
+      (should (string-match-p "all items · 0 loaded" text))
+      (should-not (string-match-p "No filters" text))
       (should (org-air-viewport-test-calendar-present-p)))))
 
 ;;;; §9.4 Summary integrity.

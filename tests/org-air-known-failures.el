@@ -474,98 +474,57 @@
     ;; point column / title mark / svg overlay / chrome faces), confirmed
     ;; by the new substantive ERTs in org-air-round21-test.el.
     ;; ===================================================================
-    ;; R22-3 DASHBOARD SORT (impl track) — o/O are now the SHARED within-view
-    ;; sort (`org-air-view-sort-cycle'/`-reverse', bound once in
-    ;; `org-air-view-core-map'); the board's old o/O=visit relocated under
-    ;; the g-prefix (g RET visit / g o visit-stay) and the project now
-    ;; INHERITS o/O sort.  These four assert the OLD keymap (o/O=visit on the
-    ;; board, o/O unbound on the project); the test seat re-blesses them to
-    ;; the shared-sort contract.
-    (org-air-r18-dp4-keymap-ret-and-sret-board-and-project
-     . "R22-3: board `O' is sort-reverse now (was visit); project `O' is the
-     inherited sort-reverse (was null). Test seat re-blesses to shared sort.")
-    (org-air-r18-dp3-project-keymap-inherits-core
-     . "R22-3: project `o' inherits `org-air-view-sort-cycle' (was null). Test
-     seat re-blesses to shared sort.")
-    (org-air-r20-5-project-keymap-shares-board-keys-no-shadow
-     . "R22-3: project `o' inherits `org-air-view-sort-cycle' (was null). Test
-     seat re-blesses to shared sort.")
-    (org-air-view-ret-bound-to-visit
-     . "R22-3: board `O' is `org-air-view-sort-reverse' now (was
-     `org-air-visit-item'); GUI visit stays on S-RET, TTY visit moved to
-     g RET. Test seat re-blesses.")
-    ;; ===================================================================
-    ;; R22-6 PROJECT GROUPING (impl track) — the by-directory tree now emits
-    ;; ONE header per dir (the doubled rolled-up box header is gone), a quiet
-    ;; right-aligned letter-count summary (`R4(+1) C14(+14) ...', airctl -Da
-    ;; parity) instead of the coloured `[X] N' badge wall, and real depth
-    ;; indentation.  These three assert the OLD doubled-header / badge-wall
-    ;; layout (state-NAME totals + `[W] 1' cells); deliberate, design-blessed
-    ;; re-bless — the test seat regenerates project-view-dir.txt and rewrites
-    ;; the structural regexps to the one-header / letter-count / deeper-indent
-    ;; shape (numbers identical to airctl -Da).
-    (org-air-f5-project-view-byte-mockups
-     . "R22-6: project-view-dir.txt re-bless (one header/dir + right-aligned
-     letter-count summary + deeper doc indent). Test seat regen-mockups.")
-    (org-air-f5-grouping-toggle
-     . "R22-6: asserts the OLD rolled-up top-dir header (state NAMES) +
-     `| air-context/ [D]' badge format; the new tree uses a single header
-     with a right-aligned letter-count summary. Test seat re-blesses regexps.")
-    (org-air-r20-5-fix-directory-render-guards-divergence
-     . "R22-6: asserts the OLD per-dir `[W] 1  [X] 1  [D] 1' badge-wall
-     format; the new summary is the quiet `W1 X1 D1' letter-count (same
-     numbers, airctl -Da parity). Test seat re-blesses the format regexp.")
-    ;; ===================================================================
-    ;; R22-7 CONTRAST (impl track) — the pane header FILENAME/state segments
-    ;; were re-faced off sub-AA `org-air-face-faded' (2.15:1 / 2.45:1) onto
-    ;; the readable mid-tier `org-air-face-inspector-label' (6.02:1 / 8.32:1);
-    ;; the title stays strongest.  This ERT asserts the OLD faded filename;
-    ;; the test seat re-blesses it to the readable mid-tier (+ the WCAG ERTs).
-    (org-air-r18-dp5-pane-header-chrome-faces
-     . "R22-7: pane filename is `org-air-face-inspector-label' now (readable
-     mid-tier, AA) not `org-air-face-faded' (sub-AA); title stays strongest.
-     Test seat re-blesses to the readable face + adds the WCAG ERTs.")
-    ;; ===================================================================
-    ;; R22-4 SCOPE->SOURCE / FILTER wording (impl track) — the rail + the
-    ;; mode-line are reworded so the two roles stop both reading "all items":
-    ;;   Filter empty -> `none' (was `No filters · all items'); a narrowing
-    ;;     filter reports `N of M shown'.
-    ;;   `Scope' header -> `Source'; value is a dataset chip + `· M loaded'
-    ;;     count (faced on the readable origin tier).
-    ;;   mode-line `scope ...' -> `source ...'; `no filter' -> `filter none'.
-    ;;   Actions verb `s scope' -> `s source'.
-    ;; All deliberate, design-blessed.  The rail-bearing byte goldens re-bless
-    ;; (test seat regen-mockups) and the wording-assertion ERTs are rewritten
-    ;; to the Source/none/source vocabulary.  Item BODY rows are untouched.
-    (org-air-layout-mockup-120
-     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
-    (org-air-layout-mockup-160
-     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
-    (org-air-layout-mockup-heights
-     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
-    (org-air-layout-mockup-thresholds
-     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
-    (org-air-layout-empty-board-holds-shape
-     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
-    (org-air-r17-denote-origin-byte-mockup
-     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
-    (org-air-r9-d5b-content-spine
-     . "R22-4: rail wording re-bless (Filter `none' / `Source' + `M loaded').")
-    (org-air-r20-5-project-reuses-shared-board-rail
-     . "R22-4: project shares the board rail; its `Source' block now carries
-     the `· N loaded' doc count + `none' empty filter. Test seat re-blesses.")
-    (org-air-r19-4-rail-order-calendar-filter-summary-inspector-actions
-     . "R22-4: the rail header is `Source' now (was `Scope'); the order
-     Calendar/Filter/Summary/Inspector/Actions is unchanged. Re-bless header.")
-    (org-air-r20-2-board-status-calm-no-filter-form
-     . "R22-4: mode-line empty filter is `filter none' now (was `no filter').")
-    (org-air-r20-2-board-status-has-counts-filter-scope
-     . "R22-4: mode-line segment is `source ...' now (was `scope ...').")
-    (org-air-r4-footer-band-removed
-     . "R22-4: rail Actions verb is `s source' now (was `s scope').")
-    (org-air-r9-q1-rail-advertises-scope-reset
-     . "R22-4: rail header is `Source' now (was `Scope'); `S reset' verb +
-     the scope-active `s changes · S clears' cue are kept. Re-bless wording.")
+    ;; v0.5 ROUND-22 CLOSEOUT (impl tips pnkrznqp..vmuunmts + test re-bless
+    ;; <this commit>).  ALL 21 grind entries CLOSED — the rail/mode-line +
+    ;; project byte goldens regenerated from impl's render via the
+    ;; FROZEN-CLOCK renderer (make regen-mockups, guards active; verified NO
+    ;; HANG, exit 0) and the assertion ERTs re-blessed to the design-blessed
+    ;; R22 contracts (air/v0.5/org-air-round22-design.org):
+    ;;   R22-4 (13) scope->SOURCE / FILTER wording: every rail-bearing byte
+    ;;     golden (layout-mockup 90/96/100/104/110/120/160 + x24/x50 + empty-
+    ;;     120x50 + denote-origin-120) re-blessed to `▌ Filter'/`none' +
+    ;;     `▌ Source'/`all items · M loaded' + `s source'; the wording ERTs
+    ;;     re-blessed — r19-4 rail order (Scope->Source header), r9-q1 scope-
+    ;;     reset (Source header + `· N loaded' before `s changes · S clears'),
+    ;;     r9-d5b content-spine (`No filters'->`none' pick), r4-footer
+    ;;     (`s scope'->`s source'), layout empty-board (`none' + `M loaded'),
+    ;;     r20-2 board-status (`no filter'->`filter none', `scope'->`source'),
+    ;;     r20-5 project-reuses-rail (`| Scope'->`| Source').
+    ;;   R22-6 (3) project by-directory: project-view-dir.txt regen'd to the
+    ;;     ONE-header/dir + right-aligned letter-count summary (`R1 C1 D(+1)'/
+    ;;     `W1 X1 D1') + deeper doc indent; f5-grouping-toggle + r20-5-fix-
+    ;;     directory-render re-blessed off the `[X] N' badge wall to the
+    ;;     letter-count regexps.  airctl `status -Da' parity RE-VERIFIED on
+    ;;     ~/Coding/github.com/withre/air (the r20-5-fix guard): v0.1/ own
+    ;;     R4 C14 X1 D2 + desc +1 +14 +9 +8 -> `R4(+1) C14(+14) X1(+9) D2(+8)'
+    ;;     byte-for-byte (pinned by org-air-r22-6-dir-count-summary-matches-
+    ;;     airctl); the new format keeps the same per-dir counts/totals.
+    ;;   R22-3 (4) dashboard sort: o/O are the SHARED view-core sort now
+    ;;     (org-air-view-sort-cycle/-reverse); r18-dp4-keymap + r18-dp3-
+    ;;     project-inherits-core + r20-5-project-keymap-shares + view-ret-
+    ;;     bound-to-visit re-blessed to the NEW reality (board `O' = sort-
+    ;;     reverse, project o/O inherit the shared sort, TTY visit moved to
+    ;;     g RET / g o, S-RET visits, RET = pane).
+    ;;   R22-7 (1) pane chrome: r18-dp5-pane-header-chrome-faces re-blessed —
+    ;;     the pane filename rides the readable `org-air-face-inspector-label'
+    ;;     (>= WCAG AA) now, not the sub-AA `org-air-face-faded'.
+    ;; SUBSTANTIVE new ERTs added on the test track (the under-covered fixes):
+    ;; org-air-round22-test.el covers R22-1 priorities A..E (the KEY gap: a
+    ;; #A..#E fixture/board exercises every level's square + face, the
+    ;; explicit-[#B] parser fix, the no-cookie blank), R22-2 cursor (line-
+    ;; based row resolution from col0/margin/rail + --normalize-point snap),
+    ;; R22-3 sort (--sort-items within-bucket order, cycle/reverse, default
+    ;; byte-identical, indicator gating, shared board+project pair), R22-4
+    ;; (Source/Filter wording + `N of M shown' only when narrowed), R22-5
+    ;; (project `|' rail-toggle no-crash + pane shows the doc FILE), R22-6
+    ;; (airctl parity / one-header / right-aligned counts / nesting indent),
+    ;; R22-7 (pane filename/state + origin WCAG >= 4.5, title strongest).
+    ;; Board / entry-view byte goldens not bearing the rail (mockup-70/80,
+    ;; entry-view-pane/dead) are byte-identical (R22-1/2/3/5/7 are byte-
+    ;; invisible: svg overlay / point+property / keymap / faces / interactive).
+    ;; No .el SOURCE touched (the impl landed R22-1..R22-7 in pnkrznqp..
+    ;; vmuunmts).  Round-22 manifest is EMPTY; the tests stay as permanent
+    ;; regression guards.
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

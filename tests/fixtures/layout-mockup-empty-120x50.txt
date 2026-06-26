@@ -12,9 +12,9 @@
                                                                                       │       ◆ due    ● sched
   ★ High priority 0                                                                   │
       No #A items.                                                                    │ ▌ Filter
-                                                                                      │    No filters · all items
-  ○ Stale 0                                                                           │ ▌ Scope
-      Nothing has gone stale.                                                         │    all items
+                                                                                      │    none
+  ○ Stale 0                                                                           │ ▌ Source
+      Nothing has gone stale.                                                         │    all items · 0 loaded
                                                                                       │
       Nothing here yet. Press c to capture your first note.                           │ ▌ Summary
                                                                                       │      0   Inbox
@@ -46,5 +46,5 @@
                                                                                       │
                                                                                       │
                                                                                       │ ▌ Actions
-                                                                                      │    c capture / filter   s scope
+                                                                                      │    c capture / filter   s source
                                                                                       │    g refresh TAB expand ? help

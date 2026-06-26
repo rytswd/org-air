@@ -83,15 +83,21 @@ running on any wall-clock day buckets items identically."
                   (get-text-property pos 'font-lock-face))))))
 
 (ert-deftest org-air-view-ret-bound-to-visit ()
-  "R18 D-P4: RET opens the view pane; S-RET (and `O') visit the item.
+  "R18 D-P4 / R22-3: RET opens the view pane; S-RET visits the item.
 RET moved from `org-air-visit-item' to `org-air-view-pane-return' (open the
-bottom pane, focus on a 2nd RET); visiting the file in the other window is
-now `S-RET' / `O'."
+bottom pane, focus on a 2nd RET); the GUI visit is `S-RET'.  R22-3 re-bless:
+`O' is the shared within-view `org-air-view-sort-reverse' now (it was the
+board's TTY visit alias), so the TTY/stay visit relocated under the
+g-prefix — `g RET' visits, `g o' visits-and-stays."
   (skip-unless (locate-library "org-air"))
   (org-air-view-test--with-dashboard
     (should (eq (key-binding (kbd "RET")) 'org-air-view-pane-return))
     (should (eq (key-binding (kbd "<S-return>")) 'org-air-visit-item))
-    (should (eq (key-binding (kbd "O")) 'org-air-visit-item))))
+    ;; R22-3: `O' is now the shared sort-reverse (was visit).
+    (should (eq (key-binding (kbd "O")) 'org-air-view-sort-reverse))
+    ;; the displaced visit verbs live under the g-prefix.
+    (should (eq (key-binding (kbd "g RET")) 'org-air-visit-item))
+    (should (eq (key-binding (kbd "g o")) 'org-air-visit-item-stay))))
 
 (ert-deftest org-air-view-visit-item-jumps-to-origin ()
   "`org-air-visit-item' on an item line jumps to its file and heading."

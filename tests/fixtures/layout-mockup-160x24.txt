@@ -12,9 +12,9 @@
       TODO   Book dentist appointment                          OVERDUE 3d      #personal   #health   ▤ personal.org │        ◆ due    ● sched    · created
       TODO   Dust off old archive project                      no date         #projects   #archive  ▤ projects.org │
       TODO   Untracked idea with no dates                      no date         #projects   #someday  ▤ projects.org │ ▌ Filter
-             Reference notes without a todo state              no date         #projects   #note     ▤ projects.org │    No filters · all items
-      …and 2 more — press TAB on the title to expand                                                                │ ▌ Scope
-                                                                                                                    │    all items
+             Reference notes without a todo state              no date         #projects   #note     ▤ projects.org │    none
+      …and 2 more — press TAB on the title to expand                                                                │ ▌ Source
+                                                                                                                    │    all items · 23 loaded
   ◆ Upcoming 8                                                                                                      │
       TODO   Renew library card                                Today           #personal   #admin    ▤ personal.org │ ▌ Summary
       TODO   Water the garden                                  Today           #projects   #home     ▤ projects.org │      3   Inbox
@@ -28,6 +28,6 @@
       TODO ■ Fix production outage runbook                     OVERDUE 5d      #projects   #work  …  ▤ projects.org │ ▌ Inspector
       TODO ■ Prep client presentation                          Tomorrow        #work   #client           ▤ work.org │
                                                                                                                     │ ▌ Actions
-  ○ Stale 2                                                                                                         │    c capture    / filter      s scope
+  ○ Stale 2                                                                                                         │    c capture    / filter      s source
       TODO   Dust off old archive project                      · 225d quiet    #projects   #archive  ▤ projects.org │    g refresh    TAB expand    ? help
       TODO   Learn lute                                        · 273d quiet    #someday   #hobby      ▤ someday.org │

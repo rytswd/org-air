@@ -237,7 +237,11 @@ the `airctl status -Da' NESTED directory tree (rolled-up top-dir header
 with state-NAME totals, per-dir `BADGE N (+M)' counts, depth-indented
 child dirs), replacing the old flat first-segment `v0.N/ <count>'
 heading.  State grouping keeps its `[badge] State N' headers; tag
-grouping its `#tag count' headers."
+grouping its `#tag count' headers.  R22-6 re-bless: the directory tree now
+emits ONE header per dir (the doubled rolled-up box header is gone) with a
+quiet RIGHT-ALIGNED letter-count summary (`R1 C1 D(+1)' / `W1 X1 D1') in
+place of the old `[X] N' badge wall + state-NAME totals; the `(+N)'
+descendant roll-up and the deeper child-dir indent survive."
   (skip-unless (locate-library "org-air"))
   (let ((state (org-air-project-test--render-lines
                 'org-air-project-group-by-state 100))
@@ -254,24 +258,29 @@ grouping its `#tag count' headers."
     ;; a plain `|', not a box glyph).
     (dolist (lines (list state dir tag))
       (should-not (cl-some (lambda (l) (string-match-p "[┌┐└┘├┤┬┴┼]" l)) lines)))
-    ;; R20-5(a): the DIRECTORY grouping is the `airctl status -Da' NESTED
-    ;; tree.  Assert the three structural hallmarks the OLD flat
-    ;; first-segment grouping could never produce:
-    ;;  (1) a rolled-up TOP-dir header — version folder + state NAME totals
-    ;;      in parens (`| v0.1/   [R] Ready (1)   [C] Complete (1) …').
+    ;; R20-5(a)/R22-6: the DIRECTORY grouping is the `airctl status -Da'
+    ;; NESTED tree.  Assert the structural hallmarks the OLD flat
+    ;; first-segment grouping could never produce (R22-6 re-bless: ONE
+    ;; header/dir + a right-aligned letter-count summary, not the badge wall):
+    ;;  (1) ONE version-dir header line carrying the quiet letter-count
+    ;;      summary (`| v0.1/  …  R1 C1 D(+1)'), no `[R] Ready (1)' NAME wall.
     (should (cl-some (lambda (l)
-                       (string-match-p "v0\\.[0-9]+/ +\\[[RWCXD]\\] +[A-Z][a-z]"
-                                       l))
+                       (string-match-p "| v0\\.[0-9]+/ +[RWCXDU][0-9(]" l))
                      dir))
-    ;;  (2) a NESTED child-directory heading (depth-indented) — the proof
-    ;;      the tree recurses past the first path segment: the fixture's
-    ;;      `v0.1/air-context/' renders as its OWN `air-context/' node with
-    ;;      per-dir badge counts (never a heading in state/tag grouping).
+    ;;      and the OLD doubled state-NAME totals header is GONE.
+    (should-not (cl-some (lambda (l)
+                           (string-match-p
+                            "v0\\.[0-9]+/ +\\[[RWCXD]\\] +[A-Z][a-z]" l))
+                         dir))
+    ;;  (2) a NESTED child-directory heading (DEEPER indented than its
+    ;;      parent) — the proof the tree recurses past the first path
+    ;;      segment: `v0.1/air-context/' renders as its OWN `air-context/'
+    ;;      node with its letter-count (never a heading in state/tag).
     (should (cl-some (lambda (l)
-                       (string-match-p "| +air-context/ +\\[[RWCXD]\\]" l))
+                       (string-match-p "| +air-context/ +[RWCXDU][0-9]" l))
                      dir))
     ;;  (3) a `(+N)' DESCENDANT roll-up count on a dir heading (the Draft
-    ;;      Gamma lives in the child dir, so `v0.1/' shows `[D] (+1)') —
+    ;;      Gamma lives in the child dir, so `v0.1/' shows `D(+1)') —
     ;;      neither state nor tag grouping carries a roll-up.
     (should (cl-some (lambda (l) (string-match-p "(\\+[0-9]+)" l)) dir))
     (should-not (cl-some (lambda (l) (string-match-p "(\\+[0-9]+)" l)) state))

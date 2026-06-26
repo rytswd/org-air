@@ -11,9 +11,9 @@
                                                                       |     ! due    o sched
   | #notes 1                                                          |
       [U] Eta notes                 ~ 2026-05-01  #no... . v0.2/et... | | Filter
-                                                                      |  No filters · all items
-  | #ui 4                                                             | | Scope
-      [D] Epsilon plan              ~ 2026-05-01  #co... . v0.2/ep... |  all items
+                                                                      |  none
+  | #ui 4                                                             | | Source
+      [D] Epsilon plan              ~ 2026-05-01  #co... . v0.2/ep... |  all items · 7 loaded
       [R] Alpha feature             ~ 2026-05-01  #ui... . v0.1/al... |
       [W] Zeta work in progress     ~ 2026-05-01  #co... . v0.2/ze... | | Summary
       [X] Delta UI exploration      ~ 2026-05-01  #ui    . v0.2/de... |    2  Draft

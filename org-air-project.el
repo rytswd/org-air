@@ -462,7 +462,10 @@ Buckets with zero docs are omitted; any state not listed is appended."
                              (lambda (d) (equal (org-air-doc-state d) state))
                              docs)))
                (when members
-                 (list :icon (org-air-project--state-badge state)
+                 ;; R21.1: route the section icon through the SAME shared
+                 ;; svg keyword/state badge as the doc rows (svg chip on
+                 ;; GUI, terse `[R]' token on TTY) -- no GUI emoji.
+                 (list :icon (org-air-project--state-badge-cell state)
                        :icon-face (org-air-project--state-face state)
                        :title (org-air-project--state-title state)
                        :title-face 'org-air-face-section
@@ -984,8 +987,8 @@ none, so the no-filter goldens are byte-identical)."
            (lambda (state)
              (let ((n (seq-count (lambda (d) (equal (org-air-doc-state d) state))
                                  docs)))
-               (concat (propertize (org-air-project--state-badge state)
-                                   'face (org-air-project--state-face state))
+               ;; R21.1: shared svg badge (no GUI emoji); `[R]' token on TTY.
+               (concat (org-air-project--state-badge-cell state)
                        " " (number-to-string n))))
            org-air-project-states "   ")
           "\n\n"))
@@ -1098,8 +1101,8 @@ INSET is the spine prefix, CONTENT-W the wrap width, NOW the render clock."
       (push (concat inset (propertize tl 'face 'org-air-face-title)) lines))
     (push (org-air-view--inspector-kv
            "State"
-           (concat (propertize (org-air-project--state-badge state)
-                               'face (org-air-project--state-face state))
+           ;; R21.1: shared svg badge (no GUI emoji); `[R]' token on TTY.
+           (concat (org-air-project--state-badge-cell state)
                    " "
                    (propertize (org-air-project--state-title state)
                                'face (org-air-project--state-face state)))

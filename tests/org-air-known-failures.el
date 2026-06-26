@@ -540,6 +540,21 @@
     ;;   mode-line is not buffer text; every golden is byte-identical).
     (org-air-r18-dp5-modeline-style-default-is-calm
      . "R23-2: default flipped calm->default; retarget to assert `default'")
+    ;;
+    ;; R23-3 (project tree connectors): child dir headers now lead with
+    ;;   faded `box' tree connectors (TTY `+- ' / `|  ', GUI `├─ └─ │')
+    ;;   threaded down `--insert-dir-node' instead of an indented marker, so
+    ;;   nesting reads unmistakably.  Top dirs keep the `| v0.N/' marker; doc
+    ;;   rows + counts + airctl `-Da' parity are unchanged.  The DIR-view
+    ;;   golden re-blesses on its child-dir HEADER lines, and two assertions
+    ;;   that pinned the child marker (`| +air-context/') move to the
+    ;;   connector form (test seat: regen project-view-dir.txt + retarget).
+    (org-air-f5-project-view-byte-mockups
+     . "R23-3: dir-view golden gains child-dir tree connectors; regen project-view-dir.txt")
+    (org-air-r22-6-nesting-indents-deepen
+     . "R23-3: child marker -> connector; retarget metric to connector-depth/name-column")
+    (org-air-f5-grouping-toggle
+     . "R23-3: child-dir heading now `+- air-context/' (connector), not `| air-context/'; retarget regex")
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

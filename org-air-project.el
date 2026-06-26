@@ -600,49 +600,76 @@ State as a quiet faded LETTER (not the coloured badge), own count, faded
                 cells))))
     (mapconcat #'identity (nreverse cells) " ")))
 
-(defun org-air-project--insert-dir-node (node width _topp)
+(defun org-air-project--insert-dir-node (node width &optional rails lastp)
   "Insert NODE (a dir tree node) and its subtree into the buffer at WIDTH.
-ONE header per directory (R22-6): the depth-indented marker + `dir/' name on
-the LEFT, a quiet right-aligned letter-count summary (`R4(+1) C14(+14) ...')
-on the RIGHT; then the dir's OWN docs (state-first, indented one level
-DEEPER than the header), then recursion into the name-sorted children.  The
-old doubled header (a rolled-up box header + a per-dir count heading) is
-gone — the single header's own/+nested counts already encode the subtree
-totals.  _TOPP is accepted for the caller's uniform call but no longer
-special-cases a separate header."
+ONE header per directory (R22-6) with classic TREE CONNECTORS (R23-3): a
+top dir (depth 0) keeps the accent `org-air-project--marker' (the quiet
+section bullet, blank-line separated, never railed); a child dir is led by
+a faded `org-air-face-air-tree' guide — the accumulated ancestor RAILS
+string followed by a `box-tee-left'/`box-bottom-left' + `box-horizontal'
+connector (LASTP picks the corner).  Then the `dir/' name on the LEFT, the
+quiet right-aligned letter-count summary (`R4(+1) C14(+14) ...') on the
+RIGHT, the dir's OWN docs (state-first, indented one level DEEPER than the
+header — unchanged), then recursion into the name-sorted children, each
+extending RAILS by a `box-vertical' cell when THIS node has a following
+sibling.  Glyphs route through `org-air-layout-glyph' so a TTY/batch frame
+gets the ascii `|  ' / `+- ' fallback."
   (let* ((depth (plist-get node :depth))
-         (indent (make-string (* 2 depth) ?\s))
+         (children (plist-get node :children))
          (dir (plist-get node :dir))
          (path (plist-get node :path))
          (name (if (and dir (not (string-empty-p dir))) (concat dir "/") "·"))
+         ;; Top dirs keep the accent marker; children get the faded ancestor
+         ;; rail + a tee/corner connector (3-col cells, aligned under the
+         ;; parent name).  All guide glyphs are `org-air-face-air-tree'.
+         (guide (if (zerop depth)
+                    (concat "  " (org-air-project--marker) " ")
+                  (concat "  "
+                          (propertize (or rails "") 'face 'org-air-face-air-tree)
+                          (propertize
+                           (concat (org-air-layout-glyph
+                                    (if lastp 'box-bottom-left 'box-tee-left))
+                                   (org-air-layout-glyph 'box-horizontal) " ")
+                           'face 'org-air-face-air-tree))))
          (start (point))
-         ;; Indent the WHOLE header (marker included) by depth so the tree
-         ;; reads; the accent marker is the quiet section bullet, printed
-         ;; ONCE per header, never repeated mid-line.
-         (left (concat "  " indent (org-air-project--marker) " "
-                       (propertize name 'face 'org-air-face-section)))
+         (left (concat guide (propertize name 'face 'org-air-face-section)))
          ;; Quiet, right-aligned count summary (the badge wall is gone).
          (summary (org-air-project--dir-count-summary
                    (plist-get node :direct-counts)
                    (plist-get node :desc-counts)))
          (header (if (string-empty-p summary)
                      left
-                   (org-air-view--justify left summary width))))
+                   (org-air-view--justify left summary width)))
+         ;; Children of a TOP dir get no rail (top dirs aren't railed);
+         ;; deeper nodes extend the rail with a `box-vertical' cell only when
+         ;; THIS node has a following sibling, else 3 blanks.
+         (child-rails (if (zerop depth)
+                          ""
+                        (concat (or rails "")
+                                (if lastp "   "
+                                  (concat (org-air-layout-glyph 'box-vertical)
+                                          "  "))))))
     (insert header "\n")
     (add-text-properties start (point) (list 'org-air-section path))
     ;; Own docs, state-first, indented one level UNDER this dir's header so a
     ;; doc clearly hangs beneath its directory (R21-5 one board-style row).
     (dolist (doc (plist-get node :own-docs))
       (org-air-project--insert-doc-row doc width (* 2 (1+ depth))))
-    ;; Recurse into the children (name-sorted).
-    (dolist (child (plist-get node :children))
-      (org-air-project--insert-dir-node child width nil))))
+    ;; Recurse into the children (name-sorted), threading rails + last-child.
+    (let ((n (length children)) (i 0))
+      (dolist (child children)
+        (org-air-project--insert-dir-node child width child-rails (= (1+ i) n))
+        (setq i (1+ i))))))
 
 (defun org-air-project--insert-directory-tree (nodes width)
-  "Insert the nested directory TREE (NODES) at content WIDTH (R20-5)."
-  (dolist (node nodes)
-    (org-air-project--insert-dir-node node width t)
-    (insert "\n")))
+  "Insert the nested directory TREE (NODES) at content WIDTH (R20-5/R23-3).
+Top-level nodes start with empty ancestor rails; LASTP per node tells the
+connector logic whether it is the final sibling."
+  (let ((n (length nodes)) (i 0))
+    (dolist (node nodes)
+      (org-air-project--insert-dir-node node width "" (= (1+ i) n))
+      (setq i (1+ i))
+      (insert "\n"))))
 
 (defun org-air-project--sections-by-tag (docs)
   "Return tag sections for DOCS (a doc may appear under several tags)."

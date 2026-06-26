@@ -526,6 +526,21 @@
     ;; vmuunmts).  Round-22 manifest is EMPTY; the tests stay as permanent
     ;; regression guards.
     ;; ===================================================================
+    ;; v0.5 ROUND-23 grind (impl track) — tests that re-bless under the
+    ;; design-blessed R23 contracts (air/v0.5/org-air-round23-design.org).
+    ;; The IMPL landed the product code; the TEST seat will re-bless /
+    ;; retarget these and regenerate the moved golden, then DELETE the
+    ;; entries (their deletion is the closeout).  Per item:
+    ;;
+    ;; R23-2 (mode-line off by default): the shipped default of
+    ;;   `org-air-modeline-style' flips `calm' -> `default' so org-air no
+    ;;   longer clobbers the user's own mode-line (calm stays opt-in).  The
+    ;;   one ERT that pinned the OLD `calm' default now fails by design;
+    ;;   retarget to assert `default' (test seat).  byte-INVISIBLE (the
+    ;;   mode-line is not buffer text; every golden is byte-identical).
+    (org-air-r18-dp5-modeline-style-default-is-calm
+     . "R23-2: default flipped calm->default; retarget to assert `default'")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

@@ -159,17 +159,18 @@ re-introduces inter-row spacing (the divider then needs
   :type '(choice (const :tag "Frame default" nil) number)
   :group 'org-air)
 
-(defcustom org-air-modeline-style 'calm
-  "Mode-line style for the org-air board / project / pane buffers (R18 D-P5.1).
+(defcustom org-air-modeline-style 'default
+  "Mode-line style for the org-air board / project / pane buffers (R23-2).
 org-air already shows status in the in-buffer banner and keeps the
-header-line nil (S1), so the default mode-line is redundant chrome.
-`calm' (default) installs a minimal, faded nano-style `mode-line-format'
-— a quiet name + a faded rule; `default' opts back into Emacs's normal
-mode-line.  The mode-line is NOT part of the buffer-text fixtures, so this
-is byte-invisible (and the 1-line height is unchanged, so the body height
-derivation is unaffected)."
-  :type '(choice (const :tag "Calm nano-style" calm)
-                 (const :tag "Emacs default" default))
+header-line nil (S1).  `default' (the default since R23-2) leaves the
+mode-line UNTOUCHED — your own normal Emacs mode-line shows on every
+org-air surface (board / project / rail / pane).  `calm' is the opt-in
+minimal, faded nano-style `mode-line-format' — a quiet counts · filter ·
+source line in `org-air-face-modeline'.  The mode-line is NOT part of the
+buffer-text fixtures, so this is byte-invisible (and either way it is a
+single line, so the body-height derivation is unaffected)."
+  :type '(choice (const :tag "Emacs default (your own)" default)
+                 (const :tag "Calm nano-style" calm))
   :group 'org-air)
 
 (defcustom org-air-pill-vinset 1
@@ -893,11 +894,16 @@ also draws the boundary overline).  Mode-line is not part of the buffer-
 text fixtures, so this is byte-invisible.")
 
 (defun org-air-view--install-modeline ()
-  "Install the calm nano-style status mode-line per `org-air-modeline-style'.
-No-op for `default' (keeps Emacs's normal mode-line).  Stays a single
-line, so the body-height derivation is unchanged; byte-invisible (R20-2)."
-  (when (eq org-air-modeline-style 'calm)
-    (setq-local mode-line-format (list org-air-view--status-mode-line))))
+  "Install the calm nano-style mode-line, or restore the user's own (R23-2).
+`calm' installs the minimal faded nano construct; ANY other value
+\(`default'/nil) drops any buffer-local override so the user's normal
+mode-line shows.  Symmetric so a runtime `calm'->`default' flip actively
+restores the inherited line (not just a no-op on a fresh buffer).  Single
+line either way, so the body-height derivation is unchanged; byte-invisible
+\(the mode-line is not buffer text)."
+  (if (eq org-air-modeline-style 'calm)
+      (setq-local mode-line-format (list org-air-view--status-mode-line))
+    (kill-local-variable 'mode-line-format)))
 
 (define-derived-mode org-air-view-mode special-mode "org-air"
   "Major mode for the org-air dashboard."

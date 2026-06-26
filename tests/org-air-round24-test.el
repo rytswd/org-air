@@ -287,6 +287,110 @@ to the inline rail (on trunk the reconcile no-ops for the project)."
    (should (null org-air-view--rail-popped-out))))
 
 ;;;; =====================================================================
+;;;; R24-1 — refile "Under heading" prompt: complete over the file's headings.
+;;;; =====================================================================
+
+(defmacro org-air-r24-1--with-org-file (var content &rest body)
+  "Write CONTENT to a fresh temp Org file bound to VAR; run BODY; clean up."
+  (declare (indent 2) (debug t))
+  `(let ((,var (make-temp-file "org-air-r24-1-" nil ".org")))
+     (unwind-protect
+         (progn
+           (with-temp-file ,var (insert ,content))
+           ,@body)
+       (let ((kill-buffer-query-functions nil)
+             (b (get-file-buffer ,var)))
+         (when (buffer-live-p b)
+           (with-current-buffer b (set-buffer-modified-p nil))
+           (kill-buffer b)))
+       (delete-file ,var))))
+
+(ert-deftest org-air-r24-1-file-headings-top-and-nested-plain ()
+  "`org-air-inbox--file-headings' collects top-level AND nested heading TEXT
+as PLAIN strings (no leaked org-level face), in buffer order."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24-1--with-org-file f
+      "* Projects\n** Alpha\n* Someday\n* Reading list\n"
+    (let ((heads (org-air-inbox--file-headings f)))
+      (should (equal heads '("Projects" "Alpha" "Someday" "Reading list")))
+      (dolist (h heads)
+        (should (null (text-properties-at 0 h)))))))
+
+(ert-deftest org-air-r24-1-read-heading-default-is-file-end ()
+  "`(file end)' / empty => nil (append at file end); the resolver then lands
+at `point-max'."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24-1--with-org-file f "* Projects\n* Someday\n"
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) "(file end)")))
+      (should (null (org-air-inbox--read-heading f))))
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) "")))
+      (should (null (org-air-inbox--read-heading f))))
+    ;; nil heading = append at file end (point-max).
+    (let ((m (org-air-inbox--target-position f nil)))
+      (with-current-buffer (marker-buffer m)
+        (org-with-wide-buffer
+         (should (= (marker-position m) (point-max))))))))
+
+(ert-deftest org-air-r24-1-read-heading-resolves-chosen-subtree ()
+  "A chosen heading is returned verbatim and resolves to the END of that
+subtree via the unchanged `--target-position'."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24-1--with-org-file f
+      "* Projects\nbody p\n* Someday\nbody s\n* Reading list\n"
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) "Someday")))
+      (should (equal (org-air-inbox--read-heading f) "Someday")))
+    (let ((m (org-air-inbox--target-position f "Someday")))
+      (with-current-buffer (marker-buffer m)
+        (org-with-wide-buffer
+         ;; the insertion point sits at the start of the NEXT subtree
+         ;; (end of `Someday'), i.e. before `* Reading list'.
+         (goto-char (marker-position m))
+         (should (looking-at-p "\\*+ Reading list")))))))
+
+(ert-deftest org-air-r24-1-no-headings-skips-the-prompt ()
+  "A file with NO headings => `--read-heading' returns nil WITHOUT ever
+calling `completing-read' (cl-letf a throwing stub to prove it)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24-1--with-org-file f "Just a note, no headings here.\n"
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (&rest _) (error "completing-read must NOT be called"))))
+      (should (null (org-air-inbox--read-heading f))))))
+
+(ert-deftest org-air-r24-1-move-target-vocabulary-is-the-file-headings ()
+  "Anti-tautology: driving `--read-move-target', the SECOND completion's
+COLLECTION is the file's headings led by `(file end)' (not a free read)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24-1--with-org-file f "* Projects\n** Alpha\n* Someday\n"
+    (let ((calls 0) (heading-collection nil))
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (prompt collection &rest _)
+                   (setq calls (1+ calls))
+                   (cond
+                    ;; 1st prompt: pick the file.
+                    ((string-match-p "Move to file" prompt) f)
+                    ;; 2nd prompt: capture the heading vocabulary, pick default.
+                    (t (setq heading-collection collection)
+                       "(file end)"))))
+                ;; the file picker resolves the choice straight to F.
+                ((symbol-function 'org-air-inbox--target-files)
+                 (lambda (&rest _) (list f)))
+                ((symbol-function 'org-air-inbox--decode-file-choice)
+                 (lambda (&rest _) f)))
+        (let ((res (org-air-inbox--read-move-target
+                    (org-air-item-create :title "x" :file f))))
+          (should (= calls 2))
+          (should (member "(file end)" heading-collection))
+          (should (member "Projects" heading-collection))
+          (should (member "Alpha" heading-collection))
+          (should (member "Someday" heading-collection))
+          ;; `(file end)' default => no heading in the move target.
+          (should (equal (car res) f))
+          (should (null (cdr res))))))))
+
+;;;; =====================================================================
 ;;;; R24-6 — free-text (content) filter: bare token = substring, #token = tag.
 ;;;; =====================================================================
 

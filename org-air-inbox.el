@@ -65,6 +65,33 @@
        (unless (bolp) (insert "\n"))
        (point-marker)))))
 
+(defun org-air-inbox--file-headings (file)
+  "Return FILE's heading titles (top-level + nested) as plain strings (R24-1).
+Plain text (no fontification) so the completion vocabulary never carries an
+org heading face; the order is buffer order so the list reads top-to-bottom."
+  (when (and file (file-readable-p (expand-file-name file)))
+    (with-current-buffer (find-file-noselect (expand-file-name file))
+      (org-with-wide-buffer
+       (let (out)
+         (goto-char (point-min))
+         (while (re-search-forward (concat "^" org-outline-regexp) nil t)
+           (push (substring-no-properties (org-get-heading t t t t)) out))
+         (nreverse out))))))
+
+(defun org-air-inbox--read-heading (file)
+  "Read an optional target HEADING in FILE via completion (R24-1).
+Candidates are FILE's real headings plus a leading `(file end)' default;
+`(file end)' / empty / RET => nil (append at file end, the current
+behaviour).  Returns nil with NO prompt when FILE has no headings."
+  (let ((headings (org-air-inbox--file-headings file)))
+    (when headings
+      (let* ((file-end "(file end)")
+             (choice (completing-read
+                      "Under heading (default file end): "
+                      (cons file-end headings) nil nil nil nil file-end)))
+        (unless (or (string-empty-p choice) (string= choice file-end))
+          choice)))))
+
 (defun org-air-inbox--source-buffer (item)
   "Return source buffer for ITEM."
   (find-file-noselect (org-air-item-file item)))
@@ -166,8 +193,11 @@ so a chosen candidate maps to the actual file.  Returns (FILE . HEADING)."
                         '("⌂ other file…")))
          (choice (completing-read "Move to file: " cands nil t))
          (file (org-air-inbox--decode-file-choice choice item))
-         (heading (read-string "Under heading (empty for file end): ")))
-    (cons file (unless (string-empty-p heading) heading))))
+         ;; R24-1: complete the sub-heading over the TARGET FILE's real
+         ;; headings (default `(file end)'; skipped entirely when none),
+         ;; instead of a blind `read-string'.
+         (heading (org-air-inbox--read-heading file)))
+    (cons file (unless (and heading (string-empty-p heading)) heading))))
 
 (defun org-air-inbox--decode-file-choice (choice item)
   "Resolve a `⌂ …' refile CHOICE for ITEM to a real target file path (R19-2).

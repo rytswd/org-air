@@ -326,10 +326,13 @@ the REAL target file + heading (mocking the file picker + heading prompt)."
                   :marker (with-current-buffer (find-file-noselect a)
                             (goto-char (point-min)) (point-marker))))
            (b-cand (concat "⌂ " (file-name-nondirectory b))))
+      ;; R24-1: the heading prompt is now a `completing-read' over the target
+      ;; file's real headings (b.org has `* Existing'); `require-match' is nil
+      ;; so a typed-in heading is returned verbatim.  Distinguish the two
+      ;; completing-read calls by prompt (file picker vs heading).
       (cl-letf (((symbol-function 'completing-read)
-                 (lambda (&rest _) b-cand))
-                ((symbol-function 'read-string)
-                 (lambda (&rest _) "Under here")))
+                 (lambda (prompt &rest _)
+                   (if (string-match-p "Move to file" prompt) b-cand "Under here"))))
         (let ((decoded (org-air-inbox--decode-target "⌂ Move to file…" item)))
           ;; decoded = (ITEM FILE HEADING TAGS SCHEDULED CATEGORY)
           (should (equal (file-truename (nth 1 decoded)) (file-truename b)))

@@ -457,6 +457,30 @@
     ;; urnnozpp).  Round-20 manifest is EMPTY; the tests stay as permanent
     ;; regression guards.
     ;; ===================================================================
+    ;; v0.5 ROUND-21 grind (impl track) — project rows change BYTES under
+    ;; the design-blessed R21-5 one-line board-style rework
+    ;; (air/v0.5/org-air-round21-design.org §R21-5).
+    ;;
+    ;; 2026-06-26: R21-5 landed in org-air-project.el — each Air doc now
+    ;; renders as ONE board-style row via the SHARED
+    ;; `org-air-view--insert-row' (fixed-width state cell + title + the
+    ;; V6 date/tags/origin meta cluster), DROPPING the old two-line emoji
+    ;; block (`org-air-project--insert-doc-block').  The nested dir tree,
+    ;; per-dir `BADGE N (+M)' counts and the shared rail/keymap are
+    ;; UNCHANGED.  This collapses two golden lines per doc into one and
+    ;; moves the relpath/dates into the right cluster, so the three
+    ;; project goldens (project-view-{dir,state,tag}.txt) and the
+    ;; two-line-shape assertion re-bless.  Board goldens are byte-
+    ;; identical (project-view-local).  [byte] deltas, NOT impl bugs;
+    ;; the TEST seat regenerates the fixtures (make regen-mockups) and
+    ;; re-blesses the assertion to the one-line contract.
+    (org-air-f5-project-view-byte-mockups
+     . "R21-5: project rows are now one-line board-style; regen the three \
+        project-view-*.txt goldens (test seat owns the re-bless).")
+    (org-air-f5-tree-structure
+     . "R21-5: the two-line `created…/updated…' doc block is replaced by a \
+        one-line row with the V6 date cell; re-bless to the one-line shape.")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

@@ -327,6 +327,79 @@ columns line up exactly down the project list (board parity)."
             ow (max ow (string-width (org-air-project--doc-origin-text doc)))))
     (list dw tw ow)))
 
+;; R21-5: the per-render fixed metadata column widths over the DISPLAYED
+;; docs, bound in `org-air-project--render' so the project's one-line rows
+;; line up exactly like the board's `org-air-view--meta-*-w' (V6 + R20-6
+;; "measure only what is shown").
+(defvar org-air-project--meta-date-w 0
+  "Per-render fixed date-cell width for the project rows (R21-5).")
+(defvar org-air-project--meta-tags-w 0
+  "Per-render fixed tags-cell width for the project rows (R21-5).")
+(defvar org-air-project--meta-origin-w 0
+  "Per-render fixed origin-cell width for the project rows (R21-5).")
+
+(defconst org-air-project--state-cell-w 3
+  "Reserved width of the project state token cell ([R]/[C]/...; R21-5).")
+
+(defun org-air-project--fit-meta-widths (docs width)
+  "Return the fitted (DCOL TCOL OCOL) project column widths at WIDTH (R21-5).
+Mirrors `org-air-view--compute-meta-widths' for the project rows: measures
+the displayed DOCS, caps the origin at `org-air-origin-max-width', then
+reclaims columns for the flex title (origin toward `org-air-origin-min',
+then tags toward a 1-col floor) so the title keeps at least
+`org-air-title-min-width'.  The left reserve mirrors the row prefix
+\(margin + the fixed state cell + its separator) so a doc row and a board
+task row share column positions (board parity, invariant #4)."
+  (let* ((raw (org-air-project--doc-widths docs))
+         (dw (nth 0 raw))
+         (tw (nth 1 raw))
+         (ow (min (nth 2 raw) org-air-origin-max-width))
+         (gap 2)
+         (left-reserve (+ (string-width (org-air-view--item-margin))
+                          (1+ org-air-project--state-cell-w)))
+         (cluster
+          (lambda (o)
+            (let ((cells (delq nil (list (and (> dw 0) dw)
+                                         (and (> tw 0) tw)
+                                         (and (> o  0) o)))))
+              (+ (apply #'+ cells) (max 0 (1- (length cells)))))))
+         (budget (lambda (o) (- width left-reserve gap (funcall cluster o)))))
+    ;; 1) shrink the origin toward its floor until the title reaches min.
+    (while (and (> ow org-air-origin-min)
+                (< (funcall budget ow) org-air-title-min-width))
+      (setq ow (1- ow)))
+    ;; 2) still starved? shrink tags toward a 1-col floor.
+    (let ((tw-floor (if (> tw 0) 1 0)))
+      (while (and (> tw tw-floor)
+                  (< (funcall budget ow) org-air-title-min-width))
+        (setq tw (1- tw))))
+    ;; 3) the date column is held (small, uniform); the title floor in
+    ;;    `org-air-view--insert-row' (max 1) takes over on a board-only
+    ;;    narrow tier -- never crash, never overflow.
+    (list dw tw ow)))
+
+(defun org-air-project--state-token (state)
+  "Return the terse TTY/byte state token for STATE (e.g. \"[R]\"; R21-5).
+This is the bracket token the board/project byte contract shows; R21-4
+overlays the svg keyword/state badge on it for GUI.  Unlike
+`org-air-project--state-badge' it never returns the GUI emoji."
+  (let ((pair (cdr (assoc state org-air-project-state-badges))))
+    (if pair (cdr pair)
+      (format "[%s]" (upcase (substring state 0 1))))))
+
+(defun org-air-project--state-cell (state)
+  "Return a FIXED-width reserved STATE cell for the project row (R21-5).
+Mirrors the board's `org-air-view--todo-cell': the state TOKEN in its
+state face, left-justified and padded to `org-air-project--state-cell-w'
+plus a single trailing separator, so every doc title shares one left
+edge.  The token text is the byte/TTY contract; R21-4 overlays the svg
+keyword/state badge on GUI."
+  (concat (org-air-view--pad-to
+           (propertize (org-air-project--state-token state)
+                       'face (org-air-project--state-face state))
+           org-air-project--state-cell-w)
+          " "))
+
 (defun org-air-project--state-chip (doc)
   "Return a small leading state chip for DOC (dir/tag modes; D-P5.C).
 When grouping by something other than state, the state is no longer the
@@ -577,8 +650,10 @@ state-first order, then recursion into the name-sorted children."
       (add-text-properties start (point)
                            (list 'org-air-section path)))
     ;; (3) Own docs, state-first, indented one level under this dir.
+    ;; R21-5: one board-style row per doc (state cell + title + meta
+    ;; cluster) via the shared primitive; the state cell is ALWAYS shown.
     (dolist (doc (plist-get node :own-docs))
-      (org-air-project--insert-doc-block doc width t (* 2 depth)))
+      (org-air-project--insert-doc-row doc width (* 2 depth)))
     ;; (4) Recurse into the children (name-sorted).
     (dolist (child (plist-get node :children))
       (org-air-project--insert-dir-node child width nil))))
@@ -698,6 +773,39 @@ SHOW-STATE adds the leading state chip (dir/tag grouping modes)."
                                'org-air-marker (org-air-doc-file doc)
                                'mouse-face 'org-air-face-cursor
                                'font-lock-face 'org-air-face-title))))
+
+(defun org-air-project--insert-doc-row (doc _width &optional indent-cols)
+  "Insert DOC as ONE board-style row via the shared primitive (R21-5).
+Maps DOC onto `org-air-view--insert-row' exactly as the board maps a task
+\(invariant #4: parameterise the shared primitive, do not fork): the doc
+STATE is the row PREFIX as a fixed-width cell, the updated stamp the DATE
+cell, the #tags the SAME svg pills as the board, and the relpath the
+right-justified ORIGIN cell.  INDENT-COLS nests the row under its
+directory in the tree.  The whole row carries `org-air-doc' +
+`org-air-marker' so point on ANY cell identifies the doc (RET/visit still
+resolve).  Replaces the old two-line `org-air-project--insert-doc-block'
+body so the project rows match the board's clean one-line table."
+  (let* ((state  (org-air-doc-state doc))
+         (prefix (concat (org-air-view--item-margin)
+                         (make-string (max 0 (or indent-cols 0)) ?\s)
+                         (org-air-project--state-cell state)))
+         (date   (org-air-project--doc-date-text doc))
+         (tags   (org-air-project--doc-tagstr doc))
+         (origin (org-air-project--doc-origin-text doc)))
+    (org-air-view--insert-row
+     :prefix prefix
+     :title (org-air-doc-name doc)
+     :date-text date
+     :tags tags
+     :origin-text origin
+     :origin-face 'org-air-face-group
+     :widths (list org-air-project--meta-date-w
+                   org-air-project--meta-tags-w
+                   org-air-project--meta-origin-w)
+     :props (list 'org-air-doc doc
+                  'org-air-marker (org-air-doc-file doc)
+                  'mouse-face 'org-air-face-cursor)
+     :face 'org-air-face-title)))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; View
@@ -854,9 +962,11 @@ none, so the no-filter goldens are byte-identical)."
   "Insert all SECTIONS (headings + two-line doc blocks) at content WIDTH."
   (dolist (section sections)
     (org-air-project--insert-section-heading section)
-    (let ((show-state (plist-get section :show-state)))
-      (dolist (doc (plist-get section :docs))
-        (org-air-project--insert-doc-block doc width show-state)))
+    ;; R21-5: one board-style row per doc.  The row ALWAYS carries the
+    ;; state cell now, so the per-section SHOW-STATE conditional is gone
+    ;; (a doc under a state section reads identically to one under a dir).
+    (dolist (doc (plist-get section :docs))
+      (org-air-project--insert-doc-row doc width))
     (insert "\n")))
 
 (defun org-air-project--insert-state-summary-line (docs)
@@ -1050,9 +1160,19 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
          (directoryp (eq org-air-project-group 'directory))
          (tree (when directoryp (org-air-project--directory-tree docs)))
          (sections (unless directoryp (org-air-project--sections docs)))
-         (left-fn (if directoryp
-                      (lambda (w) (org-air-project--insert-directory-tree tree w))
-                    (lambda (w) (org-air-project--insert-doc-sections sections w)))))
+         ;; R21-5: compute the fixed metadata column widths over the
+         ;; DISPLAYED docs at the ACTUAL render width W (board parity:
+         ;; cap + title-protecting fit), and bind them for the row pass so
+         ;; the one-line rows line up exactly like the board's V6 table.
+         (left-fn
+          (lambda (w)
+            (let* ((mw (org-air-project--fit-meta-widths docs w))
+                   (org-air-project--meta-date-w (nth 0 mw))
+                   (org-air-project--meta-tags-w (nth 1 mw))
+                   (org-air-project--meta-origin-w (nth 2 mw)))
+              (if directoryp
+                  (org-air-project--insert-directory-tree tree w)
+                (org-air-project--insert-doc-sections sections w))))))
     ;; R20-2: cache the doc count for the status mode-line :eval.
     (setq-local org-air-project--doc-count (length docs))
     ;; R14 D-P1.B: this buffer hosts the SHARED mid-rail inspector with the

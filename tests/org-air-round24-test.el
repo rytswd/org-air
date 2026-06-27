@@ -188,6 +188,27 @@ is present, else the NEAREST following doc (the resolver under the fix)."
      (should (eq (car near) 'org-air-doc))
      (should (org-air-doc-p (cdr near))))))
 
+(ert-deftest org-air-r24-4-click-shares-ret-resolver-on-dir-header ()
+  "CLICK half of `RET/click': `<mouse-1>' and `RET' resolve to the SAME
+command (`org-air-view-pane-return', bound once on the shared view-core map
+so the board and project never fork), so a CLICK on a DIR-HEADER row runs the
+same fall-forward resolver and opens the pane — driven executing through the
+mouse-1 binding (NOT RET)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r24--with-live-project
+   ;; click == RET: one shared command, no per-mode fork.
+   (should (eq (key-binding (kbd "<mouse-1>")) 'org-air-view-pane-return))
+   (should (eq (key-binding (kbd "RET")) (key-binding (kbd "<mouse-1>"))))
+   ;; drive the CLICK command (resolved from the keymap, not RET) on a
+   ;; dir-header row -> the shared resolver falls forward + the pane opens.
+   (goto-char (org-air-r24--dir-header-pos))
+   (should-not (org-air-view--row-property 'org-air-doc))
+   (call-interactively (key-binding (kbd "<mouse-1>")))
+   (should (org-air-view-pane--window-live-p))
+   (let ((text (org-air-r24--pane-window-text)))
+     (should text)
+     (should (> (length text) 0)))))
+
 (ert-deftest org-air-r24-4-slash-filter-narrows-driven ()
   "`/' driven with a real tag query narrows the visible doc set, and `\\'
 restores it.  Executing through the filter command + the shared core."
@@ -437,6 +458,82 @@ state cell / title / right cluster never move."
                        (goto-char (match-beginning 0))
                        (current-column))))
             (should (= col (+ margin-w (* 2 (1+ 1)))))))))))
+
+(ert-deftest org-air-r24-2-depth-2-leaf-carries-two-ancestor-rails ()
+  "Depth>=2 gap: a doc nested under TWO non-last ancestor dirs carries
+*exactly two* faded `box-vertical' ancestor rails (batch `|') to the LEFT of
+its own connector — the rail COUNT scales with depth (airctl `-Da' threads
+one `|' per non-last ancestor down to the leaf), each rail + the connector is
+`org-air-face-air-tree', and the V6 state cell stays column-locked at
+`margin + (* 2 (1+ 2))'.  Anti-tautology vs the flat depth-1 case: a
+single-rail (or three-rail) gutter would fail the `= 2' count."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r24-2--fixture-docs))
+         (doc (car docs))
+         ;; v0.1/(0) -> A(1, NON-last: Z follows) -> B(2, NON-last: C follows)
+         ;; -> doc.  So the leaf hangs under two non-last ancestors and must
+         ;; carry two `|' rails (one per non-last ancestor).
+         (tree (list
+                (list :dir "v0.1" :depth 0 :path "v0.1" :own-docs nil
+                      :direct-counts nil :desc-counts nil
+                      :children
+                      (list
+                       (list :dir "A" :depth 1 :path "v0.1/A" :own-docs nil
+                             :direct-counts nil :desc-counts nil
+                             :children
+                             (list
+                              (list :dir "B" :depth 2 :path "v0.1/A/B"
+                                    :own-docs (list doc) :direct-counts nil
+                                    :desc-counts nil :children nil)
+                              (list :dir "C" :depth 2 :path "v0.1/A/C"
+                                    :own-docs nil :direct-counts nil
+                                    :desc-counts nil :children nil)))
+                       (list :dir "Z" :depth 1 :path "v0.1/Z" :own-docs nil
+                             :direct-counts nil :desc-counts nil
+                             :children nil)))))
+         (vrail   (org-air-layout-glyph 'box-vertical))
+         (hrail   (org-air-layout-glyph 'box-horizontal))
+         (tee     (org-air-layout-glyph 'box-tee-left))
+         (corner  (org-air-layout-glyph 'box-bottom-left))
+         (margin-w (string-width (org-air-view--item-margin))))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r24-2--insert-tree tree 100)
+          ;; locate the single doc row by its `org-air-doc' property.
+          (let ((pos (text-property-not-all (point-min) (point-max)
+                                            'org-air-doc nil)))
+            (should pos)
+            (goto-char pos)
+            (let* ((bol (line-beginning-position))
+                   (line (buffer-substring-no-properties
+                          bol (line-end-position)))
+                   ;; the connector is the FIRST tee/corner glyph; the gutter
+                   ;; is everything before it.
+                   (conn-col (or (string-match (regexp-quote tee) line)
+                                 (string-match (regexp-quote corner) line)))
+                   (gutter (and conn-col (substring line 0 conn-col))))
+              (should conn-col)
+              ;; EXACTLY two ancestor rails in the gutter (depth 2).
+              (should (= 2 (cl-count (string-to-char vrail) gutter)))
+              ;; both rails sit at the ancestor cell columns (2 and 5) and are
+              ;; faded `org-air-face-air-tree'.
+              (dolist (col '(2 5))
+                (should (equal (char-to-string (char-after (+ bol col))) vrail))
+                (should (eq (get-text-property (+ bol col) 'face)
+                            'org-air-face-air-tree)))
+              ;; the connector + its horizontal lead are also air-tree faced.
+              (should (member (char-to-string (char-after (+ bol conn-col)))
+                              (list tee corner)))
+              (should (eq (get-text-property (+ bol conn-col) 'face)
+                          'org-air-face-air-tree))
+              (should (equal (char-to-string (char-after (+ bol conn-col 1)))
+                             hrail))
+              ;; V6 LOCK at depth 2: the state cell `[' lands at margin +
+              ;; (* 2 (1+ 2)) -- the deeper rail did not shove the cluster.
+              (let ((bracket (string-match "\\[" line)))
+                (should bracket)
+                (should (= bracket (+ margin-w (* 2 (1+ 2)))))))))))))
 
 ;;;; =====================================================================
 ;;;; R24-3 — project state badges: fixed-width SVG (default) / nerd / token.

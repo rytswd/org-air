@@ -593,11 +593,22 @@
     ;; `make regen-mockups'.  Counts + airctl `-Da' parity unchanged
     ;; (org-air-r22-6-* stay green); the R24-2 rail/last-corner/V6-lock
     ;; behaviour is covered by org-air-round24-test.el (org-air-r24-2-*).
-    (org-air-f5-project-view-byte-mockups
-     . "R24-2: directory golden doc-row gutters gain ├─/└─/│ tree rails \
-(ascii +-/| in batch); state/tag goldens byte-identical.  Fixture re-bless \
-deferred to the test track (make regen-mockups) per the do-not-touch-fixtures \
-impl brief; behaviour covered by org-air-r24-2-* ERTs.")
+    ;;
+    ;; 2026-06-27: R24-2 CLOSEOUT — test-track re-bless landed.
+    ;; `make regen-mockups' (FROZEN-CLOCK renderer, anti-tautology guards
+    ;; active) regenerated ONLY tests/fixtures/project-view-dir.txt: the doc
+    ;; rows' leading SPACES (`        [R]') became faded air-tree gutters
+    ;; (`  +-    [R]'; the nested air-context/ doc gains a `|' ancestor rail
+    ;; at `     +-   [D]'), sized to EXACTLY the old indent so the
+    ;; [R]/title/`~ date'/`#tag'/`. origin' V6 cluster + the right `|' pane
+    ;; rail do NOT move.  jj diff --stat = 1 file — every layout board golden
+    ;; + the STATE/TAG project goldens are byte-IDENTICAL (R24-3's batch
+    ;; state cell still emits the `[R]' token, so no board/project churn).
+    ;; `airctl status -Da' parity RE-VERIFIED on ~/Coding/github.com/withre/
+    ;; air: the `│'/`├─'/`└─' rails reach the leaf doc rows there too; the V6
+    ;; columns + per-dir counts are unchanged (org-air-r22-6-* + org-air-f5-*
+    ;; stay green).  org-air-f5-project-view-byte-mockups now PASSES on the
+    ;; regen'd golden, so the entry is deleted.  Round-24 manifest is EMPTY.
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

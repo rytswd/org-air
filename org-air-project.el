@@ -404,7 +404,10 @@ overlays the svg keyword/state badge on it for GUI; it never returns an
 emoji (R21.1 retired the GUI state-emoji path entirely)."
   (let ((pair (cdr (assoc state org-air-project-state-badges))))
     (if pair (cdr pair)
-      (format "[%s]" (upcase (substring state 0 1))))))
+      ;; R25-4: a non-canonical state's fallback token reuses the DISTINCT
+      ;; `--state-letter' (which never collides Draft/Dropped on `D'), so the
+      ;; token + the rollup share one letter source.
+      (format "[%s]" (org-air-project--state-letter state)))))
 
 (defun org-air-project--state-emoji (state)
   "Return STATE's colour emoji when a graphical frame can show it, else nil.
@@ -653,14 +656,26 @@ docs with no directory fold into a leading node with an empty :path."
          (marker (propertize mk 'face 'org-air-face-rail-marker)))
     (if img (propertize marker 'display img) marker)))
 
+(defconst org-air-project--state-letters
+  '(("draft"            . "D")    ; 📝  airctl Draft
+    ("ready"            . "R")    ; 🎯  airctl Ready
+    ("work-in-progress" . "W")    ;      Work-In-Progress (W = Work/WIP)
+    ("complete"         . "C")    ; ✅  airctl Complete
+    ("dropped"          . "X"))   ; 🗑️  airctl Dropped (token is already [X])
+  "Canonical per-state single LETTER (R25-4): airctl-aligned + DISTINCT.
+Draft=D and Dropped=X never collide; `work-in-progress'=W is distinct from
+all.  The single source for BOTH the per-doc badge glyph and the per-dir
+rollup letter, so the two can never drift.")
+
 (defun org-air-project--state-letter (state)
-  "Return STATE's single-letter token (R/W/V/C/X/D) for the count summary (R22-6).
-Derived from `org-air-project--state-token' (the `[R]'... TTY token) so it
-tracks `org-air-project-state-badges'; falls back to the upcased initial."
-  (let ((tok (org-air-project--state-token state)))
-    (if (string-match "\\[\\(.\\)\\]" tok)
-        (match-string 1 tok)
-      (upcase (substring state 0 1)))))
+  "Return STATE's DISTINCT single-letter badge glyph (R25-4).
+From `org-air-project--state-letters' for a canonical state; else the
+upcased first char of the name — never derived in a way that collides
+Draft/Dropped on `D' (the canonical map pins D=draft, X=dropped).  Drives
+BOTH the per-doc badge label and the per-dir count summary."
+  (or (cdr (assoc state org-air-project--state-letters))
+      (and (> (length state) 0) (upcase (substring state 0 1)))
+      "?"))
 
 (defun org-air-project--dir-count-summary (direct desc)
   "Return the calm `R4(+1) C14(+14) ...' count summary for a dir header (R22-6).

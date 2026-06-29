@@ -366,5 +366,67 @@ nothing references it (anti-tautology: the face no longer exists)."
   (skip-unless (locate-library "org-air"))
   (should-not (facep 'org-air-face-air-state-review)))
 
+;;;; =====================================================================
+;;;; R25-4 — Draft vs Dropped must never look alike (distinct letters).
+;;;; =====================================================================
+
+(ert-deftest org-air-r25-4-draft-not-dropped-both-layers ()
+  "Draft=`D' and Dropped=`X' in BOTH the letter map and the per-doc token —
+never equal."
+  (skip-unless (locate-library "org-air"))
+  (should (equal (org-air-project--state-letter "draft") "D"))
+  (should (equal (org-air-project--state-letter "dropped") "X"))
+  (should-not (equal (org-air-project--state-letter "draft")
+                     (org-air-project--state-letter "dropped")))
+  (should (equal (org-air-project--state-token "draft") "[D]"))
+  (should (equal (org-air-project--state-token "dropped") "[X]"))
+  (should-not (equal (org-air-project--state-token "draft")
+                     (org-air-project--state-token "dropped"))))
+
+(ert-deftest org-air-r25-4-letters-airctl-aligned-distinct ()
+  "The five canonical letters are exactly draft=D, ready=R,
+work-in-progress=W, complete=C, dropped=X — all DISTINCT (airctl rollup
+positions)."
+  (skip-unless (locate-library "org-air"))
+  (should (equal (org-air-project--state-letter "draft") "D"))
+  (should (equal (org-air-project--state-letter "ready") "R"))
+  (should (equal (org-air-project--state-letter "work-in-progress") "W"))
+  (should (equal (org-air-project--state-letter "complete") "C"))
+  (should (equal (org-air-project--state-letter "dropped") "X"))
+  (let ((letters (mapcar #'org-air-project--state-letter
+                         '("draft" "ready" "work-in-progress"
+                           "complete" "dropped"))))
+    (should (= (length (seq-uniq letters)) 5))))
+
+(ert-deftest org-air-r25-4-fallback-never-collides-d-d ()
+  "Anti-tautology: the bare-first-char rule returns `D' for BOTH `draft' and
+`dropped' (the trunk hazard); the canonical map is the AUTHORITY, pinning
+D=draft and X=dropped so the badge layer never takes that colliding path for
+a canonical state."
+  (skip-unless (locate-library "org-air"))
+  ;; the colliding rule the map replaces.
+  (should (equal (upcase (substring "draft" 0 1)) "D"))
+  (should (equal (upcase (substring "dropped" 0 1)) "D"))
+  ;; the map pins them distinctly, and `--state-letter' reads the map first.
+  (should (equal (cdr (assoc "draft" org-air-project--state-letters)) "D"))
+  (should (equal (cdr (assoc "dropped" org-air-project--state-letters)) "X"))
+  (should (equal (org-air-project--state-letter "dropped") "X"))
+  ;; a genuinely non-canonical state still resolves (no error, distinct from
+  ;; the canonical letters where its name allows).
+  (should (equal (org-air-project--state-letter "unknown") "U")))
+
+(ert-deftest org-air-r25-4-rollup-draft-dropped-distinct ()
+  "The per-dir count summary over a dir with BOTH a draft and a dropped doc
+contains BOTH a `D' and an `X' letter cell (never two `D')."
+  (skip-unless (locate-library "org-air"))
+  (let ((summary (substring-no-properties
+                  (org-air-project--dir-count-summary
+                   '(("draft" . 1) ("dropped" . 1)) nil))))
+    (should (string-match-p "D" summary))
+    (should (string-match-p "X" summary))
+    ;; exactly one D (draft) and one X (dropped) — no D/D collision.
+    (should (= (cl-count ?D summary) 1))
+    (should (= (cl-count ?X summary) 1))))
+
 (provide 'org-air-round25-test)
 ;;; org-air-round25-test.el ends here

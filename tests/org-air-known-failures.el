@@ -664,6 +664,24 @@
      . "R25-3/R25-1/R25-5: Summary drops `0  Review'; the dir golden's doc\n
          gutters fill with box-horizontal; project rows lose the origin cell\n
          (regen-mockups re-bless of all three project goldens)")
+    ;;
+    ;; 2026-06-29: R25-5 DROP the meaningless origin/path column in the
+    ;; PROJECT view (redundant with the dir tree + title).
+    ;; `org-air-project--fit-meta-widths' returns ocol 0 and
+    ;; `--insert-doc-row' passes no `:origin-text', so `--insert-row' omits
+    ;; the cell and the freed width flows to the flex title.  The BOARD is
+    ;; untouched (its goldens are byte-identical); the relpath STAYS in the
+    ;; R24-6 filter search key (path tokens still match).  Two existing ERTs
+    ;; asserted the project ROW's relpath origin cell and re-bless (test
+    ;; seat); the project goldens move (folded into
+    ;; `org-air-f5-project-view-byte-mockups' above).  The new R25-5 ERTs
+    ;; (no-origin / board-keeps / path-filterable / title-reclaim) PASS.
+    (org-air-f5-tree-structure
+     . "R25-5: the project STATE grouping no longer shows the `v0.N/' relpath\n
+         origin cell (test re-bless)")
+    (org-air-r21-5-doc-row-carries-doc-and-marker-across-the-row
+     . "R25-5: the doc row no longer carries the `v0.1/alpha-feature.org'\n
+         origin cell; org-air-doc/marker still span the row (test re-bless)")
     (org-air-r20-5-state-display-order-matches-airctl
      . "R25-3: display-order no longer contains `review' (test re-bless)")
     (org-air-r23-4-batch-state-cell-is-token-byte-stable

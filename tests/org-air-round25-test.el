@@ -696,5 +696,69 @@ preserved; only the post-corner fill changed)."
                 (should (cl-every (lambda (c) (equal (char-to-string c) hbar))
                                   run))))))))))
 
+;;;; =====================================================================
+;;;; R25-5 — drop the meaningless origin/path column in the PROJECT view.
+;;;; =====================================================================
+
+(ert-deftest org-air-r25-5-project-row-has-no-origin-cell ()
+  "Project rows carry NO origin/path cell: the fit allocates 0 origin columns
+and no doc row shows the relpath origin (`. v0.N/...').  On trunk the row
+carried the `. v0.1/...' cell."
+  (skip-unless (locate-library "org-air"))
+  (let ((docs (org-air-project--collect-docs org-air-project-test-root)))
+    (should (= 0 (nth 2 (org-air-project--fit-meta-widths docs 100)))))
+  (let ((text (mapconcat #'identity
+                         (org-air-project-test--render-lines
+                          'org-air-project-group-by-state 100)
+                         "\n")))
+    (should (string-match-p "Alpha feature" text))          ; title still shows
+    (should-not (string-match-p "alpha-feature\\.org" text)) ; no relpath cell
+    (should-not (string-match-p "\\. v0\\.[0-9]" text))))    ; no `. v0.N/' origin
+
+(ert-deftest org-air-r25-5-board-still-has-origin ()
+  "Independence: the BOARD keeps its origin cell (the removal is project-only)
+— a board item row still shows its file origin."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-with-dashboard 140
+    (let ((text (buffer-string)))
+      (should (string-match-p "[.▤] \\(inbox\\|projects\\|personal\\)" text)))))
+
+(ert-deftest org-air-r25-5-relpath-still-filterable ()
+  "The relpath stays in the FILTER search key: a bare PATH token narrows the
+docs to those under that path, even though the DISPLAY origin cell is gone."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-project--collect-docs org-air-project-test-root))
+         (org-air-view--tag-filter (list "air-context"))
+         (org-air-filter-match 'all)
+         (matched (seq-filter
+                   (lambda (d)
+                     (org-air-view--tokens-pass-filter-p
+                      (concat (org-air-doc-name d) " "
+                              (org-air-doc-relpath d))
+                      (org-air-doc-tags d)))
+                   docs)))
+    (should matched)
+    ;; only the doc UNDER v0.1/air-context/ matches the path token.
+    (should (cl-every (lambda (d) (string-match-p "air-context"
+                                                  (org-air-doc-relpath d)))
+                      matched))
+    (should (member "Gamma context" (mapcar #'org-air-doc-name matched)))
+    (should (= 1 (length matched)))))
+
+(ert-deftest org-air-r25-5-title-reclaims-width ()
+  "With the origin column gone the fit allocates ocol 0 at every tier and no
+rendered row overflows the width (the freed columns flow to the flex title)."
+  (skip-unless (locate-library "org-air"))
+  (let ((docs (org-air-project--collect-docs org-air-project-test-root)))
+    (dolist (w '(80 100 120))
+      (should (= 0 (nth 2 (org-air-project--fit-meta-widths docs w))))))
+  (dolist (group-fn '(org-air-project-group-by-state
+                      org-air-project-group-by-directory
+                      org-air-project-group-by-tag))
+    (let ((lines (org-air-project-test--render-lines group-fn 100)))
+      (should lines)
+      (dolist (l lines)
+        (should (<= (string-width l) 100))))))
+
 (provide 'org-air-round25-test)
 ;;; org-air-round25-test.el ends here

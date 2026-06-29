@@ -372,7 +372,11 @@ task row share column positions (board parity, invariant #4)."
   (let* ((raw (org-air-project--doc-widths docs))
          (dw (nth 0 raw))
          (tw (nth 1 raw))
-         (ow (min (nth 2 raw) org-air-origin-max-width))
+         ;; R25-5: the project view drops the origin/path cell (redundant
+         ;; with the dir tree + title) -> NO origin column; the freed columns
+         ;; reclaim to the flex title.  The cap/shrink steps have no origin
+         ;; to shrink (ow 0), and `--insert-doc-row' passes no `:origin-text'.
+         (ow 0)
          (gap 2)
          (left-reserve (+ (string-width (org-air-view--item-margin))
                           (1+ org-air-project--state-cell-w)))
@@ -395,7 +399,7 @@ task row share column positions (board parity, invariant #4)."
     ;; 3) the date column is held (small, uniform); the title floor in
     ;;    `org-air-view--insert-row' (max 1) takes over on a board-only
     ;;    narrow tier -- never crash, never overflow.
-    (list dw tw ow)))
+    (list dw tw 0)))                       ; R25-5: ocol pinned 0
 
 (defun org-air-project--state-token (state)
   "Return the terse TTY/byte state token for STATE (e.g. \"[R]\"; R21-5).
@@ -892,19 +896,20 @@ margin + state cell, byte-identical to today."
                                gutter-w)))
               (concat guide (org-air-project--state-cell state)))))
          (date   (org-air-project--doc-date-text doc))
-         (tags   (org-air-project--doc-tagstr doc))
-         (origin (org-air-project--doc-origin-text doc)))
+         (tags   (org-air-project--doc-tagstr doc)))
     (org-air-view--insert-row
      :prefix prefix
      :title (org-air-doc-name doc)
      :date-text date
      :tags tags
-     :origin-text origin
-     ;; R22-7: the origin reads at AA (mid-tier) instead of sub-AA faded.
-     :origin-face 'org-air-face-origin
+     ;; R25-5: no `:origin-text' / `:origin-face' — the project view drops the
+     ;; path cell (redundant with the dir tree + title); `--insert-row' omits
+     ;; the 0-width origin cell.  The relpath stays in the FILTER search key
+     ;; (`--render' uses `org-air-doc-relpath' directly), so path tokens still
+     ;; match; only the DISPLAY column is gone.
      :widths (list org-air-project--meta-date-w
                    org-air-project--meta-tags-w
-                   org-air-project--meta-origin-w)
+                   0)
      :props (list 'org-air-doc doc
                   'org-air-marker (org-air-doc-file doc)
                   'mouse-face 'org-air-face-cursor)

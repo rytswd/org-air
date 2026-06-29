@@ -292,7 +292,11 @@ The mode init ran with `noninteractive' nil inside the live harness."
 (ert-deftest org-air-r24-5-native-close-reconciles-to-inline ()
   "Pop the project rail OUT, close the side window NATIVELY (`delete-window'),
 run the reconciler: `org-air-view--rail-popped-out' flips to nil = fall back
-to the inline rail (on trunk the reconcile no-ops for the project)."
+to the inline rail (on trunk the reconcile no-ops for the project).
+R25-6 re-bless: `org-air-rail--reconcile' now DEFERS the window-mutating work
+to a 0s timer (window mutation never runs inside the config-change hook), so
+the synchronous flag-flip is driven via `org-air-rail--reconcile-frame'
+(the deferred body) — the close-to-inline outcome is unchanged."
   (skip-unless (locate-library "org-air"))
   (org-air-r24--with-live-project
    (execute-kbd-macro (kbd "|"))
@@ -301,10 +305,12 @@ to the inline rail (on trunk the reconcile no-ops for the project)."
    (delete-window (org-air-r24--rail-window))
    (should-not (org-air-rail--window-live-p))
    ;; reconcile with a wide render width so it is a genuine user-close
-   ;; (not a responsive board-only teardown that keeps the flag).
+   ;; (not a responsive board-only teardown that keeps the flag).  Run the
+   ;; DEFERRED reconcile body synchronously (flush the 0s timer) so the
+   ;; flag-flip is observable in the test.
    (let ((org-air-view-width 120))
      (should (org-air-rail--user-closed-p (current-buffer)))
-     (org-air-rail--reconcile))
+     (org-air-rail--reconcile-frame (selected-frame)))
    (should (null org-air-view--rail-popped-out))))
 
 ;;;; =====================================================================
@@ -332,27 +338,39 @@ pill path) render without unbound globals."
 (ert-deftest org-air-r24-2-doc-row-carries-tree-rail ()
   "A DOC row's leading gutter carries a faded tree CONNECTOR (box-tee-left/
 box-bottom-left + box-horizontal, ascii `+-' in batch) in `org-air-face-air-
-tree' — the rail reaches the leaf (on trunk the doc gutter was pure spaces)."
+tree' — the rail reaches the leaf.  R25-1 re-bless: the run AFTER the corner
+is now `box-horizontal' (`-' batch) ALL the way to the badge — no spaces sit
+between the connector and `[R]' (the arm reaches it flush; on R24 the
+post-connector gutter was spaces)."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r24-2--fixture-docs))
-         (tree (org-air-project--directory-tree docs)))
+         (tree (org-air-project--directory-tree docs))
+         (hbar (org-air-layout-glyph 'box-horizontal)))
     (org-air-test-with-frozen-project-path org-air-project-test-root
       (org-air-project-test--with-frozen-mtime
         (with-temp-buffer
           (org-air-r24-2--insert-tree tree 100)
           (goto-char (point-min))
           ;; the top dir's own doc `Alpha feature' leads with a connector at
-          ;; the marker column (NO leading ancestor rail char before it).
-          (should (re-search-forward "^ *\\([-+|]\\)\\([-+|]\\) +\\[R\\] Alpha feature"
+          ;; the marker column (NO leading ancestor rail char before it),
+          ;; then a box-horizontal run FLUSH to the badge (no space gap).
+          (should (re-search-forward "^ *\\([-+|]\\)\\([-+|]\\)-*\\[R\\] Alpha feature"
                                      nil t))
-          (let ((c1 (match-beginning 1)) (c2 (match-beginning 2)))
+          (let* ((c1 (match-beginning 1)) (c2 (match-beginning 2))
+                 (bracket (- (match-end 0) (length " Alpha feature")
+                             (length "[R]"))))
             (should (member (char-to-string (char-after c1))
                             (list (org-air-layout-glyph 'box-bottom-left)
                                   (org-air-layout-glyph 'box-tee-left))))
-            (should (equal (char-to-string (char-after c2))
-                           (org-air-layout-glyph 'box-horizontal)))
+            (should (equal (char-to-string (char-after c2)) hbar))
             (should (eq (get-text-property c1 'face) 'org-air-face-air-tree))
             (should (eq (get-text-property c2 'face) 'org-air-face-air-tree))
+            ;; R25-1: EVERY cell from the corner to the badge is box-horizontal
+            ;; (the arm reaches `[R]' flush — no space gap).
+            (let ((run (buffer-substring-no-properties (1+ c1) bracket)))
+              (should (> (length run) 0))
+              (should (cl-every (lambda (ch) (equal (char-to-string ch) hbar))
+                                run)))
             ;; anti-tautology: a TOP doc's connector sits at the marker column
             ;; (no rail glyph in the two leading columns before it).
             (should (string-match-p "\\` *\\'"

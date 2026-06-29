@@ -610,82 +610,68 @@
     ;; stay green).  org-air-f5-project-view-byte-mockups now PASSES on the
     ;; regen'd golden, so the entry is deleted.  Round-24 manifest is EMPTY.
     ;; ===================================================================
-    ;; v0.5 ROUND-25 grind (impl track).
-    ;;
-    ;; 2026-06-29: R25-6 CLEAN rail dual-mode — `org-air-rail--reconcile'
-    ;; is generalised from the synchronous "user-close only" reactor into a
-    ;; thin DEFERRING wrapper (it schedules `org-air-rail--reconcile-frame'
-    ;; on a 0s timer; window mutation never runs inside the
-    ;; `window-configuration-change-hook').  The R24-5 ERT below drove the
-    ;; OLD synchronous contract — `(org-air-rail--reconcile)' then an
-    ;; IMMEDIATE `(should (null org-air-view--rail-popped-out))' — which no
-    ;; longer holds because the flag now flips when the timer fires.  The
-    ;; NEW close-to-inline behaviour is proven synchronously by
-    ;; `org-air-r25-6-close-reconciles-to-inline' (calls
-    ;; `org-air-rail--reconcile-frame' directly).  Test-track re-bless: flush
-    ;; the 0s timer (`sit-for 0') or call `--reconcile-frame' before the
-    ;; assertion, then delete this entry.
-    (org-air-r24-5-native-close-reconciles-to-inline
-     . "R25-6: reconcile is now deferred to a 0s timer; the synchronous\n
-         flag-flip assertion needs a timer flush (test-track re-bless)")
-    ;;
-    ;; 2026-06-29: R25-3 DROP the phantom `review' state.  Air has no
-    ;; `review' state (verified against withre/air: draft|ready|work-in-
-    ;; progress|complete|dropped); R25-3 deletes every `review' entry from
-    ;; the state lists / badge map / nerd glyphs / face clause + the orphan
-    ;; `org-air-face-air-state-review' face.  Three byte/assert tests re-bless
-    ;; (test seat):
-    ;;   * the three project goldens' `▌ Summary' block drops its always-
-    ;;     listed `0  Review' line (the fixture has no review DOCS, so no doc
-    ;;     row / state section moves) -> `org-air-f5-project-view-byte-
-    ;;     mockups' until `make regen-mockups' re-blesses the goldens;
-    ;;   * the display-order ERT asserted `(... "review" ...)';
-    ;;   * the batch state-cell ERT asserted the `review' badge token `[V] '.
-    ;; The NEW R25-3 ERTs (review-absent / 5-states-ordered / display-order /
-    ;; summary-no-review / orphan-face-gone) PASS.  Delete each entry when the
-    ;; test-track re-bless lands.
-    ;;
-    ;; 2026-06-29: R25-1 TREE ARM LENGTH — a directory-tree DOC row fills the
-    ;; gutter run AFTER the corner with `box-horizontal' (`-' batch / `─' GUI)
-    ;; instead of spaces, so the arm REACHES the badge (`  +-----[R]'); the
-    ;; gutter TOTAL width is unchanged (state cell / title / right cluster
-    ;; V6-frozen).  Two re-blesses (test seat):
-    ;;   * the DIRECTORY golden's doc-row gutters move (`  +-    [R]' ->
-    ;;     `  +-----[R]') -> folded into `org-air-f5-project-view-byte-mockups'
-    ;;     below (already failing for R25-3/R25-5; the dir golden now also
-    ;;     needs the gutter re-bless);
-    ;;   * `org-air-r24-2-doc-row-carries-tree-rail' asserted SPACES (` +')
-    ;;     between the connector and `[R]' — now box-horizontal.  The R25-1
-    ;;     arm/V6-lock/corner/ancestor ERTs cover the new contract.
-    (org-air-r24-2-doc-row-carries-tree-rail
-     . "R25-1: the post-connector gutter run is now box-horizontal, not\n
-         spaces — the ` +'-spaces assertion re-blesses (test seat)")
-    (org-air-f5-project-view-byte-mockups
-     . "R25-3/R25-1/R25-5: Summary drops `0  Review'; the dir golden's doc\n
-         gutters fill with box-horizontal; project rows lose the origin cell\n
-         (regen-mockups re-bless of all three project goldens)")
-    ;;
-    ;; 2026-06-29: R25-5 DROP the meaningless origin/path column in the
-    ;; PROJECT view (redundant with the dir tree + title).
-    ;; `org-air-project--fit-meta-widths' returns ocol 0 and
-    ;; `--insert-doc-row' passes no `:origin-text', so `--insert-row' omits
-    ;; the cell and the freed width flows to the flex title.  The BOARD is
-    ;; untouched (its goldens are byte-identical); the relpath STAYS in the
-    ;; R24-6 filter search key (path tokens still match).  Two existing ERTs
-    ;; asserted the project ROW's relpath origin cell and re-bless (test
-    ;; seat); the project goldens move (folded into
-    ;; `org-air-f5-project-view-byte-mockups' above).  The new R25-5 ERTs
-    ;; (no-origin / board-keeps / path-filterable / title-reclaim) PASS.
-    (org-air-f5-tree-structure
-     . "R25-5: the project STATE grouping no longer shows the `v0.N/' relpath\n
-         origin cell (test re-bless)")
-    (org-air-r21-5-doc-row-carries-doc-and-marker-across-the-row
-     . "R25-5: the doc row no longer carries the `v0.1/alpha-feature.org'\n
-         origin cell; org-air-doc/marker still span the row (test re-bless)")
-    (org-air-r20-5-state-display-order-matches-airctl
-     . "R25-3: display-order no longer contains `review' (test re-bless)")
-    (org-air-r23-4-batch-state-cell-is-token-byte-stable
-     . "R25-3: the `review' badge token `[V]' is gone (test re-bless)")
+    ;; v0.5 ROUND-25 CLOSEOUT (impl tips qmswyxso..soxomzwk + test re-bless
+    ;; <this commit>).  ALL 7 grind entries CLOSED — the three project byte
+    ;; goldens regenerated from impl's render via the FROZEN-CLOCK renderer
+    ;; (make regen-mockups, anti-tautology guards active; verified NO HANG,
+    ;; exit 0; jj diff --stat = ONLY the 3 project goldens — every board /
+    ;; entry-view / denote golden is byte-identical, confirming R25-2/R25-4
+    ;; are byte-invisible) and the assertion ERTs re-blessed to the
+    ;; design-blessed R25 contracts (air/v0.5/org-air-round25-design.org):
+    ;;   R25-6 (1) CLEAN rail dual-mode: `org-air-rail--reconcile' now DEFERS
+    ;;     the window-mutating reconcile to a 0s timer (mutation never runs
+    ;;     inside `window-configuration-change-hook').  org-air-r24-5-native-
+    ;;     close-reconciles-to-inline drove the OLD synchronous flag-flip; it
+    ;;     re-blesses to drive the DEFERRED body directly via `--reconcile-
+    ;;     frame' (same close-to-inline outcome).  The 7 NEW R25-6 rail ERTs
+    ;;     (no-double-rail-after-view-switch / side-rail-shows-current-view /
+    ;;     toggle-idempotent-reversible / board-project-independent / close-
+    ;;     reconciles-to-inline / no-orphan-when-navigating-away / refresh-
+    ;;     never-strands) prove the single-owner invariant.
+    ;;   R25-3 (4) DROP the phantom `review' state (Air has only draft|ready|
+    ;;     work-in-progress|complete|dropped — RE-VERIFIED against airctl
+    ;;     status -Da on withre/air, NO review state printed): the three
+    ;;     project goldens' `▌ Summary' block drops the always-listed
+    ;;     `0  Review' line (folded into f5-project-view-byte-mockups);
+    ;;     org-air-r20-5-state-display-order-matches-airctl drops `review'
+    ;;     from the order; org-air-r23-4-batch-state-cell-is-token-byte-stable
+    ;;     drops the `[V]' review token.  NEW R25-3 ERTs (review-absent /
+    ;;     five-real-states-ordered / display-order-minus-review / summary-
+    ;;     has-no-review-row / orphan-review-face-gone) PASS.
+    ;;   R25-1 (2) TREE ARM LENGTH: a directory-tree DOC row fills the gutter
+    ;;     run AFTER the corner with `box-horizontal' (`-' batch / `─' GUI)
+    ;;     instead of spaces, so the arm REACHES the badge (`  +-----[R]');
+    ;;     gutter TOTAL width unchanged (V6-frozen).  The dir golden's
+    ;;     doc-row gutters (`  +-    [R]' -> `  +-----[R]', nested
+    ;;     `     +----[D]') re-blessed via regen (folded into f5-project-
+    ;;     view-byte-mockups); org-air-r24-2-doc-row-carries-tree-rail
+    ;;     re-blessed off the ` +'-spaces assertion onto the box-horizontal
+    ;;     flush run.  NEW R25-1 ERTs (arm-reaches-the-badge / v6-columns-
+    ;;     frozen depth 0+1 / corner-then-dash-run / nested-ancestor-rail-
+    ;;     then-arm) PASS.
+    ;;   R25-5 (3) DROP the meaningless origin/path column in the PROJECT
+    ;;     view: `--fit-meta-widths' returns ocol 0 and `--insert-doc-row'
+    ;;     passes no `:origin-text', so `--insert-row' omits the cell and the
+    ;;     freed width flows to the title.  The three project goldens lose the
+    ;;     `. v0.N/...' cell (regen, folded into f5-project-view-byte-
+    ;;     mockups); org-air-f5-tree-structure + org-air-r21-5-doc-row-
+    ;;     carries-doc-and-marker-across-the-row re-blessed off the relpath
+    ;;     origin cell (org-air-doc/marker still span the row).  The BOARD is
+    ;;     UNTOUCHED (its goldens byte-identical) and the relpath STAYS in the
+    ;;     R24-6 filter search key.  NEW R25-5 ERTs (project-row-has-no-
+    ;;     origin-cell / board-still-has-origin / relpath-still-filterable /
+    ;;     title-reclaims-width) PASS.
+    ;;   R25-2/R25-4 (byte-invisible): the bigger/bold svg badge LETTER and
+    ;;     the DISTINCT Draft=D vs Dropped=X letter map are GUI svg :data /
+    ;;     letter-map changes with stable batch `[R]'/`[D]'/`[X]' tokens, so
+    ;;     no golden moved; covered by the NEW R25-2 (badge-draws-bold-letter
+    ;;     / badge-width-pixel-locked / gui-chip-letters-distinct / batch-
+    ;;     token-stable / board-pills-unaffected) and R25-4 (draft-not-
+    ;;     dropped-both-layers / letters-airctl-aligned-distinct / fallback-
+    ;;     never-collides-d-d / rollup-draft-dropped-distinct) ERTs.
+    ;; No .el SOURCE touched (impl landed R25-1..R25-6 in qmswyxso..
+    ;; soxomzwk).  Round-25 manifest is EMPTY; the tests stay as permanent
+    ;; regression guards.
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

@@ -1,16 +1,16 @@
   org-air · project                                                                       | name ^
 
   | v0.1/                                                 R1 C1 D(+1) | | June 2026              < >
-  +-    [R] Alpha feature           ~ 2026-05-01  #ui... . v0.1/al... |     Su Mo Tu We Th Fr Sa
-  +-    [C] Beta CLI                ~ 2026-05-01  #core  . v0.1/be... |         1  2  3  4  5  6
+  +-----[R] Alpha feature               ~ 2026-05-01  #ui   #core     |     Su Mo Tu We Th Fr Sa
+  +-----[C] Beta CLI                    ~ 2026-05-01  #core           |         1  2  3  4  5  6
   +- air-context/                                                  D1 |      7  8  9 10 11 12 13
-     +-   [D] Gamma context         ~ 2026-05-01  #co... . v0.1/ai... |     14 15 16 17 18 19 20
+     +----[D] Gamma context             ~ 2026-05-01  #context        |     14 15 16 17 18 19 20
                                                                       |     21 22 23 24 25 26 27
   | v0.2/                                                    W1 X1 D1 |     28 29 30
-  +-    [W] Zeta work in progress   ~ 2026-05-01  #co... . v0.2/ze... |
-  +-    [X] Delta UI exploration    ~ 2026-05-01  #ui    . v0.2/de... |     ! due    o sched
-  +-    [D] Epsilon plan            ~ 2026-05-01  #co... . v0.2/ep... |
-  +-    [U] Eta notes               ~ 2026-05-01  #no... . v0.2/et... | | Filter
+  +-----[W] Zeta work in progress       ~ 2026-05-01  #core   #ui     |
+  +-----[X] Delta UI exploration        ~ 2026-05-01  #ui             |     ! due    o sched
+  +-----[D] Epsilon plan                ~ 2026-05-01  #context   #ui  |
+  +-----[U] Eta notes                   ~ 2026-05-01  #notes          | | Filter
                                                                       |  none
                                                                       | | Source
                                                                       |  all items · 7 loaded
@@ -19,7 +19,6 @@
                                                                       |    2  Draft
                                                                       |    1  Ready
                                                                       |    1  Work In Progress
-                                                                      |    0  Review
                                                                       |    1  Complete
                                                                       |    1  Dropped
                                                                       |

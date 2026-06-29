@@ -115,14 +115,15 @@ is a distinct major mode (the tree renderer, not the GTD board)."
 (ert-deftest org-air-f5-tree-structure ()
   "R21-5 [byte] re-bless: the project view renders each doc as ONE
 board-style row through the SHARED `org-air-view--insert-row' (state cell +
-clean title + the V6 date/tags/origin meta cluster), DROPPING the old
-two-line emoji block.  Row shape: `[badge] Title  <date>  #tags  <glyph>
-relpath' on a single line.  The old `created…/updated…' second line and its
-labels are GONE — the date is now the single V6 `↻ YYYY-MM-DD' cell (TTY
-`~ …').  The nested directory tree, per-dir counts and the shared rail are
-UNCHANGED; section headers keep the round-11 `▌'/`|' prefix + `[badge]
-State N'.  No box-drawing tree (air/v0.5/org-air-round21-design.org
-§R21-5)."
+clean title + the V6 date/tags meta cluster), DROPPING the old
+two-line emoji block.  Row shape: `[badge] Title  <date>  #tags' on a single
+line.  R25-5 re-bless: the redundant relpath origin cell is DROPPED from the
+project row (the dir tree + title already carry that signal).  The old
+`created…/updated…' second line and its labels are GONE — the date is now the
+single V6 `↻ YYYY-MM-DD' cell (TTY `~ …').  The nested directory tree,
+per-dir counts and the shared rail are UNCHANGED; section headers keep the
+round-11 `▌'/`|' prefix + `[badge] State N'.  No box-drawing tree
+(air/v0.5/org-air-round21-design.org §R21-5)."
   (skip-unless (locate-library "org-air"))
   ;; Render at the blessed fixture width (100).
   (let ((org-air-project-view-width 100))
@@ -142,13 +143,15 @@ State N'.  No box-drawing tree (air/v0.5/org-air-round21-design.org
       (dolist (doc org-air-project-test-docs)
         (should (string-match-p (regexp-quote (plist-get (cdr doc) :title))
                                 text)))
-      ;; R21-5 ONE-LINE shape: a doc's state badge, clean TITLE, the V6 date
-      ;; cell and the relpath origin all sit on the SAME buffer line (the
-      ;; two-line block is gone).
+      ;; R21-5 ONE-LINE shape: a doc's state badge, clean TITLE and the V6
+      ;; date cell all sit on the SAME buffer line (the two-line block is
+      ;; gone).  R25-5 re-bless: the doc row no longer carries the relpath
+      ;; origin cell (redundant with the dir tree + title), so the line ends
+      ;; with the date/tags cluster, NOT a `v0.N/...' origin.
       (should (cl-some
                (lambda (l)
                  (string-match-p
-                  "\\[R\\] Alpha feature .*~ 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].*v0\\.1/"
+                  "\\[R\\] Alpha feature .*~ 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
                   l))
                lines))
       ;; The SINGLE V6 date cell (`~ YYYY-MM-DD'); the OLD two-line
@@ -156,9 +159,10 @@ State N'.  No box-drawing tree (air/v0.5/org-air-round21-design.org
       (should (string-match-p "~ [0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}" text))
       (should-not (string-match-p "created [0-9]" text))
       (should-not (string-match-p "updated [0-9]" text))
-      ;; The version path is visible in the origin cell (not the basename).
-      (should (string-match-p "v0\\.1/" text))
-      (should (string-match-p "v0\\.2/" text))
+      ;; R25-5: the project STATE grouping shows NO `v0.N/' relpath origin
+      ;; cell anywhere (state grouping has no dir headers either, so the
+      ;; version path is fully absent now the origin column is dropped).
+      (should-not (string-match-p "v0\\.[0-9]/" text))
       ;; TTY state badges (batch is a TTY): all five states.
       (dolist (badge '("[D]" "[R]" "[W]" "[C]" "[X]"))
         (should (string-match-p (regexp-quote badge) text)))

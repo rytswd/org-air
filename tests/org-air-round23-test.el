@@ -349,14 +349,15 @@ is demoted to an explicit opt-in."
 falls through to the terse `[R]'/`[C]'... token — the state cell's TRUE text
 (properties stripped) is byte-IDENTICAL to before, no emoji leaks (the
 project goldens are unchanged; the R21-4 contract holds), and
-`--state-emoji' returns nil off a graphical frame."
+`--state-emoji' returns nil off a graphical frame.  R25-3 re-bless: the
+phantom `review' state (token `[V]') is gone — 5 canonical states only."
   (skip-unless (locate-library "org-air"))
   (should-not (display-graphic-p))               ; batch precondition
   (let ((org-air-project-state-style 'emoji))
     (pcase-dolist (`(,state . ,token)
                    '(("ready" . "[R] ") ("complete" . "[C] ")
                      ("dropped" . "[X] ") ("draft" . "[D] ")
-                     ("work-in-progress" . "[W] ") ("review" . "[V] ")))
+                     ("work-in-progress" . "[W] ")))
       (ert-info ((format "state %s" state))
         ;; exact token cell, no emoji code points.
         (should (equal (substring-no-properties

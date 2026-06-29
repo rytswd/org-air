@@ -126,12 +126,15 @@ proving the nesting is driven by the actual files, not hard-coded."
 (ert-deftest org-air-r20-5-state-display-order-matches-airctl ()
   "`org-air-project--state-display-order' is the single airctl `-Da' state
 order driving BOTH the per-dir badges and the within-dir doc ordering, so
-the two can never drift: Ready · Work-In-Progress · Review · Complete ·
-Dropped · Draft."
+the two can never drift: Ready · Work-In-Progress · Complete · Dropped ·
+Draft.  R25-3 re-bless: the phantom `review' state is gone (Air has no
+`review' state — 5 canonical states only)."
   (skip-unless (locate-library "org-air"))
   (should (equal org-air-project--state-display-order
-                 '("ready" "work-in-progress" "review"
+                 '("ready" "work-in-progress"
                    "complete" "dropped" "draft")))
+  ;; R25-3: `review' is absent from the canonical order.
+  (should-not (member "review" org-air-project--state-display-order))
   ;; the rank function orders accordingly (ready precedes draft)
   (should (< (org-air-project--state-display-rank "ready")
              (org-air-project--state-display-rank "draft")))

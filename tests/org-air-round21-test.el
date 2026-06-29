@@ -244,7 +244,9 @@ rendered (one line per doc), proving no second `. relpath …' line remains."
 carries `org-air-doc' + `org-air-marker' across its WHOLE width (point on
 any cell identifies the doc, so RET / visit still resolve), built through
 the SHARED `org-air-view--insert-row' (the row also gets the R21-2
-`org-air-row-title' title mark)."
+`org-air-row-title' title mark).  R25-5 re-bless: the row no longer renders
+the relpath ORIGIN cell (dropped as redundant) — `org-air-doc'/`org-air-
+marker' still span every cell, so RET/visit resolve unchanged."
   (skip-unless (locate-library "org-air"))
   (let* ((org-air-view-width 100)
          (org-air-project--meta-date-w 12)
@@ -271,11 +273,13 @@ the SHARED `org-air-view--insert-row' (the row also gets the R21-2
         (should (eq (get-text-property (1- eol) 'org-air-doc) doc))
         ;; ... and the shared primitive marked the title's first glyph.
         (should (text-property-any bol eol 'org-air-row-title t))
-        ;; the row reads the doc by NAME, with the V6 date + origin cells.
+        ;; the row reads the doc by NAME, with the V6 date cell.  R25-5: the
+        ;; relpath origin cell is GONE from the visible row (the doc-file
+        ;; marker prop still spans it, asserted above).
         (let ((text (buffer-substring-no-properties bol eol)))
           (should (string-match-p "Alpha feature" text))
           (should (string-match-p "20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]" text))
-          (should (string-match-p "v0\\.1/alpha-feature\\.org" text)))))))
+          (should-not (string-match-p "v0\\.1/alpha-feature\\.org" text)))))))
 
 (ert-deftest org-air-r21-5-doc-rows-share-v6-date-column ()
   "R21-5: the doc rows flow through the SHARED V6 `--insert-row', so the

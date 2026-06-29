@@ -1662,10 +1662,15 @@ LABEL) CW)' when `string-pixel-width' is unavailable (Emacs < 29)."
               (propertize label 'face (list :height (/ fs (float ch)))))))
       (* (string-width label) cw)))
 
-(cl-defun org-air-view--svg-pillify (text face &key (align 'center) border-color)
+(cl-defun org-air-view--svg-pillify (text face &key (align 'center) border-color
+                                         label font-weight)
   "Return TEXT carrying a rounded svg-pill `display' overlay (C2/D-P1).
 ALIGN places the label inside the box: `center' (default) or `right'
-\(D-P1 `org-air-date-pill-align').  BORDER-COLOR overrides the neutral
+\(D-P1 `org-air-date-pill-align').  LABEL overrides the DRAWN glyph string
+\(default: TEXT trimmed) so a chip can show a glyph DIFFERENT from its text-
+cell contract (R25-2: the project state badge keeps the `[D]' cell text for
+the byte/pixel-lock box but draws just `D').  FONT-WEIGHT (e.g. `bold') is
+passed to `svg-text' (default: normal).  BORDER-COLOR overrides the neutral
 `org-air-pill-border' for this pill (D-P4: the priority badge passes its
 level colour; tags/dates pass nil = the neutral border).  When non-nil
 the border draws a touch stronger (full opacity) since it is salient.
@@ -1702,7 +1707,10 @@ mandatory fallback."
                    ;; the reserved pad columns (D-P1.FIT).
                    (inner-w (* (max 1 (- ncols (* 2 pad))) cw))
                    (radius (max 0.0 (float (or org-air-pill-radius (/ h 6.0)))))
-                   (label (string-trim text))
+                   ;; R25-2: LABEL overrides the drawn glyph (default = TEXT),
+                   ;; so a chip can draw a single letter while its cell text
+                   ;; (the pixel-lock box) stays the 3-col `[D]' token.
+                   (label (string-trim (or label text)))
                    (fg (or (face-foreground face nil t) "gray"))
                    (border (or border-color
                                org-air-pill-border
@@ -1737,8 +1745,12 @@ mandatory fallback."
                 ;; not only on the resolved `border' string.
                 (let ((image
                        (org-air-view--svg-image-cached
-                        (list 'pill text fg border align cw ch
+                        ;; R25-2: the cache key includes the LABEL override,
+                        ;; the weight, and the effective pad/scale so a badge
+                        ;; image is never confused with a same-text board pill.
+                        (list 'pill text label font-weight fg border align cw ch
                               (and border-color t)
+                              org-air-pill-pad-cols org-air-pill-font-scale
                               org-air-view--pill-style-sig)
                         (lambda ()
                           (let* ((font-size (funcall fit-font-size))
@@ -1774,13 +1786,15 @@ mandatory fallback."
                                           :y (round (* ch 0.72))
                                           :text-anchor "end"
                                           :fill fg
-                                          :font-size font-size)
+                                          :font-size font-size
+                                          :font-weight (or font-weight 'normal))
                               (svg-text svg label
                                         :x (/ box-w 2.0)
                                         :y (round (* ch 0.72))
                                         :text-anchor "middle"
                                         :fill fg
-                                        :font-size font-size))
+                                        :font-size font-size
+                                        :font-weight (or font-weight 'normal)))
                             ;; Lock the image to the exact cell box (C2) with
                             ;; the D-P1.A integer-ascent clamp so it is exactly
                             ;; one line tall and never grows the row.

@@ -421,23 +421,32 @@ back to the terse `[R]'... token (the byte/TTY contract)."
          emoji)))
 
 (defun org-air-project--state-svg-badge (state)
-  "Return STATE's token carrying a LEGIBLE filled colour SVG chip (R24-3).
+  "Return STATE's token carrying a LEGIBLE filled colour SVG chip (R24-3/R25-2).
 Reuses `org-air-view--svg-pillify' (shared box/pixel-lock/fallback) with the
-state colour as BOTH a salient border and a stronger fill, plus a contrast
-label, so the chip reads larger + clearer than the R21-4 hairline badge while
-occupying EXACTLY the token's text-cell box (no advance-width jitter).
-Returns the plain token unchanged off-GUI / when svg is unavailable."
-  (let* ((face  (org-air-project--state-face state))
-         (token (propertize (org-air-project--state-token state) 'face face))
-         (color (face-foreground face nil t)))
+state colour as BOTH a salient border and a stronger fill.  R25-2: the cell
+TEXT stays the 3-col `[D]' token (the byte/TTY contract + the pixel-lock box)
+but the SVG OVERLAY draws just the DISTINCT state LETTER
+\(`org-air-project--state-letter': D/R/W/C/X) big + BOLD, binding a 0 pad
+\(the whole box is the letter's room) + a bigger font-scale for this chip, so
+the single glyph is large and legible while the box stays Ncols*char-px and
+the R24-2 rails / title left edge never move.  Returns the plain token
+unchanged off-GUI / when svg is unavailable."
+  (let* ((face   (org-air-project--state-face state))
+         (token  (propertize (org-air-project--state-token state) 'face face))
+         (letter (org-air-project--state-letter state))
+         (color  (face-foreground face nil t)))
     (if (not (org-air-view--svg-available-p))
-        token
-      ;; stronger fill + contrast label = legible; the box is still
-      ;; Ncols*char-px, so the cell is pixel-locked and the R24-2 rails stay
-      ;; aligned (a calm legibility boost, not a `:height' grow).
-      (let ((org-air-pill-fill-alpha (max org-air-pill-fill-alpha 0.22))
-            (org-air-pill-font-scale (max org-air-pill-font-scale 0.82)))
-        (org-air-view--svg-pillify token face :border-color color)))))
+        token                                   ; byte/TTY fallback: [D]
+      ;; The single letter gets the whole box (pad 0) at a bigger bold scale =
+      ;; legible; the box is still Ncols*char-px, so the cell is pixel-locked
+      ;; and the R24-2 rails stay aligned (not a `:height' grow).
+      (let ((org-air-pill-pad-cols   0)
+            (org-air-pill-fill-alpha (max org-air-pill-fill-alpha 0.22))
+            (org-air-pill-font-scale (max org-air-pill-font-scale 0.9)))
+        (org-air-view--svg-pillify token face
+                                   :border-color color
+                                   :label letter
+                                   :font-weight 'bold)))))
 
 (defun org-air-project--state-nerd (state)
   "Return STATE's nerd glyph when a graphical frame can show it, else nil.

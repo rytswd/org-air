@@ -428,5 +428,109 @@ contains BOTH a `D' and an `X' letter cell (never two `D')."
     (should (= (cl-count ?D summary) 1))
     (should (= (cl-count ?X summary) 1))))
 
+;;;; =====================================================================
+;;;; R25-2 — legible SVG state badge (bigger + BOLD single letter).
+;;;; =====================================================================
+
+(defun org-air-r25--display-image (s)
+  "Return the `display' IMAGE on string S, or nil."
+  (let ((disp (get-text-property 0 'display s)))
+    (and (imagep disp) disp)))
+
+(defun org-air-r25--svg-data (s)
+  "Return the raw SVG string from string S's display image, or nil."
+  (let ((img (org-air-r25--display-image s)))
+    (and img (image-property img :data))))
+
+(defun org-air-r25--svg-font-size (svg)
+  "Return the first numeric font-size in SVG string SVG, or nil."
+  (and svg (string-match "font-size=\"\\([0-9.]+\\)\"" svg)
+       (string-to-number (match-string 1 svg))))
+
+(defmacro org-air-r25--with-gui-metrics (&rest body)
+  "Run BODY with a stubbed graphical frame + fixed pill char metrics."
+  (declare (indent 0) (debug t))
+  `(let ((org-air-view--pill-char-w 8)
+         (org-air-view--pill-char-h 16))
+     (cl-letf (((symbol-function 'display-graphic-p) (lambda (&optional _) t)))
+       (should (org-air-view--svg-available-p))
+       ,@body)))
+
+(ert-deftest org-air-r25-2-badge-draws-bold-letter ()
+  "The project state chip draws the single DISTINCT letter (not the bracket
+token), BOLD, at a font-size LARGER than the same chip drawn with the full
+`[D]' token at the default scale (prove the letter grew)."
+  (skip-unless (locate-library "org-air"))
+  ;; The stub below makes `display-graphic-p' (and so string-pixel-width)
+  ;; available, so the full-token reference chip renders for the comparison.
+  (org-air-r25--with-gui-metrics
+    (let* ((badge (org-air-project--state-svg-badge "draft"))
+           (svg (org-air-r25--svg-data badge)))
+      (should svg)
+      ;; (a) the drawn glyph is the single letter D, NOT the bracket token.
+      (should (string-match-p ">D<" svg))
+      (should-not (string-match-p ">\\[D\\]<" svg))
+      ;; (b) bold.
+      (should (string-match-p "font-weight=\"bold\"" svg))
+      ;; (c) bigger than the full-token chip at the default scale.
+      (let* ((face  (org-air-project--state-face "draft"))
+             (token (propertize "[D]" 'face face))
+             (ref   (org-air-view--svg-pillify token face :label "[D]"))
+             (ref-svg (org-air-r25--svg-data ref))
+             (letter-fs (org-air-r25--svg-font-size svg))
+             (token-fs  (org-air-r25--svg-font-size ref-svg)))
+        (should letter-fs)
+        (should token-fs)
+        (should (> letter-fs token-fs))))))
+
+(ert-deftest org-air-r25-2-badge-width-pixel-locked ()
+  "Turning the bigger letter on changes ZERO columns: the badge image WIDTH
+== 3 * char-px for every state, and the text-layer cell stays within the
+fixed `org-air-project--state-cell-w'."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r25--with-gui-metrics
+    (dolist (state '("draft" "ready" "work-in-progress" "complete" "dropped"))
+      (ert-info ((format "state %s" state))
+        (let* ((badge (org-air-project--state-svg-badge state))
+               (img (org-air-r25--display-image badge)))
+          (should img)
+          (should (= (image-property img :width) (* 3 8))))
+        (should (<= (string-width (substring-no-properties
+                                   (org-air-project--state-badge-cell state)))
+                    org-air-project--state-cell-w))))))
+
+(ert-deftest org-air-r25-2-gui-chip-letters-distinct ()
+  "DRIVEN (R25-4 via R25-2 overlay): the `draft' chip draws `D' and the
+`dropped' chip draws `X' — never both `D'."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r25--with-gui-metrics
+    (let ((draft (org-air-r25--svg-data (org-air-project--state-svg-badge "draft")))
+          (drop  (org-air-r25--svg-data (org-air-project--state-svg-badge "dropped"))))
+      (should draft) (should drop)
+      (should (string-match-p ">D<" draft))
+      (should (string-match-p ">X<" drop))
+      (should-not (string-match-p ">D<" drop)))))
+
+(ert-deftest org-air-r25-2-batch-token-stable ()
+  "Byte guard: under --batch (no graphical frame) `--state-cell \"ready\"' has
+true text `[R]' (padded), no display image, no letter-only glyph."
+  (skip-unless (locate-library "org-air"))
+  (should-not (display-graphic-p))
+  (let ((cell (org-air-project--state-cell "ready")))
+    (should (equal (substring-no-properties cell) "[R] "))
+    (should-not (get-text-property 0 'display cell))))
+
+(ert-deftest org-air-r25-2-board-pills-unaffected ()
+  "A board pill passes NO :label/:font-weight, so it draws its OWN label
+\(`#ui') and carries NO bold weight — the defaults reproduce the existing
+pill exactly."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r25--with-gui-metrics
+    (let ((svg (org-air-r25--svg-data
+                (org-air-view--svg-pillify "#ui" 'org-air-face-tag))))
+      (should svg)
+      (should (string-match-p ">#ui<" svg))
+      (should-not (string-match-p "font-weight=\"bold\"" svg)))))
+
 (provide 'org-air-round25-test)
 ;;; org-air-round25-test.el ends here

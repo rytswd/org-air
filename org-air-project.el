@@ -1326,7 +1326,11 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      (org-air-rail--hide (current-buffer))))))
+      (org-air-rail--hide (current-buffer))))
+    ;; R25-6: an INLINE (two-pane) self-render must also evict a stale side
+    ;; rail owned by ANOTHER view (the cross-view sweep); when SELF is
+    ;; popped `--show' already re-owned the window so this no-ops.
+    (org-air-rail--evict-foreign-rail (current-buffer))))
 
 (defun org-air-project--resize-refresh ()
   "Re-render the project view when the displaying window changed (R14 D-P1.B).

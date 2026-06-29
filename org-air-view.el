@@ -707,6 +707,15 @@ window.  The sentinel `unset' means \"not yet initialised\"; first render
 seeds it from `org-air-rail-style' (`side-window' -> t, else nil).  The
 toggle flips it; the cooperative reconciler clears it when the user closes
 the side window with a native command.")
+(defvar-local org-air-view--rail-suspended nil
+  "Non-nil when this view is popped-out but its side rail is HIDDEN (R25-6).
+Set when another org-air view becomes the active main view and claims (or
+empties) the singleton `*org-air-rail*' side window: this view keeps its
+`org-air-view--rail-popped-out' flag t but its side window is suspended, so
+returning to it cleanly RE-pops.  Distinguishes \"hidden for a cross-view
+switch\" (re-pop on return) from \"the user natively CLOSED the rail\" (fall
+back inline).  Cleared whenever this view owns the side window or goes
+inline.")
 (defvar org-air-rail--reconciling nil
   "Re-entrancy latch for `org-air-rail--reconcile' (R16 D-P1).")
 (defvar org-air-view--pane-indented nil
@@ -3914,10 +3923,12 @@ inline via the reconciler.  The refresh is dispatched per-mode via
     (setq-local org-air-view--rail-popped-out nil))
   (if org-air-view--rail-popped-out
       (progn
-        (setq-local org-air-view--rail-popped-out nil)
+        (setq-local org-air-view--rail-popped-out nil
+                    org-air-view--rail-suspended nil)
         (org-air-rail--hide (current-buffer))
         (org-air-view--refresh-current))
-    (setq-local org-air-view--rail-popped-out t)
+    (setq-local org-air-view--rail-popped-out t
+                org-air-view--rail-suspended nil)
     (org-air-view--refresh-current)
     (when org-air-rail-focus-on-popout
       (let ((win (and (org-air-rail--window-live-p)
@@ -3948,7 +3959,8 @@ project popped it) so a project rail falls back to inline like the board's."
     (when (buffer-live-p board)
       (with-current-buffer board
         (when org-air-view--rail-popped-out
-          (setq-local org-air-view--rail-popped-out nil)
+          (setq-local org-air-view--rail-popped-out nil
+                      org-air-view--rail-suspended nil)
           (org-air-rail--hide board)
           (org-air-view--refresh-current)))
       ;; If `q' was pressed inside the rail, hop focus back to the board.
@@ -3967,32 +3979,132 @@ re-pops the side window (R16 D-P1, design transition table)."
        (not (org-air-rail--window-live-p))
        (not (org-air-view--board-only-p (org-air-view--render-width)))))
 
+;;;; ---------------------------------------------------------------------
+;;;; R25-6: CLEAN rail dual-mode — single-owner invariant, reconciled to
+;;;; the ACTIVE view.  At most ONE *org-air-rail* side window exists on the
+;;;; frame; it belongs to exactly the active org-air main view and exists
+;;;; IFF that view's `org-air-view--rail-popped-out' is t (and it is wide
+;;;; enough).  Every other view renders its rail INLINE.  A popped-but-not-
+;;;; active view is SUSPENDED (`org-air-view--rail-suspended' t) so it
+;;;; re-pops on return.
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-rail--host-buffer-p (buf)
+  "Non-nil when BUF is an org-air board/project (rail HOST) buffer (R25-6)."
+  (and (buffer-live-p buf)
+       (with-current-buffer buf
+         (derived-mode-p 'org-air-view-mode 'org-air-project-mode))))
+
+(defun org-air-rail--active-view (&optional frame)
+  "Return the org-air HOST buffer shown in a MAIN (non-side) window on FRAME.
+Prefers the selected window; else the first non-side window hosting an
+org-air view.  The `*org-air-rail*' and `*org-air-view*' panes are side
+windows, so they are skipped — only the BOARD/PROJECT main view counts the
+rail belongs to (R25-6)."
+  (setq frame (or frame (selected-frame)))
+  (let* ((sel-win (frame-selected-window frame))
+         (sel (window-buffer sel-win)))
+    (if (and (not (window-parameter sel-win 'window-side))
+             (org-air-rail--host-buffer-p sel))
+        sel
+      (catch 'hit
+        (dolist (w (window-list frame 'no-mini))
+          (unless (window-parameter w 'window-side)
+            (when (org-air-rail--host-buffer-p (window-buffer w))
+              (throw 'hit (window-buffer w)))))
+        nil))))
+
+(defun org-air-rail--side-window (&optional frame)
+  "Return the live `*org-air-rail*' side window on FRAME, or nil (R25-6)."
+  (let ((rb (get-buffer org-air-rail-buffer-name)))
+    (and rb (get-buffer-window rb (or frame (selected-frame))))))
+
+(defun org-air-rail--side-owner (&optional frame)
+  "Return the OWNER (back-pointer) buffer of the side rail on FRAME, or nil.
+The owner is the board/project buffer the rail currently mirrors, read
+from the rail buffer's `org-air-rail--board-buffer' (R25-6)."
+  (let ((win (org-air-rail--side-window frame)))
+    (and win (buffer-local-value 'org-air-rail--board-buffer
+                                 (window-buffer win)))))
+
+(defun org-air-rail--evict-foreign-rail (self)
+  "Hide a `*org-air-rail*' side window that does NOT belong to SELF (R25-6).
+Suspends its owner (flag kept) so returning to that owner re-pops cleanly.
+Called from a render tail: when SELF is popped, `org-air-rail--show' has
+already re-owned the window, so the owner == SELF and this no-ops; when
+SELF is inline it drops a lingering foreign rail (the cross-view sweep)."
+  (let* ((frame (selected-frame))
+         (side  (org-air-rail--side-window frame))
+         (owner (org-air-rail--side-owner frame)))
+    (when (and (window-live-p side) (not (eq owner self)))
+      (when (buffer-live-p owner)
+        (with-current-buffer owner
+          (setq-local org-air-view--rail-suspended t)))
+      (org-air-rail--hide (or owner self)))))
+
 (defun org-air-rail--reconcile ()
-  "React when the user closes the popped-out rail with a native command.
-Added to the board OR project buffer's `window-configuration-change-hook'.
-Purely REACTIVE: if the rail is flagged popped-out but its buffer no longer
-shows in any window on the host's frame, fall back to the inline rail (never
-proactively re-open a window the user closed) (R16 D-P1; R24-5: the guard +
-re-render dispatch are mode-generic so the PROJECT reconciles too)."
-  (when (and (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
-             org-air-view--rail-popped-out
-             (not org-air-rail--reconciling)
-             (not noninteractive))
-    (let ((board (current-buffer)))
-      (when (org-air-rail--user-closed-p board)
-        ;; The user closed the rail.  Do NOT re-create it; go inline.
-        (setq-local org-air-view--rail-popped-out nil)
-        (org-air-rail--hide board)
-        ;; Re-render AFTER the window-config settles (never inside the hook).
-        ;; R24-5: dispatch per host mode so the PROJECT reconciles too.
-        (run-with-timer
-         0 nil
-         (lambda ()
-           (when (buffer-live-p board)
-             (with-current-buffer board
-               (let ((org-air-rail--reconciling t))
-                 (when (get-buffer-window board (selected-frame))
-                   (org-air-view--refresh-current)))))))))))
+  "Enforce the single-owner rail invariant for the ACTIVE view (R25-6).
+Buffer-local on each board/project `window-configuration-change-hook'.
+Defers the (window-mutating) reconcile to a 0s timer so it runs AFTER the
+window config settles (window mutation never runs INSIDE the hook)."
+  (when (and (not noninteractive) (not org-air-rail--reconciling))
+    (let ((frame (selected-frame)))
+      (run-with-timer
+       0 nil
+       (lambda ()
+         (when (frame-live-p frame)
+           (org-air-rail--reconcile-frame frame)))))))
+
+(defun org-air-rail--reconcile-frame (frame)
+  "Reconcile the singleton side rail to the ACTIVE org-air view on FRAME (R25-6).
+Enforces the single-owner invariant: the side rail exists IFF the active
+main view is popped (and wide enough); a view popped but not active is
+suspended; a genuinely user-closed rail falls back inline."
+  (when (and (not noninteractive) (not org-air-rail--reconciling))
+    (let* ((org-air-rail--reconciling t)
+           (active (org-air-rail--active-view frame))
+           (side   (org-air-rail--side-window frame))
+           (owner  (org-air-rail--side-owner frame)))
+      (cond
+       ;; No active org-air main view: any side rail is an orphan -> hide it,
+       ;; mark its owner suspended so re-entry re-pops.
+       ((not (buffer-live-p active))
+        (when (window-live-p side)
+          (when (buffer-live-p owner)
+            (with-current-buffer owner
+              (setq-local org-air-view--rail-suspended t)))
+          (org-air-rail--hide (or owner active))))
+       (t
+        (with-current-buffer active
+          (let ((width (org-air-view--render-width)))
+            (cond
+             ;; (A) active WANTS the side rail.
+             (org-air-view--rail-popped-out
+              (cond
+               ((eq owner active)               ; already ours -> consistent
+                (setq-local org-air-view--rail-suspended nil))
+               ((window-live-p side)            ; owned by another view -> re-own
+                (when (buffer-live-p owner)
+                  (with-current-buffer owner
+                    (setq-local org-air-view--rail-suspended t)))
+                (setq-local org-air-view--rail-suspended nil)
+                (org-air-rail--show active width))
+               ((org-air-view--board-only-p width) nil) ; narrow -> keep flag
+               (org-air-view--rail-suspended    ; hidden for a switch -> re-pop
+                (setq-local org-air-view--rail-suspended nil)
+                (org-air-rail--show active width))
+               (t                               ; user CLOSED it -> go inline
+                (setq-local org-air-view--rail-popped-out nil
+                            org-air-view--rail-suspended nil)
+                (when (get-buffer-window active frame)
+                  (org-air-view--refresh-current)))))
+             ;; (B) active is INLINE: no side rail may show.
+             (t
+              (when (window-live-p side)
+                (when (buffer-live-p owner)
+                  (with-current-buffer owner
+                    (setq-local org-air-view--rail-suspended t)))
+                (org-air-rail--hide (or owner active))))))))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R16 D-P3: mu4e-style bottom source/entry view pane (*org-air-view*).
@@ -4819,7 +4931,11 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      (org-air-rail--hide (current-buffer))))))
+      (org-air-rail--hide (current-buffer))))
+    ;; R25-6: an INLINE (two-pane/stacked) self-render must also drop a
+    ;; stale side rail owned by ANOTHER view (the cross-view sweep).  When
+    ;; SELF is popped `--show' already re-owned the window, so this no-ops.
+    (org-air-rail--evict-foreign-rail (current-buffer))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R18 D-P1b incremental render — redraw only the changed body / calendar.

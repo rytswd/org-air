@@ -610,6 +610,25 @@
     ;; stay green).  org-air-f5-project-view-byte-mockups now PASSES on the
     ;; regen'd golden, so the entry is deleted.  Round-24 manifest is EMPTY.
     ;; ===================================================================
+    ;; v0.5 ROUND-25 grind (impl track).
+    ;;
+    ;; 2026-06-29: R25-6 CLEAN rail dual-mode — `org-air-rail--reconcile'
+    ;; is generalised from the synchronous "user-close only" reactor into a
+    ;; thin DEFERRING wrapper (it schedules `org-air-rail--reconcile-frame'
+    ;; on a 0s timer; window mutation never runs inside the
+    ;; `window-configuration-change-hook').  The R24-5 ERT below drove the
+    ;; OLD synchronous contract — `(org-air-rail--reconcile)' then an
+    ;; IMMEDIATE `(should (null org-air-view--rail-popped-out))' — which no
+    ;; longer holds because the flag now flips when the timer fires.  The
+    ;; NEW close-to-inline behaviour is proven synchronously by
+    ;; `org-air-r25-6-close-reconciles-to-inline' (calls
+    ;; `org-air-rail--reconcile-frame' directly).  Test-track re-bless: flush
+    ;; the 0s timer (`sit-for 0') or call `--reconcile-frame' before the
+    ;; assertion, then delete this entry.
+    (org-air-r24-5-native-close-reconciles-to-inline
+     . "R25-6: reconcile is now deferred to a 0s timer; the synchronous\n
+         flag-flip assertion needs a timer flush (test-track re-bless)")
+    ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-24 DESIGN: refile-heading completion · tree rails to leaf docs · SVG/nerd state badges · project RET+filter (executing) · project rail side-window parity · free-text filter
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:render:project:inbox:filter:rail:faces:keybindings:design:v0.5:
 
 * Scope of this document

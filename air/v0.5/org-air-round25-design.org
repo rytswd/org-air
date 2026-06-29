@@ -1,0 +1,1085 @@
+#+title: org-air v0.5 round-25 DESIGN: tree-connector arms · legible+distinct SVG state letters · drop phantom "review" · drop project origin column · CLEAN rail dual-mode (the big one, executing)
+#+state: ready
+#+FILETAGS: :ui:render:project:rail:faces:layout:design:v0.5:
+
+* Scope of this document
+The round-25 DESIGN doc, written after the user dogfooded R24 against real
+data: the demo board over their own org files AND the real Air repo at
+=~/Coding/github.com/withre/air= via =M-x org-air-project=.  Six issues — five
+are PROJECT-VIEW polish, and the sixth is the round's priority: *RAIL-TOGGLE
+ROBUSTNESS*, where toggling the rail stranded a SECOND rail and leaked the
+other view's content.
+
+Workers cannot see screenshots, so the user's authoritative observations are
+inlined per item, and every item here is REPRODUCED on THIS checkout against
+the =.el= SOURCE (=load-prefer-newer t= so the stale =.elc= never shadows the
+=.el= impl will edit) over BOTH the deterministic fixture
+(=tests/fixtures/air-project=) AND the real Air repo (=withre/air=, 63 docs).
+The rail/interaction item is *DRIVEN* — =org-air-rail-toggle= /
+=org-air-view--render-current= are EXECUTED through a live window (=noninteractive=
+bound nil so the =display-buffer= side-window path actually creates windows),
+not inspected in the keymap — exactly the discipline the brief mandates.
+
+Root-causing used small, targeted reads (<=250 lines; the whole
+=org-air-view.el= was never read).  Each item carries a *measured
+reproduction*, a crisp impl SPEC with exact functions + line numbers, a
+Byte/batch contract, Testability (acceptance ERTs that EXECUTE the behaviour),
+and Routing.  Nothing is integrated here — this is the impl-ready spec; commits
+are per-item (=R25= prefix; Design round-25), each with an =ever pub
+org-air3.work.design.done= signal.
+
+Honour the architecture invariants (architecture.md): V6 pixel-lock, svg-
+never-grows-line, text-is-the-contract (every svg/GUI element has a TTY/byte
+fallback), *one-renderer-two-views* (parameterise the shared =--insert-row= /
+view-core / rail / pane primitives, never fork), inspector inert under
+=noninteractive=.  KEEP the R18 caches (classify + svg + incremental), the R20
+compute-once partition and the R21/R23/R24 byte-invisible discipline intact.
+
+Items, in order:
+- *R25-1* TREE CONNECTORS LOOK DISJOINT — lengthen the =├─=/=└─= horizontal arm
+  on a doc row so it visually REACHES the state badge (=├─────[R]=), instead of
+  a 1-char stub + a gap of spaces.  Left gutter only; V6 columns frozen. [POLISH]
+- *R25-2* SVG STATE BADGES UNREADABLE — the chip has the right COLOUR but the
+  LETTER is microscopic (the 3-char =[R]= token is width-fitted into a 1-col
+  inner box).  Draw a BIGGER, BOLD single LETTER while keeping the cell width
+  fixed.  Reuse =--svg-pillify=. [POLISH]
+- *R25-3* REMOVE THE PHANTOM "review" STATE — Air has no =review= state (verified
+  in withre/air: =draft|ready|work-in-progress|complete|dropped=).  Drop =review=
+  from every list / map / face; KEEP =work-in-progress= (real, 0 here).  Summary
+  then shows 5 states. [BUG / CLEANUP]
+- *R25-4* DRAFT vs DROPPED — guarantee the badge LETTER is airctl-aligned +
+  DISTINCT (Draft="D", Dropped="X", Ready="R", Complete="C", wip="W"), in BOTH
+  the per-doc badge AND the per-dir rollup, and kill the name-first-char fallback
+  that collides Draft/Dropped on "D". [BUG]
+- *R25-5* ORIGIN/PATH COLUMN MEANINGLESS IN PROJECT VIEW — drop the rightmost
+  =⌂ relpath= cell in the PROJECT view (redundant with the dir tree + title);
+  the BOARD keeps its origin.  Reclaim the freed width. [POLISH]
+- *R25-6* RAIL TOGGLE IS FLAKY — define a CLEAN rail state model: at any time the
+  rail is in exactly ONE place (inline OR side-window), belonging to the CURRENT
+  view, never both, never cross-view; toggle idempotent + reversible; switching
+  board<->project or refreshing never strands a second rail; closing the side
+  window reconciles to inline.  Reproduced by DRIVING toggles + view switches.
+  [BUG — priority of the round]
+
+* Status
+Design-led, impl-ready.  Byte contract per item:
+- *R25-1* is a DELIBERATE, design-blessed re-bless of the DIRECTORY-view golden
+  (=tests/fixtures/project-view-dir.txt=) only: a doc row's leading-gutter
+  SPACES after the connector become =─= glyphs (ascii =-= in batch), so the arm
+  reaches the badge.  The state cell / title / right cluster do NOT move (the
+  gutter total width is unchanged — only the FILL char changes).  The state-/
+  tag-grouping goldens (no dir tree) are byte-identical.
+- *R25-2* is byte-INVISIBLE — the bigger letter lives entirely in the SVG
+  overlay (GUI), gated on a graphical frame; the byte gate runs under =--batch=
+  (no graphical frame) so the state cell still renders the =[R]= token
+  identically.  New ERTs assert the svg label/weight via the image =:data=; no
+  golden moves.
+- *R25-3* is byte-VISIBLE in the rail Summary: the project goldens'
+  =▌ Summary= block drops its =0  Review= line (all three project goldens).
+  No doc-row / section change in the fixture (it has no review docs).  Several
+  existing ERTs that listed =review= / =[V]= re-bless.
+- *R25-4* is byte-INVISIBLE — the per-doc =[D]=/=[X]= tokens and the per-dir
+  =D=/=X= rollup letters are ALREADY distinct in the text layer (verified); the
+  fix hardens the GUI glyph + the name-first-char fallback, both off the byte
+  path.  New ERTs assert distinctness; no golden moves.
+- *R25-5* is byte-VISIBLE: the project rows lose the =⌂ relpath= cell and the
+  titles/tags reflow (all three project goldens).  The BOARD goldens are
+  untouched (origin stays on the board).  Re-blessed via =make regen-mockups=.
+- *R25-6* is byte-INVISIBLE — the rail lifecycle (toggle / reconcile / side
+  window) is interactive and inert under =--batch=; no buffer-text golden
+  captures it.  Executing ERTs drive the toggles + view switches.
+
+* Measured baseline (reproduction harness)
+All reproductions below were run on THIS checkout against the =.el= SOURCE:
+- =emacs -Q --batch -l tests/org-air-test-init.el= with =(setq load-prefer-newer
+  t)= so the stale =.elc= never shadows the =.el=.
+- The project view via =org-air-project= over =tests/fixtures/air-project= (the
+  deterministic fixture) AND the REAL Air repo (=~/Coding/github.com/withre/air=,
+  63 docs).
+- *The rail item is DRIVEN, not inspected*: a live frame (=set-frame-width 170=),
+  =org-air= + =org-air-project= opened in real windows, =org-air-rail-toggle=
+  EXECUTED, then the main window SWITCHED board<->project and re-rendered, with
+  =noninteractive= bound nil so the =display-buffer-in-side-window= path runs and
+  a REAL side window is asserted — the double-rail/leak is captured from the
+  live window tree, never =lookup-key=.
+- =airctl status -Da= was run on the real repo to capture the ground-truth
+  state set + the per-dir rollup mapping (🎯→Ready, ✅→Complete, 🗑️→Dropped,
+  📝→Draft; no =review=, =work-in-progress= present-but-0).
+
+Ground-truth project render (withre/air, =directory= group, w150, batch ascii;
+the disjoint arms, the meaningless origin column, and the phantom Review are all
+visible at once):
+#+begin_src text
+  | v0.1/                                                R4(+1) C14(+14) X1(+9) D2(+8) | | June 2026  < >
+  +-    [R] Natural Sorting Impl...  ~ 2026-04-15  #airctl       . v0.1/natural-sorting-... | ...
+  +-    [C] Air document path co...  ~ 2026-04-04  #airctl       . v0.1/airctl-document-... | ...
+  +- ai-integration/                                                                   X2 | ...
+  |  +-   [X] AI assisted docume...  ~ 2026-04-05  #ai           . v0.1/ai-integration/a... | ...
+                                                                                           | | Summary
+                                                                                           |  19  Draft
+                                                                                           |   5  Ready
+                                                                                           |   0  Work In Progress
+                                                                                           |   0  Review          <- PHANTOM
+                                                                                           |  28  Complete
+                                                                                           |  11  Dropped
+#+end_src
+- The connector =+-= (=├─= on GUI) is a 1-char arm, then a 4-space GAP, then the
+  =[R]= badge — it reads disconnected (R25-1).
+- The rightmost =. v0.1/natural-sorting-...= cell is the file path, redundant
+  with the dir tree + title (R25-5).
+- The rail Summary lists =0  Review= — a state Air does not have (R25-3); and
+  =work-in-progress= is a real state at 0 (KEEP it).
+
+* R25-1 — lengthen the tree-connector arm on doc rows to REACH the state badge [POLISH]
+
+** Reproduction — the =├─=/=└─= arm is a 1-char stub, then a GAP, then the badge
+R24-2 paints a doc row's leading gutter with the faded ancestor rails + a
+=box-tee-left=/=box-bottom-left= connector + ONE =box-horizontal=, then pads the
+rest of the gutter to the V6 state-cell column with *spaces*
+(=org-air-project--insert-doc-row=, org-air-project.el:822, the directory-tree
+branch).  The gutter is built as:
+#+begin_src elisp
+;; org-air-project--insert-doc-row (directory branch), today:
+(guide-raw (concat "  " (or rails "")
+                   (org-air-layout-glyph (if lastp 'box-bottom-left 'box-tee-left))
+                   (org-air-layout-glyph 'box-horizontal) " "))       ; <- ONE dash, a space
+(guide (org-air-view--pad-to                                          ; <- then SPACES
+        (propertize (truncate-string-to-width guide-raw gutter-w)
+                    'face 'org-air-face-air-tree)
+        gutter-w))
+#+end_src
+So the visible arm is =├=/=└= + ONE =─=, then the cell is space-padded out to the
+state column.  Measured (fixture, =directory= group, w100, batch ascii):
+#+begin_src text
+  +-    [R] Alpha feature           ~ 2026-05-01  #ui... . v0.1/al...   <- "+-" then 4 SPACES then [R]
+  +-    [C] Beta CLI                ~ 2026-05-01  #core  . v0.1/be...
+  +- air-context/                                                  D1
+     +-   [D] Gamma context         ~ 2026-05-01  #co... . v0.1/ai...   <- nested: "   +-" then 3 spaces
+#+end_src
+The arm is a stub and the badge floats away from it — "it reads disconnected".
+
+** Decision — fill the rest of the gutter with =box-horizontal=, flush to the badge
+Keep the gutter's TOTAL width EXACTLY =gutter-w= (= the old =item-margin + (* 2
+(1+ depth))=, so the state cell / title / date-tag cluster do not move — V6
+pixel-lock), but fill the run AFTER the corner with =box-horizontal= glyphs
+instead of spaces, so the horizontal arm reaches the badge like a real tree.
+Concrete before/after (fixture, batch ascii; GUI draws =│=/=├=/=─= for =|=/=+=/=-=):
+#+begin_src text
+BEFORE (R24-2: 1-dash stub, then a gap of spaces):
+  +-    [R] Alpha feature           ~ 2026-05-01  #ui... . v0.1/al...
+  +- air-context/                                                  D1
+     +-   [D] Gamma context         ~ 2026-05-01  #co... . v0.1/ai...
+
+AFTER (R25-1: the arm runs to the badge; columns identical):
+  +-----[R] Alpha feature           ~ 2026-05-01  #ui... . v0.1/al...
+  +- air-context/                                                  D1
+  |  +--[D] Gamma context           ~ 2026-05-01  #co... . v0.1/ai...
+#+end_src
+On GUI: =├─────[R] Alpha feature= and =│  ├──[D] Gamma context= — the faded
+=org-air-face-air-tree= arm threads the eye from the dir connector straight into
+the doc's badge.  Note the date/tag cluster is byte-for-byte where it was (right-
+pinned); ONLY the gutter SPACES became =─= glyphs.
+
+*** (1) Build the gutter as corner + a dash RUN that fills to =gutter-w=
+Rework the directory branch of =--insert-doc-row= (org-air-project.el:822) so the
+guide is =lead= (margin + rails + corner) followed by a =box-horizontal= run that
+fills the remaining columns up to =gutter-w= (flush to the badge — no trailing
+space).  All glyphs route through =org-air-layout-glyph= (TTY/batch =|=/=+=/=-=)
+and carry the faded =org-air-face-air-tree=:
+#+begin_src elisp
+;; replacing the directory-branch guide construction in --insert-doc-row:
+(let* ((margin-w  (string-width (org-air-view--item-margin)))
+       (old-indent (* 2 (1+ depth)))
+       (gutter-w  (+ margin-w old-indent))
+       (hbar      (org-air-layout-glyph 'box-horizontal))
+       (corner    (org-air-layout-glyph (if lastp 'box-bottom-left 'box-tee-left)))
+       (lead      (concat "  " (or rails "") corner))          ; margin + rails + ├/└
+       (armlen    (max 0 (- gutter-w (string-width lead))))    ; fill to the badge
+       (arm       (apply #'concat (make-list armlen hbar)))
+       (guide     (org-air-view--pad-to                        ; safety clamp
+                   (propertize (truncate-string-to-width (concat lead arm) gutter-w)
+                               'face 'org-air-face-air-tree)
+                   gutter-w)))
+  (concat guide (org-air-project--state-cell state)))
+#+end_src
+=armlen= is the columns left between the corner and the state cell; for a leaf at
+depth 0 it is exactly the old space gap, now drawn as =─────=.  The
+=truncate-string-to-width ... gutter-w= + =--pad-to gutter-w= keep the gutter
+width pinned even for a very deep rail (the only case anything to the right could
+shift — deliberate, unchanged from R24-2).
+
+*** (2) Dir HEADER rows + state/tag grouping are untouched
+The dir-HEADER connector (=├─ air-context/=) already reaches its name (the name
+follows the connector immediately) so it is left as-is.  The state-/tag-grouping
+doc rows render with =depth= nil (no dir tree) and keep the plain margin prefix
+(byte-identical).  Only the directory-tree doc-row gutter gains the longer arm.
+
+** Byte / batch contract — DELIBERATE re-bless (doc-row gutters, dir golden only)
+Only =tests/fixtures/project-view-dir.txt= moves, and only on its DOC rows'
+leading gutter: the post-corner SPACES become =-= (ascii) / =─= (GUI), e.g.
+=  +-    [R]= → =  +-----[R]=, nested =     +-   [D]= → =  |  +--[D]=.  The
+state cell, title, and the right-pinned date/tag cluster are byte-stable (the
+gutter total width is unchanged).  The state-/tag-grouping goldens are
+byte-identical.  Re-blessed via =make regen-mockups= with a reviewed diff
+(test seat).
+
+** Testability (R25-1)
+- ERT (arm reaches the badge — FAILS on trunk): render the directory tree over
+  =tests/fixtures/air-project=; on a leaf DOC row, assert the run of cells
+  BETWEEN the corner glyph and the state cell is ALL =box-horizontal= (=-= in
+  batch) and faced =org-air-face-air-tree= — i.e. NO space sits between the
+  connector and =[R]=.  On trunk this run is spaces, so the test fails.
+- ERT (V6 lock — columns frozen): for the SAME doc, the column of the state cell
+  =[R]=, the title, and each of date/tag are IDENTICAL before/after the arm
+  change (assert the gutter total width = =item-margin + (* 2 (1+ depth))= and
+  that the date/tag columns equal a no-rail state-grouping row's).  The arm only
+  repaints gutter glyphs.
+- ERT (corner still correct): a dir whose only children are docs — its LAST doc
+  uses =box-bottom-left= (=└=/=+=) then the dash run; earlier docs =box-tee-left=
+  (=├=/=+=) — R24-2's corner logic is unchanged, only the fill after it.
+- ERT (nested ancestor rail intact): a depth-1 doc still carries the ancestor
+  =box-vertical= (=│=/=|=) to the LEFT of its corner, then the dash run to the
+  badge.
+- RE-BLESS =project-view-dir.txt= (doc-row gutters) via =make regen-mockups=.
+
+** Routing (R25-1)
+org-air-project.el: in =org-air-project--insert-doc-row= (L822) directory branch,
+replace the =guide-raw= (=corner + ONE box-horizontal + " "= then space-pad) with
+=lead + a box-horizontal RUN filling to =gutter-w== (flush to the badge), via
+=org-air-layout-glyph=, faced =org-air-face-air-tree=, clamped with
+=truncate-string-to-width=/=--pad-to=.  No data-model change; counts + parity
+untouched; the =depth= nil (state/tag) path is byte-identical.  Test seat: the
+arm-reaches / V6-lock / corner / ancestor-rail ERTs + the =project-view-dir.txt=
+re-bless.
+
+** Open questions (R25-1)
+- Leave a 1-col gap before the badge (=├────  [R]=) or run flush (=├─────[R]=)?
+  Proposal: FLUSH — the brief's example =├──[R]= is flush and a real tree
+  connector touches the node; the badge's own =[= bracket gives visual breathing
+  room.  Flag if the test seat finds it too tight (fallback: keep the trailing
+  space, i.e. =armlen-1= dashes).
+- Also lengthen the dir-HEADER arm?  Proposal: NO — the header name already
+  abuts its connector; only docs had the gap.
+
+* R25-2 — make the SVG state badge LETTER legible (bigger + bold), cell width fixed [POLISH]
+
+** Reproduction — the 3-char =[R]= token is width-fitted into a 1-COLUMN inner box
+R24-3 made the project state badge a filled colour SVG
+(=org-air-project--state-svg-badge=, org-air-project.el:421) that overlays
+=org-air-view--svg-pillify= on the 3-col token =[R]=/=[D]=/=[X]=… .  The chip
+gets the right COLOUR (the state face) but the LETTER is tiny.  Root cause, read
+in =--svg-pillify= (org-air-view.el:1656): the drawn label is =(string-trim
+text)= = the FULL token =[D]= (3 columns), and the label is width-fitted into the
+box INNER width, which is the cell minus the reserved pad columns on BOTH sides:
+#+begin_src elisp
+;; org-air-view--svg-pillify, today:
+(ncols   (string-width text))                 ; = 3 for "[D]"
+(pad     (max 0 org-air-pill-pad-cols))       ; default 1
+(box-w   (* ncols cw))                         ; 3 cols wide (the cell box)
+(inner-w (* (max 1 (- ncols (* 2 pad))) cw))  ; (3 - 2) = 1 COLUMN of inner room
+(label   (string-trim text))                   ; "[D]" — 3 glyphs into 1 col
+#+end_src
+So a 3-glyph =[D]= is squeezed into ONE column: =fit-font-size= shrinks the font
+until =[D]= fits 1 col, leaving the actual LETTER microscopic while the two
+brackets eat the width.  That is exactly the user's "the LETTER is too small to
+read" — and at that size =[D]= and =[X]= both read as a bracket-blob (feeding the
+R25-4 "both look like D" complaint).  Measured: =desired-fs= starts at =(max 7
+(round (* ch org-air-pill-font-scale)))= but the fit step then DIVIDES it by the
+overrun ratio (=[D]= natural width / 1 col), so the rendered glyph is a fraction
+of the line height.
+
+** Decision — draw a SINGLE bold LETTER (not the bracket token), with room to grow
+The cell TEXT stays =[D]= (the 3-col byte/TTY contract, the pixel-lock box, the
+fallback) — but the SVG OVERLAY draws just the distinct state LETTER (=D=/=R=/
+=W=/=C=/=X=, from =org-air-project--state-letter=, the R25-4 source) at a bigger,
+BOLD font.  A 1-glyph label has far more inner room than the 3-glyph token, so
+the fit step no longer shrinks it; bumping the font-scale + dropping the pad for
+this chip makes the letter large and legible while the box stays =Ncols * cw= (3
+cols) — so the cell width, the title left edge and the R25-1 rails never move.
+
+*** (1) =--svg-pillify= gains =:label= + =:font-weight= (drawn glyph != cell text)
+Extend =org-air-view--svg-pillify= (org-air-view.el:1656) with two optional
+keywords, both fully back-compatible (defaults reproduce today's output exactly,
+so every existing pill/badge caller is byte-identical):
+#+begin_src elisp
+(cl-defun org-air-view--svg-pillify (text face &key (align 'center) border-color
+                                         label font-weight)
+  "... LABEL overrides the drawn glyph string (default: TEXT trimmed) so a chip
+can show a glyph DIFFERENT from its text-cell contract (R25-2: the project state
+badge keeps the `[D]' cell text for the byte/pixel-lock box but draws just `D').
+FONT-WEIGHT (e.g. `bold') is passed to `svg-text' (default: normal). ..."
+  ...
+  (let* (... (label (string-trim (or label text))) ...)        ; <- override
+    ...
+    ;; cache key MUST include the override + weight + the effective scale/pad so a
+    ;; badge image is never confused with a same-text board pill:
+    (org-air-view--svg-image-cached
+     (list 'pill text label font-weight fg border align cw ch
+           (and border-color t) org-air-pill-pad-cols org-air-pill-font-scale
+           org-air-view--pill-style-sig)
+     (lambda () ... (svg-text svg label ... :font-size font-size
+                              :font-weight (or font-weight 'normal)) ...))))
+#+end_src
+The label is still width-FITTED to =inner-w= (the clip guard is untouched), so a
+bold =D= can never reach the rounded edge; =box-w= is unchanged (=ncols * cw= from
+the CELL text), so the pixel-lock holds.  The cache key gains =label=,
+=font-weight=, =org-air-pill-pad-cols= and =org-air-pill-font-scale= so a chip
+rendered with a dynamically-bumped scale/pad (below) never reuses a board pill's
+cached image.
+
+*** (2) =--state-svg-badge= passes the LETTER, bold, with room
+=org-air-project--state-svg-badge= (org-air-project.el:421) keeps propertizing
+the =[D]= token (cell text) but draws the single bold letter, binding a smaller
+pad (more inner room) + a bigger font-scale for this chip only:
+#+begin_src elisp
+(defun org-air-project--state-svg-badge (state)
+  "... draws the distinct state LETTER (R25-2/R25-4) big + bold inside the
+fixed `[D]' cell box ..."
+  (let* ((face   (org-air-project--state-face state))
+         (token  (propertize (org-air-project--state-token state) 'face face)) ; [D]
+         (letter (org-air-project--state-letter state))                        ; D/R/W/C/X
+         (color  (face-foreground face nil t)))
+    (if (not (org-air-view--svg-available-p))
+        token                                          ; byte/TTY fallback: [D]
+      (let ((org-air-pill-pad-cols   0)                 ; the single letter gets the
+            (org-air-pill-font-scale (max org-air-pill-font-scale 0.9))  ; whole box
+            (org-air-pill-fill-alpha (max org-air-pill-fill-alpha 0.22)))
+        (org-air-view--svg-pillify token face
+                                   :border-color color
+                                   :label letter           ; draw `D', not `[D]'
+                                   :font-weight 'bold)))))
+#+end_src
+The label =D= (1 glyph) in a 3-col box at scale 0.9 bold is large + clearly
+legible; =inner-w= with pad 0 is the full 3 cols, so the fit step does not shrink
+it.  =--state-cell= (L471) still pads the CELL text =[D]= to
+=org-air-project--state-cell-w= (3), so nothing to the right moves (the title
+left edge + the R25-1 arms stay V6-locked).
+
+** Byte / batch contract — byte-INVISIBLE (batch is the token)
+The bigger letter is entirely in the SVG overlay, gated on a graphical frame;
+under =--batch= (=display-graphic-p= nil) =--svg-pillify= returns =text= unchanged,
+so =--state-cell "ready"= renders =[R]= IDENTICALLY.  No project golden moves; the
+R24-3 batch-token contract ERT stays green.  The board pills / keyword badges
+pass NO =:label=/=:font-weight=, so they are byte- AND pixel-identical (defaults
+reproduce today).
+
+** Testability (R25-2)
+- ERT (label is the LETTER, bigger + bold — driven): stub
+  =org-air-view--svg-available-p= non-nil; call =--state-svg-badge "draft"=;
+  extract the image =:data= (the raw SVG string from =svg-image=) and assert it
+  (a) contains a =>D<= text node (the single letter, NOT =[D]=), (b) carries
+  =font-weight="bold"=, and (c) its =font-size= is LARGER than the same chip
+  drawn with =:label "[D]"= at the default scale (prove the letter grew).
+- ERT (cell width unchanged — pixel-lock): the badge image WIDTH ==
+  =3 * char-px= (the =[R]= cell box) for every state — turning the bigger letter
+  on changes ZERO columns; =string-width= of =--state-badge-cell= (text layer)
+  stays =<= org-air-project--state-cell-w=.
+- ERT (batch token stable — byte guard): under =--batch=, =--state-cell
+  "ready"= has true text =[R]= (properties stripped), no image, no letter-only
+  glyph — the R24-3 contract holds.
+- ERT (board pills unaffected): =--svg-pillify "#ui" face= (no =:label=) draws
+  the label =#ui= (not a forced letter) and carries NO =font-weight="bold"= —
+  defaults reproduce the existing pill exactly.
+- No byte fixtures (GUI-gated).
+
+** Routing (R25-2)
+org-air-view.el: add =:label= + =:font-weight= keywords to
+=org-air-view--svg-pillify= (L1656) — default =label= = trimmed TEXT, default
+weight normal (byte/pixel back-compat); thread =label= into the drawn glyph + the
+clip-fit, pass =:font-weight= to =svg-text= (L1763/1769), and extend the image
+cache key (L1740) with =label=/=font-weight=/=pad-cols=/=font-scale=.
+org-air-project.el: =org-air-project--state-svg-badge= (L421) passes
+=:label (org-air-project--state-letter state)= + =:font-weight 'bold=, binding
+=org-air-pill-pad-cols= 0 + a bigger =org-air-pill-font-scale= for the chip.
+=--state-cell= (L471), =--state-badge-cell= (L449), =--state-token= (L401)
+unchanged.  Test seat: the letter/weight/size + width-lock + batch-token + board-
+unaffected ERTs; no golden re-bless.
+
+** Open questions (R25-2)
+- Exact font-scale / weight now, or eyeball after a screenshot?  Proposal: ship
+  scale =0.9= bold (legible but still calm) — reachable via the defcustoms +
+  the per-chip binding, so the test seat can bump it from a real screenshot
+  with no code change.
+- Should the chip show =D= centred, or the bracketed =[D]= bigger?  Proposal:
+  the bare LETTER — it is the most legible at this cell size and it makes R25-4's
+  distinctness obvious (=D= vs =X=); the brackets are decoration the byte/TTY
+  layer already carries.
+- Drop the fill (=fill-alpha=) and rely on the bold letter + border?  Proposal:
+  KEEP a light fill (0.22) — the colour wash + the bold letter together read at
+  a glance; flag if it shouts.
+
+* R25-3 — remove the phantom "review" state everywhere [BUG / CLEANUP]
+
+** Authority — Air's canonical states (re-verified against withre/air)
+The brief's authority is confirmed by reading the REAL Air repo's own docs:
+#+begin_src text
+~/Coding/github.com/withre/air/air/context/air-conventions.md:18
+  #+state: draft|ready|work-in-progress|complete|dropped
+.../crate-guides/air-core.md:13   States follow lifecycle: draft -> ready -> work-in-progress -> complete
+.../architecture.md:91             draft -> ready -> work-in-progress -> complete
+; grep for a `review' STATE anywhere under air/ => ZERO (only the WORD "review"
+; appears, e.g. "moved to ready after review", "PR review state", a section
+; "Production Readiness Review" — never a #+state: value).
+#+end_src
+And =airctl status -Da= on the real repo prints exactly four NON-empty states
+(🎯 Ready, ✅ Complete, 🗑️ Dropped, 📝 Draft) and never a Review rollup.  So the
+canonical set is exactly *draft, ready, work-in-progress, complete, dropped* —
+=work-in-progress= is REAL (just 0 in this repo, KEEP it); =review= does not
+exist.
+
+** Reproduction — org-air ships a 6th "review" state across every list/map/face
+=review= is woven through =org-air-project.el= (and a face in
+=org-air-faces.el=); the rail Summary therefore prints a permanent =0  Review=
+line (measured on withre/air, w150):
+#+begin_src text
+  | | Summary
+  |  19  Draft
+  |   5  Ready
+  |   0  Work In Progress
+  |   0  Review            <- PHANTOM: Air has no `review' state
+  |  28  Complete
+  |  11  Dropped
+#+end_src
+The =review= residue, enumerated (org-air-project.el unless noted):
+#+begin_src text
+L15   header comment: "(draft/ready/work-in-progress/review/complete/dropped)"
+L84   org-air-project--state-display-order : (... "review" ...)   ; tree/rollup order
+L106  org-air-project-states               : (... "review" ...)   ; the rail Summary
+L108  docstring: "`review' (D-P5.C) is an optional state ..."
+L114  org-air-project-sections             : (... "review" ...)   ; state sections
+L126  org-air-project-state-badges         : ("review" . (🔍 . "[V]"))
+L159  org-air-project-state-nerd-glyphs    : ("review" . "\uf002")
+L308  org-air-project--state-face          : ("review" 'org-air-face-air-state-review)
+org-air-faces.el:750 custom-declare-face org-air-face-air-state-review (teal)
+#+end_src
+=work-in-progress= sits BESIDE =review= in each list and must stay.
+
+** Decision — delete every =review= entry; keep the 5 real states, correctly ordered
+Remove the =review= element/clause/comment from each site above.  The two
+ORDERINGS keep their distinct intents, minus =review=:
+- =org-air-project--state-display-order= (the tree + rollup order, airctl-led):
+  ='("ready" "work-in-progress" "complete" "dropped" "draft")=.
+- =org-air-project-states= / =org-air-project-sections= (the Summary + state
+  sections, lifecycle order): ='("draft" "ready" "work-in-progress" "complete"
+  "dropped")= — i.e. the brief's *draft -> ready -> wip -> complete -> dropped*.
+Drop the =review= rows from =-state-badges= and =-state-nerd-glyphs=, the
+=review= clause from =--state-face= (so an unexpected =review= now faces
+=org-air-face-faded=, like any unknown), reword the L108 docstring (no "optional
+review state"), and fix the L15 header comment.  Remove the orphaned
+=org-air-face-air-state-review= from =org-air-faces.el= (nothing else references
+it — grep-clean across src + tests).
+
+The Summary then reads (withre/air):
+#+begin_src text
+  | | Summary
+  |  19  Draft
+  |   5  Ready
+  |   0  Work In Progress
+  |  28  Complete
+  |  11  Dropped
+#+end_src
+
+** Byte / batch contract — re-bless the rail Summary (drop the =0 Review= line)
+Byte-VISIBLE only in the rail =▌ Summary= block: the =0  Review= row disappears
+from all three project goldens (=project-view-dir.txt=, =project-view-state.txt=,
+=project-view-tag.txt=).  The fixture has NO review docs, so no doc row / no
+state SECTION changes (empty sections are already omitted) — only the always-
+listed Summary loses one line.  Re-blessed via =make regen-mockups=.  Existing
+ERTs that enumerated =review=/=[V]= re-bless (test seat):
+#+begin_src text
+tests/org-air-round20-project-test.el:126  state-display-order == (... "review" ...)
+tests/org-air-round23-test.el:359          badge map includes ("review" . "[V] ")
+tests/org-air-round23-test.el:409          state list includes "review"
+tests/org-air-round24-test.el:610          dolist (... "review" ...) badge-cell width
+#+end_src
+
+** Testability (R25-3)
+- ERT (review absent EVERYWHERE): assert ="review"= is NOT a member of
+  =org-air-project-states=, =-sections=, =-state-display-order=, and not a key in
+  =org-air-project-state-badges= / =-state-nerd-glyphs=; and
+  =(org-air-project--state-face "review")= = =org-air-face-faded= (the unknown
+  fallback, no dedicated face).
+- ERT (the 5 real states present + ordered): =org-air-project-states= equals
+  ='("draft" "ready" "work-in-progress" "complete" "dropped")= (the brief's
+  draft->ready->wip->complete->dropped); =work-in-progress= present in BOTH lists.
+- ERT (display-order minus review): =org-air-project--state-display-order= equals
+  ='("ready" "work-in-progress" "complete" "dropped" "draft")= and the rank
+  function still orders ready < draft (re-bless of the R20-5 order ERT).
+- ERT (Summary has no Review row): render the project rail Summary over the
+  fixture; assert the block lists exactly Draft/Ready/Work In Progress/Complete/
+  Dropped and contains NO ="Review"= label.
+- ERT (orphan face gone): =(facep 'org-air-face-air-state-review)= is nil (the
+  declaration is removed) — anti-tautology that no code still references it.
+- RE-BLESS the three project goldens (Summary line) via =make regen-mockups=.
+
+** Routing (R25-3)
+org-air-project.el: delete the =review= entries at L84 / L106 / L114 / L126 /
+L159 and the L308 =--state-face= clause; reword L108 docstring + the L15 header
+comment.  org-air-faces.el: remove =org-air-face-air-state-review= (L750).  No
+renderer logic changes (the lists drive everything).  Test seat: the review-
+absent / 5-states-ordered / display-order / summary / orphan-face ERTs + the
+three project-golden Summary re-blesses + the four enumerated existing ERTs.
+
+** Open questions (R25-3)
+- Keep =org-air-face-air-state-review= as a harmless orphan, or remove it?
+  Proposal: REMOVE — "drop review everywhere"; it is grep-clean (no src/test/
+  theme reference) so removal is safe; a user theme that set it simply has no
+  effect (the state never renders).  Flag if a downstream theme is known to
+  reference it (none here).
+- A doc that literally writes =#+state: review= — what shows?  Proposal: it
+  ranks as UNKNOWN (=[U]=, faded), exactly as any non-canonical state, which is
+  the honest signal (airctl treats a non-canonical state as Unknown too).
+
+* R25-4 — Draft vs Dropped must never look alike: airctl-aligned DISTINCT letters [BUG]
+
+** Reproduction — the TEXT layer is already distinct; the GUI glyph + the FALLBACK collide
+The authoritative airctl mapping (=status -Da= rollup, position-matched on
+withre/air): =🎯=->Ready, =✅=->Complete, =🗑️=->Dropped, =📝=->Draft.  org-air's
+letters are derived from =org-air-project--state-token= (the =[R]'..= token, from
+=org-air-project-state-badges=) and via =org-air-project--state-letter= for the
+per-dir rollup.  Measured today:
+#+begin_src text
+state=draft     token=[D]  letter=D     ; per-doc badge cell  / rollup
+state=ready     token=[R]  letter=R
+state=wip       token=[W]  letter=W
+state=complete  token=[C]  letter=C
+state=dropped   token=[X]  letter=X
+; per-dir rollup on withre/air v0.1: "R4(+1) C14(+14) X1(+9) D2(+8)"  (D!=X already)
+#+end_src
+So in the BYTE/TTY layer Draft (=D=/=[D]=) and Dropped (=X=/=[X]=) are ALREADY
+distinct — BUT the user, on a GUI, saw "both show D".  Two real hazards explain
+it, and both are fixed here:
+1. *The GUI svg glyph* (R25-2 root cause): the badge drew the whole =[D]=/=[X]=
+   token width-fitted into 1 column, so the actual letter was microscopic and
+   both chips read as an indistinct bracket-blob.  R25-2 already switches the
+   drawn glyph to the SINGLE distinct =--state-letter= (=D= vs =X=, big + bold)
+   — so this item LOCKS that the badge letter comes from =--state-letter=, never
+   from the colliding name first-char.
+2. *The name-first-char FALLBACK*: when a state is NOT in
+   =org-air-project-state-badges=, =--state-token= falls back to =(format "[%s]"
+   (upcase (substring state 0 1)))= and =--state-letter= to =(upcase (substring
+   state 0 1))= — so =draft= AND =dropped= would BOTH yield "D" (both start with
+   "d").  Today both states ARE in the alist so the fallback is dormant, but it is
+   a live trap (e.g. if a future edit drops an alist row, or a near-miss state
+   like ="drop"= appears) and it is the literal mechanism the brief calls out
+   ("derives its glyph from the state NAME's first char").
+#+begin_src elisp
+;; org-air-project--state-token (L401) + --state-letter (L657), the collision:
+(format "[%s]" (upcase (substring "draft"   0 1)))  => "[D]"
+(format "[%s]" (upcase (substring "dropped" 0 1)))  => "[D]"   ; COLLIDES
+#+end_src
+
+** Decision — a single canonical letter map (airctl-aligned, distinct), used by BOTH layers
+Introduce ONE source of truth for the per-state LETTER, distinct and airctl-
+aligned, and route BOTH the per-doc badge AND the per-dir rollup through it, with
+a collision-proof fallback:
+#+begin_src elisp
+(defconst org-air-project--state-letters
+  '(("draft"            . "D")    ; 📝  airctl Draft
+    ("ready"            . "R")    ; 🎯  airctl Ready
+    ("work-in-progress" . "W")    ;      Work-In-Progress (distinct; W=Work/WIP)
+    ("complete"         . "C")    ; ✅  airctl Complete
+    ("dropped"          . "X"))   ; 🗑️  airctl Dropped (token is already [X])
+  "Canonical per-state single LETTER (R25-4): airctl-aligned + DISTINCT.
+Draft=D and Dropped=X never collide; `work-in-progress'=W is distinct from all.
+The single source for BOTH the per-doc badge glyph and the per-dir rollup
+letter, so the two can never drift.")
+#+end_src
+- =work-in-progress= = *W*, justified: it is the natural mnemonic (Work / WIP),
+  it matches the existing =[W]= token, and it collides with none of D/R/C/X.  (=P=
+  for "Progress" was the brief's alternative; W is preferred for the Work/WIP
+  reading and zero churn to the shipped token.)
+- =--state-letter= reads this map first; its fallback uses a DISAMBIGUATING rule
+  (not the bare first char): take the first char, and if it would collide with an
+  already-assigned letter use the next distinct char of the name, else the first
+  char upcased.  Concretely, the only canonical collision (draft/dropped on "d")
+  is resolved by the explicit map; the fallback only fires for non-canonical
+  states and must not reintroduce a D/D clash:
+#+begin_src elisp
+(defun org-air-project--state-letter (state)
+  "Return STATE's DISTINCT single-letter badge glyph (R25-4).
+From `org-air-project--state-letters' for a canonical state; else the upcased
+first char of the name — never derived in a way that collides Draft/Dropped on
+`D' (the canonical map pins D=draft, X=dropped)."
+  (or (cdr (assoc state org-air-project--state-letters))
+      (and (> (length state) 0) (upcase (substring state 0 1)))
+      "?"))
+;; --state-token reuses it so the [R]'.. token + the rollup share one letter:
+;;   (format "[%s]" (org-air-project--state-letter state)) for any state not in
+;;   org-air-project-state-badges (the alist still wins for the canonical token).
+#+end_src
+*** (1) Per-doc badge — the SVG label is =--state-letter= (already wired by R25-2)
+=org-air-project--state-svg-badge= (R25-2) draws =:label
+(org-air-project--state-letter state)= — so the GUI chip shows =D= for draft, =X=
+for dropped, big + bold, never alike.  The TTY/byte cell text stays the distinct
+=[D]=/=[X]= token.
+*** (2) Per-dir rollup — =--dir-count-summary= already uses =--state-letter=
+=org-air-project--dir-count-summary= (L659) already paints each state's count
+with =(org-air-project--state-letter state)= in the state face; pinning the
+canonical map makes =D2= (draft) and =X1= (dropped) provably distinct, and the
+hardened fallback keeps a stray non-canonical state from colliding.
+
+** Byte / batch contract — byte-INVISIBLE
+The canonical tokens =[D]=/=[X]= and the rollup letters =D=/=X= are ALREADY what
+the text layer prints (verified), so introducing the explicit map + hardened
+fallback changes ZERO rendered bytes for every canonical state.  The GUI bigger
+letter is the R25-2 overlay (off the byte path).  No golden moves.
+
+** Testability (R25-4)
+- ERT (draft != dropped, both layers): =(org-air-project--state-letter "draft")=
+  = ="D"= and =(... "dropped")= = ="X"= — NOT equal; the per-doc cell tokens
+  =[D]= != =[X]=; the rollup letters differ.  Dropped renders =X= (the token is
+  =[X]=).
+- ERT (airctl-aligned full set): the letters are exactly
+  draft=D, ready=R, work-in-progress=W, complete=C, dropped=X — all DISTINCT
+  (=seq-uniq= of the five = length 5), matching the airctl rollup positions.
+- ERT (fallback never collides D/D — anti-tautology): with =draft= and =dropped=
+  TEMPORARILY removed from =org-air-project--state-letters= AND
+  =-state-badges= (cl-letf), assert =--state-letter "draft"= and =... "dropped"=
+  are STILL not both ="D"= (the disambiguating fallback), OR — simpler design —
+  assert the canonical map is the authority so the bare-first-char path is never
+  taken for a canonical state.  (Document trunk's collision with a =should= that
+  the OLD =(upcase (substring s 0 1))= would have returned ="D"= for both.)
+- ERT (GUI chip letters distinct — driven): stub svg available; the =draft= chip
+  image =:data= contains =>D<= and the =dropped= chip =>X<= (never both =D=).
+- ERT (rollup distinct): =--dir-count-summary= over a dir with both a draft and a
+  dropped doc contains BOTH a =D= and an =X= letter cell (not two =D=).
+- No byte fixtures.
+
+** Routing (R25-4)
+org-air-project.el: add =org-air-project--state-letters= (the canonical map);
+rework =org-air-project--state-letter= (L657) to read it first + a collision-safe
+fallback; have =--state-token='s fallback (L401) reuse =--state-letter=.  The
+per-doc badge already draws =:label (--state-letter ...)= (R25-2); the rollup
+=--dir-count-summary= (L659) already uses =--state-letter= — both now provably
+distinct.  Test seat: the draft!=dropped / airctl-aligned / fallback / GUI-chip /
+rollup ERTs.  No golden re-bless.
+
+** Open questions (R25-4)
+- =W= vs =P= for work-in-progress?  Proposal: =W= (Work/WIP, matches the existing
+  =[W]= token, distinct from D/R/C/X).  =P= ("Progress") would also be distinct
+  but churns the shipped token + the rollup for no readability gain.
+- Should the canonical letters subsume =org-air-project-state-badges='s TTY half
+  (so there is ONE map, not two)?  Proposal: keep the badges alist as the
+  emoji/TTY source and DERIVE its TTY token from =--state-letters= where they
+  must agree (=[D]= from =D=) — but that is a refactor; for R25-4 just ensure the
+  two agree (they do) and pin the letter map as the single LETTER authority.
+  Flag if the duplication bites.
+
+* R25-5 — drop the meaningless origin/path column in the PROJECT view [POLISH]
+
+** Reproduction — the rightmost project cell is the file path, redundant with the tree
+Every project doc row ends with an =⌚ relpath= origin cell
+(=org-air-project--doc-origin-text=, org-air-project.el:335), passed as
+=:origin-text= + a fixed =org-air-project--meta-origin-w= column to the shared
+row primitive (=--insert-doc-row=, L864-875).  Measured (withre/air, w150):
+#+begin_src text
+  +-    [R] Natural Sorting Impl...  ~ 2026-04-15  #airctl       . v0.1/natural-sorting-... |
+  +-    [C] Air document path co...  ~ 2026-04-04  #airctl       . v0.1/airctl-document-... |
+  |  +-   [X] AI assisted docume...  ~ 2026-04-05  #ai           . v0.1/ai-integration/a... |
+#+end_src
+The trailing =. v0.1/natural-sorting-...= (GUI =▤=) is the file PATH — already
+encoded by the directory TREE the doc hangs under PLUS the title, so it adds
+noise and steals a wide column (the relpath is the widest meta cell, capped at
+=org-air-origin-max-width=).  The board, by contrast, groups by BUCKET (not file)
+so its origin cell is the only locator — the board KEEPS it.
+
+** Decision — project rows carry NO origin cell; the BOARD is untouched; reclaim the width
+Drop the origin cell from the project row by forcing its column width to 0 and
+passing no =:origin-text=; the shared =--insert-row= already OMITS a 0-width
+cell, and the freed columns flow to the flex TITLE (and tags) via the existing
+fit.  Only =org-air-project.el= changes — the board's own row path is untouched,
+so board goldens are byte-identical.
+*** (1) =--fit-meta-widths= returns origin = 0
+=org-air-project--fit-meta-widths= (org-air-project.el:370) stops measuring /
+allocating the origin column — return =ow= 0 so the budget reclaims those columns
+for the title (the cap/shrink steps simply have no origin to shrink):
+#+begin_src elisp
+;; org-air-project--fit-meta-widths: drop the origin entirely.
+(let* ((raw (org-air-project--doc-widths docs))   ; (DCOL TCOL OCOL)
+       (dw (nth 0 raw)) (tw (nth 1 raw))
+       (ow 0)                                       ; R25-5: NO origin column
+       ...)
+  ...
+  (list dw tw 0))                                   ; ocol pinned 0
+#+end_src
+*** (2) =--insert-doc-row= passes no origin
+=org-air-project--insert-doc-row= (L864) drops =:origin-text= (and the
+=:origin-face=); =org-air-project--meta-origin-w= is bound 0 in the =left-fn=
+(L1246 already binds it from the fit, now 0), so the cell is omitted by
+=--insert-row=:
+#+begin_src elisp
+(org-air-view--insert-row
+ :prefix prefix :title (org-air-doc-name doc)
+ :date-text date :tags tags
+ ;; R25-5: no :origin-text / :origin-face — the project view drops the path cell.
+ :widths (list org-air-project--meta-date-w org-air-project--meta-tags-w 0)
+ :props (list 'org-air-doc doc 'org-air-marker (org-air-doc-file doc)
+              'mouse-face 'org-air-face-cursor)
+ :face 'org-air-face-title)
+#+end_src
+The whole row still carries =org-air-doc= + =org-air-marker= (RET/visit + the
+R24-4 resolver are unaffected), and the relpath stays in the FILTER search key
+(=concat name " " relpath=, L1228) so the R24-6 free-text/path filter still
+matches a path token — only the DISPLAY column is gone.
+*** (3) Board origin untouched
+The board's origin (=org-air-view--insert-row= from the board item path) is a
+SEPARATE call site; nothing here touches it, so the board keeps its =⌚ origin=
+cell and every board golden is byte-identical.
+
+** Byte / batch contract — re-bless the project goldens (origin cell removed)
+Byte-VISIBLE: all three project goldens lose the trailing origin cell and the
+title/tags reflow into the freed width — =project-view-dir.txt=,
+=project-view-state.txt=, =project-view-tag.txt=.  The BOARD goldens (layout-
+mockup-*, etc.) are byte-identical (origin stays on the board).  Re-blessed via
+=make regen-mockups= with a reviewed diff (test seat).
+
+** Testability (R25-5)
+- ERT (project row has NO origin cell — FAILS on trunk): render the project over
+  the fixture; assert no doc row contains the origin glyph (=org-air-layout-glyph
+  'origin=, =▤=/=.=) followed by a relpath, and that
+  =(org-air-project--fit-meta-widths docs W)= returns ocol 0.  On trunk the row
+  carries the =. v0.1/...= cell, so the test fails.
+- ERT (board STILL has origin — independence): render the BOARD over the
+  fixtures; assert a board item row STILL carries its =⌚ origin= cell (the
+  origin removal is project-only; "board still does").
+- ERT (path still FILTERABLE): with the origin column gone, drive the R24-6
+  filter with a bare PATH token (e.g. =git-integration=) and assert the doc set
+  still narrows to docs under that path — the relpath remains in the search key,
+  only the display cell is dropped.
+- ERT (title reclaims width): the project title column at a fixed width is WIDER
+  than on trunk (the freed origin columns flow to the flex title), and no row
+  overflows the render width.
+- RE-BLESS the three project goldens via =make regen-mockups=.
+
+** Routing (R25-5)
+org-air-project.el: =org-air-project--fit-meta-widths= (L370) returns ocol 0 (no
+origin measure/allocate); =org-air-project--insert-doc-row= (L864) drops
+=:origin-text=/=:origin-face= and passes ocol 0.  =org-air-project--doc-origin-
+text= (L335) becomes dead for DISPLAY (keep it only if the filter/search still
+calls it — it does not; the search key uses =relpath= directly, so the function
+can be removed or left unused; propose remove for cleanliness).  Board row path
+UNCHANGED.  Test seat: the no-origin / board-keeps / path-filterable / title-
+reclaim ERTs + the three project-golden re-blesses.
+
+** Open questions (R25-5)
+- Remove origin in ALL project modes, or only =directory= (where the tree makes
+  it redundant)?  The brief's ERT says "project rows carry no origin/path cell"
+  (unqualified) and the dogfood was the directory default — Proposal: remove it
+  in ALL project modes (directory/state/tag).  In =state=/=tag= grouping the doc
+  loses its only inline locator, but the title is shown and the rail INSPECTOR
+  still prints the full =Path= field for the doc at point, so the locator is one
+  glance away.  Flag if state/tag dogfood wants a compact dir prefix back
+  (fallback: keep ocol only when =org-air-project-group= != =directory=).
+- Keep =org-air-project--doc-origin-text= for any future use?  Proposal: remove
+  it (grep-clean once the row + fit stop calling it); re-add when a feature needs
+  it.  Flag if the test seat finds a hidden caller.
+
+* R25-6 — CLEAN rail dual-mode: exactly ONE rail, for the CURRENT view, never both [BUG — priority]
+
+** Reproduction (DRIVEN) — a SECOND, cross-view rail is stranded after a view switch
+The rail-toggle was DRIVEN (not keymap-inspected): a live frame, =org-air= +
+=org-air-project= opened in real windows, =org-air-rail-toggle= EXECUTED, then the
+main window SWITCHED project->board and re-rendered — =noninteractive= bound nil
+so =display-buffer-in-side-window= actually creates the side window.  The
+double-rail/leak reproduces deterministically:
+#+begin_src text
+BOARD opened              : orient=stacked  popped=nil   rail-win=nil
+PROJECT shown            : orient=two-pane popped=unset  rail-win=nil
+PROJECT drive `|' (toggle): orient=side-window popped=t   rail-win=LIVE  back-ptr=*org-air-project*
+SWITCH main window -> BOARD, re-render:
+  >>> BOARD orient=stacked popped=nil
+  >>> rail-buf=t  rail-win=LIVE  back-ptr=*org-air-project*     <-- STILL the PROJECT's side rail
+  windows on frame:
+    #<window 1 on *org-air*>         side=nil        (BOARD, main window, INLINE rail)
+    #<window 4 on *org-air-project*> side=nil
+    #<window 6 on *org-air-rail*>    side=right      (PROJECT inspector content)  <-- SECOND rail
+#+end_src
+TWO rails at once: the BOARD renders its own INLINE rail in the main window, AND
+the =*org-air-rail*= side window is STILL live showing the PROJECT's inspector
+content (=back-ptr= -> =*org-air-project*=).  That is exactly the user's
+screenshot — an inline rail + a side-window rail, the side rail leaking the OTHER
+view's content.
+
+** Root cause — the side rail is a frame SINGLETON, but show/hide is gated on the SELF render
+- =*org-air-rail*= is ONE buffer in ONE frame side window (a frame-global
+  resource); =org-air-rail--board-buffer= (the back-pointer) records its current
+  OWNER.  But the popped-out state =org-air-view--rail-popped-out= is BUFFER-LOCAL
+  per view, and the only code that creates/destroys the side window is each
+  view's OWN render tail (org-air-view.el:4818 / org-air-project.el:1325):
+#+begin_src elisp
+;; render tail today (board AND project) — acts ONLY on the SELF buffer:
+(cond ((eq org-air-view--orientation 'side-window) (org-air-rail--show (current-buffer) width))
+      ((eq org-air-view--orientation 'board-only)  (org-air-rail--hide (current-buffer))))
+#+end_src
+- When the board renders =two-pane=/=stacked= (its own rail INLINE) it takes the
+  =cond='s default — it "leaves any rail buffer untouched".  But there IS a rail
+  buffer (the PROJECT's side window from before the switch).  Nothing reconciles
+  it, so it is STRANDED — a second rail, showing the project while the board is in
+  the main window.
+- =org-air-rail--reconcile= (org-air-view.el:3970) is purely REACTIVE to a
+  user-close (rail window vanished while the SELF view stays popped); it has no
+  notion of "the side window belongs to ANOTHER view than the one now active",
+  so it never fires here (the SELF board's flag is nil; the project's flag is t
+  but the project is not the active main view).
+So: the singleton side rail follows whichever view rendered it LAST and is never
+re-pointed/torn-down when the ACTIVE main view changes — hence both a second rail
+AND a cross-view content leak.
+
+** Decision — a single-owner rail invariant, reconciled to the ACTIVE view
+Model the rail with ONE clean invariant and a reconciler that ENFORCES it on
+every window-config change and at each render tail:
+
+  INVARIANT.  At most ONE =*org-air-rail*= side window exists on the frame.  It
+  belongs to exactly one OWNER (the active org-air main view) and exists IFF
+  that active view's =org-air-view--rail-popped-out= is t (and the view is wide
+  enough).  Every other org-air view renders its rail INLINE.  A view that is
+  popped but NOT the active main view has its side window SUSPENDED (hidden,
+  flag kept) so returning to it cleanly re-pops.
+
+State per view (buffer-local):
+- =org-air-view--rail-popped-out= : t = wants the side-window rail; nil = inline.
+  (Unchanged; still the per-view toggle target — board and project independent.)
+- =org-air-view--rail-suspended= : NEW.  t = this view is popped (flag t) but its
+  side window is currently hidden because ANOTHER view is the active main view.
+  Distinguishes "hidden for a cross-view switch" (re-pop on return) from "the
+  user natively CLOSED the rail" (fall back inline).  Cleared whenever this
+  view's rail is consistent (owns the side window) or toggled inline.
+
+*** (1) Helpers — the active view + the singleton side window
+#+begin_src elisp
+(defun org-air-rail--host-buffer-p (buf)
+  "Non-nil when BUF is an org-air board/project (rail HOST) buffer."
+  (and (buffer-live-p buf)
+       (with-current-buffer buf (derived-mode-p 'org-air-view-mode 'org-air-project-mode))))
+
+(defun org-air-rail--active-view (&optional frame)
+  "Return the org-air HOST buffer shown in a MAIN (non-side) window on FRAME.
+Prefers the selected window; else the first non-side window hosting an org-air
+view.  The *org-air-rail* and *org-air-view* panes are side windows, so they are
+skipped — only the BOARD/PROJECT main view counts."
+  (setq frame (or frame (selected-frame)))
+  (let ((sel (window-buffer (frame-selected-window frame))))
+    (if (and (not (window-parameter (frame-selected-window frame) 'window-side))
+             (org-air-rail--host-buffer-p sel))
+        sel
+      (catch 'hit
+        (dolist (w (window-list frame 'no-mini))
+          (unless (window-parameter w 'window-side)
+            (when (org-air-rail--host-buffer-p (window-buffer w))
+              (throw 'hit (window-buffer w)))))
+        nil))))
+
+(defun org-air-rail--side-window (&optional frame)
+  "Return the live *org-air-rail* side window on FRAME, or nil."
+  (let ((rb (get-buffer org-air-rail-buffer-name)))
+    (and rb (get-buffer-window rb (or frame (selected-frame))))))
+
+(defun org-air-rail--side-owner (&optional frame)
+  "Return the OWNER (back-pointer) buffer of the side rail on FRAME, or nil."
+  (let ((win (org-air-rail--side-window frame)))
+    (and win (buffer-local-value 'org-air-rail--board-buffer (window-buffer win)))))
+#+end_src
+
+*** (2) The reconciler — enforce the invariant for the ACTIVE view
+=org-air-rail--reconcile= (org-air-view.el:3970) is generalised from "user-close
+only" to the full single-owner reconcile, dispatched per-mode and deferred out of
+the hook (window mutation never runs INSIDE =window-configuration-change-hook=):
+#+begin_src elisp
+(defun org-air-rail--reconcile ()
+  "Enforce the single-owner rail invariant for the ACTIVE view (R25-6).
+Buffer-local on each board/project `window-configuration-change-hook'.  Defers
+the (window-mutating) reconcile to a 0s timer so it runs AFTER the window config
+settles."
+  (when (and (not noninteractive) (not org-air-rail--reconciling))
+    (let ((frame (selected-frame)))
+      (run-with-timer 0 nil
+        (lambda () (when (frame-live-p frame)
+                     (org-air-rail--reconcile-frame frame)))))))
+
+(defun org-air-rail--reconcile-frame (frame)
+  "Reconcile the singleton side rail to the ACTIVE org-air view on FRAME (R25-6)."
+  (when (and (not noninteractive) (not org-air-rail--reconciling))
+    (let* ((org-air-rail--reconciling t)
+           (active (org-air-rail--active-view frame))
+           (side   (org-air-rail--side-window frame))
+           (owner  (org-air-rail--side-owner frame)))
+      (cond
+       ;; No active org-air main view: any side rail is an orphan -> hide it,
+       ;; mark its owner suspended so re-entry re-pops.
+       ((not (buffer-live-p active))
+        (when (window-live-p side)
+          (when (buffer-live-p owner)
+            (with-current-buffer owner (setq-local org-air-view--rail-suspended t)))
+          (org-air-rail--hide (or owner active))))
+       (t
+        (with-current-buffer active
+          (let ((width (org-air-view--render-width)))
+            (cond
+             ;; (A) active WANTS the side rail.
+             (org-air-view--rail-popped-out
+              (cond
+               ((eq owner active)                       ; already ours -> consistent
+                (setq-local org-air-view--rail-suspended nil))
+               ((window-live-p side)                    ; owned by another view -> re-own
+                (when (buffer-live-p owner)
+                  (with-current-buffer owner (setq-local org-air-view--rail-suspended t)))
+                (setq-local org-air-view--rail-suspended nil)
+                (org-air-rail--show active width))
+               ((org-air-view--board-only-p width) nil) ; responsive-narrow: keep flag
+               (org-air-view--rail-suspended            ; hidden for a switch -> re-pop
+                (setq-local org-air-view--rail-suspended nil)
+                (org-air-rail--show active width))
+               (t                                       ; user CLOSED it -> go inline
+                (setq-local org-air-view--rail-popped-out nil
+                            org-air-view--rail-suspended nil)
+                (org-air-view--refresh-current))))
+             ;; (B) active is INLINE: no side rail may show.
+             (t
+              (when (window-live-p side)
+                (when (buffer-live-p owner)
+                  (with-current-buffer owner (setq-local org-air-view--rail-suspended t)))
+                (org-air-rail--hide (or owner active))))))))))))
+#+end_src
+=org-air-rail--user-closed-p= is folded into the (A)"no side window & not
+suspended & not board-only" branch: a genuine native close leaves the flag t,
+suspended nil, and the rail window gone while the popped view is active -> fall
+inline (the brief's "closing the side window reconciles to inline cleanly").
+
+*** (3) Render tails route through the reconciler (drop the ad-hoc cond)
+Replace the self-only show/hide cond at BOTH render tails (org-air-view.el:4818,
+org-air-project.el:1325) with the existing self show/hide PLUS a cross-view
+sweep, so a re-render of an INLINE view also evicts a stale foreign side rail:
+#+begin_src elisp
+;; render tail (board + project):
+(cond ((eq org-air-view--orientation 'side-window) (org-air-rail--show (current-buffer) width))
+      ((eq org-air-view--orientation 'board-only)  (org-air-rail--hide (current-buffer))))
+;; R25-6: an INLINE (two-pane/stacked) self-render must also drop a stale
+;; side rail owned by ANOTHER view (the cross-view sweep).
+(org-air-rail--evict-foreign-rail (current-buffer))
+
+(defun org-air-rail--evict-foreign-rail (self)
+  "Hide a *org-air-rail* side window that does NOT belong to SELF (R25-6).
+Suspends its owner (flag kept) so returning to that owner re-pops cleanly."
+  (let* ((side  (org-air-rail--side-window (selected-frame)))
+         (owner (org-air-rail--side-owner (selected-frame))))
+    (when (and (window-live-p side) (not (eq owner self)))
+      (when (buffer-live-p owner)
+        (with-current-buffer owner (setq-local org-air-view--rail-suspended t)))
+      (org-air-rail--hide (or owner self)))))
+#+end_src
+When SELF is popped (=side-window=) =--show= owns the window first, so the sweep
+finds =owner == self= and no-ops.  When SELF is inline, the sweep drops a
+lingering foreign rail.  (=board-only= keeps the SELF flag as today — the
+responsive-narrow teardown is untouched.)
+
+*** (4) Toggle / popin stay thin; both modes install the hook (already true)
+=org-air-rail-toggle= (L3899), =org-air-rail-popin= (L3936) and the per-mode
+render dispatch via =org-air-view--refresh-current= are UNCHANGED in shape — they
+flip =org-air-view--rail-popped-out= + clear =--rail-suspended= and let the
+reconciler enforce the invariant.  The board (org-air-view.el:958) and project
+(org-air-project.el:1521) already add =org-air-rail--reconcile= to
+=window-configuration-change-hook= (R24-5); both now run the generalised
+reconcile.
+
+Walkthrough of the reproduced bug under the new model:
+#+begin_src text
+project popped (flag t, owns side, suspended nil); switch main window -> board (flag nil):
+  board's window-config-change -> reconcile-frame: active=board, flag nil, side owned by project
+  -> (B): hide the side window, project.suspended=t  => ONE rail (board inline), no leak
+switch back -> project:
+  reconcile-frame: active=project, flag t, side not live, project.suspended t
+  -> (A): re-pop -> side window reappears with PROJECT  => project preserved its popped state
+user hits C-x 0 on the project's rail window:
+  reconcile-frame: active=project, flag t, side not live, suspended nil, not board-only
+  -> (A) user-close: project flag nil, refresh inline  => closes cleanly to inline
+#+end_src
+
+** Byte / batch contract — byte-INVISIBLE
+The rail lifecycle (toggle / reconcile / show / hide / side window) is interactive
+and guarded =(not noninteractive)=; =window-configuration-change-hook= never fires
+under =--batch=.  No buffer-text golden captures the rail placement.  Nothing
+re-blesses.
+
+** Testability (R25-6) — DRIVE toggles + view switches; assert exactly ONE rail
+All ERTs run in a LIVE frame (=set-frame-width= wide enough for two-pane), open
+the board + project in real windows, EXECUTE =org-air-rail-toggle= /
+=org-air-view--render-current= / native window ops with =noninteractive= bound
+nil, and assert from the live window tree (never =lookup-key=).  Because reconcile
+is deferred to a 0s timer, each ERT runs =(sit-for 0)= / =(while (timer ...))= to
+flush the timer before asserting (or calls =org-air-rail--reconcile-frame=
+directly to assert synchronously).
+- ERT (no double rail after a view switch — FAILS on trunk): open board + project,
+  drive =|= in the project (popped), switch the main window to the board + reconcile;
+  assert EXACTLY ONE =*org-air-rail*= side window does NOT show project content
+  while the board is active — i.e. the side window is GONE (board is inline) OR (if
+  the board is popped) its =back-ptr= is the BOARD, never the project.  On trunk
+  the side window survives with =back-ptr=*org-air-project*= beside an inline board
+  rail — the test fails.
+- ERT (current view's content): whenever a side rail exists, its
+  =org-air-rail--board-buffer= == the ACTIVE main view and its
+  =org-air-view--inspector-property= matches that view (=org-air-doc= for project,
+  =org-air-item= for board) — never the other view's.
+- ERT (toggle idempotent + reversible): in the project, drive =|= twice; after the
+  first there is one side rail (popped), after the second none (inline) and
+  =org-air-view--rail-popped-out= nil — and the window/rail-buffer caches are clean
+  (no orphan =*org-air-rail*= window).
+- ERT (board<->project independent): board popped (=|=), switch to project + back;
+  assert the board re-owns the side rail (back-ptr=board) and the project, left
+  inline, never spawned a second rail.  Then project popped + board inline: switch
+  project->board->project; assert the project's popped state is PRESERVED
+  (suspended round-trip) and only ever ONE rail shows at a time.
+- ERT (close reconciles to inline): project popped; delete the rail side window
+  natively (=delete-window= on =org-air-rail--side-window=) + run reconcile;
+  assert =org-air-view--rail-popped-out= nil, =--rail-suspended= nil, no
+  =*org-air-rail*= window, and the project re-rendered with its INLINE rail.
+- ERT (no orphan when navigating away): popped project, then =switch-to-buffer= a
+  non-org-air buffer in the main window + reconcile; assert the orphan side rail
+  is hidden (owner suspended) — returning to the project re-pops.
+- ERT (refresh never strands): popped project; call
+  =org-air-view--refresh-current= (a plain refresh); assert STILL exactly one side
+  rail, owned by the project, =back-ptr= intact (a refresh re-owns, never
+  duplicates).
+- No byte fixtures.
+
+** Routing (R25-6)
+org-air-view.el: add =org-air-view--rail-suspended= (buffer-local) + the helpers
+=org-air-rail--host-buffer-p= / =--active-view= / =--side-window= / =--side-owner=
+/ =--evict-foreign-rail=; rework =org-air-rail--reconcile= (L3970) into the
+deferred hook + =org-air-rail--reconcile-frame= (the single-owner enforcement,
+folding in =--user-closed-p=); add the cross-view sweep to the board render tail
+(L4818).  Have =org-air-rail-toggle= (L3899) / =-popin= (L3936) clear
+=--rail-suspended= when they flip the flag.  org-air-project.el: add the same
+cross-view sweep to the project render tail (L1325).  Both modes already hook
+=org-air-rail--reconcile= (org-air-view.el:958 / org-air-project.el:1521).  Test
+seat: the no-double-rail / current-content / idempotent / independent / close-
+inline / no-orphan / refresh EXECUTING ERTs.  No golden re-bless.
+
+** Open questions (R25-6)
+- When BOTH board and project are split-VISIBLE at once (two main windows), which
+  is "active"?  Proposal: the SELECTED window's view wins (=--active-view= prefers
+  it); the side rail follows the selected main view.  This is unambiguous and
+  matches "the CURRENT view".  Flag if a user wants a pinned rail per visible
+  view (out of scope — would need a second side window, breaking the singleton).
+- Re-owning on every board<->project switch re-renders the side rail — a flicker
+  risk.  Proposal: acceptable (re-own only fires on an actual owner mismatch, and
+  the R18 caches make the rail re-render cheap + text-only).  Flag if the test
+  seat sees thrash; the =org-air-rail--reconciling= latch + the deferred timer
+  bound it to one settle.
+- Keep the =org-air-view--rail-suspended= flag, or accept that visiting an inline
+  view DEMOTES a popped view to inline (simpler, still leak-free)?  Proposal:
+  KEEP suspended — it preserves each view's popped preference across a glance at
+  the other view, which is the "board and project independent" spirit; it is one
+  buffer-local + a single branch, and it cleanly disambiguates cross-view-hide
+  from a genuine user close (the only correctness-critical distinction).
+
+* History
+- 2026-06-29: Wrote the round-25 DESIGN spec (state =ready=).  Dogfooded R24:
+  six issues, five project-view polish + the priority RAIL-TOGGLE ROBUSTNESS.
+  Every item REPRODUCED on the fixture (=tests/fixtures/air-project=) AND the
+  real Air repo (=withre/air=, 63 docs) against the =.el= source; the rail item
+  DRIVEN through a live window (=org-air-rail-toggle= EXECUTED, main window
+  switched board<->project, =noninteractive= nil) — the double-rail + cross-view
+  leak captured from the live window tree.  Per-item commits (=R25-N=), each with
+  an =ever pub org-air3.work.design.done= signal.  Impl-ready; not integrated
+  (orchestrator gates + integrates per ace-orchestration.md).

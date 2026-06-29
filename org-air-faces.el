@@ -747,16 +747,6 @@ bold; just enough presence to separate keys from prose."
 The 5th Air state (between Ready and Complete)."
   :group 'org-air-faces)
 
-(custom-declare-face 'org-air-face-air-state-review
-  '((((class color) (min-colors 256) (background light))
-     (:foreground "#00838F" :weight bold))
-    (((class color) (min-colors 256) (background dark))
-     (:foreground "#88C0D0" :weight bold))
-    (t (:inherit org-air-face-salient :weight bold)))
-  "Air doc state badge: Review (\N{LEFT-POINTING MAGNIFYING GLASS}) — a
-salient teal, sitting between Work In Progress and Complete (D-P5.C)."
-  :group 'org-air-faces)
-
 (custom-declare-face 'org-air-face-air-state-complete
   '((((class color) (min-colors 256) (background light))
      (:foreground "#2E7D32" :weight bold))

@@ -311,5 +311,60 @@ back-ptr intact."
      (with-current-buffer org-air-rail-buffer-name
        (should (eq org-air-rail--board-buffer pbuf))))))
 
+;;;; =====================================================================
+;;;; R25-3 — remove the phantom "review" state everywhere.
+;;;; =====================================================================
+
+(ert-deftest org-air-r25-3-review-absent-everywhere ()
+  "`review' is not a member of any state list / map, and an unexpected
+`review' faces the unknown fallback (no dedicated face)."
+  (skip-unless (locate-library "org-air"))
+  (should-not (member "review" org-air-project-states))
+  (should-not (member "review" org-air-project-sections))
+  (should-not (member "review" org-air-project--state-display-order))
+  (should-not (assoc "review" org-air-project-state-badges))
+  (should-not (assoc "review" org-air-project-state-nerd-glyphs))
+  (should (eq (org-air-project--state-face "review") 'org-air-face-faded)))
+
+(ert-deftest org-air-r25-3-five-real-states-ordered ()
+  "The canonical 5 states remain, in the brief's lifecycle order; both
+`work-in-progress' (real, just 0 here) survives in BOTH lists."
+  (skip-unless (locate-library "org-air"))
+  (should (equal org-air-project-states
+                 '("draft" "ready" "work-in-progress" "complete" "dropped")))
+  (should (equal org-air-project-sections
+                 '("draft" "ready" "work-in-progress" "complete" "dropped")))
+  (should (member "work-in-progress" org-air-project-states))
+  (should (member "work-in-progress" org-air-project-sections)))
+
+(ert-deftest org-air-r25-3-display-order-minus-review ()
+  "The directory/rollup display order drops `review' and the display-rank
+still orders ready BEFORE draft (R20-5 order preserved, minus review)."
+  (skip-unless (locate-library "org-air"))
+  (should (equal org-air-project--state-display-order
+                 '("ready" "work-in-progress" "complete" "dropped" "draft")))
+  (should (< (org-air-project--state-display-rank "ready")
+             (org-air-project--state-display-rank "draft"))))
+
+(ert-deftest org-air-r25-3-summary-has-no-review-row ()
+  "The rail Summary lists exactly the 5 real state titles and NO `Review'
+row (the phantom `0  Review' line is gone)."
+  (skip-unless (locate-library "org-air"))
+  (let ((text (with-temp-buffer
+                (org-air-project--insert-summary nil 40)
+                (substring-no-properties (buffer-string)))))
+    (should (string-match-p "Draft" text))
+    (should (string-match-p "Ready" text))
+    (should (string-match-p "Work In Progress" text))
+    (should (string-match-p "Complete" text))
+    (should (string-match-p "Dropped" text))
+    (should-not (string-match-p "Review" text))))
+
+(ert-deftest org-air-r25-3-orphan-review-face-gone ()
+  "The dedicated `org-air-face-air-state-review' declaration is removed and
+nothing references it (anti-tautology: the face no longer exists)."
+  (skip-unless (locate-library "org-air"))
+  (should-not (facep 'org-air-face-air-state-review)))
+
 (provide 'org-air-round25-test)
 ;;; org-air-round25-test.el ends here

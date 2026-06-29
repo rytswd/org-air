@@ -628,6 +628,29 @@
     (org-air-r24-5-native-close-reconciles-to-inline
      . "R25-6: reconcile is now deferred to a 0s timer; the synchronous\n
          flag-flip assertion needs a timer flush (test-track re-bless)")
+    ;;
+    ;; 2026-06-29: R25-3 DROP the phantom `review' state.  Air has no
+    ;; `review' state (verified against withre/air: draft|ready|work-in-
+    ;; progress|complete|dropped); R25-3 deletes every `review' entry from
+    ;; the state lists / badge map / nerd glyphs / face clause + the orphan
+    ;; `org-air-face-air-state-review' face.  Three byte/assert tests re-bless
+    ;; (test seat):
+    ;;   * the three project goldens' `▌ Summary' block drops its always-
+    ;;     listed `0  Review' line (the fixture has no review DOCS, so no doc
+    ;;     row / state section moves) -> `org-air-f5-project-view-byte-
+    ;;     mockups' until `make regen-mockups' re-blesses the goldens;
+    ;;   * the display-order ERT asserted `(... "review" ...)';
+    ;;   * the batch state-cell ERT asserted the `review' badge token `[V] '.
+    ;; The NEW R25-3 ERTs (review-absent / 5-states-ordered / display-order /
+    ;; summary-no-review / orphan-face-gone) PASS.  Delete each entry when the
+    ;; test-track re-bless lands.
+    (org-air-f5-project-view-byte-mockups
+     . "R25-3: Summary drops the phantom `0  Review' line in all three\n
+         project goldens (regen-mockups re-bless)")
+    (org-air-r20-5-state-display-order-matches-airctl
+     . "R25-3: display-order no longer contains `review' (test re-bless)")
+    (org-air-r23-4-batch-state-cell-is-token-byte-stable
+     . "R25-3: the `review' badge token `[V]' is gone (test re-bless)")
     ;; ===================================================================
     ;; (test-symbol . "reason")  — none right now.
     )

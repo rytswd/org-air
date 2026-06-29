@@ -12,7 +12,7 @@
 
 ;; F5: render an Air-managed documentation tree (like `airctl status') as
 ;; a separate view from the GTD task board.  Air docs carry a state
-;; (draft/ready/work-in-progress/review/complete/dropped), tags and a
+;; (draft/ready/work-in-progress/complete/dropped), tags and a
 ;; title; this module reads them and (D-P5) renders them through
 ;; org-air-view's shared row primitive (`org-air-view--insert-row'): state
 ;; buckets become sections (icon + title + count badge), each doc a row
@@ -81,11 +81,12 @@ so they never shadow the shared board keys s / d / t."
   :group 'org-air)
 
 (defconst org-air-project--state-display-order
-  '("ready" "work-in-progress" "review" "complete" "dropped" "draft")
+  '("ready" "work-in-progress" "complete" "dropped" "draft")
   "Canonical state order for the directory tree (R20-5), matching `airctl -Da'.
-Drives BOTH the per-dir count badges (Ready · Work-In-Progress · Review ·
-Complete · Dropped · Draft, only those present) AND the state-first
-ordering of a directory's own docs, so the two can never drift.")
+Drives BOTH the per-dir count badges (Ready · Work-In-Progress · Complete ·
+Dropped · Draft, only those present) AND the state-first ordering of a
+directory's own docs, so the two can never drift.  R25-3 dropped the
+phantom `review' state (Air has no such state).")
 
 (defcustom org-air-project-sort-key 'name
   "INITIAL sort key for the Air project view (R16 D-P4).
@@ -103,15 +104,16 @@ the byte contract."
   :group 'org-air)
 
 (defcustom org-air-project-states
-  '("draft" "ready" "work-in-progress" "review" "complete" "dropped")
+  '("draft" "ready" "work-in-progress" "complete" "dropped")
   "Air doc states in display order.
-`review' (D-P5.C) is an optional state between Work-In-Progress and
-Complete."
+The canonical Air lifecycle: draft -> ready -> work-in-progress ->
+complete -> dropped.  R25-3 dropped the phantom `review' state (Air has no
+such state; a doc that writes a non-canonical state ranks as Unknown)."
   :type '(repeat string)
   :group 'org-air)
 
 (defcustom org-air-project-sections
-  '("draft" "ready" "work-in-progress" "review" "complete" "dropped")
+  '("draft" "ready" "work-in-progress" "complete" "dropped")
   "State buckets, in order, rendered as project-view SECTIONS (D-P5.C).
 Each present bucket becomes a section heading (badge icon + title + count
 badge) with its doc rows beneath; empty buckets are omitted, exactly like
@@ -123,7 +125,6 @@ the board's empty sections."
   '(("draft"            . ("\N{MEMO}\N{VARIATION SELECTOR-16}"               . "[D]"))
     ("ready"            . ("\N{DIRECT HIT}\N{VARIATION SELECTOR-16}"         . "[R]"))
     ("work-in-progress" . ("\N{GEAR}\N{VARIATION SELECTOR-16}"               . "[W]"))
-    ("review"           . ("\N{LEFT-POINTING MAGNIFYING GLASS}\N{VARIATION SELECTOR-16}" . "[V]"))
     ("complete"         . ("\N{WHITE HEAVY CHECK MARK}\N{VARIATION SELECTOR-16}" . "[C]"))
     ("dropped"          . ("\N{WASTEBASKET}\N{VARIATION SELECTOR-16}"        . "[X]")))
   "Per-state badge as (STATE . (EMOJI . TTY)).
@@ -156,7 +157,6 @@ unchanged and the cell never grows past `org-air-project--state-cell-w'."
   '(("draft"            . "\uf040")   ; nf-fa-pencil
     ("ready"            . "\uf192")   ; nf-fa-dot_circle_o  (target)
     ("work-in-progress" . "\uf013")   ; nf-fa-cog
-    ("review"           . "\uf002")   ; nf-fa-search
     ("complete"         . "\uf058")   ; nf-fa-check_circle
     ("dropped"          . "\uf014"))  ; nf-fa-trash
   "Per-state nerd-font glyph for `org-air-project-state-style' = `nerd' (R24-3).
@@ -305,7 +305,6 @@ with the stateless directory-summary bodies."
     ("draft" 'org-air-face-air-state-draft)
     ("ready" 'org-air-face-air-state-ready)
     ("work-in-progress" 'org-air-face-air-state-wip)
-    ("review" 'org-air-face-air-state-review)
     ("complete" 'org-air-face-air-state-complete)
     ("dropped" 'org-air-face-air-state-dropped)
     (_ 'org-air-face-faded)))
@@ -898,7 +897,7 @@ margin + state cell, byte-identical to today."
 
 (defun org-air-project--state-rank (state)
   "Return the canonical rank of STATE (R16 D-P5).
-Uses `org-air-project-sections' (Draft/Ready/WIP/Review/Complete/...) as
+Uses `org-air-project-sections' (Draft/Ready/WIP/Complete/Dropped) as
 the single source of truth for state order: a known state gets its index;
 any unknown state shares one rank just past the known ones (so it sorts
 AFTER them).  Unknown states are then ordered among themselves by their

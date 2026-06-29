@@ -532,5 +532,169 @@ pill exactly."
       (should (string-match-p ">#ui<" svg))
       (should-not (string-match-p "font-weight=\"bold\"" svg)))))
 
+;;;; =====================================================================
+;;;; R25-1 — lengthen the tree-connector arm to REACH the state badge.
+;;;; =====================================================================
+
+(defun org-air-r25-1--fixture-docs ()
+  "Return the fixture project's docs."
+  (org-air-project--collect-docs org-air-project-test-root))
+
+(defun org-air-r25-1--insert-tree (tree width)
+  "Insert TREE at WIDTH with the project render dynamics bound."
+  (let* ((dims (org-air-view--char-dimensions))
+         (org-air-view--pill-char-w (car dims))
+         (org-air-view--pill-char-h (cdr dims))
+         (org-air-view-width width)
+         (docs (org-air-r25-1--fixture-docs))
+         (mw (org-air-project--fit-meta-widths docs width))
+         (org-air-project--meta-date-w (nth 0 mw))
+         (org-air-project--meta-tags-w (nth 1 mw))
+         (org-air-project--meta-origin-w (nth 2 mw)))
+    (org-air-project--insert-directory-tree tree width)))
+
+(defun org-air-r25-1--connector-pos (gutter tee corner)
+  "Return the index of the LAST tee/corner connector glyph in GUTTER, or nil."
+  (cl-loop for i from (1- (length gutter)) downto 0
+           when (member (char-to-string (aref gutter i)) (list tee corner))
+           return i))
+
+(ert-deftest org-air-r25-1-arm-reaches-the-badge ()
+  "On a leaf DOC row the run of cells BETWEEN the corner glyph and the state
+cell is ALL `box-horizontal' (`-' in batch), faced `org-air-face-air-tree' —
+NO space sits between the connector and `[R]'.  On trunk this run is spaces."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r25-1--fixture-docs))
+         (tree (org-air-project--directory-tree docs))
+         (hbar (org-air-layout-glyph 'box-horizontal))
+         (tee  (org-air-layout-glyph 'box-tee-left))
+         (corner (org-air-layout-glyph 'box-bottom-left)))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r25-1--insert-tree tree 100)
+          (goto-char (point-min))
+          (should (re-search-forward "\\[R\\] Alpha feature" nil t))
+          (let* ((bracket (match-beginning 0))
+                 (bol (line-beginning-position))
+                 (gutter (buffer-substring-no-properties bol bracket))
+                 (conn (org-air-r25-1--connector-pos gutter tee corner)))
+            (should conn)
+            (let ((run (substring gutter (1+ conn))))
+              (should (> (length run) 0))
+              ;; every cell after the connector is box-horizontal, NO space.
+              (should (cl-every (lambda (c) (equal (char-to-string c) hbar)) run))
+              (should-not (string-match-p " " run)))
+            ;; the first run cell is faced air-tree.
+            (should (eq (get-text-property (+ bol conn 1) 'face)
+                        'org-air-face-air-tree))))))))
+
+(ert-deftest org-air-r25-1-v6-columns-frozen ()
+  "The arm only repaints gutter glyphs: a leaf doc's state cell `[' lands at
+EXACTLY margin + (* 2 (1+ depth)) for depth 0 AND depth 1 (gutter total width
+unchanged), so the title/date/tag cluster never moves."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r25-1--fixture-docs))
+         (tree (org-air-project--directory-tree docs))
+         (margin-w (string-width (org-air-view--item-margin))))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r25-1--insert-tree tree 100)
+          (goto-char (point-min))
+          (should (re-search-forward "\\[R\\] Alpha feature" nil t))
+          (should (= (save-excursion (goto-char (match-beginning 0))
+                                     (current-column))
+                     (+ margin-w (* 2 (1+ 0)))))
+          (goto-char (point-min))
+          (should (re-search-forward "\\[D\\] Gamma context" nil t))
+          (should (= (save-excursion (goto-char (match-beginning 0))
+                                     (current-column))
+                     (+ margin-w (* 2 (1+ 1))))))))))
+
+(ert-deftest org-air-r25-1-corner-then-dash-run ()
+  "A dir whose only children are docs (GUI stub): its LAST doc uses
+`box-bottom-left' then the dash run; earlier docs `box-tee-left' then the
+dash run (R24-2's corner logic unchanged, only the fill after it)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (let* ((docs (org-air-r25-1--fixture-docs))
+           (d1 (nth 0 docs)) (d2 (nth 1 docs))
+           (tree (list (list :dir "v9" :depth 0 :path "v9"
+                             :own-docs (list d1 d2) :children nil
+                             :direct-counts nil :desc-counts nil)))
+           (tee    (org-air-layout-glyph 'box-tee-left))
+           (corner (org-air-layout-glyph 'box-bottom-left))
+           (hbar   (org-air-layout-glyph 'box-horizontal)))
+      (org-air-test-with-frozen-project-path org-air-project-test-root
+        (org-air-project-test--with-frozen-mtime
+          (with-temp-buffer
+            (org-air-r25-1--insert-tree tree 100)
+            (let (doc-lines)
+              (goto-char (point-min))
+              (while (not (eobp))
+                (when (text-property-not-all (line-beginning-position)
+                                             (line-end-position) 'org-air-doc nil)
+                  (push (buffer-substring-no-properties
+                         (line-beginning-position) (line-end-position))
+                        doc-lines))
+                (forward-line 1))
+              (setq doc-lines (nreverse doc-lines))
+              (should (= (length doc-lines) 2))
+              ;; first own doc -> tee + dash run; last -> corner + dash run.
+              (should (string-match-p (concat "^ *" (regexp-quote tee)
+                                              (regexp-quote hbar) "+")
+                                      (nth 0 doc-lines)))
+              (should (string-match-p (concat "^ *" (regexp-quote corner)
+                                              (regexp-quote hbar) "+")
+                                      (nth 1 doc-lines))))))))))
+
+(ert-deftest org-air-r25-1-nested-ancestor-rail-then-arm ()
+  "A depth-1 doc still carries the ancestor `box-vertical' (`|') to the LEFT
+of its corner, THEN the dash run reaches the badge (the ancestor rail is
+preserved; only the post-corner fill changed)."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r25-1--fixture-docs))
+         (doc (car docs))
+         (tree (list
+                (list :dir "v0.1" :depth 0 :path "v0.1" :own-docs nil
+                      :direct-counts nil :desc-counts nil
+                      :children
+                      (list
+                       (list :dir "air-template" :depth 1
+                             :path "v0.1/air-template" :own-docs (list doc)
+                             :direct-counts nil :desc-counts nil :children nil)
+                       (list :dir "config" :depth 1 :path "v0.1/config"
+                             :own-docs nil :direct-counts nil
+                             :desc-counts nil :children nil)))))
+         (vrail  (org-air-layout-glyph 'box-vertical))
+         (hbar   (org-air-layout-glyph 'box-horizontal))
+         (tee    (org-air-layout-glyph 'box-tee-left))
+         (corner (org-air-layout-glyph 'box-bottom-left)))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r25-1--insert-tree tree 100)
+          (let ((pos (text-property-not-all (point-min) (point-max)
+                                            'org-air-doc nil)))
+            (should pos)
+            (goto-char pos)
+            (let* ((bol (line-beginning-position))
+                   (line (buffer-substring-no-properties
+                          bol (line-end-position)))
+                   (bracket (string-match "\\[" line))
+                   (gutter (substring line 0 bracket))
+                   (conn (org-air-r25-1--connector-pos gutter tee corner))
+                   (vpos (string-match (regexp-quote vrail) gutter)))
+              (should vpos)
+              (should conn)
+              ;; the ancestor rail sits to the LEFT of the connector.
+              (should (< vpos conn))
+              ;; the run from the connector to the badge is all box-horizontal.
+              (let ((run (substring gutter (1+ conn))))
+                (should (> (length run) 0))
+                (should (cl-every (lambda (c) (equal (char-to-string c) hbar))
+                                  run))))))))))
+
 (provide 'org-air-round25-test)
 ;;; org-air-round25-test.el ends here

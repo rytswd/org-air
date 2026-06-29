@@ -870,17 +870,26 @@ margin + state cell, byte-identical to today."
             ;; Directory tree: paint the faded ancestor rails + connector
             ;; into the gutter, to the SAME width the old plain indent
             ;; produced (so nothing to the right of the gutter moves).
-            (let* ((margin-w (string-width (org-air-view--item-margin)))
+            ;; R25-1: fill the run AFTER the corner with `box-horizontal'
+            ;; glyphs (not spaces) so the arm REACHES the badge
+            ;; (`+-----[R]'), flush to the state cell.  The gutter TOTAL width
+            ;; stays EXACTLY `gutter-w' (truncate/pad clamp), so the state
+            ;; cell / title / right cluster do not move (V6 pixel-lock); only
+            ;; the FILL char changed from space to `-'/`─'.
+            (let* ((margin-w  (string-width (org-air-view--item-margin)))
                    (old-indent (* 2 (1+ depth)))
-                   (gutter-w (+ margin-w old-indent))
-                   (guide-raw (concat "  " (or rails "")
-                                      (org-air-layout-glyph
-                                       (if lastp 'box-bottom-left 'box-tee-left))
-                                      (org-air-layout-glyph 'box-horizontal) " "))
-                   (guide (org-air-view--pad-to
-                           (propertize (truncate-string-to-width guide-raw gutter-w)
-                                       'face 'org-air-face-air-tree)
-                           gutter-w)))
+                   (gutter-w  (+ margin-w old-indent))
+                   (hbar      (org-air-layout-glyph 'box-horizontal))
+                   (corner    (org-air-layout-glyph
+                               (if lastp 'box-bottom-left 'box-tee-left)))
+                   (lead      (concat "  " (or rails "") corner)) ; margin+rails+corner
+                   (armlen    (max 0 (- gutter-w (string-width lead))))
+                   (arm       (apply #'concat (make-list armlen hbar)))
+                   (guide     (org-air-view--pad-to
+                               (propertize (truncate-string-to-width
+                                            (concat lead arm) gutter-w)
+                                           'face 'org-air-face-air-tree)
+                               gutter-w)))
               (concat guide (org-air-project--state-cell state)))))
          (date   (org-air-project--doc-date-text doc))
          (tags   (org-air-project--doc-tagstr doc))

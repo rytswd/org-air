@@ -644,9 +644,26 @@
     ;; The NEW R25-3 ERTs (review-absent / 5-states-ordered / display-order /
     ;; summary-no-review / orphan-face-gone) PASS.  Delete each entry when the
     ;; test-track re-bless lands.
+    ;;
+    ;; 2026-06-29: R25-1 TREE ARM LENGTH — a directory-tree DOC row fills the
+    ;; gutter run AFTER the corner with `box-horizontal' (`-' batch / `─' GUI)
+    ;; instead of spaces, so the arm REACHES the badge (`  +-----[R]'); the
+    ;; gutter TOTAL width is unchanged (state cell / title / right cluster
+    ;; V6-frozen).  Two re-blesses (test seat):
+    ;;   * the DIRECTORY golden's doc-row gutters move (`  +-    [R]' ->
+    ;;     `  +-----[R]') -> folded into `org-air-f5-project-view-byte-mockups'
+    ;;     below (already failing for R25-3/R25-5; the dir golden now also
+    ;;     needs the gutter re-bless);
+    ;;   * `org-air-r24-2-doc-row-carries-tree-rail' asserted SPACES (` +')
+    ;;     between the connector and `[R]' — now box-horizontal.  The R25-1
+    ;;     arm/V6-lock/corner/ancestor ERTs cover the new contract.
+    (org-air-r24-2-doc-row-carries-tree-rail
+     . "R25-1: the post-connector gutter run is now box-horizontal, not\n
+         spaces — the ` +'-spaces assertion re-blesses (test seat)")
     (org-air-f5-project-view-byte-mockups
-     . "R25-3: Summary drops the phantom `0  Review' line in all three\n
-         project goldens (regen-mockups re-bless)")
+     . "R25-3/R25-1/R25-5: Summary drops `0  Review'; the dir golden's doc\n
+         gutters fill with box-horizontal; project rows lose the origin cell\n
+         (regen-mockups re-bless of all three project goldens)")
     (org-air-r20-5-state-display-order-matches-airctl
      . "R25-3: display-order no longer contains `review' (test re-bless)")
     (org-air-r23-4-batch-state-cell-is-token-byte-stable

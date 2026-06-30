@@ -760,5 +760,121 @@ rendered row overflows the width (the freed columns flow to the flex title)."
       (dolist (l lines)
         (should (<= (string-width l) 100))))))
 
+;;;; =====================================================================
+;;;; Test-seat GAP-FILL (R25) — the impl ERTs cover R25-1 at depth 0/1 and
+;;;; the R25-2 badge cell-lock in isolation; these tie the DEEPER tier and
+;;;; the R25-2 svg overlay back to the R25-1 gutter (the prompt's explicit
+;;;; "arm length depth>=2" + "R25-1 rails stay aligned" checks).
+;;;; =====================================================================
+
+(defun org-air-r25--doc-badge-columns (tree width)
+  "Render TREE at WIDTH in the CURRENT display mode; return the list of
+0-based columns where each doc row's `[' state badge begins."
+  (org-air-test-with-frozen-project-path org-air-project-test-root
+    (org-air-project-test--with-frozen-mtime
+      (with-temp-buffer
+        (org-air-r25-1--insert-tree tree width)
+        (let (cols)
+          (goto-char (point-min))
+          (while (not (eobp))
+            (when (text-property-not-all (line-beginning-position)
+                                         (line-end-position) 'org-air-doc nil)
+              (let* ((line (buffer-substring-no-properties
+                            (line-beginning-position) (line-end-position)))
+                     (b (string-match "\\[" line)))
+                (when b (push b cols))))
+            (forward-line 1))
+          (nreverse cols))))))
+
+(ert-deftest org-air-r25-1-arm-reaches-the-badge-at-depth-2 ()
+  "R25-1 depth>=2 (test-seat gap-fill): the fixture only nests ONE dir level,
+so drive a synthetic depth-2 dir (v0.1/air-template/references/, as airctl
+renders it).  Its doc carries TWO `box-vertical' ancestor rails, then its
+corner, then a `box-horizontal' arm that STILL reaches the badge FLUSH (no
+space gap); the badge `[' lands at the V6 column margin + (* 2 (1+ 2))."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r25-1--fixture-docs))
+         (doc (car docs))
+         (tree
+          (list
+           (list :dir "v0.1" :depth 0 :path "v0.1" :own-docs nil
+                 :direct-counts nil :desc-counts nil
+                 :children
+                 (list
+                  (list :dir "air-template" :depth 1 :path "v0.1/air-template"
+                        :own-docs nil :direct-counts nil :desc-counts nil
+                        :children
+                        (list
+                         (list :dir "references" :depth 2
+                               :path "v0.1/air-template/references"
+                               :own-docs (list doc) :direct-counts nil
+                               :desc-counts nil :children nil)
+                         (list :dir "helpers" :depth 2
+                               :path "v0.1/air-template/helpers"
+                               :own-docs nil :direct-counts nil
+                               :desc-counts nil :children nil)))
+                  (list :dir "config" :depth 1 :path "v0.1/config"
+                        :own-docs nil :direct-counts nil
+                        :desc-counts nil :children nil)))))
+         (vrail  (org-air-layout-glyph 'box-vertical))
+         (hbar   (org-air-layout-glyph 'box-horizontal))
+         (tee    (org-air-layout-glyph 'box-tee-left))
+         (corner (org-air-layout-glyph 'box-bottom-left))
+         (margin-w (string-width (org-air-view--item-margin))))
+    (org-air-test-with-frozen-project-path org-air-project-test-root
+      (org-air-project-test--with-frozen-mtime
+        (with-temp-buffer
+          (org-air-r25-1--insert-tree tree 100)
+          (let ((pos (text-property-not-all (point-min) (point-max)
+                                            'org-air-doc nil)))
+            (should pos)
+            (goto-char pos)
+            (let* ((line (buffer-substring-no-properties
+                          (line-beginning-position) (line-end-position)))
+                   (bracket (string-match "\\[" line))
+                   (gutter (substring line 0 bracket))
+                   (conn (org-air-r25-1--connector-pos gutter tee corner)))
+              (should conn)
+              ;; (a) TWO box-vertical ancestor rails LEFT of the corner.
+              (should (= 2 (cl-loop for i below conn
+                                    count (equal (char-to-string (aref gutter i))
+                                                 vrail))))
+              ;; (b) the connector is the corner (the doc is the last child
+              ;; overall under `references').
+              (should (equal (char-to-string (aref gutter conn)) corner))
+              ;; (c) the corner->badge run is ALL box-horizontal, flush (>0).
+              (let ((run (substring gutter (1+ conn))))
+                (should (> (length run) 0))
+                (should (cl-every (lambda (c) (equal (char-to-string c) hbar))
+                                  run))
+                (should-not (string-match-p " " run)))
+              ;; (d) V6 column at the deeper tier: margin + 2*(1+2).
+              (should (= bracket (+ margin-w (* 2 (1+ 2))))))))))))
+
+(ert-deftest org-air-r25-2-svg-badge-keeps-r25-1-columns ()
+  "R25-2 x R25-1 (test-seat gap-fill): turning the bigger/bold SVG badge on
+(the GUI default) keeps the R25-1 gutter aligned.  The badge is a `display'
+overlay sized to EXACTLY the 3 char-px text cell, so rendering the directory
+tree on a graphical frame lands every doc's `[' badge at the SAME column as
+the batch render (the Unicode rails + the bigger letter never shift the V6
+columns); the badge image is exactly the text-cell width, so it can never
+bleed into the R25-1 arm."
+  (skip-unless (locate-library "org-air"))
+  (let* ((docs (org-air-r25-1--fixture-docs))
+         (tree (org-air-project--directory-tree docs))
+         (batch-cols (org-air-r25--doc-badge-columns tree 100)))
+    (should (> (length batch-cols) 2))
+    (org-air-r25--with-gui-metrics
+      (let ((gui-cols (org-air-r25--doc-badge-columns tree 100)))
+        ;; every doc badge lands at the IDENTICAL column GUI vs batch.
+        (should (equal gui-cols batch-cols))
+        ;; the SVG badge occupies exactly the text cell (3 char-px), so it
+        ;; can never bleed into the R25-1 arm.
+        (let ((img (org-air-r25--display-image
+                    (org-air-project--state-svg-badge "ready"))))
+          (should img)
+          (should (= (image-property img :width)
+                     (* 3 org-air-view--pill-char-w))))))))
+
 (provide 'org-air-round25-test)
 ;;; org-air-round25-test.el ends here

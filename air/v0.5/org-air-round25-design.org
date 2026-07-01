@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-25 DESIGN: tree-connector arms · legible+distinct SVG state letters · drop phantom "review" · drop project origin column · CLEAN rail dual-mode (the big one, executing)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:render:project:rail:faces:layout:design:v0.5:
 
 * Scope of this document

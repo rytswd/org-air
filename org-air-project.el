@@ -567,14 +567,20 @@ Buckets with zero docs are omitted; any state not listed is appended."
       (length org-air-project--state-display-order)))
 
 (defun org-air-project--state-first-lessp (a b)
-  "Non-nil when doc A precedes B state-first (display order) then by name (R20-5)."
+  "Non-nil when doc A precedes B state-first, then by the ACTIVE key (R26-7).
+State-display-rank stays PRIMARY (the airctl -Da shape); the within-state
+order delegates to `org-air-project--doc-compare-key' — the active `o'/`O'
+sort — instead of the old fixed name tiebreak (which starved the sort key
+in the DEFAULT directory grouping).  Byte-stable at the default: key
+`name' ascending is `string-lessp' on names + the name/relpath tiebreak,
+exactly the old order."
   (let ((ra (org-air-project--state-display-rank (org-air-doc-state a)))
         (rb (org-air-project--state-display-rank (org-air-doc-state b))))
     (if (/= ra rb) (< ra rb)
-      (org-air-project--doc-tiebreak-lessp a b))))
+      (org-air-project--doc-compare-key a b))))
 
 (defun org-air-project--sort-own-docs (docs)
-  "Return DOCS state-first (display order) then by name (R20-5)."
+  "Return DOCS state-first (display order), then by the active key (R26-7)."
   (sort (copy-sequence docs) #'org-air-project--state-first-lessp))
 
 (defun org-air-project--count-by-state (docs)

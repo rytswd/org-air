@@ -457,5 +457,188 @@ none — the `unset'-is-truthy double-rail root cause can never return."
      (org-air-rail--reconcile-frame (selected-frame)))
    (should-not (window-live-p (org-air-rail--side-window)))))
 
+;;;; =====================================================================
+;;;; R26-7 — "o" sort cycle: rows VISIBLY move through the real render.
+;;;; =====================================================================
+
+(defmacro org-air-r26--with-live-board (&rest body)
+  "Render the fixture BOARD (seam width/height) and run BODY in it.
+The render composes its panes through `org-air-view--render-lines' — the
+temp-buffer seam R26-7 fixes — and BODY drives the real key bindings."
+  (declare (indent 0) (debug t))
+  `(org-air-test-with-fixtures
+    (let ((org-air-view-width 120)
+          (org-air-view-height 50))
+      (save-window-excursion
+        (org-air-r26--kill-aux-buffers)
+        (let ((noninteractive nil)
+              (bbuf (get-buffer-create org-air-view-buffer-name)))
+          (with-current-buffer bbuf
+            (org-air-view-mode)
+            (setq org-air-view--items (org-air-query-items))
+            (setq-local org-air-view--rail-popped-out nil)
+            (org-air-view--render org-air-view--items nil))
+          (unwind-protect
+              (with-current-buffer bbuf
+                (switch-to-buffer bbuf)
+                ,@body)
+            (org-air-r26--kill-aux-buffers)))))))
+
+(defun org-air-r26--bucket-titles (bucket)
+  "Return the RENDERED row titles of section BUCKET, in buffer order."
+  (let (titles (cur nil))
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (let* ((bol (line-beginning-position))
+               (eol (line-end-position))
+               (secpos (text-property-not-all bol eol 'org-air-section nil))
+               (itempos (text-property-not-all bol eol 'org-air-item nil)))
+          (cond
+           ((and secpos (not itempos))
+            (setq cur (get-text-property secpos 'org-air-section)))
+           ((and itempos (eq cur bucket))
+            (let ((it (get-text-property itempos 'org-air-item)))
+              (push (org-air-item-title it) titles)))))
+        (forward-line 1)))
+    (nreverse titles)))
+
+(defun org-air-r26--first-line ()
+  "Return the banner (first) line's text."
+  (save-excursion
+    (goto-char (point-min))
+    (buffer-substring-no-properties (point) (line-end-position))))
+
+(ert-deftest org-air-r26-7-board-o-reorders-rows ()
+  "Driving `o' to `title' through the REAL render path visibly reorders
+the rows within each bucket (alphabetical) — the buffer-local sort state
+now crosses the `--render-lines' temp-buffer seam.  FAILS on trunk (the
+key cycled, the rows never moved)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-board
+    (let ((baseline (org-air-r26--bucket-titles 'high-priority)))
+      (should (> (length baseline) 1))
+      ;; o: date -> priority; o: priority -> title (the board's key ring).
+      (call-interactively (key-binding (kbd "o")))
+      (call-interactively (key-binding (kbd "o")))
+      (should (eq org-air-view--sort-key 'title))
+      (let ((titles (org-air-r26--bucket-titles 'high-priority)))
+        ;; visibly alphabetical within the bucket...
+        (should (equal titles
+                       (sort (copy-sequence titles)
+                             (lambda (a b)
+                               (string-lessp (downcase a) (downcase b))))))
+        ;; ...and NOT the date-order baseline.
+        (should-not (equal titles baseline))))))
+
+(ert-deftest org-air-r26-7-board-O-reverses-rows ()
+  "`O' after `o o' (title) reverses the visible row order within a bucket
+that shows ALL its members.  FAILS on trunk (direction never reached the
+render pass)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-board
+    (call-interactively (key-binding (kbd "o")))
+    (call-interactively (key-binding (kbd "o")))   ; -> title
+    (let ((asc (org-air-r26--bucket-titles 'high-priority)))
+      (should (> (length asc) 1))
+      (call-interactively (key-binding (kbd "O")))  ; -> descending
+      (should (eq org-air-view--sort-direction 'descending))
+      (should (equal (org-air-r26--bucket-titles 'high-priority)
+                     (reverse asc))))))
+
+(ert-deftest org-air-r26-7-board-indicator-surfaces ()
+  "The banner's `↕ KEY' indicator appears for a NON-default sort (it was
+already coded — the temp-buffer seam starved it) and stays absent at the
+byte-identical default."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-board
+    ;; default: no indicator text on the banner.
+    (should-not (string-match-p "\\bpriority\\b" (org-air-r26--first-line)))
+    (call-interactively (key-binding (kbd "o")))   ; -> priority
+    (should (string-match-p "\\bpriority\\b" (org-air-r26--first-line)))))
+
+(ert-deftest org-air-r26-7-board-o-echoes ()
+  "Each `o' press echoes `org-air: sort by KEY' (message capture)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-board
+    (let (logged)
+      (cl-letf (((symbol-function 'message)
+                 (lambda (fmt &rest args)
+                   (when fmt (push (apply #'format fmt args) logged))
+                   nil)))
+        (call-interactively (key-binding (kbd "o"))))
+      (should (seq-find (lambda (m)
+                          (string-match-p "org-air: sort by priority" m))
+                        logged)))))
+
+(defun org-air-r26--project-doc-names ()
+  "Return the doc names of the project buffer's rows, in buffer order."
+  (let (names (pos (point-min)))
+    (when (get-text-property pos 'org-air-doc)
+      (push (org-air-doc-name (get-text-property pos 'org-air-doc)) names))
+    (while (setq pos (next-single-property-change pos 'org-air-doc))
+      (when-let* ((d (get-text-property pos 'org-air-doc)))
+        (let ((name (org-air-doc-name d)))
+          (unless (equal name (car names))
+            (push name names)))))
+    (nreverse names)))
+
+(ert-deftest org-air-r26-7-project-dir-grouping-follows-key ()
+  "In the DEFAULT directory grouping, `o' to `updated' reorders the docs
+WITHIN their state runs (state-display-rank stays primary); at the
+default `name' the tree keeps the byte-stable name order.  FAILS on trunk
+\(`--sort-own-docs' never consulted the key)."
+  (skip-unless (locate-library "org-air"))
+  (let ((root (make-temp-file "org-air-r26-proj" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "v0.1" root))
+          (write-region "" nil (expand-file-name "air-config.toml" root))
+          ;; three docs, SAME state (one state run), name order A < B < C.
+          (dolist (spec '(("able.org" . "Able") ("baker.org" . "Baker")
+                          ("charlie.org" . "Charlie")))
+            (write-region (format "#+title: %s\n#+state: ready\n" (cdr spec))
+                          nil
+                          (expand-file-name (concat "v0.1/" (car spec)) root)))
+          ;; distinct UPDATED stamps: Baker oldest, then Charlie, Able newest
+          ;; (updated ascending B C A != name order A B C).
+          (set-file-times (expand-file-name "v0.1/able.org" root)
+                          (encode-time 0 0 12 3 5 2026))
+          (set-file-times (expand-file-name "v0.1/baker.org" root)
+                          (encode-time 0 0 12 1 5 2026))
+          (set-file-times (expand-file-name "v0.1/charlie.org" root)
+                          (encode-time 0 0 12 2 5 2026))
+          (let ((org-air-sources (list (list :air root)))
+                (org-air-project-group 'directory)
+                (org-air-project-view-width 120)
+                (org-air-rail-placement '((board . inline)
+                                          (project . inline))))
+            (save-window-excursion
+              (org-air-r26--kill-aux-buffers)
+              (let ((noninteractive nil))
+                (org-air-project))
+              (unwind-protect
+                  (with-current-buffer "*org-air-project*"
+                    ;; byte-default: `name' ascending = the old order.
+                    (should (equal (org-air-r26--project-doc-names)
+                                   '("Able" "Baker" "Charlie")))
+                    ;; o -> created; o -> updated (the project key ring).
+                    (let ((noninteractive nil))
+                      (call-interactively (key-binding (kbd "o")))
+                      (call-interactively (key-binding (kbd "o"))))
+                    (should (eq org-air-view--sort-key 'updated))
+                    ;; rows reorder by updated WITHIN the state run.
+                    (should (equal (org-air-r26--project-doc-names)
+                                   '("Baker" "Charlie" "Able")))
+                    ;; the header indicator names the key.
+                    (should (string-match-p
+                             "updated"
+                             (buffer-substring-no-properties
+                              (point-min)
+                              (save-excursion (goto-char (point-min))
+                                              (line-end-position))))))
+                (org-air-r26--kill-aux-buffers)))))
+      (delete-directory root t))))
+
 (provide 'org-air-round26-test)
 ;;; org-air-round26-test.el ends here

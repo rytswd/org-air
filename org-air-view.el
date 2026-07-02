@@ -2522,7 +2522,13 @@ so the board byte goldens are byte-identical by default."
         (render-displayed org-air-view--render-displayed)
         ;; R20-5: carry the view descriptor into the rail temp buffer so the
         ;; SHARED rail consults the project's providers (nil for the board).
-        (rail-descriptor org-air-view--rail-descriptor))
+        (rail-descriptor org-air-view--rail-descriptor)
+        ;; R26-7: carry the buffer-local SORT state — the panes compose in
+        ;; temp buffers that otherwise fall back to the GLOBAL defaults, so
+        ;; `o'/`O' cycled the key while the rendered rows never moved (and
+        ;; the banner indicator stayed suppressed).
+        (sort-key org-air-view--sort-key)
+        (sort-direction org-air-view--sort-direction))
     (with-temp-buffer
       (let ((org-air-view--line-width width)
             (org-air-view--items items)
@@ -2536,7 +2542,9 @@ so the board byte goldens are byte-identical by default."
             (org-air-view--classify-cache-day classify-cache-day)
             (org-air-view--render-partition render-partition)
             (org-air-view--render-displayed render-displayed)
-            (org-air-view--rail-descriptor rail-descriptor))
+            (org-air-view--rail-descriptor rail-descriptor)
+            (org-air-view--sort-key sort-key)
+            (org-air-view--sort-direction sort-direction))
         (funcall render-fn)
         (org-air-view--string-lines (buffer-string) width)))))
 

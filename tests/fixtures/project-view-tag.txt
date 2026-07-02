@@ -1,22 +1,22 @@
   org-air · project                                                                       | name ^
 
   | #context 2                                                        | | June 2026              < >
-      [D] Epsilon plan                  ~ 2026-05-01  #context   #ui  |     Su Mo Tu We Th Fr Sa
-      [D] Gamma context                 ~ 2026-05-01  #context        |         1  2  3  4  5  6
+      DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |     Su Mo Tu We Th Fr Sa
+      DRAFT Gamma context               ~ 2026-05-01  #context        |         1  2  3  4  5  6
                                                                       |      7  8  9 10 11 12 13
   | #core 3                                                           |     14 15 16 17 18 19 20
-      [R] Alpha feature                 ~ 2026-05-01  #ui   #core     |     21 22 23 24 25 26 27
-      [W] Zeta work in progress         ~ 2026-05-01  #core   #ui     |     28 29 30
-      [C] Beta CLI                      ~ 2026-05-01  #core           |
+      READY Alpha feature               ~ 2026-05-01  #ui   #core     |     21 22 23 24 25 26 27
+      WIP   Zeta work in progress       ~ 2026-05-01  #core   #ui     |     28 29 30
+      COMP  Beta CLI                    ~ 2026-05-01  #core           |
                                                                       |     ! due    o sched
   | #notes 1                                                          |
-      [U] Eta notes                     ~ 2026-05-01  #notes          | | Filter
+      UNKNO Eta notes                   ~ 2026-05-01  #notes          | | Filter
                                                                       |  none
   | #ui 4                                                             | | Source
-      [D] Epsilon plan                  ~ 2026-05-01  #context   #ui  |  all items · 7 loaded
-      [R] Alpha feature                 ~ 2026-05-01  #ui   #core     |
-      [W] Zeta work in progress         ~ 2026-05-01  #core   #ui     | | Summary
-      [X] Delta UI exploration          ~ 2026-05-01  #ui             |    2  Draft
+      DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |  all items · 7 loaded
+      READY Alpha feature               ~ 2026-05-01  #ui   #core     |
+      WIP   Zeta work in progress       ~ 2026-05-01  #core   #ui     | | Summary
+      DROP  Delta UI exploration        ~ 2026-05-01  #ui             |    2  Draft
                                                                       |    1  Ready
                                                                       |    1  Work In Progress
                                                                       |    1  Complete
@@ -25,5 +25,6 @@
                                                                       | | Inspector
                                                                       |
                                                                       | | Actions
-                                                                      |  RET open    / filter g r...
-                                                                      |  S-RET visit \ clear  q quit
+                                                                      |  RET open  ( flip      / ...
+                                                                      |  o sort    s/d/t group | ...
+                                                                      |  g refresh ? help      q ...

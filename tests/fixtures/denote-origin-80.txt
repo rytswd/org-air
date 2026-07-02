@@ -2,7 +2,7 @@
   ──────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 1
-      TODO   File the re…  Tomorrow     · r to file  #inbox          ▤ inbox.org
+      TODO   File the receipts         Tomorrow      #inbox          ▤ inbox.org
 
   ▲ Needs attention 0
       Nothing overdue. Nice.

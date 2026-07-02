@@ -1,16 +1,16 @@
   org-air · project                                                                       | name ^
 
   | v0.1/                                                 R1 C1 D(+1) | | June 2026              < >
-  +-----[R] Alpha feature               ~ 2026-05-01  #ui   #core     |     Su Mo Tu We Th Fr Sa
-  +-----[C] Beta CLI                    ~ 2026-05-01  #core           |         1  2  3  4  5  6
+  +---- READY Alpha feature             ~ 2026-05-01  #ui   #core     |     Su Mo Tu We Th Fr Sa
+  +---- COMP  Beta CLI                  ~ 2026-05-01  #core           |         1  2  3  4  5  6
   +- air-context/                                                  D1 |      7  8  9 10 11 12 13
-     +----[D] Gamma context             ~ 2026-05-01  #context        |     14 15 16 17 18 19 20
+     +--- DRAFT Gamma context           ~ 2026-05-01  #context        |     14 15 16 17 18 19 20
                                                                       |     21 22 23 24 25 26 27
   | v0.2/                                                    W1 X1 D1 |     28 29 30
-  +-----[W] Zeta work in progress       ~ 2026-05-01  #core   #ui     |
-  +-----[X] Delta UI exploration        ~ 2026-05-01  #ui             |     ! due    o sched
-  +-----[D] Epsilon plan                ~ 2026-05-01  #context   #ui  |
-  +-----[U] Eta notes                   ~ 2026-05-01  #notes          | | Filter
+  +---- WIP   Zeta work in progress     ~ 2026-05-01  #core   #ui     |
+  +---- DROP  Delta UI exploration      ~ 2026-05-01  #ui             |     ! due    o sched
+  +---- DRAFT Epsilon plan              ~ 2026-05-01  #context   #ui  |
+  +---- UNKNO Eta notes                 ~ 2026-05-01  #notes          | | Filter
                                                                       |  none
                                                                       | | Source
                                                                       |  all items · 7 loaded
@@ -25,5 +25,6 @@
                                                                       | | Inspector
                                                                       |
                                                                       | | Actions
-                                                                      |  RET open    / filter g r...
-                                                                      |  S-RET visit \ clear  q quit
+                                                                      |  RET open  ( flip      / ...
+                                                                      |  o sort    s/d/t group | ...
+                                                                      |  g refresh ? help      q ...

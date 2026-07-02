@@ -1,23 +1,23 @@
   org-air · project                                                                       | name ^
 
-  | [D] Draft 2                                                       | | June 2026              < >
-      [D] Epsilon plan                  ~ 2026-05-01  #context   #ui  |     Su Mo Tu We Th Fr Sa
-      [D] Gamma context                 ~ 2026-05-01  #context        |         1  2  3  4  5  6
+  | DRAFT Draft 2                                                     | | June 2026              < >
+      DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |     Su Mo Tu We Th Fr Sa
+      DRAFT Gamma context               ~ 2026-05-01  #context        |         1  2  3  4  5  6
                                                                       |      7  8  9 10 11 12 13
-  | [R] Ready 1                                                       |     14 15 16 17 18 19 20
-      [R] Alpha feature                 ~ 2026-05-01  #ui   #core     |     21 22 23 24 25 26 27
+  | READY Ready 1                                                     |     14 15 16 17 18 19 20
+      READY Alpha feature               ~ 2026-05-01  #ui   #core     |     21 22 23 24 25 26 27
                                                                       |     28 29 30
-  | [W] Work In Progress 1                                            |
-      [W] Zeta work in progress         ~ 2026-05-01  #core   #ui     |     ! due    o sched
+  | WIP   Work In Progress 1                                          |
+      WIP   Zeta work in progress       ~ 2026-05-01  #core   #ui     |     ! due    o sched
                                                                       |
-  | [C] Complete 1                                                    | | Filter
-      [C] Beta CLI                      ~ 2026-05-01  #core           |  none
+  | COMP  Complete 1                                                  | | Filter
+      COMP  Beta CLI                    ~ 2026-05-01  #core           |  none
                                                                       | | Source
-  | [X] Dropped 1                                                     |  all items · 7 loaded
-      [X] Delta UI exploration          ~ 2026-05-01  #ui             |
+  | DROP  Dropped 1                                                   |  all items · 7 loaded
+      DROP  Delta UI exploration        ~ 2026-05-01  #ui             |
                                                                       | | Summary
-  | [U] Unknown 1                                                     |    2  Draft
-      [U] Eta notes                     ~ 2026-05-01  #notes          |    1  Ready
+  | UNKNO Unknown 1                                                   |    2  Draft
+      UNKNO Eta notes                   ~ 2026-05-01  #notes          |    1  Ready
                                                                       |    1  Work In Progress
                                                                       |    1  Complete
                                                                       |    1  Dropped
@@ -25,5 +25,6 @@
                                                                       | | Inspector
                                                                       |
                                                                       | | Actions
-                                                                      |  RET open    / filter g r...
-                                                                      |  S-RET visit \ clear  q quit
+                                                                      |  RET open  ( flip      / ...
+                                                                      |  o sort    s/d/t group | ...
+                                                                      |  g refresh ? help      q ...

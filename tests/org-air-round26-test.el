@@ -716,18 +716,32 @@ the `files' chip); a second `(' restores a byte-identical title render."
         (forward-line 1))
       nil)))
 
+(defun org-air-r26--state-cell-start (bol)
+  "Return the position where the doc row at BOL's state token begins.
+Locates the row's own token via its `org-air-doc' state (word cells after
+R26-2, bracket cells before), so the R26-1 gutter assertions are
+token-shape agnostic."
+  (save-excursion
+    (goto-char bol)
+    (let* ((eol (line-end-position))
+           (p (text-property-not-all bol eol 'org-air-doc nil))
+           (doc (and p (get-text-property p 'org-air-doc)))
+           (word (string-trim (org-air-project--state-token
+                               (org-air-doc-state doc)))))
+      (search-forward word eol)
+      (- (point) (length word)))))
+
 (ert-deftest org-air-r26-1-one-space-before-the-badge ()
   "A leaf doc row's cell IMMEDIATELY LEFT of the state cell is a single
 SPACE, and every cell between the corner and that space is the
-`box-horizontal' fill faced `org-air-face-air-tree' (`+---- [R]').
-FAILS on trunk (R25-1 drew the fill flush against `[')."
+`box-horizontal' fill faced `org-air-face-air-tree' (`+---- READY').
+FAILS on trunk (R25-1 drew the fill flush against the badge)."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-dir-tree
     (let ((bol (org-air-r26--doc-row-bol "Alpha feature")))
       (should bol)
       (goto-char bol)
-      (let* ((eol (line-end-position))
-             (open (save-excursion (search-forward "[" eol) (1- (point)))))
+      (let* ((open (org-air-r26--state-cell-start bol)))
         ;; the cell immediately left of the state cell is ONE space...
         (should (eq (char-after (1- open)) ?\s))
         ;; ...the cell before it is the arm fill (not another space)...
@@ -751,18 +765,17 @@ the nested depth-1 doc (ancestor rail intact, corner rule intact)."
     (let ((margin-w (string-width (org-air-view--item-margin))))
       ;; depth 0 (Alpha): gutter = margin + 2.
       (let ((bol (org-air-r26--doc-row-bol "Alpha feature")))
-        (goto-char bol)
-        (search-forward "[" (line-end-position))
-        (should (= (- (1- (point)) bol) (+ margin-w (* 2 (1+ 0))))))
+        (should (= (- (org-air-r26--state-cell-start bol) bol)
+                   (+ margin-w (* 2 (1+ 0))))))
       ;; depth 1 (Gamma, under air-context/): gutter = margin + 4, the
       ;; ancestor rail column intact and the corner still present.
       (let ((bol (org-air-r26--doc-row-bol "Gamma context")))
         (goto-char bol)
-        (search-forward "[" (line-end-position))
-        (should (= (- (1- (point)) bol) (+ margin-w (* 2 (1+ 1)))))
+        (should (= (- (org-air-r26--state-cell-start bol) bol)
+                   (+ margin-w (* 2 (1+ 1)))))
         (let ((line (buffer-substring-no-properties bol (line-end-position))))
           ;; corner + shortened arm + ONE space before the badge.
-          (should (string-match-p "\\+-+ \\[" line)))))))
+          (should (string-match-p "\\+-+ DRAFT" line)))))))
 
 (ert-deftest org-air-r26-1-degenerate-depth-clamps ()
   "A doc so deep that no column remains after the corner renders
@@ -783,13 +796,136 @@ corner-flush with NO space and NO overflow (gutter width still clamped)."
        (org-air-project--insert-doc-row doc 100 2 rails t)
        (goto-char (point-min))
        (let* ((bol (point))
-              (open (progn (search-forward "[" (line-end-position))
-                           (1- (point))))
+              (open (org-air-r26--state-cell-start bol))
               (margin-w (string-width (org-air-view--item-margin))))
          ;; gutter clamped to margin + 2*(1+2) — never wider, no crash.
          (should (= (- open bol) (+ margin-w (* 2 (1+ 2)))))
          ;; truncated lead: no trailing space squeezed in.
          (should-not (eq (char-after (1- open)) ?\s)))))))
+
+;;;; =====================================================================
+;;;; R26-2 — uniform WORD state pills (DRAFT/READY/WIP/COMP/DROP).
+;;;; =====================================================================
+
+(defun org-air-r26--display-image (s)
+  "Return the `display' IMAGE on string S, or nil."
+  (let ((disp (get-text-property 0 'display s)))
+    (and (imagep disp) disp)))
+
+(defun org-air-r26--svg-data (s)
+  "Return the raw SVG string from string S's display image, or nil."
+  (let ((img (org-air-r26--display-image s)))
+    (and img (image-property img :data))))
+
+(defmacro org-air-r26--with-gui-metrics (&rest body)
+  "Run BODY with a stubbed graphical frame + fixed pill char metrics."
+  (declare (indent 0) (debug t))
+  `(let ((org-air-view--pill-char-w 8)
+         (org-air-view--pill-char-h 16))
+     (cl-letf (((symbol-function 'display-graphic-p) (lambda (&optional _) t)))
+       (should (org-air-view--svg-available-p))
+       ,@body)))
+
+(ert-deftest org-air-r26-2-word-tokens-uniform-width ()
+  "Each canonical state's byte token is the PADDED word — exactly 5 cols
+for ALL states (uniformity at the byte layer).  FAILS on trunk (3-col
+`[R]' tokens)."
+  (skip-unless (locate-library "org-air"))
+  (dolist (pair '(("draft" . "DRAFT") ("ready" . "READY")
+                  ("work-in-progress" . "WIP  ") ("complete" . "COMP ")
+                  ("dropped" . "DROP ")))
+    (ert-info ((format "state %s" (car pair)))
+      (let ((token (org-air-project--state-token (car pair))))
+        (should (equal (substring-no-properties token) (cdr pair)))
+        (should (= (string-width token)
+                   org-air-project--state-cell-w)))))
+  ;; the full cell = padded token + one separator (batch).
+  (should (equal (substring-no-properties (org-air-project--state-cell "ready"))
+                 "READY ")))
+
+(ert-deftest org-air-r26-2-uniform-pill-boxes-gui-seam ()
+  "With the svg seam forced available, the five state badges' overlay
+images have IDENTICAL widths (equal 5-col capsules) and each svg draws the
+BARE word (not the padded token) bold."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-gui-metrics
+    (let (widths)
+      (dolist (pair '(("draft" . "DRAFT") ("ready" . "READY")
+                      ("work-in-progress" . "WIP") ("complete" . "COMP")
+                      ("dropped" . "DROP")))
+        (ert-info ((format "state %s" (car pair)))
+          (let* ((badge (org-air-project--state-svg-badge (car pair)))
+                 (img (org-air-r26--display-image badge))
+                 (svg (org-air-r26--svg-data badge)))
+            (should img)
+            (should svg)
+            (push (image-property img :width) widths)
+            ;; the drawn label is the BARE word, bold.
+            (should (string-match-p (concat ">" (cdr pair) "<") svg))
+            (should (string-match-p "font-weight=\"bold\"" svg)))))
+      ;; all five capsules the SAME width = 5 cols * char-px.
+      (should (= (length (seq-uniq widths)) 1))
+      (should (= (car widths) (* org-air-project--state-cell-w 8))))))
+
+(ert-deftest org-air-r26-2-v6-relock-title-shift ()
+  "A doc row's title column = gutter + the 5-col cell + 1 separator (old
+column + 2); the date/tag cluster columns are identical ACROSS rows; the
+R26-1 one-space arm contract still holds against the new cell."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-dir-tree
+    (let ((margin-w (string-width (org-air-view--item-margin))))
+      ;; title left edge: gutter + cell-w + 1 — relocked, uniform +2 shift.
+      (let* ((bol (org-air-r26--doc-row-bol "Alpha feature"))
+             (line (buffer-substring-no-properties bol
+                    (save-excursion (goto-char bol) (line-end-position)))))
+        (should (= (string-match "Alpha feature" line)
+                   (+ margin-w (* 2 (1+ 0))
+                      org-air-project--state-cell-w 1)))
+        ;; R26-1 contract against the new cell: dashes, ONE space, the word.
+        (should (string-match-p "\\+-+ READY" line)))
+      ;; date glyph column identical across every doc row (V6 cluster).
+      (let (cols)
+        (dolist (name '("Alpha feature" "Beta CLI" "Zeta work in progress"))
+          (let* ((bol (org-air-r26--doc-row-bol name))
+                 (line (buffer-substring-no-properties bol
+                        (save-excursion (goto-char bol) (line-end-position)))))
+            (push (string-match "~ 2026" line) cols)))
+        (should (= (length (seq-uniq cols)) 1))))))
+
+(ert-deftest org-air-r26-2-rollup-letters-unchanged ()
+  "The per-dir rollup summary stays compact LETTERS (`R4(+1) C14(+14)',
+R25-4 map) — words live in the doc-row cells only."
+  (skip-unless (locate-library "org-air"))
+  (let ((summary (substring-no-properties
+                  (org-air-project--dir-count-summary
+                   '(("ready" . 4) ("complete" . 14))
+                   '(("ready" . 1) ("complete" . 14))))))
+    (should (equal summary "R4(+1) C14(+14)"))
+    (should-not (string-match-p "READY\\|COMP" summary))))
+
+(ert-deftest org-air-r26-2-unknown-state-fallback-word ()
+  "A non-canonical state's token is the upcased 5-col truncation of its
+name (`unknown' -> `UNKNO', faded face), and its pill label matches."
+  (skip-unless (locate-library "org-air"))
+  (let ((token (org-air-project--state-token "unknown")))
+    (should (equal (substring-no-properties token) "UNKNO"))
+    (should (= (string-width token) org-air-project--state-cell-w)))
+  ;; the rendered fixture row shows the same word...
+  (org-air-r26--with-dir-tree
+    (let* ((bol (org-air-r26--doc-row-bol "Eta notes"))
+           (line (buffer-substring-no-properties bol
+                  (save-excursion (goto-char bol) (line-end-position)))))
+      (should (string-match-p "UNKNO Eta notes" line))))
+  ;; ...and the GUI pill draws the SAME label in the same 5-col capsule.
+  (org-air-r26--with-gui-metrics
+    (let* ((badge (org-air-project--state-svg-badge "unknown"))
+           (img (org-air-r26--display-image badge))
+           (svg (org-air-r26--svg-data badge)))
+      (should img)
+      (should svg)
+      (should (string-match-p ">UNKNO<" svg))
+      (should (= (image-property img :width)
+                 (* org-air-project--state-cell-w 8))))))
 
 (provide 'org-air-round26-test)
 ;;; org-air-round26-test.el ends here

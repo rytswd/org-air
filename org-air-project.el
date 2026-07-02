@@ -122,16 +122,19 @@ the board's empty sections."
   :group 'org-air)
 
 (defcustom org-air-project-state-badges
-  '(("draft"            . ("\N{MEMO}\N{VARIATION SELECTOR-16}"               . "[D]"))
-    ("ready"            . ("\N{DIRECT HIT}\N{VARIATION SELECTOR-16}"         . "[R]"))
-    ("work-in-progress" . ("\N{GEAR}\N{VARIATION SELECTOR-16}"               . "[W]"))
-    ("complete"         . ("\N{WHITE HEAVY CHECK MARK}\N{VARIATION SELECTOR-16}" . "[C]"))
-    ("dropped"          . ("\N{WASTEBASKET}\N{VARIATION SELECTOR-16}"        . "[X]")))
+  '(("draft"            . ("\N{MEMO}\N{VARIATION SELECTOR-16}"               . "DRAFT"))
+    ("ready"            . ("\N{DIRECT HIT}\N{VARIATION SELECTOR-16}"         . "READY"))
+    ("work-in-progress" . ("\N{GEAR}\N{VARIATION SELECTOR-16}"               . "WIP"))
+    ("complete"         . ("\N{WHITE HEAVY CHECK MARK}\N{VARIATION SELECTOR-16}" . "COMP"))
+    ("dropped"          . ("\N{WASTEBASKET}\N{VARIATION SELECTOR-16}"        . "DROP")))
   "Per-state badge as (STATE . (EMOJI . TTY)).
 The GUI shows EMOJI (R23-4) when `org-air-project-state-style' is `emoji';
-the byte gate (no graphical frame) always shows TTY.  Each emoji ends in
-`\N{VARIATION SELECTOR-16}' so it renders in COLOUR presentation at a
-consistent width-2, matching the icons `airctl status -Da' prints."
+the byte gate (no graphical frame) always shows TTY.  R26-2: the TTY slots
+are the canonical short WORDS (`org-air-project--state-words'), padded to
+the uniform `org-air-project--state-cell-w' cell by `--state-token'.  Each
+emoji ends in `\N{VARIATION SELECTOR-16}' so it renders in COLOUR
+presentation at a consistent width-2, matching the icons `airctl status
+-Da' prints."
   :type '(alist :key-type string :value-type (cons string string))
   :group 'org-air)
 
@@ -357,8 +360,20 @@ columns line up exactly down the project list (board parity)."
 (defvar org-air-project--meta-origin-w 0
   "Per-render fixed origin-cell width for the project rows (R21-5).")
 
-(defconst org-air-project--state-cell-w 3
-  "Reserved width of the project state token cell ([R]/[C]/...; R21-5).")
+(defconst org-air-project--state-words
+  '(("draft" . "DRAFT") ("ready" . "READY") ("work-in-progress" . "WIP")
+    ("complete" . "COMP") ("dropped" . "DROP"))
+  "Canonical short-word state labels (R26-2).  Longest = 5 cols.
+The single source for BOTH the TTY token (`--state-token', padded to the
+uniform 5-col cell) and the GUI pill label (`--state-svg-badge', the bare
+word centred in the same 5-col capsule).  DROP (not CANC, not X) because
+Air's state is literally `dropped' — a truncation of the actual airctl
+vocabulary, never an invented near-synonym.")
+
+(defconst org-air-project--state-cell-w 5
+  "Reserved width of the project state token cell (R26-2: 5-col words).
+Was 3 (R21-5, `[R]'-style tokens); R26-2 relocks V6 at the word-pill
+width — DRAFT/READY/WIP/COMP/DROP all pad to this one cell.")
 
 (defun org-air-project--fit-meta-widths (docs width)
   "Return the fitted (DCOL TCOL OCOL) project column widths at WIDTH (R21-5).
@@ -402,16 +417,21 @@ task row share column positions (board parity, invariant #4)."
     (list dw tw 0)))                       ; R25-5: ocol pinned 0
 
 (defun org-air-project--state-token (state)
-  "Return the terse TTY/byte state token for STATE (e.g. \"[R]\"; R21-5).
-This is the bracket token the board/project byte contract shows; R21-4
-overlays the svg keyword/state badge on it for GUI; it never returns an
-emoji (R21.1 retired the GUI state-emoji path entirely)."
-  (let ((pair (cdr (assoc state org-air-project-state-badges))))
-    (if pair (cdr pair)
-      ;; R25-4: a non-canonical state's fallback token reuses the DISTINCT
-      ;; `--state-letter' (which never collides Draft/Dropped on `D'), so the
-      ;; token + the rollup share one letter source.
-      (format "[%s]" (org-air-project--state-letter state)))))
+  "Return the uniform 5-col WORD state token for STATE (R26-2).
+\"READY\" \"DRAFT\" \"WIP  \" \"COMP \" \"DROP \" — the word left-padded-right
+to exactly `org-air-project--state-cell-w' cols, so every pill box is the
+SAME size.  The user-visible `org-air-project-state-badges' TTY slot wins
+when customized; canonical defaults come from
+`org-air-project--state-words'.  A non-canonical state falls back to the
+upcased 5-col truncation of its name (\"unknown\" -> \"UNKNO\") — replacing
+the R25-4 letter fallback IN THE TOKEN ONLY (the per-dir rollup letters
+stay `--state-letter').  This is the byte/TTY contract; the svg pill
+overlays it on GUI."
+  (org-air-view--pad-to
+   (or (cdr (cdr (assoc state org-air-project-state-badges)))
+       (cdr (assoc state org-air-project--state-words))
+       (upcase (truncate-string-to-width state org-air-project--state-cell-w)))
+   org-air-project--state-cell-w))
 
 (defun org-air-project--state-emoji (state)
   "Return STATE's colour emoji when a graphical frame can show it, else nil.
@@ -425,31 +445,31 @@ back to the terse `[R]'... token (the byte/TTY contract)."
          emoji)))
 
 (defun org-air-project--state-svg-badge (state)
-  "Return STATE's token carrying a LEGIBLE filled colour SVG chip (R24-3/R25-2).
+  "Return STATE's token carrying a uniform WORD-pill SVG chip (R26-2).
 Reuses `org-air-view--svg-pillify' (shared box/pixel-lock/fallback) with the
-state colour as BOTH a salient border and a stronger fill.  R25-2: the cell
-TEXT stays the 3-col `[D]' token (the byte/TTY contract + the pixel-lock box)
-but the SVG OVERLAY draws just the DISTINCT state LETTER
-\(`org-air-project--state-letter': D/R/W/C/X) big + BOLD, binding a 0 pad
-\(the whole box is the letter's room) + a bigger font-scale for this chip, so
-the single glyph is large and legible while the box stays Ncols*char-px and
-the R24-2 rails / title left edge never move.  Returns the plain token
-unchanged off-GUI / when svg is unavailable."
+state colour as BOTH a salient border and a stronger fill.  R26-2: the box
+is the 5-col PADDED word token (the byte/TTY contract + the pixel-lock
+box), so every state's capsule is the SAME 5-col × char-px size; the drawn
+label is the BARE word (DRAFT/READY/WIP/COMP/DROP), centred + width-fitted
+\(D-P1.FIT, never clips), bold, in the state colour.  One pad col is
+reserved (the word never kisses the rounded edge) and the font-scale floor
+drops to 0.62 — a 5-char word wants a smaller scale than R25-2's giant
+single letter.  The fill stays the soft 0.22 tint.  Returns the plain
+token unchanged off-GUI / when svg is unavailable."
   (let* ((face   (org-air-project--state-face state))
          (token  (propertize (org-air-project--state-token state) 'face face))
-         (letter (org-air-project--state-letter state))
+         (word   (string-trim (substring-no-properties token)))
          (color  (face-foreground face nil t)))
     (if (not (org-air-view--svg-available-p))
-        token                                   ; byte/TTY fallback: [D]
-      ;; The single letter gets the whole box (pad 0) at a bigger bold scale =
-      ;; legible; the box is still Ncols*char-px, so the cell is pixel-locked
-      ;; and the R24-2 rails stay aligned (not a `:height' grow).
-      (let ((org-air-pill-pad-cols   0)
+        token                                   ; byte/TTY fallback: READY
+      ;; Every box is 5 cols × char-px — WIP and DROP get the same capsule
+      ;; as READY (labels centre in the same box), rails stay ruler-straight.
+      (let ((org-air-pill-pad-cols   1)
             (org-air-pill-fill-alpha (max org-air-pill-fill-alpha 0.22))
-            (org-air-pill-font-scale (max org-air-pill-font-scale 0.9)))
+            (org-air-pill-font-scale (max org-air-pill-font-scale 0.62)))
         (org-air-view--svg-pillify token face
                                    :border-color color
-                                   :label letter
+                                   :label word
                                    :font-weight 'bold)))))
 
 (defun org-air-project--state-nerd (state)

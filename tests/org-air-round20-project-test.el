@@ -280,25 +280,35 @@ loaded' dataset count."
 (ert-deftest org-air-r20-5-project-keymap-shares-board-keys-no-shadow ()
   "Drift guard for `use the same keys': the project map is a THIN child of
 `org-air-view-core-map' that KEEPS the board's meaning for every SHARED
-key and never shadows the board verbs.
- - parent is the shared core; the core keys RET/v/V/\\\\/M-/ resolve to the
+key.
+ - parent is the shared core; the core keys v/V/\\\\/M-/ resolve to the
    SAME command in the board AND the project map;
- - R22-3: `o'/`O' are now the SHARED within-view sort, inherited from the
+ - R26-3: RET forks DELIBERATELY — board RET stays the pane-return, the
+   project's RET is the same-window `org-air-project-open' (R26-5 session
+   model);
+ - R22-3: `o'/`O' are the SHARED within-view sort, inherited from the
    core, so they resolve IDENTICALLY board <-> project (not project-local);
  - the per-mode `/' filter stays per-view (different candidate source);
- - the old project domain verbs s/d/t are GONE (state/tag moved to `M-x'),
-   so they no longer shadow the board."
+ - R26-3: s/d/t are project GROUPING keys again (on-key airctl -a/-Da/-Ta
+   parity; the R22-3 'moved to M-x' contract is superseded — the board's
+   triage meanings for those keys never applied in the project)."
   (skip-unless (locate-library "org-air"))
   ;; thin child of the shared core
   (should (eq (keymap-parent org-air-project-mode-map) org-air-view-core-map))
   ;; SHARED core keys resolve identically board <-> project.  R22-3 adds the
   ;; within-view sort pair `o'/`O' to the shared core, so they too resolve
   ;; identically across the two views (the project's old bespoke sort retired).
-  (dolist (key '("RET" "v" "V" "\\" "M-/" "o" "O"))
+  (dolist (key '("v" "V" "\\" "M-/" "o" "O"))
     (should (eq (lookup-key org-air-project-mode-map (kbd key))
                 (lookup-key org-air-view-mode-map (kbd key))))
     ;; and they are genuinely BOUND (not both nil)
     (should (lookup-key org-air-view-core-map (kbd key))))
+  ;; R26-3: RET forks — same-window doc open in the project, pane-return
+  ;; on the board.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "RET"))
+              'org-air-project-open))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "RET"))
+              'org-air-view-pane-return))
   ;; the shared sort pair is exactly the cross-view cycle/reverse commands.
   (should (eq (lookup-key org-air-project-mode-map (kbd "o"))
               'org-air-view-sort-cycle))
@@ -314,10 +324,14 @@ key and never shadows the board verbs.
               'org-air-project-filter))
   (should (eq (lookup-key org-air-view-mode-map (kbd "/"))
               'org-air-filter))
-  ;; the board domain verbs s/d/t are NOT shadowed by a project override
-  ;; (state/tag/deadline moved to `M-x'); o/O are SHARED, asserted above.
-  (dolist (key '("s" "d" "t"))
-    (should (null (lookup-key org-air-project-mode-map (kbd key)))))
+  ;; R26-3: s/d/t are the project's own grouping verbs (airctl parity on
+  ;; keys); o/O are SHARED, asserted above.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "s"))
+              'org-air-project-group-by-state))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "d"))
+              'org-air-project-group-by-directory))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "t"))
+              'org-air-project-group-by-tag))
   ;; the project keeps only its OWN non-shared verbs
   (should (eq (lookup-key org-air-project-mode-map (kbd "g"))
               'org-air-project-refresh))

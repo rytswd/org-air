@@ -540,16 +540,22 @@ absent when no filter is set."
 
 (ert-deftest org-air-r22-5-rail-toggle-bound-in-board-and-project ()
   "R22-5: `|' is promoted into the shared `org-air-view-core-map', so BOTH
-the board and the project resolve it to `org-air-rail-toggle'; v/V/RET also
-resolve to the shared pane commands in the project (it inherits the full
-pane + rail-toggle set, no fork)."
+the board and the project resolve it to `org-air-rail-toggle'; v/V also
+resolve to the shared pane commands in the project (it inherits the pane +
+rail-toggle set).  R26-3 re-bless: RET forks deliberately — the board
+keeps the shared pane-return, the project's RET is the same-window
+`org-air-project-open' (v/V/| stay shared)."
   (skip-unless (locate-library "org-air"))
   (should (eq (lookup-key org-air-view-core-map (kbd "|")) 'org-air-rail-toggle))
   (dolist (map (list org-air-view-mode-map org-air-project-mode-map))
     (should (eq (lookup-key map (kbd "|")) 'org-air-rail-toggle))
     (should (eq (lookup-key map (kbd "v")) 'org-air-view-pane))
-    (should (eq (lookup-key map (kbd "V")) 'org-air-view-pane-close))
-    (should (eq (lookup-key map (kbd "RET")) 'org-air-view-pane-return))))
+    (should (eq (lookup-key map (kbd "V")) 'org-air-view-pane-close)))
+  ;; R26-3: RET — pane-return on the board, same-window open in the project.
+  (should (eq (lookup-key org-air-view-mode-map (kbd "RET"))
+              'org-air-view-pane-return))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "RET"))
+              'org-air-project-open)))
 
 (ert-deftest org-air-r22-5-rail-toggle-pops-rail-in-project-no-crash ()
   "R22-5 (errored on trunk): `org-air-rail-toggle' in a PROJECT buffer flips

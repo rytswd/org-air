@@ -683,26 +683,6 @@
     ;; seat; fixtures NOT edited on the impl track), and the legacy keymap
     ;; ERTs that assert the OLD RET-=-pane-return / s-d-t-unbound contract
     ;; retune on the test track:
-    (org-air-r18-dp3-project-keymap-inherits-core
-     . "R26-3: project RET is `org-air-project-open' (same-window doc
-open), no longer the inherited shared pane-return — assertion retunes")
-    (org-air-r18-dp4-keymap-ret-and-sret-board-and-project
-     . "R26-3: project RET -> org-air-project-open and `s' is the state
-grouping key now (airctl -a parity) — assertions retune")
-    (org-air-r20-5-project-keymap-shares-board-keys-no-shadow
-     . "R26-3: RET forks deliberately (board pane-return vs project
-same-window open) and s/d/t are project grouping keys again (on-key airctl
-parity; the old 'moved to M-x' contract is superseded)")
-    (org-air-r22-5-rail-toggle-bound-in-board-and-project
-     . "R26-3: the both-maps RET-=-pane-return assertion retunes (project
-RET is org-air-project-open; v/V/| stay shared)")
-    (org-air-r24-4-click-shares-ret-resolver-on-dir-header
-     . "R26-3: <mouse-1> follows RET onto org-air-project-open in the
-project (click == RET still holds; the shared resolver claim retunes)")
-    (org-air-r24-5-rail-blocks-shared-with-board
-     . "R26-3 fit rule: a height-CLAMPED popped rail drops the Inspector
-region when the side window is too short (inspector shrinks first so
-Actions stays on-screen) — the all-blocks assertion needs a tall window")
     ;; R26-6 KILL THE "· r to file" ROW HINT: the dated-Inbox date-cell
     ;; nudge is deleted from `org-air-view--item-date-text' — rows reclaim
     ;; the 12 columns and the hinted row's tag/origin cells snap back into

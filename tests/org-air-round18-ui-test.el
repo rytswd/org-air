@@ -184,11 +184,13 @@ second call sees a LIVE pane => focus t (select the pane window)."
             (should (eq (car focus-seen) t))))))))
 
 (ert-deftest org-air-r18-dp4-keymap-ret-and-sret-board-and-project ()
-  "RET -> pane-return and S-RET -> visit in BOTH the board and project maps.
-The board's S-RET visits the item; the project's S-RET visits the doc.
-R22-3 re-bless: `O' is the SHARED `org-air-view-sort-reverse' now (was the
-board's TTY visit alias) in BOTH views (inherited from `org-air-view-core-
-map'); the board's TTY visit relocated under the g-prefix (`g RET')."
+  "RET semantics fork DELIBERATELY (R26-3): the BOARD's RET stays the
+pane-return; the PROJECT's RET is `org-air-project-open' (the R26-5
+same-window doc open).  S-RET -> visit in BOTH maps.  R22-3: `O' is the
+SHARED `org-air-view-sort-reverse' in BOTH views (inherited from
+`org-air-view-core-map'); the board's TTY visit lives at `g RET'.
+R26-3: `s' is the project's state-grouping key again (airctl -a parity
+on keys; the R22-3 'moved to M-x' contract is superseded)."
   ;; Board map.
   (should (eq (lookup-key org-air-view-mode-map (kbd "RET"))
               'org-air-view-pane-return))
@@ -200,21 +202,23 @@ map'); the board's TTY visit relocated under the g-prefix (`g RET')."
               'org-air-view-sort-reverse))
   (should (eq (lookup-key org-air-view-mode-map (kbd "g RET"))
               'org-air-visit-item))
-  ;; Project map (a thin child of the shared core since R20-5(b)).
+  ;; Project map: R26-3 rebinds RET to the same-window doc open (the
+  ;; shared pane-return is NOT the project's RET any more).
   (should (eq (lookup-key org-air-project-mode-map (kbd "RET"))
-              'org-air-view-pane-return))
+              'org-air-project-open))
+  (should-not (eq (lookup-key org-air-project-mode-map (kbd "RET"))
+                  'org-air-view-pane-return))
   (should (eq (lookup-key org-air-project-mode-map (kbd "<S-return>"))
               'org-air-project-visit))
   ;; R22-3 re-bless: the project's `O' is the inherited shared sort-reverse
-  ;; (was nil on trunk; the old bespoke `org-air-project-sort-reverse' is
-  ;; RETIRED).  `s' stays a NON-project key (state grouping moved to `M-x').
+  ;; (the old bespoke `org-air-project-sort-reverse' is RETIRED).
   (should (eq (lookup-key org-air-project-mode-map (kbd "O"))
               'org-air-view-sort-reverse))
   (should-not (eq (lookup-key org-air-project-mode-map (kbd "O"))
                   'org-air-project-sort-reverse))
-  (should-not (eq (lookup-key org-air-project-mode-map (kbd "s"))
-                  'org-air-project-group-by-state))
-  (should (null (lookup-key org-air-project-mode-map (kbd "s")))))
+  ;; R26-3: `s' is the on-key state grouping now.
+  (should (eq (lookup-key org-air-project-mode-map (kbd "s"))
+              'org-air-project-group-by-state)))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P3 — project parity: shared filter core + shared keymap parent.
@@ -255,14 +259,17 @@ Lists in, combinator honoured, case-insensitive, empty filter passes all."
 
 (ert-deftest org-air-r18-dp3-project-keymap-inherits-core ()
   "The project map INHERITS the shared view-core keys via its parent.
-RET/v/V/\\/M-/ resolve through `org-air-view-core-map'; `/' is the
-per-mode doc filter; the project DOMAIN verbs are NOT shadowed."
+v/V/\\/M-/ resolve through `org-air-view-core-map'; `/' is the per-mode
+doc filter.  R26-3 re-bless: the project's RET is the SAME-WINDOW
+`org-air-project-open' (the R26-5 session model), deliberately NOT the
+inherited shared pane-return."
   ;; The project map's parent is the shared core map.
   (should (eq (keymap-parent org-air-project-mode-map) org-air-view-core-map))
   (should (eq (keymap-parent org-air-view-mode-map) org-air-view-core-map))
-  ;; Inherited view-core keys resolve in the project map.
+  ;; R26-3: RET is the project's own same-window open, not the pane-return.
   (should (eq (lookup-key org-air-project-mode-map (kbd "RET"))
-              'org-air-view-pane-return))
+              'org-air-project-open))
+  ;; Inherited view-core keys resolve in the project map.
   (should (eq (lookup-key org-air-project-mode-map (kbd "v"))
               'org-air-view-pane))
   (should (eq (lookup-key org-air-project-mode-map (kbd "V"))
@@ -277,18 +284,24 @@ per-mode doc filter; the project DOMAIN verbs are NOT shadowed."
               'org-air-project-filter))
   (should (eq (lookup-key org-air-view-mode-map (kbd "/"))
               'org-air-filter))
-  ;; R22-3 re-bless: `o'/`O' are now the SHARED within-view sort, inherited
+  ;; R22-3 re-bless: `o'/`O' are the SHARED within-view sort, inherited
   ;; from `org-air-view-core-map' identically board <-> project (the old
-  ;; bespoke `org-air-project-sort-cycle/-reverse' are retired); the project
-  ;; DOMAIN verb `s' (state grouping) is GONE (moved to `M-x') so it no
-  ;; longer shadows the board.
+  ;; bespoke `org-air-project-sort-cycle/-reverse' are retired).  R26-3:
+  ;; the project DOMAIN verbs s/d/t are BACK on keys (airctl -a/-Da/-Ta
+  ;; parity; they were free in the project map — the board's triage verbs
+  ;; never applied here).
   (should (eq (lookup-key org-air-project-mode-map (kbd "o"))
               'org-air-view-sort-cycle))
   (should (eq (lookup-key org-air-project-mode-map (kbd "O"))
               'org-air-view-sort-reverse))
   (should (eq (lookup-key org-air-project-mode-map (kbd "o"))
               (lookup-key org-air-view-mode-map (kbd "o"))))
-  (should (null (lookup-key org-air-project-mode-map (kbd "s"))))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "s"))
+              'org-air-project-group-by-state))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "d"))
+              'org-air-project-group-by-directory))
+  (should (eq (lookup-key org-air-project-mode-map (kbd "t"))
+              'org-air-project-group-by-tag))
   (should (eq (lookup-key org-air-project-mode-map (kbd "g"))
               'org-air-project-refresh)))
 

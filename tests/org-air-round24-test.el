@@ -193,25 +193,33 @@ is present, else the NEAREST following doc (the resolver under the fix)."
      (should (org-air-doc-p (cdr near))))))
 
 (ert-deftest org-air-r24-4-click-shares-ret-resolver-on-dir-header ()
-  "CLICK half of `RET/click': `<mouse-1>' and `RET' resolve to the SAME
-command (`org-air-view-pane-return', bound once on the shared view-core map
-so the board and project never fork), so a CLICK on a DIR-HEADER row runs the
-same fall-forward resolver and opens the pane — driven executing through the
-mouse-1 binding (NOT RET)."
+  "CLICK half of `RET/click' (R26-3 re-bless): `<mouse-1>' and `RET' still
+resolve to the SAME command in the project — now `org-air-project-open',
+the same-window doc open (click == RET holds; the pre-R26 'shared
+pane-return resolver' claim is superseded).  Driven executing through the
+mouse-1 binding (NOT RET): on a DOC row the SELECTED window swaps to the
+doc's FILE buffer; on a dir-header row the command refuses honestly with
+a `user-error' (no doc on the line), never a silent no-op."
   (skip-unless (locate-library "org-air"))
   (org-air-r24--with-live-project
-   ;; click == RET: one shared command, no per-mode fork.
-   (should (eq (key-binding (kbd "<mouse-1>")) 'org-air-view-pane-return))
+   ;; click == RET: one command, both keys.
+   (should (eq (key-binding (kbd "<mouse-1>")) 'org-air-project-open))
    (should (eq (key-binding (kbd "RET")) (key-binding (kbd "<mouse-1>"))))
-   ;; drive the CLICK command (resolved from the keymap, not RET) on a
-   ;; dir-header row -> the shared resolver falls forward + the pane opens.
+   ;; a dir-header row carries no doc -> honest refusal.
    (goto-char (org-air-r24--dir-header-pos))
    (should-not (org-air-view--row-property 'org-air-doc))
-   (call-interactively (key-binding (kbd "<mouse-1>")))
-   (should (org-air-view-pane--window-live-p))
-   (let ((text (org-air-r24--pane-window-text)))
-     (should text)
-     (should (> (length text) 0)))))
+   (should-error (call-interactively (key-binding (kbd "<mouse-1>")))
+                 :type 'user-error)
+   ;; drive the CLICK command on a DOC row -> the SAME window object now
+   ;; shows the doc's file buffer (the R26-5 session contract).
+   (goto-char (org-air-r24--first-doc-pos))
+   (let ((win (selected-window))
+         (doc (get-text-property (point) 'org-air-doc)))
+     (should doc)
+     (call-interactively (key-binding (kbd "<mouse-1>")))
+     (should (eq (selected-window) win))
+     (should (equal (buffer-file-name (window-buffer win))
+                    (org-air-doc-file doc))))))
 
 (ert-deftest org-air-r24-4-slash-filter-narrows-driven ()
   "`/' driven with a real tag query narrows the visible doc set, and `\\'
@@ -254,17 +262,24 @@ the carried inspector property is `org-air-doc' (the rail inspects DOCS)."
 
 (ert-deftest org-air-r24-5-rail-blocks-shared-with-board ()
   "The popped PROJECT rail emits the SAME block headers as the board, each
-faced `org-air-face-rail-header' (shared rail render, not forked)."
+faced `org-air-face-rail-header' (shared rail render, not forked).
+R26-3 re-bless: the popped rail is height-CLAMPED to the live side
+window and drops the Inspector region first when too short (so Actions
+stays on-screen) — the all-blocks assertion therefore runs in a TALL
+frame where nothing needs to shrink."
   (skip-unless (locate-library "org-air"))
-  (org-air-r24--with-live-project
-   (execute-kbd-macro (kbd "|"))
-   (with-current-buffer org-air-rail-buffer-name
-     (dolist (head '("Filter" "Source" "Summary" "Inspector" "Actions"))
-       (goto-char (point-min))
-       (should (search-forward head nil t))
-       (let* ((faces (get-text-property (match-beginning 0) 'face))
-              (fl (if (listp faces) faces (list faces))))
-         (should (memq 'org-air-face-rail-header fl)))))))
+  (set-frame-size (selected-frame) 100 40)
+  (unwind-protect
+      (org-air-r24--with-live-project
+       (execute-kbd-macro (kbd "|"))
+       (with-current-buffer org-air-rail-buffer-name
+         (dolist (head '("Filter" "Source" "Summary" "Inspector" "Actions"))
+           (goto-char (point-min))
+           (should (search-forward head nil t))
+           (let* ((faces (get-text-property (match-beginning 0) 'face))
+                  (fl (if (listp faces) faces (list faces))))
+             (should (memq 'org-air-face-rail-header fl))))))
+    (set-frame-size (selected-frame) 80 25)))
 
 (ert-deftest org-air-r24-5-inspector-shows-the-doc-in-side-window ()
   "With the inspector region reserved (tall), the popped PROJECT rail's

@@ -117,7 +117,10 @@ is a distinct major mode (the tree renderer, not the GTD board)."
 board-style row through the SHARED `org-air-view--insert-row' (state cell +
 clean title + the V6 date/tags meta cluster), DROPPING the old
 two-line emoji block.  Row shape: `[badge] Title  <date>  #tags' on a single
-line.  R25-5 re-bless: the redundant relpath origin cell is DROPPED from the
+line.  R26-2 re-bless: the state cell is the uniform padded 5-col WORD
+token (DRAFT/READY/WIP/COMP/DROP) from `org-air-project--state-words', not
+the `[R]'-style bracket token; section headings carry the same word cells.
+R25-5 re-bless: the redundant relpath origin cell is DROPPED from the
 project row (the dir tree + title already carry that signal).  The old
 `created…/updated…' second line and its labels are GONE — the date is now the
 single V6 `↻ YYYY-MM-DD' cell (TTY `~ …').  The nested directory tree,
@@ -151,7 +154,7 @@ round-11 `▌'/`|' prefix + `[badge] State N'.  No box-drawing tree
       (should (cl-some
                (lambda (l)
                  (string-match-p
-                  "\\[R\\] Alpha feature .*~ 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
+                  "READY Alpha feature .*~ 20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
                   l))
                lines))
       ;; The SINGLE V6 date cell (`~ YYYY-MM-DD'); the OLD two-line
@@ -163,13 +166,17 @@ round-11 `▌'/`|' prefix + `[badge] State N'.  No box-drawing tree
       ;; cell anywhere (state grouping has no dir headers either, so the
       ;; version path is fully absent now the origin column is dropped).
       (should-not (string-match-p "v0\\.[0-9]/" text))
-      ;; TTY state badges (batch is a TTY): all five states.
-      (dolist (badge '("[D]" "[R]" "[W]" "[C]" "[X]"))
+      ;; TTY state badges (batch is a TTY): all five states as the R26-2
+      ;; uniform 5-col WORD tokens.
+      (dolist (badge '("DRAFT" "READY" "WIP" "COMP" "DROP"))
         (should (string-match-p (regexp-quote badge) text)))
       ;; Tags as accent text, inline on the row.
       (should (string-match-p "#ui\\|#core\\|#context" text))
-      ;; Section header: `▌'/`|' prefix marker + `[badge] State N'.
-      (should (string-match-p "| \\[[DRWCX]\\] [A-Z][A-Za-z ]+ [0-9]" text))
+      ;; Section header: `▌'/`|' prefix marker + `WORD State N' (the padded
+      ;; 5-col word cell, e.g. `| DRAFT Draft 2' / `| WIP   Work …').
+      (should (string-match-p
+               "| \\(DRAFT\\|READY\\|WIP\\|COMP\\|DROP\\) +[A-Z][A-Za-z ]+ [0-9]"
+               text))
       ;; The project rail still carries a `Summary' and an `Inspector' block.
       (should (string-match-p "| Summary" text))
       (should (string-match-p "| Inspector" text))))))

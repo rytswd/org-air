@@ -216,20 +216,21 @@ R20-5 fix divergence:
 (ert-deftest org-air-r20-5-fix-directory-render-guards-divergence ()
   "The DIRECTORY-tree render (the shipped default, the goldens) shows the
 fix where it matters: the stateless `Eta notes' renders with the faded
-`[U]' chip (UNKNOWN, never `[D]'/`[R]'), the v0.2 per-dir Draft count is
-NOT inflated (Epsilon only), and `OVERVIEW.org' contributes NOTHING -- no
-title row, no `#summary' tag, no Ready badge in v0.2.  R22-6 re-bless: the
-per-dir counts are the quiet right-aligned LETTER-count summary
-(`W1 X1 D1', same numbers / `airctl -Da' parity) now, not the old
-`[W] 1  [X] 1  [D] 1' badge wall."
+`UNKNO' word cell (UNKNOWN, never `DRAFT'/`READY'; R26-2 re-bless of the
+old `[U]' bracket token), the v0.2 per-dir Draft count is NOT inflated
+(Epsilon only), and `OVERVIEW.org' contributes NOTHING -- no title row, no
+`#summary' tag, no Ready badge in v0.2.  R22-6 re-bless: the per-dir
+counts are the quiet right-aligned LETTER-count summary (`W1 X1 D1', same
+numbers / `airctl -Da' parity) now, not the old `[W] 1  [X] 1  [D] 1'
+badge wall."
   (skip-unless (locate-library "org-air"))
   (let ((text (string-join
                (org-air-project-test--render-lines
                 'org-air-project-group-by-directory 100)
                "\n")))
-    ;; stateless doc -> UNKNOWN chip, never Draft/Ready.
-    (should (string-match-p "\\[U\\] Eta notes" text))
-    (should-not (string-match-p "\\[[DR]\\] Eta notes" text))
+    ;; stateless doc -> UNKNOWN word cell, never Draft/Ready.
+    (should (string-match-p "UNKNO Eta notes" text))
+    (should-not (string-match-p "\\(DRAFT\\|READY\\) *Eta notes" text))
     ;; R22-6: the v0.2 per-dir count summary is the letter-count `W1 X1 D1'
     ;; (Work-In-Progress 1, Dropped 1, Draft 1 = Epsilon only) — NOT inflated
     ;; by the unknown/excluded docs, same numbers as the old badge wall.

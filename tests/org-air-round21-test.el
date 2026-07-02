@@ -333,7 +333,9 @@ glyph carries it, never the keyword/priority prefix."
 (ert-deftest org-air-r21-2-project-motion-lands-past-state-cell ()
   "R21-2: in the project view the doc rows share the mark, so landing via
 `org-air-view--goto-row-title' lands on the doc TITLE — PAST the leading
-state cell (the `[R]'/`[D]' token sits to the LEFT of the landing point)."
+state cell (R26-2: the padded 5-col WORD token, e.g. `READY'/`DRAFT',
+sits to the LEFT of the landing point; the cell grew 3->5 so the landing
+column moved right by 2 with it)."
   (skip-unless (locate-library "org-air"))
   (let ((org-air-project-view-width 100))
     (org-air-project-test--render
@@ -347,7 +349,9 @@ state cell (the `[R]'/`[D]' token sits to the LEFT of the landing point)."
      ;; the state token is to the LEFT of point (point landed past it).
      (let ((prefix (buffer-substring-no-properties
                     (line-beginning-position) (point))))
-       (should (string-match-p "\\[[A-Z]\\]" prefix))))))
+       (should (string-match-p
+                "\\(DRAFT\\|READY\\|WIP\\|COMP\\|DROP\\|UNKNO\\) "
+                prefix))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; (e) R21-4 — the svg keyword/state badge is overlay-only (text floor).
@@ -379,9 +383,9 @@ byte contract), so the goldens stay byte-identical."
   ;; board keyword cell keeps the keyword text.
   (let ((cell (org-air-view--todo-cell "NEXT" 6)))
     (should (string-match-p "NEXT" (substring-no-properties cell))))
-  ;; project state cell keeps the terse [R] token (NOT an emoji).
+  ;; project state cell keeps the padded WORD token (R26-2; NOT an emoji).
   (let ((cell (substring-no-properties (org-air-project--state-cell "ready"))))
-    (should (string-match-p "\\[R\\]" cell))
+    (should (string-match-p "READY" cell))
     ;; no GUI emoji leaked into the byte/TTY layer.
     (should-not (string-match-p "🎯\\|✅\\|📝\\|🗑" cell))))
 

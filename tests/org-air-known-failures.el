@@ -683,16 +683,6 @@
     ;; seat; fixtures NOT edited on the impl track), and the legacy keymap
     ;; ERTs that assert the OLD RET-=-pane-return / s-d-t-unbound contract
     ;; retune on the test track:
-    (org-air-f5-project-view-byte-mockups
-     . "R26-3: inline rail Actions legend re-written (RET open/( flip//
-filter · o sort/s\/d\/t group/| rail · g refresh/? help/q quit) — the three
-project goldens' Actions rows await test-seat re-bless via regen-mockups.
-R26-1: the dir golden's doc-row gutters additionally re-bless to the
-one-space arm join (`+---- [R]', was `+-----[R]'; nested `+--- [D]').
-R26-2: ALL THREE project goldens re-bless again — the state cell is the
-uniform 5-col WORD token (READY/COMP/DRAFT/WIP/DROP/UNKNO, was
-[R]/[C]/[D]/[W]/[X]/[U]) and every doc-row title/date/tag column shifts
-right by exactly 2 (V6 relock at the wider cell)")
     (org-air-r18-dp3-project-keymap-inherits-core
      . "R26-3: project RET is `org-air-project-open' (same-window doc
 open), no longer the inherited shared pane-return — assertion retunes")
@@ -713,76 +703,6 @@ project (click == RET still holds; the shared resolver claim retunes)")
      . "R26-3 fit rule: a height-CLAMPED popped rail drops the Inspector
 region when the side window is too short (inspector shrinks first so
 Actions stays on-screen) — the all-blocks assertion needs a tall window")
-    ;; R26-2 WORD PILLS (V6 RELOCK): the state cell widens 3->5 and the
-    ;; byte token becomes the uniform padded WORD from the canonical
-    ;; `org-air-project--state-words' map (DRAFT/READY/WIP/COMP/DROP;
-    ;; unknown -> UNKNO).  Every legacy ERT that asserts the `[R]'-style
-    ;; bracket token, the 3-col cell width, the 3*char-px badge image box,
-    ;; the single-letter chip label, or a column position downstream of the
-    ;; old cell retunes on the test track:
-    (org-air-f5-tree-structure
-     . "R26-2: row-shape assertions grep the `[R] Alpha feature' bracket
-token and the `| [D] State N' section headings — both are the 5-col word
-cells now (READY Alpha feature / | DRAFT Draft 2)")
-    (org-air-r20-5-fix-directory-render-guards-divergence
-     . "R26-2: the dir-render divergence guard compares against rows
-carrying the old bracket tokens/columns; retunes to the word cells")
-    (org-air-r21-2-project-motion-lands-past-state-cell
-     . "R26-2: the motion landing column sits after the state cell, which
-grew 3->5 — the expected-column assertion retunes (+2)")
-    (org-air-r21-4-keyword-and-state-cells-keep-text-contract
-     . "R26-2: the state-cell TRUE-text contract is the padded WORD token
-now, not `[R]' — the text-contract assertion retunes")
-    (org-air-r22-6-nesting-indents-deepen
-     . "R26-2: picks the Gamma doc row by `\\[D\\]' — that token is DRAFT
-now; the name-column metric itself is unchanged")
-    (org-air-r23-4-batch-state-cell-is-token-byte-stable
-     . "R26-2: asserts the per-state cell alist ((ready . '[R] ') ...) —
-retunes to the padded word cells ((ready . 'READY ') ...)")
-    (org-air-r23-4-emoji-rendered-on-gui-styles-honoured
-     . "R26-2: the emoji style's non-GUI fallback assertions expect the
-`[R]' token; the fallback is the 5-col word token now")
-    (org-air-r24-2-depth-2-leaf-carries-two-ancestor-rails
-     . "R26-2: locates the depth-2 leaf's badge by `[' — word cells have
-no bracket; the rails/corner geometry itself is unchanged")
-    (org-air-r24-2-v6-state-cell-column-locked
-     . "R26-2: deliberate V6 RELOCK — the locked state-cell/title columns
-move right by exactly 2 for the 5-col word cell; re-pin at the new lock")
-    (org-air-r24-3-batch-state-cell-is-token-byte-guard
-     . "R26-2: the batch byte-guard alist pins `[R] '-style cells; retunes
-to the padded word cells")
-    (org-air-r24-3-nerd-and-text-styles
-     . "R26-2: the text/nerd style branches' token text is the word now,
-not `[R]' — the true-text assertions retune")
-    (org-air-r24-3-rails-stay-aligned-under-svg-default
-     . "R26-2: rail alignment is asserted against columns downstream of
-the 3-col cell; the +2 uniform shift retunes the expected columns")
-    (org-air-r24-3-svg-badge-on-gui-is-cell-locked-image
-     . "R26-2: the badge image box is 5*char-px now (was 3*char-px) and
-the cell TRUE text is the word token — both assertions retune")
-    (org-air-r25-1-v6-columns-frozen
-     . "R26-2: deliberate relock — the R25-1 frozen column positions move
-right by exactly 2 (wider state cell); re-freeze at the new positions")
-    (org-air-r25-2-badge-draws-bold-letter
-     . "R26-2: the chip label is the BARE WORD (>DRAFT<) now, not the
-single letter >D< — the letter-glyph + bigger-than-token-scale assertions
-retune (bold stays)")
-    (org-air-r25-2-badge-width-pixel-locked
-     . "R26-2: the badge image width is 5*char-px (uniform word capsule),
-not 3*char-px — the pixel-lock assertion re-pins")
-    (org-air-r25-2-batch-token-stable
-     . "R26-2: the batch cell is `READY ' now, not `[R] ' — the byte-guard
-retunes (still no display image off-GUI)")
-    (org-air-r25-2-gui-chip-letters-distinct
-     . "R26-2: draft/dropped chips draw the WORDS DRAFT/DROP (still never
-alike); the >D</>X< letter assertions retune")
-    (org-air-r25-2-svg-badge-keeps-r25-1-columns
-     . "R26-2: the badge-on/off column-parity harness pins the R25-1
-columns, which shift +2 under the 5-col cell — re-pin")
-    (org-air-r25-4-draft-not-dropped-both-layers
-     . "R26-2: the LETTER-layer assertions still hold (D vs X); the TOKEN
-assertions retune from [D]/[X] to the DRAFT/DROP word cells — still never
-equal")
     ;; R26-6 KILL THE "· r to file" ROW HINT: the dated-Inbox date-cell
     ;; nudge is deleted from `org-air-view--item-date-text' — rows reclaim
     ;; the 12 columns and the hinted row's tag/origin cells snap back into

@@ -375,15 +375,16 @@ nothing references it (anti-tautology: the face no longer exists)."
 ;;;; =====================================================================
 
 (ert-deftest org-air-r25-4-draft-not-dropped-both-layers ()
-  "Draft=`D' and Dropped=`X' in BOTH the letter map and the per-doc token —
-never equal."
+  "Draft and Dropped are distinct in BOTH layers: the rollup LETTER map
+(D vs X, unchanged by R26-2) and the per-doc token — R26-2: the padded
+5-col WORD cells DRAFT vs DROP (still never equal)."
   (skip-unless (locate-library "org-air"))
   (should (equal (org-air-project--state-letter "draft") "D"))
   (should (equal (org-air-project--state-letter "dropped") "X"))
   (should-not (equal (org-air-project--state-letter "draft")
                      (org-air-project--state-letter "dropped")))
-  (should (equal (org-air-project--state-token "draft") "[D]"))
-  (should (equal (org-air-project--state-token "dropped") "[X]"))
+  (should (equal (org-air-project--state-token "draft") "DRAFT"))
+  (should (equal (org-air-project--state-token "dropped") "DROP "))
   (should-not (equal (org-air-project--state-token "draft")
                      (org-air-project--state-token "dropped"))))
 
@@ -461,36 +462,32 @@ contains BOTH a `D' and an `X' letter cell (never two `D')."
        ,@body)))
 
 (ert-deftest org-air-r25-2-badge-draws-bold-letter ()
-  "The project state chip draws the single DISTINCT letter (not the bracket
-token), BOLD, at a font-size LARGER than the same chip drawn with the full
-`[D]' token at the default scale (prove the letter grew)."
+  "R26-2 re-bless: the project state chip draws the BARE WORD label
+(>DRAFT<, not the padded token and not the single letter >D<), BOLD, in
+the state colour — the capsule is the uniform padded 5-col token box."
   (skip-unless (locate-library "org-air"))
-  ;; The stub below makes `display-graphic-p' (and so string-pixel-width)
-  ;; available, so the full-token reference chip renders for the comparison.
   (org-air-r25--with-gui-metrics
     (let* ((badge (org-air-project--state-svg-badge "draft"))
            (svg (org-air-r25--svg-data badge)))
       (should svg)
-      ;; (a) the drawn glyph is the single letter D, NOT the bracket token.
-      (should (string-match-p ">D<" svg))
-      (should-not (string-match-p ">\\[D\\]<" svg))
-      ;; (b) bold.
+      ;; (a) the drawn glyph is the BARE word DRAFT — not the single letter
+      ;; >D<, not a padded "DRAFT " label.
+      (should (string-match-p ">DRAFT<" svg))
+      (should-not (string-match-p ">D<" svg))
+      ;; (b) bold stays.
       (should (string-match-p "font-weight=\"bold\"" svg))
-      ;; (c) bigger than the full-token chip at the default scale.
-      (let* ((face  (org-air-project--state-face "draft"))
-             (token (propertize "[D]" 'face face))
-             (ref   (org-air-view--svg-pillify token face :label "[D]"))
-             (ref-svg (org-air-r25--svg-data ref))
-             (letter-fs (org-air-r25--svg-font-size svg))
-             (token-fs  (org-air-r25--svg-font-size ref-svg)))
-        (should letter-fs)
-        (should token-fs)
-        (should (> letter-fs token-fs))))))
+      ;; (c) the label is drawn at a real fitted size (>= the D-P1.FIT
+      ;; 7px floor) — a 5-char word wants a smaller scale than the R25-2
+      ;; giant letter, but never an unreadable/clipped one.
+      (let ((fs (org-air-r25--svg-font-size svg)))
+        (should fs)
+        (should (>= fs 7))))))
 
 (ert-deftest org-air-r25-2-badge-width-pixel-locked ()
-  "Turning the bigger letter on changes ZERO columns: the badge image WIDTH
-== 3 * char-px for every state, and the text-layer cell stays within the
-fixed `org-air-project--state-cell-w'."
+  "The word pill changes ZERO columns: the badge image WIDTH == 5 * char-px
+— R26-2 re-pin: the uniform 5-col word capsule (was 3) — IDENTICAL for
+every state (equal capsules, not just equal cells), and the text-layer
+cell stays within the fixed `org-air-project--state-cell-w'."
   (skip-unless (locate-library "org-air"))
   (org-air-r25--with-gui-metrics
     (dolist (state '("draft" "ready" "work-in-progress" "complete" "dropped"))
@@ -498,30 +495,32 @@ fixed `org-air-project--state-cell-w'."
         (let* ((badge (org-air-project--state-svg-badge state))
                (img (org-air-r25--display-image badge)))
           (should img)
-          (should (= (image-property img :width) (* 3 8))))
+          (should (= (image-property img :width)
+                     (* org-air-project--state-cell-w 8))))
         (should (<= (string-width (substring-no-properties
                                    (org-air-project--state-badge-cell state)))
                     org-air-project--state-cell-w))))))
 
 (ert-deftest org-air-r25-2-gui-chip-letters-distinct ()
-  "DRIVEN (R25-4 via R25-2 overlay): the `draft' chip draws `D' and the
-`dropped' chip draws `X' — never both `D'."
+  "DRIVEN (R25-4 via R25-2 overlay): the `draft' chip draws the word DRAFT
+and the `dropped' chip draws DROP (R26-2 words) — still never alike."
   (skip-unless (locate-library "org-air"))
   (org-air-r25--with-gui-metrics
     (let ((draft (org-air-r25--svg-data (org-air-project--state-svg-badge "draft")))
           (drop  (org-air-r25--svg-data (org-air-project--state-svg-badge "dropped"))))
       (should draft) (should drop)
-      (should (string-match-p ">D<" draft))
-      (should (string-match-p ">X<" drop))
-      (should-not (string-match-p ">D<" drop)))))
+      (should (string-match-p ">DRAFT<" draft))
+      (should (string-match-p ">DROP<" drop))
+      (should-not (string-match-p ">DRAFT<" drop)))))
 
 (ert-deftest org-air-r25-2-batch-token-stable ()
   "Byte guard: under --batch (no graphical frame) `--state-cell \"ready\"' has
-true text `[R]' (padded), no display image, no letter-only glyph."
+true text `READY ' (the R26-2 padded 5-col word + separator), no display
+image, no letter-only glyph."
   (skip-unless (locate-library "org-air"))
   (should-not (display-graphic-p))
   (let ((cell (org-air-project--state-cell "ready")))
-    (should (equal (substring-no-properties cell) "[R] "))
+    (should (equal (substring-no-properties cell) "READY "))
     (should-not (get-text-property 0 'display cell))))
 
 (ert-deftest org-air-r25-2-board-pills-unaffected ()
@@ -598,9 +597,11 @@ the deliberate inversion of R25-1's flush `no space' contract — user ask)."
                         'org-air-face-air-tree))))))))
 
 (ert-deftest org-air-r25-1-v6-columns-frozen ()
-  "The arm only repaints gutter glyphs: a leaf doc's state cell `[' lands at
-EXACTLY margin + (* 2 (1+ depth)) for depth 0 AND depth 1 (gutter total width
-unchanged), so the title/date/tag cluster never moves."
+  "The arm only repaints gutter glyphs: a leaf doc's state cell (the R26-2
+word token) lands at EXACTLY margin + (* 2 (1+ depth)) for depth 0 AND
+depth 1 (gutter total width unchanged), and its TITLE follows at cell-w +
+1 — the R26-2 relock: the badge column is frozen, the downstream columns
+sit exactly 2 right of the 3-col era."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r25-1--fixture-docs))
          (tree (org-air-project--directory-tree docs))
@@ -610,12 +611,19 @@ unchanged), so the title/date/tag cluster never moves."
         (with-temp-buffer
           (org-air-r25-1--insert-tree tree 100)
           (goto-char (point-min))
-          (should (re-search-forward "\\[R\\] Alpha feature" nil t))
+          (should (re-search-forward "READY Alpha feature" nil t))
           (should (= (save-excursion (goto-char (match-beginning 0))
                                      (current-column))
                      (+ margin-w (* 2 (1+ 0)))))
+          ;; the title sits at badge + cell-w + 1 (the +2 relock).
+          (should (= (save-excursion
+                       (goto-char (+ (match-beginning 0)
+                                     org-air-project--state-cell-w 1))
+                       (current-column))
+                     (+ margin-w (* 2 (1+ 0))
+                        org-air-project--state-cell-w 1)))
           (goto-char (point-min))
-          (should (re-search-forward "\\[D\\] Gamma context" nil t))
+          (should (re-search-forward "DRAFT Gamma context" nil t))
           (should (= (save-excursion (goto-char (match-beginning 0))
                                      (current-column))
                      (+ margin-w (* 2 (1+ 1))))))))))
@@ -782,7 +790,9 @@ rendered row overflows the width (the freed columns flow to the flex title)."
 
 (defun org-air-r25--doc-badge-columns (tree width)
   "Render TREE at WIDTH in the CURRENT display mode; return the list of
-0-based columns where each doc row's `[' state badge begins."
+0-based columns where each doc row's state badge begins (R26-2: the first
+UPPERCASE cell — the word cells carry no `[' and the gutter carries no
+uppercase)."
   (org-air-test-with-frozen-project-path org-air-project-test-root
     (org-air-project-test--with-frozen-mtime
       (with-temp-buffer
@@ -794,7 +804,7 @@ rendered row overflows the width (the freed columns flow to the flex title)."
                                          (line-end-position) 'org-air-doc nil)
               (let* ((line (buffer-substring-no-properties
                             (line-beginning-position) (line-end-position)))
-                     (b (string-match "\\[" line)))
+                     (b (string-match "[A-Z]" line)))
                 (when b (push b cols))))
             (forward-line 1))
           (nreverse cols))))))
@@ -870,13 +880,13 @@ state cell) lands at the V6 column margin + (* 2 (1+ 2))."
               (should (= badge (+ margin-w (* 2 (1+ 2))))))))))))
 
 (ert-deftest org-air-r25-2-svg-badge-keeps-r25-1-columns ()
-  "R25-2 x R25-1 (test-seat gap-fill): turning the bigger/bold SVG badge on
-(the GUI default) keeps the R25-1 gutter aligned.  The badge is a `display'
-overlay sized to EXACTLY the 3 char-px text cell, so rendering the directory
-tree on a graphical frame lands every doc's `[' badge at the SAME column as
-the batch render (the Unicode rails + the bigger letter never shift the V6
-columns); the badge image is exactly the text-cell width, so it can never
-bleed into the R25-1 arm."
+  "R25-2 x R25-1 (test-seat gap-fill): turning the bold word-pill SVG badge
+on (the GUI default) keeps the R25-1 gutter aligned.  The badge is a
+`display' overlay sized to EXACTLY the 5 char-px text cell (R26-2 re-pin),
+so rendering the directory tree on a graphical frame lands every doc's
+badge at the SAME column as the batch render (the Unicode rails + the word
+capsule never shift the V6 columns); the badge image is exactly the
+text-cell width, so it can never bleed into the R26-1 arm."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r25-1--fixture-docs))
          (tree (org-air-project--directory-tree docs))
@@ -892,7 +902,8 @@ bleed into the R25-1 arm."
                     (org-air-project--state-svg-badge "ready"))))
           (should img)
           (should (= (image-property img :width)
-                     (* 3 org-air-view--pill-char-w))))))))
+                     (* org-air-project--state-cell-w
+                        org-air-view--pill-char-w))))))))
 
 (provide 'org-air-round25-test)
 ;;; org-air-round25-test.el ends here

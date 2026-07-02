@@ -704,10 +704,11 @@ column (the connector pushes the child name one column past the parent's)."
          ;; and the child's own doc row (Gamma lives under air-context/).
          (parent (funcall pick "| v0\\.1/"))
          (child  (funcall pick "\\+- air-context/"))
-         (doc    (funcall pick "\\[D\\] Gamma context"))
+         ;; R26-2: the Gamma doc row carries the DRAFT word cell now.
+         (doc    (funcall pick "DRAFT Gamma context"))
          (parent-col (funcall col-of parent "v0\\.1/"))
          (child-col  (funcall col-of child "air-context/"))
-         (doc-col    (funcall col-of doc "\\[D\\]")))
+         (doc-col    (funcall col-of doc "DRAFT")))
     (should parent) (should child) (should doc)
     ;; child dir NAME column is deeper than its parent dir NAME column,
     (should (> child-col parent-col))

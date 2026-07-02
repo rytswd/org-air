@@ -455,10 +455,14 @@ faced `org-air-face-air-tree' — the rail threads the leaf down the branch."
               (should (string-match-p (concat "^ *" (regexp-quote corner))
                                       (nth 1 doc-lines))))))))))
 
+
+
 (ert-deftest org-air-r24-2-v6-state-cell-column-locked ()
-  "V6 lock: the rail repaints only the leading gutter — a doc's state cell
-starts at EXACTLY the old indent column (margin + (* 2 (1+ depth))), so the
-state cell / title / right cluster never move."
+  "V6 lock (R26-2 RELOCK): the rail repaints only the leading gutter — a
+doc's state cell starts at EXACTLY the old indent column (margin + (* 2
+(1+ depth))), and the TITLE starts at the state-cell column + 6 (the 5-col
+word cell + one separator; +2 vs the 3-col bracket era), so the state cell
+/ title / right cluster sit at the re-pinned columns."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r24-2--fixture-docs))
          (tree (org-air-project--directory-tree docs))
@@ -467,16 +471,23 @@ state cell / title / right cluster never move."
       (org-air-project-test--with-frozen-mtime
         (with-temp-buffer
           (org-air-r24-2--insert-tree tree 100)
-          ;; v0.1/ own doc `Alpha feature' (depth 0): `[' at margin + 2.
+          ;; v0.1/ own doc `Alpha feature' (depth 0): the badge at margin + 2,
+          ;; the title at badge + 6 (R26-2: cell-w 5 + separator).
           (goto-char (point-min))
-          (should (re-search-forward "\\[R\\] Alpha feature" nil t))
+          (should (re-search-forward "READY Alpha feature" nil t))
           (let ((col (save-excursion
                        (goto-char (match-beginning 0))
                        (current-column))))
-            (should (= col (+ margin-w (* 2 (1+ 0))))))
-          ;; air-context/ own doc `Gamma context' (depth 1): `[' at margin + 4.
+            (should (= col (+ margin-w (* 2 (1+ 0)))))
+            (should (= (+ col org-air-project--state-cell-w 1)
+                       (save-excursion
+                         (goto-char (match-beginning 0))
+                         (search-forward "Alpha")
+                         (goto-char (match-beginning 0))
+                         (current-column)))))
+          ;; air-context/ own doc `Gamma context' (depth 1): badge at margin+4.
           (goto-char (point-min))
-          (should (re-search-forward "\\[D\\] Gamma context" nil t))
+          (should (re-search-forward "DRAFT Gamma context" nil t))
           (let ((col (save-excursion
                        (goto-char (match-beginning 0))
                        (current-column))))
@@ -488,7 +499,8 @@ state cell / title / right cluster never move."
 its own connector — the rail COUNT scales with depth (airctl `-Da' threads
 one `|' per non-last ancestor down to the leaf), each rail + the connector is
 `org-air-face-air-tree', and the V6 state cell stays column-locked at
-`margin + (* 2 (1+ 2))'.  Anti-tautology vs the flat depth-1 case: a
+`margin + (* 2 (1+ 2))' (R26-2: located via the first UPPERCASE cell — the
+word cells carry no `[').  Anti-tautology vs the flat depth-1 case: a
 single-rail (or three-rail) gutter would fail the `= 2' count."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r24-2--fixture-docs))
@@ -552,11 +564,12 @@ single-rail (or three-rail) gutter would fail the `= 2' count."
                           'org-air-face-air-tree))
               (should (equal (char-to-string (char-after (+ bol conn-col 1)))
                              hrail))
-              ;; V6 LOCK at depth 2: the state cell `[' lands at margin +
-              ;; (* 2 (1+ 2)) -- the deeper rail did not shove the cluster.
-              (let ((bracket (string-match "\\[" line)))
-                (should bracket)
-                (should (= bracket (+ margin-w (* 2 (1+ 2)))))))))))))
+              ;; V6 LOCK at depth 2: the state cell (the first UPPERCASE
+              ;; cell) lands at margin + (* 2 (1+ 2)) -- the deeper rail
+              ;; did not shove the cluster.
+              (let ((badge (string-match "[A-Z]" line)))
+                (should badge)
+                (should (= badge (+ margin-w (* 2 (1+ 2)))))))))))))
 
 ;;;; =====================================================================
 ;;;; R24-3 — project state badges: fixed-width SVG (default) / nerd / token.
@@ -570,14 +583,15 @@ single-rail (or three-rail) gutter would fail the `= 2' count."
 
 (ert-deftest org-air-r24-3-batch-state-cell-is-token-byte-guard ()
   "BYTE GUARD: under --batch (no graphical frame) with the `svg' DEFAULT the
-state cell's TRUE text is the terse `[R]'... token — no emoji, no nerd glyph
-leaks (the R21-4 contract holds; the project goldens are unchanged)."
+state cell's TRUE text is the padded 5-col WORD token (R26-2 re-bless of
+the `[R]'-style cells) — no emoji, no nerd glyph leaks (the R21-4 contract
+holds; the project goldens pin the same bytes)."
   (skip-unless (locate-library "org-air"))
   (should-not (display-graphic-p))                 ; batch precondition
   (should (eq org-air-project-state-style 'svg))   ; the shipped default
   (pcase-dolist (`(,state . ,token)
-                 '(("ready" . "[R] ") ("complete" . "[C] ")
-                   ("dropped" . "[X] ") ("draft" . "[D] ")))
+                 '(("ready" . "READY ") ("complete" . "COMP  ")
+                   ("dropped" . "DROP  ") ("draft" . "DRAFT ")))
     (let ((cell (substring-no-properties (org-air-project--state-cell state))))
       (should (equal cell token))
       ;; no nerd PUA glyph + no emoji code point leaked into the batch cell.
@@ -586,8 +600,9 @@ leaks (the R21-4 contract holds; the project goldens are unchanged)."
 
 (ert-deftest org-air-r24-3-svg-badge-on-gui-is-cell-locked-image ()
   "On a graphical frame (stubbed) `--state-svg-badge' returns the token
-carrying a `display' IMAGE whose width is the token's cell box (Ncols *
-char-px), and the TRUE text stays `[R]' (the contract)."
+carrying a `display' IMAGE whose width is the token's cell box — R26-2:
+the uniform 5-col word capsule, so 5 * char-px (was 3) — and the TRUE
+text stays the padded word token `READY' (the contract)."
   (skip-unless (locate-library "org-air"))
   (let* ((dims (org-air-view--char-dimensions))
          (org-air-view--pill-char-w (or (car dims) 8))
@@ -596,10 +611,12 @@ char-px), and the TRUE text stays `[R]' (the contract)."
       (should (org-air-view--svg-available-p))
       (let* ((badge (org-air-project--state-svg-badge "ready"))
              (disp (get-text-property 0 'display badge)))
-        (should (equal (substring-no-properties badge) "[R]"))
+        (should (equal (substring-no-properties badge) "READY"))
         (should (imagep disp))
         (should (integerp (image-property disp :width)))
-        (should (> (image-property disp :width) 0))))))
+        (should (= (image-property disp :width)
+                   (* org-air-project--state-cell-w
+                      org-air-view--pill-char-w)))))))
 
 (ert-deftest org-air-r24-3-nerd-and-text-styles ()
   "With style `nerd' (GUI, glyph displayable) `--state-nerd' returns the
@@ -618,7 +635,7 @@ routes through `--state-emoji'."
     ;; text: plain token only (no image, no glyph).
     (let ((org-air-project-state-style 'text))
       (let ((cell (org-air-project--state-badge-cell "ready")))
-        (should (equal (substring-no-properties cell) "[R]"))
+        (should (equal (substring-no-properties cell) "READY"))
         (should-not (get-text-property 0 'display cell))))
     ;; emoji: routes through --state-emoji.
     (let ((org-air-project-state-style 'emoji))
@@ -639,8 +656,10 @@ the fixed cell and the title left edge / R24-2 rails never shift."
 
 (ert-deftest org-air-r24-3-rails-stay-aligned-under-svg-default ()
   "Cross-item: with the `svg' DEFAULT the directory tree's doc-row state
-cells stay V6-locked (batch => the `[R]' token), so the R24-2 rails align
-— a doc's `[' state-cell column equals margin + (* 2 (1+ depth))."
+cells stay V6-locked (batch => the R26-2 `READY' word token), so the R24-2
+rails align — a doc's state-cell column equals margin + (* 2 (1+ depth))
+and the title follows at cell-w + 1 (the uniform +2 shift is downstream of
+the cell, never the gutter)."
   (skip-unless (locate-library "org-air"))
   (should (eq org-air-project-state-style 'svg))
   (let* ((docs (org-air-r24-2--fixture-docs))
@@ -651,7 +670,7 @@ cells stay V6-locked (batch => the `[R]' token), so the R24-2 rails align
         (with-temp-buffer
           (org-air-r24-2--insert-tree tree 100)
           (goto-char (point-min))
-          (should (re-search-forward "\\[R\\] Alpha feature" nil t))
+          (should (re-search-forward "READY Alpha feature" nil t))
           (let ((col (save-excursion (goto-char (match-beginning 0))
                                      (current-column))))
             (should (= col (+ margin-w (* 2 (1+ 0)))))))))))

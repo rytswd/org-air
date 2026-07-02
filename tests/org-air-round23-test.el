@@ -345,19 +345,19 @@ is demoted to an explicit opt-in."
   (should (eq (default-value 'org-air-project-state-style) 'svg)))
 
 (ert-deftest org-air-r23-4-batch-state-cell-is-token-byte-stable ()
-  "R23-4 BYTE GUARD: under --batch (no graphical frame) the `emoji' default
-falls through to the terse `[R]'/`[C]'... token — the state cell's TRUE text
-(properties stripped) is byte-IDENTICAL to before, no emoji leaks (the
-project goldens are unchanged; the R21-4 contract holds), and
-`--state-emoji' returns nil off a graphical frame.  R25-3 re-bless: the
-phantom `review' state (token `[V]') is gone — 5 canonical states only."
+  "R23-4 BYTE GUARD: under --batch (no graphical frame) the `emoji' style
+falls through to the padded 5-col WORD token (R26-2 re-bless of the old
+`[R]'-style bracket cells) — the state cell's TRUE text (properties
+stripped) is byte-stable, no emoji leaks (the project goldens hold; the
+R21-4 contract holds), and `--state-emoji' returns nil off a graphical
+frame.  R25-3: the phantom `review' state is gone — 5 canonical states."
   (skip-unless (locate-library "org-air"))
   (should-not (display-graphic-p))               ; batch precondition
   (let ((org-air-project-state-style 'emoji))
     (pcase-dolist (`(,state . ,token)
-                   '(("ready" . "[R] ") ("complete" . "[C] ")
-                     ("dropped" . "[X] ") ("draft" . "[D] ")
-                     ("work-in-progress" . "[W] ")))
+                   '(("ready" . "READY ") ("complete" . "COMP  ")
+                     ("dropped" . "DROP  ") ("draft" . "DRAFT ")
+                     ("work-in-progress" . "WIP   ")))
       (ert-info ((format "state %s" state))
         ;; exact token cell, no emoji code points.
         (should (equal (substring-no-properties
@@ -369,7 +369,7 @@ phantom `review' state (token `[V]') is gone — 5 canonical states only."
   "R23-4: on a graphical frame (stubbed) the `emoji' style renders STATE's
 colour emoji in the badge cell; `text' renders the plain coloured token (no
 svg, no emoji); `badge' routes through the shared svg keyword chip while the
-TRUE token text stays `[R]'."
+TRUE token text stays the R26-2 5-col word (`READY')."
   (skip-unless (locate-library "org-air"))
   (cl-letf (((symbol-function 'display-graphic-p) (lambda (&optional _) t))
             ((symbol-function 'char-displayable-p) (lambda (_c) t)))
@@ -383,12 +383,12 @@ TRUE token text stays `[R]'."
     ;; text: plain token only.
     (let ((org-air-project-state-style 'text))
       (let ((cell (org-air-project--state-badge-cell "ready")))
-        (should (string-match-p "\\[R\\]" (substring-no-properties cell)))
+        (should (string-match-p "READY" (substring-no-properties cell)))
         (should-not (string-match-p "\N{DIRECT HIT}" cell))))
     ;; badge: shared svg chip, token text preserved.
     (let ((org-air-project-state-style 'badge))
       (should (string-match-p
-               "\\[R\\]"
+               "READY"
                (substring-no-properties
                 (org-air-project--state-badge-cell "ready")))))))
 

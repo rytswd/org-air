@@ -797,6 +797,19 @@ columns, which shift +2 under the 5-col cell — re-pin")
      . "R26-2: the LETTER-layer assertions still hold (D vs X); the TOKEN
 assertions retune from [D]/[X] to the DRAFT/DROP word cells — still never
 equal")
+    ;; R26-6 KILL THE "· r to file" ROW HINT: the dated-Inbox date-cell
+    ;; nudge is deleted from `org-air-view--item-date-text' — rows reclaim
+    ;; the 12 columns and the hinted row's tag/origin cells snap back into
+    ;; V6 alignment; discovery lives in `?' help + Actions (r stays bound):
+    (org-air-r17-denote-origin-byte-mockup
+     . "R26-6: the two denote-origin goldens are the only ones carrying
+the `· r to file' nudge — the dated inbox row loses it, its title
+de-truncates and its tags/origin snap LEFT; goldens await test-seat
+re-bless via regen-mockups")
+    (org-air-triage-dated-inbox-row-carries-file-hint
+     . "R26-6: deliberate inversion — the R19-2(c) carries-the-nudge
+contract is retired (user: wasteful + cryptic); the assertion inverts to
+NO row hint, with `?' help (`r refile') the single teaching surface")
     ;; (test-symbol . "reason")  — end of round-26 entries.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

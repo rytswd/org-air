@@ -1995,15 +1995,14 @@ repeat math reimplemented)."
 
 (defun org-air-view--item-date-text (item bucket)
   "Return the propertized date text for ITEM in BUCKET (V6/R10), or nil.
-The date is coloured TEXT in its semantic face; a dated-but-unfiled Inbox
-row also carries the quiet \"· r to file\" triage nudge — press `r'
-\(`org-air-refile-item') to file it out of the inbox (R19-2; ruling
-xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
-  (let* ((date (org-air-view--date-label item bucket))
-         (inbox-hint (and (eq bucket 'inbox)
-                          (or (org-air-item-scheduled item)
-                              (org-air-item-deadline item))
-                          (propertize " · r to file" 'face 'org-air-face-faded))))
+The date is coloured TEXT in its semantic face; the GUI pill (V3) is a
+non-byte overlay over this same text.  R26-6: the old \"· r to file\"
+Inbox nudge is GONE from rows — it cost 12 columns per dated inbox row,
+read as a path fragment, and broke that row's V6 tag/origin columns via
+the local date-cell expansion; discovery lives in `?' help + the Actions
+legend (`r' `org-air-refile-item' stays bound), the single teaching
+surface."
+  (let ((date (org-air-view--date-label item bucket)))
     (when date
       (let* ((face (or (cdr date) 'org-air-face-date))
              (pill (eq org-air-date-style 'pill))
@@ -2020,11 +2019,11 @@ xsqrnoyn).  The GUI pill (V3) is a non-byte overlay over this same text."
                                                :align org-air-date-pill-align)
                   text)
                 ;; R14 D-P2: the repeat marker sits AFTER the date pill,
-                ;; before the Inbox nudge, within the date cell (the cell is
-                ;; widened by `org-air-view--meta-date-repeat' so the column
-                ;; stays aligned).
-                (org-air-view--item-repeat-marker item)
-                (or inbox-hint ""))))))
+                ;; within the date cell (the cell is widened by
+                ;; `org-air-view--meta-date-repeat' so the column stays
+                ;; aligned).  R26-6: nothing follows it — the date cell is
+                ;; exactly date + optional repeat marker.
+                (org-air-view--item-repeat-marker item))))))
 
 (defun org-air-view--compute-meta-widths (items width)
   "Set the V6 metadata column widths over the DISPLAYED ITEMS at WIDTH.

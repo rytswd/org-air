@@ -927,5 +927,63 @@ name (`unknown' -> `UNKNO', faded face), and its pill label matches."
       (should (= (image-property img :width)
                  (* org-air-project--state-cell-w 8))))))
 
+;;;; =====================================================================
+;;;; R26-6 — the "· r to file" row hint is gone from rows.
+;;;; =====================================================================
+
+(ert-deftest org-air-r26-6-row-hint-gone ()
+  "NO board row carries the `· r to file' nudge any more — the dated
+inbox row's date cell is exactly the date label (+ optional repeat
+marker).  FAILS on trunk (the R19-2 nudge is baked into the date cell)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r17--with-denote-board 120
+    (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+      (should-not (string-match-p "r to file" text))
+      ;; the dated inbox row: date, then straight into the tag cluster.
+      (save-excursion
+        (goto-char (point-min))
+        (should (search-forward "Inbox 1" nil t))
+        (forward-line 1)
+        (let ((row (buffer-substring-no-properties
+                    (line-beginning-position) (line-end-position))))
+          (should (string-match-p "Tomorrow +#inbox" row))
+          (should-not (string-match-p "·" row)))))))
+
+(ert-deftest org-air-r26-6-v6-inbox-tag-column-restored ()
+  "The (formerly hinted) dated inbox row's tag column equals every other
+row's tag column — the per-row date-cell expansion no longer fires.
+FAILS on trunk (the hint pushed that one row's tags 12 cols right)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r17--with-denote-board 120
+    (let (cols)
+      (save-excursion
+        (goto-char (point-min))
+        (while (not (eobp))
+          (let ((line (buffer-substring-no-properties
+                       (line-beginning-position) (line-end-position))))
+            (when (string-match "#inbox" line)
+              (push (match-beginning 0) cols)))
+          (forward-line 1)))
+      ;; the item renders in BOTH Inbox and Upcoming (dual membership).
+      (should (>= (length cols) 2))
+      ;; ...and the tag cluster sits in ONE column for all of them.
+      (should (= (length (seq-uniq cols)) 1)))))
+
+(ert-deftest org-air-r26-6-refile-still-works ()
+  "`r' still resolves to `org-air-refile-item' on the board, and the `?'
+help — the single teaching surface now — says `r refile'."
+  (skip-unless (locate-library "org-air"))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "r"))
+              'org-air-refile-item))
+  ;; the board help message documents it.
+  (let (msg)
+    (cl-letf (((symbol-function 'message)
+               (lambda (fmt &rest args)
+                 (setq msg (apply #'format fmt args)))))
+      (with-temp-buffer
+        (org-air-help)))
+    (should msg)
+    (should (string-match-p "r refile" msg))))
+
 (provide 'org-air-round26-test)
 ;;; org-air-round26-test.el ends here

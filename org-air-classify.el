@@ -39,11 +39,23 @@
   "Return calendar days between THEN and NOW."
   (- (time-to-days now) (time-to-days then)))
 
+(defun org-air-classify--item-source (item)
+  "Return (BUFFER . POS) for ITEM's marker slot, or nil.
+R26-8: a cache-hydrated (FILE . POS) cons marker slot visits FILE in the
+background (each file at most once — `find-file-noselect' reuses the live
+buffer), so a cache-painted board classifies byte-identically to a
+live-scan one."
+  (let ((m (org-air-item-marker item)))
+    (cond ((and (markerp m) (marker-buffer m))
+           (cons (marker-buffer m) (marker-position m)))
+          ((and (consp m) (stringp (car m))
+                (ignore-errors (file-readable-p (car m))))
+           (cons (find-file-noselect (car m)) (or (cdr m) 1))))))
+
 (defun org-air-classify--done-keywords (item)
   "Return done TODO keywords applicable to ITEM."
-  (or (when-let* ((marker (org-air-item-marker item))
-                  (buffer (marker-buffer marker)))
-        (with-current-buffer buffer
+  (or (when-let* ((src (org-air-classify--item-source item)))
+        (with-current-buffer (car src)
           (or org-done-keywords (default-value 'org-done-keywords))))
       (when-let* ((file (org-air-item-file item))
                   ((file-exists-p file)))
@@ -69,19 +81,23 @@
     (> (org-air-classify--days-between time now) 0)))
 
 (defun org-air-classify--marker-timestamp-time (item)
-  "Return the first timestamp time found in ITEM's subtree."
-  (when-let* ((marker (org-air-item-marker item))
-              (buffer (marker-buffer marker)))
-    (with-current-buffer buffer
-      (save-excursion
-        (save-restriction
-          (goto-char marker)
-          (org-back-to-heading t)
-          (let ((end (save-excursion (org-end-of-subtree t t))))
-            (when (re-search-forward org-ts-regexp-both end t)
-              (ignore-errors
-                (org-timestamp-to-time
-                 (org-timestamp-from-string (match-string-no-properties 0)))))))))))
+  "Return the first timestamp time found in ITEM's subtree.
+R26-8: works over a live marker or a cache-hydrated (FILE . POS) cons;
+any positional error (a stale position mid-refresh) degrades to nil, so
+the caller's file-mtime fallback takes over instead of a crash."
+  (when-let* ((src (org-air-classify--item-source item)))
+    (with-current-buffer (car src)
+      (ignore-errors
+        (save-excursion
+          (save-restriction
+            (goto-char (cdr src))
+            (org-back-to-heading t)
+            (let ((end (save-excursion (org-end-of-subtree t t))))
+              (when (re-search-forward org-ts-regexp-both end t)
+                (ignore-errors
+                  (org-timestamp-to-time
+                   (org-timestamp-from-string
+                    (match-string-no-properties 0))))))))))))
 
 (defun org-air-classify--inbox-file-p (item)
   "Return non-nil when ITEM lives in `org-air-inbox-file'."

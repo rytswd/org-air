@@ -674,7 +674,60 @@ paying it; nil outside a render.  CAR is the ITEMS the memo was built for.")
 `org-air-view' sets it around the `redisplay'-then-query body so a stray
 data-dependent command in that window soft-errors via
 `org-air-view--loading-guard'; it is always cleared by the body's
-`unwind-protect', so the board can never wedge in a loading state.")
+`unwind-protect', so the board can never wedge in a loading state.
+R26-8: on the interactive COLD (no cache) path it stays set until the
+chunked refresh's single swap, guarding data-dependent verbs while input
+stays live over the skeleton.")
+
+(defcustom org-air-cache-file
+  (expand-file-name "org-air/board-cache.eld"
+                    (or (getenv "XDG_CACHE_HOME") "~/.cache"))
+  "Persisted board scan cache; nil disables persistence entirely (R26-8).
+Written atomically after every completed scan; read on an interactive
+cold start so the last-known board paints instantly (a stale cache shows
+the `stale · refreshing…' header marker while the chunked rescan runs).
+Never read or written under `noninteractive', so the byte gate and every
+golden are byte-identical to the synchronous path."
+  :type '(choice (const :tag "Disabled" nil) file)
+  :group 'org-air)
+
+(defcustom org-air-refresh-files-per-slice 3
+  "Files scanned per idle-timer refresh slice (R26-8).
+Measured ≈21ms/file on a real Air tree, so the default 3 keeps each
+slice ≈60-70ms — under perception — while the board stays interactive."
+  :type 'integer
+  :group 'org-air)
+
+(defvar-local org-air-view--refresh-token 0
+  "Monotonic refresh token (R26-8).
+Every scheduled slice carries the token current at schedule time; a
+callback whose token is stale self-cancels, so `g' mid-refresh (which
+bumps the token) makes every pending slice a no-op — timers can never
+interleave two refreshes or touch a superseded scan.")
+(defvar-local org-air-view--refresh-state nil
+  "R26-8 refresh machine state: nil (fresh/idle), `refreshing', `failed'.
+Drives the header count-slot marker (`stale · refreshing…' / `stale ·
+refresh failed (g retries)'); only ever non-nil when the machine is
+driven (interactively, or by an ERT calling the slice runner), so batch
+renders never show it.")
+(defvar-local org-air-view--refresh-queue nil
+  "Files not yet scanned by the in-flight chunked refresh (R26-8).")
+(defvar-local org-air-view--refresh-total 0
+  "Total file count of the in-flight chunked refresh (R26-8).")
+(defvar-local org-air-view--refresh-acc nil
+  "Items accumulated PRIVATELY by the refresh slices (R26-8).
+The board repaints exactly once, when the whole accumulation swaps in —
+never a partial paint.")
+(defvar-local org-air-view--refresh-mtimes nil
+  "Alist FILE -> mtime captured per file AT SCAN TIME (R26-8).
+Persisted with the cache so the next start can detect staleness.")
+(defvar-local org-air-view--refresh-timer nil
+  "The pending one-shot idle timer of the in-flight refresh, or nil.")
+(defvar-local org-air-view--cache-stale-files nil
+  "Files whose mtime diverged from the cache snapshot (R26-8).
+While REFRESHING, triage verbs on an item from one of these soft-error
+\(\"Still refreshing this file…\"); positions in unchanged files are valid
+by construction (mtime match).")
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
 (defvar-local org-air-view--rail-descriptor nil
@@ -973,6 +1026,9 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   ;; R15 D-P2: tear down the side-window rail when the board buffer is
   ;; killed (the rail buffer + side window must not outlive the board).
   (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
+  ;; R26-8: a dying board cancels its in-flight chunked refresh outright
+  ;; (token bump + timer cancel), so no slice can outlive its buffer.
+  (add-hook 'kill-buffer-hook #'org-air-view--refresh-teardown nil t)
   ;; R16 D-P1: cooperative reconciler — fall back to inline when the user
   ;; closes the popped-out rail with a native window command.  Reactive
   ;; only; never re-creates a window the user closed.
@@ -1061,18 +1117,24 @@ stacked and two-pane layouts."
      (t (format-time-string "%d %b %y" time)))))
 
 (defun org-air-view--marker-timestamp-time (item)
-  "Return first timestamp in ITEM subtree, if any."
-  (when-let* ((marker (org-air-item-marker item))
-              (buffer (marker-buffer marker)))
-    (with-current-buffer buffer
-      (save-excursion
-        (goto-char marker)
-        (org-back-to-heading t)
-        (let ((end (save-excursion (org-end-of-subtree t t))))
-          (when (re-search-forward org-ts-regexp-both end t)
-            (ignore-errors
-              (org-timestamp-to-time
-               (org-timestamp-from-string (match-string-no-properties 0))))))))))
+  "Return first timestamp in ITEM subtree, if any.
+R26-8: resolves a live marker OR a cache-hydrated (FILE . POS) cons via
+`org-air-classify--item-source' (one background file visit, shared
+buffer), so a cache-painted board's stale labels are byte-identical to a
+live scan's; a stale position mid-refresh degrades to nil (file-mtime
+fallback), never a crash."
+  (when-let* ((src (org-air-classify--item-source item)))
+    (with-current-buffer (car src)
+      (ignore-errors
+        (save-excursion
+          (goto-char (cdr src))
+          (org-back-to-heading t)
+          (let ((end (save-excursion (org-end-of-subtree t t))))
+            (when (re-search-forward org-ts-regexp-both end t)
+              (ignore-errors
+                (org-timestamp-to-time
+                 (org-timestamp-from-string
+                  (match-string-no-properties 0)))))))))))
 
 (defun org-air-view--date-label (item bucket)
   "Return (LABEL . FACE) date metadata for ITEM in BUCKET."
@@ -1428,12 +1490,29 @@ keeping the date."
          ;; R20-1: during the brief synchronous fast-paint window the count
          ;; slot shows a static `loading…' cue instead of the item count.
          ;; `org-air-view--loading' is nil on every normal render, so this
-         ;; collapses to the unchanged item count (byte-identical).
+         ;; collapses to the unchanged item count (byte-identical).  R26-8:
+         ;; the same slot carries the honest refresh markers — COLD slice
+         ;; progress (`loading I/N files'), the CACHED-stale `stale ·
+         ;; refreshing…' cue, and the failure notice.  All display-only and
+         ;; transient; the machine never runs in batch, so no golden
+         ;; captures them.
+         (busy (or org-air-view--loading org-air-view--refresh-state))
          (count (propertize
-                 (if org-air-view--loading
-                     " · loading…"
-                   (format " · %d items" (length (org-air-view--visible-items items))))
-                 'face (if (and (not org-air-view--loading) org-air-header-accent-count)
+                 (cond
+                  (org-air-view--loading
+                   (if (eq org-air-view--refresh-state 'refreshing)
+                       (format " · loading %d/%d files"
+                               (max 0 (- org-air-view--refresh-total
+                                         (length org-air-view--refresh-queue)))
+                               org-air-view--refresh-total)
+                     " · loading…"))
+                  ((eq org-air-view--refresh-state 'refreshing)
+                   " · stale · refreshing…")
+                  ((eq org-air-view--refresh-state 'failed)
+                   " · stale · refresh failed (g retries)")
+                  (t (format " · %d items"
+                             (length (org-air-view--visible-items items)))))
+                 'face (if (and (not busy) org-air-header-accent-count)
                            'org-air-face-count 'org-air-face-faded)))
          ;; R18 D-P2.3: with >=2 active filter tags, join them with the
          ;; combinator word (AND/OR) so the mode reads inline; a single tag
@@ -2527,7 +2606,14 @@ so the board byte goldens are byte-identical by default."
         ;; `o'/`O' cycled the key while the rendered rows never moved (and
         ;; the banner indicator stayed suppressed).
         (sort-key org-air-view--sort-key)
-        (sort-direction org-air-view--sort-direction))
+        (sort-direction org-air-view--sort-direction)
+        ;; R26-8: carry the refresh-machine state (and the loading flag) so
+        ;; the banner's count slot can show the honest stale/progress marker
+        ;; from inside the composing temp buffer.
+        (loading org-air-view--loading)
+        (refresh-state org-air-view--refresh-state)
+        (refresh-queue org-air-view--refresh-queue)
+        (refresh-total org-air-view--refresh-total))
     (with-temp-buffer
       (let ((org-air-view--line-width width)
             (org-air-view--items items)
@@ -2543,7 +2629,11 @@ so the board byte goldens are byte-identical by default."
             (org-air-view--render-displayed render-displayed)
             (org-air-view--rail-descriptor rail-descriptor)
             (org-air-view--sort-key sort-key)
-            (org-air-view--sort-direction sort-direction))
+            (org-air-view--sort-direction sort-direction)
+            (org-air-view--loading loading)
+            (org-air-view--refresh-state refresh-state)
+            (org-air-view--refresh-queue refresh-queue)
+            (org-air-view--refresh-total refresh-total))
         (funcall render-fn)
         (org-air-view--string-lines (buffer-string) width)))))
 
@@ -3031,13 +3121,14 @@ appends the deadline mark."
      inset)))
 
 (defun org-air-view--item-created (item)
-  "Return ITEM's CREATED property as an Emacs time, or nil (D-P7)."
-  (when-let* ((marker (org-air-item-marker item))
-              (buffer (marker-buffer marker)))
+  "Return ITEM's CREATED property as an Emacs time, or nil (D-P7).
+R26-8: hydrates a cache-cold (FILE . POS) cons marker slot on demand, so
+the inspector reads the same CREATED for a cache-painted item."
+  (when-let* ((src (org-air-classify--item-source item)))
     (ignore-errors
-      (with-current-buffer buffer
+      (with-current-buffer (car src)
         (save-excursion
-          (goto-char marker)
+          (goto-char (cdr src))
           (when-let* ((v (org-entry-get (point) "CREATED")))
             (org-air-view--timestamp-time (org-timestamp-from-string v))))))))
 
@@ -4478,15 +4569,19 @@ identically)."
       (list :marker marker)))))
 
 (defun org-air-view-pane--source-buffer-pos (marker)
-  "Resolve MARKER (a live marker or a filepath string) to (BUFFER . POS).
+  "Resolve MARKER (a live marker, filepath, or cons) to (BUFFER . POS).
 Visits a file in the background (never pops it).  Returns nil when the
-source is unavailable (R16 D-P3)."
+source is unavailable (R16 D-P3).  R26-8: a cache-hydrated (FILE . POS)
+cons hydrates on demand — the pane visits FILE and lands on POS."
   (cond
    ((and (markerp marker) (marker-buffer marker)
          (buffer-live-p (marker-buffer marker)))
     (cons (marker-buffer marker) (marker-position marker)))
    ((and (stringp marker) (file-readable-p marker))
     (cons (find-file-noselect marker) nil))
+   ((and (consp marker) (stringp (car marker))
+         (file-readable-p (car marker)))
+    (cons (find-file-noselect (car marker)) (cdr marker)))
    (t nil)))
 
 (defun org-air-view-pane--entry-text (buffer pos)
@@ -5355,15 +5450,236 @@ interrupt, but the guard is cheap and harmless."
   (when org-air-view--loading
     (user-error "Still loading your board…")))
 
+;;;; ---------------------------------------------------------------------
+;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
+;;;; ---------------------------------------------------------------------
+
+(defconst org-air-view--cache-version 1
+  "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.")
+
+(defun org-air-view--item-pos (item)
+  "Return a position for ITEM valid inside its source file's buffer.
+Accepts a live marker OR the cache-hydrated (FILE . POS) cons in the
+marker slot (R26-8) — the cons is a startup-window state; the completed
+refresh swap replaces cached items with live-marker ones."
+  (let ((m (org-air-item-marker item)))
+    (cond ((markerp m) m)
+          ((consp m) (or (cdr m) 1))
+          (t m))))
+
+(defun org-air-view--item-serialise (item)
+  "Return a printable copy of ITEM: the marker slot becomes (FILE . POS)."
+  (let* ((copy (copy-sequence item))
+         (m (org-air-item-marker item)))
+    (setf (org-air-item-marker copy)
+          (if (markerp m)
+              (cons (org-air-item-file item) (marker-position m))
+            m))
+    copy))
+
+(defun org-air-view--cache-write (items mtimes)
+  "Persist ITEMS + the MTIMES snapshot to `org-air-cache-file' (R26-8).
+Atomic (temp file + rename); a nil `org-air-cache-file' disables
+persistence; any write error is swallowed (the cache is an optimisation,
+never a failure source)."
+  (when org-air-cache-file
+    (ignore-errors
+      (let* ((file (expand-file-name org-air-cache-file))
+             (dir (file-name-directory file))
+             (tmp (progn (make-directory dir t)
+                         (make-temp-file (concat file ".") nil ".tmp"))))
+        (let ((print-length nil) (print-level nil) (print-circle t))
+          (write-region
+           (prin1-to-string
+            (list :version org-air-view--cache-version
+                  :key (list org-air-files org-air-inbox-file)
+                  :mtimes mtimes
+                  :items (mapcar #'org-air-view--item-serialise items)))
+           nil tmp nil 'silent))
+        (rename-file tmp file t)))))
+
+(defun org-air-view--cache-read ()
+  "Read `org-air-cache-file'; return its plist, or nil.
+A missing/corrupt file, a `:version' bump or a `:key' (config) mismatch
+are all silently \"no cache\" — the cold path."
+  (when (and org-air-cache-file
+             (file-readable-p (expand-file-name org-air-cache-file)))
+    (condition-case nil
+        (let ((data (with-temp-buffer
+                      (insert-file-contents
+                       (expand-file-name org-air-cache-file))
+                      (read (current-buffer)))))
+          (and (listp data)
+               (eql (plist-get data :version) org-air-view--cache-version)
+               (equal (plist-get data :key)
+                      (list org-air-files org-air-inbox-file))
+               (listp (plist-get data :items))
+               data))
+      (error nil))))
+
+(defun org-air-view--cache-load ()
+  "Return (ITEMS . STALE-FILES) from the persisted cache, or nil.
+ITEMS carry cons (FILE . POS) marker slots (hydrated on demand by
+`org-air-view--item-pos').  STALE-FILES is the list of configured files
+whose mtime diverged from the snapshot — new files and snapshot files now
+missing included — nil when every mtime matches (FRESH: no scan at all)."
+  (when-let* ((data (org-air-view--cache-read)))
+    (let* ((files (org-air-query-files))
+           (mtimes (plist-get data :mtimes))
+           (stale (seq-remove
+                   (lambda (f)
+                     (equal (cdr (assoc f mtimes))
+                            (file-attribute-modification-time
+                             (file-attributes f))))
+                   files)))
+      ;; a snapshot file that vanished also invalidates (its rows linger).
+      (dolist (entry mtimes)
+        (unless (member (car entry) files)
+          (push (car entry) stale)))
+      (cons (plist-get data :items) stale))))
+
+(defun org-air-view--refresh-repaint ()
+  "Repaint the board from `org-air-view--items' as-is, preserving point.
+Unlike `org-air-view--render-current' this never falls back to a
+synchronous query when the items are nil (the cold/failed machine states
+must not re-block the frame)."
+  (let ((token (org-air-view--save-position)))
+    (org-air-view--render org-air-view--items org-air-view--tag-filter)
+    (org-air-view--restore-position token)))
+
+(defun org-air-view--refresh-cancel ()
+  "Invalidate any in-flight refresh: bump the token, cancel the timer.
+Every pending slice callback carries the old token and self-cancels."
+  (cl-incf org-air-view--refresh-token)
+  (when (timerp org-air-view--refresh-timer)
+    (cancel-timer org-air-view--refresh-timer))
+  (setq org-air-view--refresh-timer nil
+        org-air-view--refresh-queue nil
+        org-air-view--refresh-acc nil))
+
+(defun org-air-view--refresh-teardown ()
+  "Cancel the in-flight refresh outright (the board buffer is dying)."
+  (org-air-view--refresh-cancel)
+  (setq org-air-view--refresh-state nil))
+
+(defun org-air-view--refresh-schedule (buffer token)
+  "Schedule the next refresh slice for BUFFER under TOKEN (R26-8).
+One-shot idle timer, re-armed from each completed slice; relative to the
+current idleness so a chain that starts while Emacs is already idle keeps
+running.  Never schedules under `noninteractive' — the deterministic ERTs
+call `org-air-view--refresh-run-slice' directly instead."
+  (unless noninteractive
+    (with-current-buffer buffer
+      (setq org-air-view--refresh-timer
+            (run-with-idle-timer
+             (time-add (or (current-idle-time) 0) 0.05) nil
+             #'org-air-view--refresh-run-slice buffer token)))))
+
+(defun org-air-view--refresh-start ()
+  "Enter REFRESHING for the current board buffer; return the new token.
+Cancels any in-flight refresh (its slices go stale via the token), queues
+the CURRENT file list — `g' is exactly this same path — and schedules the
+first slice.  The caller paints (board or skeleton) after this so the
+header marker/progress is visible from the first paint."
+  (org-air-view--refresh-cancel)
+  (setq org-air-view--refresh-queue (org-air-query-files)
+        org-air-view--refresh-total (length org-air-view--refresh-queue)
+        org-air-view--refresh-acc nil
+        org-air-view--refresh-mtimes nil
+        org-air-view--refresh-state 'refreshing)
+  (if (null org-air-view--refresh-queue)
+      (org-air-view--refresh-finish)
+    (org-air-view--refresh-schedule (current-buffer)
+                                    org-air-view--refresh-token))
+  org-air-view--refresh-token)
+
+(defun org-air-view--refresh-finish ()
+  "All slices done: swap ONCE, re-render, clear the marker, write the cache.
+The single-swap rule (no partial paints): the accumulated items replace
+`org-air-view--items' in one motion, the board repaints once with point
+preserved, and the machine returns to FRESH."
+  (let ((items org-air-view--refresh-acc)
+        (mtimes org-air-view--refresh-mtimes))
+    (setq org-air-view--items items
+          org-air-view--items-key (list org-air-files org-air-inbox-file)
+          org-air-view--classify-cache nil
+          org-air-view--refresh-state nil
+          org-air-view--refresh-acc nil
+          org-air-view--refresh-queue nil
+          org-air-view--refresh-total 0
+          org-air-view--cache-stale-files nil
+          org-air-view--loading nil)
+    (org-air-view--refresh-repaint)
+    (org-air-view--cache-write items mtimes)))
+
+(defun org-air-view--refresh-run-slice (buffer token)
+  "Scan ONE slice of BUFFER's pending refresh queue under TOKEN (R26-8).
+The named slice runner the idle timer schedules — ERTs call it directly in
+a loop, so the whole machine is testable synchronously with zero timers.
+Robustness rules made law: a stale TOKEN (or dead BUFFER, or a machine no
+longer refreshing) is a silent no-op; slices accumulate privately and
+NEVER touch windows; a slice error keeps the painted board, flips to
+FAILED (header: `refresh failed (g retries)') and always clears
+`org-air-view--loading' so the buffer can never wedge."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (and (eq token org-air-view--refresh-token)
+                 (eq org-air-view--refresh-state 'refreshing))
+        (setq org-air-view--refresh-timer nil)
+        (condition-case err
+            (let* ((slice (seq-take org-air-view--refresh-queue
+                                    (max 1 org-air-refresh-files-per-slice))))
+              ;; mtime captured per file AT SCAN TIME (the cache snapshot).
+              (dolist (f slice)
+                (push (cons f (file-attribute-modification-time
+                               (file-attributes f)))
+                      org-air-view--refresh-mtimes))
+              (setq org-air-view--refresh-acc
+                    ;; copy: org-ql may hand back a CACHED list object —
+                    ;; nconc'ing it would mutate the cache (and a repeat
+                    ;; scan would then build a circular list).
+                    (nconc org-air-view--refresh-acc
+                           (copy-sequence
+                            (org-air-query-items-in-files slice)))
+                    org-air-view--refresh-queue
+                    (nthcdr (length slice) org-air-view--refresh-queue))
+              (if org-air-view--refresh-queue
+                  ;; more to do: re-arm; the buffer text is NOT touched
+                  ;; between slices (single-swap rule).
+                  (org-air-view--refresh-schedule buffer token)
+                (org-air-view--refresh-finish)))
+          (error
+           (setq org-air-view--refresh-state 'failed
+                 org-air-view--refresh-queue nil
+                 org-air-view--refresh-acc nil
+                 org-air-view--loading nil)
+           (org-air-view--refresh-repaint)   ; same board + honest header
+           (message "org-air: refresh failed: %s (g retries)"
+                    (org-air-view--short-error err))))))))
+
+(defun org-air-view--refresh-stale-item-guard (item)
+  "Soft-error on a triage verb for ITEM while its file is mid-refresh (R26-8).
+Only an item whose source file's mtime diverged from the cache snapshot is
+blocked (its cached position may be wrong); positions in unchanged files
+are valid by construction (mtime match), so triage there stays live."
+  (when (and (eq org-air-view--refresh-state 'refreshing)
+             (member (org-air-item-file item) org-air-view--cache-stale-files))
+    (user-error "Still refreshing this file…")))
+
 ;;;###autoload
 (defun org-air-view ()
   "Open the org-air dashboard buffer.
-A cold first load paints the chrome skeleton and forces it visible with
-`redisplay', then runs the org-ql query + render SYNCHRONOUSLY (R20-1): no
-idle timers, no progressive reflow.  A re-open with the item cache warm, or
-any `noninteractive' (batch) call, takes the same synchronous path so every
-byte fixture is produced exactly as before.  Load errors are surfaced as a
-single truncated line and the board falls back to the empty render; the
+R26-8 cache-first async: an interactive start with a valid persisted cache
+\(`org-air-cache-file') paints the FULL last-known board instantly — all
+mtimes matching means FRESH (no scan at all); any divergence starts the
+token-guarded chunked refresh with the `stale · refreshing…' header
+marker.  An interactive COLD start (no cache) paints the chrome skeleton
+and runs the same chunked refresh (header slice progress; input live; the
+data-dependent verbs guarded by `org-air-view--loading-guard' until the
+single swap).  A re-open with the in-buffer item cache warm, or any
+`noninteractive' (batch) call, takes the EXACT synchronous path so every
+byte fixture is produced exactly as before and the gate never reads or
+writes the cache file.  Errors surface as a single truncated line; the
 buffer can never wedge in a loading state."
   (interactive)
   (let* ((buffer (get-buffer-create org-air-view-buffer-name))
@@ -5398,47 +5714,73 @@ buffer can never wedge in a loading state."
           (setq org-air-view--items (org-air-query-items)
                 org-air-view--classify-cache nil))
         (org-air-view--render org-air-view--items org-air-view--tag-filter))
-       ;; Cold interactive load (R20-1): honest fast paint, then a
-       ;; SYNCHRONOUS query + render.  `unwind-protect' always clears
-       ;; `--loading' so an error can never wedge the board; `condition-case'
-       ;; surfaces any failure as a single truncated line (never `%S' of the
-       ;; error payload — that produced the six-figure-char echo dump) and
-       ;; renders the empty board so the buffer is always usable.
+       ;; R26-8 CACHED: a valid persisted cache paints the FULL last-known
+       ;; board instantly.  All mtimes match -> FRESH, no scan at all; any
+       ;; divergence -> REFRESHING (chunked slices; `stale · refreshing…'
+       ;; marker in the count slot from this very first paint).  Nothing
+       ;; modal remains on this path (`--loading' stays nil).
+       ((when-let* ((cache (org-air-view--cache-load)))
+          (setq org-air-view--items (car cache)
+                org-air-view--items-key (list org-air-files
+                                              org-air-inbox-file)
+                org-air-view--classify-cache nil
+                org-air-view--cache-stale-files (cdr cache))
+          (when (cdr cache)
+            (org-air-view--refresh-start))
+          (org-air-view--render org-air-view--items org-air-view--tag-filter)
+          t))
+       ;; R26-8 COLD (no cache): honest fast paint of the chrome skeleton,
+       ;; then the SAME chunked refresh — input stays live over the
+       ;; skeleton (the R20-1 synchronous wait retires); `--loading' guards
+       ;; the data-dependent verbs until the machine's single swap (which
+       ;; always clears it, success or failure — never a wedge).  Any error
+       ;; starting the machine falls back to the R20-1 discipline: a single
+       ;; truncated message + the empty board.
        (t
         (setq org-air-view--loading t)
-        (unwind-protect
+        (condition-case err
             (progn
+              (org-air-view--refresh-start)  ; state first: header shows 0/N
               (org-air-view--render-loading)
-              (redisplay t)            ; frame visible BEFORE the query
-              (condition-case err
-                  (progn
-                    (setq org-air-view--items (org-air-query-items)
-                          org-air-view--items-key (list org-air-files
-                                                        org-air-inbox-file)
-                          org-air-view--classify-cache nil)
-                    (org-air-view--render org-air-view--items
-                                          org-air-view--tag-filter))
-                (error
-                 (setq org-air-view--items nil
-                       org-air-view--classify-cache nil)
-                 (org-air-view--render nil org-air-view--tag-filter)
-                 (message "org-air: load failed: %s"
-                          (org-air-view--short-error err)))))
-          (setq org-air-view--loading nil)))))))
+              (redisplay t))
+          (error
+           (setq org-air-view--items nil
+                 org-air-view--classify-cache nil
+                 org-air-view--loading nil)
+           (org-air-view--render nil org-air-view--tag-filter)
+           (message "org-air: load failed: %s"
+                    (org-air-view--short-error err)))))))))
 
 (defun org-air-refresh ()
   "Re-query files and refresh the current org-air dashboard.
-Preserves the active filter and the cursor's place."
+Preserves the active filter and the cursor's place.  R26-8: an
+interactive `g' on the board IS the refresh machine — it cancels any
+pending slices (token bump) and restarts the chunked scan from the
+current file list, keeping the painted board (with the header marker)
+until the single swap.  Under `noninteractive' (the byte gate) it is the
+exact synchronous re-query it always was."
   (interactive)
-  (let ((token (org-air-view--save-position))
-        (filter org-air-view--tag-filter))
-    ;; R18 D-P1c: a re-query builds fresh item structs, so drop the
-    ;; classify cache (bounds memory; picks up a changed classify-tuning
-    ;; defcustom on the next refresh).
-    (setq org-air-view--items (org-air-query-items)
-          org-air-view--classify-cache nil)
-    (org-air-view--render org-air-view--items filter)
-    (org-air-view--restore-position token)))
+  (if (and (not noninteractive) (eq major-mode 'org-air-view-mode))
+      (progn
+        (setq org-air-view--cache-stale-files nil)
+        (org-air-view--refresh-start)
+        ;; repaint so the `refreshing…' marker shows; the body is the same
+        ;; items (byte-identical rows), point preserved.
+        (when (eq org-air-view--refresh-state 'refreshing)
+          (org-air-view--refresh-repaint)))
+    (let ((token (org-air-view--save-position))
+          (filter org-air-view--tag-filter))
+      ;; a completed synchronous re-query supersedes any machine state
+      ;; (stale slices go stale via the token; failed/stale markers clear).
+      (org-air-view--refresh-teardown)
+      (setq org-air-view--cache-stale-files nil)
+      ;; R18 D-P1c: a re-query builds fresh item structs, so drop the
+      ;; classify cache (bounds memory; picks up a changed classify-tuning
+      ;; defcustom on the next refresh).
+      (setq org-air-view--items (org-air-query-items)
+            org-air-view--classify-cache nil)
+      (org-air-view--render org-air-view--items filter)
+      (org-air-view--restore-position token))))
 
 (defun org-air--relevant-file-p (file)
   "Return non-nil when FILE is one of the configured org-air files."
@@ -5721,8 +6063,9 @@ hangs."
   (interactive)
   (let* ((item (org-air-view--item-at-point))
          (tag (read-string "Tag: ")))
+    (org-air-view--refresh-stale-item-guard item)
     (with-current-buffer (find-file-noselect (org-air-item-file item))
-      (goto-char (org-air-item-marker item))
+      (goto-char (org-air-view--item-pos item))
       (org-back-to-heading t)
       (org-toggle-tag tag 'on)
       (save-buffer)))
@@ -5732,8 +6075,9 @@ hangs."
   "Set SCHEDULED DATE on the item at point."
   (interactive "sSchedule (empty clears): ")
   (let ((item (org-air-view--item-at-point)))
+    (org-air-view--refresh-stale-item-guard item)
     (with-current-buffer (find-file-noselect (org-air-item-file item))
-      (goto-char (org-air-item-marker item))
+      (goto-char (org-air-view--item-pos item))
       (org-back-to-heading t)
       (org-schedule nil (unless (string-empty-p date) date))
       (save-buffer)))
@@ -5753,19 +6097,23 @@ lookup there fails)."
       (user-error "No org-air item at point")))
 
 (defmacro org-air-view--at-item-source (item &rest body)
-  "At ITEM's heading in its source buffer run BODY, save, and remember it."
+  "At ITEM's heading in its source buffer run BODY, save, and remember it.
+R26-8: soft-errors first when ITEM's file is mid-refresh stale (its cached
+position may be wrong); hydrates a cache-cold (FILE . POS) marker slot on
+demand via `org-air-view--item-pos'."
   (declare (indent 1) (debug t))
   (let ((buf (make-symbol "buf")) (it (make-symbol "it")))
-    `(let* ((,it ,item)
-            (,buf (find-file-noselect (org-air-item-file ,it))))
-       (with-current-buffer ,buf
-         (save-excursion
-           (goto-char (org-air-item-marker ,it))
-           (org-back-to-heading t)
-           ,@body)
-         (save-buffer))
-       (setq org-air-view--triage-source-buffer ,buf)
-       ,buf)))
+    `(let* ((,it ,item))
+       (org-air-view--refresh-stale-item-guard ,it)
+       (let ((,buf (find-file-noselect (org-air-item-file ,it))))
+         (with-current-buffer ,buf
+           (save-excursion
+             (goto-char (org-air-view--item-pos ,it))
+             (org-back-to-heading t)
+             ,@body)
+           (save-buffer))
+         (setq org-air-view--triage-source-buffer ,buf)
+         ,buf))))
 
 (defun org-air-view--next-dow (target)
   "Return YYYY-MM-DD of the next day-of-week TARGET (0=Sun..6=Sat)."
@@ -6047,7 +6395,9 @@ controls window choice and defaults to `org-air-visit-display'."
     ;; opt-in `org-air-view-pane-on-return' RET-also-opens-pane behaviour is
     ;; obsolete and no longer consulted here.
     (let* ((marker (org-air-item-marker item))
-           (buffer (or (marker-buffer marker)
+           ;; R26-8: a cache-hydrated item carries a (FILE . POS) cons —
+           ;; hydrate on demand (visit the file in the background).
+           (buffer (or (and (markerp marker) (marker-buffer marker))
                        (find-file-noselect (org-air-item-file item))))
            (display (or display org-air-visit-display))
            (dash-window (get-buffer-window
@@ -6071,7 +6421,7 @@ controls window choice and defaults to `org-air-visit-display'."
                           (switch-to-buffer buffer))
                  (switch-to-buffer buffer)))
         (_ (switch-to-buffer buffer)))
-      (goto-char marker)
+      (goto-char (org-air-view--item-pos item))
       (funcall (if (fboundp 'org-fold-show-context)
                    #'org-fold-show-context
                  (intern "org-show-context")))

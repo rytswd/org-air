@@ -810,6 +810,19 @@ re-bless via regen-mockups")
      . "R26-6: deliberate inversion — the R19-2(c) carries-the-nudge
 contract is retired (user: wasteful + cryptic); the assertion inverts to
 NO row hint, with `?' help (`r refile') the single teaching surface")
+    ;; R26-8 CACHE-FIRST ASYNC: the interactive COLD load no longer runs
+    ;; the query synchronously — it paints the skeleton and hands off to
+    ;; the token-guarded chunked refresh machine (batch/noninteractive
+    ;; keeps the EXACT synchronous path, so every golden + the gate are
+    ;; untouched).  One legacy ERT pins the retired sync-cold contract:
+    (org-air-r20-1-cold-load-error-does-not-wedge
+     . "R26-8: the noninteractive-nil cold path is the ASYNC machine now
+— `org-air-view' returns with the skeleton painted, `--loading' t and
+the refresh queued (no synchronous query to fail inside the call).  The
+no-wedge + bounded-single-line-failure guarantees this ERT pinned moved
+into the machine and are covered by the R26-8 failure-honesty ERT (slice
+error -> board intact, `refresh failed (g retries)' header, `--loading'
+always cleared); assertions retune to the machine's shape")
     ;; (test-symbol . "reason")  — end of round-26 entries.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

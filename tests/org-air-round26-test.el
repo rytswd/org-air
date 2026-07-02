@@ -985,5 +985,296 @@ help — the single teaching surface now — says `r refile'."
     (should msg)
     (should (string-match-p "r refile" msg))))
 
+;;;; =====================================================================
+;;;; R26-8 — cache-first async (deterministic: the slice runner is driven
+;;;; directly; zero timers, zero waits in the gate).
+;;;; =====================================================================
+
+(defmacro org-air-r26--with-cache-env (&rest body)
+  "Fixtures + frozen clock + a TEMP `org-air-cache-file'; run BODY."
+  (declare (indent 0) (debug t))
+  `(org-air-test-with-fixtures
+    (org-air-viewport-test--with-frozen-now
+      (let ((org-air-view-width 120)
+            (org-air-view-height 50)
+            (org-air-cache-file
+             (expand-file-name "cache/board.eld" org-air-test--dir))
+            (org-air-view-buffer-name "*org-air-r26-8*"))
+        (unwind-protect
+            (progn ,@body)
+          (when (get-buffer org-air-view-buffer-name)
+            (kill-buffer org-air-view-buffer-name)))))))
+
+(defun org-air-r26--cache-board ()
+  "Create + return a fresh board-mode buffer (not yet rendered)."
+  (let ((buf (get-buffer-create org-air-view-buffer-name)))
+    (with-current-buffer buf
+      (unless (derived-mode-p 'org-air-view-mode) (org-air-view-mode)))
+    buf))
+
+(defun org-air-r26--run-slices (&optional max)
+  "Drive the current buffer's refresh slices synchronously until done.
+MAX (default 100) bounds the loop."
+  (let ((token org-air-view--refresh-token)
+        (n (or max 100)))
+    (while (and (> n 0) (eq org-air-view--refresh-state 'refreshing))
+      (org-air-view--refresh-run-slice (current-buffer) token)
+      (cl-decf n))))
+
+(defun org-air-r26--kill-file-buffers (dir)
+  "Kill every buffer visiting a file under DIR (a fresh-session start).
+The cache-first scenario is a NEW Emacs: the previous session's buffers
+are gone, so the disk (not a stale open buffer) is the ground truth for
+both the mtime check and the org-ql rescan."
+  (dolist (buf (buffer-list))
+    (let ((fn (buffer-file-name buf)))
+      (when (and fn (string-prefix-p (file-truename dir) (file-truename fn)))
+        (with-current-buffer buf (set-buffer-modified-p nil))
+        (kill-buffer buf)))))
+
+(defun org-air-r26--scan-and-cache ()
+  "In the current board buffer: full machine scan -> render + cache write.
+Returns the rendered board text."
+  (org-air-view--refresh-start)
+  (org-air-r26--run-slices)
+  (should-not org-air-view--refresh-state)
+  (substring-no-properties (buffer-string)))
+
+(ert-deftest org-air-r26-8-cache-round-trip ()
+  "Scan the fixtures through the machine (writes the cache); a fresh
+buffer painted from the cache read is BYTE-IDENTICAL to the live-scan
+board, with every marker slot cons-hydrated (FILE . POS)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-cache-env
+    (let (live)
+      (with-current-buffer (org-air-r26--cache-board)
+        (setq live (org-air-r26--scan-and-cache)))
+      (kill-buffer org-air-view-buffer-name)
+      (should (file-exists-p org-air-cache-file))
+      (let ((cache (org-air-view--cache-load)))
+        (should cache)
+        (should (null (cdr cache)))          ; nothing touched -> FRESH
+        (should (car cache))
+        (dolist (it (car cache))
+          (should (consp (org-air-item-marker it)))
+          (should (stringp (car (org-air-item-marker it)))))
+        (with-current-buffer (org-air-r26--cache-board)
+          (setq org-air-view--items (car cache))
+          (org-air-view--render org-air-view--items nil)
+          (should (equal (substring-no-properties (buffer-string))
+                         live)))))))
+
+(ert-deftest org-air-r26-8-stale-paint-marker-then-swap ()
+  "Cache present + one file touched: the first paint equals the CACHED
+board (no new item) with the `stale · refreshing' marker; driving the
+slices to completion repaints ONCE with the new item and CLEARS the
+marker."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-cache-env
+    (with-current-buffer (org-air-r26--cache-board)
+      (org-air-r26--scan-and-cache))
+    (kill-buffer org-air-view-buffer-name)
+    ;; the next session starts fresh: no open buffers from the scan.
+    (org-air-r26--kill-file-buffers org-air-test--dir)
+    ;; touch the inbox fixture: new capture + a decisive mtime bump.
+    (write-region "* TODO Cache stale probe\n" nil org-air-inbox-file 'append)
+    (set-file-times org-air-inbox-file (time-add (current-time) 5))
+    (let ((cache (org-air-view--cache-load)))
+      (should cache)
+      (should (member (file-truename org-air-inbox-file)
+                      (mapcar #'file-truename (cdr cache))))
+      (with-current-buffer (org-air-r26--cache-board)
+        ;; the CACHED dispatch: items from cache, machine started, paint.
+        (setq org-air-view--items (car cache)
+              org-air-view--cache-stale-files (cdr cache))
+        (org-air-view--refresh-start)
+        (org-air-view--render org-air-view--items nil)
+        (let ((text (substring-no-properties (buffer-string))))
+          (should (string-match-p "stale · refreshing" text))
+          (should-not (string-match-p "Cache stale probe" text)))
+        ;; slices to completion: single swap, marker cleared.
+        (org-air-r26--run-slices)
+        (should-not org-air-view--refresh-state)
+        (let ((text (substring-no-properties (buffer-string))))
+          (should (string-match-p "Cache stale probe" text))
+          (should-not (string-match-p "stale · refreshing" text)))))))
+
+(ert-deftest org-air-r26-8-mtime-fast-path-no-scan ()
+  "Cache present, nothing touched: FRESH — no stale files, so the dispatch
+never enters REFRESHING (empty queue, no timer, no slice ever needed)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-cache-env
+    (with-current-buffer (org-air-r26--cache-board)
+      (org-air-r26--scan-and-cache))
+    (kill-buffer org-air-view-buffer-name)
+    (let ((cache (org-air-view--cache-load)))
+      (should cache)
+      (should (null (cdr cache)))
+      (with-current-buffer (org-air-r26--cache-board)
+        (setq org-air-view--items (car cache))
+        (org-air-view--render org-air-view--items nil)
+        ;; FRESH: the machine never started.
+        (should-not org-air-view--refresh-state)
+        (should (null org-air-view--refresh-queue))
+        (should-not org-air-view--refresh-timer)
+        (should-not (string-match-p "refreshing"
+                                    (substring-no-properties
+                                     (buffer-string))))))))
+
+(ert-deftest org-air-r26-8-interleaving-single-swap ()
+  "Between slices the board does NOT repaint (single-swap rule) and stays
+usable (motion runs); the completed swap lands point back on an item row."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-cache-env
+    (with-current-buffer (org-air-r26--cache-board)
+      (org-air-r26--scan-and-cache))
+    (kill-buffer org-air-view-buffer-name)
+    (org-air-r26--kill-file-buffers org-air-test--dir)
+    (write-region "* TODO Interleave probe\n" nil org-air-inbox-file 'append)
+    (set-file-times org-air-inbox-file (time-add (current-time) 5))
+    (let ((cache (org-air-view--cache-load))
+          (org-air-refresh-files-per-slice 1))   ; force >1 slice
+      (with-current-buffer (org-air-r26--cache-board)
+        (setq org-air-view--items (car cache)
+              org-air-view--cache-stale-files (cdr cache))
+        (org-air-view--refresh-start)
+        (should (> (length org-air-view--refresh-queue) 1))
+        (org-air-view--render org-air-view--items nil)
+        (let ((before (substring-no-properties (buffer-string)))
+              (token org-air-view--refresh-token))
+          ;; ONE slice: data accumulated privately, buffer text untouched.
+          (org-air-view--refresh-run-slice (current-buffer) token)
+          (should (eq org-air-view--refresh-state 'refreshing))
+          (should (equal (substring-no-properties (buffer-string)) before))
+          ;; the board is USABLE mid-refresh: motion works.
+          (org-air-view--goto-first-item)
+          (should (org-air-view--row-property 'org-air-item))
+          (org-air-next-item)
+          ;; completion: exactly one swap, point back on an item row.
+          (org-air-r26--run-slices)
+          (should-not org-air-view--refresh-state)
+          (should (string-match-p "Interleave probe"
+                                  (substring-no-properties (buffer-string))))
+          (should (org-air-view--row-property 'org-air-item)))))))
+
+(ert-deftest org-air-r26-8-failure-honest-and-g-retries ()
+  "A slice that signals keeps the painted board byte-intact, flips the
+header to `refresh failed (g retries)', and `g' restarts the machine and
+completes."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-cache-env
+    (with-current-buffer (org-air-r26--cache-board)
+      (org-air-r26--scan-and-cache)
+      ;; start a refresh whose first slice blows up.
+      (org-air-view--refresh-start)
+      (let ((body-before
+             ;; everything below the banner line (the header gains the
+             ;; failure marker; the BODY must stay byte-intact).
+             (substring-no-properties
+              (buffer-string) (save-excursion (goto-char (point-min))
+                                              (line-end-position)))))
+        (cl-letf (((symbol-function 'org-air-query-items-in-files)
+                   (lambda (&rest _) (error "disk on fire"))))
+          (org-air-view--refresh-run-slice (current-buffer)
+                                           org-air-view--refresh-token))
+        (should (eq org-air-view--refresh-state 'failed))
+        (let ((text (substring-no-properties (buffer-string))))
+          (should (string-match-p "refresh failed (g retries)" text))
+          (should (equal (substring-no-properties
+                          (buffer-string)
+                          (save-excursion (goto-char (point-min))
+                                          (line-end-position)))
+                         body-before)))
+        ;; g retries: the interactive branch restarts the machine…
+        (let ((noninteractive nil))
+          (org-air-refresh))
+        (should (eq org-air-view--refresh-state 'refreshing))
+        ;; (batch hygiene: drop the timer the interactive branch armed).
+        (when (timerp org-air-view--refresh-timer)
+          (cancel-timer org-air-view--refresh-timer)
+          (setq org-air-view--refresh-timer nil))
+        ;; …and completes: marker gone, items live.
+        (org-air-r26--run-slices)
+        (should-not org-air-view--refresh-state)
+        (should org-air-view--items)
+        (should-not (string-match-p "refresh failed"
+                                    (substring-no-properties
+                                     (buffer-string))))))))
+
+(ert-deftest org-air-r26-8-corrupt-cache-cold-path ()
+  "A corrupt/garbage cache file — and a version or key mismatch — all read
+as \"no cache\" silently (the cold path), never an error."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-cache-env
+    (make-directory (file-name-directory org-air-cache-file) t)
+    ;; (a) unreadable garbage.
+    (write-region "(((☃ not a plist" nil org-air-cache-file)
+    (should-not (org-air-view--cache-load))
+    ;; (b) readable but version-bumped.
+    (write-region (prin1-to-string
+                   (list :version -99
+                         :key (list org-air-files org-air-inbox-file)
+                         :mtimes nil :items nil))
+                  nil org-air-cache-file)
+    (should-not (org-air-view--cache-load))
+    ;; (c) readable but the config key moved.
+    (write-region (prin1-to-string
+                   (list :version org-air-view--cache-version
+                         :key '(("/elsewhere") "/elsewhere/inbox.org")
+                         :mtimes nil :items nil))
+                  nil org-air-cache-file)
+    (should-not (org-air-view--cache-load))))
+
+(ert-deftest org-air-r26-8-batch-purity-never-reads-cache ()
+  "Under `noninteractive' the render NEVER consults the cache file, even
+when one exists — the gate's byte path is the exact synchronous scan."
+  (skip-unless (locate-library "org-air"))
+  (should noninteractive)
+  (org-air-r26--with-cache-env
+    ;; a real cache exists…
+    (with-current-buffer (org-air-r26--cache-board)
+      (org-air-r26--scan-and-cache))
+    (kill-buffer org-air-view-buffer-name)
+    (should (file-exists-p org-air-cache-file))
+    ;; …yet the batch entry point never touches it.
+    (let ((reads 0))
+      (cl-letf* ((real (symbol-function 'org-air-view--cache-load))
+                 ((symbol-function 'org-air-view--cache-load)
+                  (lambda () (cl-incf reads) (funcall real))))
+        (save-window-excursion
+          (org-air-view))
+        (should (= reads 0))
+        (with-current-buffer org-air-view-buffer-name
+          (should org-air-view--items)
+          ;; live markers, not cache cons — the sync scan ran.
+          (should (markerp (org-air-item-marker
+                            (car org-air-view--items)))))))))
+
+(ert-deftest org-air-r26-8-token-cancels-stale-slice ()
+  "`g' mid-refresh bumps the token: a late slice callback carrying the OLD
+token is a silent no-op (the restarted queue is untouched)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-cache-env
+    (with-current-buffer (org-air-r26--cache-board)
+      (let ((org-air-refresh-files-per-slice 1))
+        (org-air-view--refresh-start)
+        (let ((old-token org-air-view--refresh-token))
+          ;; one slice under the old token…
+          (org-air-view--refresh-run-slice (current-buffer) old-token)
+          (should (eq org-air-view--refresh-state 'refreshing))
+          ;; …then a restart (what g does): token bumps, queue resets.
+          (org-air-view--refresh-start)
+          (should (/= org-air-view--refresh-token old-token))
+          (let ((queue-len (length org-air-view--refresh-queue))
+                (acc org-air-view--refresh-acc))
+            ;; the LATE stale callback: a no-op on queue AND accumulator.
+            (org-air-view--refresh-run-slice (current-buffer) old-token)
+            (should (= (length org-air-view--refresh-queue) queue-len))
+            (should (eq org-air-view--refresh-acc acc)))
+          ;; the new token drives to completion normally.
+          (org-air-r26--run-slices)
+          (should-not org-air-view--refresh-state)
+          (should org-air-view--items))))))
+
 (provide 'org-air-round26-test)
 ;;; org-air-round26-test.el ends here

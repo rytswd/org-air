@@ -80,18 +80,29 @@ the available rail WIDTH.  Floors at 0 when WIDTH <= row-width (narrow rail
                                   (decoded-time-year decoded)))))
 
 (defun org-air-calendar--item-deadline (item)
-  "Return ITEM deadline, checking the origin when needed."
+  "Return ITEM deadline, checking the origin when needed.
+R26-8: the origin check resolves a live marker OR a cache-hydrated
+\(FILE . POS) cons (one background `find-file-noselect' per file, shared
+buffer); a stale position degrades to nil, never a crash."
   (or (org-air-item-deadline item)
       (when-let* ((marker (org-air-item-marker item))
-                  (buffer (marker-buffer marker)))
-        (with-current-buffer buffer
-          (save-excursion
-            (goto-char marker)
-            (org-back-to-heading t)
-            (let ((end (save-excursion (org-end-of-subtree t t))))
-              (when (re-search-forward org-deadline-time-regexp end t)
-                (org-timestamp-from-string
-                 (format "<%s>" (match-string-no-properties 1))))))))))
+                  (src (cond ((and (markerp marker) (marker-buffer marker))
+                              (cons (marker-buffer marker)
+                                    (marker-position marker)))
+                             ((and (consp marker) (stringp (car marker))
+                                   (ignore-errors
+                                     (file-readable-p (car marker))))
+                              (cons (find-file-noselect (car marker))
+                                    (or (cdr marker) 1))))))
+        (with-current-buffer (car src)
+          (ignore-errors
+            (save-excursion
+              (goto-char (cdr src))
+              (org-back-to-heading t)
+              (let ((end (save-excursion (org-end-of-subtree t t))))
+                (when (re-search-forward org-deadline-time-regexp end t)
+                  (org-timestamp-from-string
+                   (format "<%s>" (match-string-no-properties 1)))))))))))
 
 (defun org-air-calendar--marked-days (items)
   "Return hash of date key -> strongest mark kind for ITEMS (T3b).

@@ -270,7 +270,9 @@ moved heading's `:CATEGORY:' property; SCHEDULED is an Org timestamp string
   (let ((text nil))
     (with-current-buffer (org-air-inbox--source-buffer item)
       (save-excursion
-        (goto-char (marker-position (org-air-item-marker item)))
+        ;; R26-8: a cache-hydrated item carries (FILE . POS), not a marker.
+        (goto-char (let ((m (org-air-item-marker item)))
+                     (if (markerp m) (marker-position m) (or (cdr-safe m) 1))))
         (org-back-to-heading t)
         (let ((begin (point))
               (end (save-excursion (org-end-of-subtree t t) (point))))

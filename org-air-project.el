@@ -933,6 +933,11 @@ margin + state cell, byte-identical to today."
 (defvar-local org-air-project--sort-direction nil
   "Active per-buffer sort direction (R16 D-P4); seeded from the defcustom.")
 
+(defvar-local org-air-project--show-filenames nil
+  "Non-nil: doc rows render the project-relative FILE NAME, not the title.
+Per-buffer (the Dired `(' convention, R26-4); read by the render pass, so
+it survives `g' refresh, grouping changes and board<->project hops.")
+
 (defun org-air-project--state-rank (state)
   "Return the canonical rank of STATE (R16 D-P5).
 Uses `org-air-project-sections' (Draft/Ready/WIP/Complete/Dropped) as
@@ -1120,30 +1125,41 @@ board's without needing Org deadline/scheduled timestamps."
                                                (decoded-time-year d))
                    'created table))))))
 
+(defconst org-air-project--actions-table
+  '((("RET" . "open")   ("(" . "flip")      ("/" . "filter"))
+    (("o" . "sort")     ("s/d/t" . "group") ("|" . "rail"))
+    (("g" . "refresh")  ("?" . "help")      ("q" . "quit")))
+  "Project rail Actions legend: three rows of three (KEY . VERB) cells (R26-3).
+Every KEY here must resolve to a real command in `org-air-project-mode-map'
+— the round-26 legend-truth ERT derives its assertions from THIS table, so
+the legend text can never drift from the keymap again.  `s/d/t' names the
+three grouping keys; `S-RET visit' and `\\ clear' surface in `?' help.")
+
 (defun org-air-project--insert-actions (width)
-  "Insert the project rail Actions block fitted to rail content WIDTH (R20-5).
-Same SHAPE + keycap idiom as the board's Actions, with the project's verbs
-— open / filter / refresh, then visit / clear / quit — on the SAME keys a
-board user already knows."
+  "Insert the project rail Actions block fitted to rail content WIDTH (R26-3).
+Same SHAPE + keycap idiom as the board's Actions: three column-aligned verb
+rows built from `org-air-project--actions-table' — the REAL project keys:
+open / flip / filter, sort / group / rail, refresh / help / quit."
   (org-air-view--rail-header "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
-         (c1 (max (+ 4 (length "open")) (+ 6 (length "visit"))))
-         (c2 (max (+ 2 (length "filter")) (+ 2 (length "clear"))))
+         (rows org-air-project--actions-table)
+         (cellw (lambda (cell) (+ (length (car cell)) 1 (length (cdr cell)))))
+         (c1 (apply #'max (mapcar (lambda (r) (funcall cellw (nth 0 r))) rows)))
+         (c2 (apply #'max (mapcar (lambda (r) (funcall cellw (nth 1 r))) rows)))
          (gap (if (>= width 38) "    " " ")))
-    (insert (org-air-view--pad-to
-             (concat inset
-                     (org-air-view--verb-cell "RET" "open" c1) gap
-                     (org-air-view--verb-cell "/" "filter" c2) gap
-                     (org-air-view--verb-cell "g" "refresh" 0))
-             width)
-            "\n")
-    (insert (org-air-view--pad-to
-             (concat inset
-                     (org-air-view--verb-cell "S-RET" "visit" c1) gap
-                     (org-air-view--verb-cell "\\" "clear" c2) gap
-                     (org-air-view--verb-cell "q" "quit" 0))
-             width)
-            "\n")))
+    (dolist (row rows)
+      (insert (org-air-view--pad-to
+               (concat inset
+                       (org-air-view--verb-cell
+                        (car (nth 0 row)) (cdr (nth 0 row)) c1)
+                       gap
+                       (org-air-view--verb-cell
+                        (car (nth 1 row)) (cdr (nth 1 row)) c2)
+                       gap
+                       (org-air-view--verb-cell
+                        (car (nth 2 row)) (cdr (nth 2 row)) 0))
+               width)
+              "\n"))))
 
 (defun org-air-project--two-pane-body (docs left-fn width)
   "Return (BODY-LINES . FILL-ROW) composing the LEFT pane | project-rail.
@@ -1472,6 +1488,27 @@ R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
         (find-file-other-window (org-air-doc-file doc))
       (user-error "No Air document on this line"))))
 
+(defun org-air-project-open ()
+  "Open the Air doc at point in the SAME window (R26-3, the R26-5 model).
+RET replaces the project tree with the doc's file buffer in the window the
+tree occupies — no `display-buffer' to fight, nothing to swallow (the
+R26-3b root cause: the pane path's refused `display-buffer' was a silent
+no-op).  `v' keeps the bottom peek pane; S-RET visits in the other window."
+  (interactive)
+  (let ((doc (get-text-property (point) 'org-air-doc)))
+    (unless doc
+      (user-error "No Air document on this line"))
+    (pop-to-buffer-same-window (find-file-noselect (org-air-doc-file doc)))))
+
+(defun org-air-project-toggle-filenames ()
+  "Flip project doc rows between doc title and relpath (R26-4).  Key `('."
+  (interactive)
+  (setq-local org-air-project--show-filenames
+              (not org-air-project--show-filenames))
+  (org-air-project-refresh)
+  (message "org-air project: showing %s"
+           (if org-air-project--show-filenames "file names" "titles")))
+
 (defun org-air-project-filter (tags)
   "Filter the project doc tree to TAGS (R18 D-P3, shares the board core).
 The prompt is PRE-FILLED with the active filter and the chosen terms
@@ -1509,10 +1546,23 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
     (set-keymap-parent map org-air-view-core-map)
     (define-key map (kbd "n") #'org-air-project-next)
     (define-key map (kbd "p") #'org-air-project-prev)
-    ;; RET (inherited) opens the pane; S-RET visits the doc (the project's
-    ;; visit target), mirroring the board's S-RET visit.
+    ;; R26-3: RET is the SAME-WINDOW doc open (the R26-5 session model) —
+    ;; the shared pane-return stays the BOARD's RET only.  `v' keeps the
+    ;; bottom peek pane; S-RET keeps the other-window visit.
+    (define-key map (kbd "RET") #'org-air-project-open)
+    (define-key map (kbd "<mouse-1>") #'org-air-project-open)
     (define-key map (kbd "<S-return>") #'org-air-project-visit)
     (define-key map (kbd "S-RET") #'org-air-project-visit)
+    ;; R26-3: airctl -a/-Da/-Ta parity ON KEYS — s/d/t are free in the
+    ;; project map (the board's triage verbs never applied here).
+    (define-key map (kbd "s") #'org-air-project-group-by-state)
+    (define-key map (kbd "d") #'org-air-project-group-by-directory)
+    (define-key map (kbd "t") #'org-air-project-group-by-tag)
+    ;; R26-4: dired-style `(' flips doc rows filename<->title.
+    (define-key map (kbd "(") #'org-air-project-toggle-filenames)
+    ;; R26-3: `?' help (project-aware section; special-mode's describe-mode
+    ;; fallback is not the legend's promise).
+    (define-key map (kbd "?") #'org-air-help)
     ;; The per-mode doc-tag filter (shares the board's pre-fill + AND
     ;; default + M-/ toggle core); `g' refreshes, `q' quits.
     (define-key map (kbd "/") #'org-air-project-filter)

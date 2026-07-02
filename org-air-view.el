@@ -3348,14 +3348,27 @@ Calendar/Filter/Summary/Actions."
                                       :rail-target-height)
                            (max 1 (- (org-air-view--render-height)
                                      3 (if org-air-show-footer 2 0)))))
-               (reserved (max 1 (- target top-used foot-h))))
-          (setq org-air-view--inspector-region-height reserved)
-          (dolist (l (org-air-view--inspector-rail-lines
-                      (org-air-view--rail-first-thing items)
-                      width reserved))
-            (insert l "\n"))
-          (insert "\n")
-          (org-air-view--insert-actions width))
+               ;; R26-3: a height-CLAMPED side-window rail lets the
+               ;; reserved region shrink to NOTHING (the inspector gives
+               ;; way first) so the Actions foot stays on-screen; the
+               ;; inline rail keeps its >=1 floor (goldens frozen).
+               (clamped (plist-get org-air-view--rail-descriptor
+                                   :rail-clamp))
+               (avail (- target top-used foot-h))
+               (reserved (if clamped avail (max 1 avail))))
+          (if (>= reserved 1)
+              (progn
+                (setq org-air-view--inspector-region-height reserved)
+                (dolist (l (org-air-view--inspector-rail-lines
+                            (org-air-view--rail-first-thing items)
+                            width reserved))
+                  (insert l "\n"))
+                (insert "\n")
+                (org-air-view--insert-actions width))
+            ;; No room: drop the inspector region AND its separator blank
+            ;; — Actions follows the Summary directly (R26-3 fit rule).
+            (setq org-air-view--inspector-region-height nil)
+            (org-air-view--insert-actions width)))
       ;; No inspector: the four-block flow (Filter already emitted above).
       (setq org-air-view--inspector-region-height nil)
       ;; D5f: optionally pin Actions to the rail foot.
@@ -3752,7 +3765,17 @@ inspector update re-finds + re-fills the region (Phase 2)."
             (org-air-view--expanded-sections (plist-get state :expanded))
             (org-air-view--cal-month (plist-get state :cal-month))
             (org-air-view--day (plist-get state :day))
-            (org-air-view--rail-descriptor (plist-get state :rail-descriptor))
+            (org-air-view--rail-descriptor
+             ;; R26-3: a LIVE side window (HEIGHT non-nil) clamps the rail
+             ;; to its own body height so the Actions foot is on-screen in
+             ;; the side window, not pinned to the host's render height.
+             ;; The batch seam path (HEIGHT nil) keeps the host height.
+             (let ((d (plist-get state :rail-descriptor)))
+               (if height
+                   (plist-put (plist-put (copy-sequence d)
+                                         :rail-target-height height)
+                              :rail-clamp t)
+                 d)))
             (org-air-view--inspector-fields-function
              (plist-get state :inspector-fields-function))
             (org-air-view--inspector-region-height nil))
@@ -4620,12 +4643,17 @@ previously-shown indirect buffer is killed only AFTER the swap (no flicker)
                               (selected-window))))
             (setq win (with-selected-window host-win
                         (display-buffer buf (org-air-view-pane--window-params))))))
-        (when (window-live-p win)
-          (set-window-parameter win 'org-air-pane t)
-          (set-window-parameter win 'no-delete-other-windows t)
-          (set-window-dedicated-p win t)
-          (when org-air-view-pane-focus
-            (select-window win)))))
+        (if (window-live-p win)
+            (progn
+              (set-window-parameter win 'org-air-pane t)
+              (set-window-parameter win 'no-delete-other-windows t)
+              (set-window-dedicated-p win t)
+              (when org-air-view-pane-focus
+                (select-window win)))
+          ;; R26-3b: `display-buffer' refused the pane (a user
+          ;; `display-buffer-alist', an unsplittable/too-short host, a
+          ;; dedicated window...) — say so.  Never a silent no-op.
+          (message "org-air: could not display the view pane"))))
     ;; Kill the now-replaced indirect AFTER the window shows the new buffer.
     (when (and (buffer-live-p old) (not (eq old buf)))
       (kill-buffer old))
@@ -5888,11 +5916,13 @@ adjacent day; the rail calendar re-centres on the focused month."
   (org-air-peek-item))
 
 (defun org-air-help ()
-  "Show org-air key bindings."
+  "Show org-air key bindings (R26-3: project-aware)."
   (interactive)
   ;; R19-4d: name the two roles distinctly — Filter is the LIVE tag
   ;; narrowing (multi-tag, AND/OR), Scope is the structural LENS.
-  (message "org-air: n/p items, TAB sections, RET visit, c capture, r refile, / filter (tags, live) · \\ clear · M-/ AND↔OR, s scope (lens: file/group/all) · S clear, g refresh, q quit"))
+  (if (derived-mode-p 'org-air-project-mode)
+      (message "org-air project: RET open (same window), S-RET visit other window, ( flip filename↔title, o/O sort cycle/reverse, s/d/t group state/dir/tag, / filter · \\ clear · M-/ AND↔OR, | rail, v peek pane, g refresh, q quit")
+    (message "org-air: n/p items, TAB sections, RET visit, c capture, r refile, / filter (tags, live) · \\ clear · M-/ AND↔OR, s scope (lens: file/group/all) · S clear, g refresh, q quit")))
 
 ;;;###autoload
 (defun org-air-visit-item (&optional item display)

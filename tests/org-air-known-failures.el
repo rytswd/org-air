@@ -673,7 +673,41 @@
     ;; soxomzwk).  Round-25 manifest is EMPTY; the tests stay as permanent
     ;; regression guards.
     ;; ===================================================================
-    ;; (test-symbol . "reason")  — none right now.
+    ;; v0.5 ROUND-26 impl grind (air/v0.5/org-air-round26-design.org).
+    ;; R26-3 PROJECT LEGEND + RET: the project map rebinds RET/<mouse-1> to
+    ;; the SAME-WINDOW `org-air-project-open' (the R26-5 session model; the
+    ;; shared pane-return stays the BOARD's RET), adds s/d/t grouping +
+    ;; `(' flip + `?' help keys, and rewrites the rail Actions legend to
+    ;; the real project verbs (3 rows, table-driven).  The legend rows are
+    ;; buffer text in the two-pane project goldens → those re-bless (test
+    ;; seat; fixtures NOT edited on the impl track), and the legacy keymap
+    ;; ERTs that assert the OLD RET-=-pane-return / s-d-t-unbound contract
+    ;; retune on the test track:
+    (org-air-f5-project-view-byte-mockups
+     . "R26-3: inline rail Actions legend re-written (RET open/( flip//
+filter · o sort/s\/d\/t group/| rail · g refresh/? help/q quit) — the three
+project goldens' Actions rows await test-seat re-bless via regen-mockups")
+    (org-air-r18-dp3-project-keymap-inherits-core
+     . "R26-3: project RET is `org-air-project-open' (same-window doc
+open), no longer the inherited shared pane-return — assertion retunes")
+    (org-air-r18-dp4-keymap-ret-and-sret-board-and-project
+     . "R26-3: project RET -> org-air-project-open and `s' is the state
+grouping key now (airctl -a parity) — assertions retune")
+    (org-air-r20-5-project-keymap-shares-board-keys-no-shadow
+     . "R26-3: RET forks deliberately (board pane-return vs project
+same-window open) and s/d/t are project grouping keys again (on-key airctl
+parity; the old 'moved to M-x' contract is superseded)")
+    (org-air-r22-5-rail-toggle-bound-in-board-and-project
+     . "R26-3: the both-maps RET-=-pane-return assertion retunes (project
+RET is org-air-project-open; v/V/| stay shared)")
+    (org-air-r24-4-click-shares-ret-resolver-on-dir-header
+     . "R26-3: <mouse-1> follows RET onto org-air-project-open in the
+project (click == RET still holds; the shared resolver claim retunes)")
+    (org-air-r24-5-rail-blocks-shared-with-board
+     . "R26-3 fit rule: a height-CLAMPED popped rail drops the Inspector
+region when the side window is too short (inspector shrinks first so
+Actions stays on-screen) — the all-blocks assertion needs a tall window")
+    ;; (test-symbol . "reason")  — end of round-26 entries.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

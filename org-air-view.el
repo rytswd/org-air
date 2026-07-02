@@ -426,6 +426,19 @@ still wins (the window is deleted while narrow)."
                  (const :tag "Side window (popped out initially)" side-window))
   :group 'org-air)
 
+(defcustom org-air-rail-placement
+  '((board . inline) (project . side-window))
+  "Default context-rail placement per view (R26-5).
+Consulted ONCE per buffer: when a view first renders with the popped flag
+still `unset', it seeds t (side-window) or nil (inline).  Thereafter the
+`|' toggle and the R25-6 reconciler own the flag.  `org-air-rail-style'
+set to `side-window' still forces the BOARD entry (back-compat).  Batch
+\(`noninteractive') renders never consult this alist — they normalise the
+sentinel to nil exactly as before, keeping every byte golden untouched."
+  :type '(alist :key-type (choice (const board) (const project))
+                :value-type (choice (const inline) (const side-window)))
+  :group 'org-air)
+
 (defcustom org-air-divider-pixels 3
   "Pixel width of the `side-window' rail divider on GUI frames (R15 D-P2).
 Used as `window-divider-default-right-width' (and the right divider width)
@@ -3317,6 +3330,24 @@ render, and only ACTIONS is pinned to the rail foot beneath it.  When the
 inspector is off the rail falls back to the four-block flow of
 Calendar/Filter/Summary/Actions."
   (let ((org-air-view--line-width width))
+    (if-let* ((outline-fn (plist-get org-air-view--rail-descriptor
+                                     :outline-fn)))
+        ;; R26-5: the DOC-CONTEXT rail (a project doc session) — the
+        ;; provider inserts the doc meta + outline; only the Actions
+        ;; legend follows (same descriptor seam, not a fork).
+        (progn
+          (funcall outline-fn width)
+          (setq org-air-view--inspector-region-height nil)
+          (insert "\n")
+          (org-air-view--insert-actions width))
+      (org-air-view--insert-rail-1 items width))))
+
+(defun org-air-view--insert-rail-1 (items width)
+  "Insert the five-block context rail for ITEMS at WIDTH (R19-4c body).
+The standard Calendar/Filter/Summary/Inspector/Actions flow, split out of
+`org-air-view--insert-rail' so the R26-5 doc-context descriptor can swap
+the body without duplicating the foot-pinning arithmetic."
+  (progn
     (if-let* ((f (plist-get org-air-view--rail-descriptor :calendar-fn)))
         (funcall f (org-air-view--rail-visible items)
                  width (org-air-view--rail-inset width))
@@ -3662,10 +3693,43 @@ pointer (R15 D-P2).")
 (defvar org-air-rail-mode-map
   (let ((map (make-sparse-keymap)))
     ;; R16 D-P1: the rail is `other-window'-reachable now; `q' from inside
-    ;; it pops the rail back inline on the board (cooperative).
-    (define-key map (kbd "q") #'org-air-rail-popin)
+    ;; it pops the rail back inline on the board (cooperative).  R26-5: in
+    ;; a DOC session `q' returns to the tree instead (the dispatcher), RET
+    ;; jumps the main window to the outline heading at point, and `|' pops
+    ;; the rail in (the legend's `| rail').
+    (define-key map (kbd "q") #'org-air-rail-quit)
+    (define-key map (kbd "RET") #'org-air-rail-return)
+    (define-key map (kbd "|") #'org-air-rail-popin)
     map)
-  "Keymap for `org-air-rail-mode' (R16 D-P1).")
+  "Keymap for `org-air-rail-mode' (R16 D-P1 / R26-5).")
+
+(defun org-air-rail-quit ()
+  "Quit the rail: back to the tree in a DOC session, else pop inline.
+R26-5: when the rail's owner is a doc-session file buffer, `q' is the
+session's back verb (the read-only side window is where a plain `q' is
+legal — the doc FILE buffer stays editable); otherwise the R16 cooperative
+pop-in."
+  (interactive)
+  (let ((owner org-air-rail--board-buffer))
+    (if (and (buffer-live-p owner)
+             (local-variable-p 'org-air-project--session-tree owner)
+             (buffer-local-value 'org-air-project--session-tree owner)
+             (fboundp 'org-air-project-back))
+        (with-current-buffer owner (org-air-project-back))
+      (org-air-rail-popin))))
+
+(defun org-air-rail-return ()
+  "RET inside the rail: jump the MAIN window to the outline row's heading.
+R26-5: doc-context outline rows carry `org-air-doc-heading-pos'; RET moves
+the session doc's window there and selects it.  A no-op elsewhere."
+  (interactive)
+  (let ((pos (get-text-property (point) 'org-air-doc-heading-pos))
+        (owner org-air-rail--board-buffer))
+    (when (and pos (buffer-live-p owner))
+      (let ((win (get-buffer-window owner)))
+        (when (window-live-p win)
+          (set-window-point win pos)
+          (select-window win))))))
 
 (define-derived-mode org-air-rail-mode special-mode "org-air-rail"
   "Major mode for the popped-out org-air context rail (R16 D-P1).
@@ -3920,6 +3984,17 @@ Used by `org-air-view-quit' and the board's `kill-buffer-hook'."
     (when (buffer-live-p rail-buf)
       (kill-buffer rail-buf))))
 
+(defun org-air-rail--popped-p (&optional buffer)
+  "Non-nil when BUFFER's (default current) rail is GENUINELY popped out.
+R26-5: only the explicit t counts — the `unset' first-render sentinel is
+TRUTHY, and reading it raw is exactly how the re-entry wipe got a double
+rail blessed.  The renderers, the toggle and BOTH reconciler branches
+route through this one predicate."
+  (eq (if buffer
+          (buffer-local-value 'org-air-view--rail-popped-out buffer)
+        org-air-view--rail-popped-out)
+      t))
+
 (defun org-air-rail--window-live-p ()
   "Return non-nil when the `*org-air-rail*' buffer is shown on this frame.
 Checks the board frame so a stray rail buffer in another frame does not
@@ -3940,7 +4015,13 @@ the board re-renders via `org-air-view--render-current'; the project via
 `org-air-project--render-current'."
   (cond
    ((derived-mode-p 'org-air-view-mode) (org-air-view--render-current))
-   ((derived-mode-p 'org-air-project-mode) (org-air-project--render-current))))
+   ((derived-mode-p 'org-air-project-mode) (org-air-project--render-current))
+   ;; R26-5: a doc-session buffer "refreshes" by re-showing/hiding its
+   ;; DOC-context side rail per the popped flag (the buffer text is the
+   ;; user's file — never re-rendered by org-air).
+   ((and (bound-and-true-p org-air-project--session-tree)
+         (fboundp 'org-air-project--doc-rail-refresh))
+    (org-air-project--doc-rail-refresh (current-buffer)))))
 
 (defun org-air-rail-toggle ()
   "Toggle the context rail between inline and a side window (R16 D-P1; R22-5).
@@ -3951,14 +4032,17 @@ always wins — closing the side window with any native command falls back to
 inline via the reconciler.  The refresh is dispatched per-mode via
 `org-air-view--refresh-current' so the toggle never forks."
   (interactive)
-  (unless (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
+  (unless (or (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
+              ;; R26-5: the toggle also works from a doc-session buffer
+              ;; (its side rail is the DOC context).
+              (bound-and-true-p org-air-project--session-tree))
     (user-error "Not in an org-air board or project buffer"))
   ;; The project never seeds the flag during its normal render, so it may
   ;; still be the `unset' sentinel (which is truthy) — normalise it to nil
   ;; so the FIRST toggle pops OUT, not in.
   (when (eq org-air-view--rail-popped-out 'unset)
     (setq-local org-air-view--rail-popped-out nil))
-  (if org-air-view--rail-popped-out
+  (if (org-air-rail--popped-p)
       (progn
         (setq-local org-air-view--rail-popped-out nil
                     org-air-view--rail-suspended nil)
@@ -3978,7 +4062,7 @@ inline via the reconciler.  The refresh is dispatched per-mode via
   "Pop the context rail OUT into the side window if it is inline (R16 D-P1)."
   (interactive)
   (when (and (derived-mode-p 'org-air-view-mode)
-             (not org-air-view--rail-popped-out))
+             (not (org-air-rail--popped-p)))
     (org-air-rail-toggle)))
 
 (defun org-air-rail-popin ()
@@ -3995,7 +4079,7 @@ project popped it) so a project rail falls back to inline like the board's."
                      (get-buffer org-air-view-buffer-name)))))
     (when (buffer-live-p board)
       (with-current-buffer board
-        (when org-air-view--rail-popped-out
+        (when (org-air-rail--popped-p)
           (setq-local org-air-view--rail-popped-out nil
                       org-air-view--rail-suspended nil)
           (org-air-rail--hide board)
@@ -4027,10 +4111,17 @@ re-pops the side window (R16 D-P1, design transition table)."
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-rail--host-buffer-p (buf)
-  "Non-nil when BUF is an org-air board/project (rail HOST) buffer (R25-6)."
+  "Non-nil when BUF is an org-air board/project (rail HOST) buffer (R25-6).
+R26-5: a DOC-SESSION file buffer (one carrying the back-pointer
+`org-air-project--session-tree') counts as a host too, so the R25-6
+suspension/re-pop sweep treats the doc half of a project session exactly
+like a board<->project switch."
   (and (buffer-live-p buf)
-       (with-current-buffer buf
-         (derived-mode-p 'org-air-view-mode 'org-air-project-mode))))
+       (or (with-current-buffer buf
+             (derived-mode-p 'org-air-view-mode 'org-air-project-mode))
+           (and (local-variable-p 'org-air-project--session-tree buf)
+                (buffer-local-value 'org-air-project--session-tree buf)
+                t))))
 
 (defun org-air-rail--active-view (&optional frame)
   "Return the org-air HOST buffer shown in a MAIN (non-side) window on FRAME.
@@ -4115,8 +4206,9 @@ suspended; a genuinely user-closed rail falls back inline."
         (with-current-buffer active
           (let ((width (org-air-view--render-width)))
             (cond
-             ;; (A) active WANTS the side rail.
-             (org-air-view--rail-popped-out
+             ;; (A) active WANTS the side rail.  R26-5: through the ONE
+             ;; popped predicate — `unset' can never read as "wants it".
+             ((org-air-rail--popped-p)
               (cond
                ((eq owner active)               ; already ours -> consistent
                 (setq-local org-air-view--rail-suspended nil))
@@ -4868,10 +4960,15 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     ;; R16 D-P1: seed the per-board popout flag from the INITIAL preference
     ;; on first render only (`unset' sentinel); thereafter the toggle /
     ;; reconciler own it.  The renderer never consults `org-air-rail-style'
-    ;; for dispatch again.
+    ;; for dispatch again.  R26-5: the per-view `org-air-rail-placement'
+    ;; alist seeds too (interactive only; batch keeps `unset' -> nil, or
+    ;; the explicit `org-air-rail-style' back-compat force).
     (when (eq org-air-view--rail-popped-out 'unset)
       (setq-local org-air-view--rail-popped-out
-                  (eq org-air-rail-style 'side-window)))
+                  (or (eq org-air-rail-style 'side-window)
+                      (and (not noninteractive)
+                           (eq (alist-get 'board org-air-rail-placement)
+                               'side-window)))))
     ;; R13 D-P3: below `org-air-rail-min-width' drop the rail entirely
     ;; (board-only); else the existing two-pane vs stacked decision.
     ;; R16 D-P1: `side-window' is now driven by the RUNTIME flag (a user
@@ -4880,7 +4977,7 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     (setq org-air-view--orientation
           (cond
            ((org-air-view--board-only-p width) 'board-only)
-           (org-air-view--rail-popped-out 'side-window)
+           ((org-air-rail--popped-p) 'side-window)
            ((org-air-view--two-pane-p width) 'two-pane)
            (t 'stacked)))
     ;; R15 D-P2: under `side-window' create the rail side window BEFORE
@@ -5264,7 +5361,13 @@ buffer can never wedge in a loading state."
   (interactive)
   (let* ((buffer (get-buffer-create org-air-view-buffer-name))
          (cached (with-current-buffer buffer
-                   (org-air-view-mode)
+                   ;; R26-5: IDEMPOTENT entry — re-running the mode on a
+                   ;; live buffer runs `kill-all-local-variables' and wipes
+                   ;; the whole session (rail placement, sort, filter...).
+                   ;; Initialise only when not already in the mode (the
+                   ;; same guard as the project entry; one discipline).
+                   (unless (derived-mode-p 'org-air-view-mode)
+                     (org-air-view-mode))
                    (and org-air-view--items
                         (equal org-air-view--items-key
                                (list org-air-files org-air-inbox-file))))))

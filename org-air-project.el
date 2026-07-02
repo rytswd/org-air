@@ -938,6 +938,17 @@ margin + state cell, byte-identical to today."
 Per-buffer (the Dired `(' convention, R26-4); read by the render pass, so
 it survives `g' refresh, grouping changes and board<->project hops.")
 
+(defvar-local org-air-project--session nil
+  "TREE-side doc-session stash: (:point P :window W) (R26-5).
+Set by `org-air-project-open' so `org-air-project-back' restores the SAME
+window and lands point back on the originating doc row.")
+
+(defvar-local org-air-project--session-tree nil
+  "DOC-side back-pointer to the project tree buffer (R26-5).
+Non-nil only in a doc FILE buffer opened by `org-air-project-open'; it
+makes the doc buffer count as a rail HOST for the R25-6 sweep
+\(`org-air-rail--host-buffer-p') and is the `back' target.")
+
 (defun org-air-project--state-rank (state)
   "Return the canonical rank of STATE (R16 D-P5).
 Uses `org-air-project-sections' (Draft/Ready/WIP/Complete/Dropped) as
@@ -1334,13 +1345,25 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
     (unless org-air-project--sort-direction
       (setq-local org-air-project--sort-direction org-air-project-sort-direction))
     (erase-buffer)
+    ;; R26-5: seed the per-buffer rail placement ONCE (the `unset'
+    ;; sentinel) from `org-air-rail-placement' — the project defaults to
+    ;; the popped side-window rail, no `|' required.  Interactive only:
+    ;; batch never touches the sentinel (the `unset'-is-not-popped
+    ;; normalisation lives in `org-air-rail--popped-p'), so byte goldens
+    ;; and legacy sentinel assertions are untouched.  Thereafter the
+    ;; toggle + reconciler own the flag.
+    (when (and (not noninteractive)
+               (eq org-air-view--rail-popped-out 'unset))
+      (setq-local org-air-view--rail-popped-out
+                  (eq (alist-get 'project org-air-rail-placement)
+                      'side-window)))
     ;; R22-5: when the rail is POPPED OUT, render the doc pane LEFT-ONLY and
     ;; push the project rail into the shared `*org-air-rail*' side window
     ;; (reusing the board's side-window primitives).  `unset' (the initial
-    ;; sentinel) is NOT popped out.
+    ;; sentinel) is NOT popped out (`org-air-rail--popped-p', R26-5).
     (setq org-air-view--orientation
           (cond
-           ((eq org-air-view--rail-popped-out t) 'side-window)
+           ((org-air-rail--popped-p) 'side-window)
            ((and org-air-project-show-inspector
                  (not (org-air-view--board-only-p width)))
             'two-pane)
@@ -1489,16 +1512,216 @@ R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
       (user-error "No Air document on this line"))))
 
 (defun org-air-project-open ()
-  "Open the Air doc at point in the SAME window (R26-3, the R26-5 model).
-RET replaces the project tree with the doc's file buffer in the window the
-tree occupies — no `display-buffer' to fight, nothing to swallow (the
-R26-3b root cause: the pane path's refused `display-buffer' was a silent
-no-op).  `v' keeps the bottom peek pane; S-RET visits in the other window."
+  "Open the Air doc at point in the SAME window (R26-3 / R26-5 session).
+TREE -> DOC: RET replaces the project tree with the doc's file buffer in
+the window the tree occupies — no `display-buffer' to fight, nothing to
+swallow (the R26-3b root cause).  The session is stashed (window + point)
+so the back verbs restore the tree exactly; a popped side rail flips to
+the DOC context (outline + meta + legend).  `v' keeps the bottom peek
+pane; S-RET visits in the other window."
   (interactive)
   (let ((doc (get-text-property (point) 'org-air-doc)))
     (unless doc
       (user-error "No Air document on this line"))
-    (pop-to-buffer-same-window (find-file-noselect (org-air-doc-file doc)))))
+    (let* ((tree (current-buffer))
+           (win (selected-window))
+           (popped (org-air-rail--popped-p))
+           (buf (find-file-noselect (org-air-doc-file doc))))
+      ;; Stash the session on the TREE side (restore target for `back').
+      (setq-local org-air-project--session (list :point (point) :window win))
+      (pop-to-buffer-same-window buf)
+      (with-current-buffer buf
+        (setq-local org-air-project--session-tree tree)
+        ;; The DOC half carries the session's rail state so the R25-6
+        ;; reconciler keeps (or re-pops) the side window for the session.
+        (setq-local org-air-view--rail-popped-out (and popped t))
+        (setq-local org-air-view--rail-descriptor
+                    (org-air-project--doc-rail-descriptor buf doc))
+        (org-air-doc-session-mode 1))
+      ;; The side window flips to the DOC context (outline + legend).
+      (when popped
+        (org-air-project--doc-rail-show buf)))))
+
+(defun org-air-project-back ()
+  "DOC -> TREE: restore the project tree into the SAME window (R26-5).
+Point lands back on the originating doc row; the side window shows the
+project rail again.  The doc FILE buffer survives (unsaved edits are never
+thrown away) — only the windows swap.  Bound in the doc buffer via
+`org-air-doc-session-mode-map' (\\<org-air-doc-session-mode-map>\\[org-air-project-back],
+and any `quit-window' remap), and to plain `q' in the read-only
+DOC-context side rail."
+  (interactive)
+  (let ((docbuf (current-buffer))
+        (tree org-air-project--session-tree))
+    (unless tree
+      (user-error "No project doc session in this buffer"))
+    (unless (buffer-live-p tree)
+      (user-error "The project tree buffer is gone"))
+    (let* ((session (buffer-local-value 'org-air-project--session tree))
+           (win (or (get-buffer-window docbuf)
+                    (let ((w (plist-get session :window)))
+                      (and (window-live-p w) w))
+                    (selected-window)))
+           ;; The session's CURRENT rail state: a user close during the
+           ;; DOC state falls back inline (R25-6 user-close rule).
+           (popped (org-air-rail--popped-p docbuf)))
+      ;; Leave the session; the doc buffer survives for the next RET.
+      (org-air-doc-session-mode -1)
+      (setq-local org-air-project--session-tree nil)
+      (kill-local-variable 'org-air-view--rail-popped-out)
+      (kill-local-variable 'org-air-view--rail-descriptor)
+      ;; The SAME window shows the tree again.
+      (set-window-buffer win tree)
+      (select-window win)
+      (with-current-buffer tree
+        (setq-local org-air-view--rail-popped-out (and popped t))
+        (if popped
+            ;; Re-own the side window with the PROJECT rail content.
+            (org-air-rail--show tree (org-air-project--render-width))
+          ;; Rail-less (inline or user-closed): re-render the tree so the
+          ;; inline rail reflects the session's final state.
+          (org-air-view--refresh-current))
+        ;; Land point back on the originating row (after any re-render).
+        (when-let* ((pt (plist-get session :point)))
+          (let ((pt (min pt (point-max))))
+            (goto-char pt)
+            (set-window-point win pt)))))))
+
+(defun org-air-project--doc-session-cleanup ()
+  "Kill-buffer guard: a killed session DOC hands the window back (R26-5).
+The dead owner's window shows the tree again and the side rail re-owns to
+the tree buffer (TREE state), so killing the doc mid-session never strands
+the session."
+  (when (buffer-live-p org-air-project--session-tree)
+    (let ((tree org-air-project--session-tree)
+          (win (get-buffer-window (current-buffer)))
+          (popped (org-air-rail--popped-p)))
+      (setq-local org-air-project--session-tree nil)
+      (when (window-live-p win)
+        (set-window-buffer win tree))
+      (with-current-buffer tree
+        (setq-local org-air-view--rail-popped-out (and popped t))
+        (when (and popped (window-live-p (org-air-rail--side-window)))
+          (org-air-rail--show tree (org-air-project--render-width)))))))
+
+(defun org-air-project--doc-outline (docbuf)
+  "Return DOCBUF's Org outline as a list of (LEVEL TITLE POS) (R26-5)."
+  (with-current-buffer docbuf
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (let (rows)
+          (while (re-search-forward "^\\(\\*+\\)[ \t]+\\(.*\\)$" nil t)
+            (push (list (length (match-string 1))
+                        (string-trim (match-string-no-properties 2))
+                        (match-beginning 0))
+                  rows))
+          (nreverse rows))))))
+
+(defun org-air-project--insert-doc-context (docbuf doc width)
+  "Insert the DOC-context rail body for DOC shown in DOCBUF (R26-5).
+A meta block (state badge + title + tags), then the Outline: one row per
+heading, indented by level, each carrying `org-air-doc-heading-pos' so RET
+in the rail jumps the main window to that heading."
+  (let ((inset (org-air-view--rail-inset-str width)))
+    (org-air-view--rail-header "Document" width)
+    (insert (org-air-view--pad-to
+             (concat inset
+                     (org-air-project--state-badge-cell
+                      (org-air-doc-state doc))
+                     " "
+                     (propertize (or (org-air-doc-name doc) "")
+                                 'face 'org-air-face-title))
+             width)
+            "\n")
+    (let ((tagstr (mapconcat
+                   (lambda (tg) (propertize (concat "#" tg)
+                                            'face (org-air-faces-tag-face tg)))
+                   (org-air-doc-tags doc) " ")))
+      (unless (string-empty-p tagstr)
+        (insert (org-air-view--pad-to (concat inset tagstr) width) "\n")))
+    (insert "\n")
+    (org-air-view--rail-header "Outline" width)
+    (let ((rows (org-air-project--doc-outline docbuf)))
+      (if (null rows)
+          (insert (org-air-view--pad-to
+                   (concat inset (propertize "no headings"
+                                             'face 'org-air-face-faded))
+                   width)
+                  "\n")
+        (pcase-dolist (`(,level ,title ,pos) rows)
+          (insert (propertize
+                   (org-air-view--pad-to
+                    (concat inset (make-string (* 2 (1- level)) ?\s) title)
+                    width)
+                   'org-air-doc-heading-pos pos)
+                  "\n"))))))
+
+(defun org-air-project--insert-doc-actions (width)
+  "Insert the DOC-context rail Actions legend at WIDTH (R26-5)."
+  (org-air-view--rail-header "Actions" width)
+  (let ((inset (org-air-view--rail-inset-str width))
+        (gap (if (>= width 38) "    " " ")))
+    (insert (org-air-view--pad-to
+             (concat inset
+                     (org-air-view--verb-cell "q" "back" 7) gap
+                     (org-air-view--verb-cell "RET" "jump" 9) gap
+                     (org-air-view--verb-cell "|" "rail" 0))
+             width)
+            "\n")))
+
+(defun org-air-project--doc-rail-descriptor (docbuf doc)
+  "Return the DOC-context rail descriptor for DOCBUF showing DOC (R26-5).
+An `:outline-fn' + `:actions-fn' pair on the EXISTING rail descriptor seam
+\(one renderer, parameterised — never forked)."
+  (list :outline-fn (lambda (w)
+                      (org-air-project--insert-doc-context docbuf doc w))
+        :actions-fn #'org-air-project--insert-doc-actions))
+
+(defun org-air-project--doc-rail-show (docbuf)
+  "Show/re-render the DOC-context side rail owned by DOCBUF (R26-5)."
+  (let ((win (get-buffer-window docbuf)))
+    (org-air-rail--show docbuf (if (window-live-p win)
+                                   (max 40 (window-body-width win))
+                                 80))))
+
+(defun org-air-project--doc-rail-refresh (docbuf)
+  "Refresh DOCBUF's doc-context rail per its popped flag (R26-5).
+The doc-session leg of `org-air-view--refresh-current' (the `|' toggle)."
+  (if (org-air-rail--popped-p docbuf)
+      (org-air-project--doc-rail-show docbuf)
+    (org-air-rail--hide docbuf)))
+
+(defvar org-air-doc-session-mode-map
+  (let ((map (make-sparse-keymap)))
+    ;; R20-3a rule: the doc FILE buffer is EDITABLE, so plain `q' must
+    ;; stay self-insert HERE; the back verbs are C-c C-q + the quit-window
+    ;; remap.  Plain `q' -> back lives in the read-only side rail.
+    (define-key map (kbd "C-c C-q") #'org-air-project-back)
+    (define-key map [remap quit-window] #'org-air-project-back)
+    map)
+  "Keymap for `org-air-doc-session-mode' (R26-5).")
+
+(define-minor-mode org-air-doc-session-mode
+  "Minor mode in a doc FILE buffer opened from the project tree (R26-5).
+The buffer stays fully editable;
+\\<org-air-doc-session-mode-map>\\[org-air-project-back] (or any
+`quit-window' binding) returns to the tree in the same window.  The header
+line names the back verb; a kill mid-session hands the window and side
+rail back to the tree."
+  :lighter " ↳air"
+  :keymap org-air-doc-session-mode-map
+  (if org-air-doc-session-mode
+      (progn
+        (setq-local header-line-format
+                    (list (propertize " C-c C-q back to tree"
+                                      'face 'org-air-face-faded)))
+        (add-hook 'kill-buffer-hook
+                  #'org-air-project--doc-session-cleanup nil t))
+    (kill-local-variable 'header-line-format)
+    (remove-hook 'kill-buffer-hook
+                 #'org-air-project--doc-session-cleanup t)))
 
 (defun org-air-project-toggle-filenames ()
   "Flip project doc rows between doc title and relpath (R26-4).  Key `('."
@@ -1628,7 +1851,13 @@ With several configured projects, prompt for one (`org-air-projects' /
                     (t (completing-read "Air project: " roots nil t)))))
          (buffer (get-buffer-create "*org-air-project*")))
     (with-current-buffer buffer
-      (org-air-project-mode)
+      ;; R26-5: IDEMPOTENT entry — re-running the mode on the live buffer
+      ;; runs `kill-all-local-variables' and wipes the whole session (rail
+      ;; placement, sort, filter, R26-4 flip, expanded sections), which is
+      ;; how the re-entry DOUBLE RAIL was born.  Initialise the mode only
+      ;; once; a re-entry (or a different root) just re-renders in place.
+      (unless (derived-mode-p 'org-air-project-mode)
+        (org-air-project-mode))
       (setq org-air-project--root (expand-file-name root))
       (org-air-project--render org-air-project--root))
     (pop-to-buffer buffer)))

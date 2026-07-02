@@ -14,6 +14,11 @@
 ;;          TABLE-DRIVEN true (every legend key resolves to a command), and
 ;;          RET opens the doc in the SAME window (the R26-5 model) — no
 ;;          silently-swallowed `display-buffer'.
+;;   R26-5  RAIL PLACEMENT + DOC SESSION — `org-air-rail-placement'
+;;          (project defaults side-window), IDEMPOTENT re-entry (no
+;;          kill-all-local-variables wipe, no double rail), and the
+;;          TREE<->DOC session state machine (RET / back / q-in-rail /
+;;          sequences never strand) on top of the R25-6 invariant.
 
 ;;; Code:
 
@@ -70,6 +75,13 @@ window.  Frozen mtime keeps dates deterministic without touching content."
                 (let ((kill-buffer-query-functions nil))
                   (kill-buffer buf))))))))))
 
+(defun org-air-r26--press (key)
+  "Dispatch KEY via `key-binding' in the SELECTED window's buffer.
+Emulates the command loop's discipline: the command runs with the
+selected window's buffer current, exactly as a real keypress would."
+  (with-current-buffer (window-buffer (selected-window))
+    (call-interactively (key-binding (kbd key)))))
+
 (defun org-air-r26--first-doc-pos ()
   "Return the first buffer position carrying `org-air-doc', or nil."
   (save-excursion
@@ -79,9 +91,24 @@ window.  Frozen mtime keeps dates deterministic without touching content."
       (next-single-property-change (point) 'org-air-doc))))
 
 (defun org-air-r26--pop-rail ()
-  "Pop the rail via the real toggle from the current (project) buffer."
-  (org-air-rail-toggle)
+  "Ensure the rail is POPPED (the R26-5 placement default already pops it)."
+  (unless (org-air-rail--popped-p)
+    (org-air-rail-toggle))
+  (unless (window-live-p (org-air-rail--side-window))
+    (org-air-view--refresh-current))
   (should (window-live-p (org-air-rail--side-window))))
+
+(defun org-air-r26--rail-windows ()
+  "Return the live windows showing the rail buffer on this frame."
+  (let ((rb (get-buffer org-air-rail-buffer-name)))
+    (and rb (get-buffer-window-list rb 'no-mini (selected-frame)))))
+
+(defun org-air-r26--inline-rail-text-p (buf)
+  "Non-nil when BUF's text carries the INLINE rail (the Summary block)."
+  (with-current-buffer buf
+    (save-excursion
+      (goto-char (point-min))
+      (and (search-forward "| Summary" nil t) t))))
 
 (defmacro org-air-r26--with-frame-lines (lines &rest body)
   "Resize the batch frame to LINES text lines around BODY; restore after.
@@ -225,6 +252,210 @@ parity ON KEYS) and re-render; `(' runs the R26-4 flip command."
     (should (eq org-air-project-group 'tag))
     (call-interactively (key-binding (kbd "d")))
     (should (eq org-air-project-group 'directory))))
+
+;;;; =====================================================================
+;;;; R26-5 — rail placement + the TREE<->DOC interactive session.
+;;;; =====================================================================
+
+(ert-deftest org-air-r26-5-placement-default-pops-project-rail ()
+  "A fresh `org-air-project' pops its side rail WITHOUT `|' (the
+`org-air-rail-placement' project default); a fresh board stays inline."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-project
+    ;; No `|' pressed: the placement seed popped the rail.
+    (should (org-air-rail--popped-p))
+    (should (window-live-p (org-air-rail--side-window)))
+    (should (eq (org-air-rail--side-owner) (current-buffer)))
+    ;; And the tree text carries NO inline rail.
+    (should-not (org-air-r26--inline-rail-text-p (current-buffer))))
+  ;; Fresh BOARD: inline — no side window.
+  (org-air-test-with-fixtures
+   (save-window-excursion
+     (org-air-r26--kill-aux-buffers)
+     (let ((noninteractive nil))
+       (org-air-view))
+     (unwind-protect
+         (progn
+           (should-not (org-air-rail--popped-p
+                        (get-buffer org-air-view-buffer-name)))
+           (should-not (window-live-p (org-air-rail--side-window))))
+       (org-air-r26--kill-aux-buffers)))))
+
+(ert-deftest org-air-r26-5-reentry-keeps-session-no-double-rail ()
+  "Re-running `org-air-project' on the live buffer keeps EVERY per-buffer
+preference (popped rail, cycled sort key, R26-4 flip) and never blesses a
+double rail — the re-entry `kill-all-local-variables' wipe is fixed."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-project
+    (org-air-r26--pop-rail)
+    ;; Cycle the sort key + flip filenames (per-buffer preferences).
+    (org-air-view-sort-cycle)
+    (let ((key org-air-view--sort-key))
+      (org-air-project-toggle-filenames)
+      (should org-air-project--show-filenames)
+      ;; RE-ENTER through the real command (the board's `P' hop).
+      (let ((noninteractive nil))
+        (org-air-project))
+      (let ((pbuf (get-buffer "*org-air-project*")))
+        (with-current-buffer pbuf
+          ;; popped survived; NO inline rail text; side window still live.
+          (should (eq org-air-view--rail-popped-out t))
+          (should-not (org-air-r26--inline-rail-text-p pbuf))
+          (should (window-live-p (org-air-rail--side-window)))
+          ;; preferences survived the hop.
+          (should (eq org-air-view--sort-key key))
+          (should org-air-project--show-filenames)
+          ;; reconcile changes NOTHING (no double rail to bless).
+          (org-air-rail--reconcile-frame (selected-frame))
+          (should (eq org-air-view--rail-popped-out t))
+          (should-not (org-air-r26--inline-rail-text-p pbuf))
+          (should (<= (length (org-air-r26--rail-windows)) 1))
+          ;; exactly ONE of {inline text, side window} exists.
+          (should (window-live-p (org-air-rail--side-window))))))))
+
+(ert-deftest org-air-r26-5-ret-doc-back-round-trip ()
+  "RET on a doc row: the SAME window shows the doc's file buffer and the
+side window flips to the DOC context (outline + back legend); `C-c C-q'
+restores the tree in the same window, point back on the row, and the side
+window shows the project rail (Summary) again."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-project
+    (org-air-r26--pop-rail)
+    (goto-char (org-air-r26--first-doc-pos))
+    (org-air-view--goto-row-title)
+    (let* ((tree (current-buffer))
+           (row-pt (point))
+           (win (selected-window))
+           (doc (get-text-property (point) 'org-air-doc)))
+      (call-interactively (key-binding (kbd "RET")))
+      (let ((docbuf (window-buffer win)))
+        (unwind-protect
+            (progn
+              ;; DOC state: same window, doc file buffer, session minor mode.
+              (should (eq (selected-window) win))
+              (should (equal (buffer-file-name docbuf)
+                             (file-truename (org-air-doc-file doc))))
+              (should (buffer-local-value 'org-air-doc-session-mode docbuf))
+              ;; the side window shows the DOC context: outline + legend.
+              (should (window-live-p (org-air-rail--side-window)))
+              (with-current-buffer org-air-rail-buffer-name
+                (let ((text (substring-no-properties (buffer-string))))
+                  (should (string-match-p "Outline" text))
+                  (should (string-match-p "Notes" text)) ; the doc's heading
+                  (should (string-match-p "back" text))))
+              ;; back: C-c C-q dispatched through the session keymap.
+              (with-current-buffer docbuf
+                (should (eq (key-binding (kbd "C-c C-q"))
+                            'org-air-project-back))
+                (call-interactively (key-binding (kbd "C-c C-q"))))
+              ;; TREE state again: same window, point on the row, project
+              ;; rail content restored (Summary block).
+              (should (eq (window-buffer win) tree))
+              (should (eq (window-point win) row-pt))
+              (should (window-live-p (org-air-rail--side-window)))
+              (with-current-buffer org-air-rail-buffer-name
+                (should (string-match-p
+                         "Summary"
+                         (substring-no-properties (buffer-string))))))
+          (when (buffer-live-p docbuf)
+            (with-current-buffer docbuf (set-buffer-modified-p nil))
+            (unless (eq docbuf tree) (kill-buffer docbuf))))))))
+
+(ert-deftest org-air-r26-5-q-in-side-window-goes-back ()
+  "`q' pressed IN the DOC-context side window returns to the tree (the
+read-only rail is where plain `q' is legal) and focus lands on the main
+window."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-project
+    (org-air-r26--pop-rail)
+    (goto-char (org-air-r26--first-doc-pos))
+    (org-air-view--goto-row-title)
+    (let ((tree (current-buffer))
+          (win (selected-window)))
+      (call-interactively (key-binding (kbd "RET")))
+      (let ((docbuf (window-buffer win))
+            (side (org-air-rail--side-window)))
+        (unwind-protect
+            (progn
+              (should (window-live-p side))
+              (select-window side)
+              (with-current-buffer (window-buffer side)
+                (should (eq (key-binding (kbd "q")) 'org-air-rail-quit))
+                (call-interactively (key-binding (kbd "q"))))
+              ;; DOC -> TREE restore; focus back on the main window.
+              (should (eq (window-buffer win) tree))
+              (should (eq (selected-window) win)))
+          (when (and (buffer-live-p docbuf) (not (eq docbuf tree)))
+            (with-current-buffer docbuf (set-buffer-modified-p nil))
+            (kill-buffer docbuf)))))))
+
+(ert-deftest org-air-r26-5-sequences-never-strand ()
+  "RET, back, RET, |, |, back, g — after EVERY step at most one rail
+window exists and the main window is never stranded (the R25-6 invariant
+holds through the whole session)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-project
+    (org-air-r26--pop-rail)
+    (goto-char (org-air-r26--first-doc-pos))
+    (org-air-view--goto-row-title)
+    (let* ((tree (current-buffer))
+           (win (selected-window))
+           (check (lambda (step)
+                    (should (<= (length (org-air-r26--rail-windows)) 1))
+                    (should (window-live-p win))
+                    (should (buffer-live-p (window-buffer win)))
+                    (ignore step)))
+           docbuf)
+      ;; RET (through the selected window's buffer — the command loop).
+      (org-air-r26--press "RET")
+      (setq docbuf (window-buffer win))
+      (should (buffer-local-value 'org-air-project--session-tree docbuf))
+      (funcall check 'ret-1)
+      (unwind-protect
+          (progn
+            ;; back
+            (with-current-buffer docbuf (org-air-project-back))
+            (funcall check 'back-1)
+            (should (eq (window-buffer win) tree))
+            ;; RET again (the doc buffer is REUSED, session re-arms)
+            (org-air-r26--press "RET")
+            (should (eq (window-buffer win) docbuf))
+            (should (buffer-local-value 'org-air-project--session-tree docbuf))
+            (funcall check 'ret-2)
+            ;; | (toggle from the DOC session buffer: rail pops IN)
+            (with-current-buffer docbuf (org-air-rail-toggle))
+            (funcall check 'pop-in)
+            (should-not (window-live-p (org-air-rail--side-window)))
+            ;; | again (rail pops back OUT: the DOC context returns)
+            (with-current-buffer docbuf (org-air-rail-toggle))
+            (funcall check 'pop-out)
+            (should (window-live-p (org-air-rail--side-window)))
+            ;; back
+            (with-current-buffer docbuf (org-air-project-back))
+            (funcall check 'back-2)
+            (should (eq (window-buffer win) tree))
+            ;; g (refresh the tree; the rail must not duplicate)
+            (with-current-buffer tree
+              (call-interactively (key-binding (kbd "g"))))
+            (funcall check 'refresh)
+            (should (<= (length (org-air-r26--rail-windows)) 1)))
+        (when (and (buffer-live-p docbuf) (not (eq docbuf tree)))
+          (with-current-buffer docbuf (set-buffer-modified-p nil))
+          (kill-buffer docbuf))))))
+
+(ert-deftest org-air-r26-5-unset-never-pops-in-batch ()
+  "A fresh project buffer rendered under `noninteractive' keeps the
+`unset'->nil normalisation: NO side window, and the reconciler creates
+none — the `unset'-is-truthy double-rail root cause can never return."
+  (skip-unless (locate-library "org-air"))
+  (org-air-project-test--render
+   ;; batch render: the placement seed is gated off; not popped.
+   (should-not (org-air-rail--popped-p))
+   (should-not (window-live-p (org-air-rail--side-window)))
+   ;; even a reconcile pass (bound interactive) creates no side window.
+   (let ((noninteractive nil))
+     (org-air-rail--reconcile-frame (selected-frame)))
+   (should-not (window-live-p (org-air-rail--side-window)))))
 
 (provide 'org-air-round26-test)
 ;;; org-air-round26-test.el ends here

@@ -72,6 +72,10 @@ view is never responsive-narrow board-only."
           (org-air-project-view-width 120)
           (org-air-view-width 120)
           (org-air-rail-style 'inline)
+          ;; R26-5 pin: the project now DEFAULTS to a popped side rail
+          ;; (`org-air-rail-placement'); this harness asserts the R25-6
+          ;; single-owner invariant from a known INLINE start, so pin it.
+          (org-air-rail-placement '((board . inline) (project . inline)))
           (org-air-rail-focus-on-popout nil))
       (save-window-excursion
         (org-air-r25--kill-aux-buffers)

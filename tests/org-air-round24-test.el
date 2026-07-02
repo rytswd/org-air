@@ -68,7 +68,11 @@ Frozen mtime keeps dates deterministic without touching file content."
      (should (fboundp 'org-air-project))
      (let ((org-air-sources (list (list :air org-air-project-test-root)))
            (org-air-project-group 'directory)
-           (org-air-project-view-width 120))
+           (org-air-project-view-width 120)
+           ;; R26-5 pin: the project now DEFAULTS to a popped side rail
+           ;; (`org-air-rail-placement'); this harness drives the rail
+           ;; explicitly from a known INLINE start, so pin it.
+           (org-air-rail-placement '((board . inline) (project . inline))))
        (org-air-project-test--with-frozen-mtime
         (save-window-excursion
           (org-air-r24--kill-aux-buffers)

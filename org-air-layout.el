@@ -64,7 +64,8 @@
     (sep-dot . ("·" . "-"))
     (sort-asc . ("↑" . "^"))
     (sort-desc . ("↓" . "v"))
-    (sort-key . ("↕" . "|")))
+    (sort-key . ("↕" . "|"))
+    (flip . ("⇄" . "<>")))
   "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
 PREFERRED is the GUI glyph (already the safer S5b default: stale ○, today
 ■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate

@@ -905,7 +905,14 @@ margin + state cell, byte-identical to today."
          (tags   (org-air-project--doc-tagstr doc)))
     (org-air-view--insert-row
      :prefix prefix
-     :title (org-air-doc-name doc)
+     ;; R26-4: the `(' flip — ONE rule in ONE place: doc rows show the
+     ;; RAW project-relative file name while the per-buffer flag is on
+     ;; (the point is the real file name; the R24 deslug affordance stays
+     ;; title-mode-only), the doc title otherwise.  One rule for every
+     ;; grouping mode, matching airctl's flip.
+     :title (if org-air-project--show-filenames
+                (org-air-doc-relpath doc)
+              (org-air-doc-name doc))
      :date-text date
      :tags tags
      ;; R25-5: no `:origin-text' / `:origin-face' — the project view drops the
@@ -1073,14 +1080,26 @@ filter is active, keeping the existing project goldens byte-identical."
                     'face 'org-air-face-faded)
       "")))
 
+(defun org-air-project--files-chip ()
+  "Return the quiet `⇄ files' header chip while the R26-4 flip is on.
+Empty at the default (titles), so every golden is byte-identical; while
+flipped it sits beside the sort indicator (same faded idiom) so a flipped
+buffer is never mistaken for odd titles."
+  (if org-air-project--show-filenames
+      (propertize (concat (org-air-layout-glyph 'flip) " files · ")
+                  'face 'org-air-face-faded)
+    ""))
+
 (defun org-air-project--header-line (width)
   "Return the project header line for WIDTH: title left, sort badge right.
 The badge order is part of the byte contract (R16 D-P4).  R18 D-P3: an
 active tag filter + combinator is surfaced beside the title (empty when
-none, so the no-filter goldens are byte-identical)."
+none, so the no-filter goldens are byte-identical).  R26-4: a flipped
+buffer gains the `⇄ files' chip next to the sort indicator."
   (let* ((title (concat (propertize "  org-air · project" 'face 'org-air-face-title)
                         (org-air-project--filter-segment)))
-         (badge (org-air-project--sort-indicator))
+         (badge (concat (org-air-project--files-chip)
+                        (org-air-project--sort-indicator)))
          (lw (string-width title))
          (bw (string-width badge))
          ;; right-cluster the badge, leaving a trailing column like the rest.

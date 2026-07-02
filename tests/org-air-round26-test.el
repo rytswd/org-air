@@ -640,5 +640,54 @@ default `name' the tree keeps the byte-stable name order.  FAILS on trunk
                 (org-air-r26--kill-aux-buffers)))))
       (delete-directory root t))))
 
+;;;; =====================================================================
+;;;; R26-4 — "(" flips doc rows filename<->title (Dired-style).
+;;;; =====================================================================
+
+(ert-deftest org-air-r26-4-flip-shows-relpath-and-back ()
+  "`(' flips doc rows to the RAW project-relative file name (header gains
+the `files' chip); a second `(' restores a byte-identical title render."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-project
+    (let ((baseline (substring-no-properties (buffer-string))))
+      (goto-char (org-air-r26--first-doc-pos))
+      (let ((doc (get-text-property (point) 'org-air-doc)))
+        ;; flip: rows show relpaths, the header carries the files chip.
+        (call-interactively (key-binding (kbd "(")))
+        (should org-air-project--show-filenames)
+        (let ((text (substring-no-properties (buffer-string))))
+          (should (string-match-p (regexp-quote (org-air-doc-relpath doc))
+                                  text))
+          (should-not (string-match-p (regexp-quote (org-air-doc-name doc))
+                                      text))
+          (should (string-match-p "files"
+                                  (car (split-string text "\n")))))
+        ;; flip back: byte-identical to the first render (chip gone).
+        (call-interactively (key-binding (kbd "(")))
+        (should-not org-air-project--show-filenames)
+        (should (equal (substring-no-properties (buffer-string))
+                       baseline))))))
+
+(ert-deftest org-air-r26-4-flip-survives-refresh-and-grouping ()
+  "The flip is buffer-local state READ BY THE RENDER PASS: it survives
+`g' refresh and holds across the s/d/t grouping modes."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-live-project
+    (goto-char (org-air-r26--first-doc-pos))
+    (let ((relpath (org-air-doc-relpath
+                    (get-text-property (point) 'org-air-doc))))
+      (call-interactively (key-binding (kbd "(")))
+      ;; survives `g'.
+      (call-interactively (key-binding (kbd "g")))
+      (should org-air-project--show-filenames)
+      (should (string-match-p (regexp-quote relpath)
+                              (substring-no-properties (buffer-string))))
+      ;; grouping-independent: state / tag / directory all render relpaths.
+      (dolist (key '("s" "t" "d"))
+        (call-interactively (key-binding (kbd key)))
+        (should (string-match-p (regexp-quote relpath)
+                                (substring-no-properties
+                                 (buffer-string))))))))
+
 (provide 'org-air-round26-test)
 ;;; org-air-round26-test.el ends here

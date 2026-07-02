@@ -881,11 +881,15 @@ margin + state cell, byte-identical to today."
             ;; into the gutter, to the SAME width the old plain indent
             ;; produced (so nothing to the right of the gutter moves).
             ;; R25-1: fill the run AFTER the corner with `box-horizontal'
-            ;; glyphs (not spaces) so the arm REACHES the badge
-            ;; (`+-----[R]'), flush to the state cell.  The gutter TOTAL width
-            ;; stays EXACTLY `gutter-w' (truncate/pad clamp), so the state
-            ;; cell / title / right cluster do not move (V6 pixel-lock); only
-            ;; the FILL char changed from space to `-'/`─'.
+            ;; glyphs (not spaces) so the arm REACHES the badge.  R26-1:
+            ;; the arm run stops ONE column short and the freed column
+            ;; renders as a single breathing-room SPACE joining arm to
+            ;; badge (`+---- [R]', was `+-----[R]').  The gutter TOTAL
+            ;; width stays EXACTLY `gutter-w' (truncate/pad clamp), so the
+            ;; state cell / title / right cluster do not move (V6
+            ;; pixel-lock).  Degenerate clamp: when the rails are so deep
+            ;; that no column is left after the corner, there is no arm
+            ;; AND no space — the corner alone touches the badge.
             (let* ((margin-w  (string-width (org-air-view--item-margin)))
                    (old-indent (* 2 (1+ depth)))
                    (gutter-w  (+ margin-w old-indent))
@@ -893,8 +897,11 @@ margin + state cell, byte-identical to today."
                    (corner    (org-air-layout-glyph
                                (if lastp 'box-bottom-left 'box-tee-left)))
                    (lead      (concat "  " (or rails "") corner)) ; margin+rails+corner
-                   (armlen    (max 0 (- gutter-w (string-width lead))))
-                   (arm       (apply #'concat (make-list armlen hbar)))
+                   (armlen    (max 0 (- gutter-w (string-width lead) 1)))
+                   (arm       (concat
+                               (apply #'concat (make-list armlen hbar))
+                               (if (> (- gutter-w (string-width lead)) 0)
+                                   " " "")))
                    (guide     (org-air-view--pad-to
                                (propertize (truncate-string-to-width
                                             (concat lead arm) gutter-w)

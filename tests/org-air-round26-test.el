@@ -689,5 +689,107 @@ the `files' chip); a second `(' restores a byte-identical title render."
                                 (substring-no-properties
                                  (buffer-string))))))))
 
+;;;; =====================================================================
+;;;; R26-1 — one breathing-room space between the tree arm and the badge.
+;;;; =====================================================================
+
+(defmacro org-air-r26--with-dir-tree (&rest body)
+  "Render the fixture project in DIRECTORY grouping (batch); run BODY."
+  (declare (indent 0) (debug t))
+  `(let ((org-air-project-group 'directory)
+         (org-air-project-view-width 100))
+     (org-air-project-test--render ,@body)))
+
+(defun org-air-r26--doc-row-bol (name)
+  "Return BOL position of the doc row titled NAME, or nil."
+  (save-excursion
+    (goto-char (point-min))
+    (catch 'hit
+      (while (not (eobp))
+        (let* ((bol (line-beginning-position))
+               (eol (line-end-position))
+               (p (text-property-not-all bol eol 'org-air-doc nil)))
+          (when (and p (equal (org-air-doc-name
+                               (get-text-property p 'org-air-doc))
+                              name))
+            (throw 'hit bol)))
+        (forward-line 1))
+      nil)))
+
+(ert-deftest org-air-r26-1-one-space-before-the-badge ()
+  "A leaf doc row's cell IMMEDIATELY LEFT of the state cell is a single
+SPACE, and every cell between the corner and that space is the
+`box-horizontal' fill faced `org-air-face-air-tree' (`+---- [R]').
+FAILS on trunk (R25-1 drew the fill flush against `[')."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-dir-tree
+    (let ((bol (org-air-r26--doc-row-bol "Alpha feature")))
+      (should bol)
+      (goto-char bol)
+      (let* ((eol (line-end-position))
+             (open (save-excursion (search-forward "[" eol) (1- (point)))))
+        ;; the cell immediately left of the state cell is ONE space...
+        (should (eq (char-after (1- open)) ?\s))
+        ;; ...the cell before it is the arm fill (not another space)...
+        (should (eq (char-after (- open 2)) ?-))
+        ;; ...and the whole run corner+1 .. space-1 is `-' faced air-tree.
+        (let ((corner (save-excursion (goto-char bol)
+                                      (search-forward "+" open)
+                                      (1- (point)))))
+          (cl-loop for pos from (1+ corner) to (- open 2) do
+                   (should (eq (char-after pos) ?-))
+                   (let ((face (get-text-property pos 'face)))
+                     (should (memq 'org-air-face-air-tree
+                                   (if (listp face) face (list face)))))))))))
+
+(ert-deftest org-air-r26-1-v6-gutter-width-frozen ()
+  "The gutter TOTAL width is still `item-margin + 2*(1+depth)': the state
+cell's `[' column is unchanged by the one-space join, at depth 0 AND for
+the nested depth-1 doc (ancestor rail intact, corner rule intact)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-dir-tree
+    (let ((margin-w (string-width (org-air-view--item-margin))))
+      ;; depth 0 (Alpha): gutter = margin + 2.
+      (let ((bol (org-air-r26--doc-row-bol "Alpha feature")))
+        (goto-char bol)
+        (search-forward "[" (line-end-position))
+        (should (= (- (1- (point)) bol) (+ margin-w (* 2 (1+ 0))))))
+      ;; depth 1 (Gamma, under air-context/): gutter = margin + 4, the
+      ;; ancestor rail column intact and the corner still present.
+      (let ((bol (org-air-r26--doc-row-bol "Gamma context")))
+        (goto-char bol)
+        (search-forward "[" (line-end-position))
+        (should (= (- (1- (point)) bol) (+ margin-w (* 2 (1+ 1)))))
+        (let ((line (buffer-substring-no-properties bol (line-end-position))))
+          ;; corner + shortened arm + ONE space before the badge.
+          (should (string-match-p "\\+-+ \\[" line)))))))
+
+(ert-deftest org-air-r26-1-degenerate-depth-clamps ()
+  "A doc so deep that no column remains after the corner renders
+corner-flush with NO space and NO overflow (gutter width still clamped)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+   (with-temp-buffer
+     (let* ((org-air-project-view-width 100)
+            (org-air-view-width 100)
+            (org-air-project--meta-date-w 12)
+            (org-air-project--meta-tags-w 10)
+            (org-air-project--meta-origin-w 0)
+            (doc (car (org-air-project--collect-docs
+                       org-air-project-test-root)))
+            ;; rails deep enough to eat the whole gutter at this depth.
+            (rails (make-string 40 ?|)))
+       (should doc)
+       (org-air-project--insert-doc-row doc 100 2 rails t)
+       (goto-char (point-min))
+       (let* ((bol (point))
+              (open (progn (search-forward "[" (line-end-position))
+                           (1- (point))))
+              (margin-w (string-width (org-air-view--item-margin))))
+         ;; gutter clamped to margin + 2*(1+2) — never wider, no crash.
+         (should (= (- open bol) (+ margin-w (* 2 (1+ 2)))))
+         ;; truncated lead: no trailing space squeezed in.
+         (should-not (eq (char-after (1- open)) ?\s)))))))
+
 (provide 'org-air-round26-test)
 ;;; org-air-round26-test.el ends here

@@ -686,7 +686,23 @@
     (org-air-f5-project-view-byte-mockups
      . "R26-3: inline rail Actions legend re-written (RET open/( flip//
 filter · o sort/s\/d\/t group/| rail · g refresh/? help/q quit) — the three
-project goldens' Actions rows await test-seat re-bless via regen-mockups")
+project goldens' Actions rows await test-seat re-bless via regen-mockups.
+R26-1: the dir golden's doc-row gutters additionally re-bless to the
+one-space arm join (`+---- [R]', was `+-----[R]'; nested `+--- [D]')")
+    (org-air-r24-2-doc-row-carries-tree-rail
+     . "R26-1: the arm run stops one column short and a single SPACE joins
+it to the badge — the R25 flush-run assertion retunes to corner + dashes
++ one space")
+    (org-air-r25-1-arm-reaches-the-badge
+     . "R26-1: deliberate inversion — the R25-1 'NO space sits between the
+connector fill and [' contract becomes 'exactly ONE space' (user ask:
+breathing room); retune to the R26-1 one-space contract")
+    (org-air-r25-1-arm-reaches-the-badge-at-depth-2
+     . "R26-1: same inversion at depth 2 — the nested arm is one shorter
+and a single space joins it to the badge")
+    (org-air-r25-1-nested-ancestor-rail-then-arm
+     . "R26-1: the depth-1 arm ends in a space before [ — the flush-to-
+badge tail assertion retunes (ancestor rail + corner rules unchanged)")
     (org-air-r18-dp3-project-keymap-inherits-core
      . "R26-3: project RET is `org-air-project-open' (same-window doc
 open), no longer the inherited shared pane-return — assertion retunes")

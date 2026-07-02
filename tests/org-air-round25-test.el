@@ -565,8 +565,9 @@ pill exactly."
 
 (ert-deftest org-air-r25-1-arm-reaches-the-badge ()
   "On a leaf DOC row the run of cells BETWEEN the corner glyph and the state
-cell is ALL `box-horizontal' (`-' in batch), faced `org-air-face-air-tree' —
-NO space sits between the connector and `[R]'.  On trunk this run is spaces."
+cell is `box-horizontal' (`-' in batch), faced `org-air-face-air-tree', up
+to exactly ONE breathing-room SPACE joining the arm to the badge (R26-1:
+the deliberate inversion of R25-1's flush `no space' contract — user ask)."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r25-1--fixture-docs))
          (tree (org-air-project--directory-tree docs))
@@ -578,17 +579,20 @@ NO space sits between the connector and `[R]'.  On trunk this run is spaces."
         (with-temp-buffer
           (org-air-r25-1--insert-tree tree 100)
           (goto-char (point-min))
-          (should (re-search-forward "\\[R\\] Alpha feature" nil t))
-          (let* ((bracket (match-beginning 0))
+          (should (re-search-forward "READY Alpha feature" nil t))
+          (let* ((badge (match-beginning 0))
                  (bol (line-beginning-position))
-                 (gutter (buffer-substring-no-properties bol bracket))
+                 (gutter (buffer-substring-no-properties bol badge))
                  (conn (org-air-r25-1--connector-pos gutter tee corner)))
             (should conn)
             (let ((run (substring gutter (1+ conn))))
-              (should (> (length run) 0))
-              ;; every cell after the connector is box-horizontal, NO space.
-              (should (cl-every (lambda (c) (equal (char-to-string c) hbar)) run))
-              (should-not (string-match-p " " run)))
+              (should (> (length run) 1))
+              ;; the arm run is box-horizontal…
+              (should (cl-every (lambda (c) (equal (char-to-string c) hbar))
+                                (substring run 0 -1)))
+              ;; …and exactly ONE space joins it to the badge (no space
+              ;; anywhere else in the run).
+              (should (equal (substring run -1) " ")))
             ;; the first run cell is faced air-tree.
             (should (eq (get-text-property (+ bol conn 1) 'face)
                         'org-air-face-air-tree))))))))
@@ -655,8 +659,9 @@ dash run (R24-2's corner logic unchanged, only the fill after it)."
 
 (ert-deftest org-air-r25-1-nested-ancestor-rail-then-arm ()
   "A depth-1 doc still carries the ancestor `box-vertical' (`|') to the LEFT
-of its corner, THEN the dash run reaches the badge (the ancestor rail is
-preserved; only the post-corner fill changed)."
+of its corner, THEN the dash run + the R26-1 single joining space reach the
+badge (the ancestor rail + corner rules are unchanged; only the run's tail
+cell is the breathing-room space)."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r25-1--fixture-docs))
          (doc (car docs))
@@ -686,19 +691,23 @@ preserved; only the post-corner fill changed)."
             (let* ((bol (line-beginning-position))
                    (line (buffer-substring-no-properties
                           bol (line-end-position)))
-                   (bracket (string-match "\\[" line))
-                   (gutter (substring line 0 bracket))
+                   ;; R26-2: word cells have no `[' — the badge is the first
+                   ;; UPPERCASE cell (the gutter carries none).
+                   (badge (string-match "[A-Z]" line))
+                   (gutter (substring line 0 badge))
                    (conn (org-air-r25-1--connector-pos gutter tee corner))
                    (vpos (string-match (regexp-quote vrail) gutter)))
               (should vpos)
               (should conn)
               ;; the ancestor rail sits to the LEFT of the connector.
               (should (< vpos conn))
-              ;; the run from the connector to the badge is all box-horizontal.
+              ;; the run from the connector is box-horizontal, ending in the
+              ;; R26-1 single joining space before the badge.
               (let ((run (substring gutter (1+ conn))))
-                (should (> (length run) 0))
+                (should (> (length run) 1))
+                (should (equal (substring run -1) " "))
                 (should (cl-every (lambda (c) (equal (char-to-string c) hbar))
-                                  run))))))))))
+                                  (substring run 0 -1)))))))))))
 
 ;;;; =====================================================================
 ;;;; R25-5 — drop the meaningless origin/path column in the PROJECT view.
@@ -794,8 +803,9 @@ rendered row overflows the width (the freed columns flow to the flex title)."
   "R25-1 depth>=2 (test-seat gap-fill): the fixture only nests ONE dir level,
 so drive a synthetic depth-2 dir (v0.1/air-template/references/, as airctl
 renders it).  Its doc carries TWO `box-vertical' ancestor rails, then its
-corner, then a `box-horizontal' arm that STILL reaches the badge FLUSH (no
-space gap); the badge `[' lands at the V6 column margin + (* 2 (1+ 2))."
+corner, then a `box-horizontal' arm ONE glyph shorter than R25-1's, joined
+to the badge by the single R26-1 breathing-room space; the badge (the word
+state cell) lands at the V6 column margin + (* 2 (1+ 2))."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r25-1--fixture-docs))
          (doc (car docs))
@@ -835,8 +845,10 @@ space gap); the badge `[' lands at the V6 column margin + (* 2 (1+ 2))."
             (goto-char pos)
             (let* ((line (buffer-substring-no-properties
                           (line-beginning-position) (line-end-position)))
-                   (bracket (string-match "\\[" line))
-                   (gutter (substring line 0 bracket))
+                   ;; R26-2: no `[' in a word cell — the badge is the first
+                   ;; UPPERCASE cell after the (uppercase-free) gutter.
+                   (badge (string-match "[A-Z]" line))
+                   (gutter (substring line 0 badge))
                    (conn (org-air-r25-1--connector-pos gutter tee corner)))
               (should conn)
               ;; (a) TWO box-vertical ancestor rails LEFT of the corner.
@@ -846,14 +858,16 @@ space gap); the badge `[' lands at the V6 column margin + (* 2 (1+ 2))."
               ;; (b) the connector is the corner (the doc is the last child
               ;; overall under `references').
               (should (equal (char-to-string (aref gutter conn)) corner))
-              ;; (c) the corner->badge run is ALL box-horizontal, flush (>0).
+              ;; (c) the corner->badge run is box-horizontal, one glyph
+              ;; shorter, ending in the SINGLE R26-1 joining space (the only
+              ;; space in the run).
               (let ((run (substring gutter (1+ conn))))
-                (should (> (length run) 0))
+                (should (> (length run) 1))
+                (should (equal (substring run -1) " "))
                 (should (cl-every (lambda (c) (equal (char-to-string c) hbar))
-                                  run))
-                (should-not (string-match-p " " run)))
+                                  (substring run 0 -1))))
               ;; (d) V6 column at the deeper tier: margin + 2*(1+2).
-              (should (= bracket (+ margin-w (* 2 (1+ 2))))))))))))
+              (should (= badge (+ margin-w (* 2 (1+ 2))))))))))))
 
 (ert-deftest org-air-r25-2-svg-badge-keeps-r25-1-columns ()
   "R25-2 x R25-1 (test-seat gap-fill): turning the bigger/bold SVG badge on

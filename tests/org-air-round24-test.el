@@ -342,10 +342,10 @@ pill path) render without unbound globals."
 (ert-deftest org-air-r24-2-doc-row-carries-tree-rail ()
   "A DOC row's leading gutter carries a faded tree CONNECTOR (box-tee-left/
 box-bottom-left + box-horizontal, ascii `+-' in batch) in `org-air-face-air-
-tree' — the rail reaches the leaf.  R25-1 re-bless: the run AFTER the corner
-is now `box-horizontal' (`-' batch) ALL the way to the badge — no spaces sit
-between the connector and `[R]' (the arm reaches it flush; on R24 the
-post-connector gutter was spaces)."
+tree' — the rail reaches the leaf.  R26-1 re-bless: the run AFTER the corner
+is `box-horizontal' (`-' batch) up to ONE breathing-room SPACE that joins
+the arm to the badge (`+---- READY'; R25-1's flush `+-----[R]' contract is
+superseded)."
   (skip-unless (locate-library "org-air"))
   (let* ((docs (org-air-r24-2--fixture-docs))
          (tree (org-air-project--directory-tree docs))
@@ -357,24 +357,25 @@ post-connector gutter was spaces)."
           (goto-char (point-min))
           ;; the top dir's own doc `Alpha feature' leads with a connector at
           ;; the marker column (NO leading ancestor rail char before it),
-          ;; then a box-horizontal run FLUSH to the badge (no space gap).
-          (should (re-search-forward "^ *\\([-+|]\\)\\([-+|]\\)-*\\[R\\] Alpha feature"
+          ;; then a box-horizontal run + ONE joining space before the badge.
+          (should (re-search-forward "^ *\\([-+|]\\)\\([-+|]\\)-* READY Alpha feature"
                                      nil t))
           (let* ((c1 (match-beginning 1)) (c2 (match-beginning 2))
-                 (bracket (- (match-end 0) (length " Alpha feature")
-                             (length "[R]"))))
+                 (badge (- (match-end 0) (length " Alpha feature")
+                           (length "READY"))))
             (should (member (char-to-string (char-after c1))
                             (list (org-air-layout-glyph 'box-bottom-left)
                                   (org-air-layout-glyph 'box-tee-left))))
             (should (equal (char-to-string (char-after c2)) hbar))
             (should (eq (get-text-property c1 'face) 'org-air-face-air-tree))
             (should (eq (get-text-property c2 'face) 'org-air-face-air-tree))
-            ;; R25-1: EVERY cell from the corner to the badge is box-horizontal
-            ;; (the arm reaches `[R]' flush — no space gap).
-            (let ((run (buffer-substring-no-properties (1+ c1) bracket)))
-              (should (> (length run) 0))
+            ;; R26-1: the run from the corner to the badge is box-horizontal
+            ;; up to its LAST cell, which is exactly ONE space (the join).
+            (let ((run (buffer-substring-no-properties (1+ c1) badge)))
+              (should (> (length run) 1))
+              (should (equal (substring run -1) " "))
               (should (cl-every (lambda (ch) (equal (char-to-string ch) hbar))
-                                run)))
+                                (substring run 0 -1))))
             ;; anti-tautology: a TOP doc's connector sits at the marker column
             ;; (no rail glyph in the two leading columns before it).
             (should (string-match-p "\\` *\\'"

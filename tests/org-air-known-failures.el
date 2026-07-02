@@ -693,20 +693,6 @@ R26-2: ALL THREE project goldens re-bless again — the state cell is the
 uniform 5-col WORD token (READY/COMP/DRAFT/WIP/DROP/UNKNO, was
 [R]/[C]/[D]/[W]/[X]/[U]) and every doc-row title/date/tag column shifts
 right by exactly 2 (V6 relock at the wider cell)")
-    (org-air-r24-2-doc-row-carries-tree-rail
-     . "R26-1: the arm run stops one column short and a single SPACE joins
-it to the badge — the R25 flush-run assertion retunes to corner + dashes
-+ one space")
-    (org-air-r25-1-arm-reaches-the-badge
-     . "R26-1: deliberate inversion — the R25-1 'NO space sits between the
-connector fill and [' contract becomes 'exactly ONE space' (user ask:
-breathing room); retune to the R26-1 one-space contract")
-    (org-air-r25-1-arm-reaches-the-badge-at-depth-2
-     . "R26-1: same inversion at depth 2 — the nested arm is one shorter
-and a single space joins it to the badge")
-    (org-air-r25-1-nested-ancestor-rail-then-arm
-     . "R26-1: the depth-1 arm ends in a space before [ — the flush-to-
-badge tail assertion retunes (ancestor rail + corner rules unchanged)")
     (org-air-r18-dp3-project-keymap-inherits-core
      . "R26-3: project RET is `org-air-project-open' (same-window doc
 open), no longer the inherited shared pane-return — assertion retunes")

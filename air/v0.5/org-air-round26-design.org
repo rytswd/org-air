@@ -1,0 +1,1041 @@
+#+title: org-air v0.5 round-26 DESIGN: breathing-room tree arms · WORD state pills · project session model (rail placement + same-window RET + doc context) · flip filename/title · kill row hint · sort actually sorts · honest async first load
+#+state: ready
+#+FILETAGS: :ui:render:project:rail:sort:async:layout:design:v0.5:
+
+* Scope of this document
+The round-26 DESIGN doc, written after the user dogfooded R25 against real
+data: the demo board over their own org files AND the real Air repo at
+=~/Coding/github.com/withre/air= (63 docs) via =M-x org-air-project=.  Eight
+items.  The round's THEME: the project view as a real INTERACTIVE BROWSING
+SESSION (placement, RET, flip, legend — R26-3/4/5), plus two runtime bugs our
+batch ERTs keep missing because they never run the code the user runs
+(R26-3b RET, R26-7 sort), plus HONEST ASYNC for the first-load hang (R26-8).
+
+Workers cannot see screenshots, so the user's authoritative observations are
+inlined per item, and every item here is REPRODUCED on THIS checkout against
+the =.el= SOURCE (=load-prefer-newer t=) over BOTH the deterministic fixture
+(=tests/fixtures/air-project=) AND the real Air repo (=withre/air=, 63 docs).
+The interaction items are *DRIVEN UNDER REALISTIC CONDITIONS* — not bare
+batch: a live window tree (=noninteractive= bound nil so
+=display-buffer-in-side-window= / =display-buffer-below-selected= really
+create windows), *the side-window rail POPPED* (the user's default flow),
+commands dispatched through =(key-binding (kbd ...))= exactly as a keypress
+would, and — new this round — *timers allowed to fire* between commands
+(=sleep-for=), because the R25-6 reconciler and the pane-follow machinery are
+timer-deferred and a drive that never runs timers is not the user's Emacs.
+This discipline found every root cause below; the acceptance ERTs it seeds
+EXECUTE under the same conditions.
+
+Root-causing used small, targeted reads (<=250 lines; no whole-file reads).
+Each item carries a *measured reproduction*, a crisp impl SPEC with exact
+functions + line numbers, a Byte/batch contract, Testability (acceptance ERTs
+that EXECUTE the behaviour), and Routing.  Nothing is integrated here — this
+is the impl-ready spec; commits are per-item (=R26= prefix; Design round-26),
+each with an =ever pub org-air3.work.design.done= signal.
+
+Honour the architecture invariants (architecture.md): V6 pixel-lock (RELOCKED
+where R26-2 widens the state cell), svg-never-grows-line, text-is-the-contract,
+one-renderer-two-views (parameterise the shared primitives, never fork),
+inspector inert under =noninteractive=.  KEEP the R18 caches (classify + svg +
+incremental), the R20 compute-once partition, and the R25-6 single-owner rail
+invariant intact — R26-5 BUILDS ON it, it does not replace it.
+
+Items, in order:
+- *R26-1* ONE SPACE BETWEEN TREE ARM AND BADGE — R25-1 made the arm flush
+  (=├──[R]=); the user wants one breathing-room space (=├── [R]=).  Gutter
+  bookkeeping only; V6 columns frozen; count parity; dir golden re-bless.
+  [POLISH]
+- *R26-2* AESTHETIC WORD STATE PILLS — the single-letter chip "looks
+  horrible".  Full/short WORD labels =DRAFT / READY / WIP / COMP / DROP=, all
+  UNIFORM pill width (pad shorter labels — the pills themselves look equal,
+  not just the cell), pretty padding/weight/contrast, colour scheme kept.
+  GUI via shared =--svg-pillify=; TTY the SAME word tokens.  WIDENS the state
+  cell 3→5 — V6 relocked.  [POLISH / RELOCK]
+- *R26-3* PROJECT: SHORTCUT LEGEND + RET DEAD (again, in real use) — (a) the
+  popped project rail's Actions block is BELOW THE FOLD and lists stale
+  verbs; (b) RET still does nothing for the user although batch ERTs pass:
+  the pane's =display-buffer= failure is SWALLOWED SILENTLY and the whole
+  window path is skipped under =noninteractive=, so batch never executes the
+  code that fails.  Fix per the R26-5 model (RET = same-window open) + ERTs
+  that run WITH the side rail popped.  [BUG]
+- *R26-4* FLIP FILENAME<->TITLE WITH =(= — dired-hide-details convention;
+  per-buffer, survives =g=; legend shows it.  [FEATURE]
+- *R26-5* PROJECT RAIL + INTERACTIVE DOC SESSION (the big one) — reproduced
+  the project-mode rail breakage: RE-ENTERING =org-air-project= re-runs the
+  MODE on the live buffer, =kill-all-local-variables= wipes the rail state,
+  and the render + reconciler then bless a DOUBLE RAIL (inline in the text
+  AND the side window).  Fix the re-entry; add =org-air-rail-placement=
+  (per-view default; project defaults to =side-window=); define the
+  TREE<->DOC session state machine: RET replaces the tree with the doc in
+  the SAME window, the side window flips to a DOC context (outline +
+  legend + =q= back), =q= restores.  [BUG + FEATURE — priority]
+- *R26-6* KILL THE =· r to file= ROW HINT — wasteful + cryptic; remove from
+  rows entirely (=r= still works); reclaim the width.  Goldens re-bless.
+  [POLISH]
+- *R26-7* =o= SORT CYCLE DEAD AT RUNTIME — two proven root causes: the board
+  composes its panes in TEMP BUFFERS that cannot see the buffer-local sort
+  key (rows + indicator both freeze; only the echo message changes), and the
+  project's DEFAULT directory grouping orders docs through
+  =--sort-own-docs=, which never consults the key at all.  [BUG]
+- *R26-8* FIRST-LOAD "Loading…" HANG — the hang is NOT inevitable: design
+  cache-first paint (persisted scan cache) + chunked idle-timer refresh with
+  a "stale · refreshing" marker; deterministic sync path in batch.  [FEATURE
+  — meatiest]
+
+* Status
+Design-led, impl-ready.  Byte contract per item:
+- *R26-1* is a DELIBERATE re-bless of the DIRECTORY-view golden
+  (=tests/fixtures/project-view-dir.txt=) only: on a doc row the LAST arm
+  glyph before the state cell becomes a SPACE (=+---- [R]=, was =+-----[R]=).
+  Gutter total width unchanged; state cell / title / right cluster do not
+  move.  State-/tag-grouping goldens byte-identical.
+- *R26-2* is byte-VISIBLE everywhere the project state token renders: the
+  3-col =[R]= tokens become 5-col padded WORD tokens (=READY=), so all three
+  project goldens re-bless (doc rows, state-section headings, the board-only
+  summary line, the rail Summary is label-only and does NOT move).  The
+  BOARD goldens are untouched (the board's TODO keyword cells are a
+  different construct).  V6 relocked: the project title left edge shifts
+  right by exactly 2 columns.
+- *R26-3* is byte-INVISIBLE except the project rail Actions block text
+  (popped rail is a live-window concern; the INLINE rail Actions block is
+  buffer text in the two-pane goldens → those lines re-bless).  The RET fix
+  itself is pure window behaviour (inert under =--batch=).
+- *R26-4* is byte-INVISIBLE by default (the flip is off; rows render the
+  title exactly as today).  New ERTs flip per-buffer; no golden moves.
+- *R26-5* is byte-INVISIBLE — entry idempotence, placement seeding and the
+  TREE<->DOC session are window/lifecycle behaviour, inert under =--batch=
+  (the batch orientation dance is unchanged because batch never pops).
+  Executing ERTs drive the whole session with =noninteractive= nil.
+- *R26-6* is byte-VISIBLE on dated Inbox rows: the =· r to file= suffix
+  disappears (=denote-origin-80.txt= / =denote-origin-120.txt= re-bless);
+  three legacy ERT families retune (round17 / triage / known-failures).
+- *R26-7* is byte-INVISIBLE at DEFAULTS (default sort key/direction render
+  byte-identically — the fix only makes NON-default keys actually reach the
+  render pass).  No golden moves; executing ERTs assert visible row-order
+  change after =o=/=O=.
+- *R26-8* is byte-INVISIBLE under =--batch=: =noninteractive= keeps the
+  EXACT synchronous R20-1 path (no disk cache read/write, no timers), so
+  every golden and the gate's timing stay identical.  The async machinery is
+  interactive-only; its ERTs drive the seams explicitly.
+
+* Measured baseline (reproduction harness)
+All reproductions were run on THIS checkout against the =.el= SOURCE:
+- =emacs -Q --batch -l tests/org-air-test-init.el= with =load-prefer-newer t=.
+- Project view over =tests/fixtures/air-project= (7 docs) AND the real Air
+  repo (=~/Coding/github.com/withre/air=, 63 docs, render 0.036s).
+- *Interaction drives are REALISTIC*: =org-air-project= called through its
+  real entry point (the =P= keypath), =noninteractive= bound nil so side/
+  below windows really exist, the side rail POPPED via =org-air-rail-toggle=
+  before driving RET/o/g/grouping, commands dispatched via =(key-binding
+  (kbd ...))=, and =sleep-for= between steps so the R25-6 deferred reconcile
+  timer + debounced follow timers actually FIRE (a first for the harness —
+  the no-timer blind spot is exactly where the R25 ERTs stopped seeing what
+  the user sees).
+- =airctl status -Da= ground truth re-checked on withre/air (states:
+  draft/ready/work-in-progress/complete/dropped; counts unchanged from R25).
+- First-load cost measured for R26-8: cold =org-ql= scan over the real Air
+  repo tree = *1.432s for 69 files / 1493 headings*; warm re-scan 0.019s.
+  The user's own board is the same order of magnitude — the "Loading…"
+  freeze is the synchronous scan, nothing else.
+
+Ground-truth project render (withre/air, =directory= group, w150, batch
+ascii) — the flush arm (R26-1), the 1-letter badge cell (R26-2) and the
+=name ^= indicator that flips while rows never move (R26-7) all visible:
+#+begin_src text
+  org-air · project                                                    | name ^
+  | v0.1/                                    R4(+1) C14(+14) X1(+9) D2(+8) | ...
+  +-----[R] Natural Sorting Implementation   ~ 2026-04-15  #airctl         | ...
+  +-----[R] Subcommand and Configurable ...  ~ 2026-04-15  #airctl #config | ...
+  +-----[C] Air document path completion     ~ 2026-04-04  #airctl         | ...
+#+end_src
+
+Window-tree ground truth for the interaction items (fixture, real windows,
+timers firing; full transcripts inline per item):
+#+begin_src text
+after |            : popped=t    inline=nil side=t          (correct)
+after re-entry (P) : popped=unset inline=t  side=t          <- DOUBLE RAIL (R26-5)
+after reconcile    : popped=unset inline=t  side=t          <- reconciler blesses it
+RET (display-buffer refused): pane-win=nil msg=nil          <- SILENT no-op (R26-3b)
+o on board  x3     : key cycles priority/title/recency, rows-changed=nil (R26-7)
+o in project (dir) : key=updated, header "| updated ^", rows-changed=nil (R26-7)
+popped rail        : window h=24, rail buffer 27 lines      <- Actions below fold (R26-3a)
+#+end_src
+
+* R26-1 — one space between the tree arm and the state badge [POLISH]
+
+** Reproduction — R25-1 made the arm FLUSH; the user wants breathing room
+R25-1 fills the doc-row gutter after the =├=/=└= corner with =box-horizontal=
+glyphs all the way to the state cell (=org-air-project--insert-doc-row=,
+org-air-project.el:849, directory branch: =armlen = gutter-w −
+width(lead)=, arm drawn flush, "no trailing space" by design).  Measured
+(fixture, =directory= group, w100, batch ascii; identical shape on
+withre/air at w150):
+#+begin_src text
+  +-----[R] Alpha feature               ~ 2026-06-25  #ui   #core
+  +- air-context/                                                  D1
+     +----[D] Gamma context             ~ 2026-06-25  #context
+#+end_src
+User: "too close" — the arm crashes into the badge.  Wanted: ONE space
+between the arm and the badge:
+#+begin_src text
+  +---- [R] Alpha feature               ~ 2026-06-25  #ui   #core
+  +- air-context/                                                  D1
+     +--- [D] Gamma context             ~ 2026-06-25  #context
+#+end_src
+
+** Decision — arm run shortens by ONE, a single space joins it to the badge
+Gutter-width bookkeeping only.  In the directory branch of
+=org-air-project--insert-doc-row= (org-air-project.el:884–897), the arm run
+stops one column short of =gutter-w= and the freed column renders as a
+space:
+#+begin_src elisp
+;; replacing the armlen/arm construction (org-air-project.el:891-893):
+(armlen (max 0 (- gutter-w (string-width lead) 1)))   ; one col reserved
+(arm    (concat (apply #'concat (make-list armlen hbar))
+                (if (> (- gutter-w (string-width lead)) 0) " " "")))
+#+end_src
+- The gutter TOTAL width is EXACTLY =gutter-w= as before (the
+  =truncate-string-to-width= + =--pad-to= clamp is unchanged), so the state
+  cell / title / right-pinned date-tag cluster do not move — V6 columns
+  frozen.
+- GUI draws =├──── [R]=; batch ascii =+---- [R]=.  A depth-1 doc keeps its
+  ancestor rail then =+--- [D]= (its arm is one shorter too).
+- Degenerate clamp: when the rails are so deep that =gutter-w −
+  width(lead) = 0=, there is no arm AND no space (same truncation rule as
+  R25-1) — the corner alone touches the badge, never an overflow.
+- Dir HEADER rows (=├─ air-context/=) unchanged; state-/tag-grouping rows
+  (depth nil) unchanged; per-dir counts + airctl count parity untouched (no
+  data-model change).
+
+** Byte / batch contract — deliberate re-bless, dir golden only
+Only =tests/fixtures/project-view-dir.txt= moves, and only doc-row gutters:
+the LAST fill glyph before the state cell becomes a space
+(=+-----[R]= → =+---- [R]=; nested =  |  +--[D]= → =  |  +- [D]=).
+Everything from the state cell rightward is byte-identical.  The state-/
+tag-grouping goldens are byte-identical.  Re-blessed via =make
+regen-mockups= with a reviewed diff (test seat).
+
+** Testability (R26-1)
+- ERT (exactly ONE space — FAILS on trunk): render the directory tree over
+  the fixture; on a leaf doc row assert the cell IMMEDIATELY LEFT of the
+  state cell is a SPACE and the cells between the corner and that space are
+  ALL =box-horizontal= (=-= in batch) faced =org-air-face-air-tree=.  Trunk
+  has =-= flush against =[R]= → fails.
+- ERT (V6 lock): the state cell / title / date / tag columns of that row
+  are IDENTICAL before/after (gutter total width still =item-margin + (* 2
+  (1+ depth))=).
+- ERT (corner + nested rail intact): last-child =└=/=+= corner rule and the
+  depth-1 ancestor =|= rail are unchanged; only the fill run's tail glyph.
+- ERT (degenerate depth): a doc deep enough that the arm run is 0 wide
+  renders corner-flush with no crash and gutter width still clamped.
+- Retune the R25-1 acceptance ERT that asserts "NO space sits between the
+  connector and =[R]=" — its assertion inverts to "exactly one".
+- RE-BLESS =project-view-dir.txt= via =make regen-mockups=.
+
+** Routing (R26-1)
+org-air-project.el: =org-air-project--insert-doc-row= directory branch
+(L884–897): shorten =armlen= by one and append the single joining space as
+above; no other call site.  tests: retune the R25-1 flush-arm ERT
+(org-air-round25-test.el) to the one-space contract; re-bless the dir
+golden.  No face/glyph/data change.
+
+* R26-2 — aesthetic WORD state pills, uniform width (DRAFT/READY/WIP/COMP/DROP) [POLISH / RELOCK]
+
+** Reproduction — the single-letter chip "looks horrible"
+R25-2 draws the state badge as a 3-col box whose SVG overlay shows one BOLD
+letter (=D/R/W/C/X=); TTY shows =[R]=.  The user's verdict on real data:
+legible now, but ugly — a lone letter in a lozenge reads as a monogram, not
+a state.  Sanctioned direction: full/short WORDS.  Measured today (fixture,
+w100, batch; GUI draws the same 3-col box with a big letter):
+#+begin_src text
+  +-----[R] Alpha feature            <- 3-col [R] cell, letter-only chip on GUI
+  +-----[C] Beta CLI
+  +-----[U] Eta notes                <- unknown state, R25-4 letter fallback
+#+end_src
+
+** Decision — one canonical WORD map; every pill the SAME 5-col box
+*** (1) The label set (user-amended): DRAFT / READY / WIP / COMP / DROP
+One new canonical map, the single source for BOTH the TTY token and the GUI
+pill label (mirroring the R25-4 one-letter-map discipline):
+#+begin_src elisp
+(defconst org-air-project--state-words
+  '(("draft" . "DRAFT") ("ready" . "READY") ("work-in-progress" . "WIP")
+    ("complete" . "COMP") ("dropped" . "DROP"))
+  "Canonical short-word state labels (R26-2).  Longest = 5 cols.")
+#+end_src
+- *DROP, not CANC, not X* (user asked for a pick + justification): Air's
+  state is literally =dropped= — =DROP= is a truncation of the actual airctl
+  vocabulary, self-describing next to =airctl status='s 🗑️.  =CANC= implies
+  "cancelled", a state Air does NOT have — inventing near-synonym vocabulary
+  is exactly the R25-3 phantom-state mistake.  Bare =X= reads as an error/
+  close affordance, not a lifecycle state.
+- Unknown/non-canonical state: fallback = =(upcase (truncate-string-to-width
+  state 5))= (fixture's =unknown= → =UNKNO=), replacing the R25-4 letter
+  fallback IN THE TOKEN ONLY (the per-dir rollup LETTERS are untouched —
+  =R4(+1) C14(+14)…= stays compact letters via =--state-letter=).
+
+*** (2) UNIFORM pill size — pad the TOKEN, centre the LABEL
+The user's amendment: all pills must render at the SAME width — equal pill
+BOXES, not just an equal cell.  =org-air-view--svg-pillify= pixel-locks its
+box to the COLUMN WIDTH OF THE TEXT it overlays (Ncols × char-px), so
+uniformity falls out of one rule: *the byte token is the word LEFT-PADDED-
+RIGHT to 5 cols, and that padded token is what gets pillified*:
+#+begin_src elisp
+(defconst org-air-project--state-cell-w 5)   ; was 3 (R21-5) — V6 RELOCK
+
+(defun org-air-project--state-token (state)  ; the byte/TTY contract
+  ;; "READY" "DRAFT" "WIP  " "COMP " "DROP " — always exactly 5 cols.
+  (org-air-view--pad-to (or (cdr (assoc state org-air-project--state-words))
+                            (upcase (truncate-string-to-width state 5)))
+                        org-air-project--state-cell-w))
+
+(defun org-air-project--state-svg-badge (state)   ; GUI overlay (reworked R25-2)
+  ;; box = the 5-col padded token (uniform); drawn label = the BARE word,
+  ;; centred + width-fitted, bold, state colour; fill stays the soft tint.
+  (org-air-view--svg-pillify token face
+                             :border-color color
+                             :label word            ; bare, not padded
+                             :font-weight 'bold))
+#+end_src
+with the R25-2 dynamic bindings retuned for a word: =org-air-pill-pad-cols=
+0 is REPLACED by 1 reserved pad col so the word never kisses the rounded
+edge (the D-P1.FIT width-fitting still guarantees no clipping for the 5-char
+words); =org-air-pill-fill-alpha= (max … 0.22) and the full-strength state
+colour border/label are KEPT (same colour scheme, stronger presence);
+=org-air-pill-font-scale= (max … 0.62) — a 5-char word in a 5-col box wants
+a smaller scale than R25-2's giant single letter; =org-air-pill-radius=
+default (soft capsule).  Every box is 5 cols × char-px — =WIP= and =DROP=
+get the same capsule as =READY= (their labels centre in the same box), the
+tree rails and title column stay ruler-straight.
+
+Mock (GUI intent; ▢ marks one 5-col capsule, colour = state face):
+#+begin_src text
+  ├──── ▢READY▢  Natural Sorting Implementation   ~ 2026-04-15  #airctl
+  ├──── ▢COMP ▢  Air document path completion     ~ 2026-04-04  #airctl
+  ├── ai-integration/                                                X2
+  │  ├─ ▢DROP ▢  AI assisted document creation    ~ 2026-04-05  #ai
+TTY/batch (the byte contract — same tokens, plain state faces):
+  +---- READY Natural Sorting Implementation   ~ 2026-04-15  #airctl
+  +---- COMP  Air document path completion     ~ 2026-04-04  #airctl
+  +-- ai-integration/                                              X2
+  |  +- DROP  AI assisted document creation    ~ 2026-04-05  #ai
+#+end_src
+
+*** (3) V6 RELOCK — the state cell widens 3→5; everything downstream follows
+- =org-air-project--state-cell-w= 3→5: =--fit-meta-widths='s left-reserve
+  (=margin + (1+ cell-w)=, org-air-project.el:382) auto-follows, so the flex
+  title budget shrinks by 2 and the fitted date/tag columns recompute — the
+  V6 lock is RELOCKED at the new positions, not broken.
+- The R26-1 gutter is computed INDEPENDENTLY of the cell (arm + one space,
+  then the cell) — doc-row arms need no change; the title left edge shifts
+  right by exactly 2 on EVERY project row uniformly.
+- =org-air-project-state-badges='s TTY slots become the word tokens (the
+  EMOJI slots + =nerd= glyph map + all five style branches of
+  =--state-badge-cell= are unchanged; each style's output is padded to the
+  5-col cell by =--state-cell= as today).
+- Other token surfaces follow automatically (same helpers): state-section
+  heading icons (L545), the board-only summary line (L1087), the inspector
+  State line (L1201).  airctl count parity: pure presentation, counts and
+  the per-dir rollup letters untouched.
+
+** Byte / batch contract — deliberate re-bless, all three project goldens
+=[R]=→=READY= etc. plus the uniform +2 title-column shift re-bless
+=project-view-dir.txt=, =project-view-state.txt=, =project-view-tag.txt=
+(doc rows; state-section headings in the state golden; the board-only
+summary line where present).  The rail Summary block (label-only) and ALL
+BOARD goldens are byte-identical.  Re-bless via =make regen-mockups= with a
+reviewed diff; R25-2/R25-4 ERTs that assert =[D]=-style tokens retune to the
+word tokens.
+
+** Testability (R26-2)
+- ERT (word tokens — FAILS on trunk): batch-render each canonical state's
+  cell; assert the cell text is the padded word (="READY"= / ="WIP  "= …)
+  and =string-width= = 5 for ALL states (uniformity at the byte layer).
+- ERT (uniform pill box, GUI seam): with the svg seam forced available,
+  build the five badges; decode each overlay image =:data= and assert the
+  five svg =width= attributes are IDENTICAL (equal capsules) and each
+  =<text>= node is the BARE word with =font-weight="bold"=.
+- ERT (V6 relock): a doc row's title column = old column + 2; date/tag
+  cluster columns re-fitted but identical ACROSS rows and grouping modes;
+  the R26-1 one-space arm contract still holds against the new cell.
+- ERT (rollup letters unchanged): dir-header rollup still =R4(+1) C14(+14)=
+  letters (R25-4 map), not words.
+- ERT (unknown fallback): the fixture's =unknown= doc renders =UNKNO= (5
+  cols, unknown face), and its pill label matches.
+- RE-BLESS the three project goldens.
+
+** Routing (R26-2)
+org-air-project.el: add =org-air-project--state-words=; rework
+=--state-token= (L404) to the padded word + word fallback;
+=--state-cell-w= (L360) 3→5; retune =--state-svg-badge= (L427) bindings
+(:label word, pad-col 1, font-scale floor 0.62, keep fill/border/bold);
+=org-air-project-state-badges= (L124) TTY slots.  No change to
+=--state-letter= (L683) / rollup, =--fit-meta-widths= (auto), faces, or
+org-air-view.el.  tests: retune R25-2/R25-4 token ERTs; re-bless 3 goldens.
+
+* R26-3 — project shortcut legend + RET dead (again, in real use) [BUG]
+
+** Reproduction (a) — the Actions legend EXISTS but lives below the fold, with stale verbs
+Driven (fixture, real windows, =noninteractive= nil): open the project via
+its real entry point, pop the rail with =|=, inspect the live side window:
+#+begin_src text
+rail window h=24, rail buffer = 27 lines      <- Actions on lines 25-27
+| Actions
+ RET open    / filter g refresh
+ S-RET visit \ clear  q quit
+#+end_src
+Two distinct failures:
+1. *Below the fold*: =org-air-rail--render= (org-air-view.el:3709) renders
+   the rail at the HOST's render height (=rheight= = board height), not the
+   SIDE WINDOW's body height; the reserved inspector region then pushes
+   Actions past the window bottom.  The user scrolls a rail they think has
+   no legend — "the project rail lacks the ACTIONS legend the board rail
+   has".  (The BOARD's inline rail pins Actions to a rail sized to the
+   visible body, so the board never shows this.)
+2. *Stale verbs*: =org-air-project--insert-actions= (org-air-project.el:1123)
+   still lists only open/filter/refresh/visit/clear/quit.  Driving the real
+   keymap shows what a legend must document — and two holes:
+#+begin_src text
+RET -> org-air-view-pane-return      | -> org-air-rail-toggle
+o/O -> org-air-view-sort-cycle/rev   / -> org-air-project-filter
+g -> org-air-project-refresh         q -> org-air-project-quit
+( -> UNDEFINED   s/d/t -> UNDEFINED  ? -> describe-mode (fallback)
+#+end_src
+
+** Reproduction (b) — RET: batch ERTs pass, the user gets nothing
+Driven WITH the side rail popped (the user's default flow), point on a doc
+row, =RET= dispatched through =(key-binding (kbd "RET"))=:
+#+begin_src text
+A tall frame              : pane-win=t   msg=nil     (works, but SILENT even on success)
+B display-buffer refused  : pane-win=nil msg=nil     <- the user's symptom, EXACTLY
+#+end_src
+Root cause, for real this time:
+1. =org-air-view-pane--show= (org-air-view.el:4598) does =(setq win
+   (display-buffer buf …))= then =(when (window-live-p win) …)= — *a nil
+   return is swallowed with no message, no error*.
+   =display-buffer-below-selected= returns nil under realistic GUI
+   conditions: a user =display-buffer-alist= that claims/refuses the
+   buffer, an unsplittable or too-short host window (=window-min-height= +
+   the fixed =window-height 14=), a dedicated host.  RET then "does
+   nothing" with zero feedback (drive B).
+2. *Why every batch ERT passes anyway*: the whole window block is gated
+   =(when (and (not noninteractive) …))= and the editable-indirect render is
+   too — under =--batch= the ERTs only ever exercise the SNAPSHOT-buffer
+   path and assert pane BUFFER content.  The code that fails for the user
+   is never executed by the suite.  (Same blind spot class as R26-7.)
+3. The R26-5 re-entry bug compounds it: after a board→project re-entry the
+   buffer sits in the wiped double-rail state, so even a successful split
+   lands under a mis-measured window.
+
+** Decision — RET becomes the R26-5 same-window open; the legend becomes real
+*** (1) RET in the PROJECT view = open the doc in the SAME window
+Per the user's explicit session model (R26-5): =RET= on a doc row REPLACES
+the tree with the doc's file in the SAME window (no =display-buffer= to
+fight, nothing to swallow), and the side window flips to the DOC context.
+The full window/state machine is specified in R26-5; this item routes the
+key: project map binds =RET= (and =<mouse-1>=… keeps the shared pane-return
+on the BOARD only) to the new =org-air-project-open= — implemented on the
+R26-5 session core.  =v= keeps the bottom peek pane for project users who
+want it; =S-RET= keeps other-window visit.  BOARD RET is UNCHANGED.
+*** (2) Silent-swallow hardening (shared, board included)
+=org-air-view-pane--show=: when the display-buffer path yields no live
+window, =(message "org-air: could not display the view pane")= — never a
+silent no-op.  One line, byte-invisible, saves the next round of "RET is
+dead".
+*** (3) The Actions legend, fitted and true
+- =org-air-project--insert-actions= re-written to the REAL project keys
+  (three column-aligned rows, same keycap idiom):
+#+begin_src text
+| Actions
+ RET open    ( flip    / filter
+ o sort      s/d/t group  | rail
+ g refresh   ? help    q quit
+#+end_src
+  (=S-RET visit= / =\ clear= surface in =?= help — 3 rows is the budget.)
+- New bindings backing it: =s=/=d=/=t= → =org-air-project-group-by-state= /
+  =-directory= / =-tag= (free keys in the project map — the board's triage
+  verbs never applied here; airctl -a/-Da/-Ta parity finally on keys),
+  =(= → R26-4 flip, =?= → =org-air-help= (project-aware section).
+- *Fit*: the side-window rail render clamps to the LIVE side window's body
+  height — =org-air-rail--render= takes =rheight = (window-body-height
+  side-win)= when live (the =org-air-view-height= seam still wins in batch),
+  and the descriptor's inspector region shrinks first (the existing
+  foot-pinning rule) so Actions is ALWAYS on-screen in the side window.
+
+** Byte / batch contract
+The INLINE rail's Actions block is buffer text → the two-pane project golden
+lines for Actions re-bless (new verbs).  The height clamp + RET rebind +
+message are window/interaction behaviour: inert under =--batch=, no other
+golden movement.
+
+** Testability (R26-3) — ERTs EXECUTE with the rail popped
+- ERT (legend on-screen, popped): =noninteractive= nil, open project, =|=;
+  assert the LIVE side window shows the =Actions= header + the =RET open=
+  row within =(window-body-height win)= lines of the window start (not
+  merely present in the buffer).  FAILS on trunk (line 25 of 24).
+- ERT (legend truth): every key named in the Actions text resolves via
+  =key-binding= in the project buffer to a real command (legend can never
+  drift from the map again — table-driven).
+- ERT (RET, realistic): =noninteractive= nil, rail popped, point on a doc
+  row, dispatch =(key-binding (kbd "RET"))=; assert the SELECTED window now
+  shows the doc's FILE buffer (same window object as the tree held) — the
+  R26-5 contract.  FAILS on trunk (pane path).
+- ERT (no silent swallow): board buffer, stub =display-buffer= → nil, RET;
+  assert a =could not display= message was emitted (capture via =message=
+  advice), never silence.
+- ERT (s/d/t/( bound): each runs its grouping/flip command and re-renders.
+
+** Routing (R26-3)
+org-air-project.el: rebind =RET=/=<mouse-1>= in =org-air-project-mode-map=
+(L1500) to =org-air-project-open= (R26-5 core); add =s=/=d=/=t=/=(=/=?=
+bindings; rewrite =--insert-actions= (L1123).  org-air-view.el: the nil-win
+message in =org-air-view-pane--show= (L4598); side-window height clamp in
+=org-air-rail--show= (L3848)/=--render= (L3709).  Board map untouched.
+tests: the executing popped-rail ERT family above (new
+org-air-round26-test.el seat).
+
+* R26-4 — flip filename<->title with "(" (dired-style) [FEATURE]
+
+** Reproduction — no way to see the actual file names
+Project doc rows render the doc TITLE (=org-air-doc-name=, the =#+title=
+keyword) via =--insert-doc-row :title= (org-air-project.el:849).  =airctl
+status= can flip between titles and file names; org-air cannot — on
+withre/air a row reads =Natural Sorting Implementation= with no way to
+learn it is =v0.1/natural-sorting-implementation.org= short of the
+inspector.  Driving =(= in the project buffer: =undefined=.
+
+** Decision — =(= toggles doc rows between TITLE and RELPATH, per buffer
+The dired convention (=(= is =dired-hide-details-mode='s key: same "flip
+how much the row tells you" gesture).
+#+begin_src elisp
+(defvar-local org-air-project--show-filenames nil
+  "Non-nil: doc rows render the project-relative FILE NAME, not the title.
+Per-buffer; read by the render pass, so it survives `g' refresh, grouping
+changes and (with R26-5's idempotent entry) board<->project hops.")
+
+(defun org-air-project-toggle-filenames ()
+  "Flip project doc rows between doc title and relpath (R26-4).  Key `('."
+  (interactive)
+  (setq-local org-air-project--show-filenames
+              (not org-air-project--show-filenames))
+  (org-air-project-refresh)
+  (message "org-air project: showing %s"
+           (if org-air-project--show-filenames "file names" "titles")))
+#+end_src
+- =--insert-doc-row= picks =:title (if org-air-project--show-filenames
+  (org-air-doc-relpath doc) (org-air-doc-name doc))= — ONE rule in ONE
+  place.  The relpath is shown RAW (the point is the real file name; the
+  R24 deslug affordance stays title-mode-only).  One rule for every
+  grouping (directory/state/tag), matching airctl's flip.
+- The title cell is the FLEX cell, so no column bookkeeping changes; the
+  row still carries =org-air-doc= / =org-air-marker= (RET / inspector /
+  filter untouched — the filter's search key already matches BOTH name and
+  relpath since R24-6).
+- Visible state: while flipped, the header line's segment cluster gains a
+  quiet =⇄ files= chip next to the sort indicator (same faded idiom), so a
+  flipped buffer is never mistaken for odd titles.  The rail Actions legend
+  documents the key (=( flip=, R26-3).
+- Binding: =(= in =org-air-project-mode-map= (project-only; the board has
+  no doc/file duality).
+
+** Byte / batch contract
+Byte-INVISIBLE by default: the flag defaults nil and every golden renders
+titles exactly as today.  No golden moves.  (The =⇄ files= chip renders
+only while flipped, so it is invisible at defaults too.)
+
+** Testability (R26-4)
+- ERT (flip changes row text — FAILS on trunk: =(= undefined): render the
+  fixture, note a doc row's title text; dispatch =(key-binding (kbd "("))=;
+  assert the row now shows the doc's =relpath= (e.g.
+  =v0.1/alpha-feature.org=) and the header carries =⇄ files=.
+- ERT (flip back restores): second =(= → byte-identical to the first
+  render (title mode; chip gone).
+- ERT (persists across g): flip, then =org-air-project-refresh=; rows still
+  show relpaths (buffer-local read by render).
+- ERT (grouping-independent): flip holds across =s=/=d=/=t= grouping
+  changes.
+- ERT (legend): the Actions text includes =( flip= (folds into the R26-3
+  table-driven legend ERT).
+
+** Routing (R26-4)
+org-air-project.el: the defvar-local + command above; the one-line =:title=
+pick in =--insert-doc-row= (L849); the header chip in =--header-line=
+(L1054, beside the sort indicator); bind =(= in the mode map (L1500).
+tests: the four executing ERTs above.  No shared-core change.
+
+* R26-5 — project rail placement + the interactive doc session (the big one) [BUG + FEATURE]
+
+** Reproduction — project-mode rail still very broken: the RE-ENTRY wipe
+R25-6 fixed the board<->project cross-view leaks; what is broken is PROJECT
+re-entry itself.  Driven through the REAL entry point (=org-air-project= —
+the board's =P= runs this command every hop), real windows, wide frame,
+reconciler timers fired:
+#+begin_src text
+1 open       : popped=unset inline=t   side=nil    (two-pane inline; fine)
+2 after |    : popped=t     inline=nil side=t      (popped; fine)
+3 after re-P : popped=unset inline=t   side=t      <- DOUBLE RAIL
+4 reconcile  : popped=unset inline=t   side=t      <- reconciler BLESSES it
+#+end_src
+And on a narrower frame the same re-P silently DESTROYS the side rail
+(render → board-only tail → =org-air-rail--hide=) — the user's chosen
+placement never survives a hop.  Root-cause chain, verified line by line:
+1. =org-air-project= (org-air-project.el:1567) calls =(org-air-project-mode)=
+   on the EXISTING live buffer on every invocation.  =define-derived-mode=
+   ⇒ =kill-all-local-variables= ⇒ =org-air-view--rail-popped-out= (t →
+   ='unset=), =--rail-suspended=, the shared sort key/direction, the tag
+   filter, expanded sections — ALL wiped mid-session.
+2. =org-air-project--render= (L1325) computes orientation with =(eq
+   … t)= ⇒ ='unset= renders the INLINE two-pane rail into the buffer text —
+   while the popped side window still exists.
+3. =org-air-rail--evict-foreign-rail= no-ops: the side rail's owner IS this
+   buffer (=eq owner self=) — the sweep only handles FOREIGN rails.
+4. =org-air-rail--reconcile-frame= (org-air-view.el:4090) branch (A) tests
+   the raw flag — ='unset= is TRUTHY ⇒ "active wants the side rail", owner
+   = active ⇒ "consistent".  The double rail persists forever.
+Additionally the user must re-press =|= EVERY session: the project has no
+way to DEFAULT to a side-window rail (the board seeds from
+=org-air-rail-style=; the project never seeds at all).
+
+** Decision A — idempotent entry; ='unset= is never "popped"
+1. *Idempotent entry*: =org-air-project= only initialises the mode when the
+   buffer is not already in it:
+#+begin_src elisp
+(with-current-buffer buffer
+  (unless (derived-mode-p 'org-air-project-mode) (org-air-project-mode))
+  (setq org-air-project--root (expand-file-name root))   ; defvar-local
+  (org-air-project--render org-air-project--root))
+#+end_src
+   A live project buffer keeps EVERY per-buffer preference (rail placement,
+   sort, filter, R26-4 flip) across board<->project hops.  Choosing a
+   DIFFERENT root re-renders in place (same prefs; the docs change).  The
+   board's =org-air-view= entry already calls its mode unconditionally with
+   the same latent hazard — apply the SAME guard there (one discipline).
+2. *One popped predicate*: =(defun org-air-rail--popped-p () (eq
+   org-air-view--rail-popped-out t))= — the renderers (already =eq t=), the
+   TOGGLE, and BOTH reconciler branches route through it; the ='unset=
+   sentinel can never again read as "wants a side rail".
+
+** Decision B — =org-air-rail-placement=: per-view DEFAULT placement
+#+begin_src elisp
+(defcustom org-air-rail-placement
+  '((board . inline) (project . side-window))
+  "Default context-rail placement per view (R26-5).
+Consulted ONCE per buffer: when a view first renders with the popped flag
+still `unset', it seeds t (side-window) or nil (inline).  Thereafter the
+`|' toggle and the R25-6 reconciler own the flag."
+  :type '(alist :key-type (choice (const board) (const project))
+                :value-type (choice (const inline) (const side-window))))
+#+end_src
+- Seeding: the board's first-render seed (org-air-view.el:4844, today from
+  =org-air-rail-style=) and a NEW project first-render seed both read the
+  alist; =org-air-rail-style 'side-window= still forces the board entry
+  (back-compat).  *Gated =(unless noninteractive …)=*: batch renders keep
+  ='unset= → nil normalisation exactly as today, so every byte golden is
+  untouched.
+- The user's ask lands as the DEFAULT: the project pops its rail out on
+  first open, no =|= required; the board stays inline.
+
+** Decision C — the TREE<->DOC interactive session (the user's model)
+Two session states per project buffer, layered ON TOP of the R25-6
+single-owner invariant (the side window remains THE one =*org-air-rail*=
+window; only its CONTENT mode changes):
+
+| state | main window          | side window (when popped)                  |
+|-------+----------------------+--------------------------------------------|
+| TREE  | project tree buffer  | project rail (Calendar/Summary/…/Actions)  |
+| DOC   | the doc's file buffer| DOC context: outline + doc meta + legend   |
+
+Transitions (the window/state machine):
+- =RET= (TREE→DOC), =org-air-project-open=: resolve the doc at point; stash
+  the session =(:tree BUF :point P :window W)=; show the doc's file buffer
+  in the SAME window (=pop-to-buffer-same-window= on W — no =display-buffer=
+  fight, nothing to swallow, R26-3b); tag the doc buffer with a back-pointer
+  local =org-air-project--session-tree= + enable
+  =org-air-doc-session-mode= (a thin minor mode); if the rail is popped,
+  re-render the side window with the DOC-CONTEXT descriptor.
+- =back= (DOC→TREE): restore BUF into the SAME window, restore point,
+  re-render the side window with the project-rail descriptor; disable the
+  minor mode (buffer + session survive for the next RET).
+- Back keys, honouring the R20-3a "editable org buffer" rule: the doc file
+  buffer is EDITABLE, so plain =q= must stay self-insert THERE — the minor
+  mode binds =C-c C-q= + =[remap quit-window]= and the doc's header-line
+  says =C-c C-q back to tree=; the SIDE window (read-only rail buffer)
+  binds plain =q= → back (the user's "q returns" lands where q is legal),
+  plus =RET= on an outline row → jump the MAIN window to that heading.
+- DOC-context side content, via the EXISTING rail descriptor seam
+  (one-renderer: a descriptor, not a fork): =:outline-fn= renders the doc's
+  headings (indented by level, each row carrying a jump marker), a meta
+  block (R26-2 state pill + tags), and =:actions-fn= the legend —
+  =q back · RET jump · | rail=.
+- Degenerate/interruption rows of the machine: rail INLINE (not popped) →
+  RET/back still swap the main window, there is simply no side content
+  (placement default makes popped the common case); user kills the doc
+  buffer → reconciler sweep sees a dead owner → side window re-owns to the
+  tree buffer (TREE state); user closes the side window in DOC state →
+  R25-6 user-close rule (flag → nil, session continues rail-less); another
+  org-air view becomes active → the doc buffer counts as a HOST for the
+  sweep (=org-air-rail--host-buffer-p= extends to buffers carrying
+  =org-air-project--session-tree=), so suspension/re-pop behave exactly as
+  R25-6 defined for board<->project.  Board flow: UNCHANGED in every row
+  (its RET keeps the bottom pane; its placement stays inline).
+
+** Byte / batch contract
+Byte-INVISIBLE.  Entry idempotence, the predicate, placement seeding
+(=noninteractive=-gated) and the session are live-window behaviour; batch
+renders and all goldens are byte-identical.  No golden moves.
+
+** Testability (R26-5) — the session ERTs EXECUTE end-to-end
+All with =noninteractive= nil, real windows, dispatch via =key-binding=,
+reconciler driven (=org-air-rail--reconcile-frame= called after each step —
+timers made deterministic):
+- ERT (placement default — FAILS on trunk): fresh =org-air-project= →
+  side rail window EXISTS without pressing =|= (project defaults
+  side-window); fresh board → inline (no side window).
+- ERT (re-entry keeps the session — FAILS on trunk): pop with =|=, run
+  =org-air-project= again; assert NO inline rail text, side window still
+  live, =popped= still t, and the cycled sort key + R26-4 flip survived.
+- ERT (no double rail, ever): after the re-entry drive, exactly ONE of
+  {inline rail text, side rail window} exists; reconcile changes nothing.
+- ERT (RET/DOC/back round-trip): RET on a doc row → SAME window object now
+  shows the doc's file buffer; side window buffer contains the doc's
+  heading text + =back= legend; =C-c C-q= → same window shows the tree,
+  point back on the row, side window shows =Summary= again.
+- ERT (q in the side window): select the side window, press =q= → DOC→TREE
+  restore (and focus returns to the main window).
+- ERT (sequences never strand): =RET, back, RET, |, |, back, g= — after
+  every step assert window count and that at most one =*org-air-rail*=
+  window exists (the R25-6 invariant holds through the session).
+- ERT ('unset never pops): a fresh buffer under a stubbed non-interactive
+  seed renders inline and the reconciler creates no side window.
+
+** Routing (R26-5)
+org-air-project.el: idempotent entry in =org-air-project= (L1567); new
+=org-air-project-open= / =org-air-project-back= / =org-air-doc-session-mode=
++ session plist; first-render placement seed in =--render= (L1325);
+doc-context rail descriptor (=:outline-fn= provider + legend).
+org-air-view.el: =org-air-rail--popped-p= used by =--render= (L4855),
+=org-air-rail-toggle= (L3922), =--reconcile-frame= (L4090);
+=org-air-rail-placement= defcustom + board seed rework (L4844); extend
+=org-air-rail--host-buffer-p= (L4008) to session doc buffers; the mode
+guard mirrored in =org-air-view= (L5227).  tests: the executing session
+family above (org-air-round26-test.el), replacing nothing — the R25-6 ERTs
+keep passing unchanged.
+
+** Open questions (R26-5)
+- Should =back= KILL the doc's file buffer?  Proposal: no — the user may
+  have unsaved edits; the session only swaps windows.  Flag if buffer
+  accumulation bothers the test seat.
+- Outline depth cap in the doc context?  Proposal: all levels, window
+  scrolls; the outline block sits above the legend which is height-pinned
+  by R26-3's fit rule.
+- =q= in the TREE main window keeps =org-air-project-quit= (quit-window) —
+  unchanged; only the DOC state adds back-verbs.  Flag if the user expects
+  =q= symmetry in the doc FILE buffer despite editability (would need a
+  read-only-first mode, a bigger change).
+
+* R26-6 — kill the "· r to file" row hint [POLISH]
+
+** Reproduction — every dated Inbox row pays 12 columns for a cryptic nudge
+=org-air-view--item-date-text= (org-air-view.el:1986–1993) appends
+=· r to file= (faded) to the DATE cell of any Inbox row that carries a
+scheduled/deadline stamp (R19-2's "clarified" wording).  Measured
+(=denote-origin-120.txt=, byte layer):
+#+begin_src text
+TODO   File the re…  Tomorrow     · r to file  #inbox   ▤ inbox.org
+#+end_src
+Two costs, both user-confirmed: (a) 12 columns of every dated inbox row
+repeat a static hint that belongs in help; (b) it is CRYPTIC ("r to file"
+reads as a path fragment).  Worse, the hint breaks V6 on its own row:
+=--insert-row='s date cell "expands locally (e.g. for the Inbox [hint])"
+(org-air-view.el:2172-ish, the =max dcol (string-width date-text)= pad) —
+a hinted row's tag/origin columns shift right relative to its neighbours.
+
+** Decision — remove it from rows entirely; the width reclaims itself
+Delete the =inbox-hint= binding and its =(or inbox-hint "")= concat in
+=--item-date-text= — the date cell reverts to date + repeat marker only,
+and the local-expansion escape hatch in =--insert-row= no longer fires for
+inbox rows (the =max= clamp STAYS as a safety for genuinely oversized date
+text).  Nothing else changes:
+- =r= (=org-air-refile-item=) stays bound; discovery lives in =?=
+  (=org-air-help= already says "r refile", org-air-view.el:5895) and the
+  process-inbox flow — the legend/help remains the single teaching surface
+  (the same reasoning that kept R25-5's dropped column out of the rows).
+- The reclaimed 12 columns flow to the flex title via the existing
+  =--compute-meta-widths= budget (no arithmetic change needed — the hint
+  was never part of =dw=; only the per-row overflow disappears).
+
+** Byte / batch contract — deliberate re-bless
+=denote-origin-80.txt= + =denote-origin-120.txt= re-bless (the only goldens
+containing the hint): the dated inbox row loses =· r to file= and its
+tags/origin snap LEFT into column alignment with the other rows.  Legacy
+ERTs retune: org-air-round17-test.el:150–172 (asserts the clarified nudge),
+org-air-triage-test.el:164 (carries-file-hint), and the two
+known-failures manifest notes referencing the wording (stale entries FAIL
+the gate per the manifest contract — they must be updated in the same
+change).
+
+** Testability (R26-6)
+- ERT (hint gone — FAILS on trunk): render the board over the fixtures; NO
+  row contains =r to file=; the dated inbox row's date cell is exactly the
+  date label + optional repeat marker.
+- ERT (V6 restored on inbox rows): the hinted row's tag column now equals
+  every other row's tag column (assert equal column positions down the
+  buffer — this FAILS on trunk, documenting the old local expansion).
+- ERT (r still works): =key-binding "r"= in the board resolves to
+  =org-air-refile-item=; =?= help text contains "r refile".
+- RE-BLESS the two denote-origin goldens via =make regen-mockups=.
+
+** Routing (R26-6)
+org-air-view.el: delete the =inbox-hint= let-binding + concat in
+=org-air-view--item-date-text= (L1986–1993, docstring updated); no
+signature change.  tests: retune round17/triage ERTs, update the two
+known-failures entries, re-bless 2 goldens.  Board Actions block untouched.
+
+* R26-7 — "o" sort cycle dead at runtime [BUG]
+
+** Reproduction — driven on real-ish data: the key cycles, the rows never move
+Board (fixture org files, real window, dispatch via =key-binding=):
+#+begin_src text
+o #1 -> key=priority  rows-changed=nil  indicator=nil   (echo "sort by priority")
+o #2 -> key=title     rows-changed=nil  indicator=nil
+o #3 -> key=recency   rows-changed=nil  indicator=nil
+O    -> descending    rows-changed=nil
+#+end_src
+The echo message fires and =org-air-view--sort-key= cycles — but the ROW
+ORDER is byte-identical across all four presses and the banner's =↕ key=
+indicator NEVER appears.  Project (directory grouping — the DEFAULT):
+#+begin_src text
+o,o  -> key=updated, header shows "| updated ^", doc rows-changed=nil
+#+end_src
+State/tag grouping in the project DOES reorder (control case).  So: "o does
+nothing" is exactly what the user sees in both default views, while every
+existing R22-3 ERT passes.
+
+** Root cause 1 (board) — the pane temp buffers cannot see the sort state
+=org-air-view--sort-key= / =--sort-direction= are BUFFER-LOCAL, but the
+board composes every pane inside =org-air-view--render-lines='s
+=with-temp-buffer= (org-air-view.el:2491).  That seam carries ELEVEN host
+locals into the temp buffer (items, filter, scope, expanded, cal-month,
+day, classify cache ×2, partition, displayed-memo, rail-descriptor) — the
+sort key and direction are NOT on the list.  Inside the pane,
+=--sort-active-key= (L2366) falls back to the GLOBAL default ⇒
+=--sort-items= sorts by =date= forever, and =--sort-default-p= (L2374) says
+"default" ⇒ the banner indicator is suppressed too.  *Proof, both ways*:
+driving =o= changes nothing (above); flipping the GLOBAL
+=org-air-sort-key= to =title= and re-rendering DOES reorder the rows —
+the render pass works, it just never receives the buffer-local state.
+Why every ERT passes: the R22-3 tests call =--sort-items= /
+=--displayed-for-bucket-1= directly IN the board buffer — they never cross
+the temp-buffer seam the real render crosses (the same class of blind spot
+as R26-3b's =noninteractive= gate).
+
+** Root cause 2 (project, default grouping) — =--sort-own-docs= ignores the key
+In the =directory= tree each dir's docs are ordered by
+=org-air-project--sort-own-docs= (org-air-project.el:576) = state-display-
+rank, then the FIXED name tiebreak — =o='s key never participates (the
+state/tag groupings route through =--doc-compare=, which does).  The header
+indicator updates (built in the project buffer), the rows cannot.
+
+** Decision — carry the sort state across the seam; one comparator everywhere
+1. *Board*: add =org-air-view--sort-key= + =--sort-direction= to BOTH the
+   capture and rebind lists of =--render-lines= (L2491) — the same pattern
+   as the eleven locals already carried.  The banner indicator and
+   =--sort-items= then read the user's real state inside every pane; =O=
+   (direction) rides the same fix.
+2. *Project directory grouping*: =--sort-own-docs= keeps its state-display-
+   rank PRIMARY (the airctl -Da shape) and delegates the within-state order
+   to =--doc-compare-key= (the active-key comparator, L995) instead of the
+   bare name tiebreak.  Byte-stable at the default: key ='name= ascending ⇒
+   =string-lessp= on names + the name/relpath tiebreak ≡ today's order
+   exactly (goldens prove it).
+3. *Visible feedback* (already half-present, now actually reachable): the
+   cycle echo stays; the banner =↕ key dir= indicator now appears for any
+   non-default state (it was already coded — root cause 1 starved it).
+
+** Byte / batch contract
+Byte-INVISIBLE at defaults: default key/direction produce byte-identical
+renders (=date= reproduces historical bucket order; ='name= reproduces the
+dir-tree order), so NO golden moves.  The fix only makes non-default sort
+state reach the compose pass.
+
+** Testability (R26-7) — ERTs assert the VISIBLE row order, through the real path
+- ERT (board =o= reorders — FAILS on trunk): realistic board buffer, drive
+  =(key-binding "o")= to =title=; extract the RENDERED row titles per
+  section from BUFFER TEXT and assert alphabetical order within each bucket
+  (and ≠ the date-order baseline).  Must go through
+  =--render-current= (the temp-buffer seam), never call =--sort-items=
+  directly.
+- ERT (board =O= reverses — FAILS on trunk): same harness; row list
+  reverses within buckets.
+- ERT (indicator surfaces — FAILS on trunk): after =o=, the banner line
+  contains the =↕ title= indicator text; at defaults it does not.
+- ERT (project dir grouping follows the key — FAILS on trunk): fixture docs
+  given distinct =updated= stamps; drive =o= to =updated= in directory
+  grouping; assert a dir's doc rows reorder by date WITHIN their state
+  runs; byte-default ERT: at ='name= the tree is byte-identical to trunk.
+- ERT (echo): each press emits =org-air: sort by KEY= (message capture).
+- KEEP: all existing R22-3 unit ERTs pass unchanged (the comparators
+  themselves were never wrong).
+
+** Routing (R26-7)
+org-air-view.el: the two-var carry in =--render-lines= (L2491).
+org-air-project.el: =--sort-own-docs= (L576) delegates to
+=--doc-compare-key=.  No command/keymap/defcustom change; no golden
+movement.  tests: the five executing ERTs above in the round-26 seat.
+
+* R26-8 — first-load "Loading…" hang: honest async (cache-first + chunked refresh) [FEATURE — meatiest]
+
+** Reproduction + measurement — the hang is the synchronous scan, and it is NOT inevitable
+The user asks whether the freeze is just "how Emacs is".  It is not.
+Today's cold path (=org-air-view=, org-air-view.el:5227, the R20-1 design):
+paint the chrome skeleton, =redisplay=, then run the WHOLE =org-ql= query
+SYNCHRONOUSLY — the frame is visible but Emacs is unresponsive until the
+scan returns.  Measured on the real Air repo tree: *cold scan 1.432s over
+69 files / 1493 headings; warm re-scan 0.019s* — the user's own board is
+the same order of magnitude, so every cold start freezes input for one to
+several seconds.  The 75× cold/warm gap is the tell: the DATA barely
+changes between sessions; we re-derive it from scratch every time.
+History honoured: R19-1's naive async was fragile (partial paints, timer
+leaks), R20-1 went sync-fast-paint for robustness.  This design keeps
+R20-1's robustness properties and removes the synchronous wait.
+
+** Options evaluated (pick + justify)
+1. *Persist the scan cache to disk; paint last-known board instantly* —
+   startup cost becomes "read one =.eld= file" (tens of ms for ~1500
+   items); needs serialisation + invalidation.  CHOSEN.
+2. *Refresh via chunked org-ql slices on an idle timer* — keeps the UI
+   responsive during the real scan; slices are small (measured ≈21ms/file
+   ⇒ a 3-file slice ≈ 60–70ms, well under perception); in-process, no
+   moving parts beyond one timer.  CHOSEN (the refresh half of 1).
+3. *Child Emacs process streaming results* — true parallelism, but: the
+   whole org/org-ql config (todo keywords, customs) must be replicated
+   into the child; results cross a serialisation boundary ANYWAY (so we
+   need option 1's serialiser regardless); version/config skew and orphan
+   processes are new failure classes; and the win over slicing is ~1
+   second of background latency on a board that is ALREADY painted.
+   REJECTED for now — the option-1 serialiser deliberately leaves this
+   open as a future transport.
+Decision: *1 + 2* — cache-first paint, chunked in-process refresh.
+
+** Decision — the cache
+#+begin_src elisp
+(defcustom org-air-cache-file
+  (expand-file-name "org-air/board-cache.eld"
+                    (or (getenv "XDG_CACHE_HOME") "~/.cache"))
+  "Persisted board scan cache; nil disables persistence entirely.")
+#+end_src
+- Contents (one printable plist): =:version= (bump ⇒ discard), =:key=
+  =(org-air-files org-air-inbox-file)= (mismatch ⇒ discard), =:mtimes=
+  alist FILE → mtime captured per file AT SCAN TIME, =:items= the item
+  structs with the MARKER slot serialised as =(FILE . POS)= (markers do not
+  print; titles are already =substring-no-properties=; org-timestamp
+  objects are plain sexps).  Written ATOMICALLY (temp file + rename) after
+  every completed scan; read errors / corrupt file / version / key
+  mismatch ⇒ silently treated as "no cache" (cold path).  Never read or
+  written under =noninteractive=.
+- Marker hydration: a small resolver =org-air-view--item-pos= accepts a
+  live marker OR the =(FILE . POS)= cons (the pane already accepts file
+  strings); visit/triage on a cache-cold item hydrates on demand.  The
+  live scan REPLACES cached items on completion, so cons markers are a
+  startup-window state, not a steady state.
+
+** Decision — the state machine (per board buffer)
+#+begin_src text
+        ┌──────────── cache miss/invalid ────────────┐
+COLD ───┤ paint skeleton · header "loading 0/N files" ├─→ REFRESHING
+        └─────────────────────────────────────────────┘
+CACHED ─ paint FULL board from cache instantly
+   │      · all mtimes match  → FRESH        (no scan at all)
+   │      · any mtime differs → REFRESHING   (header "stale · refreshing…")
+REFRESHING ─ idle-timer slices scan `org-air-refresh-files-per-slice'
+   │         (default 3) files each via `org-air-query-items-in-files'
+   │         (the R19-1 seam, already in the tree); accumulate privately;
+   │         UI fully interactive; slice progress in the header count slot
+   ├─ all slices done → SWAP items ONCE, re-render, clear marker,
+   │                    write cache → FRESH
+   ├─ a slice errors  → keep the painted board, state FAILED,
+   │                    header "stale · refresh failed (g retries)"
+   └─ `g' pressed     → cancel pending slices (token), restart from the
+                        current file list — g IS this same path
+FRESH ─ `g' / after-save hook → REFRESHING (mtime fast-path applies)
+#+end_src
+Robustness rules (the R19-1 lessons, made law):
+- *No partial paints*: slices accumulate into a private list; the board
+  repaints exactly ONCE per refresh (swap + =--render-current= with point
+  preserved).  No mid-scan reflow, ever.
+- *Token-guarded timers*: one buffer-local incrementing refresh token;
+  every timer callback checks it and self-cancels when stale; kill-buffer
+  cancels outright; =unwind-protect= clears the in-flight state so the
+  buffer can never wedge (the R20-1 guarantee, kept).
+- *Timers never touch windows* — they only build data; rendering happens
+  through the same =--render-current= the resize path already trusts.
+- *Guards during REFRESHING*: the board is USABLE (that is the point);
+  triage verbs on an item whose source file's mtime changed since the
+  cache snapshot soft-error ("still refreshing this file…") — positions in
+  UNCHANGED files are valid by construction (mtime match).
+- =--loading-guard= / the modal "Still loading" user-error retires for the
+  CACHED path (nothing modal remains); COLD keeps the skeleton but input
+  stays live (the guard protects only data-dependent verbs, as today).
+
+** Byte / batch contract
+=noninteractive= takes the EXACT current synchronous path: no cache read,
+no cache write, no timers — every golden and the gate's runtime are
+byte-/behaviour-identical.  Interactively, the header's count slot gains
+the =stale · refreshing…= / progress text while refreshing (display-only,
+transient); no golden captures it.
+
+** Testability (R26-8) — deterministic, no sleeping in the gate
+The slice runner is a named function (=org-air-view--refresh-run-slice=)
+the timer schedules; ERTs call IT directly in a loop — the whole machine is
+testable synchronously with zero timers and zero waits:
+- ERT (cache round-trip): scan the fixtures, write the cache to a temp
+  =org-air-cache-file=; fresh buffer + cache read ⇒ the painted board is
+  byte-identical to the live-scan board (marker slots cons-hydrated).
+- ERT (instant stale paint + marker): cache present, one fixture file
+  touched ⇒ first paint equals the CACHED board, header contains
+  =stale · refreshing=; running slices to completion repaints with the new
+  item and CLEARS the marker.
+- ERT (mtime fast-path): cache present, nothing touched ⇒ FRESH with NO
+  slice ever scheduled (assert the file queue is empty).
+- ERT (interleaving): between slices, filter/sort/motion commands run and
+  the board does NOT repaint mid-refresh (single-swap rule); the swap
+  preserves point per =--save-position=.
+- ERT (failure honesty): a slice stubbed to signal ⇒ board text unchanged,
+  header shows =refresh failed=, =g= restarts and completes.
+- ERT (corrupt cache): garbage cache file ⇒ cold path, no error surfaced.
+- ERT (batch purity): under =noninteractive= with a cache file present,
+  the render never reads it (goldens already enforce byte-identity; add an
+  explicit "cache file untouched" access assertion).
+- ERT (token safety): =g= mid-refresh cancels the old token — a late stale
+  slice callback is a no-op (call it manually with the old token).
+
+** Routing (R26-8)
+org-air-view.el: rework the cold branch of =org-air-view= (L5227) into the
+CACHED/COLD dispatch; add the cache read/write/serialise trio + the
+refresh token + =--refresh-run-slice= (building on
+=org-air-query-items-in-files=, org-air-query.el:126); header marker in
+the count slot (L1416, beside the existing =loading…= cue); retire the
+modal path per the machine above; =org-air-refresh= (L5296) routes through
+the same machine.  org-air-query.el: unchanged (the seam exists).  New
+defcustoms: =org-air-cache-file=, =org-air-refresh-files-per-slice= (3).
+tests: the eight deterministic ERTs above.  R18 caches + R20 compute-once
+untouched (they operate per render, downstream of the swap).
+
+* History
+- 2026-07-02: Wrote the round-26 DESIGN spec (state =ready=).  Dogfooded
+  R25: eight items — the project view as an interactive browsing session
+  (R26-3/4/5), two runtime bugs the batch suite structurally could not see
+  (R26-3b RET: the window path is =noninteractive=-gated and its
+  =display-buffer= nil is swallowed silently; R26-7 sort: the pane temp
+  buffers never receive the buffer-local sort state), the R26-5 re-entry
+  wipe (=org-air-project= re-runs the mode ⇒ =kill-all-local-variables= ⇒
+  double rail blessed by the ='unset=-truthy reconciler), and honest async
+  for the 1.4s cold-scan freeze (R26-8: disk cache + token-guarded chunked
+  refresh; option 3 child-process rejected with rationale).  NEW HARNESS
+  DISCIPLINE this round: interaction drives run with the side rail POPPED,
+  through the REAL entry points, with TIMERS FIRING — that is what exposed
+  every root cause the R25 ERTs missed.  R26-2 amended per user: uniform
+  5-col pill boxes, word set DRAFT/READY/WIP/COMP/DROP (DROP over CANC —
+  airctl vocabulary, no phantom synonyms).  Per-item commits (=R26-N=),
+  each with an =ever pub org-air3.work.design.done= signal.  Impl-ready;
+  not integrated (orchestrator gates + integrates per ace-orchestration.md).

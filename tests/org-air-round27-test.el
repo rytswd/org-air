@@ -297,5 +297,174 @@ byte-identical to a FORCED paint."
         (org-air-rail--show board width)
         (should (= paints 3))))))
 
+;;;; =====================================================================
+;;;; R27-2 — full main-window width with the side rail.
+;;;; =====================================================================
+
+(defmacro org-air-r27--with-live-project (&rest body)
+  "Open the fixture project LIVE with NO width seam; run BODY in its buffer.
+The R26-5 placement default pops the rail; `org-air-rail-min-width' /
+`org-air-item-pane-min' are bound down so the side rail engages on the
+80-col batch frame and the real window geometry drives every width."
+  (declare (indent 0) (debug t))
+  `(progn
+     (should (fboundp 'org-air-project))
+     (let ((org-air-sources (list (list :air org-air-project-test-root)))
+           (org-air-project-group 'directory)
+           (org-air-rail-focus-on-popout nil)
+           (org-air-rail-min-width 40)
+           (org-air-item-pane-min 30))
+       (org-air-project-test--with-frozen-mtime
+        (save-window-excursion
+          (org-air-r27--kill-aux-buffers)
+          (org-air-r27--reset-rail-globals)
+          (let ((noninteractive nil))
+            (org-air-project))
+          (let ((buf (get-buffer "*org-air-project*")))
+            (should buf)
+            (unwind-protect
+                (let ((noninteractive nil))
+                  (with-current-buffer buf
+                    (when (get-buffer-window buf)
+                      (select-window (get-buffer-window buf)))
+                    ,@body))
+              (org-air-r27--reset-rail-globals)
+              (org-air-r27--kill-aux-buffers))))))))
+
+(defun org-air-r27--longest-line ()
+  "Return the longest line's display width in the current buffer."
+  (let ((longest 0))
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (setq longest (max longest
+                           (string-width
+                            (buffer-substring-no-properties
+                             (line-beginning-position) (line-end-position)))))
+        (forward-line 1)))
+    longest))
+
+(defun org-air-r27--doc-row-bols ()
+  "Return the BOL positions of every doc row in the current buffer."
+  (let (bols)
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (when (text-property-not-all (line-beginning-position)
+                                     (line-end-position) 'org-air-doc nil)
+          (push (line-beginning-position) bols))
+        (forward-line 1)))
+    (nreverse bols)))
+
+(ert-deftest org-air-r27-2-board-fits-window ()
+  "With the rail popped, the board is composed at the REAL window body
+width: after the popped render and each of 3 refresh cycles,
+`org-air-view--rendered-width' EQUALS the board window's
+`window-body-width' — no dead columns, no overflow.  Trunk FAILED in the
+tier bands (measured 147-col compose in a 157-col window)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (org-air-r27--pop-rail)
+    (dotimes (_ 3)
+      (org-air-view--refresh-current)
+      (org-air-layout--refresh-windows)
+      (let ((bwin (get-buffer-window (current-buffer))))
+        (should (window-live-p bwin))
+        (should (eql org-air-view--rendered-width (window-body-width bwin)))
+        ;; no line overflows the compose width (dead columns cannot be
+        ;; asserted line-wise: the board right-trims), and the banner
+        ;; reaches the right margin — content genuinely spans the window.
+        (let ((longest (org-air-r27--longest-line)))
+          (should (<= longest org-air-view--rendered-width))
+          (should (>= longest (- org-air-view--rendered-width 2))))))))
+
+(ert-deftest org-air-r27-2-project-fits-window ()
+  "The PROJECT re-measures after the rail pops: after the FIRST popped
+render (no width seam) and after each refresh cycle,
+`org-air-project--rendered-width' equals the project window's body width
+and every doc row is composed to exactly that width.  Trunk FAILED on
+the first render (composed at the pre-pop width; truncated rows)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-project
+    (should (org-air-rail--popped-p))
+    (should (window-live-p (org-air-rail--side-window)))
+    (dotimes (i 4)
+      ;; i=0 asserts the FIRST render as-is; then three refresh cycles.
+      (unless (zerop i)
+        (org-air-view--refresh-current)
+        (org-air-layout--refresh-windows))
+      (let ((pwin (get-buffer-window (current-buffer))))
+        (should (window-live-p pwin))
+        (should (eql org-air-project--rendered-width
+                     (window-body-width pwin)))
+        ;; doc rows are composed to exactly the rendered width.
+        (dolist (bol (org-air-r27--doc-row-bols))
+          (save-excursion
+            (goto-char bol)
+            (should (= (string-width
+                        (buffer-substring-no-properties
+                         bol (line-end-position)))
+                       org-air-project--rendered-width))))))))
+
+(ert-deftest org-air-r27-2-popin-refits-full-width ()
+  "Popping the rail IN (`|') re-renders exactly ONCE and the board
+re-fits the now-full window body width (the freed rail columns are
+reclaimed immediately; the converged debounce path adds nothing)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (org-air-r27--pop-rail)
+    (let ((popped-width org-air-view--rendered-width)
+          (renders 0)
+          (real-render (symbol-function 'org-air-view--render)))
+      (cl-letf (((symbol-function 'org-air-view--render)
+                 (lambda (&rest args)
+                   (cl-incf renders)
+                   (apply real-render args))))
+        (org-air-r27--press "|"))
+      (should (= renders 1))
+      (should-not (window-live-p (org-air-rail--side-window)))
+      (let ((bwin (get-buffer-window (current-buffer))))
+        (should (eql org-air-view--rendered-width (window-body-width bwin)))
+        ;; the full width is genuinely WIDER than the popped compose.
+        (should (> org-air-view--rendered-width popped-width))))))
+
+(ert-deftest org-air-r27-2-v6-lock-actual-width ()
+  "The V6 meta lock derives from the ACTUAL measured width: with the rail
+popped (no seam), every doc row's right-pinned date/tag cluster starts at
+rendered-width minus the `org-air-project--fit-meta-widths' cluster — the
+columns recomputed from the REAL window body width, not the frame or a
+cached value — and ends flush at the rendered width.  The title-min
+defcustom is bound down so the 80-col frame's narrow tier keeps a
+non-degenerate tag column (the 1-col floor's ellipsis overflow is a
+pre-R27 narrow-tier artifact, out of scope here)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-project
+    (let ((org-air-title-min-width 12))
+      (org-air-view--refresh-current))
+    (let* ((org-air-title-min-width 12)
+           (w org-air-project--rendered-width)
+           (docs org-air-view--items)
+           (mw (org-air-project--fit-meta-widths docs w))
+           (dcol (nth 0 mw)) (tcol (nth 1 mw))
+           ;; cluster = date-cell + " " + tags-cell (origin dropped, R25-5).
+           (cluster-w (+ dcol (if (> tcol 0) (1+ tcol) 0)))
+           (cluster-col (- w cluster-w))
+           (bols (org-air-r27--doc-row-bols)))
+      (should (>= tcol 4))               ; non-degenerate: cells stay fixed
+      (should (eql w (window-body-width (get-buffer-window (current-buffer)))))
+      (should (> dcol 0))
+      (should bols)
+      (dolist (bol bols)
+        (let ((row (save-excursion
+                     (goto-char bol)
+                     (buffer-substring-no-properties bol (line-end-position)))))
+          ;; the row ends flush at the rendered width...
+          (should (= (string-width row) w))
+          ;; ...and the cluster sits at the SAME actual-width-derived
+          ;; column on every row: the char before it is the title gap and
+          ;; the date cell's `~' glyph opens the cluster.
+          (should (eq (aref row (1- cluster-col)) ?\s))
+          (should (eq (aref row cluster-col) ?~)))))))
+
 (provide 'org-air-round27-test)
 ;;; org-air-round27-test.el ends here

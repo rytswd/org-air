@@ -4082,6 +4082,24 @@ nil)."
                       org-air-rail--window (and (window-live-p win) win)))
         win))))
 
+(defun org-air-rail--host-width (host-buffer width)
+  "Return HOST-BUFFER's REAL compose width under the side-window rail (R27-2).
+Ensures the (pinned, frame-derived) rail side window FIRST via the
+convergent `org-air-rail--ensure-window' (R27-1 S2), then measures the
+host window's ACTUAL `window-body-width' — the width content must be
+composed at.  With the frame-derived cols (S1) \"settle\" is one step
+and convergent: the render tail's `org-air-rail--show' derives the SAME
+cols, so no post-composition resize can move the goalposts.  WIDTH is
+the fallback when HOST-BUFFER has no live window (and the floor input:
+the result never drops below `org-air-item-pane-min').  Shared by the
+board and the project (one primitive, no fork); the batch width seams
+bypass this helper entirely."
+  (org-air-rail--ensure-window host-buffer width)
+  (let ((win (get-buffer-window host-buffer)))
+    (if (window-live-p win)
+        (max org-air-item-pane-min (window-body-width win))
+      width)))
+
 (defun org-air-rail--input-stamp (board-buffer width height)
   "Return the rail content input stamp for BOARD-BUFFER at WIDTH x HEIGHT.
 R27-1 S4: every input the rail paint reads through the back-pointer —
@@ -5205,18 +5223,16 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
            ((org-air-rail--popped-p) 'side-window)
            ((org-air-view--two-pane-p width) 'two-pane)
            (t 'stacked)))
-    ;; R15 D-P2: under `side-window' create the rail side window BEFORE
-    ;; composing the board body, then re-measure the board's (now-shrunk)
-    ;; window width — so the board text is composed at the real board-window
-    ;; width, never the stale full-frame width.  Skipped when the width seam
-    ;; is set (deterministic batch goldens: the seam IS the board width and
-    ;; window geometry is unreliable in batch).
+    ;; R15 D-P2 / R27-2: under `side-window' create the rail side window
+    ;; BEFORE composing the board body, then compose at the board window's
+    ;; REAL body width (the shared `org-air-rail--host-width' helper — the
+    ;; rail cols are frame-derived, so the geometry settles in one step and
+    ;; the render tail cannot resize it after composition).  Skipped when
+    ;; the width seam is set (deterministic batch goldens: the seam IS the
+    ;; board width and window geometry is unreliable in batch).
     (when (and (eq org-air-view--orientation 'side-window)
                (not org-air-view-width))
-      (org-air-rail--ensure-window (current-buffer) width)
-      (let ((bwin (get-buffer-window (current-buffer))))
-        (when (window-live-p bwin)
-          (setq width (max org-air-item-pane-min (window-body-width bwin))))))
+      (setq width (org-air-rail--host-width (current-buffer) width)))
     (let* ((header (org-air-view--render-lines
                     width
                     (lambda ()

@@ -529,6 +529,24 @@ keyword/state badge on GUI."
            (org-air-layout-current-width (current-buffer)))
       80))
 
+(defun org-air-project--host-width ()
+  "Return the project compose width, rail-geometry aware (R27-2).
+With the rail POPPED (and not suspended, and no batch width seam) the
+width is resolved through the shared `org-air-rail--host-width': the
+pinned side window is ensured FIRST, then the project window's ACTUAL
+body width is measured — so the doc rows and the V6 meta lock are
+composed at the width they will really display at (trunk composed at a
+width measured at the WRONG moment of the resize cycle and never
+re-measured after the rail popped).  Every other path (inline, batch
+seam) keeps `org-air-project--render-width' exactly as today."
+  (if (and (not noninteractive)
+           (null org-air-project-view-width)
+           (org-air-rail--popped-p)
+           (not org-air-view--rail-suspended))
+      (org-air-rail--host-width (current-buffer)
+                                (org-air-project--render-width))
+    (org-air-project--render-width)))
+
 (defconst org-air-project--attention-states '("ready" "work-in-progress")
   "States whose non-empty section count uses the attention badge (D-P5.C).")
 
@@ -1327,12 +1345,28 @@ INSET is the spine prefix, CONTENT-W the wrap width, NOW the render clock."
   "Render the Air project view for ROOT into the current buffer (R14 D-P1).
 Two-line doc blocks in state-bucket sections; two-pane (docs + a Summary/
 Inspector rail) above `org-air-rail-min-width', board-only below it."
+  ;; R26-5: seed the per-buffer rail placement ONCE (the `unset' sentinel)
+  ;; from `org-air-rail-placement' — the project defaults to the popped
+  ;; side-window rail, no `|' required.  Interactive only: batch never
+  ;; touches the sentinel (the `unset'-is-not-popped normalisation lives in
+  ;; `org-air-rail--popped-p'), so byte goldens and legacy sentinel
+  ;; assertions are untouched.  Thereafter the toggle + reconciler own the
+  ;; flag.  R27-2: seeded BEFORE the width resolution below, so the FIRST
+  ;; render already ensures the rail and composes at the real (shrunk)
+  ;; host width instead of the pre-pop width.
+  (when (and (not noninteractive)
+             (eq org-air-view--rail-popped-out 'unset))
+    (setq-local org-air-view--rail-popped-out
+                (eq (alist-get 'project org-air-rail-placement)
+                    'side-window)))
   (let* ((inhibit-read-only t)
          ;; R27-1 S3: latch the reconciler for the FULL render extent (the
          ;; board binds the same latch) so a nested reconcile timer can
          ;; never mutate rail state mid-render.
          (org-air-rail--reconciling t)
-         (width (org-air-project--render-width))
+         ;; R27-2: compose at the REAL window body width after the rail
+         ;; geometry settles (the helper is a no-op for inline/batch).
+         (width (org-air-project--host-width))
          (org-air-project--width width)
          ;; drive the shared row primitive's width seam.
          (org-air-view-width width)
@@ -1401,18 +1435,6 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
     (unless org-air-project--sort-direction
       (setq-local org-air-project--sort-direction org-air-project-sort-direction))
     (erase-buffer)
-    ;; R26-5: seed the per-buffer rail placement ONCE (the `unset'
-    ;; sentinel) from `org-air-rail-placement' — the project defaults to
-    ;; the popped side-window rail, no `|' required.  Interactive only:
-    ;; batch never touches the sentinel (the `unset'-is-not-popped
-    ;; normalisation lives in `org-air-rail--popped-p'), so byte goldens
-    ;; and legacy sentinel assertions are untouched.  Thereafter the
-    ;; toggle + reconciler own the flag.
-    (when (and (not noninteractive)
-               (eq org-air-view--rail-popped-out 'unset))
-      (setq-local org-air-view--rail-popped-out
-                  (eq (alist-get 'project org-air-rail-placement)
-                      'side-window)))
     ;; R22-5: when the rail is POPPED OUT, render the doc pane LEFT-ONLY and
     ;; push the project rail into the shared `*org-air-rail*' side window
     ;; (reusing the board's side-window primitives).  `unset' (the initial
@@ -1468,7 +1490,7 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
   "Re-render the project view when the displaying window changed (R14 D-P1.B).
 Rides the round-9 C1 resize path so widening/narrowing the window flips
 between two-pane and board-only."
-  (let ((width (org-air-project--render-width)))
+  (let ((width (org-air-project--host-width)))
     (unless (eql width org-air-project--rendered-width)
       (when org-air-project--root
         (org-air-project--render org-air-project--root)))))
@@ -1914,9 +1936,15 @@ With several configured projects, prompt for one (`org-air-projects' /
       ;; once; a re-entry (or a different root) just re-renders in place.
       (unless (derived-mode-p 'org-air-project-mode)
         (org-air-project-mode))
-      (setq org-air-project--root (expand-file-name root))
-      (org-air-project--render org-air-project--root))
-    (pop-to-buffer buffer)))
+      (setq org-air-project--root (expand-file-name root)))
+    ;; R27-2: display the buffer BEFORE the first render, so the width
+    ;; resolution (`org-air-project--host-width') can ensure the rail side
+    ;; window and measure the REAL project window body width — the first
+    ;; popped render composes at the width it will actually display at
+    ;; (trunk composed at the pre-pop width and never re-measured).
+    (pop-to-buffer buffer)
+    (with-current-buffer buffer
+      (org-air-project--render org-air-project--root))))
 
 (provide 'org-air-project)
 

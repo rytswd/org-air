@@ -10,6 +10,11 @@
 ;;          renders inline, wrapped so a query error can never wedge the
 ;;          board (`--loading' is always cleared) nor dump a six-figure
 ;;          echo message (the bounded `--short-error' line).
+;;          R26-8 re-bless: the INTERACTIVE cold path is the cache-first
+;;          CACHED/COLD dispatch now (skeleton + token-guarded chunked
+;;          refresh); `noninteractive' keeps the exact synchronous path,
+;;          and the machine-START error keeps the R20-1 bounded-failure
+;;          discipline (pinned below).
 
 ;;; Code:
 
@@ -46,45 +51,78 @@ half-painted skeleton left behind."
             (kill-buffer org-air-view-buffer-name)))))))
 
 (ert-deftest org-air-r20-1-cold-load-error-does-not-wedge ()
-  "A query error in the COLD interactive load can never wedge the board: the
-`unwind-protect' clears `org-air-view--loading', the buffer falls back to
-the normal empty render (NOT the loading skeleton), and the surfaced echo
-message is a single bounded line (< 200 chars) — locking out the
-101 802-char `%S'-of-payload timer-error dump."
+  "R26-8 re-bless of the retired sync-cold contract: the interactive COLD
+path is the ASYNC machine now.
+ (1) DISPATCH: with no cache, `org-air-view' RETURNS with the skeleton
+     painted, `org-air-view--loading' t and the chunked refresh QUEUED
+     (state `refreshing', file queue non-empty) — and NO synchronous
+     query runs inside the call (an erroring `org-air-query-items' stub
+     proves it; there is nothing synchronous left to fail).  The
+     slice-error half of the old no-wedge guarantee lives in the machine
+     and is pinned by org-air-r26-8-failure-honest-and-g-retries.
+ (2) MACHINE-START error (the one failure still inside the call, e.g.
+     the file list itself): the R20-1 discipline holds — `--loading'
+     cleared (never a wedge), the EMPTY board (not the skeleton), no
+     stale items, and ONE bounded `load failed' line (< 200 chars; locks
+     out the 101 802-char `%S'-of-payload dump)."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     (org-air-viewport-test--with-frozen-now
       (let ((org-air-view-width 120)
             (org-air-view-height 50)
             (org-air-view-buffer-name "*org-air-r20-1-wedge*")
+            (org-air-cache-file nil)     ; no persisted cache -> COLD
             (captured nil)
+            (sync-query-ran nil)
             ;; a realistic org-ql failure carrying a HUGE data payload (the
             ;; exact shape that made `%S' / `error-message-string' explode).
             (big (make-list 2000 (list :title "x" :tags '("a" "b" "c")))))
         (unwind-protect
-            (cl-letf (((symbol-function 'org-air-query-items)
-                       (lambda (&rest _)
-                         (signal 'error (list "org-ql query failed" big))))
-                      ((symbol-function 'message)
-                       (lambda (fmt &rest args)
-                         (setq captured (apply #'format fmt args))
-                         captured)))
-              ;; force the COLD interactive branch (batch normally takes the
-              ;; synchronous cache-miss branch).
-              (let ((noninteractive nil))
-                (org-air-view))
-              (with-current-buffer org-air-view-buffer-name
-                ;; (a) never wedged:
-                (should-not org-air-view--loading)
-                ;; (b) the empty board, not the skeleton:
-                (let ((text (substring-no-properties (buffer-string))))
-                  (should-not (string-match-p "Loading your board" text)))
-                ;; the failed query left no stale items:
-                (should (null org-air-view--items)))
-              ;; (c) the message is bounded and human (no payload dump):
-              (should captured)
-              (should (string-prefix-p "org-air: load failed:" captured))
-              (should (< (length captured) 200)))
+            (progn
+              ;; (1) the COLD dispatch: skeleton + loading + queued machine;
+              ;; the call itself never runs the query synchronously.
+              (cl-letf (((symbol-function 'org-air-query-items)
+                         (lambda (&rest _)
+                           (setq sync-query-ran t)
+                           (signal 'error (list "sync query must not run")))))
+                (let ((noninteractive nil))
+                  (org-air-view))
+                (with-current-buffer org-air-view-buffer-name
+                  (should-not sync-query-ran)
+                  (should org-air-view--loading)
+                  (should (eq org-air-view--refresh-state 'refreshing))
+                  (should org-air-view--refresh-queue)
+                  (let ((text (substring-no-properties (buffer-string))))
+                    (should (string-match-p "Loading your board" text)))
+                  ;; cancel the queued machine (no timer leaks into the
+                  ;; suite; the slice half has its own deterministic ERTs).
+                  (org-air-view--refresh-teardown)))
+              (kill-buffer org-air-view-buffer-name)
+              ;; (2) an error STARTING the machine keeps the R20-1 bounded-
+              ;; failure discipline: empty board, loading cleared, one
+              ;; short line.
+              (cl-letf (((symbol-function 'org-air-query-files)
+                         (lambda (&rest _)
+                           (signal 'error (list "file list failed" big))))
+                        ((symbol-function 'message)
+                         (lambda (fmt &rest args)
+                           (setq captured (apply #'format fmt args))
+                           captured)))
+                (let ((noninteractive nil))
+                  (org-air-view))
+                (with-current-buffer org-air-view-buffer-name
+                  ;; (a) never wedged:
+                  (should-not org-air-view--loading)
+                  (should-not (eq org-air-view--refresh-state 'refreshing))
+                  ;; (b) the empty board, not the skeleton:
+                  (let ((text (substring-no-properties (buffer-string))))
+                    (should-not (string-match-p "Loading your board" text)))
+                  ;; the failed start left no stale items:
+                  (should (null org-air-view--items)))
+                ;; (c) the message is bounded and human (no payload dump):
+                (should captured)
+                (should (string-prefix-p "org-air: load failed:" captured))
+                (should (< (length captured) 200))))
           (when (get-buffer org-air-view-buffer-name)
             (kill-buffer org-air-view-buffer-name)))))))
 

@@ -683,20 +683,47 @@
     ;; seat; fixtures NOT edited on the impl track), and the legacy keymap
     ;; ERTs that assert the OLD RET-=-pane-return / s-d-t-unbound contract
     ;; retune on the test track:
-    ;; R26-8 CACHE-FIRST ASYNC: the interactive COLD load no longer runs
-    ;; the query synchronously — it paints the skeleton and hands off to
-    ;; the token-guarded chunked refresh machine (batch/noninteractive
-    ;; keeps the EXACT synchronous path, so every golden + the gate are
-    ;; untouched).  One legacy ERT pins the retired sync-cold contract:
-    (org-air-r20-1-cold-load-error-does-not-wedge
-     . "R26-8: the noninteractive-nil cold path is the ASYNC machine now
-— `org-air-view' returns with the skeleton painted, `--loading' t and
-the refresh queued (no synchronous query to fail inside the call).  The
-no-wedge + bounded-single-line-failure guarantees this ERT pinned moved
-into the machine and are covered by the R26-8 failure-honesty ERT (slice
-error -> board intact, `refresh failed (g retries)' header, `--loading'
-always cleared); assertions retune to the machine's shape")
-    ;; (test-symbol . "reason")  — end of round-26 entries.
+    ;; (test-symbol . "reason")  — none right now.
+    ;;
+    ;; =================================================================
+    ;; v0.5 ROUND-26 CLOSEOUT (impl tips wltlopmknwpt..ynmwluzvuomx +
+    ;; test re-bless <this commit>).  ALL 34 grind entries CLOSED — the 5
+    ;; moved byte goldens regenerated from impl's render via the
+    ;; FROZEN-CLOCK renderer (make regen-mockups, guards active; verified
+    ;; NO HANG, exit 0; jj diff --stat = ONLY the 3 project goldens + the
+    ;; 2 denote-origin goldens — every board / entry-view golden is
+    ;; byte-identical) and the legacy ERTs migrated to the design-blessed
+    ;; R26 contracts (air/v0.5/org-air-round26-design.org):
+    ;;   R26-2 (20 + 1 golden) WORD PILLS / V6 RELOCK: the state cell is
+    ;;     the uniform padded 5-col WORD token (DRAFT/READY/WIP/COMP/DROP;
+    ;;     unknown -> UNKNO) — token/byte guards, GUI capsule (5*char-px,
+    ;;     bare-word bold label), column locks (badge column FROZEN at
+    ;;     margin + 2*(1+depth); title/downstream +2) and render greps all
+    ;;     re-pinned; rollup letters (D/X) unchanged.
+    ;;   R26-1 (4) ONE-SPACE ARM: deliberate inversion of R25-1's flush
+    ;;     run — corner + box-horizontal dashes + exactly ONE joining
+    ;;     space before the badge; gutter width/corner/ancestor-rail
+    ;;     rules unchanged.
+    ;;   R26-3 (6 + the golden's Actions rows): project RET forks to the
+    ;;     same-window `org-air-project-open' (R26-5 session; board RET
+    ;;     stays pane-return; click == RET holds), s/d/t are on-key
+    ;;     grouping verbs again (airctl parity), and the popped rail is
+    ;;     height-clamped (Inspector shrinks first — the all-blocks
+    ;;     assertion runs in a tall frame).
+    ;;   R26-6 (2): the `· r to file' nudge is DEAD — the triage ERT
+    ;;     inverts to NO row hint anywhere (discovery = `r' binding + `?'
+    ;;     help), and the 2 denote-origin goldens re-blessed (title
+    ;;     de-truncates, tags/origin snap left into V6).
+    ;;   R26-8 (1): the r20-1 wedge ERT re-blessed to the CACHED/COLD
+    ;;     dispatch — cold interactive returns with skeleton + loading t
+    ;;     + queued machine and NO synchronous query in the call; the
+    ;;     machine-START error keeps the R20-1 bounded-failure discipline;
+    ;;     batch keeps the EXACT sync path (zero golden churn from R26-8).
+    ;; airctl `status -Da' parity RE-VERIFIED on ~/Coding/github.com/
+    ;; withre/air after the word-pill relock (counts + tree shape; the
+    ;; wider state cell does not break column parity).  Round-26 manifest
+    ;; is EMPTY; the tests stay as permanent regression guards.
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -161,9 +161,11 @@ never by a row-less phantom.  Data-variation board, GUI glyphs."
               (should (memq day bucket-days)))))))))
 
 (ert-deftest org-air-triage-dated-inbox-row-carries-file-hint ()
-  "Dated-unfiled inbox rows carry the clarified `· r to file' nudge
-(R19-2(c), re-bless of ruling xsqrnoyn's cryptic `file with r') so the
-user knows dating did not file the item — press `r' to file it out."
+  "R26-6 deliberate INVERSION of R19-2(c): dated-unfiled inbox rows carry
+NO row hint any more — the `· r to file' nudge is retired (user: wasteful
++ cryptic; it also broke the row's V6 tag/origin alignment).  The date
+cell is the date label + optional repeat marker ONLY; `r' stays bound to
+the refile verb and `?' help (`r refile') is the single teaching surface."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-alt-dashboard 160
     (let ((found nil))
@@ -173,9 +175,22 @@ user knows dating did not file the item — press `r' to file it out."
           (setq found (buffer-substring-no-properties
                        (line-beginning-position) (line-end-position)))))
       (should found)
-      ;; R19-2(c): the clarified verb-first nudge (was `file with r').
-      (should (string-match-p "r to file" found))
-      (should-not (string-match-p "file with r" found)))))
+      ;; R26-6: NO row hint — neither wording generation survives, anywhere
+      ;; on the board.
+      (should-not (string-match-p "r to file" found))
+      (should-not (string-match-p "file with r" found))
+      (should-not (string-match-p "r to file\\|file with r"
+                                  (buffer-substring-no-properties
+                                   (point-min) (point-max))))
+      ;; discovery lives on the key + help, not the row.
+      (should (eq (lookup-key org-air-view-mode-map (kbd "r"))
+                  'org-air-refile-item))
+      (let (help)
+        (cl-letf (((symbol-function 'message)
+                   (lambda (fmt &rest args)
+                     (setq help (apply #'format fmt args)))))
+          (org-air-help))
+        (should (string-match-p "r refile" (or help "")))))))
 
 ;;;; Consistency invariant (ruling xsqrnoyn): calendar <-> buckets <-> total.
 

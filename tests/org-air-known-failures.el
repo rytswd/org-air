@@ -683,19 +683,6 @@
     ;; seat; fixtures NOT edited on the impl track), and the legacy keymap
     ;; ERTs that assert the OLD RET-=-pane-return / s-d-t-unbound contract
     ;; retune on the test track:
-    ;; R26-6 KILL THE "· r to file" ROW HINT: the dated-Inbox date-cell
-    ;; nudge is deleted from `org-air-view--item-date-text' — rows reclaim
-    ;; the 12 columns and the hinted row's tag/origin cells snap back into
-    ;; V6 alignment; discovery lives in `?' help + Actions (r stays bound):
-    (org-air-r17-denote-origin-byte-mockup
-     . "R26-6: the two denote-origin goldens are the only ones carrying
-the `· r to file' nudge — the dated inbox row loses it, its title
-de-truncates and its tags/origin snap LEFT; goldens await test-seat
-re-bless via regen-mockups")
-    (org-air-triage-dated-inbox-row-carries-file-hint
-     . "R26-6: deliberate inversion — the R19-2(c) carries-the-nudge
-contract is retired (user: wasteful + cryptic); the assertion inverts to
-NO row hint, with `?' help (`r refile') the single teaching surface")
     ;; R26-8 CACHE-FIRST ASYNC: the interactive COLD load no longer runs
     ;; the query synchronously — it paints the skeleton and hands off to
     ;; the token-guarded chunked refresh machine (batch/noninteractive

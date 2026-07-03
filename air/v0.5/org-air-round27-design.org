@@ -1,0 +1,545 @@
+#+title: org-air v0.5 round-27 DESIGN: stable rail geometry (no flicker/resize/refresh storm) · main window full width · sort-active header in white bold · project/rail/pane evil parity
+#+state: ready
+#+FILETAGS: :ui:render:project:rail:layout:evil:sort:design:v0.5:
+
+* Scope of this document
+Round-27 DESIGN doc, written after the user dogfooded R26 *with EVIL-MODE*
+against the demo board and the real Air repo
+(=~/Coding/github.com/withre/air=).  Four items:
+
+- *R27-1* PROJECT RAIL: FLICKER / RANDOM RESIZE / RANDOM REFRESH — the side
+  rail "is extremely buggy — flickers and resizes randomly", the view
+  "refreshes randomly".  Root-caused to FOUR interlocking defects, all
+  measured: a geometry feedback loop with no fixpoint (the rail's column
+  tier is derived from the main window's width, which depends on the rail),
+  a per-render double resize, a reconcile timer that fires MID-RENDER and
+  misclassifies the in-flight popout as a user close, and TWO uncoordinated
+  scanners (the R26-8 slice machine vs the debounced resize-refresh's
+  synchronous fallback) racing each other into a live-only refresh
+  failure.  [BUG — priority]
+- *R27-2* FULL MAIN-WINDOW WIDTH WITH SIDE RAIL — with the rail popped the
+  main window shows 10 dead columns (board) or truncated rows (project):
+  content is composed at a width measured at the WRONG moment of the rail
+  resize cycle; the project never re-measures at all.  [BUG]
+- *R27-3* SORT-ACTIVE HEADER INDICATOR — =o= sorting works (R26-7) but an
+  ACTIVE non-default sort is invisible: the indicator inherits
+  =org-air-face-faded= (documented in-tree as failing WCAG AA) and the
+  board sheds it FIRST under width pressure.  White-bold high-contrast
+  =org-air-face-sort-active= when non-default; quiet/absent at default.
+  [POLISH]
+- *R27-4* PROJECT KEYBINDING PARITY + EVIL-AWARENESS — "( toggle does
+  nothing… ALL the key bindings are weird in the project view."
+  AUTHORITATIVE: the board integrates with evil
+  (=org-air-view--setup-evil=, org-air-view.el:1061–1072); the project,
+  rail and entry-view-pane modes DO NOT — under evil every single project
+  key resolves to an evil command (measured with real evil).  =(= itself is
+  correctly wired and functional without evil (verified).  [BUG]
+
+Workers cannot see screenshots; every item is REPRODUCED on THIS checkout
+against the =.el= SOURCE (=load-prefer-newer t=), on the demo fixture AND
+the real Air repo, and the interaction items are DRIVEN UNDER REALISTIC
+CONDITIONS: a REAL terminal Emacs (=emacs -nw= inside a 190×45 tmux pane —
+a GUI-ish frame width), the side-window rail POPPED, commands dispatched
+via =(key-binding (kbd ...))=, and — critically — ALL TIMERS LIVE (the 0s
+reconcile, the 0.12s resize debounce, the R26-8 idle slices).  Root-causing
+used small targeted reads (≤250 lines).  Constraints honoured: org-ql only;
+V6 pixel-lock (now derived from the ACTUAL window width per R27-2); R18
+caches, R20 compute-once, R26-8 async machine + batch purity preserved;
+shared primitives (one-renderer-two-views).
+
+* Status
+Design-led, impl-ready.  Byte contract per item:
+- *R27-1* byte-INVISIBLE.  Window lifecycle, timer discipline and repaint
+  scheduling only; =noninteractive= renders never create windows or timers,
+  so every golden is untouched.  The rail repaint guard (S4) may only skip
+  a repaint whose output would be byte-identical.
+- *R27-2* byte-INVISIBLE.  Batch goldens render through the
+  =org-air-view-width= / =org-air-project-view-width= seams, which bypass
+  live measurement entirely; only the live measurement moment changes.
+- *R27-3* byte-INVISIBLE at DEFAULTS: the indicator TEXT is unchanged, only
+  FACES change and only for NON-default sort states, which no golden
+  renders.  The banner shed-order change is conditional on a non-default
+  sort (at default the sort segment is nil, exactly as today).
+- *R27-4* byte-INVISIBLE.  Keymap/evil registration only; non-evil users
+  see identical behaviour (all evil calls stay =fboundp=-gated soft-deps).
+
+* Measured baseline (reproduction harness)
+All reproductions on THIS checkout against the =.el= source:
+- Live drives: =tmux new-session -x 190 -y 45 "emacs -nw -Q -l
+  tests/org-air-test-init.el -l <drive>.el"= — a REAL interactive terminal
+  Emacs; timers fire for real; results logged to files.  This round's
+  harness first: previous rounds sized the BATCH frame with
+  =set-frame-size=, but on this Emacs (30.2) a batch frame silently refuses
+  to resize (=set-frame-size=/=set-frame-width=/frame parameters all no-op;
+  measured 80×25 before and after) — the R24-6/R26-3 frame-size helpers
+  assert less than they appear to.  The live tmux frame really is 190×43.
+- Demo fixture: =examples/demo/{work,home,projects,inbox}.org= (20 items).
+- Real Air repo: =~/Coding/github.com/withre/air= (63 docs) via
+  =org-air-project=.
+- Evil: the REAL evil from =.deps/evil-20260603.654= (a test dep already),
+  =evil-mode= enabled globally before org-air loads.
+
+Headline transcripts (full context inline per item):
+#+begin_src text
+board, frame 190, rail popped, timers silenced, 6 explicit re-renders:
+  render N: rail-w=32 main-body-w=157 rendered-w=147
+            resizes=(("*org-air-rail*" +10 t) ("*org-air-rail*" -10 t))   [every render]
+project, real Air repo, frame 190, debounced refresh driven as the timer runs it:
+  first render : rail-w=42 main-body-w=147 rendered-w=161   <- composed 14 cols too wide
+  cycle 1      : rail-w=32 main-body-w=157 rendered-w=147   <- 10 dead cols
+  cycle 2      : rail-w=42 main-body-w=147 rendered-w=157   <- overflow again
+  cycle 3..6   : alternates forever; width guard NEVER satisfied
+reconcile storm: 5 window-config hook fires -> 5 distinct 0s timers
+live cold load : refresh machine FAILED (stringp nil) while a concurrent
+                 synchronous scan painted 20 items anyway (header lies)
+evil, project : ( -> evil-backward-sentence-begin  o -> evil-open-below
+                 s -> evil-substitute  d -> evil-delete  RET -> evil-ret
+                 q -> evil-record-macro  | -> evil-goto-column   (state=normal)
+evil, board   : o -> org-air-view-sort-cycle  RET -> org-air-view-pane-return
+                 (state=motion; overriding map works)
+#+end_src
+
+* R27-1 — project rail: flicker / random resize / random refresh [BUG]
+
+** Reproduction A — the geometry feedback loop has no fixpoint (suspect d)
+The rail side-window column width is derived from the MAIN window's width
+tier (=org-air-rail--window-cols=, org-air-view.el:3857–3863 →
+=org-air-view--rail-width=, :2640–2648: ≥150→42, 120–149→32, <120→28), but
+the main window's width DEPENDS on the rail's width.  At frame width F the
+fixpoint fails whenever =tier(F−42) ≠ tier(F−32)= — i.e. 182 ≤ F < 192 and
+148 ≤ F < 152 at defaults.  The user's GUI-ish frame (190 in the drive)
+sits in the band.  Measured (board, demo, frame 190, rail popped, ALL
+timers cancelled so only render geometry shows; 6 explicit re-renders):
+#+begin_src text
+render 1..6: rail-w=32 main-body-w=157 rendered-w=147
+             resizes = ("*org-air-rail*" +10 t), ("*org-air-rail*" -10 t)
+#+end_src
+EVERY render resizes the rail TWICE: =org-air-view--render= (:5088–5096)
+calls =org-air-rail--ensure-window= at the PRE-shrink width (157→tier 42,
+rail grows +10), re-measures the board at 147 and composes, then the render
+tail (:5173) calls =org-air-rail--show= at the POST-shrink width (147→tier
+32, rail shrinks −10).  Two visible rail resizes per repaint = the flicker.
+=display-buffer-in-side-window= re-applies =window-width= on every call
+(:4023, via the params at :3865–3873); nothing pins the rail
+(=window-preserve-size= is used nowhere).
+
+** Reproduction B — the loop never converges: eternal debounced re-render
+On the REAL Air repo (project view, frame 190, rail popped by the R26-5
+placement default), driving =org-air-layout--refresh-windows= exactly as
+the 0.12s debounce timer runs it:
+#+begin_src text
+first render : rail-w=42 main-body-w=147 rendered-w=161
+cycle 1      : rail-w=32 main-body-w=157 rendered-w=147  resize −10
+cycle 2      : rail-w=42 main-body-w=147 rendered-w=157  resize +10
+cycle 3      : rail-w=32 main-body-w=157 rendered-w=147  resize −10
+... alternates forever (6/6 cycles; renders 3..8 counted)
+#+end_src
+The width guards (=org-air-view--resize-refresh= :5370–5378;
+=org-air-project--resize-refresh= org-air-project.el:1465–1470) compare the
+CURRENT width against the LAST rendered width — in the band these are
+never equal, so every debounce fires a re-render, each re-render resizes
+the rail, each resize fires =window-size-change-functions= /
+=window-configuration-change-hook= (global hooks,
+org-air-layout.el:457–461), which re-arms the debounce (:446–454): an
+ETERNAL loop.  "Flickers and resizes randomly" + "refreshes randomly" is
+this one cycle, plus reproduction C/D below stacking on top.
+
+** Reproduction C — the reconcile timer fires MID-RENDER and undoes the popout (suspects a+b)
+Live board drive, =|= dispatched via =(key-binding (kbd "|"))=.
+=trace-function= transcript (abridged; full trace in the round-27 drive):
+#+begin_src text
+1 -> (org-air-rail-toggle)                 popped-p: nil -> pop-OUT, flag := t
+| 2 -> (org-air-view--refresh-current)
+| | 3 -> (org-air-view--render-current)    ; sync fallback query runs org-ql...
+| | | 4 -> (org-air-view--render-current)  ; 0.12s DEBOUNCE TIMER fires nested
+| | | | 5 -> (org-air-rail--reconcile-frame ...)   ; 0s RECONCILE TIMER, nested
+| | | | | popped-p: t, side window: nil (render hasn't created it yet)
+| | | | | -> "(t user CLOSED it -> go inline)": flag := nil + re-render
+| | 3 ... outer render proceeds with flag=nil -> two-pane, NO side window
+#+end_src
+Timers NEST: org-ql's =find-file-noselect= yields, and pending timers run
+inside the yield.  The reconcile (org-air-view.el:4271–4282, deferred 0s)
+then observes "flag=t, no side window, not suspended, not narrow" — the
+transient state DURING the very render that would create the window — and
+takes the user-close branch (:4323–4328), clearing the flag and re-entering
+the renderer.  The popout is defeated by its own reconciler; in real use
+this reads as the rail randomly popping back in.  Also measured: the
+reconcile schedules ONE NEW 0s TIMER PER HOOK FIRE with no coalescing — 5
+fires → 5 distinct timers (the =org-air-rail--reconciling= latch only
+guards execution, not scheduling).
+
+** Reproduction D — two uncoordinated scanners; the machine fails live-only
+Clean live cold start (zero instrumentation): the R26-8 machine ends
+=refresh-state=failed= with "org-air: refresh failed: Wrong type argument:
+stringp, nil (g retries)" — yet 20 items are painted.  Root cause
+(backtraced via =handler-bind= at the signal point): the debounced
+resize-refresh fires while the machine is mid-refresh, sees a width change,
+and =org-air-view--render-current= (:5361–5368) runs its SYNCHRONOUS
+fallback =(or org-air-view--items (org-air-query-items))= — a SECOND
+full scan, concurrent with the slice machine.  The two interleave through
+nested timer execution: the sync scan's =find-file-noselect= →
+=normal-mode= → =kill-all-local-variables= wipes =work.org='s buffer-locals
+(measured: =org-complex-heading-regexp= nil in an =org-mode= buffer) at the
+exact moment the slice's =org-ql= predicate calls =org-get-heading= →
+=(wrong-type-argument stringp nil)= → machine FAILED, header lies "refresh
+failed" over a fully-painted board.  Suspect (c) — the R26-8 slices
+repainting per slice — is EXONERATED: slices never touch buffer text
+(run-slice, :5615–5658) and the swap repaints exactly once
+(=org-air-view--refresh-finish= → =--refresh-repaint=); the "random
+refresh" is reproductions B+C+D, not the machine's paint discipline.
+
+** Decision — stable rail geometry: one owner, created once, convergent by construction
+Four spec points; together every reproduction above becomes a no-op loop.
+
+*S1. Rail columns derive from the FRAME, not the main window.*
+=org-air-rail--window-cols= takes the frame's total column width
+(=frame-width= of the host's frame) — an input the rail's own existence
+cannot change — so ensure/tail/reconcile all agree by construction and a
+fixpoint always exists.  =org-air-rail-window-width= still wins when set.
+The tier function itself (≥150→wide / ≥120→mid / narrow) is unchanged, now
+fed the frame width.  Both call sites in the board render and both project
+call sites route through the one function (shared primitive, no fork).
+
+*S2. The side window is created ONCE, reused, and pinned.*
+=org-air-rail--ensure-window= becomes convergent: when a live rail side
+window already exists on the frame it is returned UNTOUCHED — no
+=display-buffer-in-side-window= call at all — unless =desired-cols ≠
+actual-cols=, in which case ONE =window-resize= delta adjusts it.  After
+creation the window is pinned: =(window-preserve-size win t t)= plus the
+existing dedicated/no-delete parameters, so redisplay and sibling churn
+cannot drift its width.  =org-air-rail--hide= keeps =delete-window= (pop-in
+is a real teardown); the show path NEVER deletes+recreates.
+
+*S3. Reconcile: one pending timer, render-latched, edge-triggered user-close.*
+- ONE timer slot: =org-air-rail--reconcile-timer= (frame-keyed or global);
+  a hook fire while one is pending RESCHEDULES it instead of stacking (5
+  fires → 1 timer; measured trunk: 5).
+- Render latch: the full extent of =org-air-view--render= /
+  =org-air-project--render= binds =org-air-rail--reconciling= t, so a
+  nested reconcile timer no-ops (and re-arms the single slot for after the
+  render) instead of mutating state mid-render — kills reproduction C.
+- Edge-triggered user-close: the reconciler records per-frame whether the
+  side window was live at its last run (=org-air-rail--side-was-live=,
+  also updated by the render tail and =org-air-rail--show/--hide=).  The
+  user-close branch (flag cleared, fall inline) may fire ONLY on an
+  observed live→dead transition with the host window still wide enough —
+  never on mere absence (absence + flag t + was-live nil = a popout in
+  flight or a suspended view: leave state alone; the render tail owns it).
+- Convergence: when owner==active and the window geometry already matches,
+  reconcile-frame changes NOTHING (no show, no hide, no resize) — the
+  existing no-op branch plus S1/S2 make this the steady state.
+
+*S4. Repaints happen exactly at swap; one scanner at a time.*
+- =org-air-view--render-current= must NOT run the synchronous fallback
+  query while the R26-8 machine is refreshing: when
+  =org-air-view--refresh-state= is =refreshing=, render items-as-is (the
+  swap will repaint); when additionally cold (=--loading= t), repaint the
+  skeleton via =org-air-view--render-loading= instead.  ONE scanner at a
+  time — kills reproduction D (the machine can no longer be raced by its
+  own debounce).
+- Rail content repaint guard: =org-air-rail--show= skips the erase+
+  re-insert when its input stamp — (owner buffer, =org-air-view--items=
+  identity, items-key, filter, scope, expanded, cal-month, cols, height,
+  descriptor identity) — equals the stamp of the last paint; any component
+  change repaints.  With S1–S3 the steady state is zero rail repaints when
+  nothing changed, and exactly ONE at the R26-8 swap (via the swap's
+  normal render tail).
+
+Batch: =noninteractive= never creates windows/timers — all four points are
+interactive-only; the batch orientation dance and every golden are
+untouched.
+
+** Testability — EXECUTING acceptance ERTs (live windows, timers deterministic)
+=tests/org-air-round27-test.el=, R26 harness discipline (=noninteractive=
+nil, real windows, keys via =key-binding=, reconcile driven via the named
+frame function).  The batch frame is 80×25 and CANNOT be resized (see
+baseline), so the live-window ERTs bind =org-air-rail-min-width= down (a
+defcustom) so the side rail engages at 80 cols, and assert the
+CONVERGENCE INVARIANTS (which trunk violates at every width):
+- =r27-1-ensure-window-convergent=: pop the rail; then N=6 cycles of
+  =org-air-layout--refresh-windows= (the debounce timer's function, called
+  directly).  Advice counters over the cycles: =delete-window= on the rail
+  = 0, =display-buffer-in-side-window= = 0 after the first pop, and
+  =window-resize= on the rail window = 0.  Trunk FAILS (display-buffer
+  re-applied every render; measured +10/−10 resizes).
+- =r27-1-tier-fixpoint=: pure-function property test, no windows: for every
+  F in 80..260, iterate =m ← F − cols − 1; cols ← rail-cols(...)= 8 times —
+  cols must be CONSTANT after the first step.  Trunk FAILS in the bands
+  (182–191, 148–151); the frame-derived cols is constant by construction.
+- =r27-1-reconcile-single-timer=: fire =org-air-rail--reconcile= 5×;
+  exactly ONE pending reconcile timer exists (trunk: 5).
+- =r27-1-reconcile-render-latch=: set flag t on a live board, schedule a
+  reconcile, then invoke the timer's function while
+  =org-air-rail--reconciling= is bound t (as the render extent will): the
+  popped flag SURVIVES and no re-render ran (advice counter).  Trunk
+  FAILS (user-close branch clears the flag).
+- =r27-1-user-close-edge-triggered=: with the rail genuinely popped and
+  painted, delete the side window natively, run reconcile-frame: flag
+  cleared, inline fallback (the R16 contract still holds).  Then the
+  negative: flag t, window never yet created (=side-was-live= nil), run
+  reconcile-frame: flag INTACT.
+- =r27-1-swap-repaints-once=: R26-8 batch machine loop (slices via direct
+  =--refresh-run-slice= calls): a render counter over the whole chain
+  reads exactly 1 (at swap); and with state =refreshing=,
+  =org-air-view--render-current= performs ZERO =org-air-query-items= calls
+  (advice counter) — the single-scanner law.
+- =r27-1-rail-stamp-guard=: two consecutive =org-air-rail--show= with
+  identical inputs → 1 content paint; change the filter → 2.  Rail buffer
+  text after a skipped paint is byte-identical to a forced paint.
+
+** Routing
+- org-air-view.el: =org-air-rail--window-cols= (frame input),
+  =org-air-rail--ensure-window= (convergence + preserve-size),
+  =org-air-rail--show= (stamp guard), =org-air-rail--reconcile= (single
+  timer slot), =org-air-rail--reconcile-frame= (render latch respected +
+  edge-triggered user-close), =org-air-view--render= /
+  =org-air-view--render-current= (latch binding; single-scanner rule),
+  =org-air-view--resize-refresh= (unchanged guard, now convergent).
+- org-air-project.el: =org-air-project--render= binds the same latch; its
+  rail call sites already route through the shared show/hide.
+- tests/org-air-round27-test.el: the seven ERTs above.
+
+* R27-2 — full main-window width with the side rail [BUG]
+
+** Reproduction — content composed at the wrong moment of the resize cycle
+Measured in the SAME drives as R27-1 (they share a root):
+- Board (demo, frame 190, steady state): =main-body-w=157= but
+  =rendered-w=147= — TEN DEAD COLUMNS at the right edge of every row.  The
+  board DOES re-measure after ensuring the window (org-air-view.el:
+  5088–5096), but the render tail then re-derives a DIFFERENT tier from the
+  post-shrink width and resizes the rail again (:5173), widening the main
+  window AFTER composition.  The V6 meta columns were locked to 147.
+- Project (real Air repo, frame 190): =org-air-project--render= computes
+  width ONCE at entry (org-air-project.el:1331, =--render-width= :525–530)
+  and NEVER re-measures after the rail pops: first render composes 161
+  cols into a 147-col window (truncated rows), then alternates 147/157
+  against a 157/147 window — rendered width matches the ACTUAL body width
+  in ZERO of 7 measured renders.
+- The =org-air-view-width= seam is let-bound by the project render for the
+  whole extent (:1334), so =org-air-rail--show= inside the tail reads the
+  STALE seam instead of live side-window metrics — a third width source.
+
+** Decision — compose at the REAL body width, measured AFTER geometry settles
+With R27-1's S1/S2 the rail's width is a constant of the frame, so "settle"
+is one step and convergent:
+- Shared helper =org-air-rail--host-width (host-buffer)= (view-core, both
+  renderers): under side-window orientation ensure the (pinned, frame-
+  derived) rail window FIRST via S2, then return =(window-body-width
+  host-window)= — the compose width.  Board: replaces the :5088–5096
+  dance; the render tail's =org-air-rail--show= now derives the SAME cols
+  (S1) so no post-composition resize can occur.  Project: =--render=
+  resolves width through the same helper before binding =org-air-view-
+  width= / computing =--fit-meta-widths= — the V6 lock derives from the
+  ACTUAL window width.  Batch seams (=org-air-view-width= /
+  =org-air-project-view-width= set) bypass the helper exactly as today.
+- Re-fit on pop in/out and resize: the toggle and reconcile paths already
+  re-render; the debounced resize path's width guard now CONVERGES
+  (rendered == actual ⇒ steady-state no-op), so a pop/close or drag
+  re-fits once and stops.  No new hooks needed — the fix is that the
+  existing ones terminate.
+
+** Testability — EXECUTING ERTs
+- =r27-2-board-fits-window=: live board, rail popped
+  (=org-air-rail-min-width= lowered): after each of 3 refresh cycles,
+  =org-air-view--rendered-width= EQUALS =(window-body-width board-win)=,
+  and the longest buffer line == rendered width (no dead columns, no
+  overflow).  Trunk FAILS (147 ≠ 157 measured shape).
+- =r27-2-project-fits-window=: same drive on the project fixture with NO
+  width seam: after the first popped render and after each refresh cycle,
+  =org-air-project--rendered-width= == the project window's body width;
+  doc-row line width == rendered width.  Trunk FAILS on the first render
+  (composed at the pre-pop width).
+- =r27-2-popin-refits-full-width=: pop the rail in (=|=): exactly one
+  re-render; rendered width == the now-full window body width.
+- =r27-2-v6-lock-actual-width=: with the rail popped, the right-pinned
+  date/tag cluster column (V6) computed by =--fit-meta-widths= ends at
+  (rendered width − margin) — asserting the lock derives from the actual
+  measured width, not the frame or a cached value.
+- Byte guard: the existing golden suite is the regression net — the seams
+  keep every fixture byte-identical (asserted by the unchanged gate).
+
+** Routing
+- org-air-view.el: new =org-air-rail--host-width=; board render uses it;
+  tail show reads the S1 cols (no second derivation).
+- org-air-project.el: =org-air-project--render= width resolution +
+  =org-air-project--resize-refresh= (guard input = the helper's width).
+- tests/org-air-round27-test.el: the four ERTs above.
+
+* R27-3 — sort-active header indicator: white bold [POLISH]
+
+** Reproduction — the active sort is technically present, practically invisible
+User: "o sorting works, but when a non-default sort is ACTIVE it must be
+clearly stated at the HEADER level, white bold to stand out."  Measured
+(batch, width seams, faces read from the rendered text):
+- BOARD (=org-air-view--insert-banner=, org-air-view.el:1475; sort segment
+  :1543–1547): a non-default sort renders =· ↕ priority ^= in the banner's
+  right status — the key faced =org-air-face-summary-label=, which INHERITS
+  =org-air-face-faded= (org-air-faces.el:712–715 → :128–131); the =↕=, =·=
+  and arrow are directly =org-air-face-faded=.  The faces file itself
+  documents faded's contrast as FAILING WCAG AA (≈2.6:1, :640–655
+  commentary).  Worse, the banner's budget shed order (:1557–1563) drops
+  =:sort= FIRST — precisely the segment the user needs is the first
+  casualty of a narrow window.
+- PROJECT (=org-air-project--header-line= org-air-project.el:1120–1134,
+  =--sort-indicator= :1085–1092 → the shared
+  =org-air-view--sort-indicator-text= org-air-view.el:2443–2455): the badge
+  is ALWAYS shown with the same quiet faces — measured header text
+  =| name ^= (default) vs =| updated ^= (non-default) is styled
+  IDENTICALLY: an active non-default sort is indistinguishable at a glance.
+- Default detection exists and is per-view: =org-air-view--sort-default-p=
+  (:2465–2468, board: date/ascending) and the project's defcustom seeds
+  (=org-air-project-sort-key/-direction=).
+
+** Decision — =org-air-face-sort-active=: high-contrast bold, only when it matters
+- New face =org-air-face-sort-active= in org-air-faces.el, following the
+  calendar-legend two-background precedent (:640–655): =:weight bold= with
+  a near-white foreground on dark backgrounds (=#F5F7FA=-class, AA against
+  the dark canvas) and a near-black on light (=#1A1D21=-class) — "white
+  bold" as the user sees it on their dark theme, theme-respecting via
+  background-conditional specs (no hardcoded white-on-light).  =(t :inherit
+  bold)= terminal fallback.
+- =org-air-view--sort-indicator-text= gains an =active= argument: when
+  non-nil the marker glyph, key name AND direction arrow all take
+  =org-air-face-sort-active=; when nil the existing quiet faces
+  (byte-identical text, identical faces to today).
+- BOARD: the banner passes =active= = =(not (org-air-view--sort-default-p))=
+  — the segment already only exists when non-default, so it is now bold
+  white whenever visible; at default it stays ABSENT (quiet).  Shed order:
+  when the sort segment is active it sheds LAST among the optional
+  segments — new order =(() (:filter) (:filter :scope) (:filter :scope
+  :count) (:filter :scope :count :sort) date)=; with no active sort the
+  segment is nil and the order change is unobservable (goldens safe).
+- PROJECT: =org-air-project--sort-indicator= computes =active= = key ≠
+  =org-air-project-sort-key= default OR direction ≠
+  =org-air-project-sort-direction= default (the same seeds the mode body
+  uses, org-air-project.el:1863–1867).  Default keeps today's quiet badge
+  (byte- and face-identical); non-default goes bold white.  One shared
+  builder, two views — no fork.
+
+** Testability — EXECUTING ERTs
+- =r27-3-board-active-sort-bold=: render the board with =o=-cycled sort
+  (key dispatched): banner line contains the key name and the key/arrow
+  characters carry =org-air-face-sort-active=; cycle back to default: the
+  segment is ABSENT.  Runs the real render, not a string unit test.
+- =r27-3-project-active-sort-bold=: project header at default: =| name ^=
+  present with =org-air-face-summary-label= (unchanged); after =o=: key
+  name shown with =org-air-face-sort-active=.
+- =r27-3-shed-keeps-active-sort=: board at a squeezed width with a long
+  active filter + non-default sort: the sort segment SURVIVES while
+  filter/scope shed first (trunk sheds sort first).
+- =r27-3-face-contrast=: the face spec declares =:weight bold= and a
+  foreground for both background classes (guards a theme regressing it to
+  faded).
+- Byte guard: default-sort goldens byte-identical (existing gate).
+
+** Routing
+- org-air-faces.el: =org-air-face-sort-active= (+ lint baseline entry if
+  checkdoc/package-lint counts move).
+- org-air-view.el: =org-air-view--sort-indicator-text= (=active= arg),
+  banner sort segment + shed order.
+- org-air-project.el: =org-air-project--sort-indicator= activeness.
+- tests/org-air-round27-test.el: the four ERTs above.
+
+* R27-4 — project keybinding parity + evil-awareness [BUG]
+
+** Reproduction — under evil, EVERY project key is evil's; without evil, =(= works
+User: "( toggle does nothing… ALL the key bindings are weird in the project
+view; mirror the dashboard setup which is aware of potential evil use."
+Driven with the REAL evil (=.deps/evil-20260603.654=, =evil-mode= enabled
+globally) in the live tmux frame against the real Air repo:
+#+begin_src text
+BOARD    mode=org-air-view-mode    evil-state=motion  initial=motion
+  o -> org-air-view-sort-cycle   s -> org-air-scope   d -> org-air-item-deadline
+  / -> org-air-filter   RET -> org-air-view-pane-return   | -> org-air-rail-toggle
+PROJECT  mode=org-air-project-mode evil-state=normal  initial=normal
+  ( -> evil-backward-sentence-begin   o -> evil-open-below   s -> evil-substitute
+  d -> evil-delete   t -> evil-find-char-to   / -> evil-search-forward
+  RET -> evil-ret    g -> evil g-prefix       q -> evil-record-macro
+  | -> evil-goto-column
+RAIL     mode=org-air-rail-mode    evil-state=normal
+  q -> evil-record-macro   RET -> evil-ret   | -> evil-goto-column
+VIEW-PANE mode=org-air-entry-view-mode evil-state=normal
+  q -> evil-record-macro
+#+end_src
+Root cause CONFIRMED: the board runs =org-air-view--setup-evil=
+(org-air-view.el:1061–1072, called from the mode body :1047):
+=evil-make-overriding-map= on the mode map in =motion= state +
+=evil-set-initial-state= → motion — soft-dep, =fboundp=-gated, non-evil
+users untouched.  =org-air-project-mode= (org-air-project.el:1849–1893),
+=org-air-rail-mode= (org-air-view.el:3832) and =org-air-entry-view-mode=
+(:4460) have NO evil setup (grep: zero evil references) — under evil's
+normal state every single-key binding is shadowed: "does nothing" is
+=evil-backward-sentence-begin= etc.  This also retroactively explains every
+past "project keys dead" report filed while batch ERTs passed.
+
+The SECOND layer the user asked to check — is =(= even wired? — is verified
+CLEAN without evil (live drive, real Air repo): =(= resolves to
+=org-air-project-toggle-filenames= and flips the row =Natural Sorting
+Impl...= ↔ =v0.1/natural-sorting...= and back.  The binding layer is sound;
+evil shadowing is the whole story.
+
+Mode/keymap audit (every org-air buffer the user can focus):
+| buffer            | mode                    | evil today   | needed                    |
+|-------------------+-------------------------+--------------+---------------------------|
+| board             | org-air-view-mode       | motion + overriding | reference (keep)   |
+| project tree      | org-air-project-mode    | NONE         | motion + overriding map   |
+| rail side window  | org-air-rail-mode       | NONE         | motion + overriding map   |
+| bottom view pane  | org-air-entry-view-mode | NONE         | motion + overriding map   |
+| doc session file  | org-air-doc-session-mode (minor, editable) | n/a | none: verbs are
+|                   |                         |              | =C-c C-q= + remap, never shadowed |
+| visited item file | org-air-return-mode (minor, editable)      | n/a | none: =C-c b=     |
+Key-parity audit board↔project: the shared verbs already flow from ONE
+parent map (=org-air-view-core-map=, org-air-view.el:817–841: RET-pane
+lineage, v/V, =\=, M-/, o/O, =|=); the project deliberately overrides RET/
+mouse-1 (same-window open, R26-3), n/p (doc motion), s/d/t (grouping — the
+board's scope/deadline/today verbs don't apply to docs), / (doc filter),
+g/q, and adds =(=.  No parity gaps in the MAPS were found — the parity bug
+IS the missing evil registration (and it must be asserted table-driven so
+it can never drift again).
+
+** Decision — one shared soft-dep evil setup, applied to every special-mode view
+- Factor the board's =org-air-view--setup-evil= into the view-core section
+  as =org-air-view--setup-evil (mode map)= — same two =fboundp=-gated
+  calls, parameterised: =(evil-make-overriding-map MAP 'motion)= +
+  =(evil-set-initial-state MODE 'motion)=.  The board's mode body calls it
+  with its own mode+map (behaviour byte-for-byte identical).
+- Apply it in =org-air-project-mode=, =org-air-rail-mode= and
+  =org-air-entry-view-mode= bodies with their mode+map.  Motion state
+  everywhere: read-only special-mode views where evil's scroll/search
+  motions should keep working under the overriding org-air map — exactly
+  the board's proven contract (U2).
+- The two minor modes need NOTHING (audited above: =C-c=-prefixed verbs and
+  remaps only; the host buffers are the user's editable files where forcing
+  a state would be wrong) — recorded here so the audit is complete.
+- Soft dependency preserved: no =require=, non-evil users unaffected; calls
+  run once at mode init (idempotent — evil re-normalises on re-entry).
+
+** Testability — EXECUTING ERTs
+- =r27-4-evil-registration-all-modes= (stubbed, gate-deterministic): stub
+  =evil-make-overriding-map= / =evil-set-initial-state= via =cl-letf=
+  recording calls (the board's own fboundp gate makes the stubs
+  sufficient), instantiate each of the four modes in live buffers:
+  each (MODE MAP) pair is registered exactly once — table-driven over
+  =(org-air-view-mode org-air-project-mode org-air-rail-mode
+  org-air-entry-view-mode)= so a future mode missing from the table is a
+  one-line add and a missing registration is a FAIL.  Trunk FAILS for 3/4.
+- =r27-4-evil-real-project-keys= (=skip-unless (locate-library "evil")= —
+  evil ships in =.deps=): enable =evil-local-mode= in a REAL live project
+  buffer; assert =evil-state= is =motion= and =(key-binding "(" )= etc.
+  resolve to org-air commands for the full project key set (the measured
+  table above inverted).  Same assertions for the rail + pane buffers
+  (=q= must be the org-air quit, not =evil-record-macro=).
+- =r27-4-paren-functional-sans-evil=: live project drive WITHOUT evil: =(=
+  via =key-binding= flips rows title↔relpath and back (both layers of the
+  user's report covered; guards the wiring independently).
+- =r27-4-core-parity-board-project=: table-driven: for every key in
+  =org-air-view-core-map= (collected via =map-keymap=), =key-binding= in
+  the board and project buffers resolves to the SAME command unless the
+  key is in the DOCUMENTED override set {RET, mouse-1, S-RET, n, p, s, d,
+  t, /, g, q, (} — parity can never silently drift.
+
+** Routing
+- org-air-view.el: =org-air-view--setup-evil= parameterised (view-core);
+  =org-air-rail-mode= + =org-air-entry-view-mode= bodies call it.
+- org-air-project.el: =org-air-project-mode= body calls it.
+- tests/org-air-round27-test.el: the four ERTs above.

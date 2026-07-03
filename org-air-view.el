@@ -783,7 +783,30 @@ switch\" (re-pop on return) from \"the user natively CLOSED the rail\" (fall
 back inline).  Cleared whenever this view owns the side window or goes
 inline.")
 (defvar org-air-rail--reconciling nil
-  "Re-entrancy latch for `org-air-rail--reconcile' (R16 D-P1).")
+  "Re-entrancy latch for `org-air-rail--reconcile' (R16 D-P1).
+R27-1 S3: also bound t for the FULL extent of a board/project render, so
+a reconcile timer nesting inside an in-flight render (org-ql yields run
+pending timers) no-ops instead of mutating rail state mid-render.")
+(defvar org-air-rail--reconcile-timer nil
+  "The SINGLE pending deferred-reconcile timer, or nil (R27-1 S3).
+Every `window-configuration-change-hook' fire routes through this one
+slot: a fire while a reconcile is already pending RESCHEDULES it instead
+of stacking one new 0s timer per fire (measured trunk: 5 fires -> 5 live
+timers).  The timer body is the named `org-air-rail--reconcile-run' so
+tests can count pending slots deterministically.")
+(defvar org-air-rail--side-was-live nil
+  "Non-nil when the side rail window was LIVE at the last observation (R27-1).
+The reconciler's user-close branch is EDGE-TRIGGERED on an observed
+live->dead transition of this flag: mere absence of the side window with
+the popped flag t (a popout still in flight, mid-render) must never be
+classified as a user close.  Updated by `org-air-rail--show',
+`org-air-rail--hide' and each `org-air-rail--reconcile-frame' run.")
+(defvar-local org-air-rail--last-stamp nil
+  "Input stamp of the last rail content paint (R27-1 S4).
+Local to the `*org-air-rail*' buffer.  When `org-air-rail--show' computes
+an identical stamp the erase+re-insert is skipped (the output would be
+byte-identical); any component change repaints.  See
+`org-air-rail--input-stamp'.")
 (defvar org-air-view--pane-indented nil
   "Non-nil while rendering the two-pane item pane (indented downstream).
 Lets headings and item rows use a consistent hanging indent regardless
@@ -3854,13 +3877,20 @@ reading/scrolling, and `q' pops the rail back inline on the board."
         (org-air-rail-mode)))
     buf))
 
-(defun org-air-rail--window-cols (board-width)
-  "Return the rail side-window column width for the board's BOARD-WIDTH.
-`org-air-rail-window-width' wins when set; else derive from the existing
-rail-width tier (`org-air-view--rail-width'), so the side window matches
-the inline rail's tiers (R15 D-P2)."
+(defun org-air-rail--window-cols (&optional total-width)
+  "Return the rail side-window column width (R15 D-P2 / R27-1 S1).
+`org-air-rail-window-width' wins when set; else derive from the rail
+width tier (`org-air-view--rail-width') fed the FRAME's total column
+width — an input the rail's own existence cannot change — so every call
+site (ensure, render tail, reconcile) derives the SAME cols by
+construction and the tier always has a fixpoint.  (Trunk derived the
+tier from the MAIN window's width, which depends on the rail: at frame
+widths where tier(F-42) /= tier(F-32) the loop had no fixpoint and every
+render resized the rail twice.)  TOTAL-WIDTH, when a number, substitutes
+for the measured frame width (pure-function tests / batch seams); nil
+measures the selected frame."
   (or org-air-rail-window-width
-      (org-air-view--rail-width board-width)))
+      (org-air-view--rail-width (or total-width (frame-width)))))
 
 (defun org-air-rail--window-params (cols)
   "Return the `display-buffer-in-side-window' alist for a rail of COLS wide.
@@ -4007,58 +4037,110 @@ board's debounced `post-command-hook' redraws the rail inspector."
         (setq-local org-air-view--inspector-target-buffer rail-buf)
         (org-air-view--maybe-update-inspector t)))))
 
-(defun org-air-rail--ensure-window (board-buffer width)
-  "Ensure the rail side window exists for BOARD-BUFFER at board WIDTH (R15 D-P2).
-WIDTH is the board's total window width; the rail window column width
-derives from the rail tier.  Creates (or reuses) the `*org-air-rail*'
-side window via `display-buffer-in-side-window', hardens its parameters,
-enables `window-divider-mode' on GUI, and stashes the buffer/window caches
-in BOARD-BUFFER.  Returns the side window (or nil).  Renders NO content —
-creating the window first lets the board re-measure its (now-shrunk)
-window width before composing its body (no stale full-frame board text)."
-  (let* ((cols (org-air-rail--window-cols width))
+
+
+(defun org-air-rail--ensure-window (board-buffer &optional _width)
+  "Ensure the rail side window exists for BOARD-BUFFER (R15 D-P2 / R27-1 S2).
+CONVERGENT create-once: when a live rail side window already exists on
+the frame it is REUSED — no `display-buffer-in-side-window' call at all —
+and only a desired/actual column mismatch applies ONE `window-resize'
+delta (with the frame-derived cols of R27-1 S1 the steady state is zero
+resizes).  On creation the window is pinned with `window-preserve-size'
+plus the dedicated/no-delete parameters, so redisplay and sibling churn
+cannot drift its width between renders.  The show path never
+deletes+recreates; only `org-air-rail--hide' (a real pop-in teardown)
+deletes the window.  Renders NO content.  Returns the side window (or
+nil)."
+  (let* ((cols (org-air-rail--window-cols))
          (rail-buf (org-air-rail--get-buffer))
-         (params (org-air-rail--window-params cols)))
-    (org-air-rail--setup-divider)
-    (let ((win (display-buffer-in-side-window rail-buf params)))
-      (when (window-live-p win)
-        ;; R16 D-P1: do NOT set `no-other-window' — keep the rail reachable.
-        (set-window-parameter win 'no-delete-other-windows t)
-        (set-window-dedicated-p win t))
-      (with-current-buffer board-buffer
-        (setq-local org-air-view--rail-buffer rail-buf
-                    org-air-rail--window (and (window-live-p win) win)))
-      win)))
+         (existing (get-buffer-window rail-buf (selected-frame))))
+    (if (window-live-p existing)
+        (progn
+          ;; Converge: a no-op when desired == actual; else one resize.
+          (unless (= (window-total-width existing) cols)
+            (ignore-errors
+              (window-resize existing
+                             (- cols (window-total-width existing)) t t))
+            (window-preserve-size existing t t))
+          (with-current-buffer board-buffer
+            (setq-local org-air-view--rail-buffer rail-buf
+                        org-air-rail--window existing))
+          existing)
+      (org-air-rail--setup-divider)
+      (let ((win (display-buffer-in-side-window
+                  rail-buf (org-air-rail--window-params cols))))
+        (when (window-live-p win)
+          ;; R16 D-P1: do NOT set `no-other-window' — keep the rail reachable.
+          (set-window-parameter win 'no-delete-other-windows t)
+          (set-window-dedicated-p win t)
+          ;; R27-1 S2: pin the width so redisplay and sibling churn cannot
+          ;; drift it — the window is resized only through the convergent
+          ;; branch above.
+          (window-preserve-size win t t))
+        (with-current-buffer board-buffer
+          (setq-local org-air-view--rail-buffer rail-buf
+                      org-air-rail--window (and (window-live-p win) win)))
+        win))))
+
+(defun org-air-rail--input-stamp (board-buffer width height)
+  "Return the rail content input stamp for BOARD-BUFFER at WIDTH x HEIGHT.
+R27-1 S4: every input the rail paint reads through the back-pointer —
+owner buffer, `org-air-view--items' identity, items key, filter, scope,
+expanded sections, calendar month, cols, height, descriptor identity,
+plus the calendar's current day — so an unchanged stamp proves a repaint
+would be byte-identical and may be skipped."
+  (with-current-buffer board-buffer
+    (list board-buffer
+          org-air-view--items
+          org-air-view--items-key
+          org-air-view--tag-filter
+          org-air-view--scope
+          org-air-view--expanded-sections
+          org-air-view--cal-month
+          width height
+          org-air-view--rail-descriptor
+          (format-time-string "%F"))))
 
 (defun org-air-rail--show (board-buffer width)
   "Show + render the rail side window for BOARD-BUFFER at board WIDTH (R15 D-P2).
-WIDTH is the board's total window width; the rail window's column width
-derives from the rail tier.  Ensures the window (idempotent — reuses the
-window `org-air-view--render' may already have created to re-measure the
-board width), then renders the rail content + inspector."
-  (let* ((cols (org-air-rail--window-cols width))
+WIDTH is the board's total window width (the batch seam input; the side
+window's own column width is the frame-derived R27-1 S1 tier).  Ensures
+the window (convergent — reuses the window `org-air-view--render' may
+already have created), then renders the rail content + inspector.
+R27-1 S4: the content paint is STAMP-GUARDED — when every paint input
+of `org-air-rail--input-stamp' matches the previous paint the erase+
+re-insert is skipped (the output would be byte-identical), so the steady
+state is zero rail repaints and exactly one at the R26-8 swap."
+  (let* ((cols (org-air-rail--window-cols (and org-air-view-width width)))
          (win (org-air-rail--ensure-window board-buffer width)))
     ;; The render-width/-height seams (`org-air-view-width/-height', used
     ;; for deterministic batch goldens) drive the rail dimensions when set;
     ;; otherwise the live side window's body metrics do.  This keeps the
     ;; per-buffer text goldens reproducible in batch where side-window
     ;; geometry is unreliable (R15 D-P2 testability plan).
-    (let ((rwidth (if org-air-view-width
-                      cols
-                    (if (window-live-p win) (max 1 (window-body-width win))
-                      cols)))
-          (rheight (cond (org-air-view-height nil)
-                         ((window-live-p win) (window-body-height win))
-                         (t nil))))
-      (org-air-rail--render board-buffer rwidth rheight))
+    (let* ((rwidth (cond ((and noninteractive org-air-view-width) cols)
+                         ((window-live-p win) (max 1 (window-body-width win)))
+                         (t cols)))
+           (rheight (cond (org-air-view-height nil)
+                          ((window-live-p win) (window-body-height win))
+                          (t nil)))
+           (rail-buf (org-air-rail--get-buffer))
+           (stamp (org-air-rail--input-stamp board-buffer rwidth rheight)))
+      (unless (equal stamp (buffer-local-value 'org-air-rail--last-stamp
+                                               rail-buf))
+        (org-air-rail--render board-buffer rwidth rheight)
+        (with-current-buffer rail-buf
+          (setq-local org-air-rail--last-stamp stamp))))
     ;; Phase 2: bracket the rail inspector region + wire the board hook.
     (org-air-rail--setup-inspector board-buffer)
+    (setq org-air-rail--side-was-live (and (window-live-p win) t))
     win))
 
 (defun org-air-rail--hide (board-buffer)
   "Delete the rail side window and clear caches for BOARD-BUFFER (R16 D-P1).
 The `*org-air-rail*' buffer survives when `org-air-rail-keep-buffer' is
 non-nil (cheaper re-popout); otherwise it is killed."
+  (setq org-air-rail--side-was-live nil)
   (let ((rail-buf (get-buffer org-air-rail-buffer-name)))
     (when (buffer-live-p rail-buf)
       (let ((win (get-buffer-window rail-buf)))
@@ -4268,70 +4350,106 @@ SELF is inline it drops a lingering foreign rail (the cross-view sweep)."
           (setq-local org-air-view--rail-suspended t)))
       (org-air-rail--hide (or owner self)))))
 
+(defun org-air-rail--reconcile-run (frame)
+  "Run the deferred reconcile for FRAME; the single timer slot's body (R27-1).
+Named (not a closure) so tests can count pending reconcile timers
+deterministically; clears `org-air-rail--reconcile-timer' before running."
+  (setq org-air-rail--reconcile-timer nil)
+  (when (frame-live-p frame)
+    (org-air-rail--reconcile-frame frame)))
+
 (defun org-air-rail--reconcile ()
   "Enforce the single-owner rail invariant for the ACTIVE view (R25-6).
 Buffer-local on each board/project `window-configuration-change-hook'.
 Defers the (window-mutating) reconcile to a 0s timer so it runs AFTER the
-window config settles (window mutation never runs INSIDE the hook)."
-  (when (and (not noninteractive) (not org-air-rail--reconciling))
-    (let ((frame (selected-frame)))
-      (run-with-timer
-       0 nil
-       (lambda ()
-         (when (frame-live-p frame)
-           (org-air-rail--reconcile-frame frame)))))))
+window config settles (window mutation never runs INSIDE the hook).
+R27-1 S3: ONE pending timer slot — a hook fire while a reconcile is
+already pending RESCHEDULES it instead of stacking one new timer per fire."
+  (unless noninteractive
+    (when (timerp org-air-rail--reconcile-timer)
+      (cancel-timer org-air-rail--reconcile-timer))
+    (setq org-air-rail--reconcile-timer
+          (run-with-timer 0 nil #'org-air-rail--reconcile-run
+                          (selected-frame)))))
 
 (defun org-air-rail--reconcile-frame (frame)
   "Reconcile the singleton side rail to the ACTIVE org-air view on FRAME (R25-6).
 Enforces the single-owner invariant: the side rail exists IFF the active
 main view is popped (and wide enough); a view popped but not active is
-suspended; a genuinely user-closed rail falls back inline."
-  (when (and (not noninteractive) (not org-air-rail--reconciling))
-    (let* ((org-air-rail--reconciling t)
-           (active (org-air-rail--active-view frame))
-           (side   (org-air-rail--side-window frame))
-           (owner  (org-air-rail--side-owner frame)))
-      (cond
-       ;; No active org-air main view: any side rail is an orphan -> hide it,
-       ;; mark its owner suspended so re-entry re-pops.
-       ((not (buffer-live-p active))
-        (when (window-live-p side)
-          (when (buffer-live-p owner)
-            (with-current-buffer owner
-              (setq-local org-air-view--rail-suspended t)))
-          (org-air-rail--hide (or owner active))))
-       (t
-        (with-current-buffer active
-          (let ((width (org-air-view--render-width)))
-            (cond
-             ;; (A) active WANTS the side rail.  R26-5: through the ONE
-             ;; popped predicate — `unset' can never read as "wants it".
-             ((org-air-rail--popped-p)
+suspended; a genuinely user-closed rail falls back inline.
+R27-1 S3: render-latched and edge-triggered — while
+`org-air-rail--reconciling' is bound (the full extent of a board/project
+render) the body NO-OPS and re-arms the single timer slot for after the
+render, so a timer nesting inside an in-flight render can never misread
+the transient popped-but-windowless state; and the user-close branch may
+fire ONLY on an observed live->dead transition of
+`org-air-rail--side-was-live', never on mere absence (absence + flag t
++ was-live nil = a popout in flight or a suspended view: leave the state
+alone — the render tail owns it)."
+  (unless noninteractive
+    (if org-air-rail--reconciling
+        ;; Render latch: never mutate rail state mid-render; the single
+        ;; slot re-runs this after the render extent unwinds.
+        (unless (timerp org-air-rail--reconcile-timer)
+          (setq org-air-rail--reconcile-timer
+                (run-with-timer 0 nil #'org-air-rail--reconcile-run frame)))
+      (let* ((org-air-rail--reconciling t)
+             (was-live org-air-rail--side-was-live)
+             (active (org-air-rail--active-view frame))
+             (side   (org-air-rail--side-window frame))
+             (owner  (org-air-rail--side-owner frame)))
+        (cond
+         ;; No active org-air main view: any side rail is an orphan -> hide
+         ;; it, mark its owner suspended so re-entry re-pops.
+         ((not (buffer-live-p active))
+          (when (window-live-p side)
+            (when (buffer-live-p owner)
+              (with-current-buffer owner
+                (setq-local org-air-view--rail-suspended t)))
+            (org-air-rail--hide (or owner active))))
+         (t
+          (with-current-buffer active
+            (let ((width (org-air-view--render-width)))
               (cond
-               ((eq owner active)               ; already ours -> consistent
-                (setq-local org-air-view--rail-suspended nil))
-               ((window-live-p side)            ; owned by another view -> re-own
-                (when (buffer-live-p owner)
-                  (with-current-buffer owner
-                    (setq-local org-air-view--rail-suspended t)))
-                (setq-local org-air-view--rail-suspended nil)
-                (org-air-rail--show active width))
-               ((org-air-view--board-only-p width) nil) ; narrow -> keep flag
-               (org-air-view--rail-suspended    ; hidden for a switch -> re-pop
-                (setq-local org-air-view--rail-suspended nil)
-                (org-air-rail--show active width))
-               (t                               ; user CLOSED it -> go inline
-                (setq-local org-air-view--rail-popped-out nil
-                            org-air-view--rail-suspended nil)
-                (when (get-buffer-window active frame)
-                  (org-air-view--refresh-current)))))
-             ;; (B) active is INLINE: no side rail may show.
-             (t
-              (when (window-live-p side)
-                (when (buffer-live-p owner)
-                  (with-current-buffer owner
-                    (setq-local org-air-view--rail-suspended t)))
-                (org-air-rail--hide (or owner active))))))))))))
+               ;; (A) active WANTS the side rail.  R26-5: through the ONE
+               ;; popped predicate — `unset' can never read as "wants it".
+               ((org-air-rail--popped-p)
+                (cond
+                 ((eq owner active)             ; already ours -> consistent
+                  (setq-local org-air-view--rail-suspended nil))
+                 ((window-live-p side)          ; owned by another view -> re-own
+                  (when (buffer-live-p owner)
+                    (with-current-buffer owner
+                      (setq-local org-air-view--rail-suspended t)))
+                  (setq-local org-air-view--rail-suspended nil)
+                  (org-air-rail--show active width))
+                 ((org-air-view--board-only-p width) nil) ; narrow -> keep flag
+                 (org-air-view--rail-suspended  ; hidden for a switch -> re-pop
+                  (setq-local org-air-view--rail-suspended nil)
+                  (org-air-rail--show active width))
+                 (was-live
+                  ;; Observed live->dead with the host still wide enough:
+                  ;; the user CLOSED it natively -> go inline (R16 contract).
+                  (setq-local org-air-view--rail-popped-out nil
+                              org-air-view--rail-suspended nil)
+                  (when (get-buffer-window active frame)
+                    (org-air-view--refresh-current)))
+                 (t
+                  ;; Absence WITHOUT a live->dead edge: a popout still in
+                  ;; flight (mid-render) — leave the state alone; the render
+                  ;; tail owns it (R27-1 S3 edge-triggered user-close).
+                  nil)))
+               ;; (B) active is INLINE: no side rail may show.
+               (t
+                (when (window-live-p side)
+                  (when (buffer-live-p owner)
+                    (with-current-buffer owner
+                      (setq-local org-air-view--rail-suspended t)))
+                  (org-air-rail--hide (or owner active)))))))))
+        ;; Record the side window's liveness for the next run's edge
+        ;; detection (also updated by `org-air-rail--show'/`--hide').
+        (setq org-air-rail--side-was-live
+              (and (window-live-p (org-air-rail--side-window frame)) t))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R16 D-P3: mu4e-style bottom source/entry view pane (*org-air-view*).
@@ -5020,6 +5138,11 @@ Three bands (S6): a fixed header (banner + rule), a body that fills the
 full `org-air-view--render-height' (two-pane keeps the divider down
 every body row; stacked blank-fills), and a footer pinned to the bottom."
   (let* ((inhibit-read-only t)
+         ;; R27-1 S3: latch the reconciler for the FULL render extent so a
+         ;; 0s reconcile timer nesting inside this render (org-ql's file IO
+         ;; runs pending timers) can never misread the in-flight popout as
+         ;; a user close; the nested run re-arms for after the render.
+         (org-air-rail--reconciling t)
          (width (org-air-view--render-width))
          (height (org-air-view--render-height))
          ;; C2/C3: capture the displaying window's live char metrics here,
@@ -5361,11 +5484,25 @@ TOKEN's saved column (clamped), so a re-render genuinely preserves point
 (defun org-air-view--render-current ()
   "Re-render the dashboard from `org-air-view--items', preserving point.
 Filters, scope and the calendar month are buffer-local and survive; the
-cursor is restored to the same item (or section, or line) afterwards."
-  (let ((token (org-air-view--save-position)))
-    (org-air-view--render (or org-air-view--items (org-air-query-items))
-                          org-air-view--tag-filter)
-    (org-air-view--restore-position token)))
+cursor is restored to the same item (or section, or line) afterwards.
+R27-1 S4 (the single-scanner law): while the R26-8 machine is REFRESHING
+this never runs the synchronous fallback query — a mid-refresh repaint
+renders the items AS-IS (the swap repaints once at the end), and a COLD
+refresh (`org-air-view--loading' t) repaints the loading skeleton — so
+the slice machine can never be raced by a second concurrent scan (whose
+`find-file-noselect'/`normal-mode' wipes the very buffer-locals the
+in-flight slice's org-ql predicate is reading)."
+  (cond
+   ((and (eq org-air-view--refresh-state 'refreshing)
+         org-air-view--loading)
+    (org-air-view--render-loading))
+   ((eq org-air-view--refresh-state 'refreshing)
+    (org-air-view--refresh-repaint))
+   (t
+    (let ((token (org-air-view--save-position)))
+      (org-air-view--render (or org-air-view--items (org-air-query-items))
+                            org-air-view--tag-filter)
+      (org-air-view--restore-position token)))))
 
 (defun org-air-view--resize-refresh ()
   "Re-render only when the displaying window's width or height changed.

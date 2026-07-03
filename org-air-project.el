@@ -1328,6 +1328,10 @@ INSET is the spine prefix, CONTENT-W the wrap width, NOW the render clock."
 Two-line doc blocks in state-bucket sections; two-pane (docs + a Summary/
 Inspector rail) above `org-air-rail-min-width', board-only below it."
   (let* ((inhibit-read-only t)
+         ;; R27-1 S3: latch the reconciler for the FULL render extent (the
+         ;; board binds the same latch) so a nested reconcile timer can
+         ;; never mutate rail state mid-render.
+         (org-air-rail--reconciling t)
          (width (org-air-project--render-width))
          (org-air-project--width width)
          ;; drive the shared row primitive's width seam.

@@ -1911,6 +1911,13 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
   ;; only; inert under batch (the window-config hook never fires there).
   (unless noninteractive
     (add-hook 'window-configuration-change-hook #'org-air-rail--reconcile nil t))
+  ;; R27-4: the board's evil integration, applied to the project (trunk:
+  ;; NONE — under evil's normal state every single project key resolved to
+  ;; an evil command: `(' -> evil-backward-sentence-begin, `o' ->
+  ;; evil-open-below, RET -> evil-ret…  "ALL the key bindings are weird").
+  ;; Motion state + overriding map, exactly the board's proven U2 contract;
+  ;; fboundp-gated soft dep — non-evil users untouched.
+  (org-air-view--setup-evil 'org-air-project-mode org-air-project-mode-map)
   (org-air-layout-install-window-size-hook)
   (buffer-disable-undo))
 

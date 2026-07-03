@@ -466,5 +466,147 @@ pre-R27 narrow-tier artifact, out of scope here)."
           (should (eq (aref row (1- cluster-col)) ?\s))
           (should (eq (aref row cluster-col) ?~)))))))
 
+;;;; =====================================================================
+;;;; R27-4 — project/rail/pane keybinding parity + evil-awareness.
+;;;; =====================================================================
+
+(defconst org-air-r27--evil-mode-table
+  '((org-air-view-mode       . org-air-view-mode-map)
+    (org-air-project-mode    . org-air-project-mode-map)
+    (org-air-rail-mode       . org-air-rail-mode-map)
+    (org-air-entry-view-mode . org-air-entry-view-mode-map))
+  "Every org-air special-mode view and its keymap (R27-4).
+Table-driven: a future mode is a one-line add here, and a missing evil
+registration is a FAIL — the parity can never silently drift again.")
+
+(ert-deftest org-air-r27-4-evil-registration-all-modes ()
+  "Every org-air special-mode view registers with evil at mode init:
+`evil-make-overriding-map' on its OWN map in motion state and
+`evil-set-initial-state' -> motion — exactly once per mode, table-driven.
+Stubbed via `cl-letf' (the fboundp gate makes the stubs sufficient).
+Trunk FAILED for 3/4 (only the board registered)."
+  (skip-unless (locate-library "org-air"))
+  (let (overriding-calls initial-calls)
+    (cl-letf (((symbol-function 'evil-make-overriding-map)
+               (lambda (map &optional state _copy)
+                 (push (cons map state) overriding-calls)))
+              ((symbol-function 'evil-set-initial-state)
+               (lambda (mode state)
+                 (push (cons mode state) initial-calls))))
+      (pcase-dolist (`(,mode . ,_map) org-air-r27--evil-mode-table)
+        (with-temp-buffer
+          (funcall mode))))
+    (pcase-dolist (`(,mode . ,map-sym) org-air-r27--evil-mode-table)
+      (let ((map (symbol-value map-sym)))
+        (should (= 1 (cl-count (cons map 'motion) overriding-calls
+                               :test #'equal)))
+        (should (= 1 (cl-count (cons mode 'motion) initial-calls
+                               :test #'equal)))))))
+
+(ert-deftest org-air-r27-4-evil-real-project-keys ()
+  "With the REAL evil enabled in live project/rail/pane buffers, the
+buffers land in MOTION state and every project key resolves to its
+org-air command — the measured trunk table inverted (trunk: `(' ->
+evil-backward-sentence-begin, o -> evil-open-below, q ->
+evil-record-macro, RET -> evil-ret, | -> evil-goto-column…)."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (locate-library "evil"))
+  (require 'evil)
+  (org-air-r27--with-live-project
+    ;; PROJECT: motion state + the full key set resolves to org-air.
+    (evil-local-mode 1)
+    (should (eq evil-state 'motion))
+    (pcase-dolist (`(,key . ,cmd)
+                   '(("("   . org-air-project-toggle-filenames)
+                     ("o"   . org-air-view-sort-cycle)
+                     ("O"   . org-air-view-sort-reverse)
+                     ("s"   . org-air-project-group-by-state)
+                     ("d"   . org-air-project-group-by-directory)
+                     ("t"   . org-air-project-group-by-tag)
+                     ("/"   . org-air-project-filter)
+                     ("RET" . org-air-project-open)
+                     ("n"   . org-air-project-next)
+                     ("p"   . org-air-project-prev)
+                     ("g"   . org-air-project-refresh)
+                     ("q"   . org-air-project-quit)
+                     ("|"   . org-air-rail-toggle)))
+      (should (eq (key-binding (kbd key)) cmd)))
+    ;; RAIL: `q' must be the org-air quit, not evil-record-macro.
+    (with-current-buffer (get-buffer org-air-rail-buffer-name)
+      (evil-local-mode 1)
+      (should (eq evil-state 'motion))
+      (should (eq (key-binding (kbd "q")) 'org-air-rail-quit))
+      (should (eq (key-binding (kbd "RET")) 'org-air-rail-return))
+      (should (eq (key-binding (kbd "|")) 'org-air-rail-popin)))
+    ;; VIEW PANE: `q' closes the pane, never records a macro.
+    (with-current-buffer (org-air-view-pane--buffer)
+      (evil-local-mode 1)
+      (should (eq evil-state 'motion))
+      (should (eq (key-binding (kbd "q")) 'org-air-view-pane-quit)))))
+
+(ert-deftest org-air-r27-4-paren-functional-sans-evil ()
+  "WITHOUT evil, `(' dispatched via `key-binding' flips the doc rows
+title<->relpath and back — the binding layer itself is sound (the second
+layer of the user's report, guarded independently of the evil fix)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-project
+    (should-not (bound-and-true-p evil-local-mode))
+    ;; a wide seam re-render so full titles/relpaths are visible.
+    (let ((org-air-project-view-width 120))
+      (org-air-view--refresh-current)
+      (let ((titles (substring-no-properties (buffer-string))))
+        (should (string-match-p "Alpha feature" titles))
+        (should-not (string-match-p "alpha-feature\\.org" titles)))
+      (org-air-r27--press "(")
+      (should org-air-project--show-filenames)
+      (let ((flipped (substring-no-properties (buffer-string))))
+        (should (string-match-p "alpha-feature\\.org" flipped))
+        (should-not (string-match-p "Alpha feature" flipped)))
+      (org-air-r27--press "(")
+      (should-not org-air-project--show-filenames)
+      (should (string-match-p "Alpha feature"
+                              (substring-no-properties (buffer-string)))))))
+
+(ert-deftest org-air-r27-4-core-parity-board-project ()
+  "Table-driven parity: every DIRECT `org-air-view-core-map' key resolves
+to the SAME command in the board and the project, unless it is in the
+DOCUMENTED override set — RET, mouse-1, S-RET, n, p, s, d, t, /, g, q,
+`(' — so board<->project parity can never silently drift."
+  (skip-unless (locate-library "org-air"))
+  (let ((board (generate-new-buffer "*r27-parity-board*"))
+        (proj (generate-new-buffer "*r27-parity-proj*"))
+        (overrides '("RET" "<mouse-1>" "S-<return>" "n" "p" "s" "d" "t"
+                     "/" "g" "q" "("))
+        (keys nil))
+    (unwind-protect
+        (progn
+          (with-current-buffer board (org-air-view-mode))
+          (with-current-buffer proj (org-air-project-mode))
+          ;; DIRECT core-map bindings only (the parent special-mode keys
+          ;; are not part of the shared-verbs contract), prefix maps
+          ;; walked down to full key sequences (e.g. `M-/' under ESC).
+          (let ((m (copy-keymap org-air-view-core-map)))
+            (set-keymap-parent m nil)
+            (cl-labels ((walk (map prefix)
+                          (map-keymap
+                           (lambda (ev def)
+                             (let ((seq (vconcat prefix (vector ev))))
+                               (if (keymapp def)
+                                   (walk def seq)
+                                 (push seq keys))))
+                           map)))
+              (walk m [])))
+          (should keys)
+          (dolist (seq keys)
+            (let ((desc (key-description seq)))
+              (unless (member desc overrides)
+                (let ((b (with-current-buffer board (key-binding seq)))
+                      (p (with-current-buffer proj (key-binding seq))))
+                  (should b)
+                  (should (eq b p)))))))
+      (let ((kill-buffer-query-functions nil))
+        (kill-buffer board)
+        (kill-buffer proj)))))
+
 (provide 'org-air-round27-test)
 ;;; org-air-round27-test.el ends here

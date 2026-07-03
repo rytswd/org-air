@@ -1067,7 +1067,7 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   ;; with R21-1's column-restore); inert under batch like the other hooks.
   (unless noninteractive
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
-  (org-air-view--setup-evil)
+  (org-air-view--setup-evil 'org-air-view-mode org-air-view-mode-map)
   (org-air-layout-install-window-size-hook))
 
 (defun org-air-view--text-scale-refresh ()
@@ -1081,18 +1081,25 @@ changes coalesces into a single re-render."
 (declare-function evil-set-initial-state "evil-core")
 (declare-function evil-make-overriding-map "evil-common")
 
-(defun org-air-view--setup-evil ()
-  "Integrate the dashboard keymap with evil, when evil is loaded.
-U2: under evil, single-key dashboard bindings are otherwise shadowed by
+(defun org-air-view--setup-evil (mode map)
+  "Integrate the org-air special-mode MODE + MAP with evil, when loaded.
+U2: under evil, single-key org-air bindings are otherwise shadowed by
 evil's motion/normal state maps and only fire after a \\=`\\\=' prefix.
 This is a soft dependency — evil is never required.  When evil is
-available we place the buffer in motion state and make the org-air keymap
-an overriding map so the dashboard keys win, while evil's own scrolling
-motions keep working.  Non-evil users are entirely unaffected."
+available we place MODE's buffers in motion state and make MAP an
+overriding map so the org-air keys win, while evil's own scrolling and
+search motions keep working.  Non-evil users are entirely unaffected.
+R27-4: parameterised (was board-only) and called from EVERY org-air
+special-mode view — board, project, rail, entry-view pane — so no view's
+keys are shadowed into evil-record-macro / evil-open-below / etc. under
+evil's normal state; one shared setup, no fork.  The two minor modes
+\(doc-session + return) need NOTHING: their verbs are `C-c'-prefixed or
+remaps on the user's own editable file buffers, where forcing a state
+would be wrong.  Idempotent; runs once per mode init."
   (when (fboundp 'evil-make-overriding-map)
-    (evil-make-overriding-map org-air-view-mode-map 'motion))
+    (evil-make-overriding-map map 'motion))
   (when (fboundp 'evil-set-initial-state)
-    (evil-set-initial-state 'org-air-view-mode 'motion)))
+    (evil-set-initial-state mode 'motion)))
 
 (defun org-air-view--glyph (name)
   "Return glyph NAME with a TTY fallback."
@@ -3867,7 +3874,10 @@ reading/scrolling, and `q' pops the rail back inline on the board."
   (org-air-view--install-modeline)
   (setq-local line-spacing org-air-line-spacing)
   (setq-local cursor-type nil)
-  (setq-local buffer-read-only t))
+  (setq-local buffer-read-only t)
+  ;; R27-4: the board's evil parity for the rail too — under evil, `q'/`RET'
+  ;; /`|' were shadowed (evil-record-macro / evil-ret / evil-goto-column).
+  (org-air-view--setup-evil 'org-air-rail-mode org-air-rail-mode-map))
 
 (defun org-air-rail--get-buffer ()
   "Get or create the `*org-air-rail*' buffer in `org-air-rail-mode' (R15 D-P2)."
@@ -4604,7 +4614,11 @@ A read-only snapshot of the selected item's Org entry with Org font-lock,
   ;; R18 D-P5.1: the calm nano-style mode-line here too.
   (org-air-view--install-modeline)
   (setq-local cursor-type t)
-  (setq-local buffer-read-only t))
+  (setq-local buffer-read-only t)
+  ;; R27-4: evil parity for the read-only pane — under evil, `q' resolved
+  ;; to evil-record-macro instead of closing the pane.
+  (org-air-view--setup-evil 'org-air-entry-view-mode
+                            org-air-entry-view-mode-map))
 
 (defun org-air-view-pane--buffer ()
   "Get or create the `*org-air-view*' pane buffer in `org-air-entry-view-mode'."

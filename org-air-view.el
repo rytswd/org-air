@@ -1509,7 +1509,8 @@ reserved one-column right margin: its last visible glyph sits at column
 W-1, never W, so a zero-fringe GUI never draws a continuation glyph over
 it (S7).  When the window is too narrow the status sheds tokens in
 priority order — filter chips, then scope, then the item count — always
-keeping the date."
+keeping the date.  R27-3: the active-sort badge sheds LAST of the
+optional segments (after filter, scope and count)."
   (let* ((w (org-air-view--render-width))
          (left (propertize "  org-air" 'face 'org-air-face-header))
          ;; D-P3: per-segment faces — date salient, count faded (or salient
@@ -1568,13 +1569,16 @@ keeping the date."
                        (_ nil)))
          ;; R22-3: the within-bucket sort indicator, shown ONLY when a
          ;; non-default sort is active (default `date'/ascending -> nil ->
-         ;; the default banner is byte-identical); sheds first under narrow
-         ;; widths.
+         ;; the default banner is byte-identical).  R27-3: whenever the
+         ;; segment exists it IS the active state, so it takes the bold
+         ;; high-contrast `org-air-face-sort-active' and sheds LAST under
+         ;; narrow widths (see the shed order below).
          (sort-text (unless (org-air-view--sort-default-p)
                       (concat (propertize " · " 'face 'org-air-face-faded)
                               (org-air-view--sort-indicator-text
                                (org-air-view--sort-active-key)
-                               (org-air-view--sort-active-direction)))))
+                               (org-air-view--sort-active-direction)
+                               (not (org-air-view--sort-default-p))))))
          ;; Budget for the status: window minus the left token, a >=2-col
          ;; gap, and the reserved one-column right margin.
          (budget (- w (string-width left) 2 1))
@@ -1585,8 +1589,14 @@ keeping the date."
                              (unless (memq :scope shed) (or scope-text ""))
                              (unless (memq :sort shed) (or sort-text "")))))
          (status (catch 'fit
-                   (dolist (shed '(() (:sort) (:sort :filter) (:sort :filter :scope)
-                                   (:sort :filter :scope :count))
+                   ;; R27-3: the active-sort segment sheds LAST among the
+                   ;; optional segments — the state the user asked for must
+                   ;; not be the first casualty of a narrow window.  With no
+                   ;; active sort the segment is nil, so the order change is
+                   ;; unobservable and the default goldens hold.
+                   (dolist (shed '(() (:filter) (:filter :scope)
+                                   (:filter :scope :count)
+                                   (:filter :scope :count :sort))
                                  date)
                      (let ((s (funcall assemble shed)))
                        (when (<= (string-width s) budget)
@@ -2470,19 +2480,27 @@ Bound to `O' in BOTH views via `org-air-view-core-map'."
   (when org-air-view--sort-refresh (funcall org-air-view--sort-refresh))
   (message "org-air: sort %s" org-air-view--sort-direction))
 
-(defun org-air-view--sort-indicator-text (key dir)
+(defun org-air-view--sort-indicator-text (key dir &optional active)
   "Return the shared `\u2195 <key> <dir>' badge text for KEY + DIR (R22-3).
 Lifted from the project's builder, parameterised on key+dir so the board
-and the project show one indicator.  Plain text (svg-free) + quiet faces."
+and the project show one indicator.  Plain text (svg-free) + quiet faces.
+R27-3: when ACTIVE is non-nil (the caller's sort differs from its view's
+default) the marker glyph, the key name AND the direction arrow all take
+the high-contrast bold `org-air-face-sort-active' so the state is clearly
+stated at the header level; nil keeps today's quiet faces (byte- and
+face-identical, so the default goldens hold)."
   (let* ((mk (org-air-layout-glyph 'sort-key))
          (arrow (org-air-layout-glyph
                  (if (eq dir 'descending) 'sort-desc 'sort-asc))))
-    (concat (propertize mk 'face 'org-air-face-faded)
+    (concat (propertize mk 'face (if active 'org-air-face-sort-active
+                                   'org-air-face-faded))
             " "
             (propertize (if (symbolp key) (symbol-name key) (format "%s" key))
-                        'face 'org-air-face-summary-label)
+                        'face (if active 'org-air-face-sort-active
+                                'org-air-face-summary-label))
             " "
-            (propertize arrow 'face 'org-air-face-faded))))
+            (propertize arrow 'face (if active 'org-air-face-sort-active
+                                      'org-air-face-faded)))))
 
 (defun org-air-view--sort-active-key ()
   "Return the board's active sort key, seeding from the defcustom (R22-3)."

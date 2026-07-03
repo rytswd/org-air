@@ -31,6 +31,7 @@
 (require 'org)
 (require 'org-air-test-helpers)
 (require 'org-air-project-test)            ; project fixture root + render
+(require 'org-air-viewport-helpers)        ; R27-3: dashboard render + as-gui
 
 (when (locate-library "org-air")
   (require 'org-air))
@@ -465,6 +466,122 @@ pre-R27 narrow-tier artifact, out of scope here)."
           ;; the date cell's `~' glyph opens the cluster.
           (should (eq (aref row (1- cluster-col)) ?\s))
           (should (eq (aref row cluster-col) ?~)))))))
+
+;;;; =====================================================================
+;;;; R27-3 — sort-active header indicator: white bold, only when it matters.
+;;;; =====================================================================
+
+(defun org-air-r27-3--banner-key-face-run (key-name)
+  "Assert the first-line sort badge for KEY-NAME is fully `sort-active'.
+Finds KEY-NAME on the banner (line 1) of the current buffer and checks
+the marker glyph two columns before it, every KEY-NAME char and the
+direction arrow one column after it all carry `org-air-face-sort-active'."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((eol (line-end-position)))
+      (should (search-forward key-name eol t))
+      (let ((beg (match-beginning 0))
+            (end (match-end 0)))
+        ;; marker glyph sits at <mk> SPC <key>.
+        (should (eq (get-text-property (- beg 2) 'face)
+                    'org-air-face-sort-active))
+        (cl-loop for pos from beg below end do
+                 (should (eq (get-text-property pos 'face)
+                             'org-air-face-sort-active)))
+        ;; direction arrow sits at <key> SPC <arrow>.
+        (should (eq (get-text-property (1+ end) 'face)
+                    'org-air-face-sort-active))))))
+
+(ert-deftest org-air-r27-3-board-active-sort-bold ()
+  "A cycled (non-default) board sort renders the banner badge in
+`org-air-face-sort-active' — marker glyph, key name and arrow — through
+the REAL render path (`o' dispatched via `key-binding'); cycling back to
+the default removes the segment entirely (quiet, byte-identical banner).
+Trunk styled the badge `faded'/`summary-label' — WCAG-failing, invisible."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (should (org-air-view--sort-default-p))
+      ;; `o' -> priority: the badge appears, every glyph bold-active.
+      (call-interactively (key-binding (kbd "o")))
+      (should-not (org-air-view--sort-default-p))
+      (should (eq org-air-view--sort-key 'priority))
+      (org-air-r27-3--banner-key-face-run "priority")
+      ;; cycle back to the default (title -> recency -> date): ABSENT.
+      (dotimes (_ 3) (call-interactively (key-binding (kbd "o"))))
+      (should (org-air-view--sort-default-p))
+      (save-excursion
+        (goto-char (point-min))
+        (should-not (search-forward (org-air-layout-glyph 'sort-key)
+                                    (line-end-position) t))))))
+
+(ert-deftest org-air-r27-3-project-active-sort-bold ()
+  "The PROJECT header badge is quiet at the default sort (`name'
+ascending, key faced `org-air-face-summary-label' — unchanged bytes and
+faces) and goes `org-air-face-sort-active' bold after `o' cycles to a
+non-default key.  Trunk styled default and active IDENTICALLY."
+  (skip-unless (locate-library "org-air"))
+  (org-air-project-test--render
+    ;; default: `<mk> name <arrow>' present, key quietly summary-label.
+    (goto-char (point-min))
+    (let ((eol (line-end-position)))
+      (should (search-forward "name" eol t))
+      (should (eq (get-text-property (match-beginning 0) 'face)
+                  'org-air-face-summary-label))
+      (should (eq (get-text-property (- (match-beginning 0) 2) 'face)
+                  'org-air-face-faded)))
+    ;; `o' -> created (non-default): the whole badge goes bold-active.
+    (call-interactively (key-binding (kbd "o")))
+    (should (eq org-air-view--sort-key 'created))
+    (org-air-r27-3--banner-key-face-run "created")))
+
+(ert-deftest org-air-r27-3-shed-keeps-active-sort ()
+  "Under width pressure with a long active filter + scope + a NON-default
+sort, the banner sheds filter and scope FIRST and the sort badge
+SURVIVES.  Trunk shed the sort segment first — precisely the state the
+user needs was the first casualty of a narrow window."
+  (skip-unless (locate-library "org-air"))
+  (org-air-viewport-test-as-gui
+    (org-air-viewport-test-with-dashboard 160
+      (setq-local org-air-view--tag-filter
+                  '("averyveryverylongfiltertagname0123456789"))
+      (setq-local org-air-view--scope
+                  '(:tag "anotherveryverylongscopetagname098765432"))
+      (setq-local org-air-view--sort-key 'priority)
+      ;; squeeze: date + count + sort fit; filter/scope cannot.
+      (let ((org-air-view-width 70))
+        (org-air-view--render-current))
+      (save-excursion
+        (goto-char (point-min))
+        (let ((banner (buffer-substring-no-properties
+                       (point) (line-end-position))))
+          ;; the ACTIVE sort badge survived the squeeze...
+          (should (string-match-p "priority" banner))
+          ;; ...while the longer, earlier-shed segments gave way.
+          (should-not (string-match-p "longfiltertagname" banner))
+          (should-not (string-match-p "longscopetagname" banner))))
+      ;; and it survived FACED: the badge is still bold-active.
+      (org-air-r27-3--banner-key-face-run "priority"))))
+
+(ert-deftest org-air-r27-3-face-contrast ()
+  "`org-air-face-sort-active' declares `:weight bold' AND an explicit
+foreground for BOTH background classes (light + dark), with a plain-bold
+terminal fallback — guarding a theme regressing it to the faded idiom
+the faces file documents as failing WCAG AA."
+  (skip-unless (locate-library "org-air"))
+  (should (facep 'org-air-face-sort-active))
+  (let ((spec (get 'org-air-face-sort-active 'face-defface-spec)))
+    (should spec)
+    (dolist (bg '(light dark))
+      (let ((atts (cl-loop for (display atts) in spec
+                           when (and (listp display)
+                                     (member (list 'background bg) display))
+                           return atts)))
+        (should atts)
+        (should (stringp (plist-get atts :foreground)))
+        (should (eq (plist-get atts :weight) 'bold))))
+    ;; low-colour fallback keeps the weight.
+    (should (eq (plist-get (cadr (assq t spec)) :inherit) 'bold))))
 
 ;;;; =====================================================================
 ;;;; R27-4 — project/rail/pane keybinding parity + evil-awareness.

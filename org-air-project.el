@@ -1104,10 +1104,17 @@ the single source of truth for display order."
   "Return the active-sort badge text `↕ <key> <dir>' (R16 D-P4).
 R22-3: delegates to the shared `org-air-view--sort-indicator-text' builder
 so the board and the project show one indicator; byte-identical to the old
-local builder (same glyphs + faces)."
-  (org-air-view--sort-indicator-text
-   (org-air-project--sort-key-active)
-   (org-air-project--sort-direction-active)))
+local builder (same glyphs + faces).  R27-3: when the key OR direction
+differs from the defcustom seeds (`org-air-project-sort-key' /
+`org-air-project-sort-direction' — the same seeds the mode body uses) the
+badge takes the bold `org-air-face-sort-active'; at the default it keeps
+today's quiet faces, so the default goldens are byte- and face-identical."
+  (let ((key (org-air-project--sort-key-active))
+        (dir (org-air-project--sort-direction-active)))
+    (org-air-view--sort-indicator-text
+     key dir
+     (not (and (eq key org-air-project-sort-key)
+               (eq dir org-air-project-sort-direction))))))
 
 (defun org-air-project--filter-segment ()
   "Return the active filter + combinator as a header segment, or empty string.

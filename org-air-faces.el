@@ -714,6 +714,24 @@ the eye to work that is waiting."
   "Face for the bucket name beside a summary number."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-sort-active
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#1A1D21" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#F5F7FA" :weight bold))
+    (t (:inherit bold)))
+  "Face for the header sort indicator when a NON-default sort is active.
+R27-3: an active sort must be clearly stated at the header level — the
+quiet `org-air-face-faded' idiom (documented above as failing WCAG AA)
+made the state technically present but practically invisible.  Follows
+the calendar-legend two-background precedent: bold with a near-white
+foreground on dark canvases (\"white bold\" as the user sees it) and a
+near-black on light — theme-respecting, never hardcoded white-on-light;
+plain bold on low-colour terminals.  Only applied when the sort differs
+from the view's default (the default keeps today's quiet faces, so every
+golden is byte- and face-identical)."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-rail-key
   '((t :inherit org-air-face-salient))
   "Face for the leading key token in a rail Actions verb (D5).

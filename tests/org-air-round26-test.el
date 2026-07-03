@@ -363,8 +363,10 @@ window shows the project rail (Summary) again."
 
 (ert-deftest org-air-r26-5-q-in-side-window-goes-back ()
   "`q' pressed IN the DOC-context side window returns to the tree (the
-read-only rail is where plain `q' is legal) and focus lands on the main
-window."
+read-only rail is where plain `q' is legal), focus lands on the main
+window, and the side window is RESTORED to the project rail (Summary
+block) — the full RET doc -> q tree -> rail restored round trip under
+the side-window placement default."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-live-project
     (org-air-r26--pop-rail)
@@ -384,7 +386,14 @@ window."
                 (call-interactively (key-binding (kbd "q"))))
               ;; DOC -> TREE restore; focus back on the main window.
               (should (eq (window-buffer win) tree))
-              (should (eq (selected-window) win)))
+              (should (eq (selected-window) win))
+              ;; and the side window flips back to the PROJECT rail
+              ;; (Summary block), not the doc outline.
+              (should (window-live-p (org-air-rail--side-window)))
+              (with-current-buffer org-air-rail-buffer-name
+                (let ((text (substring-no-properties (buffer-string))))
+                  (should (string-match-p "Summary" text))
+                  (should-not (string-match-p "Outline" text)))))
           (when (and (buffer-live-p docbuf) (not (eq docbuf tree)))
             (with-current-buffer docbuf (set-buffer-modified-p nil))
             (kill-buffer docbuf)))))))

@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-26 DESIGN: breathing-room tree arms · WORD state pills · project session model (rail placement + same-window RET + doc context) · flip filename/title · kill row hint · sort actually sorts · honest async first load
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:render:project:rail:sort:async:layout:design:v0.5:
 
 * Scope of this document

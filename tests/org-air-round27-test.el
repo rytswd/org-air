@@ -44,9 +44,16 @@
       (when (get-buffer name) (kill-buffer name)))))
 
 (defun org-air-r27--reset-rail-globals ()
-  "Cancel any pending reconcile timer + reset the R27-1 edge flag."
+  "Cancel any pending reconcile timer + reset the R27-1 edge flag.
+Also sweeps ORPHANED `org-air-rail--reconcile-run' timers (a test that
+fired the slot's body directly leaves the scheduled timer object in
+`timer-list'), so the single-slot assertions can never see pollution
+from an earlier test."
   (when (timerp org-air-rail--reconcile-timer)
     (cancel-timer org-air-rail--reconcile-timer))
+  (dolist (tm (copy-sequence timer-list))
+    (when (eq (timer--function tm) #'org-air-rail--reconcile-run)
+      (cancel-timer tm)))
   (setq org-air-rail--reconcile-timer nil
         org-air-rail--side-was-live nil))
 
@@ -724,6 +731,245 @@ DOCUMENTED override set — RET, mouse-1, S-RET, n, p, s, d, t, /, g, q,
       (let ((kill-buffer-query-functions nil))
         (kill-buffer board)
         (kill-buffer proj)))))
+
+;;;; =====================================================================
+;;;; R27 test-seat additions — ADVERSARIAL rail sequences (the verify
+;;;; gaps): PROJECT-side convergence + stable timer census, rapid `|'
+;;;; toggle storms, refresh mid doc-session, grouping change w/ the rail
+;;;; popped.  The impl round proved the invariants on the BOARD; these
+;;;; drive the same S1-S4 contract through the project's own paths.
+;;;; =====================================================================
+
+(defun org-air-r27--org-air-timer-count ()
+  "Count pending timers (normal + idle) owned by an org-air function."
+  (cl-count-if
+   (lambda (tm)
+     (let ((fn (timer--function tm)))
+       (and (symbolp fn) (string-prefix-p "org-air" (symbol-name fn)))))
+   (append timer-list timer-idle-list)))
+
+(defun org-air-r27--reconcile-timers ()
+  "Count pending `org-air-rail--reconcile-run' timers (the single slot)."
+  (cl-count-if (lambda (tm)
+                 (eq (timer--function tm) #'org-air-rail--reconcile-run))
+               timer-list))
+
+(defun org-air-r27--fire-pending-reconcile ()
+  "Fire the deferred reconcile exactly as the timer would.
+Cancels the pending slot timer FIRST (a direct body call leaves the
+scheduled timer object orphaned in `timer-list' otherwise), then runs
+`org-air-rail--reconcile-run' on the selected frame."
+  (when (timerp org-air-rail--reconcile-timer)
+    (cancel-timer org-air-rail--reconcile-timer))
+  (org-air-rail--reconcile-run (selected-frame)))
+
+(ert-deftest org-air-r27-1-project-rail-convergent-cycles ()
+  "PROJECT w/ side rail: 6 reconcile/toggle/refresh cycles perform ZERO
+rail-window creations/deletions/resizes after the first pop, the SAME
+window object survives all cycles at the converged frame-derived cols,
+and the org-air timer census is STABLE across cycles (no growth) — the
+prompt's project-side convergence invariant the impl round only proved
+on the board.  Each cycle runs the explicit refresh, the debounce body,
+a 3x hook-fire reconcile burst (single slot holds) and the deferred
+reconcile body itself."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-project
+    (should (org-air-rail--popped-p))
+    (let* ((rail-buf (get-buffer org-air-rail-buffer-name))
+           (rail-win (org-air-rail--side-window))
+           (displays 0) (deletes 0) (resizes 0)
+           (census nil)
+           (real-display (symbol-function 'display-buffer-in-side-window))
+           (real-delete (symbol-function 'delete-window))
+           (real-resize (symbol-function 'window-resize)))
+      (should (window-live-p rail-win))
+      (cl-letf (((symbol-function 'display-buffer-in-side-window)
+                 (lambda (buffer &rest args)
+                   (when (eq buffer rail-buf) (cl-incf displays))
+                   (apply real-display buffer args)))
+                ((symbol-function 'delete-window)
+                 (lambda (&optional win)
+                   (when (and (window-live-p win)
+                              (eq (window-buffer win) rail-buf))
+                     (cl-incf deletes))
+                   (funcall real-delete win)))
+                ((symbol-function 'window-resize)
+                 (lambda (win delta &rest args)
+                   (when (and (window-live-p win)
+                              (eq (window-buffer win) rail-buf))
+                     (cl-incf resizes))
+                   (apply real-resize win delta args))))
+        (dotimes (_ 6)
+          ;; the explicit refresh (the toggle/refresh path)...
+          (org-air-view--refresh-current)
+          ;; ...the debounce timer's own body...
+          (org-air-layout--refresh-windows)
+          ;; ...a hook-fire burst: the single reconcile slot never stacks...
+          (dotimes (_ 3) (org-air-rail--reconcile))
+          (should (<= (org-air-r27--reconcile-timers) 1))
+          ;; ...and the deferred reconcile body, as the timer runs it.
+          (org-air-r27--fire-pending-reconcile)
+          ;; stable timer census: cycle N owns exactly what cycle 1 owned.
+          (if (null census)
+              (setq census (org-air-r27--org-air-timer-count))
+            (should (= census (org-air-r27--org-air-timer-count))))))
+      (should (= displays 0))
+      (should (= deletes 0))
+      (should (= resizes 0))
+      ;; the very same pinned window survived all six cycles, converged.
+      (should (eq (org-air-rail--side-window) rail-win))
+      (should (= (window-total-width rail-win) (org-air-rail--window-cols)))
+      (should (org-air-rail--popped-p)))))
+
+(ert-deftest org-air-r27-1-rapid-toggle-storm-consistent ()
+  "A rapid `|' toggle storm (6 dispatches, no timer settles in between)
+never leaves flag and window disagreeing, never stacks reconcile timers,
+and re-renders exactly once per toggle (no amplification).  After the
+storm settles (debounce body + deferred reconcile body) the rail is back
+POPPED (even count), owned by the project, at the converged cols."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-project
+    (should (org-air-rail--popped-p))
+    (let ((renders 0)
+          (real-render (symbol-function 'org-air-project--render-current)))
+      (cl-letf (((symbol-function 'org-air-project--render-current)
+                 (lambda (&rest args)
+                   (cl-incf renders)
+                   (apply real-render args))))
+        (dotimes (_ 6)
+          (org-air-r27--press "|")
+          ;; the flag and the window agree after EVERY toggle — the
+          ;; toggle is synchronous, never a transient lie.
+          (should (eq (org-air-rail--popped-p)
+                      (and (window-live-p (org-air-rail--side-window)) t)))
+          ;; the single reconcile slot holds under the storm.
+          (should (<= (org-air-r27--reconcile-timers) 1))))
+      ;; one re-render per toggle, exactly.
+      (should (= renders 6)))
+    ;; even toggle count from popped -> POPPED again; settle everything.
+    (should (org-air-rail--popped-p))
+    (org-air-layout--refresh-windows)
+    (org-air-r27--fire-pending-reconcile)
+    (let ((rail-win (org-air-rail--side-window)))
+      (should (window-live-p rail-win))
+      (should (eq (org-air-rail--side-owner) (current-buffer)))
+      (should (= (window-total-width rail-win) (org-air-rail--window-cols)))
+      ;; the settled state is a fixpoint: one more settle cycle keeps the
+      ;; SAME window object and geometry.
+      (org-air-layout--refresh-windows)
+      (org-air-r27--fire-pending-reconcile)
+      (should (eq (org-air-rail--side-window) rail-win))
+      (should (= (window-total-width rail-win) (org-air-rail--window-cols))))))
+
+(ert-deftest org-air-r27-1-session-refresh-keeps-rail ()
+  "Refresh DURING a TREE->DOC session (R26-5): with the rail popped, RET
+opens the doc in the SAME window and hands the rail to the DOC half;
+then the debounce body + hook-fired reconcile + deferred reconcile body
+all fire MID-SESSION 3x — the rail window survives untouched (zero
+deletes, same object, owner stays the doc), the popped flag holds, and
+the user's FILE TEXT is never re-rendered.  C-c C-q restores the tree
+into the same window with the rail re-owned to the tree, still popped."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-project
+    (should (org-air-rail--popped-p))
+    (goto-char (car (org-air-r27--doc-row-bols)))
+    (let ((tree (current-buffer))
+          (rail-buf (get-buffer org-air-rail-buffer-name))
+          (rail-win (org-air-rail--side-window))
+          (deletes 0)
+          (real-delete (symbol-function 'delete-window))
+          (docbuf nil))
+      (unwind-protect
+          (progn
+            (org-air-r27--press "RET")
+            (setq docbuf (window-buffer (selected-window)))
+            (should-not (eq docbuf tree))
+            (should (buffer-local-value 'org-air-project--session-tree docbuf))
+            ;; the rail survived the swap, now owned by the DOC half.
+            (should (eq (org-air-rail--side-window) rail-win))
+            (should (eq (org-air-rail--side-owner) docbuf))
+            (let ((text (with-current-buffer docbuf
+                          (substring-no-properties (buffer-string)))))
+              (cl-letf (((symbol-function 'delete-window)
+                         (lambda (&optional win)
+                           (when (and (window-live-p win)
+                                      (eq (window-buffer win) rail-buf))
+                             (cl-incf deletes))
+                           (funcall real-delete win))))
+                (dotimes (_ 3)
+                  (org-air-layout--refresh-windows)
+                  (org-air-rail--reconcile)
+                  (org-air-r27--fire-pending-reconcile)))
+              (should (= deletes 0))
+              (should (eq (org-air-rail--side-window) rail-win))
+              (should (eq (org-air-rail--side-owner) docbuf))
+              (should (org-air-rail--popped-p docbuf))
+              (should (equal (with-current-buffer docbuf
+                               (substring-no-properties (buffer-string)))
+                             text)))
+            ;; back: the tree returns to the SAME window; rail re-owned.
+            (with-current-buffer docbuf
+              (call-interactively (key-binding (kbd "C-c C-q"))))
+            (should (eq (window-buffer (selected-window)) tree))
+            (should (eq (org-air-rail--side-owner) tree))
+            (should (org-air-rail--popped-p tree)))
+        (when (buffer-live-p docbuf)
+          (let ((kill-buffer-query-functions nil))
+            (with-current-buffer docbuf (set-buffer-modified-p nil))
+            (kill-buffer docbuf)))))))
+
+(ert-deftest org-air-r27-1-grouping-change-rail-stable ()
+  "Grouping changes (s/t/d) with the rail POPPED: each regroup + settle
+cycle keeps the SAME pinned rail window with ZERO creations/deletions/
+resizes, really regroups the tree, and composes at the REAL settled
+window body width (the R27-2 lock under the adversarial regroup)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-project
+    (should (org-air-rail--popped-p))
+    (let* ((rail-buf (get-buffer org-air-rail-buffer-name))
+           (rail-win (org-air-rail--side-window))
+           (displays 0) (deletes 0) (resizes 0)
+           (real-display (symbol-function 'display-buffer-in-side-window))
+           (real-delete (symbol-function 'delete-window))
+           (real-resize (symbol-function 'window-resize)))
+      (should (window-live-p rail-win))
+      (cl-letf (((symbol-function 'display-buffer-in-side-window)
+                 (lambda (buffer &rest args)
+                   (when (eq buffer rail-buf) (cl-incf displays))
+                   (apply real-display buffer args)))
+                ((symbol-function 'delete-window)
+                 (lambda (&optional win)
+                   (when (and (window-live-p win)
+                              (eq (window-buffer win) rail-buf))
+                     (cl-incf deletes))
+                   (funcall real-delete win)))
+                ((symbol-function 'window-resize)
+                 (lambda (win delta &rest args)
+                   (when (and (window-live-p win)
+                              (eq (window-buffer win) rail-buf))
+                     (cl-incf resizes))
+                   (apply real-resize win delta args))))
+        (pcase-dolist (`(,key ,hallmark) '(("s" "| DRAFT Draft")
+                                           ("t" "| #context")
+                                           ("d" "| v0.1/")))
+          (org-air-r27--press key)
+          ;; settle the machinery after each regroup.
+          (org-air-layout--refresh-windows)
+          (org-air-rail--reconcile)
+          (org-air-r27--fire-pending-reconcile)
+          ;; the grouping really changed...
+          (should (string-match-p (regexp-quote hallmark)
+                                  (substring-no-properties (buffer-string))))
+          ;; ...the SAME pinned rail window survived, still popped...
+          (should (eq (org-air-rail--side-window) rail-win))
+          (should (org-air-rail--popped-p))
+          ;; ...composed at the REAL settled body width.
+          (should (eql org-air-project--rendered-width
+                       (window-body-width
+                        (get-buffer-window (current-buffer)))))))
+      (should (= displays 0))
+      (should (= deletes 0))
+      (should (= resizes 0)))))
 
 (provide 'org-air-round27-test)
 ;;; org-air-round27-test.el ends here

@@ -489,5 +489,119 @@ net; this pins the quit cell explicitly)."
       (should (string-match-p "q quit" text))
       (should (string-match-p "| rail" text)))))
 
+;;;; =====================================================================
+;;;; R28-5 — basename flip in the directory tree; relpath elsewhere.
+;;;; =====================================================================
+
+(defmacro org-air-r28--with-dir-tree (&rest body)
+  "Render the fixture project in DIRECTORY grouping (batch); run BODY."
+  (declare (indent 0) (debug t))
+  `(let ((org-air-project-group 'directory)
+         (org-air-project-view-width 120))
+     (org-air-project-test--render ,@body)))
+
+(defun org-air-r28--doc-rows ()
+  "Return (DOC . LINE-TEXT) for every doc row in the current buffer."
+  (let (rows)
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (let* ((eol (line-end-position))
+               (doc (or (get-text-property (point) 'org-air-doc)
+                        (let ((p (next-single-property-change
+                                  (point) 'org-air-doc nil eol)))
+                          (and p (< p eol)
+                               (get-text-property p 'org-air-doc))))))
+          (when doc
+            (push (cons doc (buffer-substring-no-properties
+                             (line-beginning-position) eol))
+                  rows)))
+        (forward-line 1)))
+    (nreverse rows)))
+
+(ert-deftest org-air-r28-5-dir-flip-basename ()
+  "DIR grouping, `(' dispatched: EVERY doc row's title is the BASENAME of
+its relpath; the full relpath appears in NO doc row (the `v0.1/' tree
+node itself still renders — the tree conveys the segments).  Trunk
+FAILED: rows repeated the dir prefix the ancestor node already shows."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-dir-tree
+    (call-interactively (key-binding (kbd "(")))
+    (should org-air-project--show-filenames)
+    (let ((rows (org-air-r28--doc-rows)))
+      (should rows)
+      (pcase-dolist (`(,doc . ,line) rows)
+        (let* ((rel (org-air-doc-relpath doc))
+               (base (file-name-nondirectory rel)))
+          (should (string-match-p (regexp-quote base) line))
+          (unless (equal rel base)
+            (should-not (string-match-p (regexp-quote rel) line)))))
+      ;; the alpha relpath appears NOWHERE in doc rows...
+      (should-not (cl-some (lambda (r)
+                             (string-match-p "v0\\.1/alpha-feature\\.org"
+                                             (cdr r)))
+                           rows))
+      ;; ...while the v0.1/ tree node still renders the segment.
+      (should (string-match-p "v0\\.1/"
+                              (substring-no-properties (buffer-string)))))))
+
+(ert-deftest org-air-r28-5-nested-dir-flip ()
+  "The NESTED fixture doc (v0.1/air-context/gamma-context.org) renders as
+`gamma-context.org' under the `air-context/' node — depth-proof, not
+first-level-only.  Trunk FAILED: the row was DOUBLY redundant there."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-dir-tree
+    (call-interactively (key-binding (kbd "(")))
+    (let* ((rows (org-air-r28--doc-rows))
+           (gamma (cl-find-if
+                   (lambda (r)
+                     (string-suffix-p "gamma-context.org"
+                                      (org-air-doc-relpath (car r))))
+                   rows)))
+      (should gamma)
+      (should (string-match-p "gamma-context\\.org" (cdr gamma)))
+      (should-not (string-match-p "air-context/gamma-context" (cdr gamma)))
+      ;; the air-context/ node conveys the segment the row no longer repeats.
+      (should (string-match-p "air-context/"
+                              (substring-no-properties (buffer-string)))))))
+
+(ert-deftest org-air-r28-5-flat-groupings-keep-relpath ()
+  "State / tag groupings with the flip ON keep the FULL relpath in every
+doc row — the path IS the information where no tree conveys it (guards
+against over-applying the basename rule)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-dir-tree
+    (call-interactively (key-binding (kbd "(")))
+    (dolist (cmd '(org-air-project-group-by-state
+                   org-air-project-group-by-tag))
+      (funcall cmd)
+      (should org-air-project--show-filenames)
+      (let ((rows (org-air-r28--doc-rows)))
+        (should rows)
+        (pcase-dolist (`(,doc . ,line) rows)
+          (should (string-match-p
+                   (regexp-quote (org-air-doc-relpath doc)) line)))))))
+
+(ert-deftest org-air-r28-5-filter-path-tokens-with-flip ()
+  "Flip ON, dir grouping, filter token `v0.1': the SAME docs match as
+with the flip OFF — the R24-6 relpath search key is display-independent
+\(the basename display never became the search key)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-dir-tree
+    (setq org-air-view--tag-filter (list "v0.1"))
+    (let ((org-air-filter-match 'all))
+      ;; flip OFF baseline.
+      (org-air-project-refresh)
+      (let ((baseline (mapcar (lambda (r) (org-air-doc-relpath (car r)))
+                              (org-air-r28--doc-rows))))
+        (should baseline)
+        (should (cl-every (lambda (rel) (string-match-p "v0\\.1" rel))
+                          baseline))
+        ;; flip ON: identical doc set.
+        (call-interactively (key-binding (kbd "(")))
+        (should (equal (mapcar (lambda (r) (org-air-doc-relpath (car r)))
+                               (org-air-r28--doc-rows))
+                       baseline))))))
+
 (provide 'org-air-round28-test)
 ;;; org-air-round28-test.el ends here

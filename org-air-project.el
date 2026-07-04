@@ -951,12 +951,20 @@ margin + state cell, byte-identical to today."
     (org-air-view--insert-row
      :prefix prefix
      ;; R26-4: the `(' flip — ONE rule in ONE place: doc rows show the
-     ;; RAW project-relative file name while the per-buffer flag is on
-     ;; (the point is the real file name; the R24 deslug affordance stays
-     ;; title-mode-only), the doc title otherwise.  One rule for every
-     ;; grouping mode, matching airctl's flip.
+     ;; RAW file name while the per-buffer flag is on (the point is the
+     ;; real file name; the R24 deslug affordance stays title-mode-only),
+     ;; the doc title otherwise.  R28-5: the rule is context-aware via the
+     ;; argument it already receives — DEPTH is non-nil exactly when the
+     ;; row renders inside the DIRECTORY tree (R24-2), where every path
+     ;; segment is already on screen as an ancestor node, so the flip
+     ;; shows the BASENAME there (information-preserving at any depth);
+     ;; the flat state/tag groupings keep the FULL relpath (the path IS
+     ;; the information — no tree conveys it).  The R24-6 filter key
+     ;; stays the full relpath in every grouping (display-independent).
      :title (if org-air-project--show-filenames
-                (org-air-doc-relpath doc)
+                (if depth
+                    (file-name-nondirectory (org-air-doc-relpath doc))
+                  (org-air-doc-relpath doc))
               (org-air-doc-name doc))
      :date-text date
      :tags tags
@@ -1395,13 +1403,21 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
          (directoryp (eq org-air-project-group 'directory))
          (tree (when directoryp (org-air-project--directory-tree docs)))
          (sections (unless directoryp (org-air-project--sections docs)))
+         ;; R28-5: carry the buffer-local `(' flip across the R26-7 pane
+         ;; seam — the inline two-pane body composes in a TEMP buffer
+         ;; (`org-air-view--render-lines') where the flag falls back to
+         ;; its global default, so a flipped inline render silently showed
+         ;; titles again (the side-window/board-only paths run left-fn in
+         ;; the real buffer and never hit this).
+         (flip org-air-project--show-filenames)
          ;; R21-5: compute the fixed metadata column widths over the
          ;; DISPLAYED docs at the ACTUAL render width W (board parity:
          ;; cap + title-protecting fit), and bind them for the row pass so
          ;; the one-line rows line up exactly like the board's V6 table.
          (left-fn
           (lambda (w)
-            (let* ((mw (org-air-project--fit-meta-widths docs w))
+            (let* ((org-air-project--show-filenames flip)
+                   (mw (org-air-project--fit-meta-widths docs w))
                    (org-air-project--meta-date-w (nth 0 mw))
                    (org-air-project--meta-tags-w (nth 1 mw))
                    (org-air-project--meta-origin-w (nth 2 mw)))

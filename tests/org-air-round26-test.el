@@ -654,19 +654,25 @@ default `name' the tree keeps the byte-stable name order.  FAILS on trunk
 ;;;; =====================================================================
 
 (ert-deftest org-air-r26-4-flip-shows-relpath-and-back ()
-  "`(' flips doc rows to the RAW project-relative file name (header gains
-the `files' chip); a second `(' restores a byte-identical title render."
+  "`(' flips doc rows to the RAW file name (header gains the `files'
+chip); a second `(' restores a byte-identical title render.  R28-5: this
+is the DIRECTORY grouping, so the flipped row shows the BASENAME — the
+nested tree already conveys every dir segment — and the full relpath is
+ABSENT from doc rows."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-live-project
     (let ((baseline (substring-no-properties (buffer-string))))
       (goto-char (org-air-r26--first-doc-pos))
       (let ((doc (get-text-property (point) 'org-air-doc)))
-        ;; flip: rows show relpaths, the header carries the files chip.
+        ;; flip: dir-grouped rows show BASENAMES, the header the files chip.
         (call-interactively (key-binding (kbd "(")))
         (should org-air-project--show-filenames)
         (let ((text (substring-no-properties (buffer-string))))
-          (should (string-match-p (regexp-quote (org-air-doc-relpath doc))
+          (should (string-match-p (regexp-quote (file-name-nondirectory
+                                                 (org-air-doc-relpath doc)))
                                   text))
+          (should-not (string-match-p (regexp-quote (org-air-doc-relpath doc))
+                                      text))
           (should-not (string-match-p (regexp-quote (org-air-doc-name doc))
                                       text))
           (should (string-match-p "files"
@@ -679,24 +685,35 @@ the `files' chip); a second `(' restores a byte-identical title render."
 
 (ert-deftest org-air-r26-4-flip-survives-refresh-and-grouping ()
   "The flip is buffer-local state READ BY THE RENDER PASS: it survives
-`g' refresh and holds across the s/d/t grouping modes."
+`g' refresh and holds across the s/d/t grouping modes.  R28-5: the
+DIRECTORY-grouped legs (`g' on the default grouping + the `d' leg)
+assert the BASENAME (the nested tree conveys the dir segments); the flat
+state/tag legs keep the FULL relpath (the path IS the information
+there)."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-live-project
     (goto-char (org-air-r26--first-doc-pos))
-    (let ((relpath (org-air-doc-relpath
-                    (get-text-property (point) 'org-air-doc))))
+    (let* ((relpath (org-air-doc-relpath
+                     (get-text-property (point) 'org-air-doc)))
+           (basename (file-name-nondirectory relpath)))
       (call-interactively (key-binding (kbd "(")))
-      ;; survives `g'.
+      ;; survives `g' (the default DIRECTORY grouping: basename, R28-5).
       (call-interactively (key-binding (kbd "g")))
       (should org-air-project--show-filenames)
-      (should (string-match-p (regexp-quote relpath)
-                              (substring-no-properties (buffer-string))))
-      ;; grouping-independent: state / tag / directory all render relpaths.
-      (dolist (key '("s" "t" "d"))
+      (let ((text (substring-no-properties (buffer-string))))
+        (should (string-match-p (regexp-quote basename) text))
+        (should-not (string-match-p (regexp-quote relpath) text)))
+      ;; the flat state / tag groupings render the FULL relpath...
+      (dolist (key '("s" "t"))
         (call-interactively (key-binding (kbd key)))
         (should (string-match-p (regexp-quote relpath)
                                 (substring-no-properties
-                                 (buffer-string))))))))
+                                 (buffer-string)))))
+      ;; ...and the directory tree the BASENAME (R28-5).
+      (call-interactively (key-binding (kbd "d")))
+      (let ((text (substring-no-properties (buffer-string))))
+        (should (string-match-p (regexp-quote basename) text))
+        (should-not (string-match-p (regexp-quote relpath) text))))))
 
 ;;;; =====================================================================
 ;;;; R26-1 — one breathing-room space between the tree arm and the badge.

@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-27 DESIGN: stable rail geometry (no flicker/resize/refresh storm) · main window full width · sort-active header in white bold · project/rail/pane evil parity
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:render:project:rail:layout:evil:sort:design:v0.5:
 
 * Scope of this document

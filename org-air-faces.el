@@ -785,6 +785,20 @@ The 5th Air state (between Ready and Complete)."
 Faint, like the dashboard pane border."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-outline-current
+  '((((class color) (min-colors 256) (background light))
+     (:background "#ECEAE4"))
+    (((class color) (min-colors 256) (background dark))
+     (:background "#3B4252"))
+    (t (:inherit highlight)))
+  "Face for the CURRENT heading row in the doc-session rail outline (R28-4).
+A quiet current-row treatment on the two-background precedent: a subtle
+background per light/dark class and NO foreground change, so it never
+fights the row's own faces (NOT the `org-air-face-faded' failure mode).
+Terminal/mono fallback inherits `highlight'.  Applied via ONE overlay
+\(never buffer text), so every rail byte golden is untouched."
+  :group 'org-air-faces)
+
 ;;;; ---------------------------------------------------------------------
 ;;;; Optional nano-theme linkage
 ;;;; ---------------------------------------------------------------------

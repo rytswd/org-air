@@ -490,6 +490,172 @@ net; this pins the quit cell explicitly)."
       (should (string-match-p "| rail" text)))))
 
 ;;;; =====================================================================
+;;;; R28-4 — rail outline highlights the current heading (overlay-only).
+;;;; =====================================================================
+
+(defmacro org-air-r28--with-heading-session (&rest body)
+  "Live doc session on a TEMP project doc with THREE headings; run BODY.
+BODY runs with `tree' and `docbuf' bound, the rail POPPED in the DOC
+context; the temp project + doc buffer are cleaned up afterwards."
+  (declare (indent 0) (debug t))
+  `(let ((root (make-temp-file "org-air-r28-proj" t)))
+     (unwind-protect
+         (progn
+           (make-directory (expand-file-name "v0.1" root))
+           (write-region "" nil (expand-file-name "air-config.toml" root))
+           (write-region
+            (concat "#+title: Deep doc\n#+state: ready\n"
+                    "preamble text before any heading\n"
+                    "* Alpha one\nbody a\n"
+                    "* Beta two\nbody b\n"
+                    "** Beta child\nbody c\n")
+            nil (expand-file-name "v0.1/deep-doc.org" root))
+           (let ((org-air-sources (list (list :air root)))
+                 (org-air-project-group 'directory)
+                 (org-air-project-view-width 120)
+                 (org-air-rail-focus-on-popout nil))
+             (save-window-excursion
+               (org-air-r28--kill-aux-buffers)
+               (org-air-r28--with-frame-size 130 40
+                 (let ((noninteractive nil))
+                   (org-air-project)
+                   (let ((buf (get-buffer "*org-air-project*")))
+                     (should buf)
+                     (unwind-protect
+                         (with-current-buffer buf
+                           (when (get-buffer-window buf)
+                             (select-window (get-buffer-window buf))
+                             (delete-other-windows (get-buffer-window buf)))
+                           (org-air-r28--pop-rail)
+                           (goto-char (org-air-r28--first-prop-pos
+                                       'org-air-doc))
+                           (org-air-view--goto-row-title)
+                           (let ((tree (current-buffer))
+                                 (win (selected-window)))
+                             (org-air-r28--press "RET")
+                             (let ((docbuf (window-buffer win)))
+                               (ignore tree docbuf)
+                               (unwind-protect
+                                   (progn ,@body)
+                                 (org-air-rail--outline-highlight-teardown)
+                                 (when (and (buffer-live-p docbuf)
+                                            (not (eq docbuf tree)))
+                                   (with-current-buffer docbuf
+                                     (set-buffer-modified-p nil))
+                                   (kill-buffer docbuf))))))
+                       (org-air-r28--kill-aux-buffers)
+                       (when (buffer-live-p buf)
+                         (let ((kill-buffer-query-functions nil))
+                           (kill-buffer buf))))))))))
+       (delete-directory root t))))
+
+(defun org-air-r28--overlay-heading-pos ()
+  "Return the `org-air-doc-heading-pos' under the live outline overlay."
+  (let ((ov org-air-rail--outline-overlay))
+    (and (overlayp ov) (overlay-buffer ov)
+         (with-current-buffer (overlay-buffer ov)
+           (get-text-property (overlay-start ov)
+                              'org-air-doc-heading-pos)))))
+
+(ert-deftest org-air-r28-4-highlight-follows-point ()
+  "The overlay sits on the rail row whose `org-air-doc-heading-pos'
+equals the CURRENT heading (last row with pos <= point); moving to the
+last heading moves it; point before the first heading clears it.
+Trunk FAILED: no mechanism existed at all."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-heading-session
+    (let* ((rows (org-air-project--doc-outline docbuf))
+           (first-pos (nth 2 (nth 0 rows)))
+           (last-pos (nth 2 (car (last rows)))))
+      (should (= 3 (length rows)))
+      ;; point ON heading 0.
+      (with-current-buffer docbuf (goto-char first-pos))
+      (org-air-rail--outline-highlight-update docbuf)
+      (should (equal (org-air-r28--overlay-heading-pos) first-pos))
+      ;; point at buffer end (inside the LAST heading's subtree).
+      (with-current-buffer docbuf (goto-char (point-max)))
+      (org-air-rail--outline-highlight-update docbuf)
+      (should (equal (org-air-r28--overlay-heading-pos) last-pos))
+      ;; point BEFORE the first heading: no current row, overlay cleared.
+      (with-current-buffer docbuf (goto-char (point-min)))
+      (org-air-rail--outline-highlight-update docbuf)
+      (should-not (org-air-r28--overlay-heading-pos)))))
+
+(ert-deftest org-air-r28-4-zero-repaints ()
+  "Five point-moves + highlight ticks perform ZERO rail content repaints
+\(advice counter on `org-air-rail--render') — the no-flicker law: the
+highlight is `move-overlay' only, never a re-render."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-heading-session
+    (let* ((paints 0)
+           (real (symbol-function 'org-air-rail--render))
+           (rows (org-air-project--doc-outline docbuf)))
+      (cl-letf (((symbol-function 'org-air-rail--render)
+                 (lambda (&rest args) (cl-incf paints) (apply real args))))
+        (dotimes (i 5)
+          (with-current-buffer docbuf
+            (goto-char (nth 2 (nth (mod i (length rows)) rows))))
+          (org-air-rail--outline-highlight-update docbuf)))
+      (should (= paints 0)))))
+
+(ert-deftest org-air-r28-4-single-timer-slot ()
+  "Five rapid post-command fires leave EXACTLY ONE pending idle timer
+\(reschedule-not-stack — the R27-1 S3 discipline)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-heading-session
+    (with-current-buffer docbuf
+      (dotimes (_ 5)
+        (org-air-project--outline-post-command)))
+    (should (= 1 (cl-count-if
+                  (lambda (tm)
+                    (eq (timer--function tm)
+                        #'org-air-rail--outline-highlight-update))
+                  timer-idle-list)))))
+
+(ert-deftest org-air-r28-4-degrades-cleanly ()
+  "Kill the rail buffer, move point, run the timer fn: NO error, NO
+message (the `condition-case' degrade); re-pop the rail: the highlight
+returns on the next run."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-heading-session
+    (let ((kill-buffer-query-functions nil))
+      (when (get-buffer org-air-rail-buffer-name)
+        (kill-buffer org-air-rail-buffer-name)))
+    (let (logged)
+      (cl-letf (((symbol-function 'message)
+                 (lambda (fmt &rest args)
+                   (when fmt (push (apply #'format fmt args) logged))
+                   nil)))
+        (with-current-buffer docbuf (goto-char (point-max)))
+        (org-air-rail--outline-highlight-update docbuf))
+      (should-not logged))
+    ;; re-pop the DOC rail: the next tick re-places the highlight.
+    (org-air-project--doc-rail-show docbuf)
+    (org-air-rail--outline-highlight-update docbuf)
+    (should (org-air-r28--overlay-heading-pos))))
+
+(ert-deftest org-air-r28-4-batch-inert ()
+  "Under `noninteractive', enabling `org-air-doc-session-mode' installs
+NO post-command hook and NO timer — batch purity (the byte gate never
+sees the mechanism)."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless noninteractive)
+  (with-temp-buffer
+    (org-mode)
+    (org-air-doc-session-mode 1)
+    (unwind-protect
+        (progn
+          (should-not (memq #'org-air-project--outline-post-command
+                            post-command-hook))
+          (should-not (timerp org-air-rail--outline-timer))
+          (should-not (cl-some
+                       (lambda (tm)
+                         (eq (timer--function tm)
+                             #'org-air-rail--outline-highlight-update))
+                       timer-idle-list)))
+      (org-air-doc-session-mode -1))))
+
+;;;; =====================================================================
 ;;;; R28-5 — basename flip in the directory tree; relpath elsewhere.
 ;;;; =====================================================================
 

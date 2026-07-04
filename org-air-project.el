@@ -1698,6 +1698,9 @@ the session."
           (win (get-buffer-window (current-buffer)))
           (popped (org-air-rail--popped-p)))
       (setq-local org-air-project--session-tree nil)
+      ;; R28-4: a killed session doc must not leave a pending highlight
+      ;; tick or a stale overlay behind.
+      (org-air-rail--outline-highlight-teardown)
       (when (window-live-p win)
         (set-window-buffer win tree))
       (with-current-buffer tree
@@ -1771,6 +1774,87 @@ the legend can never regress to the self-inserting `q'."
              (let ((key (where-is-internal #'org-air-project-back nil t)))
                (and key (key-description key)))))
       "C-c C-q"))
+
+(defvar org-air-rail--outline-timer nil
+  "Single debounce slot for the R28-4 rail-outline highlight tick.
+Rescheduled (never stacked) on every doc-session command — the R27-1 S3
+timer discipline.")
+
+(defvar org-air-rail--outline-overlay nil
+  "The ONE current-heading overlay in the rail outline (R28-4).
+Overlay-only: overlays are not buffer text, so the rail byte goldens
+\(`buffer-substring' reads) never move.  Deleted (no highlight) on any
+error — graceful degrade, never flicker.")
+
+(defun org-air-rail--outline-highlight-clear ()
+  "Delete the R28-4 rail-outline overlay (the no-highlight degrade)."
+  (when (overlayp org-air-rail--outline-overlay)
+    (delete-overlay org-air-rail--outline-overlay)))
+
+(defun org-air-rail--outline-highlight-update (docbuf)
+  "Re-place the rail-outline current-heading overlay for DOCBUF (R28-4).
+The current heading is the LAST rail outline row whose
+`org-air-doc-heading-pos' is <= point in DOCBUF (a linear scan over the
+rail's few dozen rows — no Org re-parse); point before the first heading
+means NO current row.  Paints by `move-overlay' of the single overlay
+onto the row's line — NO re-render, NO buffer text change (the R27-1
+stamp guard sees nothing).  Wrapped in `condition-case': on ANY error
+the overlay is deleted — no highlight, never a flicker or a message."
+  (setq org-air-rail--outline-timer nil)
+  (condition-case nil
+      (let* ((rail (get-buffer org-air-rail-buffer-name))
+             (pt (and (buffer-live-p docbuf)
+                      (buffer-local-value 'org-air-doc-session-mode docbuf)
+                      (buffer-local-value 'org-air-project--session-tree
+                                          docbuf)
+                      (with-current-buffer docbuf (point)))))
+        (if (not (and pt (buffer-live-p rail)))
+            (org-air-rail--outline-highlight-clear)
+          (with-current-buffer rail
+            (let (row-bol row-eol)
+              (save-excursion
+                (goto-char (point-min))
+                (while (not (eobp))
+                  (let ((hp (get-text-property
+                             (point) 'org-air-doc-heading-pos)))
+                    (when (and hp (<= hp pt))
+                      (setq row-bol (line-beginning-position)
+                            row-eol (line-end-position))))
+                  (forward-line 1)))
+              (if (null row-bol)
+                  (org-air-rail--outline-highlight-clear)
+                (if (overlayp org-air-rail--outline-overlay)
+                    ;; `move-overlay' also revives an evaporated/detached
+                    ;; overlay after a rail repaint's `erase-buffer'.
+                    (move-overlay org-air-rail--outline-overlay
+                                  row-bol row-eol rail)
+                  (setq org-air-rail--outline-overlay
+                        (make-overlay row-bol row-eol rail))
+                  (overlay-put org-air-rail--outline-overlay
+                               'face 'org-air-face-outline-current)
+                  (overlay-put org-air-rail--outline-overlay
+                               'evaporate t)))))))
+    (error (org-air-rail--outline-highlight-clear))))
+
+(defun org-air-project--outline-post-command ()
+  "Doc-session hook: schedule the DEBOUNCED outline highlight (R28-4).
+Buffer-local `post-command-hook' in the session DOC buffer only;
+interactive-only (never installed under `noninteractive').  ONE idle
+timer slot, rescheduled — never stacked (R27-1 S3)."
+  (when (and (not noninteractive) org-air-doc-session-mode)
+    (when (timerp org-air-rail--outline-timer)
+      (cancel-timer org-air-rail--outline-timer))
+    (setq org-air-rail--outline-timer
+          (run-with-idle-timer 0.1 nil
+                               #'org-air-rail--outline-highlight-update
+                               (current-buffer)))))
+
+(defun org-air-rail--outline-highlight-teardown ()
+  "Cancel the R28-4 timer slot + delete the overlay (session end)."
+  (when (timerp org-air-rail--outline-timer)
+    (cancel-timer org-air-rail--outline-timer))
+  (setq org-air-rail--outline-timer nil)
+  (org-air-rail--outline-highlight-clear))
 
 (defun org-air-project--insert-doc-actions (width &optional docbuf)
   "Insert the DOC-context rail Actions legend at WIDTH (R26-5/R28-3).
@@ -1854,10 +1938,19 @@ rail back to the tree."
                     (list (propertize " C-c C-q back to tree"
                                       'face 'org-air-face-faded)))
         (add-hook 'kill-buffer-hook
-                  #'org-air-project--doc-session-cleanup nil t))
+                  #'org-air-project--doc-session-cleanup nil t)
+        ;; R28-4: the rail-outline current-heading follow — one
+        ;; buffer-local hook, debounced through one timer slot,
+        ;; interactive-only (batch installs NOTHING).
+        (unless noninteractive
+          (add-hook 'post-command-hook
+                    #'org-air-project--outline-post-command nil t)))
     (kill-local-variable 'header-line-format)
     (remove-hook 'kill-buffer-hook
-                 #'org-air-project--doc-session-cleanup t)))
+                 #'org-air-project--doc-session-cleanup t)
+    (remove-hook 'post-command-hook
+                 #'org-air-project--outline-post-command t)
+    (org-air-rail--outline-highlight-teardown)))
 
 (defun org-air-project-toggle-filenames ()
   "Flip project doc rows between doc title and relpath (R26-4).  Key `('."

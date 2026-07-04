@@ -5107,6 +5107,24 @@ teardown) and re-selects the board window."
       (org-air-view-pane--hide))
     (when (window-live-p board) (select-window board))))
 
+(defun org-air-view--quit-close-pane ()
+  "Close a live bottom pane as ONE progressive quit step (R28-2).
+Shared by `org-air-quit' and `org-air-project-quit' (one helper, never
+forked): when the bottom pane window is live, run the R20-3 teardown
+from the HOST buffer's context (so the host-local
+`org-air-view--pane-indirect' really dies — exactly the discipline
+`org-air-view-pane-quit' established), keep focus on the host window,
+and return non-nil: the press is handled, the caller STOPS.  Return nil
+when no pane is open, so the caller peels its next layer."
+  (when (org-air-view-pane--window-live-p)
+    (let* ((board (org-air-view-pane--board-window))
+           (host (and board (window-buffer board))))
+      (if (buffer-live-p host)
+          (with-current-buffer host (org-air-view-pane--hide))
+        (org-air-view-pane--hide))
+      (when (window-live-p board) (select-window board)))
+    t))
+
 (defun org-air-view--view-pane-update-now (buf)
   "Redraw the follow view pane for BUF (debounce-timer callback).
 Redraws only when the item at point CHANGED and the pane window is live
@@ -6529,16 +6547,24 @@ adjacent day; the rail calendar re-centres on the focused month."
     (org-air-view--render-current)))
 
 (defun org-air-quit ()
-  "Return to the full board from the single-day view, else quit the window."
+  "Progressively close org-air surfaces — ONE surface per press (R28-2).
+Peel order, most-recent surface first: a live bottom pane closes FIRST
+\(board alive, point untouched); the single-day view returns to the full
+board (R6); only then does a press quit org-air itself — rail teardown +
+`quit-window'."
   (interactive)
-  (if org-air-view--day
-      (org-air-view-board)
+  (cond
+   ;; R28-2 layer 1: a live pane is the most-recent surface — close it, STOP.
+   ((org-air-view--quit-close-pane))
+   ;; Layer 2: single-day view -> the full board (R6).
+   (org-air-view--day (org-air-view-board))
+   (t
     ;; R16 D-P1: tear down the popped-out rail (if any) before quitting.
     (when org-air-view--rail-popped-out
       (org-air-rail--teardown))
-    ;; R16 D-P3: tear down the bottom view pane as well.
+    ;; R16 D-P3: tear down a lingering (window-less) pane buffer as well.
     (org-air-view-pane--teardown)
-    (quit-window)))
+    (quit-window))))
 
 (defun org-air-calendar-today ()
   "Recenter the persistent org-air calendar on today."

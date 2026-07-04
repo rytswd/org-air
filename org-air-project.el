@@ -1837,9 +1837,17 @@ combine with the shared `org-air-filter-match' combinator (AND by default,
   (org-air-project-refresh))
 
 (defun org-air-project-quit ()
-  "Quit the project view and restore the previous window."
+  "Quit the project view progressively — ONE surface per press (R28-2).
+A live bottom pane closes FIRST (tree alive, point untouched); the next
+press tears down a popped-out rail side window (the buffer-local popped
+flag survives, so a re-entry re-pops per R26-5) and quits the tree — a
+single press can no longer bury the tree while ORPHANING the pane and
+the rail on screen."
   (interactive)
-  (quit-window))
+  (unless (org-air-view--quit-close-pane)
+    (when (org-air-rail--popped-p)
+      (org-air-rail--teardown))
+    (quit-window)))
 
 (defvar org-air-project-mode-map
   (let ((map (make-sparse-keymap)))

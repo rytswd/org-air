@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-28 DESIGN: pane/session polish — dimmer-proof buffer naming · progressive q (pane first) · truthful doc-session legend · rail outline current-heading highlight · basename-only flip in the dir tree
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:pane:session:rail:legend:project:dimmer:design:v0.5:
 
 * Scope of this document

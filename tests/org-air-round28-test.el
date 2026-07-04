@@ -31,6 +31,7 @@
 (require 'org-air-test-helpers)
 (require 'org-air-viewport-helpers)        ; frozen-mtime macro
 (require 'org-air-project-test)            ; project fixture root
+(require 'org-air-round21-test)            ; R21-6 WCAG contrast helpers
 
 (when (locate-library "org-air")
   (require 'org-air))
@@ -634,6 +635,38 @@ returns on the next run."
     (org-air-rail--outline-highlight-update docbuf)
     (should (org-air-r28--overlay-heading-pos))))
 
+(ert-deftest org-air-r28-4-face-outline-current-defined-and-contrast-sane ()
+  "`org-air-face-outline-current' is DEFINED and CONTRAST-SANE: a quiet
+BACKGROUND-ONLY treatment per colour class (no foreground override — the
+design's never-fights-the-row's-own-faces rule, NOT the
+`org-air-face-faded' failure mode) whose background keeps the palette
+text foreground WCAG-AA readable (>= 4.5) while staying perceptibly
+distinct from the plain background; the terminal/mono fallback inherits
+`highlight'."
+  (skip-unless (locate-library "org-air"))
+  (should (facep 'org-air-face-outline-current))
+  (dolist (mode '(light dark))
+    (let ((bg (org-air-r21-6--face-attr 'org-air-face-outline-current
+                                        :background mode))
+          (fg (org-air-r21-6--face-attr 'org-air-face-outline-current
+                                        :foreground mode))
+          (text (org-air-palette-color 'foreground mode))
+          (plain (org-air-palette-color 'background mode)))
+      (ert-info ((format "outline-current %s bg=%s" mode bg))
+        (should bg)
+        ;; background-only: NO foreground override in the colour clause.
+        (should-not fg)
+        ;; the row's text stays readable UNDER the highlight (WCAG AA).
+        (should (>= (org-air-r21-6--contrast text bg) 4.5))
+        ;; ...and the highlight is a REAL highlight: not the plain bg.
+        (should-not (equal (downcase bg) (downcase plain))))))
+  ;; terminal/mono fallback: the `t' clause inherits `highlight'.
+  (let* ((spec (face-default-spec 'org-air-face-outline-current))
+         (attrs (cdr (assq t spec)))
+         (plist (if (and (consp attrs) (consp (car attrs)))
+                    (car attrs) attrs)))
+    (should (eq (plist-get plist :inherit) 'highlight))))
+
 (ert-deftest org-air-r28-4-batch-inert ()
   "Under `noninteractive', enabling `org-air-doc-session-mode' installs
 NO post-command hook and NO timer — batch purity (the byte gate never
@@ -747,6 +780,36 @@ against over-applying the basename rule)."
         (pcase-dolist (`(,doc . ,line) rows)
           (should (string-match-p
                    (regexp-quote (org-air-doc-relpath doc)) line)))))))
+
+(ert-deftest org-air-r28-5-flip-survives-pane-seam ()
+  "REGRESSION GUARD: the `(' flip survives the R26-7 PANE SEAM.  The
+two-pane INLINE body composes its left pane inside a TEMP buffer
+\(`org-air-view--render-lines') where the buffer-local flag falls back
+to its GLOBAL default (nil — asserted here), so a flipped inline render
+silently showed titles again unless `--render' carries the flip
+lexically into `left-fn'.  Pins the orientation IS `two-pane' (the seam
+path provably ran — the side-window/board-only paths never hit it) and
+that the flip crossed the seam: rows show filenames, never titles."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-dir-tree
+    ;; the seam's fallback really is `titles' (the trunk failure mode).
+    (should-not (default-value 'org-air-project--show-filenames))
+    (call-interactively (key-binding (kbd "(")))
+    (should org-air-project--show-filenames)
+    ;; the path that rendered is the TEMP-BUFFER two-pane seam...
+    (should (eq org-air-view--orientation 'two-pane))
+    ;; ...and the flip crossed it: every row carries its FILE NAME...
+    (let ((rows (org-air-r28--doc-rows)))
+      (should rows)
+      (pcase-dolist (`(,doc . ,line) rows)
+        (should (string-match-p
+                 (regexp-quote (file-name-nondirectory
+                                (org-air-doc-relpath doc)))
+                 line)))
+      ;; ...never the title the seam fallback would have rendered.
+      (should-not (cl-some (lambda (r)
+                             (string-match-p "Alpha feature" (cdr r)))
+                           rows)))))
 
 (ert-deftest org-air-r28-5-filter-path-tokens-with-flip ()
   "Flip ON, dir grouping, filter token `v0.1': the SAME docs match as

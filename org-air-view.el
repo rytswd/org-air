@@ -1101,6 +1101,46 @@ would be wrong.  Idempotent; runs once per mode init."
   (when (fboundp 'evil-set-initial-state)
     (evil-set-initial-state mode 'motion)))
 
+;; Declaration only (no value): the soft-dep registration below must leave
+;; this VOID when dimmer is absent — the integration is provably dormant.
+(defvar dimmer-buffer-exclusion-predicates)
+
+(defun org-air-dimmer-buffer-p (buf)
+  "Non-nil when BUF is an org-air-OWNED buffer (R28-1).
+Matches the shipped `*org-air' naming contract — board `*org-air*', rail
+`*org-air-rail*', snapshot pane `*org-air-view*', editable pane
+`*org-air-pane:TITLE*', project `*org-air-project*' — with an
+optional-space belt so any legacy/hidden org-air internal stays covered
+no matter what the naming layer renames.  The doc-session and R20
+return-mode host buffers are the USER'S file buffers: never renamed,
+never matched here (dimming those stays the user's own policy)."
+  (and (string-match-p "\\` ?\\*org-air" (buffer-name buf)) t))
+
+(defun org-air-view--setup-dimmer (&optional _file)
+  "Register `org-air-dimmer-buffer-p' on dimmer's exclusion seam (R28-1).
+Soft-dep dimmer integration (zero config, the R27-4 evil idiom):
+`dimmer-buffer-exclusion-predicates' is dimmer 0.4's per-buffer predicate
+seam (called with the buffer; truthy = never dimmed) — the exact seam
+dimmer's own `dimmer-configure-*' helpers use.  `add-to-list' is
+idempotent and the seam is only touched when dimmer is LOADED (`boundp'
+gate — dimmer is never required): without dimmer this is provably
+dormant and no dimmer variable is created.  Returns non-nil once
+registered (and disarms the deferred `after-load-functions' seam below).
+Users with the manual exclusion regexp keep working — the R28-1(a)
+naming makes their regexp true again; this makes it unnecessary."
+  (when (boundp 'dimmer-buffer-exclusion-predicates)
+    (add-to-list 'dimmer-buffer-exclusion-predicates
+                 #'org-air-dimmer-buffer-p)
+    (remove-hook 'after-load-functions #'org-air-view--setup-dimmer)
+    t))
+
+;; R28-1(b): register NOW when dimmer is already loaded, else on the load
+;; that brings it in (`after-load-functions' — a one-shot boundp probe,
+;; removed the moment it registers).  Either order — dimmer before or
+;; after org-air — lands the same idempotent registration.
+(unless (org-air-view--setup-dimmer)
+  (add-hook 'after-load-functions #'org-air-view--setup-dimmer))
+
 (defun org-air-view--glyph (name)
   "Return glyph NAME with a TTY fallback."
   (org-air-layout-glyph name))
@@ -4828,9 +4868,14 @@ names the (hidden) indirect buffer.  When POS is before the first heading —
 a heading-less file head — the buffer is left WIDE so the file shows.
 Narrowing is per-indirect-buffer — it never leaks to BASE or to the board's
 own markers/classify scans of that file."
+  ;; R28-1(a) naming contract: every buffer org-air creates and shows in
+  ;; a window carries the `*org-air' prefix — NO leading `hidden buffer'
+  ;; space, or the shipped/manual dimmer exclusions can never match the
+  ;; pane.  Trade-off accepted: the transient indirect shows up in buffer
+  ;; lists (killed by the R20-3 teardown / rebuilt by follow).
   (let ((ind (make-indirect-buffer
               base (generate-new-buffer-name
-                    (concat " *org-air-pane:" (or title "") "*"))
+                    (concat "*org-air-pane:" (or title "") "*"))
               t)))                          ; CLONE = inherit org-mode
     (with-current-buffer ind
       (unless (derived-mode-p 'org-mode) (delay-mode-hooks (org-mode)))

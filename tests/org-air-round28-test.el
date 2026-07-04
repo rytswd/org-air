@@ -141,6 +141,126 @@ buffer current, exactly as a real keypress would."
   (should (window-live-p (org-air-rail--side-window))))
 
 ;;;; =====================================================================
+;;;; R28-1 — dimmer-proof buffer naming + soft-dep dimmer integration.
+;;;; =====================================================================
+
+(defun org-air-r28--fixture-heading-pos (buf)
+  "Return the position of the first Org heading in BUF, or nil."
+  (with-current-buffer buf
+    (save-excursion
+      (goto-char (point-min))
+      (when (re-search-forward org-outline-regexp-bol nil t)
+        (match-beginning 0)))))
+
+(ert-deftest org-air-r28-1-pane-buffer-name-prefixed ()
+  "The editable indirect built by the REAL `org-air-view-pane--indirect'
+is named with the `*org-air' prefix and matches the user's anchored
+dimmer regexp \\=`\\*org-air.  Trunk FAILED: the leading `hidden buffer'
+space made the anchored prefix regexp unmatchable, so dimmer dimmed
+exactly the pane."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (let* ((base (find-file-noselect (car org-air-files)))
+           (pos (org-air-r28--fixture-heading-pos base))
+           (ind (org-air-view-pane--indirect
+                 base pos "Call the plumber back about the leak")))
+      (unwind-protect
+          (let ((name (buffer-name ind)))
+            (should (string-prefix-p "*org-air" name))
+            ;; the exact anchored regexp the user's dimmer config carries.
+            (should (string-match-p "\\`\\*org-air" name)))
+        (when (buffer-live-p ind) (kill-buffer ind))))))
+
+(ert-deftest org-air-r28-1-owned-buffer-predicate ()
+  "`org-air-dimmer-buffer-p' is non-nil for live instances of ALL FIVE
+owned buffers (board, rail, snapshot pane, editable indirect, project)
+and nil for a user file buffer and *scratch* (user buffers stay the
+user's own dimming policy)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (org-air-r28--kill-aux-buffers)
+    (let* ((base (find-file-noselect (car org-air-files)))
+           (pos (org-air-r28--fixture-heading-pos base))
+           (ind (org-air-view-pane--indirect base pos "Some title"))
+           (owned (list (get-buffer-create org-air-view-buffer-name)
+                        (get-buffer-create org-air-rail-buffer-name)
+                        (get-buffer-create org-air-view-pane-buffer-name)
+                        ind
+                        (get-buffer-create "*org-air-project*"))))
+      (unwind-protect
+          (progn
+            (dolist (buf owned)
+              (should (org-air-dimmer-buffer-p buf)))
+            (should-not (org-air-dimmer-buffer-p base))
+            (should-not (org-air-dimmer-buffer-p
+                         (get-buffer-create "*scratch*"))))
+        (when (buffer-live-p ind) (kill-buffer ind))
+        (org-air-r28--kill-aux-buffers)))))
+
+(ert-deftest org-air-r28-1-dimmer-registration-soft ()
+  "The dimmer registration is SOFT: dormant without dimmer (the seam
+variable stays VOID and the deferred probe is armed), fired EXACTLY ONCE
+against a STUB dimmer seam, and idempotent on re-evaluation."
+  (skip-unless (locate-library "org-air"))
+  (if (featurep 'dimmer)
+      ;; The real dimmer was loaded earlier in this batch: the deferred
+      ;; registration already fired — assert once-ness + idempotence.
+      (progn
+        (should (memq #'org-air-dimmer-buffer-p
+                      (symbol-value 'dimmer-buffer-exclusion-predicates)))
+        (org-air-view--setup-dimmer)      ; re-evaluate the integration form
+        (should (= 1 (cl-count #'org-air-dimmer-buffer-p
+                               (symbol-value
+                                'dimmer-buffer-exclusion-predicates)))))
+    ;; Negative: org-air is loaded, dimmer is NOT — the integration is
+    ;; provably dormant (org-air created no dimmer variable) and the
+    ;; one-shot deferred probe is ARMED for whenever dimmer loads.
+    (should-not (boundp 'dimmer-buffer-exclusion-predicates))
+    (should-not (org-air-view--setup-dimmer))
+    (should (memq #'org-air-view--setup-dimmer after-load-functions))
+    ;; STUB dimmer: bind the seam variable — the registration fires
+    ;; exactly once and stays once on re-evaluation.
+    (unwind-protect
+        (progn
+          (set-default 'dimmer-buffer-exclusion-predicates nil)
+          (should (org-air-view--setup-dimmer))
+          (should (equal (symbol-value 'dimmer-buffer-exclusion-predicates)
+                         (list #'org-air-dimmer-buffer-p)))
+          (org-air-view--setup-dimmer)    ; idempotent
+          (should (equal (symbol-value 'dimmer-buffer-exclusion-predicates)
+                         (list #'org-air-dimmer-buffer-p))))
+      ;; un-stub: the REAL dimmer (if a later ERT requires it) re-loads
+      ;; cleanly and re-registers via the same idempotent seam.
+      (makunbound 'dimmer-buffer-exclusion-predicates)
+      (add-hook 'after-load-functions #'org-air-view--setup-dimmer))))
+
+(ert-deftest org-air-r28-1-dimmer-real-exclusion ()
+  "With the REAL dimmer.el: `dimmer-filtered-buffer-list' — dimmer's own
+to-dim filter — returns *scratch* only when fed board + rail + editable
+pane + *scratch*: no org-air buffer is ever in the to-dim set.  Trunk
+FAILED: the space-named pane indirect was in the set."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (locate-library "dimmer"))
+  (require 'dimmer)
+  (org-air-test-with-fixtures
+    (org-air-r28--kill-aux-buffers)
+    (let* ((base (find-file-noselect (car org-air-files)))
+           (pos (org-air-r28--fixture-heading-pos base))
+           (ind (org-air-view-pane--indirect base pos "Live pane"))
+           (board (get-buffer-create org-air-view-buffer-name))
+           (rail (get-buffer-create org-air-rail-buffer-name))
+           (scratch (get-buffer-create "*scratch*")))
+      (unwind-protect
+          (let ((to-dim (dimmer-filtered-buffer-list
+                         (list board rail ind scratch))))
+            (should (memq scratch to-dim))
+            (should-not (memq board to-dim))
+            (should-not (memq rail to-dim))
+            (should-not (memq ind to-dim)))
+        (when (buffer-live-p ind) (kill-buffer ind))
+        (org-air-r28--kill-aux-buffers)))))
+
+;;;; =====================================================================
 ;;;; R28-2 — progressive q: one surface per press (pane first).
 ;;;; =====================================================================
 

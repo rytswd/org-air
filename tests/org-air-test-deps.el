@@ -9,8 +9,11 @@
 
 (require 'package)
 
-(defconst org-air-test-deps '(org-ql package-lint evil)
-  "Packages required to run the org-air test suites.")
+(defconst org-air-test-deps '(org-ql package-lint evil dimmer)
+  "Packages required to run the org-air test suites.
+R28-1: `dimmer' (MELPA, tiny — the evil precedent) lets ONE ERT assert
+against the REAL `dimmer-filtered-buffer-list'; every other dimmer ERT is
+stub-based and gate-deterministic.")
 
 (let ((missing (seq-remove #'package-installed-p org-air-test-deps)))
   (if (null missing)

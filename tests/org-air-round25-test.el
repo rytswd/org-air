@@ -54,7 +54,7 @@
       (when (get-buffer name) (kill-buffer name)))
     (dolist (b (buffer-list))
       (when (and (buffer-live-p b)
-                 (string-prefix-p " *org-air-pane:" (buffer-name b)))
+                 (string-match-p "\\` ?\\*org-air-pane:" (buffer-name b)))
         (with-current-buffer b (set-buffer-modified-p nil))
         (kill-buffer b)))))
 

@@ -178,10 +178,10 @@ each VAR is bound to an absolute path under it pre-populated with CONTENT."
     (point-marker)))
 
 (defun org-air-r20--live-pane-indirects ()
-  "Return the list of LIVE ` *org-air-pane:*' indirect buffers."
+  "Return the list of LIVE `*org-air-pane:*' indirect buffers (R28-1 name)."
   (seq-filter (lambda (b)
                 (and (buffer-live-p b)
-                     (string-prefix-p " *org-air-pane:" (buffer-name b))))
+                     (string-match-p "\\` ?\\*org-air-pane:" (buffer-name b))))
               (buffer-list)))
 
 (ert-deftest org-air-r20-3-pane-quit-tears-down-and-selects-board ()

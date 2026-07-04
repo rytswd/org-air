@@ -1,0 +1,507 @@
+#+title: org-air v0.5 round-28 DESIGN: pane/session polish — dimmer-proof buffer naming · progressive q (pane first) · truthful doc-session legend · rail outline current-heading highlight · basename-only flip in the dir tree
+#+state: ready
+#+FILETAGS: :ui:pane:session:rail:legend:project:dimmer:design:v0.5:
+
+* Scope of this document
+Round-28 DESIGN doc, written after the user dogfooded R27 (happy note: "the
+project view looks nice"; rail stability and evil parity landed).  Five
+items, all pane/doc-session polish:
+
+- *R28-1* DIMMER STILL DIMS THE PREVIEW PANE — the user runs dimmer.el with
+  the exclusion regexp =\`\*org-air= (the recipe WE ship in
+  =air/context/interface-design.md=); the board and rail are excluded but
+  the bottom preview pane still dims.  Root-caused: the pane's editable
+  indirect buffer is named =" *org-air-pane:TITLE*"= — a LEADING SPACE, so
+  the prefix regexp can never match.  Fix both layers: consistent
+  =*org-air= naming for every org-air-OWNED buffer, plus a soft-dep dimmer
+  integration (the R27-4 evil idiom) so users need zero config.  [BUG]
+- *R28-2* =q= WITH THE PANE OPEN MUST CLOSE THE PANE, NOT KILL ORG-AIR —
+  one =q= on the board tears down the pane AND quits org-air; measured
+  worse on the project tree: =q= buries the tree and ORPHANS the pane and
+  the rail side window.  Fix: progressive close — one surface per press.
+  [BUG]
+- *R28-3* DOC-SESSION RAIL LEGEND MUST SHOW THE REAL KEYS — in a doc
+  session the side-rail legend says =q back=, but the doc FILE buffer is
+  editable: =q= SELF-INSERTS there; the real binding is =C-c C-q=
+  (verified bound and functional).  The legend must be DERIVED from the
+  live bindings (=where-is-internal=), never hardcoded.  [BUG]
+- *R28-4* RAIL OUTLINE HIGHLIGHTS THE CURRENT HEADING — explicitly
+  OPTIONAL per the user: in a doc session the rail outline could follow
+  point.  Scoped SMALL: one buffer-local hook, one debounced timer slot,
+  one overlay, one face; degrade to no-highlight, never flicker; explicit
+  defer clause.  [NICE-TO-HAVE]
+- *R28-5* =(= FLIP SHOWS A REDUNDANT DIRECTORY PREFIX — under DIRECTORY
+  grouping the flip renders =v0.1/foo.org= under the tree node that
+  already says =v0.1/=.  Show the BASENAME in dir-grouped rows; keep the
+  full relpath in the flat state/tag groupings (it carries information
+  there) and in the filter key (R24-6).  No new flat view (the user's
+  mention was hypothetical — out of scope).  [POLISH]
+
+Every item is REPRODUCED on THIS checkout against the =.el= source, on the
+demo fixture (=examples/demo/*.org=) AND the real Air repo
+(=~/Coding/github.com/withre/air/air=, 76 docs), and every interaction is
+DRIVEN in a REAL terminal Emacs (=emacs -nw= inside a 190×45 tmux pane,
+ALL TIMERS LIVE, commands dispatched via =(key-binding (kbd ...))=).
+Constraints honoured: org-ql only; V6 pixel-lock (basename rows flow
+through the same =--insert-row= width contract); R18 caches, R20
+compute-once, R26-8 async machine, R27-1 convergent rail machinery all
+preserved (reused, never forked); soft deps stay soft (dimmer and evil are
+never required); batch purity.
+
+* Status
+Design-led, impl-ready.  Byte contract per item:
+- *R28-1* byte-INVISIBLE.  Buffer NAMES never appear in buffer text; the
+  dimmer registration only mutates dimmer's own variable and only when
+  dimmer is loaded (the batch gate has no dimmer — dormant).  Every golden
+  untouched.
+- *R28-2* byte-INVISIBLE.  Command behaviour only; no render change.
+- *R28-3* byte-invisible TO THE GATE: the DOC-context rail legend is
+  R26-5 live-session-only content — grep confirms no golden or fixture
+  contains =q back=.  The board/project rail goldens never render the doc
+  context.
+- *R28-4* byte-INVISIBLE.  Overlay-only (overlays are not buffer text; the
+  rail byte goldens read =buffer-substring=) and interactive-only (the
+  hook is never installed under =noninteractive=).
+- *R28-5* byte-INVISIBLE at DEFAULTS: the flip is off in every golden
+  (R26-4 invariant); only flipped DIR-grouped rows change, whose only
+  coverage is the two R26-4 ERTs amended below.
+
+* Measured baseline (reproduction harness)
+Live drives: =tmux new-session -x 190 -y 45 "emacs -nw -Q -l
+tests/org-air-test-init.el -l org-air.el -l <drive>.el"= — timers live,
+keys via =(key-binding (kbd ...))=, logs written to files.  Batch drives
+for the pure layers.  Headline transcripts (full context per item):
+#+begin_src text
+R28-1  (batch + live) owned buffer names vs the user's regexp \`\*org-air:
+  "*org-air*" t   "*org-air-rail*" t   "*org-air-view*" t
+  "*org-air-project*" t   " *org-air-pane:Some title*" NIL   <- the pane
+  live: pane window shows " *org-air-pane:Call the plumber back about the
+  leak*"; regexp match: nil -> dimmer dims exactly the pane
+R28-2  (live, demo board) RET opens pane; ONE q on the board:
+  BEFORE: windows=2 pane-live=t          AFTER: windows=1 pane-live=nil
+          board-visible=nil                     <- pane AND board gone
+       (live, real Air repo, project tree) v opens pane; ONE q on the tree:
+  AFTER: windows=3 pane-live=t tree-visible=nil rail-live=t
+         selected-shows="*scratch*"      <- tree buried; pane+rail ORPHANED
+R28-3  (live, real Air repo, RET into a doc):
+  doc-session=t  q -> org-self-insert-command  C-c C-q -> org-air-project-back
+  doc's own header: " C-c C-q back to tree"  (truthful)
+  rail legend row:  "q back     RET jump     | rail"  (the lie)
+R28-4  (live, same session) 18 outline rows; point moved heading 0 -> 17:
+  rail outline rows carry NO face, byte+face-identical before/after
+  (no mechanism exists; grep: zero highlight/overlay code in the rail)
+R28-5  (batch, real Air repo, dir grouping, flip ON):
+  | v0.1/                                    R4(+1) C14(+14) X1(+9) D2(+8)
+  +---- READY v0.1/natural-sorting-implementation.org   <- prefix repeated
+  +- ai-integration/                                              X2
+  |  +--- DROP  v0.1/ai-integration/ai-assisted-document-generation.org
+                ^^^^^ nested: DOUBLY redundant (tree conveys both levels)
+  state-grouping rows keep full relpaths (information-bearing there)
+#+end_src
+
+* R28-1 — dimmer dims the preview pane: naming + soft-dep integration [BUG]
+
+** Reproduction — the ONE org-air buffer without the =*org-air= prefix is the pane
+The user excludes org-air from dimmer exactly as
+=air/context/interface-design.md= recommends: =(add-to-list
+'dimmer-buffer-exclusion-regexps "\\*org-air")= (anchored =\`\*org-air= in
+their config).  Measured over every org-air-owned buffer (batch, the
+regexp applied as dimmer applies it — =string-match-p= over
+=buffer-name=, dimmer.el =dimmer-filtered-buffer-list=):
+- =*org-air*=, =*org-air-rail*=, =*org-air-view*=, =*org-air-project*=:
+  all match — excluded, exactly what the user sees (board/rail undimmed).
+- The pane: =org-air-view-pane--indirect= (org-air-view.el:4825–4847)
+  names the editable indirect buffer =(concat " *org-air-pane:" title
+  "*")= — the LEADING SPACE (the "hidden buffer" convention) makes the
+  anchored prefix regexp unmatchable.  Live (demo board, RET): the pane
+  window's shown buffer is =" *org-air-pane:Call the plumber back about
+  the leak*"= and the regexp does NOT match — dimmer dims precisely the
+  pane, nothing else.  The read-only SNAPSHOT pane (=*org-air-view*=)
+  matches fine — the bug is exactly the R19-3 editable-indirect path, the
+  default (=org-air-view-pane-editable= t).
+- Context-doc audit: interface-design.md:8 sells the promise "buffer
+  names … can match them all", :20–24 gives the dimmer recipe, :25 states
+  "org-air ships no dimmer integration of its own (not its territory)".
+  The pane broke the FIRST promise; this round revises the SECOND (the
+  user asked for zero-config behaviour and the R27-4 evil setup set the
+  soft-dep precedent).
+
+** Decision — every owned buffer carries the prefix; org-air registers its own exclusion
+Two layers, both small:
+- *(a) Naming contract.*  =org-air-view-pane--indirect= drops the leading
+  space: =(concat "*org-air-pane:" title "*")= (still through
+  =generate-new-buffer-name=).  NEW INVARIANT, recorded in
+  interface-design.md: every buffer org-air creates and shows in a window
+  is named with the =*org-air= prefix — board =*org-air*=, rail
+  =*org-air-rail*=, snapshot pane =*org-air-view*=, editable pane
+  =*org-air-pane:TITLE*=, project =*org-air-project*=.  Trade-off
+  accepted: the pane indirect becomes visible in buffer lists — it is
+  transient (killed by the R20-3 teardown / rebuilt by follow), and
+  consistency IS the contract the user configured against.  The doc-
+  session and R20 return-mode host buffers are the USER'S file buffers —
+  never renamed, never excluded (dimming those is the user's own policy).
+- *(b) Soft-dep dimmer integration* (zero config, R27-4 idiom):
+  - =org-air-dimmer-buffer-p (buf)= (org-air-view.el, view-core, next to
+    the evil setup): non-nil when =(buffer-name buf)= matches
+    =\`[ ]?\*org-air= — the optional-space belt keeps any legacy/hidden
+    org-air internals covered no matter what (a) renames.
+  - At load, =(with-eval-after-load 'dimmer (add-to-list
+    'dimmer-buffer-exclusion-predicates #'org-air-dimmer-buffer-p))= —
+    dimmer 0.4's per-buffer predicate seam (called with the buffer;
+    truthy = never dimmed), the exact seam dimmer's own
+    =dimmer-configure-*= helpers use.  =add-to-list= is idempotent; no
+    =require=; when dimmer is absent the form never runs and no dimmer
+    variable is created.  Users with the manual regexp keep working —
+    layer (a) makes their regexp true again; layer (b) makes it
+    unnecessary.
+  - interface-design.md: the recipe paragraph is replaced by the shipped-
+    integration statement (manual regexp kept as an alternative), and the
+    naming invariant from (a) is recorded where the prefix promise lives.
+- Test dep: =dimmer= joins =org-air-test-deps= (the evil precedent —
+  MELPA, tiny) so ONE ERT can assert against the REAL
+  =dimmer-filtered-buffer-list=; every other ERT is stub-based and
+  gate-deterministic.
+
+** Testability — EXECUTING acceptance ERTs
+=tests/org-air-round28-test.el=:
+- =r28-1-pane-buffer-name-prefixed=: build the editable indirect via the
+  REAL =org-air-view-pane--indirect= on a demo file: the buffer name
+  string-prefix-matches =*org-air= and matches the user's anchored regexp
+  =\`\*org-air=.  Trunk FAILS (leading space).
+- =r28-1-owned-buffer-predicate=: table-driven over live instances of all
+  five owned buffers (board, rail, snapshot pane, editable indirect,
+  project) → =org-air-dimmer-buffer-p= non-nil for each; nil for the demo
+  file buffer and =*scratch*= (user buffers stay the user's policy).
+- =r28-1-dimmer-registration-soft=: with a STUB dimmer (a temp feature
+  providing 'dimmer + a defvar =dimmer-buffer-exclusion-predicates=):
+  evaluating the integration form registers the predicate EXACTLY once,
+  re-evaluating stays once (idempotent).  Negative: in a clean batch
+  without dimmer, org-air's load leaves =dimmer-buffer-exclusion-
+  predicates= VOID — the integration is provably dormant.
+- =r28-1-dimmer-real-exclusion= (=skip-unless (locate-library "dimmer")=,
+  dep ships in =.deps=): with board + rail + editable pane + =*scratch*=
+  live, =(dimmer-filtered-buffer-list (list ...))= — the REAL dimmer
+  filter — returns =*scratch*= only: no org-air buffer is ever in the
+  to-dim set.  Trunk FAILS (the pane is in the set).
+
+** Routing
+- org-air-view.el: =org-air-view-pane--indirect= (name),
+  =org-air-dimmer-buffer-p= + the =with-eval-after-load= registration
+  (view-core, beside =org-air-view--setup-evil=).
+- air/context/interface-design.md: naming invariant + shipped integration.
+- tests/org-air-test-deps.el: add =dimmer=.
+- tests/org-air-round28-test.el: the four ERTs above.
+
+* R28-2 — =q= with the pane open closes the pane, never kills org-air [BUG]
+
+** Reproduction — one press tears down everything; the project side also orphans windows
+Both live drives, timers live, keys via =(key-binding (kbd ...))=:
+- BOARD (demo, RET opens the pane, focus on the board): =q= resolves to
+  =org-air-quit= (org-air-view.el:6531–6542) whose body tears down the
+  popped rail, tears down the pane (=org-air-view-pane--teardown=) AND
+  =quit-window=s the board — all in ONE press.  Measured: windows 2→1,
+  pane-live t→nil, board-visible t→nil.  The user's "kills the whole
+  org-air session" is this line-for-line.  (The existing progressive
+  precedent is ALREADY in this function: day view → board → quit; the
+  pane never joined it.)
+- PROJECT TREE (real Air repo, =v= opens the peek pane): =q= resolves to
+  =org-air-project-quit= (org-air-project.el:1839–1842) — a bare
+  =quit-window= that neither closes the pane nor the rail.  Measured
+  after ONE press: windows=3, =tree-visible=nil=,
+  =selected-shows="*scratch*"=, =pane-live=t=, =rail-live=t= — the tree
+  is buried while the =*org-air-pane:…= indirect and the rail side
+  window stay stranded on screen with no owner.
+- DOC SESSION (unchanged contract, verified): the doc FILE buffer's =q=
+  self-inserts (editable, R20-3a rule), =C-c C-q= /
+  =org-air-project-back= returns to the tree, the rail's =q=
+  (=org-air-rail-quit=, org-air-view.el:3852) dispatches back-to-tree in
+  a session.  R28-2 must not touch any of this.
+
+** Decision — progressive close: one surface per press, both quits, one helper
+- Shared helper =org-air-view--quit-close-pane= (view-core; both quits
+  route through it — shared primitive, no fork): when
+  =org-air-view-pane--window-live-p=, run the R20-3 teardown from the
+  HOST buffer's context (=org-air-view-pane--hide= with the host current,
+  exactly the discipline =org-air-view-pane-quit= established at
+  :5092–5110 so the host-local =--pane-indirect= really dies), keep focus
+  on the host window, return non-nil (press handled); else nil.
+- =org-air-quit= peels one layer per press, most-recent surface first:
+  1. live pane → close it, STOP (board alive, point untouched).
+  2. day view → back to the full board (existing R6 behaviour).
+  3. else today's tail: rail teardown + =quit-window=.
+- =org-air-project-quit= gains the same shape:
+  1. live pane → close it, STOP (tree alive).
+  2. else rail teardown when popped (=org-air-rail--teardown= in the tree
+     buffer — kills the measured rail orphan; the popped flag survives
+     buffer-locally so a re-entry re-pops per R26-5) + =quit-window=.
+- Untouched by contract: doc-session =q=/=C-c C-q= semantics; the
+  pane-side =q= (=org-air-view-pane-quit=) and explicit =V=
+  (=org-air-view-pane-close=); the R25-6/R27-1 reconciler (the teardown
+  path is the reconciler's existing user-close vocabulary — no new state).
+- Batch: commands only, never run by any golden render; every fixture
+  byte-identical.
+
+** Testability — EXECUTING acceptance ERTs
+Live-window harness (R26/R27 discipline: =noninteractive= nil, real
+windows, keys via =key-binding=):
+- =r28-2-board-q-progressive=: board + pane open, dispatch =q=: pane
+  window DEAD, board window LIVE and selected, mode still
+  =org-air-view-mode=; dispatch =q= again: board buried.  Trunk FAILS
+  (one press kills both).
+- =r28-2-project-q-progressive-no-orphans=: project tree + =v= pane +
+  popped rail, dispatch =q=: pane closed, tree alive, rail still popped;
+  second =q=: tree buried AND rail side window gone AND no
+  =*org-air-pane:…= window remains (window inventory asserted).  Trunk
+  FAILS on both presses (orphans measured).
+- =r28-2-day-view-peel-order=: board in single-day view with the pane
+  open: =q= #1 closes the pane (still day view), =q= #2 returns to the
+  full board, =q= #3 quits — the full peel order pinned.
+- =r28-2-pane-side-q-unchanged=: focus INSIDE the snapshot pane, =q=
+  still =org-air-view-pane-quit= → pane closes, board re-selected (the
+  R20-3a contract is the regression net for the helper refactor).
+- Doc-session guard: one assertion set reusing the R28-3 session ERT —
+  =q= self-inserts / =C-c C-q= backs — proving R28-2 changed nothing
+  there.
+
+** Routing
+- org-air-view.el: =org-air-view--quit-close-pane= (view-core);
+  =org-air-quit= (peel order).
+- org-air-project.el: =org-air-project-quit= (pane + rail teardown tail).
+- tests/org-air-round28-test.el: the four ERTs above.
+
+* R28-3 — doc-session rail legend must show the real keys [BUG]
+
+** Reproduction — the binding layer is sound; the legend lies about it
+Live (real Air repo, RET into =natural-sorting-implementation.org=,
+session active, rail popped in DOC context):
+- Layer (a) — the bindings, VERIFIED CLEAN: =org-air-doc-session-mode= is
+  on; =(key-binding "q")= → =org-self-insert-command= (correct — the doc
+  FILE buffer is editable, the R20-3a rule keeps =q= self-insert);
+  =(key-binding (kbd "C-c C-q"))= → =org-air-project-back= via
+  =org-air-doc-session-mode-map= (org-air-project.el:1781–1789, plus the
+  =quit-window= remap); =where-is-internal= on the live buffer returns
+  =("C-c C-q" "C-x w q")=.  The doc buffer's OWN header line is already
+  truthful: =" C-c C-q back to tree"= (:1800–1805).  Nothing to wire.
+- Layer (b) — the legend, the whole bug:
+  =org-air-project--insert-doc-actions= (org-air-project.el:1746–1758)
+  HARDCODES =(org-air-view--verb-cell "q" "back" 7)= — the rendered rail
+  row is ="q back     RET jump     | rail"= (measured).  The user reads
+  the legend while focused in the DOC buffer, presses =q=, and types a
+  =q= into their file.  (=q= back IS real for focus-in-the-rail via
+  =org-air-rail-quit= — but the legend describes the session, and the
+  session's back verb is =C-c C-q=.)
+- The TREE-context rail legend is NOT affected: the R26-3 3×3 table
+  (:1218–1223) is already asserted table-driven against the keymap
+  ("legend-truth" ERT) and its =q quit= is real (measured
+  =org-air-project-quit=).
+
+** Decision — derive the back cell from the live binding; wrap, never overflow
+- =org-air-project--insert-doc-actions (width &optional docbuf)= — the
+  descriptor closure (=org-air-project--doc-rail-descriptor=, :1761–1768,
+  which already closes over =docbuf=) passes the session buffer to
+  =:actions-fn=.
+- The back cell's key text is DERIVED: =(with-current-buffer docbuf
+  (where-is-internal #'org-air-project-back nil t))= →
+  =key-description= — the FIRSTONLY hit in the LIVE buffer context
+  (measured ="C-c C-q"=; an evil/custom rebinding shows whatever is
+  really bound there).  Defensive fallback when =where-is-internal= returns nil or
+  =docbuf= is dead: the literal ="C-c C-q"= (the mode map's own
+  binding) — the legend can never regress to =q=.
+- Layout: cells are sized from their CONTENT (=(string-width key) + 1 +
+  (string-width verb)=) and laid out greedily left-to-right with the
+  existing gap; a cell that would cross WIDTH starts a NEW inset row.
+  Rail tiers are 28/32/42 (R27-1 frame-derived): at 42 the derived
+  ="C-c C-q back  RET jump  | rail"= stays one row; at 28/32 it wraps to
+  two.  =org-air-view--verb-cell= itself is unchanged (shared primitive;
+  the DOC legend just stops passing a hardcoded pad).
+- =RET jump= and =| rail= stay literal: they are RAIL-buffer bindings
+  (=org-air-rail-mode-map=, org-air-view.el:3839–3850) and truthful for
+  the buffer the legend lives in; the rail's own =q= (back in a session)
+  keeps working — the legend simply teaches the key that works where the
+  user's focus actually is.
+- Byte contract: the DOC-context legend exists only in live sessions
+  (R26-5); no golden or fixture contains =q back= (grepped).  Gate
+  byte-identical.
+
+** Testability — EXECUTING acceptance ERTs
+- =r28-3-doc-legend-derived=: live session on the fixture project (rail
+  popped): the rail buffer's Actions region contains the
+  =key-description= of the LIVE =org-air-project-back= binding (=C-c
+  C-q=) and does NOT contain a bare =q back= cell.  Trunk FAILS.
+- =r28-3-legend-follows-rebinding=: same session with
+  =org-air-project-back= rebound to an extra key EARLIER in the session
+  map (=cl-letf=-scoped keymap copy): the legend shows the new
+  =where-is= result — proving derivation, not a smarter hardcode.
+- =r28-3-back-key-works=: dispatch =C-c C-q= in the session doc buffer
+  via =key-binding=: tree restored in the same window, point back on the
+  originating row (the R26-5 contract, now legend-taught).  And =q= in
+  the doc buffer still self-inserts (the R28-2 guard shares this
+  assertion).
+- =r28-3-legend-fits-narrow-rail=: render the DOC actions at width 28
+  and 32: no rendered line exceeds the width (the greedy wrap), and the
+  derived key cell is present unsplit.
+- =r28-3-tree-legend-unchanged=: the tree-context 3×3 Actions table
+  renders byte-identically (the existing R26-3 legend-truth ERT is the
+  net; this asserts the =q quit= cell survives).
+
+** Routing
+- org-air-project.el: =org-air-project--insert-doc-actions= (derivation +
+  wrap), =org-air-project--doc-rail-descriptor= (pass docbuf).
+- tests/org-air-round28-test.el: the five ERTs above.
+
+* R28-4 — rail outline highlights the current heading [NICE-TO-HAVE]
+
+** Reproduction — baseline: no mechanism exists at all
+Live (real Air repo session, rail popped, DOC context, 18 outline rows):
+point moved from heading 0 to heading 17, timers given 0.6s — the rail
+outline rows carry NO face and are byte- and face-identical before and
+after (measured row-by-row over the =org-air-doc-heading-pos= rows).
+Grep: zero highlight/overlay/current-heading code anywhere in the rail.
+The building blocks are already there: every outline row carries
+=org-air-doc-heading-pos= (org-air-project.el:1736–1744) — the same
+property RET-jump uses (=org-air-rail-return=, org-air-view.el:3868).
+
+** Decision — one hook, one timer slot, one overlay, one face; defer if it balloons
+Explicitly OPTIONAL per the user; scoped to the minimum that cannot
+flicker:
+- Face: =org-air-face-outline-current= (org-air-faces.el) — a quiet
+  current-row treatment following the two-background precedent (subtle
+  background per light/dark class, no foreground change; =(t :inherit
+  highlight)= terminal fallback).  NOT =org-air-face-faded='s failure
+  mode: this is a background, so it never fights the row's own faces.
+- Trigger: a BUFFER-LOCAL =post-command-hook= installed by
+  =org-air-doc-session-mode= (and removed by its off-branch + the R26-5
+  cleanup), debounced through ONE idle-timer slot
+  (=org-air-rail--outline-timer=, ~0.1s, reschedule-not-stack — the
+  R27-1 S3 timer discipline).  Interactive-only: =noninteractive= never
+  installs the hook.
+- Resolve: current heading = the LAST outline row whose
+  =org-air-doc-heading-pos= ≤ =point= (a linear scan over the rail's few
+  dozen rows; no Org re-parse, no =org-back-to-heading= in the doc
+  needed).  Point before the first heading → no current row.
+- Paint: ONE overlay (=org-air-rail--outline-overlay=) in the rail
+  buffer, =move-overlay= onto the matching row's line, =face= +
+  =evaporate=.  NO re-render, NO buffer text change: the R27-1 stamp
+  guard sees nothing (point motion is not a stamp input — measured: zero
+  rail repaints across the drive's moves), and rail byte goldens read
+  =buffer-substring=, which overlays never touch.
+- Degrade: the whole update wrapped in =condition-case= → on ANY error
+  the overlay is deleted (no highlight, never a flicker or a message).
+  Stale positions after doc edits simply highlight the nearest stale row
+  until the next rail repaint rebuilds the outline — acceptable by
+  design; live outline refresh stays out of scope.
+- Teardown: session end / doc kill removes the hook and deletes the
+  overlay; a rail repaint (=erase-buffer= in =org-air-rail--show=)
+  collapses the overlay to zero length and the next tick re-places it.
+- DEFER CLAUSE: if impl finds this interacting with the R27-1 rail
+  machinery (repaints, reconcile, stamp) in ANY way that costs more than
+  the mechanism above, ship R28-1/2/3/5 and defer this item to a later
+  round — the user explicitly marked it optional.
+
+** Testability — EXECUTING acceptance ERTs
+- =r28-4-highlight-follows-point=: live session, rail popped: place
+  point at heading N, run the timer's function directly (deterministic —
+  the R26/R27 pattern): the overlay sits on the rail row whose
+  =org-air-doc-heading-pos= equals heading N's position; move to the
+  last heading, run again: overlay moved; point before the first
+  heading: no overlay face anywhere.
+- =r28-4-zero-repaints=: a paint counter (advice on the rail content
+  writer) across five point-moves + timer runs reads 0 — the highlight
+  never re-renders the rail (the no-flicker law).
+- =r28-4-single-timer-slot=: five rapid post-command fires → exactly one
+  pending timer (S3 discipline).
+- =r28-4-degrades-cleanly=: kill the rail buffer, move point, run the
+  timer fn: no error, no message; re-pop the rail: highlight returns on
+  the next run.
+- =r28-4-batch-inert=: under =noninteractive=, enabling
+  =org-air-doc-session-mode= installs NO hook and NO timer (names
+  asserted absent) — batch purity.
+
+** Routing
+- org-air-faces.el: =org-air-face-outline-current=.
+- org-air-project.el: hook install/remove in =org-air-doc-session-mode=;
+  the resolver + overlay mover (project side, next to the outline
+  builder).
+- org-air-view.el: none (the overlay lives in the rail buffer but is
+  driven from the session; no rail renderer change).
+- tests/org-air-round28-test.el: the five ERTs above.
+
+* R28-5 — =(= flip shows a redundant directory prefix in the dir tree [POLISH]
+
+** Reproduction — the tree already says it; the row says it again (twice when nested)
+Batch, real Air repo (76 docs), DIRECTORY grouping (the default,
+org-air-project.el:73–81), flip ON:
+#+begin_src text
+| v0.1/                                   R4(+1) C14(+14) X1(+9) D2(+8)
++---- READY v0.1/natural-sorting-implementation.org
++---- READY v0.1/airctl-aliases.org
+...
++- ai-integration/                                                 X2
+|  +--- DROP  v0.1/ai-integration/ai-assisted-document-generation.org
+#+end_src
+The R20-5 directory tree is FULLY NESTED (=ai-integration/= is its own
+node under =v0.1/=), so every path segment the row repeats is already on
+screen as an ancestor node — doubly redundant at depth.  The flip's ONE
+rule lives in =org-air-project--insert-doc-row= (org-air-project.el:958):
+=:title (if org-air-project--show-filenames (org-air-doc-relpath doc)
+(org-air-doc-name doc))= — grouping-blind by design (R26-4).  The row
+primitive ALREADY knows its context: =depth= is non-nil exactly when the
+row renders inside the directory tree (R24-2, :904 docstring), nil for
+the flat state/tag groupings.  Contrast measured: state-grouping rows
+render full relpaths — there the path IS the information (no tree
+conveys it).  Filter layer (R24-6): =--render= matches tokens against
+=org-air-doc-relpath= directly (:1385–1390), independent of the display
+title.
+
+** Decision — basename under the dir tree; relpath in flat groupings; filter untouched
+- =org-air-project--insert-doc-row=, the same ONE rule, now
+  context-aware via the argument it already receives: flipped =:title= =
+  =(if depth (file-name-nondirectory relpath) relpath)= — BASENAME
+  inside the directory tree (the nested nodes convey every dir segment;
+  information-preserving at any depth, measured above), full relpath in
+  state/tag groupings.  Title mode (flip off) unchanged everywhere; the
+  =⇄ files= header chip unchanged; the R24 deslug affordance stays
+  title-mode-only (the flip keeps showing the RAW file name, R26-4).
+- Filter contract untouched: bare tokens keep matching name + FULL
+  relpath (the display title is not the search key), so =/v0.1= narrows
+  identically with the flip on or off, in every grouping.
+- OUT OF SCOPE: a flat (ungrouped) view — the user mentioned it as
+  hypothetical only.
+- R26-4 contract AMENDED (the only existing coverage of flipped rows;
+  fixture docs live in subdirs so both break without amendment):
+  - =org-air-r26-4-flip-shows-relpath-and-back= (dir grouping): the flip
+    leg now asserts the BASENAME (=alpha-feature.org=) in the row and
+    the full relpath ABSENT from doc rows; the flip-back
+    byte-identity assertion is unchanged.
+  - =org-air-r26-4-flip-survives-refresh-and-grouping=: the =s=/=t= legs
+    keep asserting the full relpath; the =d= leg asserts the basename.
+- Byte contract: the flip is off in every golden (R26-4 invariant — the
+  chip and the flip are non-default); default renders byte-identical in
+  all groupings.  The gate moves only by the two amended ERTs plus the
+  new ones below.
+
+** Testability — EXECUTING acceptance ERTs
+- =r28-5-dir-flip-basename=: fixture project, dir grouping, =(=
+  dispatched: every doc row's title cell is the basename (asserted via
+  the row's =org-air-doc= property vs its rendered line); the string
+  =v0.1/alpha-feature.org= appears NOWHERE in doc rows (the =v0.1/= tree
+  node itself still renders).  Trunk FAILS.
+- =r28-5-nested-dir-flip=: the nested fixture doc
+  (=v0.1/air-context/gamma-context.org=) renders as =gamma-context.org=
+  under the =air-context/= node — depth-proof, not first-level-only.
+  Trunk FAILS.
+- =r28-5-flat-groupings-keep-relpath=: =M-x org-air-project-group-by-
+  state= / =-by-tag= with the flip on: rows show the FULL relpath
+  (information preserved where no tree conveys it).  Guards against
+  over-applying the basename rule.
+- =r28-5-filter-path-tokens-with-flip=: flip on, dir grouping, filter
+  token =v0.1=: the same docs match as with the flip off (the R24-6
+  relpath search key is display-independent).
+- The two amended R26-4 ERTs (enumerated above) are part of this item's
+  deliverable — the impl updates their =d=-leg expectations, nothing
+  else in them.
+
+** Routing
+- org-air-project.el: =org-air-project--insert-doc-row= (:title rule).
+- tests/org-air-round26-test.el: the two amended R26-4 expectations.
+- tests/org-air-round28-test.el: the four ERTs above.

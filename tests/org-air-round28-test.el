@@ -362,5 +362,132 @@ order pinned."
         (should-not (org-air-view-pane--window-live-p))
         (should (eq (selected-window) bwin))))))
 
+;;;; =====================================================================
+;;;; R28-3 — doc-session rail legend derives from the LIVE binding.
+;;;; =====================================================================
+
+(defmacro org-air-r28--with-doc-session (&rest body)
+  "Open a live project, pop the rail, RET into the first doc; run BODY.
+BODY runs in the TREE buffer's lexical context with `tree', `row-pt',
+`win' and `docbuf' bound; the doc buffer is cleaned up afterwards."
+  (declare (indent 0) (debug t))
+  `(org-air-r28--with-live-project
+     (org-air-r28--pop-rail)
+     (goto-char (org-air-r28--first-prop-pos 'org-air-doc))
+     (org-air-view--goto-row-title)
+     (let* ((tree (current-buffer))
+            (row-pt (point))
+            (win (selected-window)))
+       (org-air-r28--press "RET")
+       (let ((docbuf (window-buffer win)))
+         (ignore tree row-pt win docbuf)
+         (unwind-protect
+             (progn ,@body)
+           (when (and (buffer-live-p docbuf) (not (eq docbuf tree)))
+             (with-current-buffer docbuf (set-buffer-modified-p nil))
+             (kill-buffer docbuf)))))))
+
+(ert-deftest org-air-r28-3-doc-legend-derived ()
+  "The DOC-context rail Actions legend carries the `key-description' of
+the LIVE `org-air-project-back' binding (C-c C-q) and NO bare `q back'
+cell.  Trunk FAILED: the legend hardcoded `q back' while `q'
+self-inserts in the editable doc buffer."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-doc-session
+    (should (buffer-local-value 'org-air-doc-session-mode docbuf))
+    (let ((derived (with-current-buffer docbuf
+                     (key-description
+                      (where-is-internal #'org-air-project-back nil t)))))
+      (should (equal derived "C-c C-q"))
+      (with-current-buffer org-air-rail-buffer-name
+        (let ((text (substring-no-properties (buffer-string))))
+          (should (string-match-p (concat (regexp-quote derived) " back")
+                                  text))
+          ;; no BARE `q back' cell (the `C-q back' tail of the derived
+          ;; key is not a bare cell — require a space/line-start before).
+          (should-not (string-match-p "\\(?:^\\| \\)q back" text)))))))
+
+(ert-deftest org-air-r28-3-legend-follows-rebinding ()
+  "Rebinding `org-air-project-back' in the session map re-derives the
+legend to the NEW `where-is' result — derivation, not a smarter
+hardcode."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-doc-session
+    (unwind-protect
+        (progn
+          ;; swap the primary binding C-c C-q -> C-c C-b (restored below).
+          (define-key org-air-doc-session-mode-map (kbd "C-c C-q") nil)
+          (define-key org-air-doc-session-mode-map (kbd "C-c C-b")
+                      #'org-air-project-back)
+          (let ((derived (with-current-buffer docbuf
+                           (key-description
+                            (where-is-internal #'org-air-project-back
+                                               nil t)))))
+            (should (equal derived "C-c C-b"))
+            ;; re-render the doc rail: the legend re-derives.  A keymap
+            ;; change is NOT an R27-1 stamp input (by design — point/keys
+            ;; never repaint the rail), so drive the paint deterministically
+            ;; by clearing the stamp first (the R27 harness discipline).
+            (with-current-buffer org-air-rail-buffer-name
+              (setq-local org-air-rail--last-stamp nil))
+            (org-air-project--doc-rail-show docbuf)
+            (with-current-buffer org-air-rail-buffer-name
+              (should (string-match-p
+                       (concat (regexp-quote derived) " back")
+                       (substring-no-properties (buffer-string)))))))
+      (define-key org-air-doc-session-mode-map (kbd "C-c C-b") nil)
+      (define-key org-air-doc-session-mode-map (kbd "C-c C-q")
+                  #'org-air-project-back))))
+
+(ert-deftest org-air-r28-3-back-key-works ()
+  "The legend-taught keys really work: `q' in the session doc buffer
+SELF-INSERTS (the R20-3a rule — also the R28-2 doc-session guard) and
+`C-c C-q' dispatched via `key-binding' restores the tree in the SAME
+window with point back on the originating row (R26-5)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-doc-session
+    (with-current-buffer docbuf
+      (should (eq (key-binding "q") #'org-self-insert-command))
+      (should (eq (key-binding (kbd "C-c C-q")) #'org-air-project-back)))
+    (org-air-r28--press "C-c C-q")
+    (should (eq (window-buffer win) tree))
+    (should (eq (window-point win) row-pt))))
+
+(ert-deftest org-air-r28-3-legend-fits-narrow-rail ()
+  "The DOC actions legend wraps greedily: at widths 28/32 no rendered
+line exceeds the width and the derived key cell is present UNSPLIT; at
+42 (the wide rail tier) the three cells share one row."
+  (skip-unless (locate-library "org-air"))
+  (dolist (w '(28 32))
+    (with-temp-buffer
+      (org-air-project--insert-doc-actions w nil) ; nil docbuf -> fallback
+      (let ((lines (split-string (substring-no-properties (buffer-string))
+                                 "\n" t)))
+        (dolist (ln lines)
+          (should (<= (string-width ln) w)))
+        (should (cl-some (lambda (ln) (string-match-p "C-c C-q back" ln))
+                         lines)))))
+  (with-temp-buffer
+    (org-air-project--insert-doc-actions 42 nil)
+    (let ((lines (split-string (substring-no-properties (buffer-string))
+                               "\n" t)))
+      (should (cl-some (lambda (ln)
+                         (and (string-match-p "C-c C-q back" ln)
+                              (string-match-p "RET jump" ln)
+                              (string-match-p "| rail" ln)))
+                       lines)))))
+
+(ert-deftest org-air-r28-3-tree-legend-unchanged ()
+  "The TREE-context 3×3 Actions table still renders its real cells — the
+`q quit' cell survives R28-3 (the R26-3 legend-truth ERT is the byte
+net; this pins the quit cell explicitly)."
+  (skip-unless (locate-library "org-air"))
+  (with-temp-buffer
+    (org-air-project--insert-actions 42)
+    (let ((text (substring-no-properties (buffer-string))))
+      (should (string-match-p "RET open" text))
+      (should (string-match-p "q quit" text))
+      (should (string-match-p "| rail" text)))))
+
 (provide 'org-air-round28-test)
 ;;; org-air-round28-test.el ends here

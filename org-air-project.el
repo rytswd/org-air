@@ -1743,26 +1743,61 @@ in the rail jumps the main window to that heading."
                    'org-air-doc-heading-pos pos)
                   "\n"))))))
 
-(defun org-air-project--insert-doc-actions (width)
-  "Insert the DOC-context rail Actions legend at WIDTH (R26-5)."
+(defun org-air-project--doc-back-key (docbuf)
+  "Return the key text for the session back verb LIVE in DOCBUF (R28-3).
+`where-is-internal' on `org-air-project-back' in the session buffer's own
+context (FIRSTONLY — an evil/custom rebinding shows whatever is really
+bound there).  Defensive fallback when the lookup fails or DOCBUF is
+dead: the literal text of `org-air-doc-session-mode-map's own binding —
+the legend can never regress to the self-inserting `q'."
+  (or (and (buffer-live-p docbuf)
+           (with-current-buffer docbuf
+             (let ((key (where-is-internal #'org-air-project-back nil t)))
+               (and key (key-description key)))))
+      "C-c C-q"))
+
+(defun org-air-project--insert-doc-actions (width &optional docbuf)
+  "Insert the DOC-context rail Actions legend at WIDTH (R26-5/R28-3).
+R28-3: the back cell's key text is DERIVED from the LIVE binding of
+`org-air-project-back' in DOCBUF (the session buffer) — never the
+hardcoded `q back' lie (`q' SELF-INSERTS in the editable doc file
+buffer; the real verb is the mode map's back binding).  `RET jump' and
+`| rail' stay
+literal: they are rail-buffer bindings, truthful for the buffer the
+legend lives in.  Cells are sized from their CONTENT and laid out
+greedily left-to-right with the existing gap; a cell that would cross
+WIDTH starts a NEW inset row — wrap, never overflow."
   (org-air-view--rail-header "Actions" width)
-  (let ((inset (org-air-view--rail-inset-str width))
-        (gap (if (>= width 38) "    " " ")))
-    (insert (org-air-view--pad-to
-             (concat inset
-                     (org-air-view--verb-cell "q" "back" 7) gap
-                     (org-air-view--verb-cell "RET" "jump" 9) gap
-                     (org-air-view--verb-cell "|" "rail" 0))
-             width)
-            "\n")))
+  (let* ((inset (org-air-view--rail-inset-str width))
+         (gap (if (>= width 38) "    " " "))
+         (cells (list (org-air-view--verb-cell
+                       (org-air-project--doc-back-key docbuf) "back" 0)
+                      (org-air-view--verb-cell "RET" "jump" 0)
+                      (org-air-view--verb-cell "|" "rail" 0)))
+         (line inset))
+    (dolist (cell cells)
+      (cond
+       ((equal line inset)                  ; first cell on the row: always
+        (setq line (concat line cell)))
+       ((<= (+ (string-width line) (string-width gap) (string-width cell))
+            width)                          ; fits after the gap
+        (setq line (concat line gap cell)))
+       (t                                   ; would cross WIDTH: wrap
+        (insert (org-air-view--pad-to line width) "\n")
+        (setq line (concat inset cell)))))
+    (unless (equal line inset)
+      (insert (org-air-view--pad-to line width) "\n"))))
 
 (defun org-air-project--doc-rail-descriptor (docbuf doc)
   "Return the DOC-context rail descriptor for DOCBUF showing DOC (R26-5).
 An `:outline-fn' + `:actions-fn' pair on the EXISTING rail descriptor seam
-\(one renderer, parameterised — never forked)."
+\(one renderer, parameterised — never forked).  R28-3: the descriptor
+closes over DOCBUF for `:actions-fn' too, so the Actions legend derives
+its back cell from the LIVE session buffer's bindings."
   (list :outline-fn (lambda (w)
                       (org-air-project--insert-doc-context docbuf doc w))
-        :actions-fn #'org-air-project--insert-doc-actions))
+        :actions-fn (lambda (w)
+                      (org-air-project--insert-doc-actions w docbuf))))
 
 (defun org-air-project--doc-rail-show (docbuf)
   "Show/re-render the DOC-context side rail owned by DOCBUF (R26-5)."

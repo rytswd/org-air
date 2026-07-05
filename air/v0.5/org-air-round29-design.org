@@ -1,0 +1,391 @@
+#+title: org-air v0.5 round-29 DESIGN: fringe-less GUI x-overflow — one-column host-width divergence · command-agnostic title snap (evil cursor stuck at column 0)
+#+state: ready
+#+FILETAGS: :ui:layout:rail:gui:evil:motion:design:v0.5:
+
+* Scope of this document
+Round-29 DESIGN doc — two focused GUI bugs the user is waiting to
+test:
+
+- *R29-1* BUFFER OVERFLOWS IN X — the board buffer overflows
+  horizontally in the user's GUI: the top header band (title left,
+  =Mon 29 Jun · 583 items= right) runs ~1 char past the window edge.
+  The batch S7 contract (=org-air-s7-header-status-ends-at-w-minus-1=)
+  is green, so the divergence is GUI-side.  ROOT-CAUSED to one exact
+  width term: the R27-2 host-width seam (=org-air-rail--host-width=)
+  measures raw =window-body-width= while every other live path measures
+  =org-air-layout--usable-columns= (GUI: =window-max-chars-per-line=,
+  which reserves the continuation-glyph column when the right fringe is
+  absent).  In a fringe-less GUI — exactly the minimal config this user
+  runs (see R28-1) — the two disagree by ONE, so with the rail popped
+  out EVERY composed line (header included) is one column too wide.
+  [BUG]
+- *R29-2* CURSOR STILL LANDS AT COLUMN 0, NOT THE ITEM'S FIRST LETTER —
+  under evil, moving between rows leaves point at line start instead of
+  the title's first char; NOT fixed by R21-2/R22-2 in real use.
+  ROOT-CAUSED with REAL evil from =.deps= (R27-4 pattern): there is no
+  command whitelist to miss — R22-2's dead-zone PREDICATE ("point on a
+  column with NO row property") is orientation-dependent and provably
+  dead in the user's configuration: with the rail popped (board-only /
+  side-window composition) and on EVERY project doc row, the row
+  property covers ALL columns including column 0, so the snap never
+  fires; and the project binds no =j=/=k= at all, so evil's
+  =evil-next-line= / =evil-previous-line= drive raw line moves that
+  stick at goal-column 0.  Fix: a command-agnostic line-motion-gated
+  snap (no whitelist), =j=/=k= promoted to the shared core map, and
+  entry/restore tails normalized.  [BUG]
+
+Reproduced on THIS checkout against the =.el= source with live windows
+and NO width seam, under a simulated fringe-less GUI (the documented
+zero-right-fringe contract of =window-max-chars-per-line=), in all three
+rail modes.  Constraints honoured: V6 pixel-lock, R18/R20 caches, R26-8
+async machine, R27-1 convergent rail machinery all preserved (the fix
+REUSES the existing =org-air-layout--usable-columns= primitive — no
+fork); R29-2 drives were run with the REAL evil
+(=.deps/evil-20260603.654=) in motion state on the board AND the
+project.  Batch purity (every golden byte-identical); evil stays a
+soft dep (fboundp/eval-after-load gated — non-evil users untouched).
+
+* Status
+Design-led, impl-ready.  Byte contract:
+- *R29-1* byte-IDENTICAL in batch.  The batch width seams
+  (=org-air-view-width= / =org-air-project-view-width=) bypass
+  =org-air-rail--host-width= entirely, and in a TTY/batch frame
+  =org-air-layout--usable-columns= already falls back to
+  =window-body-width=, so every golden and every live-terminal ERT
+  keeps its exact bytes/values.  The S7 contract itself was NOT the
+  bug (no manifest change): the status still ends at W-1 of the
+  compose width — the bug was WHICH width the GUI side-window path
+  composed against.
+- *R29-2* byte-INVISIBLE.  No rendered byte changes anywhere: the
+  dead-zone predicate reads the EXISTING R21-2 =org-air-row-title=
+  mark; the changes are a predicate, a buffer-local pre-command
+  snapshot, two keymap entries moving to the parent map (same
+  commands), and explicit normalize calls on restore/entry tails.
+  Every golden untouched.
+
+* Measured baseline (reproduction harness)
+Batch drives with LIVE windows (=noninteractive= bound nil, the R27
+pattern) over the GTD fixtures; fringe-less GUI simulated per the
+Emacs contract: =display-graphic-p= -> t and
+=window-max-chars-per-line= -> =(1- (window-body-width w))= (zero right
+fringe reserves the continuation column).  No width seam anywhere.
+#+begin_src text
+R29-1  rail SIDE-WINDOW (popped): body=51 usable=50 rendered-width=51
+         longest-line=51  header-trimmed=50   <<< OVERFLOW
+         (every composed line 1 col past the usable area; the header's
+          last status glyph sits flush at the window edge — the S7
+          blank margin column falls OUTSIDE the displayable area)
+       rail BUFFER itself:        body=28 usable=27 longest=28  <<< OVERFLOW
+       rail INLINE (two-pane):    body=80 usable=79 rendered-width=79
+         longest=79 header-trimmed=78        fits
+       BOARD-ONLY:                rendered-width=79 longest=79   fits
+FIX-CHECK  (host-width remeasured through usable-columns, same frame):
+       side-window: body=51 usable=50 rendered=50 longest=50     fits
+#+end_src
+The off-by-one is mode-selective and width-independent (odd 51 and
+even 28 both show exactly +1): only the paths that measure raw
+=window-body-width= overflow.
+
+R29-2 drives: REAL evil from =.deps=, live windows, commands resolved
+via =(key-binding (kbd ...))= and dispatched with pre/post-command
+hooks run (the R27-4 pattern):
+#+begin_src text
+R29-2  BOARD  evil-local-mode -> state=motion
+         j -> org-air-next-line          (R27-4 overriding map works)
+         <down> -> evil-next-line        (arrows are NOT org-air's)
+       BOARD two-pane (width seam 100): item-row bol carries NO
+         org-air-item -> normalize-point SNAPS col 0 -> 13 (title)  OK
+         <- why the R22-2 ERTs stay green: they exercise this shape
+       BOARD board-only/side-window (live frame, NO seam — the user's
+         popped-rail config): item-row col 0 CARRIES org-air-item
+         <down> x5 from point-min: col 0, col 0, ... :item t col 0
+         <- NO snap, sticks at column 0            THE REPORT
+       PROJECT  j -> evil-next-line, k -> evil-previous-line
+         (j/k UNBOUND in org-air-project-mode-map — board-only keys)
+         doc-row columns WITHOUT org-air-doc: NONE (full-row coverage)
+         <down> x6 from point-min: col 0 on every doc row
+         G (evil-goto-line): col 0                 THE REPORT
+#+end_src
+
+* R29-1 — fringe-less GUI x-overflow: one width term diverges on the side-window path [BUG]
+
+** Reproduction — the exact term, found
+The renderer has exactly TWO live width sources, and they disagree by
+one column in a fringe-less GUI:
+
+1. =org-air-view--render-width= ->
+   =org-air-layout-current-width= ->
+   =org-air-layout--usable-columns=: in a real graphical window this
+   is =window-max-chars-per-line=, which RESERVES the column the
+   continuation/truncation glyph occupies when the right fringe is
+   absent (that helper exists because of exactly this bug class — its
+   own docstring cites S7).  TTY/batch tier: plain
+   =window-body-width=.  Used by the inline (two-pane / stacked) and
+   board-only compositions — measured: they FIT.
+
+2. =org-air-rail--host-width= (R27-2) — the seam that re-measures the
+   host window AFTER the rail side window is ensured — returns raw
+   =(max org-air-item-pane-min (window-body-width win))=.  Under
+   =side-window= orientation it OVERWRITES the width from source 1
+   (=org-air-view--render=: "compose at the board window's REAL body
+   width"), so the whole board — banner, rule, every row — is composed
+   one column wider than the window can display.  Measured: body=51,
+   usable=50, rendered-width=51, longest line 51 — OVERFLOW.  The
+   header composes to 51 with its status ending at column 50 (=W-1=,
+   contract held!) — but 50 is the window's LAST displayable column,
+   so the status glyph sits flush at the edge and the 51-wide rows
+   force the horizontal overflow the screenshots show.  ~One char too
+   wide, precisely.
+
+Same raw measurement in two more places, same off-by-one:
+- =org-air-rail--show= composes the rail's OWN content at
+  =(max 1 (window-body-width win))= — measured rail buffer: body=28,
+  usable=27, longest=28, overflow;
+- =org-air-project--doc-rail-show= resolves the doc-session host at
+  =(max 40 (window-body-width win))=.
+The PROJECT view inherits the board's bug through the shared helper
+(=org-air-project--host-width= -> =org-air-rail--host-width=), and its
+default placement IS =side-window= (R26-5) — so the user's project
+tree overflows the same way.
+
+Why every existing gate stayed green:
+- batch goldens run the width seam, which bypasses the host-width
+  helper entirely;
+- the S7 ERT asserts the header ends at W-1 of the COMPOSE width —
+  true on both paths; the bug is the compose width itself;
+- the R27-2 ERTs assert =rendered-width == (window-body-width win)= in
+  a TTY-ish batch frame where =usable-columns == window-body-width= —
+  the equality the GUI breaks is exactly the one the harness cannot
+  see without the fringe-less stub;
+- a GUI WITH fringes has =window-max-chars-per-line ==
+  window-body-width=, so only minimal fringe-less configs (this user,
+  per R28-1) ever render the divergence.
+
+** Decision — one width primitive: every live measurement flows through usable-columns
+The fix REUSES =org-air-layout--usable-columns= (no new mechanism, no
+fork) at the three raw call sites — each a one-term change:
+
+1. =org-air-rail--host-width= (org-air-view.el):
+   =(max org-air-item-pane-min (org-air-layout--usable-columns win))=.
+   This fixes the board AND the project in one place (shared helper,
+   R27-2's own "one primitive, no fork" rule).
+2. =org-air-rail--show= rail width:
+   =(max 1 (org-air-layout--usable-columns win))= — the rail's own
+   lines also fit fringe-less windows.
+3. =org-air-project--doc-rail-show= host fallback:
+   =(max 40 (org-air-layout--usable-columns win))=.
+
+Contract restatement (docs + R27-2 ERTs): the R27-2 host-width
+contract is "the compose width equals the host window's USABLE
+columns" — =org-air-layout--usable-columns=, not raw
+=window-body-width=.  In the batch/TTY harness the two are equal, so
+the existing R27-2 assertions keep their exact measured values; they
+are restated in terms of the usable-columns primitive so the contract
+can never drift GUI-side again.  S7 is unchanged and now holds where
+the user looks: status ends at W-1 with W = usable columns, so the
+final blank margin column is INSIDE the displayable area and no
+continuation/truncation glyph can ever overprint the status.
+
+Verified on this checkout (fix-check transcript above): with
+host-width measuring usable columns, the popped board composes at 50
+in the 51-body window — longest line 50, fits, zero dead columns
+(the reserved column is the continuation-glyph column; it is not
+usable for text in a fringe-less GUI, so composing to 50 IS the full
+usable width).
+
+Explicitly out of scope: fringe-width detection subtleties
+(=window-max-chars-per-line= already owns that logic — we inherit,
+never reimplement) and any batch/golden re-bless (nothing changes).
+
+** Testability — EXECUTING acceptance ERTs
+New suite =tests/org-air-round29-test.el=; the fringe-less GUI sim is
+a two-stub =cl-letf= harness macro (=display-graphic-p= -> t,
+=window-max-chars-per-line= -> body-1), live windows, no width seam —
+exactly the reproduction above, plus a fringed-GUI variant (stub ->
+body) to prove the fix is a no-op where fringes exist.
+
+1. =org-air-r29-1-fringeless-no-line-exceeds-usable= — for EACH rail
+   mode (side-window popped, inline two-pane, board-only) and at
+   MULTIPLE host widths including odd and even (varied via window
+   splits on the batch frame): after render + refresh, every buffer
+   line's =string-width= is <= =org-air-layout--usable-columns= of the
+   displaying window.  Trunk FAILS (side-window: 51 > 50).
+2. =org-air-r29-1-header-ends-at-contract-column= — same harness: the
+   right-trimmed header width equals compose-width - 1, compose width
+   equals the window's usable columns, and the header's final column
+   is blank (S7 margin inside the displayable area).  Trunk FAILS
+   under side-window (compose width = usable + 1).
+3. =org-air-r29-1-rail-buffer-fits= — the popped rail buffer's every
+   line is <= its side window's usable columns.  Trunk FAILS (28 > 27).
+4. =org-air-r29-1-project-fits-fringeless= — the project view with its
+   default side-window placement: every doc row <= usable columns and
+   =org-air-project--rendered-width= equals the usable columns.  Trunk
+   FAILS.
+5. =org-air-r29-1-fringed-gui-unchanged= — with fringes (stub returns
+   body), rendered widths and longest lines are byte-for-byte the
+   trunk values (the fix only moves fringe-less frames).
+6. Existing gate — all batch goldens byte-identical; the R27-2 suite
+   green with its assertions restated to
+   =org-air-layout--usable-columns= (same values in the harness).
+
+** Routing
+- org-air-view.el: =org-air-rail--host-width=, =org-air-rail--show=
+  (one term each).
+- org-air-project.el: =org-air-project--doc-rail-show= (one term).
+- tests/org-air-round27-test.el: restate the R27-2 width assertions
+  through the usable-columns primitive (values unchanged in batch).
+- tests/org-air-round29-test.el: the ERTs above + the fringe-less sim
+  harness macro.
+
+* R29-2 — cursor lands at column 0: the dead-zone predicate is dead in the user's configuration [BUG]
+
+** Reproduction — no whitelist to miss; the predicate itself never fires
+The suspected motion-command whitelist does NOT exist:
+=org-air-view--normalize-point= (R22-2, buffer-local
+=post-command-hook= in both views) is already command-agnostic.  Its
+GUARD is what fails.  It snaps only when point's column carries NO row
+property while the line owns one — and that dead zone exists only in
+some compositions:
+
+- BOARD, two-pane (inline rail): the pane compose indents rows with an
+  UNPROPERTIZED outer margin, so the leading columns are property-free
+  — the snap fires (measured: col 0 -> 13).  This is the shape the
+  R22-2 ERTs exercise (width seam => two-pane), which is why they are
+  green while the user suffers.
+- BOARD, board-only / side-window (the user's config — rail popped):
+  =org-air-view--insert-item='s margin lives INSIDE the row string and
+  =org-air-view--insert-row= adds =org-air-item= over the WHOLE line —
+  column 0 included.  Guard false everywhere on the row; the snap
+  NEVER fires.  Measured: =<down>= sticks at column 0 on item rows.
+- PROJECT, every doc row: full-row =org-air-doc= coverage (measured:
+  zero property-free columns).  Snap never fires in ANY grouping.
+
+Second layer: the project map binds no =j=/=k= (they live in
+=org-air-view-mode-map= only, R3), so under evil motion state the
+R27-4 overriding map has nothing to override — =j=/=k= resolve to
+=evil-next-line= / =evil-previous-line=.  Evil's goal-column semantics
+then pin point at column 0 forever (each motion re-targets the stored
+goal column 0), exactly "moving between rows still leaves the cursor
+at the very beginning of the line".  Arrows behave the same on BOTH
+views even where =j=/=k= are org-air's.  Evil-state interaction was
+measured sound where registration ran (motion state, overriding map
+honoured) — but registration happens at MODE INIT behind an =fboundp=
+gate, so an evil loaded AFTER the first org-air buffer (deferred
+=use-package=) silently gets NO registration; hardened below.
+
+** Decision — line-motion-gated snap on the title mark; j/k to the core map
+One rule, no command list, no evil dependency:
+
+1. Dead zone, redefined (=org-air-view--dead-zone-p=): on a line that
+   owns a row (=org-air-view--row-property= finds =org-air-item= /
+   =org-air-doc=), point is in the dead zone when its column is BEFORE
+   the row's title mark (the R21-2 =org-air-row-title= position via
+   =org-air-view--row-title-pos= — margin, todo cell, priority cell),
+   OR when point's column carries no row property at all (the existing
+   R22-2 clause: two-pane rail/pad columns keep snapping exactly as
+   today).  Section headings, banner and blank lines own no row —
+   never touched (unchanged).
+2. Snap gate — LINE MOTION, not command identity: a buffer-local
+   =pre-command-hook= records the current line; the post-command
+   normalize snaps to the title iff the dead zone holds AND (the line
+   changed since pre-command OR no snapshot exists — the command
+   ENTERED this buffer, e.g. returning from the pane or a doc
+   session).  The snapshot is consumed (cleared) every post-command.
+   Command-agnostic by construction: =evil-next-line=,
+   =evil-previous-line=, =evil-next-visual-line=, =evil-goto-line=,
+   arrows, =C-n=/=C-p=, and any future package all converge on the
+   title glyph.
+3. In-row horizontal motion is NEVER hijacked: =h=/=l=, =C-f=/=C-b=,
+   =0=/=^= stay on the same line -> gate false -> no snap, even when
+   they move INTO the gutter (evil =h= from the title's first char
+   parks on the todo cell and STAYS — explicit spec point; only a
+   LINE-crossing motion that lands in the dead zone snaps).
+4. =j=/=k= move from =org-air-view-mode-map= to the shared
+   =org-air-view-core-map= (R18 D-P3 parent of both views): the
+   project gains =org-air-next-line=/=org-air-prev-line= — identical
+   bindings on the board (byte- and behavior-identical there), title
+   landing by construction on the project, and the R27-4 overriding
+   map now has the keys to override under evil.  The R27-4 parity
+   table's documented override set shrinks by j/k accordingly.
+5. Restore/entry tails normalize EXPLICITLY (no hook timing games):
+   the R21-1 point-restore tail of the refresh/render path (including
+   the R26-8 swap restore) and the pane/doc-session return paths call
+   the same snap function directly after placing point, so a restored
+   dead column is corrected immediately, not on the next keystroke.
+6. Registration hardening (defense-in-depth, the R28-1 soft-dep
+   idiom): =with-eval-after-load 'evil= re-runs
+   =org-air-view--setup-evil= over the R27-4 mode table — idempotent
+   (=evil-make-overriding-map= / =evil-set-initial-state= are), so a
+   late-loading evil still gets motion state + overriding maps for
+   already-defined modes.
+
+Explicitly accepted: a line-crossing =C-f= (over a newline into the
+next row's margin) now lands on that row's title — consistent with the
+rule and with n/p's landing; documented, asserted, and strictly better
+than parking on a margin space.  Non-evil =C-n=/=C-p= from the title
+column are UNCHANGED on the board (V6: all titles share one left edge,
+so the preserved goal column lands on/after the title mark — gate
+irrelevant).
+
+** Testability — EXECUTING acceptance ERTs
+All evil ERTs use the REAL evil from =.deps= (=skip-unless= its
+library), live windows, motion state, commands resolved via
+=key-binding= and dispatched with pre/post-command hooks run (R27-4
+pattern).
+
+1. =org-air-r29-2-evil-lines-land-on-title-board= — board in ALL THREE
+   compositions (board-only, side-window popped, two-pane): from
+   =point-min= and from a forced column-0 start, =<down>=/=<up>=
+   (evil-next-line/evil-previous-line) and =j=/=k=: every landing on an
+   item row puts point ON the char carrying =org-air-row-title=.
+   Trunk FAILS in board-only/side-window (sticks at col 0).
+2. =org-air-r29-2-evil-lines-land-on-title-project= — project (dir +
+   state groupings): =j=/=k= (now core-bound) AND raw
+   =evil-next-line= / =evil-previous-line= / =evil-goto-line= driven
+   directly: every doc-row landing is on the title char.  Trunk FAILS
+   (col 0 on every doc row; j/k not even bound).
+3. =org-air-r29-2-horizontal-not-hijacked= — with point on a title:
+   evil =l= -> title+1 and STAYS; =h= -> the gutter column and STAYS;
+   =C-f=/=C-b= within the row unchanged.  Same-line motions never
+   snap.
+4. =org-air-r29-2-non-evil-unchanged= — WITHOUT evil: =C-n=/=C-p= from
+   the title column land exactly where they land on trunk (goal-column
+   preserved, never blocked); =n=/=p= land on the title (unchanged
+   R21-2 behavior).
+5. =org-air-r29-2-entry-and-restore-normalize= — point forced into the
+   gutter, then (a) a refresh cycle and (b) a pane open + return: point
+   ends on the title char both times.
+6. =org-air-r29-2-late-evil-registration= — org-air modes initialized
+   BEFORE =(require 'evil)=: after the load, the board/project resolve
+   =j= to =org-air-next-line= in motion state (the eval-after-load
+   re-registration fired).
+7. Existing gate — all goldens byte-identical (property layout and
+   rendered bytes untouched); the R21-2/R22-2 suites stay green (the
+   two-pane dead-zone clause is preserved verbatim).
+
+** Routing
+- org-air-view.el: =org-air-view--dead-zone-p= (new, reading
+  =org-air-view--row-title-pos=), =org-air-view--normalize-point=
+  (gate), the buffer-local pre-command snapshot fn + hook in BOTH mode
+  inits, =j=/=k= relocation to =org-air-view-core-map=, the
+  =with-eval-after-load 'evil= re-registration, normalize calls in the
+  restore/pane-return tails.
+- org-air-project.el: doc-session return tail normalize (the project
+  map inherits j/k via the core map — no map change needed there).
+- tests/org-air-round29-test.el: the ERTs above.
+- tests/org-air-round27-test.el: parity-table override set minus j/k.
+
+* Implementation History
+- [2026-07-04] Round-29 design: R29-1 reproduced (fringe-less GUI sim,
+  live windows, all three rail modes), root-caused to the raw
+  =window-body-width= in the R27-2 host-width seam (+ the rail's own
+  paint and the doc-session host), fix verified in-harness
+  (side-window 51 -> 50, fits).  Spec ready; implementation pending.
+- [2026-07-04] R29-2 added: reproduced with REAL evil from =.deps=
+  (motion state, live windows) — no whitelist exists; the R22-2
+  dead-zone predicate never fires under board-only/side-window
+  composition or on project doc rows (full-row property coverage,
+  measured), and the project lacks j/k entirely.  Spec'd the
+  line-motion-gated command-agnostic snap + core-map j/k + entry-tail
+  normalization + late-evil registration hardening.  Spec ready;
+  implementation pending.

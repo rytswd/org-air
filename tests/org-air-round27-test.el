@@ -367,9 +367,12 @@ The R26-5 placement default pops the rail; `org-air-rail-min-width' /
 (ert-deftest org-air-r27-2-board-fits-window ()
   "With the rail popped, the board is composed at the REAL window body
 width: after the popped render and each of 3 refresh cycles,
-`org-air-view--rendered-width' EQUALS the board window's
-`window-body-width' — no dead columns, no overflow.  Trunk FAILED in the
-tier bands (measured 147-col compose in a 157-col window)."
+`org-air-view--rendered-width' EQUALS the board window's USABLE columns
+\(`org-air-layout--usable-columns'; R29-1 restates the R27-2 contract
+through that primitive — equal to `window-body-width' in this TTY/batch
+harness, so the measured values are unchanged) — no dead columns, no
+overflow.  Trunk FAILED in the tier bands (measured 147-col compose in a
+157-col window)."
   (skip-unless (locate-library "org-air"))
   (org-air-r27--with-live-board
     (org-air-r27--pop-rail)
@@ -378,7 +381,8 @@ tier bands (measured 147-col compose in a 157-col window)."
       (org-air-layout--refresh-windows)
       (let ((bwin (get-buffer-window (current-buffer))))
         (should (window-live-p bwin))
-        (should (eql org-air-view--rendered-width (window-body-width bwin)))
+        (should (eql org-air-view--rendered-width
+                     (org-air-layout--usable-columns bwin)))
         ;; no line overflows the compose width (dead columns cannot be
         ;; asserted line-wise: the board right-trims), and the banner
         ;; reaches the right margin — content genuinely spans the window.
@@ -389,8 +393,10 @@ tier bands (measured 147-col compose in a 157-col window)."
 (ert-deftest org-air-r27-2-project-fits-window ()
   "The PROJECT re-measures after the rail pops: after the FIRST popped
 render (no width seam) and after each refresh cycle,
-`org-air-project--rendered-width' equals the project window's body width
-and every doc row is composed to exactly that width.  Trunk FAILED on
+`org-air-project--rendered-width' equals the project window's usable
+columns (`org-air-layout--usable-columns', the R29-1 restatement — equal
+to the body width in this TTY/batch harness) and every doc row is
+composed to exactly that width.  Trunk FAILED on
 the first render (composed at the pre-pop width; truncated rows)."
   (skip-unless (locate-library "org-air"))
   (org-air-r27--with-live-project
@@ -404,7 +410,7 @@ the first render (composed at the pre-pop width; truncated rows)."
       (let ((pwin (get-buffer-window (current-buffer))))
         (should (window-live-p pwin))
         (should (eql org-air-project--rendered-width
-                     (window-body-width pwin)))
+                     (org-air-layout--usable-columns pwin)))
         ;; doc rows are composed to exactly the rendered width.
         (dolist (bol (org-air-r27--doc-row-bols))
           (save-excursion
@@ -432,7 +438,8 @@ reclaimed immediately; the converged debounce path adds nothing)."
       (should (= renders 1))
       (should-not (window-live-p (org-air-rail--side-window)))
       (let ((bwin (get-buffer-window (current-buffer))))
-        (should (eql org-air-view--rendered-width (window-body-width bwin)))
+        (should (eql org-air-view--rendered-width
+                     (org-air-layout--usable-columns bwin)))
         ;; the full width is genuinely WIDER than the popped compose.
         (should (> org-air-view--rendered-width popped-width))))))
 
@@ -459,7 +466,8 @@ pre-R27 narrow-tier artifact, out of scope here)."
            (cluster-col (- w cluster-w))
            (bols (org-air-r27--doc-row-bols)))
       (should (>= tcol 4))               ; non-degenerate: cells stay fixed
-      (should (eql w (window-body-width (get-buffer-window (current-buffer)))))
+      (should (eql w (org-air-layout--usable-columns
+                      (get-buffer-window (current-buffer)))))
       (should (> dcol 0))
       (should bols)
       (dolist (bol bols)
@@ -963,9 +971,9 @@ window body width (the R27-2 lock under the adversarial regroup)."
           ;; ...the SAME pinned rail window survived, still popped...
           (should (eq (org-air-rail--side-window) rail-win))
           (should (org-air-rail--popped-p))
-          ;; ...composed at the REAL settled body width.
+          ;; ...composed at the REAL settled usable width (R29-1 restated).
           (should (eql org-air-project--rendered-width
-                       (window-body-width
+                       (org-air-layout--usable-columns
                         (get-buffer-window (current-buffer)))))))
       (should (= displays 0))
       (should (= deletes 0))

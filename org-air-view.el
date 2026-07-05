@@ -4154,18 +4154,22 @@ nil)."
   "Return HOST-BUFFER's REAL compose width under the side-window rail (R27-2).
 Ensures the (pinned, frame-derived) rail side window FIRST via the
 convergent `org-air-rail--ensure-window' (R27-1 S2), then measures the
-host window's ACTUAL `window-body-width' — the width content must be
-composed at.  With the frame-derived cols (S1) \"settle\" is one step
-and convergent: the render tail's `org-air-rail--show' derives the SAME
-cols, so no post-composition resize can move the goalposts.  WIDTH is
-the fallback when HOST-BUFFER has no live window (and the floor input:
-the result never drops below `org-air-item-pane-min').  Shared by the
-board and the project (one primitive, no fork); the batch width seams
-bypass this helper entirely."
+host window's USABLE columns (`org-air-layout--usable-columns') — the
+width content must be composed at.  R29-1: usable columns, NOT raw
+`window-body-width' — in a fringe-less GUI the continuation-glyph column
+is reserved (`window-max-chars-per-line' = body - 1), so composing at the
+raw body width overflowed every line by one; in a TTY/batch frame the two
+are equal, so every batch value is unchanged.  With the frame-derived
+cols (S1) \"settle\" is one step and convergent: the render tail's
+`org-air-rail--show' derives the SAME cols, so no post-composition resize
+can move the goalposts.  WIDTH is the fallback when HOST-BUFFER has no
+live window (and the floor input: the result never drops below
+`org-air-item-pane-min').  Shared by the board and the project (one
+primitive, no fork); the batch width seams bypass this helper entirely."
   (org-air-rail--ensure-window host-buffer width)
   (let ((win (get-buffer-window host-buffer)))
     (if (window-live-p win)
-        (max org-air-item-pane-min (window-body-width win))
+        (max org-air-item-pane-min (org-air-layout--usable-columns win))
       width)))
 
 (defun org-air-rail--input-stamp (board-buffer width height)
@@ -4204,8 +4208,12 @@ state is zero rail repaints and exactly one at the R26-8 swap."
     ;; otherwise the live side window's body metrics do.  This keeps the
     ;; per-buffer text goldens reproducible in batch where side-window
     ;; geometry is unreliable (R15 D-P2 testability plan).
+    ;; R29-1: the rail's OWN lines are composed at the side window's
+    ;; USABLE columns (not raw body width) so they too fit a fringe-less
+    ;; GUI window; TTY/batch values are identical.
     (let* ((rwidth (cond ((and noninteractive org-air-view-width) cols)
-                         ((window-live-p win) (max 1 (window-body-width win)))
+                         ((window-live-p win)
+                          (max 1 (org-air-layout--usable-columns win)))
                          (t cols)))
            (rheight (cond (org-air-view-height nil)
                           ((window-live-p win) (window-body-height win))

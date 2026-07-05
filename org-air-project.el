@@ -1900,10 +1900,13 @@ its back cell from the LIVE session buffer's bindings."
                       (org-air-project--insert-doc-actions w docbuf))))
 
 (defun org-air-project--doc-rail-show (docbuf)
-  "Show/re-render the DOC-context side rail owned by DOCBUF (R26-5)."
+  "Show/re-render the DOC-context side rail owned by DOCBUF (R26-5).
+R29-1: the host fallback width measures the window's USABLE columns
+\(`org-air-layout--usable-columns', not raw `window-body-width') so a
+fringe-less GUI never composes one column past the displayable area."
   (let ((win (get-buffer-window docbuf)))
     (org-air-rail--show docbuf (if (window-live-p win)
-                                   (max 40 (window-body-width win))
+                                   (max 40 (org-air-layout--usable-columns win))
                                  80))))
 
 (defun org-air-project--doc-rail-refresh (docbuf)

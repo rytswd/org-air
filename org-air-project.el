@@ -1686,7 +1686,11 @@ DOC-context side rail."
         (when-let* ((pt (plist-get session :point)))
           (let ((pt (min pt (point-max))))
             (goto-char pt)
-            (set-window-point win pt)))))))
+            ;; R29-2: the doc-session return tail normalizes explicitly —
+            ;; a restored dead column (before the doc title) is corrected
+            ;; immediately, not on the next keystroke.
+            (org-air-view--normalize-point-now)
+            (set-window-point win (point))))))))
 
 (defun org-air-project--doc-session-cleanup ()
   "Kill-buffer guard: a killed session DOC hands the window back (R26-5).
@@ -2059,9 +2063,12 @@ the rail on screen."
     ;; R18 D-P3/D-P4: the bottom view pane auto-follows here too (same hook
     ;; as the board; guarded on a live pane window, inert under batch).
     (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t)
-    ;; R22-2b: snap point off the dead margin/rail/pad columns onto the doc
-    ;; row title (project rows carry `org-air-doc' via the shared
-    ;; `--insert-row'); idempotent on a propertized column, inert in batch.
+    ;; R22-2b/R29-2: snap point off the dead gutter/margin/rail/pad columns
+    ;; onto the doc row title (project rows carry `org-air-doc' via the
+    ;; shared `--insert-row') after any LINE-crossing command — the
+    ;; pre-command line snapshot gates the snap so in-row horizontal motion
+    ;; is never hijacked; inert in batch.
+    (add-hook 'pre-command-hook #'org-air-view--pre-command-snapshot nil t)
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
   ;; R22-5: tear down a popped-out rail side window + buffer when the
   ;; project buffer is killed (it must not outlive its host), mirroring the

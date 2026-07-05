@@ -236,5 +236,334 @@ and the longest composed line are exactly the values of the plain
                      (window-body-width
                       (get-buffer-window (current-buffer)))))))))
 
+;;;; =====================================================================
+;;;; R29-2 — command-agnostic line-motion-gated title snap (evil cursor
+;;;; stuck at column 0).  REAL evil from .deps (R27-4 pattern): live
+;;;; windows, motion state, commands resolved via `key-binding' and
+;;;; dispatched with pre/post-command hooks run.
+;;;; =====================================================================
+
+(defvar org-air-r29--last-cmd nil
+  "The previously dispatched command, so goal-column repeats are real.")
+
+(defun org-air-r29--dispatch (buf cmd)
+  "Dispatch CMD in BUF with pre/post-command hooks run (R27-4 pattern).
+Binds `this-command'/`last-command' the way the command loop would, so
+line-motion goal-column tracking behaves as in real use."
+  (with-current-buffer buf
+    (let ((this-command cmd)
+          (last-command org-air-r29--last-cmd))
+      (run-hooks 'pre-command-hook)
+      (call-interactively cmd)
+      (run-hooks 'post-command-hook))
+    (setq org-air-r29--last-cmd cmd)))
+
+(defun org-air-r29--press (buf key)
+  "Dispatch KEY in BUF via its live `key-binding' (hooks run)."
+  (with-current-buffer buf
+    (let ((cmd (key-binding (kbd key))))
+      (should cmd)
+      (org-air-r29--dispatch buf cmd)
+      cmd)))
+
+(defun org-air-r29--on-row-p (buf)
+  "Non-nil when point's line in BUF owns an item/doc row."
+  (with-current-buffer buf
+    (and (or (org-air-view--row-property 'org-air-item)
+             (org-air-view--row-property 'org-air-doc))
+         t)))
+
+(defun org-air-r29--assert-title-landing (buf what &optional exact)
+  "When BUF's point sits on a row line, it must NOT be in the dead zone.
+The title landing is `org-air-view--row-title-pos' — the char carrying
+`org-air-row-title', or the row's first visible glyph for a row whose
+title cell truncated away entirely (the narrow batch-frame tier; the
+R21-2 documented fallback).  With EXACT non-nil (org-air's own j/k —
+`org-air-view--goto-row-title' by construction) point must be exactly
+there; otherwise (raw evil/native line motions) point must be ON or
+AFTER it — a goal-column landing INSIDE the row text of a
+differently-indented row is by design not hijacked (spec point 3), but
+the gutter/column-0 dead zone always snaps.  Trunk left point at column
+0 in every shape.  Returns 1 for a row landing, 0 otherwise."
+  (with-current-buffer buf
+    (if (not (org-air-r29--on-row-p buf))
+        0
+      (let ((want (org-air-view--row-title-pos)))
+        (unless (if exact (= (point) want) (>= (point) want))
+          (ert-fail (format "%s: row landing at line %d col %d, want%s col %d"
+                            what (line-number-at-pos) (current-column)
+                            (if exact "" " >=")
+                            (save-excursion (goto-char want)
+                                            (current-column)))))
+        ;; when the row owns a title mark and the landing is exact, point
+        ;; really is ON the marked char.
+        (when (and exact (get-text-property want 'org-air-row-title))
+          (unless (get-text-property (point) 'org-air-row-title)
+            (ert-fail (format "%s: landing lost the title mark" what)))))
+      1)))
+
+(defun org-air-r29--drive-line-motions (buf)
+  "Drive <down>/<up>/j/k line motions in BUF; every row landing must be
+on the title char.  Returns the number of row landings (anti-tautology:
+the caller asserts it is non-trivial)."
+  (let ((landings 0)
+        (org-air-r29--last-cmd nil))
+    ;; from the very top (the user's gg / entry shape)...
+    (with-current-buffer buf (goto-char (point-min)))
+    (dotimes (_ 6)
+      (org-air-r29--press buf "<down>")
+      (cl-incf landings (org-air-r29--assert-title-landing buf "<down>")))
+    (dotimes (_ 3)
+      (org-air-r29--press buf "<up>")
+      (cl-incf landings (org-air-r29--assert-title-landing buf "<up>")))
+    ;; ...and from a FORCED column-0 start on a row (the stuck shape).
+    (with-current-buffer buf
+      (goto-char (or (text-property-not-all (point-min) (point-max)
+                                            'org-air-item nil)
+                     (text-property-not-all (point-min) (point-max)
+                                            'org-air-doc nil)
+                     (point-min)))
+      (beginning-of-line))
+    (setq org-air-r29--last-cmd nil)
+    ;; org-air's own j/k land EXACTLY on the title, every depth/width.
+    (dotimes (_ 3)
+      (org-air-r29--press buf "j")
+      (cl-incf landings (org-air-r29--assert-title-landing buf "j" t)))
+    (dotimes (_ 2)
+      (org-air-r29--press buf "k")
+      (cl-incf landings (org-air-r29--assert-title-landing buf "k" t)))
+    landings))
+
+(ert-deftest org-air-r29-2-evil-lines-land-on-title-board ()
+  "BOARD under REAL evil (motion state), ALL THREE compositions
+\(board-only, side-window popped, two-pane): <down>/<up>
+\(evil-next-line/evil-previous-line) and j/k from `point-min' AND from a
+forced column-0 start — every landing on an item row puts point ON the
+char carrying `org-air-row-title'.  Trunk FAILED in board-only and
+side-window (the row property covers column 0, so the R22-2 snap never
+fired and point stuck at column 0)."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (locate-library "evil"))
+  (require 'evil)
+  (org-air-r27--with-live-board
+    (evil-local-mode 1)
+    (should (eq evil-state 'motion))
+    ;; j/k are org-air's own line motions (core map + R27-4 override).
+    (should (eq (key-binding (kbd "j")) 'org-air-next-line))
+    (should (eq (key-binding (kbd "k")) 'org-air-prev-line))
+    ;; arrows stay evil's — the command-agnostic gate must catch them.
+    (should (eq (key-binding (kbd "<down>")) 'evil-next-line))
+    ;; --- BOARD-ONLY (the user's popped-rail board shape). ---
+    (let ((org-air-rail-min-width 500))
+      (org-air-view--refresh-current)
+      (should (eq org-air-view--orientation 'board-only))
+      (should (> (org-air-r29--drive-line-motions (current-buffer)) 3)))
+    ;; --- SIDE-WINDOW (rail popped). ---
+    (org-air-r27--pop-rail)
+    (should (eq org-air-view--orientation 'side-window))
+    (should (> (org-air-r29--drive-line-motions (current-buffer)) 3))
+    ;; --- TWO-PANE (inline rail — the R22-2 shape keeps working). ---
+    (setq-local org-air-view--rail-popped-out nil)
+    (org-air-rail--hide (current-buffer))
+    (org-air-view--refresh-current)
+    (should (eq org-air-view--orientation 'two-pane))
+    (should (> (org-air-r29--drive-line-motions (current-buffer)) 3))))
+
+(ert-deftest org-air-r29-2-evil-lines-land-on-title-project ()
+  "PROJECT under REAL evil (directory AND state groupings): j/k (now
+core-bound — trunk had them UNBOUND here) and raw `evil-next-line' /
+`evil-previous-line' / `evil-goto-line' driven directly — every doc-row
+landing is on the title char.  Trunk FAILED (column 0 on every doc row)."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (locate-library "evil"))
+  (require 'evil)
+  (org-air-r27--with-live-project
+    (evil-local-mode 1)
+    (should (eq evil-state 'motion))
+    ;; the trunk gap: j/k now resolve to org-air's motions here.
+    (should (eq (key-binding (kbd "j")) 'org-air-next-line))
+    (should (eq (key-binding (kbd "k")) 'org-air-prev-line))
+    (dolist (group '(directory state))
+      (setq org-air-project-group group)
+      (org-air-view--refresh-current)
+      (should (> (org-air-r29--drive-line-motions (current-buffer)) 3))
+      ;; raw evil line motions, dispatched directly (no keymap layer):
+      ;; traverse the WHOLE buffer with evil-next-line so EVERY doc row is
+      ;; landed on (the narrow batch tier interleaves group headers/blanks,
+      ;; so a fixed-count drive from point-min visits only a few rows),
+      ;; then back up and jump — every doc-row landing is on the title.
+      (let ((landings 0)
+            (org-air-r29--last-cmd nil)
+            (nlines (line-number-at-pos (point-max))))
+        (with-current-buffer (current-buffer) (goto-char (point-min)))
+        ;; (1- nlines) presses from line 1 lands exactly on the last line
+        ;; — never a press PAST it (evil-next-line signals end-of-buffer).
+        (dotimes (_ (1- nlines))
+          (org-air-r29--dispatch (current-buffer) #'evil-next-line)
+          (cl-incf landings (org-air-r29--assert-title-landing
+                             (current-buffer) "evil-next-line")))
+        (dotimes (_ 3)
+          (org-air-r29--dispatch (current-buffer) #'evil-previous-line)
+          (cl-incf landings (org-air-r29--assert-title-landing
+                             (current-buffer) "evil-previous-line")))
+        ;; evil G — the measured col-0 report.
+        (org-air-r29--dispatch (current-buffer) #'evil-goto-line)
+        (cl-incf landings (org-air-r29--assert-title-landing
+                           (current-buffer) "evil-goto-line"))
+        ;; anti-tautology: the traversal really visited doc rows (7 in the
+        ;; fixture), every one validated on the title above.
+        (should (> landings 3))))))
+
+(ert-deftest org-air-r29-2-horizontal-not-hijacked ()
+  "In-row horizontal motion is NEVER hijacked: with point on a title
+under the board-only composition (where column 0 CARRIES the row
+property), evil `l' -> title+1 and STAYS; `h' back INTO the gutter parks
+on the todo cell and STAYS (the explicit spec point); `0' -> column 0
+and STAYS; plain `forward-char'/`backward-char' within the row are
+untouched.  Only the next LINE-crossing motion snaps (j from the gutter
+lands the NEXT row's title)."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (locate-library "evil"))
+  (require 'evil)
+  (org-air-r27--with-live-board
+    (let ((org-air-rail-min-width 500))
+      (org-air-view--refresh-current)
+      (should (eq org-air-view--orientation 'board-only))
+      (evil-local-mode 1)
+      (should (eq evil-state 'motion))
+      (org-air-view--goto-first-item)
+      (let* ((buf (current-buffer))
+             (title (point))
+             (org-air-r29--last-cmd nil))
+        (should (get-text-property title 'org-air-row-title))
+        ;; l -> one INTO the title, stays.
+        (org-air-r29--press buf "l")
+        (should (= (point) (1+ title)))
+        ;; h h (evil-backward-char, dispatched directly — on the KEY
+        ;; layer the special-mode parent owns `h' as `describe-mode', a
+        ;; point-preserving no-op) -> back onto the title, then INTO the
+        ;; gutter — and STAYS.
+        (org-air-r29--dispatch buf #'evil-backward-char)
+        (should (= (point) title))
+        (org-air-r29--dispatch buf #'evil-backward-char)
+        (should (= (point) (1- title)))
+        (should (get-text-property (point) 'org-air-item)) ; gutter is owned
+        ;; plain char motions inside the row: untouched.
+        (org-air-r29--dispatch buf #'forward-char)
+        (should (= (point) title))
+        (org-air-r29--dispatch buf #'backward-char)
+        (should (= (point) (1- title)))
+        ;; evil `0' (dispatched directly — the special-mode parent maps
+        ;; digits to `digit-argument' on the key layer) -> column 0, same
+        ;; line, STAYS.
+        (org-air-r29--dispatch buf #'evil-beginning-of-line)
+        (should (zerop (current-column)))
+        ;; ...and the next LINE-crossing motion snaps to the NEXT title.
+        (let ((line (line-number-at-pos)))
+          (org-air-r29--press buf "j")
+          (should (/= (line-number-at-pos) line))
+          (should (get-text-property (point) 'org-air-row-title)))))))
+
+(ert-deftest org-air-r29-2-non-evil-unchanged ()
+  "WITHOUT evil: `C-n'/`C-p' from the title column preserve the goal
+column exactly as on trunk (V6: all titles share one left edge, so the
+preserved column lands on/after the title mark — never blocked, never
+moved); `n'/`p' land on the title (unchanged R21-2 behavior)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (should-not (bound-and-true-p evil-local-mode))
+    (org-air-view--goto-first-item)
+    (let* ((buf (current-buffer))
+           (col (current-column))
+           (org-air-r29--last-cmd nil))
+      ;; C-n / C-p: goal column preserved through a repeat sequence.
+      (org-air-r29--press buf "C-n")
+      (should (= (current-column) col))
+      (org-air-r29--press buf "C-n")
+      (should (= (current-column) col))
+      (org-air-r29--press buf "C-p")
+      (should (= (current-column) col))
+      ;; n / p land on the title (R21-2, unchanged; the shared helper
+      ;; accepts the narrow-tier first-visible fallback).
+      (org-air-r29--press buf "n")
+      (should (= 1 (org-air-r29--assert-title-landing buf "n")))
+      (org-air-r29--press buf "p")
+      (should (= 1 (org-air-r29--assert-title-landing buf "p"))))))
+
+(ert-deftest org-air-r29-2-entry-and-restore-normalize ()
+  "Entry/restore tails normalize EXPLICITLY: point forced into the gutter
+\(column 0 of an item row under board-only — property-covered, before the
+title mark), then (a) a refresh cycle and (b) a pane open + return —
+point ends ON the title char both times, immediately (no keystroke
+needed)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (let ((org-air-rail-min-width 500))
+      (org-air-view--refresh-current)
+      (should (eq org-air-view--orientation 'board-only))
+      ;; (a) refresh cycle with point in the gutter.
+      (org-air-view--goto-first-item)
+      (beginning-of-line)
+      (should (get-text-property (point) 'org-air-item))
+      (org-air-view--refresh-current)
+      (should (get-text-property (point) 'org-air-row-title))
+      ;; (b) pane open + return with point forced into the gutter.
+      (org-air-view--goto-first-item)
+      (org-air-view-pane)
+      (let ((board (current-buffer))
+            (pane (org-air-view-pane--buffer)))
+        (should (buffer-live-p pane))
+        (with-current-buffer board
+          (org-air-view--goto-first-item)
+          (beginning-of-line))
+        (with-current-buffer pane
+          (org-air-view-pane-quit))
+        (with-current-buffer board
+          (should (get-text-property (point) 'org-air-row-title)))))))
+
+(ert-deftest org-air-r29-2-late-evil-registration ()
+  "A LATE-loading evil still registers every org-air view: in a FRESH
+batch Emacs the org-air modes are initialised BEFORE (require \='evil);
+after the load, the board and the project are motion-state with `j'
+resolving to `org-air-next-line' (the `with-eval-after-load' replay over
+`org-air-view--evil-modes' fired).  Trunk FAILED: the fboundp gate at
+mode init silently skipped registration and nothing ever re-ran it."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (locate-library "evil"))
+  (let* ((root (locate-dominating-file org-air-test-fixture-dir "Makefile"))
+         (init (expand-file-name "tests/org-air-test-init.el" root))
+         (script
+          (prin1-to-string
+           '(progn
+              (require 'org-air)
+              (when (featurep 'evil) (kill-emacs 2))
+              ;; org-air modes initialise BEFORE evil exists.
+              (with-temp-buffer (org-air-view-mode))
+              (with-temp-buffer (org-air-project-mode))
+              ;; the deferred load arrives — the replay must fire.
+              (require 'evil)
+              (unless (eq (evil-initial-state 'org-air-view-mode) 'motion)
+                (kill-emacs 3))
+              (unless (eq (evil-initial-state 'org-air-project-mode) 'motion)
+                (kill-emacs 4))
+              (dolist (mode '(org-air-view-mode org-air-project-mode))
+                (with-temp-buffer
+                  (funcall mode)
+                  (evil-local-mode 1)
+                  (unless (eq evil-state 'motion) (kill-emacs 5))
+                  (unless (eq (key-binding (kbd "j")) 'org-air-next-line)
+                    (kill-emacs 6))
+                  (unless (eq (key-binding (kbd "k")) 'org-air-prev-line)
+                    (kill-emacs 7))))
+              (kill-emacs 0)))))
+    (should root)
+    (with-temp-buffer
+      (let ((status (call-process
+                     (or (getenv "EMACS") "emacs") nil t nil
+                     "-Q" "--batch" "-l" init "--eval" script)))
+        (unless (eql status 0)
+          (ert-fail (format "late-evil subprocess exited %s: %s"
+                            status (buffer-string))))))))
+
 (provide 'org-air-round29-test)
 ;;; org-air-round29-test.el ends here

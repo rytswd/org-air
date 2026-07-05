@@ -861,6 +861,14 @@ R22-3: g RET visit, g o visit-stay (o/O are the shared sort now).")
     ;; R22-5: pop the context rail in/out of a native side window — shared
     ;; so BOTH the board and the project toggle their rail with `|'.
     (define-key map (kbd "|") #'org-air-rail-toggle)
+    ;; R29-2: vim-ish j/k line motion moves UP from the board map (R3) so
+    ;; the PROJECT has the title-landing motions too (it bound neither, so
+    ;; under evil j/k resolved to evil-next-line/evil-previous-line whose
+    ;; goal-column pinned point at column 0), and the R27-4 evil overriding
+    ;; map has the keys to override.  Identical bindings on the board
+    ;; (byte- and behavior-identical there — inheritance, not a copy).
+    (define-key map (kbd "j") #'org-air-next-line)
+    (define-key map (kbd "k") #'org-air-prev-line)
     map)
   "Shared view-core keymap, parent of the board + project mode maps (R18 D-P3).
 Reuse the core, override the bespoke: the keys here are identical across
@@ -877,9 +885,8 @@ both views; per-mode domain verbs stay in each child map.")
     (define-key map (kbd "S-RET") #'org-air-visit-item)
     (define-key map (kbd "n") #'org-air-next-item)
     (define-key map (kbd "p") #'org-air-prev-item)
-    ;; R3: vim-ish line navigation; j/k are NOT destructive.
-    (define-key map (kbd "j") #'org-air-next-line)
-    (define-key map (kbd "k") #'org-air-prev-line)
+    ;; R3/R29-2: vim-ish j/k line navigation (NOT destructive) is inherited
+    ;; from `org-air-view-core-map' now — shared with the project.
     ;; T2: TAB toggles expand/collapse of the section at point; section
     ;; MOTION lives on M-n/M-p (and M-TAB) so both verbs are reachable.
     (define-key map (kbd "TAB") #'org-air-toggle-section)
@@ -1061,11 +1068,13 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   ;; in batch; a separate consumer of board point from the inspector).
   (unless noninteractive
     (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t))
-  ;; R22-2b: snap point off the dead margin/rail/pad columns onto the row
-  ;; title after ANY command (incl. native arrow/C-n/C-p/mouse), so every
-  ;; row action resolves.  Idempotent on a propertized column (composes
-  ;; with R21-1's column-restore); inert under batch like the other hooks.
+  ;; R22-2b/R29-2: snap point off the dead gutter/margin/rail/pad columns
+  ;; onto the row title after any LINE-crossing command (incl. native
+  ;; arrow/C-n/C-p/mouse and evil's line motions) — the pre-command line
+  ;; snapshot gates the snap so in-row horizontal motion is never hijacked;
+  ;; inert under batch like the other hooks.
   (unless noninteractive
+    (add-hook 'pre-command-hook #'org-air-view--pre-command-snapshot nil t)
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
   (org-air-view--setup-evil 'org-air-view-mode org-air-view-mode-map)
   (org-air-layout-install-window-size-hook))
@@ -1081,6 +1090,13 @@ changes coalesces into a single re-render."
 (declare-function evil-set-initial-state "evil-core")
 (declare-function evil-make-overriding-map "evil-common")
 
+(defvar org-air-view--evil-modes nil
+  "Alist of (MODE . MAP) views registered via `org-air-view--setup-evil'.
+R29-2 registration hardening: `org-air-view--evil-registration-replay'
+walks this table when evil loads AFTER the org-air modes initialised, so
+a deferred evil still gets motion state + overriding maps for every
+view.")
+
 (defun org-air-view--setup-evil (mode map)
   "Integrate the org-air special-mode MODE + MAP with evil, when loaded.
 U2: under evil, single-key org-air bindings are otherwise shadowed by
@@ -1095,11 +1111,38 @@ keys are shadowed into evil-record-macro / evil-open-below / etc. under
 evil's normal state; one shared setup, no fork.  The two minor modes
 \(doc-session + return) need NOTHING: their verbs are `C-c'-prefixed or
 remaps on the user's own editable file buffers, where forcing a state
-would be wrong.  Idempotent; runs once per mode init."
+would be wrong.  Idempotent; runs once per mode init.
+R29-2: every MODE + MAP pair is also recorded in
+`org-air-view--evil-modes' so a LATE-loading evil (deferred `use-package')
+still registers the already-defined modes — see
+`org-air-view--evil-registration-replay' below."
+  (setf (alist-get mode org-air-view--evil-modes) map)
   (when (fboundp 'evil-make-overriding-map)
     (evil-make-overriding-map map 'motion))
   (when (fboundp 'evil-set-initial-state)
     (evil-set-initial-state mode 'motion)))
+
+(defun org-air-view--evil-registration-replay (&rest _)
+  "Replay evil registration for every recorded org-air view (R29-2).
+Registration hardening (defense-in-depth, the R28-1 soft-dep idiom): mode
+init runs `org-air-view--setup-evil' behind an fboundp gate, so an evil
+loaded AFTER the first org-air buffer silently got NO registration.  This
+runs from `after-load-functions' (a standard hook — no `eval-after-load'
+in a package); once evil is present it replays the table and removes
+itself.  Idempotent (`evil-make-overriding-map' / `evil-set-initial-state'
+both are), so already-registered modes are unaffected."
+  (when (featurep 'evil)
+    (remove-hook 'after-load-functions
+                 #'org-air-view--evil-registration-replay)
+    (pcase-dolist (`(,mode . ,map) org-air-view--evil-modes)
+      (org-air-view--setup-evil mode map))))
+
+;; If evil is already present, the mode inits' fboundp gate registers
+;; directly; otherwise watch for its (deferred) arrival via the standard
+;; `after-load-functions' hook (package-safe — no `eval-after-load').
+(if (featurep 'evil)
+    (org-air-view--evil-registration-replay)
+  (add-hook 'after-load-functions #'org-air-view--evil-registration-replay))
 
 ;; Declaration only (no value): the soft-dep registration below must leave
 ;; this VOID when dimmer is absent — the integration is provably dormant.
@@ -3821,20 +3864,66 @@ Scan the whole line so an action resolves the row regardless of point's column."
             (let ((pos (text-property-not-all bol eol prop nil)))
               (and pos (get-text-property pos prop)))))))
 
-(defun org-air-view--normalize-point ()
-  "Snap point onto the row title when it lands on a DEAD column (R22-2b).
-Runs in `post-command-hook'.  Acts only when the current line owns a row
-\(`org-air-item'/`org-air-doc' present somewhere on it) AND point's column has
-NO row property (the leading margin, the rail, the trailing pad).  Idempotent:
-when point is already on a propertized column it does nothing, so it composes
-with R21-1's restored column and never reintroduces a col-0 snap."
+(defvar-local org-air-view--pre-command-line nil
+  "Line number recorded by `org-air-view--pre-command-snapshot' (R29-2).
+The R29-2 line-motion snap gate: `org-air-view--normalize-point' snaps
+only when the command moved point to a DIFFERENT line than this snapshot
+\(or when no snapshot exists — the command ENTERED this buffer).  Consumed
+\(cleared) every post-command.")
+
+(defun org-air-view--pre-command-snapshot ()
+  "Record the pre-command line for the R29-2 line-motion snap gate.
+Buffer-local `pre-command-hook' in the board and project views."
+  (setq org-air-view--pre-command-line (line-number-at-pos)))
+
+(defun org-air-view--dead-zone-p ()
+  "Non-nil when point sits in the DEAD ZONE of a row-owning line (R29-2).
+On a line that owns a row (`org-air-item'/`org-air-doc' anywhere on it,
+via `org-air-view--row-property'), the dead zone is every column BEFORE
+the row's title mark (the leading margin, todo cell and priority cell —
+the R21-2 `org-air-row-title' position via `org-air-view--row-title-pos')
+PLUS any column carrying no row property under point (the two-pane
+margin/rail/pad columns — the R22-2 clause, preserved verbatim).  R22-2's
+property-only predicate was provably dead under board-only/side-window
+composition and on EVERY project doc row, where the row property covers
+all columns including column 0.  Lines owning no row (section headings,
+banner, blanks) have no dead zone — never touched."
+  (and (or (org-air-view--row-property 'org-air-item)
+           (org-air-view--row-property 'org-air-doc))
+       (or (and (not (get-text-property (point) 'org-air-item))
+                (not (get-text-property (point) 'org-air-doc)))
+           (< (point) (org-air-view--row-title-pos)))))
+
+(defun org-air-view--normalize-point-now ()
+  "Snap point onto the row title when it sits in the dead zone (R29-2).
+The gate-free snap: entry/restore tails call this DIRECTLY after placing
+point (the R21-1 restore tail, the pane return, the doc-session return)
+so a restored dead column is corrected immediately, not on the next
+keystroke.  Idempotent: on/after the title — or on a non-row line — it
+does nothing, so it composes with R21-1's restored column."
   (when (and (not (window-minibuffer-p))
              (memq major-mode '(org-air-view-mode org-air-project-mode))
-             (not (get-text-property (point) 'org-air-item))
-             (not (get-text-property (point) 'org-air-doc))
-             (or (org-air-view--row-property 'org-air-item)
-                 (org-air-view--row-property 'org-air-doc)))
+             (org-air-view--dead-zone-p))
     (org-air-view--goto-row-title)))
+
+(defun org-air-view--normalize-point ()
+  "Snap point onto the row title after a LINE-crossing command (R29-2).
+Runs in `post-command-hook'.  Command-agnostic by construction (there is
+no command whitelist): the buffer-local snapshot recorded by
+`org-air-view--pre-command-snapshot' gates the snap on LINE MOTION — it
+fires only when the command moved point to a DIFFERENT line
+\(`evil-next-line'/`evil-previous-line'/`evil-goto-line', arrows,
+`next-line'/`previous-line', any future package) or when no snapshot
+exists (the command ENTERED this buffer, e.g. returning from the pane or
+a doc session).  In-row horizontal char motion (h/l and friends, 0/^)
+keeps the
+same line, so it is NEVER hijacked — even when it moves INTO the gutter
+\(evil `h' from the title's first char parks on the todo cell and STAYS).
+The snapshot is consumed every post-command."
+  (let ((before org-air-view--pre-command-line))
+    (setq org-air-view--pre-command-line nil)
+    (when (or (null before) (/= before (line-number-at-pos)))
+      (org-air-view--normalize-point-now))))
 
 (defun org-air-view--collapse-line-list (lines)
   "Collapse two or more consecutive blank LINES to a single blank line (D6)."
@@ -5158,7 +5247,12 @@ teardown) and re-selects the board window."
     (if (buffer-live-p host)
         (with-current-buffer host (org-air-view-pane--hide))
       (org-air-view-pane--hide))
-    (when (window-live-p board) (select-window board))))
+    (when (window-live-p board)
+      (select-window board)
+      ;; R29-2: the pane-return entry tail normalizes explicitly — point
+      ;; left in the gutter before the pane opened lands on the title.
+      (with-current-buffer (window-buffer board)
+        (org-air-view--normalize-point-now)))))
 
 (defun org-air-view--quit-close-pane ()
   "Close a live bottom pane as ONE progressive quit step (R28-2).
@@ -5598,7 +5692,12 @@ TOKEN's saved column (clamped), so a re-render genuinely preserves point
       ;; first visible char for a heading / empty board.
       (goto-char (point-min))
       (forward-line (1- (or (plist-get token :line) 1)))
-      (org-air-view--goto-row-title)))))
+      (org-air-view--goto-row-title)))
+    ;; R29-2: the restore tail normalizes EXPLICITLY (no hook timing
+    ;; games) — a restored DEAD column (the gutter before the title) is
+    ;; corrected immediately, not on the next keystroke.  Idempotent on
+    ;; any on/after-title column, so R21-1's preserved column survives.
+    (org-air-view--normalize-point-now)))
 
 (defun org-air-view--render-current ()
   "Re-render the dashboard from `org-air-view--items', preserving point.

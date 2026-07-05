@@ -292,17 +292,30 @@ survives a re-render + the post-command hook."
       (should (= (point) p)))))
 
 (ert-deftest org-air-r22-2-board-only-col0-unaffected ()
-  "R22-2: in the BOARD-ONLY layout (w80 < `org-air-rail-min-width') col 0
-ALREADY carries `org-air-item' (no margin/rail dead zone), so the resolver
-and the normaliser are inert there — `--item-at-point' works and
-`--normalize-point' leaves point byte-identical (no regression)."
+  "R22-2 (contract UPDATED by R29-2): in the BOARD-ONLY layout (w80 <
+`org-air-rail-min-width') col 0 ALREADY carries `org-air-item', so the
+RESOLVER works from col 0 unchanged — but the R29-2 dead zone is no
+longer property-only: col 0 sits BEFORE the row's title mark (the
+gutter), so the entry/line-motion snap now lands point ON the title
+\(this exact shape — property-covered col 0 under board-only/side-window
+composition — was where the R22-2 predicate was provably dead and the
+cursor stuck at column 0).  A SAME-LINE command (snapshot recorded on
+this line) still never moves point — in-row motion is not hijacked."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-dashboard 80
     (org-air-view--goto-first-item)
     (beginning-of-line)
-    ;; board-only: the row property reaches col 0.
+    ;; board-only: the row property reaches col 0...
     (should (get-text-property (point) 'org-air-item))
     (should (org-air-view--item-at-point))
+    ;; ...and col 0 is in the R29-2 dead zone (before the title mark), so
+    ;; the entry-semantics snap (no pre-command snapshot) lands the title.
+    (setq org-air-view--pre-command-line nil)
+    (org-air-view--normalize-point)
+    (should (get-text-property (point) 'org-air-row-title))
+    ;; a SAME-LINE command never hijacks: gutter position survives.
+    (beginning-of-line)
+    (setq org-air-view--pre-command-line (line-number-at-pos))
     (let ((p (point)))
       (org-air-view--normalize-point)
       (should (= (point) p)))))

@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-30 DESIGN: inspector header block (wrap, no truncate) · main-window C-c leader for rail actions · defcustom column toggles · outline-mode assessment (light scaffold) · R29 coverage-gap ERT
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:rail:inspector:leader:columns:outline:evil:design:v0.5:
 
 * Scope of this document

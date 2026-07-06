@@ -441,6 +441,7 @@ would be (the deliberate displayed-only tightening)."
     (with-temp-buffer
       (org-air-view-mode)
       (let* ((items (org-air-query-items))
+             (org-air-show-origin t) ; R30-3: origin-coverage invariant -> origin ON
              (width 160))            ; wide -> the title-fit pass never shrinks
         (setq org-air-view--items items
               org-air-view--tag-filter nil)

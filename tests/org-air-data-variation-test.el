@@ -78,7 +78,8 @@ must carry any board, and no canonical-fixture origin may appear."
   ;; right to the common left edge, so the longest keyword-less title
   ;; ("Reference clipping without dates") truncates at the old W120 — the
   ;; assertion is "every title renders", so render wide enough to show it.
-  (let ((org-air-section-max 100))
+  (let ((org-air-section-max 100)
+        (org-air-show-origin t)) ; R30-3: this ERT pins the real generated-file origins
    (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-alt-dashboard 160
       (let ((text (buffer-string)))

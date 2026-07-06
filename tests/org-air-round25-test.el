@@ -740,9 +740,10 @@ carried the `. v0.1/...' cell."
   "Independence: the BOARD keeps its origin cell (the removal is project-only)
 — a board item row still shows its file origin."
   (skip-unless (locate-library "org-air"))
-  (org-air-viewport-test-with-dashboard 140
+  (let ((org-air-show-origin t)) ; R30-3: board origin toggled ON (removal was project-only)
+   (org-air-viewport-test-with-dashboard 140
     (let ((text (buffer-string)))
-      (should (string-match-p "[.▤] \\(inbox\\|projects\\|personal\\)" text)))))
+      (should (string-match-p "[.▤] \\(inbox\\|projects\\|personal\\)" text))))))
 
 (ert-deftest org-air-r25-5-relpath-still-filterable ()
   "The relpath stays in the FILTER search key: a bare PATH token narrows the

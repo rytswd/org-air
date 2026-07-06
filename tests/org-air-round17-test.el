@@ -158,7 +158,8 @@ clarified that nudge to `· r to file'.)"
         ;; `left-reserve' (margin+indent + reserved keyword cell + 2-col
         ;; square slot), so the long-Denote row is the row the title-min
         ;; budget actually targets.
-        (org-air-priority-style 'square))
+        (org-air-priority-style 'square)
+        (org-air-show-origin t)) ; R30-3: origin de-slug/cap guard -> origin ON
     (dolist (width '(80 120 160))
       (ert-info ((format "width %d" width))
         (org-air-r17--with-denote-board width
@@ -198,7 +199,8 @@ origin column toward `org-air-origin-min' (it stays within
 `org-air-title-min-width'.  The fit reclaims FROM the origin first --
 title-protected, the inversion of the dead D2 priority."
   (skip-unless (locate-library "org-air"))
-  (org-air-r17--with-denote-board 80
+  (let ((org-air-show-origin t)) ; R30-3: origin-budget guard -> origin ON
+   (org-air-r17--with-denote-board 80
     ;; the origin shrank below the cap but never past the floor.
     (should (<= org-air-view--meta-origin-w org-air-origin-max-width))
     (should (>= org-air-view--meta-origin-w org-air-origin-min))
@@ -208,7 +210,7 @@ title-protected, the inversion of the dead D2 priority."
            (heading org-air-viewport-test-denote-long-title)
            (row (org-air-r17--item-row (org-air-viewport-test-lines)))
            (vis (org-air-r17--visible-title-width row heading more)))
-      (should (>= vis org-air-title-min-width)))))
+      (should (>= vis org-air-title-min-width))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P1 #2 — the long-Denote byte golden (isolated mini-board).

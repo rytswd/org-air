@@ -322,7 +322,8 @@ descendant roll-up and the deeper child-dir indent survive."
 token starts at the SAME screen column on every dated row (a readable
 table, not a ragged right-aligned cluster)."
   (skip-unless (locate-library "org-air"))
-  (org-air-viewport-test-as-gui
+  (let ((org-air-show-origin t)) ; R30-3: date-align guard on the origin-ON board (its original layout)
+   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 120
       (let ((cols '()))
         (save-excursion
@@ -345,7 +346,7 @@ table, not a ragged right-aligned cluster)."
             (forward-line 1)))
         (should (> (length cols) 2))
         ;; All date tokens start at the same column (fixed date column).
-        (should (= 1 (length (delete-dups (copy-sequence cols)))))))))
+        (should (= 1 (length (delete-dups (copy-sequence cols))))))))))
 
 ;;;; V3 — svg pills are GUI-only; the byte/text fallback is what we assert.
 

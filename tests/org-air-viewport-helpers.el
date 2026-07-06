@@ -693,7 +693,12 @@ trailing blank lines dropped (the regen + byte-test contract)."
             (org-air-viewport-test-as-gui
               (org-air-viewport-test--with-frozen-now
                 (org-air-viewport-test--with-render-guards
-                  (let ((org-air-view-width width))
+                  (let ((org-air-view-width width)
+                        ;; R30-3: the denote board is the ORIGIN-ON golden —
+                        ;; its whole purpose is to pin the long-Denote origin
+                        ;; de-slug/cap, so it renders with the origin column
+                        ;; shown (the default board hides it now).
+                        (org-air-show-origin t))
                     (org-air)
                     (unwind-protect
                         (with-current-buffer "*org-air*"

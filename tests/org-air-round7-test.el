@@ -147,7 +147,8 @@ not ⌂ (house) (air/v0.4/org-air-round12-design.org §D-P2)."
   ;; D-P1.PAD widens the cluster (the tag pills reserve pad columns), so at
   ;; W120 the title truncates; render wide (160) so the clean full title +
   ;; the right cluster both fit (round-8 title-search precedent).
-  (org-air-viewport-test-as-gui
+  (let ((org-air-show-origin t)) ; R30-3: legacy origin-cluster contract renders origin ON
+   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
       (let ((lp (org-air-r7-test--leftpane "Chase missing invoice")))
         (should lp)
@@ -159,7 +160,7 @@ not ⌂ (house) (air/v0.4/org-air-round12-design.org §D-P2)."
         (should (string-match-p
                  "OVERDUE 7d .*#projects.*▤ projects\\.org\\'" lp))
         ;; The title is clean: a wide flex gap follows it (not crammed).
-        (should (string-match-p "Chase missing invoice  +" lp))))))
+        (should (string-match-p "Chase missing invoice  +" lp)))))))
 
 ;;;; R3 — j/k scroll; k is no longer the kill key.
 

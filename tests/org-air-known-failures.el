@@ -724,72 +724,53 @@
     ;; wider state cell does not break column parity).  Round-26 manifest
     ;; is EMPTY; the tests stay as permanent regression guards.
     ;; =================================================================
-    ;; v0.5 ROUND-30 impl grind (air/v0.5/org-air-round30-design.org).
-    ;; R30-1 RAIL INSPECTOR IDENTITY BLOCK: the mid-rail inspector now
-    ;;   (a) FULL-WRAPS the title (`org-air-inspector-max-title-lines'
-    ;;   default nil = no cap, no more-glyph) and (b) REORDERS the leading
-    ;;   fields into a compact identity block — title / state / TAGS atop,
-    ;;   THEN the breathing blank, THEN the metadata KV rows
-    ;;   (origin/path/date).  Tags moved UP from after origin.  The two-
-    ;;   pane inline goldens carry the inspector region, so the tall
-    ;;   (height-50) fixtures re-compose: the inspector's `▤ inbox.org'
-    ;;   origin KV row and the `#inbox' tag row swap places (measured at
-    ;;   96x50 line 31).  HONEST manifest route: the fixtures re-bless in
-    ;;   the TEST track (make regen-mockups, frozen-clock guards active);
-    ;;   this entry is deleted at that closeout.  NEW R30-1 ERTs
-    ;;   (title-wraps-not-truncates / identity-block-order board+project /
-    ;;   maxlines-cap-still-honoured / fits-rail-width / maxtitle-
-    ;;   defcustom-type) PASS on the .el source.
-    (org-air-layout-mockup-heights
-     . "R30-1 inspector identity block: tags atop, title full-wrap; \
- height-50 two-pane inspector goldens re-bless in the test track")
-    ;; -------------------------------------------------------------------
-    ;; R30-3 DASHBOARD COLUMN TOGGLES: `org-air-show-origin' now defaults
-    ;;   to nil (the filename column is HIDDEN by default; `-dates'/`-tags'
-    ;;   stay t).  The width pass (`org-air-view--compute-meta-widths')
-    ;;   gates each cluster column on its toggle, so the DEFAULT board
-    ;;   drops the origin cell and the freed width flows to the flex title
-    ;;   — a BIG re-bless of every board golden that carried the origin
-    ;;   column, plus the behavioural origin-column assertions (which the
-    ;;   TEST track re-scopes to bind `org-air-show-origin' t, matching the
-    ;;   pre-R30 bytes).  HONEST manifest route: fixtures regenerate via
-    ;;   make regen-mockups (frozen-clock guards) and the origin ERTs bind
-    ;;   the toggle in the test track; these entries are deleted at that
-    ;;   closeout.  NEW R30-3 ERTs (default-hides-origin / toggle-origin-on
-    ;;   / toggle-dates-tags-off / hidden-data-still-queryable /
-    ;;   defcustoms-typed) PASS on the .el source.
-    (org-air-data-variation-titles-render
-     . "R30-3 default hides origin: board title fixture re-composes (test track)")
-    (org-air-layout-mockup-80
-     . "R30-3 default hides origin: 80-col two-pane golden re-blesses (test track)")
-    (org-air-layout-mockup-120
-     . "R30-3 default hides origin: 120-col two-pane golden re-blesses (test track)")
-    (org-air-layout-mockup-160
-     . "R30-3 default hides origin: 160-col wide golden re-blesses (test track)")
-    (org-air-layout-mockup-thresholds
-     . "R30-3 default hides origin: threshold-width goldens re-bless (test track)")
-    (org-air-r10-item-row-right-cluster
-     . "R30-3 default hides origin: origin cluster assertion re-scoped (test track)")
-    (org-air-r13-board-only-byte-mockup
-     . "R30-3 default hides origin: board-only golden re-blesses (test track)")
-    (org-air-r17-compute-meta-widths-title-budget
-     . "R30-3 default hides origin: origin-budget assertion re-scoped (test track)")
-    (org-air-r17-denote-origin-byte-mockup
-     . "R30-3 default hides origin: denote-origin golden re-blesses (test track)")
-    (org-air-r17-long-denote-origin-keeps-title
-     . "R30-3 default hides origin: origin-keeps-title assertion re-scoped (test track)")
-    (org-air-r20-6-meta-widths-cover-displayed-cells
-     . "R30-3 default hides origin: meta-width coverage assertion re-scoped (test track)")
-    (org-air-r25-5-board-still-has-origin
-     . "R30-3 default hides origin: board-has-origin assertion binds toggle t (test track)")
-    (org-air-r9-f1-denote-origin-rendered-and-truncates
-     . "R30-3 default hides origin: origin-render assertion re-scoped (test track)")
-    (org-air-v1b-inline-tag-placement
-     . "R30-3 default hides origin: inline-tag placement golden re-blesses (test track)")
-    (org-air-v1b-origin-protected-on-overflow
-     . "R30-3 default hides origin: origin-overflow assertion binds toggle t (test track)")
-    (org-air-v6-dates-align-in-column
-     . "R30-3 default hides origin: date-align fixture re-composes (test track)")
+    ;; v0.5 ROUND-30 CLOSEOUT (impl tips onmsukrsoztu..ynrluxnknmvt +
+    ;; test re-bless <this commit>).  ALL 17 grind entries CLOSED.
+    ;; Two design-blessed byte moves + the legacy origin-era ERTs:
+    ;;   R30-1 (1) RAIL INSPECTOR IDENTITY BLOCK: the mid-rail inspector
+    ;;     FULL-WRAPS the title (`org-air-inspector-max-title-lines' default
+    ;;     nil = no cap, no more-glyph) and REORDERS the leading fields into
+    ;;     a compact identity block (title / state / TAGS atop, THEN the
+    ;;     breathing blank, THEN the metadata KV rows).  The height-50 two-
+    ;;     pane goldens carry the inspector region, so `#inbox' (tags) and
+    ;;     `▤ inbox.org' (origin KV) swap places — regenerated via make
+    ;;     regen-mockups (frozen-clock guards).  org-air-layout-mockup-
+    ;;     heights re-blesses on the regen'd fixtures.
+    ;;   R30-3 (16) DASHBOARD COLUMN TOGGLES: `org-air-show-origin' now
+    ;;     defaults nil — the DEFAULT board drops the filename column and
+    ;;     the freed width flows to the flex title + tags (both de-truncate;
+    ;;     dates stay).  BIG re-bless: 27 board byte goldens (layout-mockup
+    ;;     70..160 + x24/x50 tiers + board-only) regenerated origin-less via
+    ;;     make regen-mockups; jj-verified the origin cell is gone, the
+    ;;     title/tags reflowed, and the V6 divider alignment holds.  The
+    ;;     denote-origin-{80,120} goldens are the ORIGIN-ON goldens (their
+    ;;     whole purpose is the long-Denote origin de-slug/cap), so the
+    ;;     shared render helper `org-air-viewport-test-denote-board-lines'
+    ;;     now binds `org-air-show-origin' t — both the golden and the byte
+    ;;     test render origin-ON, byte-IDENTICAL to pre-R30 (no coverage
+    ;;     lost).  The 10 legacy origin-era ASSERTION ERTs are HONESTLY
+    ;;     re-scoped to bind `org-air-show-origin' t (the toggle-ON board,
+    ;;     which reproduces the pre-R30 bytes their assertions were written
+    ;;     for — NOT gutted): org-air-data-variation-titles-render (real
+    ;;     generated-file origins), org-air-r10-item-row-right-cluster +
+    ;;     org-air-v1b-inline-tag-placement (the [date][tags][▤origin]
+    ;;     cluster order), org-air-r17-compute-meta-widths-title-budget +
+    ;;     org-air-r17-long-denote-origin-keeps-title + org-air-r9-f1-
+    ;;     denote-origin-rendered-and-truncates + org-air-v1b-origin-
+    ;;     protected-on-overflow (origin de-slug/cap + title-protect fit),
+    ;;     org-air-r20-6-meta-widths-cover-displayed-cells (origin-column
+    ;;     coverage invariant), org-air-r25-5-board-still-has-origin (the
+    ;;     toggle-ON board keeps its origin), org-air-v6-dates-align-in-
+    ;;     column (date alignment on its original origin-ON layout — the
+    ;;     default-board date alignment is now pinned by the regen'd byte
+    ;;     goldens).  NEW R30 ERTs (R30-1 identity block; R30-2 leader;
+    ;;     R30-3 toggles incl. default-hides-origin; R30-4 org-air-outline-
+    ;;     mode; R30-5 doc-rail revert-guard) PASS on the .el source.
+    ;; airctl `status -Da' parity RE-VERIFIED on ~/Coding/github.com/withre/
+    ;; air (the board origin toggle is board-only; the project view already
+    ;; dropped origin in R25-5, so tree shape + counts are UNCHANGED).
+    ;; Round-30 manifest is EMPTY; the tests stay as permanent guards.
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

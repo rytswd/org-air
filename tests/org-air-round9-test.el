@@ -292,7 +292,8 @@ cap at the canonical W80."
     (org-air-r9--with-denote-board
         '(("20260614T170000--a-very-long-denote-note-title-that-keeps-going__x_y.org"
            . "* TODO Long denote note\nSCHEDULED: <2026-06-16 Tue>\n"))
-      (let ((org-air-view-width 80))
+      (let ((org-air-view-width 80)
+            (org-air-show-origin t)) ; R30-3: this ERT pins the origin de-slug/cap
         (org-air)
         (let ((buf (get-buffer "*org-air*")))
           (should buf)

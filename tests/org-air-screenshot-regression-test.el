@@ -394,7 +394,8 @@ pills reserve pad columns, so the inter-tag spacing widens (#projects␠␠␠
 #admin) — the cluster ORDER is what this guards, not the exact gap.
 D-P2 [byte]: the origin glyph is now ▤ (file), not ⌂ (house)."
   (skip-unless (locate-library "org-air"))
-  (org-air-viewport-test-as-gui
+  (let ((org-air-show-origin t)) ; R30-3: legacy origin-cluster contract renders origin ON
+   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
       (let ((lp (org-air-v1b--item-leftpane "Chase missing invoice")))
         (should lp)
@@ -403,7 +404,7 @@ D-P2 [byte]: the origin glyph is now ▤ (file), not ⌂ (house)."
         (should (string-match-p
                  "OVERDUE 7d.*#projects +#admin.*▤ projects\\.org\\'" lp))
         ;; The title is clean on the left, a flex gap before the cluster.
-        (should (string-match-p "Chase missing invoice  +" lp))))))
+        (should (string-match-p "Chase missing invoice  +" lp)))))))
 
 (ert-deftest org-air-v1b-origin-protected-on-overflow ()
   "R17 D-P1.D re-bless (INVERTS the pre-R17 D2 priority): the TITLE is the
@@ -417,7 +418,8 @@ of the old origin-protected contract.  The title keeps its guaranteed
 minimum (its long prefix survives, not a bare `TODO…').  D-P2: the origin
 glyph is ▤ (file)."
   (skip-unless (locate-library "org-air"))
-  (org-air-viewport-test-as-gui
+  (let ((org-air-show-origin t)) ; R30-3: origin-yield-on-overflow guard -> origin ON
+   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 120
       (let ((lp (org-air-v1b--item-leftpane "Fix produc"))
             (more (org-air-viewport-test--glyph 'more 'gui)))
@@ -433,7 +435,7 @@ glyph is ▤ (file)."
         ;; the ellipsis glyph -- no longer kept whole (the D2 inversion).
         (should (string-match-p "▤ projects" lp))
         (should (string-suffix-p more lp))
-        (should-not (string-suffix-p "▤ projects.org" lp))))))
+        (should-not (string-suffix-p "▤ projects.org" lp)))))))
 
 (ert-deftest org-air-v3-frame-chrome-removed ()
   "V3: the round-4 buffer-box outer frame is GONE — a half-drawn frame is

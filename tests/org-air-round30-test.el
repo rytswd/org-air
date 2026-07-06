@@ -309,6 +309,22 @@ host map and unbinds the OLD key (the legend follows via `where-is')."
       (should (eq (lookup-key org-air-view-mode-map (kbd "C-c C-a"))
                   org-air-leader-map)))))
 
+(ert-deftest org-air-r30-2-leader-reaches-filter-sort-board-project ()
+  "The board/project MAIN-WINDOW leader reaches the FILTER and SORT rail
+actions (the checklist's `filter/sort' verbs, complementing the doc-
+session subset |/o/n/p/q): on the board `C-c C-a /' is `org-air-filter'
+and `C-c C-a s' is `org-air-view-sort-cycle'; on the project `C-c C-a /'
+is the project's OWN `org-air-project-filter' (and `s' the shared sort).
+Trunk FAILED (no leader at all; `C-c C-a /' was unbound)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (should (eq (key-binding (kbd "C-c C-a /")) 'org-air-filter))
+    (should (eq (key-binding (kbd "C-c C-a s")) 'org-air-view-sort-cycle))
+    (should (eq (key-binding (kbd "C-c C-a |")) 'org-air-rail-toggle)))
+  (org-air-r27--with-live-project
+    (should (eq (key-binding (kbd "C-c C-a /")) 'org-air-project-filter))
+    (should (eq (key-binding (kbd "C-c C-a s")) 'org-air-view-sort-cycle))))
+
 ;;;; =====================================================================
 ;;;; R30-3 — dashboard column toggles (defcustom-backed).
 ;;;; =====================================================================
@@ -389,6 +405,30 @@ composed line overflows the window (V6 alignment holds)."
         ;; every surviving item really carries the hidden-column tag.
         (dolist (it narrowed)
           (should (member tag (org-air-item-tags it))))))))
+
+(ert-deftest org-air-r30-3-z-prefix-toggles-by-key ()
+  "The `z' display-column prefix is reachable BY KEY on the board (the
+checklist's `z-prefix toggles flip + re-render + reflow'): `z f' resolves
+to `org-air-toggle-origin', `z d' to `org-air-toggle-dates', `z t' to
+`org-air-toggle-tags'; dispatching `z f' via its live `key-binding' flips
+the origin column ON and re-renders (meta-origin-w > 0), and a second
+`z f' hides it again (0) with every line still fitting the window.  Trunk
+FAILED (no `z' prefix / toggle commands existed)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (should (eq (key-binding (kbd "z f")) 'org-air-toggle-origin))
+    (should (eq (key-binding (kbd "z d")) 'org-air-toggle-dates))
+    (should (eq (key-binding (kbd "z t")) 'org-air-toggle-tags))
+    (org-air-view--refresh-current)
+    (should (= org-air-view--meta-origin-w 0))
+    ;; dispatch the KEY (not the command) -> flip + reflow.
+    (call-interactively (key-binding (kbd "z f")))
+    (should (eq org-air-show-origin t))
+    (should (> org-air-view--meta-origin-w 0))
+    (org-air-r29--assert-lines-fit (get-buffer-window (current-buffer)))
+    (call-interactively (key-binding (kbd "z f")))
+    (should (null org-air-show-origin))
+    (should (= org-air-view--meta-origin-w 0))))
 
 (ert-deftest org-air-r30-3-defcustoms-typed ()
   "The three column toggles are boolean defcustoms in group `org-air' with

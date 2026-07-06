@@ -1,0 +1,584 @@
+#+title: org-air v0.5 round-30 DESIGN: inspector header block (wrap, no truncate) · main-window C-c leader for rail actions · defcustom column toggles · outline-mode assessment (light scaffold) · R29 coverage-gap ERT
+#+state: ready
+#+FILETAGS: :ui:rail:inspector:leader:columns:outline:evil:design:v0.5:
+
+* Scope of this document
+Round-30 DESIGN doc — the user dogfooded R29 (happy: the header no
+longer overflows, the evil cursor lands on the title).  Five items,
+the last polish pass BEFORE release housekeeping (README / history /
+=use-package= land AFTER this, separately) — so every new behaviour
+here is a clean =defcustom= knob:
+
+- *R30-1* RAIL INSPECTOR TITLE — DEDICATED LINE(S), WRAP NOT TRUNCATE,
+  STATE+TAGS ATOP.  The inspector title ellipsis-truncates past
+  =org-air-inspector-max-title-lines=; the user wants it to WRAP
+  fully and wants the STATE badge + TAGS pulled to the TOP as a
+  compact header block near the title.  Board (item) AND project
+  (doc).  Goldens move -> manifest + re-bless.  [POLISH]
+- *R30-2* RAIL ACTION KEYS NEED MAIN-WINDOW LEADER BINDINGS.  The
+  rail/legend advertises keys (RET jump, =|= rail, outline nav) that
+  only fire when the SIDE WINDOW is focused; from the main content
+  buffer — especially the editable doc-session org buffer where single
+  keys self-insert — there is no reachable equivalent.  Extend R28-3:
+  a shared =C-c= leader keymap on the content buffers, legend keys
+  DERIVED context-correctly via =where-is=.  [BUG]
+- *R30-3* DASHBOARD COLUMN TOGGLES (defcustom-backed).  Hide/show the
+  board FILENAME (origin), DATE/SCHEDULE and TAGS columns:
+  =org-air-show-origin= (nil, OFF by default), =org-air-show-dates=
+  (t), =org-air-show-tags= (t), each with a toggle command + key.
+  Toggling re-renders through the compute-once / V6 relock so hidden
+  columns reclaim width and everything stays aligned; filter/scope
+  still operate on the hidden data.  Default board now drops the
+  origin column -> big re-bless -> manifest.  [FEATURE]
+- *R30-4* OUTLINE RAIL FOR ANY ORG FILE (ASSESSMENT + LIGHT SCAFFOLD).
+  Assess whether the doc-session rail outline + R28-4 current-heading
+  highlight can become a public opt-in =org-air-outline-mode= for any
+  org buffer with NO Air-project dependency.  Decide (a) implement as
+  a light scaffold this round, or (b) defer to a standalone package,
+  and justify.  [ASSESSMENT]
+- *R30-5* CLOSE THE R29 COVERAGE GAP.  =org-air-project--doc-rail-show=
+  (the doc-session rail host width, fixed in R29-1) has NO executing
+  ERT — reverting it fails nothing.  Add a doc-session fringe-less
+  GUI-sim ERT so the site is revert-guarded.  Byte-invisible, pure
+  test addition.  [TEST]
+
+Every item is REPRODUCED on THIS checkout against the =.el= source, on
+the demo fixture (=examples/demo/*.org=) AND the real Air repo
+(=~/Coding/github.com/withre/air/air=), with the side rail popped and a
+doc session open, and interactions DRIVEN under the REAL evil from
+=.deps= where relevant (=key-binding= dispatch, pre/post-command hooks
+run — the R27-4 pattern).  Constraints honoured: org-ql only; V6
+pixel-lock (relocked wherever a column width changes); R18/R20/R26-8/
+R27-1 machinery preserved (reused, never forked); shared primitives
+(the inspector fields fn, the rail descriptor seam, the meta-width
+pass); soft deps stay soft (evil / dimmer never required); every new
+behaviour a clean defcustom.
+
+* Status
+Design-led, impl-ready.  Byte contract per item:
+- *R30-1* goldens MOVE (title now wraps fully; state+tags reordered to
+  the top).  HONEST manifest route + re-bless in the test track: the
+  inspector is live-session content in the side-window rail, but the
+  two-pane inline goldens DO carry the inspector region, so those
+  fixtures re-bless.  Justified: the user explicitly asked for the new
+  layout.
+- *R30-2* byte-INVISIBLE to the batch gate: the leader keymap is a
+  binding layer (no rendered text); the doc-session legend is R26-5
+  live-only content (grep confirms no golden carries the Actions
+  legend row).  The board/project rail Actions goldens are unchanged
+  (the bare keys still resolve there — the where-is derivation returns
+  the SAME bare key in the read-only rail).
+- *R30-3* goldens MOVE (the default board loses the origin column;
+  every board fixture re-composes).  HONEST manifest route + re-bless.
+  The defcustoms are typed; toggling is a runtime re-render.
+- *R30-4* byte-INVISIBLE if scaffolded minimally (the new minor mode
+  is opt-in and off by default; no existing render path changes).  The
+  extracted generic primitives are pure refactors of existing code
+  (byte-identical outputs asserted).
+- *R30-5* byte-INVISIBLE — pure test addition.
+
+* Measured baseline (reproduction harness)
+Batch drives with LIVE windows (=noninteractive= bound nil, the R27
+pattern) + pure-function drives for the inspector/meta layers; evil
+from =.deps= for the leader/legend drives; fringe-less GUI simulated
+per the Emacs zero-right-fringe contract (=display-graphic-p= -> t,
+=window-max-chars-per-line= -> body-1).
+#+begin_src text
+R30-1  BOARD inspector, width 34, long title (76 chars), maxtitle=4:
+   | Inspector
+   |   Trailer Path Resolution: Accept       <- title wraps...
+   |   Repo-Root-Relative Paths, Warn        <- ...to 3 lines here
+   |   on Unresolved
+   |   TODO                                   <- state, own line
+   |   . git-integration/trailer.org         <- origin BEFORE tags
+   |   #backend #paths #cli                   <- tags buried mid-block
+   |   (blank)
+   |   Sched   2026-06-20  (16d ago)
+   at NARROWER widths / longer titles the 4th title line gets the `…'
+   ellipsis (org-air-view--inspector-title-lines caps at maxtitle);
+   the user wants NO truncation + state/tags pulled ATOP near title.
+R30-2  DOC session (real Air doc), main org buffer focused:
+   RET -> org-return (newline)     | -> self-insert-command
+   the rail legend advertises "RET jump" and "| rail" — DEAD here;
+   only C-c C-q (back, R28-3) is reachable from the doc buffer.
+R30-3  BOARD default (trunk): origin column SHOWN (org-air-show-origin
+   has no existence yet); user wants it OFF by default, dates+tags ON,
+   each toggleable.  meta-width pass sets ow>0 unconditionally today.
+R30-4  org-air-project--doc-outline: pure `^\*+ ` heading scan (no Air
+   struct); the R28-4 highlight core scans rail rows by
+   `org-air-doc-heading-pos' and moves ONE overlay — both generic; the
+   doc-session ALREADY proves a foreign (non-board) org buffer can own
+   the rail through the descriptor seam.
+R30-5  org-air-project--doc-rail-show now measures
+   org-air-layout--usable-columns (R29-1) — but NO ERT exercises it;
+   reverting to window-body-width passes the whole suite.
+#+end_src
+
+* R30-1 — rail inspector: wrap the title, never truncate; state+tags in a compact header block [POLISH]
+
+** Reproduction — the title caps at maxtitle and buries state/tags
+=org-air-view--inspector-title-lines= word-wraps the title but caps at
+=org-air-inspector-max-title-lines= (default 4) and ellipsis-truncates
+the overflow line.  Both the board (=org-air-view--inspector-item-fields=)
+and the project (=org-air-project--inspector-doc-fields=) call it, so
+both views truncate long titles.  The current field ORDER also scatters
+the identity signals:
+- board: title / state+priority / origin / *tags* / blank / dates …
+- project: title / State / Path / *tags* / Group / blank / Created …
+The state sits under the title but TAGS come after origin/path — the
+user wants both STATE and TAGS in a compact block right at the top,
+beside/under the title, before the metadata KV rows.
+
+** Decision — full-wrap title + a compact identity header block (shared, both views)
+Two shared changes in the core inspector primitives (no fork; the
+project fields fn already delegates the title to the shared helper):
+
+1. *Full-wrap title.*  Let =org-air-inspector-max-title-lines= accept
+   =nil= = NO cap (wrap the whole title), and make =nil= the DEFAULT.
+   =org-air-view--inspector-title-lines= returns all wrapped lines when
+   the cap is nil; a positive integer keeps the old ellipsis-cap
+   behaviour (back-compat knob, defcustom :type extended to
+   =(choice (const :tag "wrap fully" nil) integer)=).  The reserved
+   mid-rail region still bounds the whole inspector height
+   (=org-air-view--inspector-rail-lines= seq-take), so a pathological
+   title cannot push the rail — it simply consumes more of the region
+   (breathing tail shrinks first).  A tall side-window rail shows the
+   full title; a short one shows as much as the region holds — but the
+   TITLE itself never carries a mid-word `…' lie.
+2. *Compact identity header block.*  Reorder the leading fields of
+   BOTH fields fns to a single top block:
+   =title (wrapped) → state[+priority] → tags (wrapped)= — THEN the
+   metadata KV rows (origin/path, blank, dates …).  The block is the
+   row's identity; the KV rows are its metadata.  Tags move UP from
+   after origin/path to directly under state.  No new lines are added
+   in the common case (state and tags already exist) — they are
+   REORDERED; the change is layout, within the same rail width and the
+   same =org-air-view--pad-to= width bound at every tier.
+
+ASCII mock — board item, side-window rail width 34, long title, region
+tall enough:
+#+begin_src text
+ Inspector
+   Trailer Path Resolution: Accept
+   Repo-Root-Relative Paths, Warn
+   on Unresolved                     ← title wraps FULLY (no `…')
+   TODO  [#A]                        ← state + priority (own line)
+   #backend #paths #cli              ← tags, ATOP with the identity
+                                     ← breathing
+   ▤ git-integration/trailer.org     ← metadata KV rows follow
+   Sched   2026-06-20  (16d ago)
+   Deadln  2026-06-25  (in 5d) ◆
+   Bucket  Attention
+#+end_src
+Project doc — same shape, State badge + tags atop, Path/Created/Updated
+as the KV rows below:
+#+begin_src text
+ Inspector
+   Restore per-state summary counts
+   for suppressed states in status   ← full wrap
+   [R] ready                         ← state badge (own line)
+   #status #cli                      ← tags atop
+                                     ← breathing
+   Path    ~/…/air/v0.2/restore.org
+   Group   v0.2
+   Created 2026-04-01  (…)
+   Updated 2026-05-01  (…)
+#+end_src
+Tidy at all tiers: at the narrow (28-col) rail the inset drops to 1 and
+the same block wraps within 27 content columns; the region height cap
+keeps Filters/Actions pinned.  Keeps the R28-4 current-heading
+highlight section untouched (that lives in the doc-session outline, not
+the inspector).
+
+** Testability — EXECUTING acceptance ERTs
+Pure-function ERTs over =org-air-view--inspector-rail-lines= /
+=org-air-view--inspector-lines= (deterministic; no window needed) plus
+a two-pane inline render check.
+
+1. =org-air-r30-1-title-wraps-not-truncates= — a title long enough to
+   exceed 4 wrapped lines at a narrow rail width: with the default
+   (=org-air-inspector-max-title-lines= nil) NO inspector line carries
+   the more-glyph within the title block, and re-joining the title
+   lines reproduces the full title (no lost words).  Trunk FAILS
+   (ellipsis on the 4th line).
+2. =org-air-r30-1-identity-block-order= — the first non-header
+   inspector lines are, in order: the title line(s), then the state
+   line, then the tag line(s), BEFORE any KV row (origin/path/date).
+   Board AND project.  Trunk FAILS (tags after origin/path).
+3. =org-air-r30-1-maxlines-cap-still-honoured= — with
+   =org-air-inspector-max-title-lines= bound to 2, a long title caps
+   at 2 lines with the more-glyph (back-compat knob intact).
+4. =org-air-r30-1-fits-rail-width= — every inspector line's
+   =string-width= <= the rail width at 28 / 34 / 44 (no overflow;
+   tidy at all tiers).
+5. Existing gate — inline two-pane inspector goldens re-blessed to the
+   new order (manifest-routed); the defcustom :type accepts nil + int.
+
+** Routing
+- org-air-view.el: =org-air-inspector-max-title-lines= (default nil,
+  :type choice), =org-air-view--inspector-title-lines= (nil = no cap),
+  =org-air-view--inspector-item-fields= (reorder: title/state/tags
+  block first).
+- org-air-project.el: =org-air-project--inspector-doc-fields= (same
+  reorder: title/State/tags first, then Path/Group/Created/Updated).
+- tests/org-air-round30-test.el: the ERTs above.
+- manifest / golden re-bless: the two-pane inline inspector fixtures.
+
+* R30-2 — main-window C-c leader for the rail actions [BUG]
+
+** Reproduction — the advertised keys are window-local; the doc buffer self-inserts
+The rail Actions legend advertises verbs whose keys are bound in the
+RAIL buffer's map (=org-air-rail-mode-map=: =q= quit/back, =RET=
+jump-to-heading, =|= pop-in) or the board/project maps.  They only fire
+when the SIDE WINDOW (or the board/project) is the selected window.  In
+a doc session the user is editing the ACTUAL org file buffer, where:
+- =RET= -> =org-return= (newline), =|= -> =self-insert-command=,
+  single letters self-insert — so every advertised rail action is DEAD
+  from the content buffer;
+- only =C-c C-q= (R28-3's back verb) is reachable, because it is the
+  one thing bound as a =C-c= leader in =org-air-doc-session-mode-map=.
+R28-3 already established the pattern (a =C-c= leader for =back=, with
+the legend deriving the key via =where-is-internal=); R30-2 GENERALISES
+it to the other useful rail actions and to the board/project content
+buffers.
+
+** Decision — one shared leader prefix map, reused commands, context-correct legend
+A single shared prefix keymap, installed on all three content buffers,
+binding the EXISTING command symbols (no fork):
+
+1. *Leader prefix* — a defcustom =org-air-leader-key= (default
+   ="C-c C-a"=, mnemonic: Air; a clean, org-safe =C-c C-<letter>=
+   leader that does not collide with org-mode's own =C-c= bindings in
+   the doc session).  =org-air-leader-map= is the prefix keymap it
+   points at.
+2. *Bindings* (all reuse existing commands):
+   | sub-key | command                       | context               |
+   | =|=     | =org-air-rail-toggle=         | all three             |
+   | =o=     | =org-air-rail-return= / open  | jump to outline/open  |
+   | =n= =p= | outline next / prev heading   | doc session           |
+   | =q=     | =org-air-project-back=        | doc session           |
+   | =/=     | =org-air-filter= / project    | board / project       |
+   | =s=     | =org-air-view-sort-cycle=     | board / project       |
+   The prefix map is populated per host: the doc-session installs the
+   nav/back/rail subset, the board/project install the filter/sort/rail
+   subset.  =RET jump= from the rail becomes =C-c C-a o= from the doc
+   buffer (jump the main window to the outline heading nearest point /
+   the next heading) — reusing =org-air-rail-return='s target logic.
+   Outline next/prev reuse a shared heading-motion primitive (the same
+   =org-air-doc-heading-pos= scan the R28-4 highlight uses — no fork).
+3. *Context-correct legend* — generalise R28-3's
+   =org-air-project--doc-back-key= into =org-air-view--legend-key=
+   (COMMAND, BUFFER): return =where-is-internal='s FIRSTONLY key for
+   COMMAND resolved in BUFFER's own keymaps (so an evil/custom rebind
+   shows what is really bound), formatted via =key-description=.  Each
+   legend cell is built from the command's live key in the buffer the
+   legend describes: in the read-only rail it returns the BARE key
+   (=RET=, =|=); in the editable doc buffer it returns the LEADER form
+   (=C-c C-a o=, =C-c C-a |=).  The legend never lies about
+   reachability again — same derivation for every cell, not just back.
+4. *Evil* — a =C-c= leader is state-agnostic (evil leaves =C-c=
+   prefixes alone in normal AND insert state), so the leader works
+   without any evil-specific handling; the existing R27-4 overriding
+   maps keep the bare keys working in the read-only board/project/rail.
+
+** Testability — EXECUTING acceptance ERTs
+Live doc-session + board/project buffers; evil from =.deps= for the
+state-agnostic check; commands resolved via =key-binding= from inside
+the target buffer.
+
+1. =org-air-r30-2-leader-reaches-actions-from-doc= — in the doc-session
+   ORG buffer (main window focused), =(key-binding (kbd "C-c C-a |"))=
+   is =org-air-rail-toggle=, =C-c C-a o= jumps the outline, =C-c C-a q=
+   is =org-air-project-back= — the actions are reachable where single
+   keys self-insert.  Trunk FAILS (no leader; keys self-insert).
+2. =org-air-r30-2-legend-shows-context-key= — the doc-session rail
+   Actions legend cells read the LEADER form (=C-c C-a …=) for the
+   verbs that self-insert in the doc buffer, while the board/project
+   rail legend cells read the BARE keys — both derived by
+   =org-air-view--legend-key= from the correct buffer.  Trunk FAILS
+   (legend hardcodes =RET jump= / =| rail=, dead from the doc buffer).
+3. =org-air-r30-2-bare-keys-still-work= — in the read-only tree / rail
+   the bare =RET= / =|= / =q= resolve to their commands unchanged
+   (the leader is ADDITIVE, never a replacement).
+4. =org-air-r30-2-evil-state-agnostic= — with evil enabled in the doc
+   buffer, =C-c C-a |= resolves to =org-air-rail-toggle= in BOTH normal
+   and insert state.
+5. =org-air-r30-2-leader-key-defcustom= — =org-air-leader-key= is a
+   typed key defcustom; rebinding it re-installs the prefix (the
+   legend follows via where-is).
+
+** Routing
+- org-air-view.el: =org-air-leader-key= defcustom + =org-air-leader-map=
+  prefix keymap, =org-air-view--legend-key= (generalised from
+  =org-air-project--doc-back-key=), leader install on the board /
+  project core map; the shared outline heading-motion primitive.
+- org-air-project.el: leader install on =org-air-doc-session-mode-map=
+  (doc-session subset: nav/back/rail), the doc Actions legend cells
+  rebuilt via =org-air-view--legend-key=.
+- tests/org-air-round30-test.el: the ERTs above.
+
+* R30-3 — dashboard column toggles (defcustom-backed) [FEATURE]
+
+** Reproduction — the board always shows origin; no toggles exist
+The board renders four data cells per row through the V6 fixed-column
+table: the flex title, then the DATE / TAGS / ORIGIN cluster, sized by
+=org-air-view--compute-meta-widths= (=dw= / =tw= / =ow=) and consumed
+by =org-air-view--insert-item= (=dcol= / =tcol= / =ocol=).  Today =ow=
+is accumulated unconditionally, so the origin (filename) column ALWAYS
+shows and always claims width; there is no user control over any of the
+three cluster columns.  The user wants the origin OFF by default
+(filename is noise on the board) and dates/tags toggleable.
+
+** Decision — three typed defcustoms + a display-toggle prefix; gate at the meta pass
+Three clean boolean defcustoms (release-ready) and a runtime toggle
+command each, all funnelling through the EXISTING compute-once / V6
+relock (no new render path, no fork):
+
+1. *Defcustoms* (board scope):
+   - =org-air-show-origin= — default =nil= (filename column HIDDEN).
+   - =org-air-show-dates= — default =t=.
+   - =org-air-show-tags= — default =t=.
+   All =:type boolean :group 'org-air=.
+2. *Gate at the width pass* — in =org-air-view--compute-meta-widths=,
+   seed/accumulate each column only when its toggle is on:
+   =dw= starts at =org-air-date-column= only when =org-air-show-dates=
+   (else 0, and the repeat reserve =rep= too); =tw= accumulates only
+   when =org-air-show-tags=; =ow= only when =org-air-show-origin=.  A
+   zeroed width makes =org-air-view--insert-item='s =dcol/tcol/ocol=
+   zero, so =org-air-view--insert-row= skips that cell entirely (its
+   =(when (> col 0) …)= guards already exist) and the freed columns
+   flow to the flex title via the SAME title-min fit pass — V6
+   alignment holds by construction (relock is automatic: the widths
+   are recomputed every render).
+3. *Toggle commands + keys* — a small display-column prefix keeps the
+   flat board namespace clean and self-documents as a group.  Bind a
+   prefix =z= (free on the board map; the vim "view/fold" family, and
+   ours wins under the R27-4 overriding map) to
+   =org-air-columns-prefix-map=:
+   - =z f= =org-air-toggle-origin= (Filename)
+   - =z d= =org-air-toggle-dates=
+   - =z t= =org-air-toggle-tags=
+   Each flips its defcustom buffer-locally and re-renders via the
+   existing =org-air-view--refresh-current= (compute-once partition +
+   V6 relock reused); each echoes the new state.  Documented in the
+   rail Actions legend (a new "columns" hint) and in =?= help.
+4. *Data stays queryable* — the toggles are DISPLAY-only: filter/scope
+   read =org-air-item-tags= / dates / origin from the item structs, not
+   the rendered cells, so hiding a column never removes it from
+   =org-air-filter= / =org-air-scope= (a hidden tag column still
+   filters by tag; a hidden date column still sorts by date).
+5. *Project scope* — the project already dropped origin in R25-5 and
+   composes its own date/tag cluster via the V6 =--insert-row=; a
+   symmetric toggle COULD apply but is OUT OF SCOPE this round (the
+   user scoped R30-3 to the board).  Noted for a follow-up; the
+   defcustoms are board-named (=org-air-show-*=) so a future project
+   variant is additive.
+
+** Testability — EXECUTING acceptance ERTs
+Render the fixture board (width seam) and read the composed cells /
+meta widths; toggle and re-render.
+
+1. =org-air-r30-3-default-hides-origin= — with defaults, no board row
+   carries the origin cell (=org-air-view--meta-origin-w= is 0) and the
+   date + tag columns are present.  Trunk FAILS (origin shown).
+2. =org-air-r30-3-toggle-origin-on= — =org-air-toggle-origin= flips
+   =org-air-show-origin= to t and the re-render shows the origin cell;
+   toggling back hides it.
+3. =org-air-r30-3-toggle-dates-tags-off= — hiding dates zeroes =dw=
+   (no date cell, no repeat reserve); hiding tags zeroes =tw= (no tag
+   cell); the flex title reclaims the freed width and every row still
+   composes to exactly the render width (V6 alignment holds).
+4. =org-air-r30-3-hidden-data-still-queryable= — with tags hidden,
+   =org-air-filter= by a tag still narrows the board; with dates
+   hidden, the date sort still orders rows.
+5. =org-air-r30-3-defcustoms-typed= — the three symbols are boolean
+   defcustoms in group =org-air= with the stated defaults.
+6. Existing gate — board goldens re-blessed to the origin-less default
+   (manifest-routed, big re-bless); the origin-ON fixtures (if any
+   golden binds =org-air-show-origin= t) match the pre-R30 bytes.
+
+** Routing
+- org-air-view.el: =org-air-show-origin= / =org-air-show-dates= /
+  =org-air-show-tags= defcustoms; the gate in
+  =org-air-view--compute-meta-widths=; =org-air-toggle-origin= /
+  =-dates= / =-tags= commands; =org-air-columns-prefix-map= + =z=
+  binding on the board map; the Actions legend + =?= help lines.
+- tests/org-air-round30-test.el: the ERTs above.
+- manifest / golden re-bless: the default board fixtures (origin
+  dropped).
+
+* R30-4 — outline rail for any org file: assessment + light scaffold [ASSESSMENT]
+
+** Assessment — is the seam clean? YES, and the doc-session already proves it
+The user asks whether the doc-session rail outline + R28-4
+current-heading highlight could work for ANY org buffer, and whether it
+belongs in a separate project.  Auditing the coupling:
+
+- *Outline row build* — =org-air-project--doc-outline= is a pure
+  =^\*+ [ \t]+= heading scan over the source buffer returning
+  =(level title pos)=; it touches NO Air struct, NO project, NO airctl.
+  Already generic.
+- *Outline render* — =org-air-project--insert-doc-context= mixes a
+  generic part (the Outline header + indented rows carrying
+  =org-air-doc-heading-pos=) with an Air-specific meta block
+  (=org-air-doc-state/-name/-tags=, the state badge).  The meta block
+  is the only Air coupling and is trivially replaceable for a generic
+  buffer (its =#+title:= / buffer name; skip the state badge).
+- *Highlight core* — =org-air-rail--outline-highlight-update= scans the
+  rail rows for =org-air-doc-heading-pos <= point= and =move-overlay='s
+  ONE overlay; the CORE is generic.  Its GUARDS
+  (=org-air-doc-session-mode=, =org-air-project--session-tree=) are the
+  only Air coupling — loosened to "the source buffer's outline-owning
+  minor mode is on".
+- *Rail ownership* — the decisive finding: the DOC SESSION is ALREADY
+  a non-board, plain org FILE buffer that owns the rail through the
+  R26-5 descriptor seam (=:outline-fn= / =:actions-fn=) and the R27-1
+  convergent machinery (back-pointer, stamp guard, reconcile).  A
+  generic org buffer owning the rail is the SAME shape minus the tree/
+  Air coupling.  The seam is genuinely clean: the rail renders only
+  what the descriptor supplies.
+
+Conclusion: the outline + highlight are separable from the Air/project
+machinery TODAY, at low cost, because the doc-session is the existence
+proof.  The dependency that remains is on org-air's OWN rail/layout
+primitives (=org-air-view= / =org-air-layout=) — which is expected and
+fine ("no Air dependency" = no dependency on the Air PROJECT machinery,
+not on org-air's rail).  RECOMMENDATION: *(a) implement as a LIGHT
+SCAFFOLD this round* — an opt-in =org-air-outline-mode= reusing the
+extracted generic primitives + the rail descriptor seam; defer only the
+richer standalone-package polish (non-org sources, independent theming,
+MELPA packaging) to a future package if demand appears.
+
+** Decision — org-air-outline-mode (opt-in, off by default), light scaffold
+1. *Extract two generic primitives* (pure refactor, byte-identical
+   outputs asserted):
+   - =org-air-outline--headings (buffer)= — relocated from
+     =org-air-project--doc-outline= (the project keeps a thin alias so
+     its call site is unchanged).
+   - =org-air-outline--highlight-update (source-buf rail-buf)= — the
+     generic overlay core factored out of
+     =org-air-rail--outline-highlight-update=; the doc-session keeps
+     its guarded wrapper calling this core.
+2. *Minor mode* =org-air-outline-mode= (buffer-local, opt-in; a
+   =define-minor-mode=, lighter =" ◦outline"=).  On enable in any
+   org-mode buffer: build a rail descriptor whose =:outline-fn= inserts
+   the generic outline (buffer =#+title:= or name as the meta line, no
+   state badge) and whose =:actions-fn= shows the reachable keys
+   (via R30-2's =org-air-view--legend-key=), pop the rail through
+   =org-air-rail--show= (the same convergent path the doc session
+   uses), install the debounced R28-4 highlight post-command hook
+   (interactive-only), and set the back-pointer.  On disable: mirror
+   the doc-session teardown (cancel the timer slot, delete the
+   overlay, hide the rail if this buffer owns it).
+3. *No Air dependency* — the mode lives in =org-air-view.el= (or a
+   small =org-air-outline.el= that requires only =org-air-view= /
+   =org-air-layout=); it never requires =org-air-project= and never
+   touches org-ql, airctl, or the doc struct.  Soft: enabling it in a
+   non-org buffer is a no-op (guarded on =derived-mode-p 'org-mode=).
+4. *Knob* — =org-air-outline-rail-placement= defcustom (inline /
+   side-window, default side-window) mirroring =org-air-rail-placement=
+   so the generic mode honours the same placement grammar.
+
+** Testability — EXECUTING acceptance ERTs
+1. =org-air-r30-4-headings-primitive-generic= —
+   =org-air-outline--headings= over a plain (non-Air) org buffer
+   returns the =(level title pos)= rows; the project's outline is
+   byte-identical to the pre-refactor output (the alias holds).
+2. =org-air-r30-4-outline-mode-pops-rail= — enabling
+   =org-air-outline-mode= in a plain org buffer pops the rail and the
+   rail shows the buffer's headings (one row per heading, carrying
+   =org-air-doc-heading-pos=); disabling tears it down (no timer, no
+   overlay, rail hidden).
+3. =org-air-r30-4-highlight-follows-point= — moving point past a
+   heading in the plain org buffer moves the single overlay onto the
+   corresponding rail row (the R28-4 core, Air-free); degrades to
+   no-highlight on error, never signals.
+4. =org-air-r30-4-no-air-dependency= — =org-air-outline-mode= loads +
+   functions with =org-air-project= NOT required (feature
+   absent/unloaded): a load-order / require-graph assertion.
+5. =org-air-r30-4-off-by-default= — the mode is nil unless enabled;
+   existing render paths and goldens are untouched.
+
+** Routing
+- org-air-view.el (or new org-air-outline.el): =org-air-outline--headings=,
+  =org-air-outline--highlight-update=, =org-air-outline-mode=,
+  =org-air-outline-rail-placement= defcustom.
+- org-air-project.el: =org-air-project--doc-outline= /
+  =org-air-rail--outline-highlight-update= become thin wrappers over
+  the extracted primitives (byte-identical; call sites unchanged).
+- tests/org-air-round30-test.el: the ERTs above.
+
+* R30-5 — close the R29 coverage gap: doc-rail-show has no executing ERT [TEST]
+
+** Reproduction — reverting the R29-1 fix at this site fails nothing
+R29-1 routed three raw =window-body-width= measurements through
+=org-air-layout--usable-columns=.  Two are guarded by the new R29
+ERTs (=org-air-rail--host-width=, =org-air-rail--show=), but the third
+— =org-air-project--doc-rail-show= (the doc-session rail HOST width) —
+has NO test that fails if it is reverted to =window-body-width=.  The
+R29 review flagged it: the fix is real but unguarded, so a future
+refactor could silently reintroduce the fringe-less GUI off-by-one in
+the doc-session rail.
+
+** Decision — a doc-session fringe-less GUI-sim ERT (pure test addition)
+Add one executing ERT mirroring the R29-1 harness (=display-graphic-p=
+-> t, =window-max-chars-per-line= -> body-1, live windows, no width
+seam) but driving a DOC SESSION: open a project doc into a session,
+pop its rail, and assert every rail line's =string-width= <= the doc
+window's =org-air-layout--usable-columns=, and that the rail host width
+resolved by =org-air-project--doc-rail-show= equals the usable columns
+(not =window-body-width=).  Reverting the site to =window-body-width=
+must make this ERT FAIL (the revert-guard is the point).  Byte-
+invisible; lives in the test track (=tests/org-air-round30-test.el= or
+appended to the R29 suite), specified here so impl/test know it is
+owed.
+
+** Testability — EXECUTING acceptance ERT
+1. =org-air-r30-5-doc-rail-fits-fringeless= — doc session, rail
+   popped, fringe-less GUI sim: every =*org-air-rail*= line fits the
+   doc window's usable columns, AND
+   =org-air-project--doc-rail-show='s resolved host width equals
+   =org-air-layout--usable-columns= of the doc window.  Reverting
+   =org-air-project--doc-rail-show= to raw =window-body-width= makes
+   the width assertion FAIL (site now revert-guarded).
+
+** Routing
+- tests/org-air-round30-test.el (or the R29 suite): the ERT above.
+- No source change (the R29-1 fix already stands at the site).
+
+* Implementation History
+- [2026-07-04] Round-30 design opened.  R30-1 reproduced (board +
+  project inspector, long titles): title caps at
+  =org-air-inspector-max-title-lines= with an ellipsis, and tags sit
+  after origin/path instead of atop.  Spec'd full-wrap title (nil cap
+  default, back-compat integer knob) + a compact
+  title/state/tags identity header block, shared across both fields
+  fns.  Spec ready; implementation pending.
+- [2026-07-04] R30-2 reproduced (real Air doc session): the rail's
+  =RET jump= / =| rail= are window-local and DEAD from the editable
+  doc org buffer (=org-return= / =self-insert=); only R28-3's
+  =C-c C-q= back was reachable.  Spec'd a shared =org-air-leader-key=
+  (=C-c C-a=) prefix map reusing existing commands + a generalised
+  =org-air-view--legend-key= where-is derivation so every legend cell
+  shows the context-correct key.  Spec ready; implementation pending.
+- [2026-07-04] R30-3 reproduced: the board always accumulates the
+  origin column width in =org-air-view--compute-meta-widths= with no
+  toggle.  Spec'd three boolean defcustoms (=org-air-show-origin= nil,
+  =-dates= t, =-tags= t), a =z=-prefixed display-toggle group reusing
+  the compute-once / V6 relock, filter/scope untouched (display-only).
+  Default board drops origin -> golden re-bless (manifest).  Spec
+  ready; implementation pending.
+- [2026-07-04] R30-4 assessed: the outline row build
+  (=org-air-project--doc-outline=, pure heading scan) and the R28-4
+  highlight core are already generic; the only Air coupling is the
+  doc-session meta block + the mode guards, and the doc session itself
+  PROVES a foreign org buffer can own the rail via the descriptor seam.
+  Recommended (a): a light-scaffold opt-in =org-air-outline-mode=
+  reusing the extracted primitives, no =org-air-project= dependency,
+  off by default.  Spec ready; implementation pending.
+- [2026-07-04] R30-5: confirmed the R29-1 fix at
+  =org-air-project--doc-rail-show= (doc-session rail host width) has no
+  executing ERT (revert to =window-body-width= passes the suite).
+  Spec'd a doc-session fringe-less GUI-sim ERT that revert-guards the
+  site.  Byte-invisible; pure test addition.  All five R30 items
+  specified.

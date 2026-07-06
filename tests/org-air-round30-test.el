@@ -561,5 +561,51 @@ without `org-air-project' present in `features'."
           (ert-fail (format "no-air-dep subprocess exited %s: %s"
                             status (buffer-string))))))))
 
+;;;; =====================================================================
+;;;; R30-5 — close the R29 coverage gap: doc-rail-show is now revert-guarded.
+;;;; =====================================================================
+
+(ert-deftest org-air-r30-5-doc-rail-fits-fringeless ()
+  "Doc session, rail popped, FRINGE-LESS GUI sim (R29-1 harness): every
+`*org-air-rail*' line fits the doc window's usable columns, AND the host
+width `org-air-project--doc-rail-show' resolves equals
+`org-air-layout--usable-columns' of the doc window — NOT raw
+`window-body-width'.  Reverting the site to `window-body-width' makes the
+width assertion FAIL (the site is now revert-guarded).  Byte-invisible;
+pure test addition."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r28--with-doc-session
+    (org-air-r29--with-fringeless-gui
+      (let* ((win (get-buffer-window docbuf))
+             (usable (org-air-layout--usable-columns win))
+             (body (window-body-width win))
+             (real-show (symbol-function 'org-air-rail--show))
+             (captured nil))
+        (should (window-live-p win))
+        ;; the fringe-less sim really makes usable one short of body
+        ;; (else the guard would be vacuous).
+        (should (= usable (1- body)))
+        ;; capture the host width the doc-rail-show passes to rail--show.
+        (cl-letf (((symbol-function 'org-air-rail--show)
+                   (lambda (buf width)
+                     (when (eq buf docbuf) (setq captured width))
+                     (funcall real-show buf width))))
+          (org-air-project--doc-rail-show docbuf))
+        ;; the resolved host width is the USABLE columns (R29-1), not body.
+        (should (eql captured (max 40 usable)))
+        (should-not (eql captured body))
+        ;; every rail line fits the doc window's usable columns.
+        (let ((rail (get-buffer org-air-rail-buffer-name)))
+          (should (buffer-live-p rail))
+          (with-current-buffer rail
+            (save-excursion
+              (goto-char (point-min))
+              (while (not (eobp))
+                (should (<= (string-width
+                             (buffer-substring-no-properties
+                              (line-beginning-position) (line-end-position)))
+                            usable))
+                (forward-line 1)))))))))
+
 (provide 'org-air-round30-test)
 ;;; org-air-round30-test.el ends here

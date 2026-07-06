@@ -1,0 +1,355 @@
+#+title: org-air v0.5 round-31 DESIGN: fringe-less GUI x-overflow, INLINE two-pane + header — close the LAST raw-column seam, lock the inline width contract with executing ERTs, and guard the glyph-advance class the width math cannot own
+#+state: ready
+#+FILETAGS: :ui:layout:rail:inline:gui:overflow:design:v0.5:
+
+* Scope of this document
+Round-31 DESIGN doc — RELEASE-BLOCKER follow-up to R29-1.  The user
+dogfooded the INLINE rail (the rail composed inside the SAME =*org-air*=
+window as a two-pane =board │ rail= layout, NOT the popped side window)
+in a fringe-less GUI and reports the TOP HEADER ("Tue 07 Jul · 583
+items") and MULTIPLE inline two-pane rows (calendar / Filter / Source /
+Summary / Inspector rows + board item rows) each showing a
+line-continuation/truncation glyph at the extreme right edge — the whole
+right edge reads ragged / ~1 column off screen.  R29-1 was reported to
+have fixed only the side-window / board-only fringe-less case.
+
+Two items, one primary:
+
+- *R31-1* INLINE TWO-PANE + HEADER X-OVERFLOW (the mode R29-1 was said
+  to miss).  ROOT-CAUSED on THIS checkout against the =.el= source, in a
+  REALISTIC repro (=display-graphic-p= -> t; the fringe-less contract
+  =window-max-chars-per-line= = body-1; live windows AND pure-compose
+  sweeps), measuring EVERY composed line incl. (a) the top header and
+  (b) every =board │ divider │ rail= row.  [BUG / HARDENING + TEST]
+- *R31-2* SEPARATE COLUMN ALIGNMENT (if any).  Checked for a distinct
+  misalignment (divider/date/tag column not landing on the same screen
+  column across sections or rows) beyond the overflow.  [ASSESSMENT]
+
+Constraints honoured: org-ql only; V6 pixel-lock (no column widths
+move); the R29-1 =org-air-layout--usable-columns= primitive is REUSED,
+never forked; R18/R20/R26-8/R27-1 machinery preserved; fast gate; the
+new ERTs EXECUTE in the inline fringe-less sim (extending R29-1's
+matrix); soft deps stay soft.
+
+* Status
+Design-led, impl-ready.  Byte contract:
+- *R31-1* byte-IDENTICAL in batch.  The one source change (route the
+  LAST raw-column fallback through =org-air-layout--usable-columns=) is
+  reached only when no live window/selected-window exists; in TTY/batch
+  =usable-columns= == =window-body-width= == =frame-width= there, so
+  every golden and every live-terminal value is unchanged.  The rest is
+  pure test addition (the INLINE ERT matrix + the glyph-advance guard).
+  NO manifest change, NO re-bless.
+- *R31-2* byte-INVISIBLE — no code, an executed finding + a guard ERT.
+
+* Executive summary of the reproduction (READ THIS FIRST — honest finding)
+I could NOT reproduce a WIDTH-MATH overflow in the inline two-pane (or
+the header) on this checkout, and I have the executed transcripts to
+prove it.  The inline path is ALREADY correct:
+
+1. The inline two-pane width is =org-air-view--render-width= =
+   =org-air-layout-current-width= = =org-air-layout--usable-columns= —
+   the SAME R29-1 primitive that fixed side-window/board-only.  The
+   two-pane composition does NOT re-measure a raw =window-body-width=
+   (only the side-window path ever calls =org-air-rail--host-width=,
+   which R29-1 already routes through usable-columns).  So the prompt's
+   first hypothesis ("the two-pane split is computed from raw
+   window-body-width") is DISPROVEN by the code and by measurement.
+2. The header composes to =org-air-view--render-width= too (via
+   =org-air-view--render-lines width=), and =org-air-view--insert-banner=
+   justifies to that width with a reserved trailing blank column (S7):
+   the status ends at =W-1=, column =W= is blank.  So the second
+   hypothesis ("the header pads to window width not usable width") is
+   also DISPROVEN — it pads to render-width, which IS usable-columns.
+3. Executed sweeps (below): across EVERY two-pane width 61..200 (odd and
+   even) the header AND every composed =board │ rail= row have
+   =string-width= EXACTLY equal to the render width, and the divider
+   column is CONSTANT on every row.  In the live fringe-less GUI sim an
+   80-body window renders usable=79, rendered-width=79, longest line 79
+   — it FITS, flush, zero dead columns.
+
+So the composed lines do not exceed usable.  What is left, and what
+R31-1 actually ships:
+
+- *Seam A (real, in-scope, byte-invisible):* the width-derivation chain
+  has exactly ONE remaining raw-column term —
+  =org-air-layout-current-width='s terminal =(frame-width)= fallback.
+  In a fringe-less GUI =frame-width= = usable + 1 (measured).  It is
+  reached only when neither the buffer nor the selected window is
+  windowed, so the live board (which =pop-to-buffer='s BEFORE the first
+  render) never hits it — but it is the LAST place any composition can
+  be sized to usable+1, and it is unguarded.  R31-1 closes it and
+  revert-guards it, so the R29-1 class is provably shut for EVERY frame
+  state, inline included.
+- *Seam B (the likely screenshot cause, NOT a width-math bug):* if the
+  user still sees a glyph at the edge, the renderer's =string-width=
+  budget and the FRAME's painted advance disagree for at least one
+  East-Asian *Ambiguous-width* glyph in the status / separators (the
+  middle dot =·= U+00B7, plus =✕ … ↑ ↓ → ↻=).  The renderer is
+  self-consistent under any =char-width-table= (it composes AND measures
+  with =string-width=, so padding always compensates — verified: even
+  with those chars forced to width 2 the composed line stays exactly the
+  render width), so this can only bite when the FONT paints a glyph
+  wider than =char-width= declares — outside the width math.  R31-1 adds
+  a guard ERT (every status/separator glyph is single-=char-width=) and
+  documents the config remedy; it does NOT chase font advances the width
+  math cannot see.
+
+* Measured baseline (reproduction harness — EXECUTED on this checkout)
+Fringe-less GUI simulated per the Emacs contract used by R29-1
+(=display-graphic-p= -> t; =window-max-chars-per-line= -> body-1); live
+windows with NO width seam for the live checks; pure-compose sweeps
+(=org-air-view--two-pane-body= / =org-air-view--insert-banner=) for the
+width matrix.  Default board (R30-3: origin column OFF).
+
+#+begin_src text
+LIVE, fringe-less GUI, INLINE two-pane, full 80-body frame:
+   body=80  usable=79  rendered-width=79  orient=two-pane  longest=79   FITS
+   divider column = 49 on EVERY composed row (constant)          ALIGNED
+
+PURE two-pane compose sweep, widths 61..200 (odd AND even):
+   every width W: max composed row width == W   (never W+1)
+   every width W: header string-width       == W   (never W+1)
+   divider column CONSTANT across all 35 rows at every W
+   e.g. W=80  item-width=49 rail=28 divider-col=50 all-rows==W? t
+        W=95  item-width=64 rail=28 divider-col=65 all-rows==W? t
+        W=121 item-width=86 rail=32 divider-col=87 all-rows==W? t
+        W=151 item-width=106 rail=42 divider-col=107 all-rows==W? t
+
+WIDTH-DERIVATION CHAIN audit (every raw-column term):
+   org-air-rail--host-width          -> usable-columns   (R29-1)  OK
+   org-air-rail--show rail width      -> usable-columns   (R29-1)  OK
+   org-air-project--doc-rail-show     -> usable-columns   (R29-1)  OK
+   org-air-layout-current-width:
+       selected-window shows buffer   -> usable-columns            OK
+       any window shows buffer        -> usable-columns            OK
+       selected-window live           -> usable-columns            OK
+       (t (frame-width))              -> RAW frame-width  <<< SEAM A
+   org-air-view--rail-window-cols     -> frame-width picks a TIER only
+                                          (28/32/42), not a line width  OK
+
+SEAM A measured (fringe-less sim, buffer not windowed, no selected win):
+   frame-width = 80  but usable of the eventual window = 79   (+1)
+
+SEAM B measured (char-width regime probe):
+   status/separator glyphs are East-Asian AMBIGUOUS width:
+     · U+00B7  … U+2026  ✕ U+2715  ↑ U+2191  ↓ U+2193  → U+2192  ↻ U+21BB
+   all report char-width=1 / string-width=1 in a stock config;
+   forcing them to char-width 2 -> the composed header STILL measures
+   exactly the render width (padding compensates) -> the renderer is
+   self-consistent; only a FONT advance > char-width can overprint.
+#+end_src
+
+* R31-1 — INLINE two-pane + header x-overflow: close the last raw-column seam, lock the inline contract, guard the glyph-advance class [BUG / HARDENING + TEST]
+
+** Reproduction — the inline width math is already correct
+=org-air-view--render= dispatches the orientation, then re-measures the
+host width ONLY under =side-window= (=org-air-rail--host-width=, already
+usable-columns per R29-1).  For =two-pane= (INLINE) it keeps
+=width= = =org-air-view--render-width= untouched.
+=org-air-view--two-pane-body= then splits:
+- =rail-width= = =org-air-view--rail-width width= (28/32/42 tier),
+- =divider= = =org-air-view--divider= (=" │ "=, display width 3),
+- =item-width= = =(max 20 (- width rail-width 3))=,
+and =org-air-view--compose-columns= zips =item(item-width) │
+rail(rail-width)= so each row = =item-width + 3 + rail-width= = =width=
+exactly (when not clamped).  The header is composed by
+=org-air-view--render-lines width= -> =org-air-view--insert-banner=,
+which justifies to =w= = render-width with a reserved trailing column
+(S7).  Since =width= = =org-air-layout-current-width= =
+=org-air-layout--usable-columns=, every inline line is exactly usable
+wide.  The sweeps above confirm it at every width; the live fringe-less
+sim confirms it end-to-end (79 in an 80-body window, fits).
+
+The board entry =org-air-view= =pop-to-buffer='s the dashboard BEFORE
+the first =org-air-view--render= ("Display the buffer first so width
+derivation measures the window that actually shows the dashboard (U1)"),
+so even the first inline paint measures the real window and takes the
+usable-columns branch — never the =frame-width= fallback.
+
+Why R29-1's own inline ERT already passed (and stays green):
+=org-air-r29-1-fringeless-no-line-exceeds-usable= DID render the inline
+two-pane and assert every line <= usable — and it PASSED, because it is
+true.  R29-1 did not "miss" inline; inline was correct because it flows
+through the same render-width primitive.  What R29-1 lacked is an inline
+assertion pinned to the CONTRACT columns (header ends at usable-1;
+divider column constant) so a future refactor of the two-pane split or
+the header budget cannot silently reintroduce a fringe-less inline
+overshoot.  R31-1 adds exactly those locks.
+
+** Root cause of the residual raw-column risk — Seam A
+=org-air-layout-current-width= (org-air-layout.el) resolves the
+displaying window, then falls back:
+#+begin_src elisp
+(cond
+ ((window-live-p window) (org-air-layout--usable-columns window))
+ ((window-live-p (selected-window))
+  (org-air-layout--usable-columns (selected-window)))
+ (t (frame-width)))            ; <<< raw columns, NOT usable
+#+end_src
+The final =(frame-width)= is the ONE remaining term in the whole chain
+that is not reduced by the fringe-less continuation-glyph column.  It is
+reached only when there is neither a window showing the buffer nor a
+live selected window (a minibuffer-only or during-startup frame) — so
+the live board never composes against it, and no golden exercises it.
+But it is the last unguarded seam of the R29-1 class, and in a
+fringe-less GUI it yields exactly usable+1.  Leaving it raw means the
+class is "fixed everywhere the tests look" but not CLOSED.
+
+** Root cause of the screenshot glyph — Seam B (not a width-math bug)
+The status band and the date/meta separators use East-Asian
+*Ambiguous-width* glyphs (=·= U+00B7 in the count/scope separators; =✕=,
+=…=, =↑=, =↓=, =→=, =↻=).  =string-width= / =char-width= report 1 for
+each.  The renderer composes AND measures with =string-width=, so it is
+self-consistent under ANY =char-width-table= regime — forcing those
+chars to width 2 keeps every composed line exactly the render width
+(the padding shrinks to compensate; verified).  The line therefore fits
+usable whether ambiguous glyphs are 1 or 2 columns, PROVIDED the frame
+paints them at their declared =char-width=.  The only way the user sees
+a continuation glyph is a FONT whose glyph ADVANCE exceeds the declared
+=char-width= (a font/config property Emacs cannot derive from
+=char-width-table=).  That is not an org-air width-math defect and
+cannot be fixed by threading usable-columns; the honest remedies are (a)
+ship glyphs that are unambiguously single-width, and (b) document the
+=char-width-table= / language-environment config for users whose fonts
+paint ambiguous glyphs wide.
+
+** Decision — close Seam A, lock the inline contract, guard Seam B
+1. *Seam A (one-term source change, byte-invisible).*  Route the last
+   fallback through the R29-1 primitive.  When there is no live window
+   at all there is no window to measure usable columns FROM, so the
+   honest closure is: prefer the selected window's usable columns
+   (already the second branch); for the final fallback, reduce the
+   raw frame width by the fringe-less reserve the same way
+   =window-max-chars-per-line= would — i.e. return
+   =(max 1 (1- (frame-width)))= on a graphical frame (no window to
+   query, so mirror the -1 the continuation column costs), and plain
+   =(frame-width)= on a TTY/batch frame (no reserve).  A tiny helper
+   =org-air-layout--usable-frame-columns= keeps the graphic/TTY split in
+   ONE place beside =org-air-layout--usable-columns= (no fork; same
+   contract, frame tier).  Result: NO composition, in ANY orientation
+   or frame state, can be sized to usable+1.  Batch/TTY unchanged
+   (=frame-width= there has no reserve, so the value is identical).
+2. *Lock the inline contract (executing ERTs, extend R29-1's matrix).*
+   Add inline-mode assertions pinned to the CONTRACT columns, not just
+   "<= usable": the header ends at exactly render-width-1 with a blank
+   final column, every two-pane row equals render-width, and the
+   divider column is identical on every composed row.  These pass on the
+   current code (they document + freeze the already-correct behaviour)
+   and FAIL if a future two-pane/header refactor drifts fringe-less.
+3. *Guard Seam B (glyph-advance class).*  A pure ERT asserting every
+   status/separator/legend glyph org-air emits has =char-width= 1 (so
+   the renderer's budget can never disagree with a correctly-configured
+   frame), plus a compose-invariance ERT proving the header still fits
+   usable when =char-width-table= marks the ambiguous chars WIDE (the
+   self-consistency property).  Document the font/char-width remedy in
+   the manual for the residual font-advance case.  No glyph is changed
+   (V6 / goldens hold); if a future round wants VS15 text-presentation
+   selectors that is a separate, golden-moving decision, explicitly
+   deferred.
+
+Explicitly out of scope: changing any glyph, any column width, or any
+golden (V6 pixel-lock, byte-identical batch); font-advance detection
+(Emacs owns =char-width-table=; org-air inherits it).
+
+** Testability — EXECUTING acceptance ERTs
+New suite =tests/org-air-round31-test.el=, reusing R29-1's fringe-less /
+fringed GUI sim macros (=org-air-r29--with-fringeless-gui= /
+=-with-fringed-gui=) and the R27 live-board/-project harness; the
+pure-compose sweep runs with the batch width seam.
+
+1. =org-air-r31-1-inline-header-ends-at-contract-column= — INLINE
+   two-pane (rail NOT popped), fringe-less sim, at odd AND even host
+   widths: =org-air-view--rendered-width= = the window's usable columns,
+   the right-trimmed header width = rendered-width-1, and the header's
+   final column is blank (S7 margin inside the displayable area).
+2. =org-air-r31-1-inline-rows-fit-and-align= — same harness: EVERY
+   composed two-pane row (calendar / Filter / Source / Summary /
+   Inspector / Actions rail rows AND the board item rows) has
+   =string-width= <= usable AND == rendered-width, and the divider
+   column (the display column of the =│= cell) is IDENTICAL on every row
+   that carries it (alignment lock).  Anti-tautology: assert the body
+   really contains rail rows (calendar + a labelled rule) and item rows.
+3. =org-air-r31-1-inline-width-sweep= — pure compose over widths
+   61..200 (odd+even): for each, every =org-air-view--two-pane-body= row
+   == W, the header == W, and the divider column is constant.  (Locks
+   the width-math invariant independent of any live window.)
+4. =org-air-r31-1-seam-a-frame-fallback-fits= — the last fallback:
+   with NO window showing the buffer and the selected window stubbed
+   non-live, =org-air-layout-current-width= (fringe-less graphic frame)
+   returns usable, not raw frame-width; on a TTY frame it returns
+   =frame-width= unchanged.  Reverting the fallback to raw
+   =(frame-width)= makes the graphic assertion FAIL (revert-guard).
+5. =org-air-r31-1-side-window-and-board-only-still-fit= — regression:
+   side-window (popped) and board-only, fringe-less, still fit usable
+   with the header at the contract column (R29-1 preserved).
+6. =org-air-r31-1-fringed-gui-unchanged= — fringed GUI (usable == body):
+   inline rendered width and longest line are byte-for-byte the plain
+   values (the Seam-A change is a no-op where there is a live window;
+   and where there is none, =frame-width= reserve only applies to the
+   graphic branch — assert the fringed live path is untouched).
+7. =org-air-r31-1-status-glyphs-single-width= — Seam B guard: every
+   glyph in =org-air-glyphs= used by the header/legend
+   (=clear/more/sep-dot/sort-asc/sort-desc/arrow/updated/…=) has
+   =char-width= 1; and with =char-width-table= forced WIDE for the
+   ambiguous set, =org-air-view--insert-banner= STILL composes to
+   exactly the render width (self-consistency — the renderer never
+   assumes ambiguous==1).
+8. Existing gate — all batch goldens byte-identical (NO manifest, NO
+   re-bless); the R29-1 suite green (its inline assertion is subsumed
+   and strengthened by #1-#3).
+
+** Routing
+- org-air-layout.el: =org-air-layout--usable-frame-columns= (graphic:
+  =(max 1 (1- (frame-width)))=; TTY: =(frame-width)=), consumed by the
+  final branch of =org-air-layout-current-width=.
+- tests/org-air-round31-test.el: the ERTs above (reusing the R29 sim
+  macros + R27 live harness).
+- README / manual: a one-paragraph note on the ambiguous-width glyph /
+  =char-width-table= config for fonts that paint ·/arrows wide (Seam B
+  remedy).  Doc-only.
+
+* R31-2 — separate column alignment: NONE found (folded into R31-1) [ASSESSMENT]
+While root-causing R31-1 I checked for a distinct misalignment — the
+divider / date / tag column landing on different screen columns across
+sections or across rows of differing content.  EXECUTED finding: the
+inline two-pane divider column is CONSTANT on every composed row at
+every width (49 at W=80, 65 at W=95, 87 at W=121, 107 at W=151 — one
+unique value per width, across all 35 rows including the calendar,
+labelled-rule, Filter, Source, Summary, Inspector and item rows).  This
+is true BY CONSTRUCTION: =org-air-view--two-pane-body= pads the item
+pane to =item-width= and the rail to =rail-width= before
+=org-air-view--compose-columns= zips them, so the divider always sits at
+display column =item-width+1=, and the V6 fixed-column table keeps the
+date/tag cluster on one screen column within the item pane (R30-3's
+freed origin column flows to the flex title via the same title-min fit,
+so nothing shoves the divider).  There is NO separate alignment bug: the
+only reported artifact is the (non-reproducible) right-edge overflow,
+whose real candidates are Seam A (closed) and Seam B (a font-advance
+mismatch, guarded + documented).  R31-2 therefore folds into R31-1 with
+no additional spec — as the round instructions permit ("if the only
+cause is the +1 overflow, fold into R31-1 and say so").  The alignment
+invariant is locked by ERT #2 (=inline-rows-fit-and-align=).
+
+* Implementation History
+- [2026-07-07] Round-31 design opened and root-caused on this checkout
+  against the =.el= source.  EXECUTED reproduction (fringe-less GUI sim
+  + pure-compose sweep widths 61..200 + width-derivation-chain audit):
+  the INLINE two-pane and the header are ALREADY correct — every
+  composed line == =org-air-view--render-width= =
+  =org-air-layout--usable-columns= (the R29-1 primitive the inline path
+  already flows through), self-consistent under any =char-width-table=,
+  and the divider column is constant (no alignment bug).  Both prompt
+  hypotheses (raw =window-body-width= two-pane split; header padding to
+  window not usable) DISPROVEN by execution.  Identified the LAST
+  raw-column seam — =org-air-layout-current-width='s =(frame-width)=
+  fallback (= usable+1 fringe-less, reached only with no live
+  window/selected-window) — and spec'd a byte-invisible one-term closure
+  (=org-air-layout--usable-frame-columns=) plus the executing INLINE ERT
+  matrix (header at contract column; every two-pane row == rendered
+  width; divider column identical) that LOCKS the already-correct
+  behaviour, plus a Seam-B glyph-advance guard (status/separator glyphs
+  single =char-width=; compose self-consistency under ambiguous-wide) and
+  a documented font/char-width remedy.  R31-2: no separate alignment bug
+  (divider column constant, measured) — folded into R31-1.  No golden
+  moves, no manifest change.  Spec ready; implementation pending.

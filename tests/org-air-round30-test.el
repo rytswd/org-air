@@ -41,6 +41,146 @@
   (require 'org-air))
 
 ;;;; =====================================================================
+;;;; R30-1 — rail inspector: full-wrap title + a compact identity block.
+;;;; =====================================================================
+
+(defun org-air-r30--line-face-p (line face)
+  "Non-nil when any char of LINE carries FACE (directly or in a list)."
+  (let ((found nil) (i 0) (n (length line)))
+    (while (and (not found) (< i n))
+      (let ((f (get-text-property i 'face line)))
+        (when (or (eq f face) (and (listp f) (memq face f)))
+          (setq found t)))
+      (setq i (1+ i)))
+    found))
+
+(defun org-air-r30--title-lines (fields)
+  "Return the title-face lines of FIELDS, stripped of text properties."
+  (mapcar #'substring-no-properties
+          (seq-filter (lambda (l) (org-air-r30--line-face-p
+                                   l 'org-air-face-title))
+                      fields)))
+
+(defun org-air-r30--index (lines re)
+  "Return the first index in LINES whose stripped text matches RE, or nil."
+  (cl-position-if (lambda (l) (string-match-p
+                               re (substring-no-properties l)))
+                  lines))
+
+(defconst org-air-r30--long-title
+  "Trailer Path Resolution Accept Repo Root Relative Paths Warn on Unresolved"
+  "A single-spaced 74-char title that wraps past 4 lines at a narrow rail.")
+
+(defun org-air-r30--board-item ()
+  "A synthetic board item with a long title, TODO+[#A], tags and an origin."
+  (org-air-item-create
+   :title org-air-r30--long-title
+   :tags '("backend" "paths" "cli")
+   :todo "TODO" :priority ?A
+   :file "/tmp/org-air-r30/trailer-origin.org"))
+
+(defun org-air-r30--doc ()
+  "A synthetic project doc with a long title, state, tags and a group."
+  (org-air-doc-create
+   :name org-air-r30--long-title
+   :file "/tmp/org-air-r30/v0.5/restore-summary.org"
+   :state "ready"
+   :tags '("status" "cli")
+   :relpath "v0.5/restore-summary.org"))
+
+(ert-deftest org-air-r30-1-title-wraps-not-truncates ()
+  "With the default (`org-air-inspector-max-title-lines' nil) a long title
+wraps FULLY at a narrow rail: NO title line carries the more glyph, and
+re-joining the title lines reproduces the whole title (no lost words).
+Trunk FAILED (the 4th line ellipsis-truncated)."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-inspector-max-title-lines nil)
+        (more (org-air-view--glyph 'more))
+        (width 18))
+    (let* ((fields (org-air-view--inspector-item-fields
+                    (org-air-r30--board-item) "" width (current-time)))
+           (titles (org-air-r30--title-lines fields)))
+      ;; the title really wrapped past 4 lines at this width.
+      (should (> (length titles) 4))
+      ;; no more glyph anywhere in the title block.
+      (dolist (tl titles)
+        (should-not (string-match-p (regexp-quote more) tl)))
+      ;; re-joining the wrapped title reproduces the full title.
+      (should (equal (string-join titles " ") org-air-r30--long-title)))))
+
+(ert-deftest org-air-r30-1-maxlines-cap-still-honoured ()
+  "With `org-air-inspector-max-title-lines' bound to 2 (the back-compat
+knob) a long title caps at exactly 2 title lines and the 2nd carries the
+more glyph."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-inspector-max-title-lines 2)
+        (more (org-air-view--glyph 'more))
+        (width 18))
+    (let* ((fields (org-air-view--inspector-item-fields
+                    (org-air-r30--board-item) "" width (current-time)))
+           (titles (org-air-r30--title-lines fields)))
+      (should (= (length titles) 2))
+      (should (string-match-p (regexp-quote more) (nth 1 titles))))))
+
+(ert-deftest org-air-r30-1-identity-block-order ()
+  "The identity block leads: title line(s), then state, then tag line(s),
+BEFORE any metadata KV row (origin/path/date).  Board AND project.  Trunk
+FAILED (tags sat AFTER origin/path)."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-inspector-max-title-lines nil)
+        (width 40)
+        (now (current-time)))
+    ;; --- board: title / TODO / #tags / (blank) / origin(date) ---
+    (let* ((fields (org-air-view--inspector-item-fields
+                    (org-air-r30--board-item) "" width now))
+           (state-i (org-air-r30--index fields "\\bTODO\\b"))
+           (tags-i  (org-air-r30--index fields "#backend"))
+           (origin-i (org-air-r30--index fields "trailer-origin"))
+           (last-title (cl-position-if
+                        (lambda (l) (org-air-r30--line-face-p
+                                     l 'org-air-face-title))
+                        fields :from-end t)))
+      (should (and state-i tags-i origin-i last-title))
+      (should (< last-title state-i))
+      (should (< state-i tags-i))
+      (should (< tags-i origin-i)))    ; tags ATOP, origin is a KV row below
+    ;; --- project: title / State / #tags / (blank) / Path ---
+    (let* ((fields (org-air-project--inspector-doc-fields
+                    (org-air-r30--doc) "" width now))
+           (state-i (org-air-r30--index fields "^State"))
+           (tags-i  (org-air-r30--index fields "#status"))
+           (path-i  (org-air-r30--index fields "^Path"))
+           (last-title (cl-position-if
+                        (lambda (l) (org-air-r30--line-face-p
+                                     l 'org-air-face-title))
+                        fields :from-end t)))
+      (should (and state-i tags-i path-i last-title))
+      (should (< last-title state-i))
+      (should (< state-i tags-i))
+      (should (< tags-i path-i)))))
+
+(ert-deftest org-air-r30-1-fits-rail-width ()
+  "Every inspector line (header + fields) fits the rail width at 28 / 34 /
+44 — the full-wrap title never overflows (bounded by `pad-to')."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-inspector-max-title-lines nil))
+    (dolist (width '(28 34 44))
+      (let ((lines (org-air-view--inspector-lines
+                    (org-air-r30--board-item) width)))
+        (dolist (l lines)
+          (should (<= (string-width (substring-no-properties l)) width)))))))
+
+(ert-deftest org-air-r30-1-maxtitle-defcustom-type ()
+  "`org-air-inspector-max-title-lines' defaults to nil and its Custom
+:type accepts BOTH nil (wrap fully) and a positive integer."
+  (skip-unless (locate-library "org-air"))
+  (should (null (default-value 'org-air-inspector-max-title-lines)))
+  (let ((type (get 'org-air-inspector-max-title-lines 'custom-type)))
+    (should (equal (car type) 'choice))
+    (should (widget-apply (widget-convert type) :match nil))
+    (should (widget-apply (widget-convert type) :match 2))))
+
+;;;; =====================================================================
 ;;;; R30-2 — main-window C-c leader for the rail actions.
 ;;;; =====================================================================
 

@@ -724,6 +724,25 @@
     ;; wider state cell does not break column parity).  Round-26 manifest
     ;; is EMPTY; the tests stay as permanent regression guards.
     ;; =================================================================
+    ;; v0.5 ROUND-30 impl grind (air/v0.5/org-air-round30-design.org).
+    ;; R30-1 RAIL INSPECTOR IDENTITY BLOCK: the mid-rail inspector now
+    ;;   (a) FULL-WRAPS the title (`org-air-inspector-max-title-lines'
+    ;;   default nil = no cap, no more-glyph) and (b) REORDERS the leading
+    ;;   fields into a compact identity block — title / state / TAGS atop,
+    ;;   THEN the breathing blank, THEN the metadata KV rows
+    ;;   (origin/path/date).  Tags moved UP from after origin.  The two-
+    ;;   pane inline goldens carry the inspector region, so the tall
+    ;;   (height-50) fixtures re-compose: the inspector's `▤ inbox.org'
+    ;;   origin KV row and the `#inbox' tag row swap places (measured at
+    ;;   96x50 line 31).  HONEST manifest route: the fixtures re-bless in
+    ;;   the TEST track (make regen-mockups, frozen-clock guards active);
+    ;;   this entry is deleted at that closeout.  NEW R30-1 ERTs
+    ;;   (title-wraps-not-truncates / identity-block-order board+project /
+    ;;   maxlines-cap-still-honoured / fits-rail-width / maxtitle-
+    ;;   defcustom-type) PASS on the .el source.
+    (org-air-layout-mockup-heights
+     . "R30-1 inspector identity block: tags atop, title full-wrap; \
+ height-50 two-pane inspector goldens re-bless in the test track")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

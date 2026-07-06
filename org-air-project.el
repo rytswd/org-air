@@ -1298,9 +1298,10 @@ deterministic."
 
 (defun org-air-project--inspector-doc-fields (doc inset content-w now)
   "Return the project DOC's inspector body lines (forward order) (R14 D-P1.B).
-Title / State / Path (full) / tags / Group / Created / Updated, the same KV
-layout + breathing as the board (`org-air-view--inspector-fields-function').
-INSET is the spine prefix, CONTENT-W the wrap width, NOW the render clock."
+R30-1 identity block: Title / State / tags atop (the doc's identity),
+then the breathing blank, then the metadata KV rows Path / Group /
+Created / Updated — the same shared layout as the board.  INSET is the
+spine prefix, CONTENT-W the wrap width, NOW the render clock."
   (let ((state (org-air-doc-state doc))
         lines)
     (dolist (tl (org-air-view--inspector-title-lines
@@ -1316,12 +1317,7 @@ INSET is the spine prefix, CONTENT-W the wrap width, NOW the render clock."
                                'face (org-air-project--state-face state)))
            inset)
           lines)
-    (push (org-air-view--inspector-kv
-           "Path"
-           (propertize (abbreviate-file-name (org-air-doc-file doc))
-                       'face 'org-air-face-faded)
-           inset)
-          lines)
+    ;; R30-1: tags move UP to sit under State — the identity block.
     (let ((tagstr (mapconcat
                    (lambda (tg) (propertize (concat "#" tg)
                                             'face (org-air-faces-tag-face tg)))
@@ -1329,13 +1325,20 @@ INSET is the spine prefix, CONTENT-W the wrap width, NOW the render clock."
       (unless (string-empty-p tagstr)
         (dolist (tl (org-air-view--word-wrap tagstr content-w))
           (push (concat inset tl) lines))))
+    ;; R30-1 breathing: identity block above, metadata KV rows below.
+    (push "" lines)
+    (push (org-air-view--inspector-kv
+           "Path"
+           (propertize (abbreviate-file-name (org-air-doc-file doc))
+                       'face 'org-air-face-faded)
+           inset)
+          lines)
     (let ((grp (car (split-string (org-air-doc-relpath doc) "/"))))
       (when (and grp (not (string-empty-p grp))
                  (string-match-p "/" (org-air-doc-relpath doc)))
         (push (org-air-view--inspector-kv
                "Group" (propertize grp 'face 'org-air-face-faded) inset)
               lines)))
-    (push "" lines)
     (when-let* ((c (org-air-doc-created doc)))
       (push (org-air-view--inspector-kv
              "Created"

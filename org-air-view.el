@@ -3250,10 +3250,15 @@ preserving the item rows beside the region."
   :type 'integer
   :group 'org-air)
 
-(defcustom org-air-inspector-max-title-lines 4
-  "Maximum wrapped title lines shown in the inspector (D-P7/D-P1).
-D-P1 raised the default 3 → 4 now the inspector owns the freed mid-rail."
-  :type 'integer
+(defcustom org-air-inspector-max-title-lines nil
+  "Cap on wrapped title lines in the inspector, or nil = wrap fully (R30-1).
+nil (the DEFAULT, R30-1) wraps the WHOLE title with NO truncation — the
+title line never carries a mid-word more glyph; the reserved mid-rail
+region still bounds the total inspector height, so a pathological title
+simply consumes more of the region (the breathing tail shrinks first).
+A positive integer caps the title at that many wrapped lines with a
+trailing more glyph (the back-compat knob; D-P1 default was 4)."
+  :type '(choice (const :tag "wrap fully" nil) integer)
   :group 'org-air)
 
 (defcustom org-air-inspector-debounce 0.1
@@ -3336,9 +3341,12 @@ non-empty section (D-P7)."
     (or (nreverse lines) (list ""))))
 
 (defun org-air-view--inspector-title-lines (title width maxlines)
-  "Return TITLE word-wrapped to WIDTH, capped at MAXLINES with a more glyph."
+  "Return TITLE word-wrapped to WIDTH (R30-1).
+MAXLINES nil = NO cap: the full wrapped title, so the title never carries
+a mid-word more glyph.  A positive integer caps at MAXLINES with a
+trailing more glyph (the back-compat knob)."
   (let ((lines (org-air-view--word-wrap title width)))
-    (if (<= (length lines) maxlines)
+    (if (or (null maxlines) (<= (length lines) maxlines))
         lines
       (append (butlast (seq-take lines maxlines))
               (list (truncate-string-to-width
@@ -3417,8 +3425,9 @@ The classification is computed against NOW (D-P7)."
 
 (defun org-air-view--inspector-item-fields (item inset content-w now)
   "Return the board ITEM's inspector body lines (forward order) (R14 D-P1.B).
-The lines AFTER the `Inspector' header: title / state+priority / origin /
-tags / breathing / dates / repeat / bucket.  INSET is the spine prefix,
+The lines AFTER the `Inspector' header, R30-1 identity block first:
+title / state+priority / tags / breathing / origin / dates / repeat /
+bucket.  INSET is the spine prefix,
 CONTENT-W the wrappable width, NOW the frozen render clock.  Extracted from
 `org-air-view--inspector-lines' so the project view can supply its own
 fields function while the core stays content-agnostic."
@@ -3438,6 +3447,19 @@ fields function while the core stays content-agnostic."
                               (when prio
                                 (org-air-view--priority-token prio))))))
       (when parts (push (concat inset (string-join parts "  ")) lines)))
+    ;; R30-1 identity block: tags move UP to sit directly under
+    ;; title+state — the row's IDENTITY — ABOVE the breathing blank and
+    ;; the metadata KV rows (origin/dates).  tags (all, accent, wrapped).
+    (let ((tagstr (mapconcat
+                   (lambda (tg) (propertize (concat "#" tg)
+                                            'face (org-air-faces-tag-face tg)))
+                   (org-air-item-tags item) " ")))
+      (unless (string-empty-p tagstr)
+        (dolist (tl (org-air-view--word-wrap tagstr content-w))
+          (push (concat inset tl) lines))))
+    ;; R30-1 breathing: a blank line separates the title/state/tags
+    ;; identity block from the metadata KV rows (origin/dates).
+    (push "" lines)
     ;; origin (group/file) -- R17 D-P2: the leaf is the SAME de-slugged
     ;; Denote title the board shows (`org-air-view--origin'), not the raw
     ;; identifier--slug__tags.org, so the board and inspector agree.  Bind
@@ -3462,17 +3484,6 @@ fields function while the core stays content-agnostic."
                     (propertize (substring org (length (org-air-view--glyph 'origin)))
                                 'face 'org-air-face-group))
             lines))
-    ;; tags (all, accent, wrapped)
-    (let ((tagstr (mapconcat
-                   (lambda (tg) (propertize (concat "#" tg)
-                                            'face (org-air-faces-tag-face tg)))
-                   (org-air-item-tags item) " ")))
-      (unless (string-empty-p tagstr)
-        (dolist (tl (org-air-view--word-wrap tagstr content-w))
-          (push (concat inset tl) lines))))
-    ;; D-P1 breathing: a blank line separates the identity group
-    ;; (title/state/origin/tags) from the dates group.
-    (push "" lines)
     ;; dates
     (let* ((deadline (org-air-item-deadline item))
            (dl-time (org-air-view--timestamp-time deadline))

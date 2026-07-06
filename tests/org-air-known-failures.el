@@ -743,6 +743,53 @@
     (org-air-layout-mockup-heights
      . "R30-1 inspector identity block: tags atop, title full-wrap; \
  height-50 two-pane inspector goldens re-bless in the test track")
+    ;; -------------------------------------------------------------------
+    ;; R30-3 DASHBOARD COLUMN TOGGLES: `org-air-show-origin' now defaults
+    ;;   to nil (the filename column is HIDDEN by default; `-dates'/`-tags'
+    ;;   stay t).  The width pass (`org-air-view--compute-meta-widths')
+    ;;   gates each cluster column on its toggle, so the DEFAULT board
+    ;;   drops the origin cell and the freed width flows to the flex title
+    ;;   — a BIG re-bless of every board golden that carried the origin
+    ;;   column, plus the behavioural origin-column assertions (which the
+    ;;   TEST track re-scopes to bind `org-air-show-origin' t, matching the
+    ;;   pre-R30 bytes).  HONEST manifest route: fixtures regenerate via
+    ;;   make regen-mockups (frozen-clock guards) and the origin ERTs bind
+    ;;   the toggle in the test track; these entries are deleted at that
+    ;;   closeout.  NEW R30-3 ERTs (default-hides-origin / toggle-origin-on
+    ;;   / toggle-dates-tags-off / hidden-data-still-queryable /
+    ;;   defcustoms-typed) PASS on the .el source.
+    (org-air-data-variation-titles-render
+     . "R30-3 default hides origin: board title fixture re-composes (test track)")
+    (org-air-layout-mockup-80
+     . "R30-3 default hides origin: 80-col two-pane golden re-blesses (test track)")
+    (org-air-layout-mockup-120
+     . "R30-3 default hides origin: 120-col two-pane golden re-blesses (test track)")
+    (org-air-layout-mockup-160
+     . "R30-3 default hides origin: 160-col wide golden re-blesses (test track)")
+    (org-air-layout-mockup-thresholds
+     . "R30-3 default hides origin: threshold-width goldens re-bless (test track)")
+    (org-air-r10-item-row-right-cluster
+     . "R30-3 default hides origin: origin cluster assertion re-scoped (test track)")
+    (org-air-r13-board-only-byte-mockup
+     . "R30-3 default hides origin: board-only golden re-blesses (test track)")
+    (org-air-r17-compute-meta-widths-title-budget
+     . "R30-3 default hides origin: origin-budget assertion re-scoped (test track)")
+    (org-air-r17-denote-origin-byte-mockup
+     . "R30-3 default hides origin: denote-origin golden re-blesses (test track)")
+    (org-air-r17-long-denote-origin-keeps-title
+     . "R30-3 default hides origin: origin-keeps-title assertion re-scoped (test track)")
+    (org-air-r20-6-meta-widths-cover-displayed-cells
+     . "R30-3 default hides origin: meta-width coverage assertion re-scoped (test track)")
+    (org-air-r25-5-board-still-has-origin
+     . "R30-3 default hides origin: board-has-origin assertion binds toggle t (test track)")
+    (org-air-r9-f1-denote-origin-rendered-and-truncates
+     . "R30-3 default hides origin: origin-render assertion re-scoped (test track)")
+    (org-air-v1b-inline-tag-placement
+     . "R30-3 default hides origin: inline-tag placement golden re-blesses (test track)")
+    (org-air-v1b-origin-protected-on-overflow
+     . "R30-3 default hides origin: origin-overflow assertion binds toggle t (test track)")
+    (org-air-v6-dates-align-in-column
+     . "R30-3 default hides origin: date-align fixture re-composes (test track)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -309,5 +309,98 @@ host map and unbinds the OLD key (the legend follows via `where-is')."
       (should (eq (lookup-key org-air-view-mode-map (kbd "C-c C-a"))
                   org-air-leader-map)))))
 
+;;;; =====================================================================
+;;;; R30-3 — dashboard column toggles (defcustom-backed).
+;;;; =====================================================================
+
+(ert-deftest org-air-r30-3-default-hides-origin ()
+  "With defaults (`org-air-show-origin' nil, `-dates'/`-tags' t) the board
+renders NO origin column (`org-air-view--meta-origin-w' is 0) while the
+date and tag columns are present.  Trunk FAILED (origin shown)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (should (null org-air-show-origin))
+    (should org-air-show-dates)
+    (should org-air-show-tags)
+    (org-air-view--refresh-current)
+    (should (= org-air-view--meta-origin-w 0))
+    (should (> org-air-view--meta-date-w 0))
+    (should (> org-air-view--meta-tags-w 0))))
+
+(ert-deftest org-air-r30-3-toggle-origin-on ()
+  "`org-air-toggle-origin' flips `org-air-show-origin' to t and the
+re-render shows the origin cell (meta-origin-w > 0); toggling back hides
+it again (0)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (org-air-view--refresh-current)
+    (should (= org-air-view--meta-origin-w 0))
+    (call-interactively #'org-air-toggle-origin)
+    (should (eq org-air-show-origin t))
+    (should (> org-air-view--meta-origin-w 0))
+    (call-interactively #'org-air-toggle-origin)
+    (should (null org-air-show-origin))
+    (should (= org-air-view--meta-origin-w 0))))
+
+(ert-deftest org-air-r30-3-toggle-dates-tags-off ()
+  "Hiding dates zeroes the date width AND the repeat reserve; hiding tags
+zeroes the tag width; the flex title reclaims the freed width and no
+composed line overflows the window (V6 alignment holds)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (org-air-view--refresh-current)
+    (should (> org-air-view--meta-date-w 0))
+    (should (> org-air-view--meta-tags-w 0))
+    (setq-local org-air-show-dates nil
+                org-air-show-tags nil)
+    (org-air-view--refresh-current)
+    (should (= org-air-view--meta-date-w 0))
+    (should (= org-air-view--meta-date-repeat 0))
+    (should (= org-air-view--meta-tags-w 0))
+    ;; every composed line still fits the window (no overflow).
+    (org-air-r29--assert-lines-fit (get-buffer-window (current-buffer)))))
+
+(ert-deftest org-air-r30-3-hidden-data-still-queryable ()
+  "The toggles are DISPLAY-only: with the tag column HIDDEN,
+`org-air-filter' by a tag still narrows the board (the filter reads
+`org-air-item-tags' from the struct, not the rendered cell)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r27--with-live-board
+    (setq-local org-air-show-tags nil)
+    (org-air-view--refresh-current)
+    (should (= org-air-view--meta-tags-w 0))
+    (let* ((all org-air-view--items)
+           (total (length all))
+           (counts (make-hash-table :test 'equal))
+           tag)
+      (dolist (it all)
+        (dolist (tg (org-air-item-tags it))
+          (puthash tg (1+ (gethash tg counts 0)) counts)))
+      ;; a tag SOME but not ALL items carry (so the filter really narrows).
+      (maphash (lambda (tg c) (when (and (null tag) (> c 0) (< c total))
+                                (setq tag tg)))
+               counts)
+      (should tag)
+      (setq-local org-air-view--tag-filter (list tag))
+      (let* ((org-air-view--render-partition nil)
+             (narrowed (org-air-view--visible-items all)))
+        (should (< (length narrowed) total))
+        (should (> (length narrowed) 0))
+        ;; every surviving item really carries the hidden-column tag.
+        (dolist (it narrowed)
+          (should (member tag (org-air-item-tags it))))))))
+
+(ert-deftest org-air-r30-3-defcustoms-typed ()
+  "The three column toggles are boolean defcustoms in group `org-air' with
+the stated defaults (origin nil, dates t, tags t)."
+  (skip-unless (locate-library "org-air"))
+  (dolist (spec '((org-air-show-origin . nil)
+                  (org-air-show-dates . t)
+                  (org-air-show-tags . t)))
+    (let ((sym (car spec)))
+      (should (eq (get sym 'custom-type) 'boolean))
+      (should (custom-variable-p sym))
+      (should (eq (default-value sym) (cdr spec))))))
+
 (provide 'org-air-round30-test)
 ;;; org-air-round30-test.el ends here

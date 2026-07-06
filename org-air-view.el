@@ -504,6 +504,30 @@ bounded at every tier."
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-show-origin nil
+  "When non-nil, show the board FILENAME (origin) column (R30-3).
+Default nil: the filename is noise on the board, so the origin column is
+HIDDEN and reclaims its width for the flex title.  Toggled at runtime by
+`org-air-toggle-origin' (the `z f' display-column key); a display-only
+knob — filter/scope still read the item origin from the struct."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-show-dates t
+  "When non-nil (the default), show the board DATE/SCHEDULE column (R30-3).
+Toggled at runtime by `org-air-toggle-dates' (`z d').  Display-only: the
+date sort still orders rows when the column is hidden."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-show-tags t
+  "When non-nil (the default), show the board TAGS column (R30-3).
+Toggled at runtime by `org-air-toggle-tags' (`z t').  Display-only:
+`org-air-filter' still narrows by a hidden tag column (it reads
+`org-air-item-tags' from the struct, not the rendered cell)."
+  :type 'boolean
+  :group 'org-air)
+
 (define-obsolete-variable-alias 'org-air-title-min
   'org-air-title-min-width "org-air 0.5")
 
@@ -959,6 +983,50 @@ the editable doc buffer, where `RET' self-inserts."
   "Leader prefix map for the BOARD content buffer (R30-2).
 Installed at `org-air-leader-key' on `org-air-view-mode-map'.")
 
+;;;; =====================================================================
+;;;; R30-3 — dashboard column toggles (defcustom-backed display group).
+;;;; The origin/date/tag cluster columns hide/show through the EXISTING
+;;;; compute-once / V6 relock; a hidden column reclaims its width for the
+;;;; flex title.  A `z' display-column prefix keeps the flat board
+;;;; namespace clean; filter/scope still read the hidden data.
+;;;; =====================================================================
+
+(defun org-air-view--toggle-column (var label)
+  "Flip board column toggle VAR buffer-locally, re-render, echo (R30-3).
+VAR is one of `org-air-show-origin' / `-dates' / `-tags'; LABEL names the
+column for the echo.  Re-renders through the shared
+`org-air-view--refresh-current' (compute-once partition + V6 relock
+reused) so the hidden column's width reflows to the title and everything
+stays aligned."
+  (set (make-local-variable var) (not (symbol-value var)))
+  (org-air-view--refresh-current)
+  (message "org-air: %s column %s" label
+           (if (symbol-value var) "shown" "hidden")))
+
+(defun org-air-toggle-origin ()
+  "Toggle the board FILENAME (origin) column (R30-3).  Key `z f'."
+  (interactive)
+  (org-air-view--toggle-column 'org-air-show-origin "origin"))
+
+(defun org-air-toggle-dates ()
+  "Toggle the board DATE/SCHEDULE column (R30-3).  Key `z d'."
+  (interactive)
+  (org-air-view--toggle-column 'org-air-show-dates "dates"))
+
+(defun org-air-toggle-tags ()
+  "Toggle the board TAGS column (R30-3).  Key `z t'."
+  (interactive)
+  (org-air-view--toggle-column 'org-air-show-tags "tags"))
+
+(defvar org-air-columns-prefix-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "f") #'org-air-toggle-origin)
+    (define-key map (kbd "d") #'org-air-toggle-dates)
+    (define-key map (kbd "t") #'org-air-toggle-tags)
+    map)
+  "Display-column toggle prefix map (R30-3), bound to `z' on the board.
+`z f' origin (Filename), `z d' dates, `z t' tags.")
+
 (defvar org-air-view-core-map
   (let ((map (make-sparse-keymap)))
     ;; Keep the `special-mode' defaults reachable below the shared core.
@@ -1050,6 +1118,9 @@ both views; per-mode domain verbs stay in each child map.")
     (define-key map (kbd "<") #'org-air-calendar-prev)
     (define-key map (kbd ">") #'org-air-calendar-next)
     (define-key map (kbd ".") #'org-air-calendar-today)
+    ;; R30-3: the `z' display-column toggle group (vim view/fold family;
+    ;; ours wins under the R27-4 overriding map).
+    (define-key map (kbd "z") org-air-columns-prefix-map)
     (define-key map (kbd "?") #'org-air-help)
     ;; R16 D-P3 / R18 D-P3: v/V open+close the bottom view pane — inherited
     ;; from `org-air-view-core-map' now (shared with the project).
@@ -2377,12 +2448,21 @@ least `org-air-title-min-width': the origin shrinks toward
 column is held.  This INVERTS the never-wired D2 origin-protected
 priority -- the title is the row's primary identity and is protected
 first."
-  (let ((dw org-air-date-column) (tw 0) (ow 0) (rep 0) (tw-todo 0))
+  ;; R30-3: each cluster column is GATED at the width pass by its
+  ;; defcustom toggle.  A hidden column seeds/accumulates 0 width, so
+  ;; `org-air-view--insert-row' skips the cell (its `(when (> col 0))'
+  ;; guards already exist) and the freed columns flow to the flex title
+  ;; via the SAME title-min fit pass — V6 alignment holds by construction
+  ;; (the widths are recomputed every render, so the relock is automatic).
+  (let ((dw (if org-air-show-dates org-air-date-column 0))
+        (tw 0) (ow 0) (rep 0) (tw-todo 0))
     (dolist (descriptor org-air-view--sections)
       (let* ((bucket (car descriptor))
              (bucket-items (org-air-view--displayed-items-for-bucket bucket items)))
         (dolist (item bucket-items)
-          (when (org-air-view--item-repeat-timestamp item) (setq rep 2))
+          (when (and org-air-show-dates
+                     (org-air-view--item-repeat-timestamp item))
+            (setq rep 2))
           (setq tw-todo (max tw-todo
                              (string-width (or (org-air-item-todo item) ""))))
           (let* ((date (org-air-view--date-label item bucket))
@@ -2390,14 +2470,16 @@ first."
                  (n (length tags))
                  (ts (org-air-view--item-tagstr
                       tags (min org-air-tags-inline-max n) n)))
-            (when date
+            (when (and org-air-show-dates date)
               (setq dw (max dw (+ (string-width (car date))
                                   (if (eq org-air-date-style 'pill)
                                       (* 2 (max 0 org-air-pill-pad-cols))
                                     0)))))
-            (setq tw (max tw (string-width ts)))
-            (setq ow (max ow (string-width
-                              (org-air-view--item-origin-raw item))))))))
+            (when org-air-show-tags
+              (setq tw (max tw (string-width ts))))
+            (when org-air-show-origin
+              (setq ow (max ow (string-width
+                                (org-air-view--item-origin-raw item)))))))))
     ;; R17 piece C: the per-item origin TEXT is already capped at the
     ;; source (`org-air-view--origin-capped'), so OW is inherently <= the
     ;; cap; clamp anyway (belt-and-braces -- width and rendered cell agree).
@@ -2865,6 +2947,13 @@ so the board byte goldens are byte-identical by default."
         ;; the banner indicator stayed suppressed).
         (sort-key org-air-view--sort-key)
         (sort-direction org-air-view--sort-direction)
+        ;; R30-3: carry the buffer-local column toggles into the pane temp
+        ;; buffer so the meta-width pass composes with the SAME hidden/
+        ;; shown columns the user toggled (else it falls back to the
+        ;; global defaults and the toggle appears to do nothing).
+        (show-origin org-air-show-origin)
+        (show-dates org-air-show-dates)
+        (show-tags org-air-show-tags)
         ;; R26-8: carry the refresh-machine state (and the loading flag) so
         ;; the banner's count slot can show the honest stale/progress marker
         ;; from inside the composing temp buffer.
@@ -2888,6 +2977,9 @@ so the board byte goldens are byte-identical by default."
             (org-air-view--rail-descriptor rail-descriptor)
             (org-air-view--sort-key sort-key)
             (org-air-view--sort-direction sort-direction)
+            (org-air-show-origin show-origin)
+            (org-air-show-dates show-dates)
+            (org-air-show-tags show-tags)
             (org-air-view--loading loading)
             (org-air-view--refresh-state refresh-state)
             (org-air-view--refresh-queue refresh-queue)
@@ -6881,7 +6973,7 @@ board (R6); only then does a press quit org-air itself — rail teardown +
   ;; narrowing (multi-tag, AND/OR), Scope is the structural LENS.
   (if (derived-mode-p 'org-air-project-mode)
       (message "org-air project: RET open (same window), S-RET visit other window, ( flip filename↔title, o/O sort cycle/reverse, s/d/t group state/dir/tag, / filter · \\ clear · M-/ AND↔OR, | rail, v peek pane, g refresh, q quit")
-    (message "org-air: n/p items, TAB sections, RET visit, c capture, r refile, / filter (tags, live) · \\ clear · M-/ AND↔OR, s scope (lens: file/group/all) · S clear, g refresh, q quit")))
+    (message "org-air: n/p items, TAB sections, RET visit, c capture, r refile, / filter (tags, live) · \\ clear · M-/ AND↔OR, s scope (lens: file/group/all) · S clear, z columns (z f origin/z d dates/z t tags), g refresh, q quit")))
 
 ;;;###autoload
 (defun org-air-visit-item (&optional item display)

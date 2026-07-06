@@ -1768,16 +1768,11 @@ in the rail jumps the main window to that heading."
 
 (defun org-air-project--doc-back-key (docbuf)
   "Return the key text for the session back verb LIVE in DOCBUF (R28-3).
-`where-is-internal' on `org-air-project-back' in the session buffer's own
-context (FIRSTONLY — an evil/custom rebinding shows whatever is really
-bound there).  Defensive fallback when the lookup fails or DOCBUF is
-dead: the literal text of `org-air-doc-session-mode-map's own binding —
-the legend can never regress to the self-inserting `q'."
-  (or (and (buffer-live-p docbuf)
-           (with-current-buffer docbuf
-             (let ((key (where-is-internal #'org-air-project-back nil t)))
-               (and key (key-description key)))))
-      "C-c C-q"))
+R30-2: a thin wrapper over the generalised `org-air-view--legend-key' —
+the same `where-is' derivation with the session map's own back binding as
+the defensive fallback — so the legend can never regress to the
+self-inserting `q'."
+  (org-air-view--legend-key #'org-air-project-back docbuf "C-c C-q"))
 
 (defvar org-air-rail--outline-timer nil
   "Single debounce slot for the R28-4 rail-outline highlight tick.
@@ -1874,10 +1869,21 @@ WIDTH starts a NEW inset row — wrap, never overflow."
   (org-air-view--rail-header "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
          (gap (if (>= width 38) "    " " "))
+         ;; R30-2: EVERY cell's key is derived from the LIVE binding in
+         ;; DOCBUF via `org-air-view--legend-key' — `RET'/`|' self-insert
+         ;; in the editable doc buffer, so the legend shows the LEADER
+         ;; form (C-c C-a o / C-c C-a |) that is actually reachable there.
          (cells (list (org-air-view--verb-cell
                        (org-air-project--doc-back-key docbuf) "back" 0)
-                      (org-air-view--verb-cell "RET" "jump" 0)
-                      (org-air-view--verb-cell "|" "rail" 0)))
+                      (org-air-view--verb-cell
+                       (org-air-view--legend-key
+                        #'org-air-outline-goto-current-heading docbuf
+                        "C-c C-a o")
+                       "jump" 0)
+                      (org-air-view--verb-cell
+                       (org-air-view--legend-key
+                        #'org-air-rail-toggle docbuf "C-c C-a |")
+                       "rail" 0)))
          (line inset))
     (dolist (cell cells)
       (cond
@@ -1929,6 +1935,27 @@ The doc-session leg of `org-air-view--refresh-current' (the `|' toggle)."
     (define-key map [remap quit-window] #'org-air-project-back)
     map)
   "Keymap for `org-air-doc-session-mode' (R26-5).")
+
+(defvar org-air-doc-leader-map
+  (let ((map (make-sparse-keymap)))
+    ;; R30-2: the doc-session subset of the main-window leader — rail
+    ;; toggle, outline jump/next/prev, and the session back verb, all
+    ;; reachable from the EDITABLE doc org buffer where single keys
+    ;; self-insert.  Every binding reuses an existing command (no fork).
+    (define-key map (kbd "|") #'org-air-rail-toggle)
+    (define-key map (kbd "o") #'org-air-outline-goto-current-heading)
+    (define-key map (kbd "n") #'org-air-outline-next-heading)
+    (define-key map (kbd "p") #'org-air-outline-prev-heading)
+    (define-key map (kbd "q") #'org-air-project-back)
+    map)
+  "Leader prefix map for the doc-session content buffer (R30-2).
+Installed at `org-air-leader-key' on `org-air-doc-session-mode-map'.  The
+direct back binding still wins `where-is', so the R28-3 back legend is
+unchanged; this leader is purely ADDITIVE.")
+
+;; R30-2: install the leader on the doc-session map (nav/back/rail subset).
+(org-air-view--leader-install org-air-doc-session-mode-map
+                              org-air-doc-leader-map)
 
 (define-minor-mode org-air-doc-session-mode
   "Minor mode in a doc FILE buffer opened from the project tree (R26-5).
@@ -2037,6 +2064,24 @@ the rail on screen."
     (define-key map (kbd "q") #'org-air-project-quit)
     map)
   "Keymap for `org-air-project-mode'.")
+
+(defvar org-air-project-leader-map
+  (let ((map (make-sparse-keymap)))
+    ;; R30-2: the project's main-window leader subset — rail toggle,
+    ;; outline jump, the shared sort, and the PROJECT doc-tag filter
+    ;; (`/' on the project map is `org-air-project-filter', not the
+    ;; board's `org-air-filter').  All existing commands (no fork).
+    (define-key map (kbd "|") #'org-air-rail-toggle)
+    (define-key map (kbd "o") #'org-air-rail-return)
+    (define-key map (kbd "s") #'org-air-view-sort-cycle)
+    (define-key map (kbd "/") #'org-air-project-filter)
+    map)
+  "Leader prefix map for the project content buffer (R30-2).
+Installed at `org-air-leader-key' on `org-air-project-mode-map'.")
+
+;; R30-2: install the leader on the project map (filter/sort/rail subset).
+(org-air-view--leader-install org-air-project-mode-map
+                              org-air-project-leader-map)
 
 (define-derived-mode org-air-project-mode special-mode "Org-Air-Project"
   "Major mode for the Air-docs project tree view (F5)."

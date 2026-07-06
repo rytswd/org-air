@@ -837,6 +837,128 @@ of whether the wrapping pane margin is added later (D6).")
   "Transient g-prefix map (B4): r refresh, g top of pane, R refresh+clear.
 R22-3: g RET visit, g o visit-stay (o/O are the shared sort now).")
 
+;;;; =====================================================================
+;;;; R30-2 — a main-window C-c LEADER for the rail actions.  The rail/
+;;;; legend advertises verbs (RET jump, `|' rail, outline nav) that only
+;;;; fire when the SIDE WINDOW is focused; from the editable doc-session
+;;;; org buffer single keys self-insert.  A shared `C-c' leader prefix
+;;;; installed on the content buffers reuses the EXISTING commands, and
+;;;; the legend derives each key context-correctly via `where-is'.
+;;;; =====================================================================
+
+(defvar org-air-view--leader-installs nil
+  "List of (HOST-MAP . PREFIX-MAP) leader installs to keep synced (R30-2).
+Each registered pair is re-bound whenever `org-air-leader-key' changes so
+the leader prefix follows a user rebinding.")
+
+(defvar org-air-view--leader-installed-key nil
+  "The key sequence at which the leader prefix is currently installed (R30-2).")
+
+(defcustom org-air-leader-key "C-c C-a"
+  "Key sequence for the org-air main-window action leader (R30-2).
+A clean, org-safe `C-c C-<letter>' prefix (mnemonic: Air) that does not
+collide with org-mode's own `C-c' bindings in the doc session and is left
+alone by evil in normal AND insert state.  Rebinding it re-installs the
+leader prefix on every content buffer's map (the legend follows via
+`where-is')."
+  :type 'key-sequence
+  :group 'org-air
+  :set (lambda (sym val)
+         (set-default sym val)
+         (when (fboundp 'org-air-view--leader-reinstall)
+           (org-air-view--leader-reinstall))))
+
+(defun org-air-view--leader-reinstall ()
+  "Re-bind every registered leader prefix at the current `org-air-leader-key'.
+Unbinds the previous key first (a no-op on a fresh install), so a
+`org-air-leader-key' change moves the prefix without leaving the old one
+bound.  The legend follows automatically (it derives keys via
+`where-is')."
+  (dolist (pair org-air-view--leader-installs)
+    (when (and org-air-view--leader-installed-key
+               (not (equal org-air-view--leader-installed-key
+                           org-air-leader-key)))
+      (define-key (car pair) (kbd org-air-view--leader-installed-key) nil))
+    (define-key (car pair) (kbd org-air-leader-key) (cdr pair)))
+  (setq org-air-view--leader-installed-key org-air-leader-key))
+
+(defun org-air-view--leader-install (host-map prefix-map)
+  "Bind PREFIX-MAP at `org-air-leader-key' in HOST-MAP (R30-2).
+Registers the pair so a later `org-air-leader-key' change re-installs it
+via `org-air-view--leader-reinstall'.  Returns PREFIX-MAP."
+  (cl-pushnew (cons host-map prefix-map) org-air-view--leader-installs
+              :test #'equal)
+  (define-key host-map (kbd org-air-leader-key) prefix-map)
+  (setq org-air-view--leader-installed-key org-air-leader-key)
+  prefix-map)
+
+(defun org-air-view--legend-key (command buffer &optional fallback)
+  "Return the key text for COMMAND live in BUFFER, or FALLBACK (R30-2).
+`where-is-internal' FIRSTONLY on COMMAND resolved in BUFFER's OWN active
+keymaps (so an evil/custom rebinding shows what is really bound there),
+formatted via `key-description'.  In a read-only rail this returns the
+BARE key (RET, `|'); in the editable doc buffer where those keys
+self-insert it returns the LEADER form (C-c C-a o, C-c C-a |).  The one
+derivation every legend cell shares — the legend can never lie about
+reachability."
+  (or (and (buffer-live-p buffer)
+           (with-current-buffer buffer
+             (let ((key (where-is-internal command nil t)))
+               (and key (key-description key)))))
+      fallback))
+
+(defun org-air-outline--heading-positions ()
+  "Return the buffer positions of the Org headings in the current buffer.
+A pure `^\\*+[ \\t]+' scan (R26-5 shape) — no Org re-parse, no Air struct;
+reused by the R30-2 leader outline motions and the R30-4 outline mode."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let (ps)
+        (while (re-search-forward "^\\*+[ \t]+" nil t)
+          (push (match-beginning 0) ps))
+        (nreverse ps)))))
+
+(defun org-air-outline-next-heading ()
+  "Move point to the next Org heading in this buffer (R30-2 leader `n')."
+  (interactive)
+  (let ((next (cl-find-if (lambda (p) (> p (point)))
+                          (org-air-outline--heading-positions))))
+    (if next (goto-char next)
+      (message "org-air: no next heading"))))
+
+(defun org-air-outline-prev-heading ()
+  "Move point to the previous Org heading in this buffer (R30-2 leader `p')."
+  (interactive)
+  (let ((prev (cl-find-if (lambda (p) (< p (line-beginning-position)))
+                          (reverse (org-air-outline--heading-positions)))))
+    (if prev (goto-char prev)
+      (message "org-air: no previous heading"))))
+
+(defun org-air-outline-goto-current-heading ()
+  "Jump to the Org heading enclosing point — the outline anchor (R30-2 `o').
+Reuses the same heading scan as the rail outline: the `jump' verb from
+the editable doc buffer, where `RET' self-inserts."
+  (interactive)
+  (let ((cur (cl-find-if (lambda (p) (<= p (point)))
+                         (reverse (org-air-outline--heading-positions)))))
+    (if cur (goto-char cur)
+      (message "org-air: point is before the first heading"))))
+
+(defvar org-air-leader-map
+  (let ((map (make-sparse-keymap)))
+    ;; Board/project content buffers: rail toggle, outline jump, the
+    ;; shared sort, the per-view filter — all EXISTING commands, reached
+    ;; from the main window under the `C-c' leader (never a fork).
+    (define-key map (kbd "|") #'org-air-rail-toggle)
+    (define-key map (kbd "o") #'org-air-rail-return)
+    (define-key map (kbd "s") #'org-air-view-sort-cycle)
+    (define-key map (kbd "/") #'org-air-filter)
+    map)
+  "Leader prefix map for the BOARD content buffer (R30-2).
+Installed at `org-air-leader-key' on `org-air-view-mode-map'.")
+
 (defvar org-air-view-core-map
   (let ((map (make-sparse-keymap)))
     ;; Keep the `special-mode' defaults reachable below the shared core.
@@ -934,6 +1056,11 @@ both views; per-mode domain verbs stay in each child map.")
     (define-key map (kbd "q") #'org-air-quit)
     map)
   "Keymap for `org-air-view-mode'.")
+
+;; R30-2: install the main-window leader on the board map so the rail
+;; actions (rail toggle, outline jump, sort, filter) are reachable from
+;; the board content buffer under `C-c C-a', not only the side window.
+(org-air-view--leader-install org-air-view-mode-map org-air-leader-map)
 
 (defalias 'org-air-mode-map 'org-air-view-mode-map)
 

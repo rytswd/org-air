@@ -468,15 +468,18 @@ line exceeds the width and the derived key cell is present UNSPLIT; at
           (should (<= (string-width ln) w)))
         (should (cl-some (lambda (ln) (string-match-p "C-c C-q back" ln))
                          lines)))))
+  ;; R30-2: the doc legend now shows the LEADER forms (jump/rail self-
+  ;; insert in the editable doc buffer), so at 42 the three (wider) cells
+  ;; wrap across rows — each cell present UNSPLIT, no line over width.
   (with-temp-buffer
     (org-air-project--insert-doc-actions 42 nil)
     (let ((lines (split-string (substring-no-properties (buffer-string))
                                "\n" t)))
-      (should (cl-some (lambda (ln)
-                         (and (string-match-p "C-c C-q back" ln)
-                              (string-match-p "RET jump" ln)
-                              (string-match-p "| rail" ln)))
-                       lines)))))
+      (dolist (ln lines)
+        (should (<= (string-width ln) 42)))
+      (dolist (cell '("C-c C-q back" "C-c C-a o jump" "C-c C-a | rail"))
+        (should (cl-some (lambda (ln) (string-match-p (regexp-quote cell) ln))
+                         lines))))))
 
 (ert-deftest org-air-r28-3-tree-legend-unchanged ()
   "The TREE-context 3×3 Actions table still renders its real cells — the

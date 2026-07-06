@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-29 DESIGN: fringe-less GUI x-overflow — one-column host-width divergence · command-agnostic title snap (evil cursor stuck at column 0)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:rail:gui:evil:motion:design:v0.5:
 
 * Scope of this document

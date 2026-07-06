@@ -4195,6 +4195,239 @@ pointer (R15 D-P2).")
 (defvar-local org-air-rail--window nil
   "Cached side window showing the rail buffer, validated before use (R15 D-P2).")
 
+;;;; =====================================================================
+;;;; R30-4 — org-air-outline-mode: a generic, opt-in outline rail for ANY
+;;;; org buffer, reusing the SAME rail descriptor seam + current-heading
+;;;; highlight the doc session uses, with NO org-air-project dependency.
+;;;; The two primitives below are the extracted generic core (the project
+;;;; keeps thin wrappers over them, byte-identical outputs).
+;;;; =====================================================================
+
+(defun org-air-outline--headings (buffer)
+  "Return BUFFER's Org outline as a list of (LEVEL TITLE POS) (R30-4).
+A pure `^\\*+[ \\t]+' heading scan — no Air struct, no project, no airctl.
+Relocated from `org-air-project--doc-outline' (which keeps a thin alias)."
+  (with-current-buffer buffer
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        (let (rows)
+          (while (re-search-forward "^\\(\\*+\\)[ \t]+\\(.*\\)$" nil t)
+            (push (list (length (match-string 1))
+                        (string-trim (match-string-no-properties 2))
+                        (match-beginning 0))
+                  rows))
+          (nreverse rows))))))
+
+(defvar org-air-rail--outline-overlay nil
+  "The ONE current-heading overlay in the rail outline (R28-4/R30-4).
+Overlay-only: overlays are not buffer text, so the rail byte goldens
+\(`buffer-substring' reads) never move.  Deleted (no highlight) on any
+error — graceful degrade, never flicker.  Shared by the doc session and
+the generic `org-air-outline-mode' (only one rail exists at a time).")
+
+(defun org-air-rail--outline-highlight-clear ()
+  "Delete the rail-outline overlay (the no-highlight degrade) (R28-4)."
+  (when (overlayp org-air-rail--outline-overlay)
+    (delete-overlay org-air-rail--outline-overlay)))
+
+(defun org-air-outline--highlight-update (source-buf rail-buf)
+  "Move the single current-heading overlay in RAIL-BUF for point in SOURCE-BUF.
+The generic R28-4 core (Air-free): the current heading is the LAST rail
+outline row whose `org-air-doc-heading-pos' is <= point in SOURCE-BUF (a
+linear scan over the rail's few rows — no Org re-parse).  Paints by
+`move-overlay' of the single overlay — NO re-render, NO buffer text
+change.  Wrapped in `condition-case': on ANY error the overlay is deleted
+— no highlight, never a flicker or a message."
+  (condition-case nil
+      (let ((pt (and (buffer-live-p source-buf)
+                     (with-current-buffer source-buf (point)))))
+        (if (not (and pt (buffer-live-p rail-buf)))
+            (org-air-rail--outline-highlight-clear)
+          (with-current-buffer rail-buf
+            (let (row-bol row-eol)
+              (save-excursion
+                (goto-char (point-min))
+                (while (not (eobp))
+                  (let ((hp (get-text-property
+                             (point) 'org-air-doc-heading-pos)))
+                    (when (and hp (<= hp pt))
+                      (setq row-bol (line-beginning-position)
+                            row-eol (line-end-position))))
+                  (forward-line 1)))
+              (if (null row-bol)
+                  (org-air-rail--outline-highlight-clear)
+                (if (overlayp org-air-rail--outline-overlay)
+                    (move-overlay org-air-rail--outline-overlay
+                                  row-bol row-eol rail-buf)
+                  (setq org-air-rail--outline-overlay
+                        (make-overlay row-bol row-eol rail-buf))
+                  (overlay-put org-air-rail--outline-overlay
+                               'face 'org-air-face-outline-current)
+                  (overlay-put org-air-rail--outline-overlay
+                               'evaporate t)))))))
+    (error (org-air-rail--outline-highlight-clear))))
+
+(defcustom org-air-outline-rail-placement 'side-window
+  "Where `org-air-outline-mode' hosts its outline rail (R30-4).
+Mirrors `org-air-rail-placement' so the generic mode honours the same
+placement grammar; `side-window' (the default) pops the rail into a
+native side window."
+  :type '(choice (const :tag "side window" side-window)
+                 (const :tag "inline" inline))
+  :group 'org-air)
+
+(defun org-air-outline--buffer-title (buffer)
+  "Return BUFFER's `#+title:' value, or its buffer name (R30-4)."
+  (with-current-buffer buffer
+    (or (save-excursion
+          (save-restriction
+            (widen)
+            (goto-char (point-min))
+            (when (re-search-forward "^#\\+title:[ \t]*\\(.*\\)$" nil t)
+              (let ((s (string-trim (match-string-no-properties 1))))
+                (unless (string-empty-p s) s)))))
+        (buffer-name buffer))))
+
+(defun org-air-outline--insert-context (source-buf width)
+  "Insert the generic outline rail body for SOURCE-BUF at WIDTH (R30-4).
+The buffer `#+title:' (or name) as the meta line — NO state badge — then
+the Outline: one row per heading, indented by level, each carrying
+`org-air-doc-heading-pos' so RET in the rail jumps the main window there."
+  (let ((inset (org-air-view--rail-inset-str width)))
+    (org-air-view--rail-header "Document" width)
+    (insert (org-air-view--pad-to
+             (concat inset (propertize (org-air-outline--buffer-title source-buf)
+                                       'face 'org-air-face-title))
+             width)
+            "\n")
+    (insert "\n")
+    (org-air-view--rail-header "Outline" width)
+    (let ((rows (org-air-outline--headings source-buf)))
+      (if (null rows)
+          (insert (org-air-view--pad-to
+                   (concat inset (propertize "no headings"
+                                             'face 'org-air-face-faded))
+                   width)
+                  "\n")
+        (pcase-dolist (`(,level ,title ,pos) rows)
+          (insert (propertize
+                   (org-air-view--pad-to
+                    (concat inset (make-string (* 2 (1- level)) ?\s) title)
+                    width)
+                   'org-air-doc-heading-pos pos)
+                  "\n"))))))
+
+(defun org-air-outline--insert-actions (width _source-buf)
+  "Insert the generic outline rail Actions legend at WIDTH (R30-4).
+The reachable rail keys, derived (R30-2 `org-air-view--legend-key') from
+the rail buffer where the legend lives: `RET jump' and `| rail'."
+  (org-air-view--rail-header "Actions" width)
+  (let* ((inset (org-air-view--rail-inset-str width))
+         (gap (if (>= width 38) "    " " "))
+         (rail (get-buffer org-air-rail-buffer-name))
+         (cells (list (org-air-view--verb-cell
+                       (org-air-view--legend-key #'org-air-rail-return
+                                                 rail "RET")
+                       "jump" 0)
+                      (org-air-view--verb-cell
+                       (org-air-view--legend-key #'org-air-rail-popin
+                                                 rail "|")
+                       "rail" 0)))
+         (line inset))
+    (dolist (cell cells)
+      (cond
+       ((equal line inset) (setq line (concat line cell)))
+       ((<= (+ (string-width line) (string-width gap) (string-width cell))
+            width)
+        (setq line (concat line gap cell)))
+       (t (insert (org-air-view--pad-to line width) "\n")
+          (setq line (concat inset cell)))))
+    (unless (equal line inset)
+      (insert (org-air-view--pad-to line width) "\n"))))
+
+(defun org-air-outline--rail-descriptor (source-buf)
+  "Return the generic outline rail descriptor for SOURCE-BUF (R30-4).
+The SAME `:outline-fn' + `:actions-fn' seam the doc session uses — one
+renderer, parameterised, never forked."
+  (list :outline-fn (lambda (w)
+                      (org-air-outline--insert-context source-buf w))
+        :actions-fn (lambda (w)
+                      (org-air-outline--insert-actions w source-buf))))
+
+(defun org-air-outline--rail-show (buffer)
+  "Show/re-render the outline side rail owned by BUFFER (R30-4).
+Measures the window's USABLE columns (R29-1) so a fringe-less GUI never
+composes past the displayable area."
+  (let ((win (get-buffer-window buffer)))
+    (org-air-rail--show buffer (if (window-live-p win)
+                                   (max 40 (org-air-layout--usable-columns win))
+                                 80))))
+
+;; Forward declaration so the debounce hook (defined before the
+;; `define-minor-mode') can reference the mode variable without a
+;; free-variable warning; `define-minor-mode' below sets it up fully.
+(defvar org-air-outline-mode nil)
+
+(defvar org-air-outline--timer nil
+  "Single debounce slot for the `org-air-outline-mode' highlight tick (R30-4).")
+
+(defun org-air-outline--highlight-tick (buffer)
+  "Timer body: re-place the outline highlight for BUFFER (R30-4)."
+  (setq org-air-outline--timer nil)
+  (org-air-outline--highlight-update buffer
+                                     (get-buffer org-air-rail-buffer-name)))
+
+(defun org-air-outline--post-command ()
+  "Buffer-local hook: schedule the DEBOUNCED outline highlight (R30-4).
+Interactive-only; ONE idle timer slot, rescheduled — never stacked."
+  (when (and (not noninteractive) org-air-outline-mode)
+    (when (timerp org-air-outline--timer)
+      (cancel-timer org-air-outline--timer))
+    (setq org-air-outline--timer
+          (run-with-idle-timer 0.1 nil
+                               #'org-air-outline--highlight-tick
+                               (current-buffer)))))
+
+(defun org-air-outline--teardown (buffer)
+  "Tear down BUFFER's outline rail: timer, overlay, and the rail (R30-4)."
+  (when (timerp org-air-outline--timer)
+    (cancel-timer org-air-outline--timer))
+  (setq org-air-outline--timer nil)
+  (org-air-rail--outline-highlight-clear)
+  (let ((rail (get-buffer org-air-rail-buffer-name)))
+    (when (and (buffer-live-p rail)
+               (eq (buffer-local-value 'org-air-rail--board-buffer rail)
+                   buffer))
+      (org-air-rail--hide buffer))))
+
+;;;###autoload
+(define-minor-mode org-air-outline-mode
+  "Opt-in outline rail for ANY Org buffer (R30-4).
+Enabling in an `org-mode' buffer pops the org-air context rail showing
+this buffer's headings (via the SAME rail descriptor seam the doc session
+uses) and follows point with the R28-4 current-heading highlight.  NO
+dependency on `org-air-project' / org-ql / airctl — a light, generic
+scaffold.  Off by default; a no-op outside `org-mode'."
+  :lighter " ◦outline"
+  :group 'org-air
+  (if org-air-outline-mode
+      (if (not (derived-mode-p 'org-mode))
+          ;; soft: enabling in a non-org buffer is a no-op.
+          (setq org-air-outline-mode nil)
+        (setq-local org-air-view--rail-descriptor
+                    (org-air-outline--rail-descriptor (current-buffer)))
+        (setq-local org-air-view--rail-popped-out t)
+        (org-air-outline--rail-show (current-buffer))
+        (unless noninteractive
+          (add-hook 'post-command-hook
+                    #'org-air-outline--post-command nil t)))
+    (remove-hook 'post-command-hook #'org-air-outline--post-command t)
+    (org-air-outline--teardown (current-buffer))
+    (kill-local-variable 'org-air-view--rail-descriptor)
+    (kill-local-variable 'org-air-view--rail-popped-out)))
+
 (defvar org-air-rail-mode-map
   (let ((map (make-sparse-keymap)))
     ;; R16 D-P1: the rail is `other-window'-reachable now; `q' from inside

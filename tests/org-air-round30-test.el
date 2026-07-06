@@ -402,5 +402,164 @@ the stated defaults (origin nil, dates t, tags t)."
       (should (custom-variable-p sym))
       (should (eq (default-value sym) (cdr spec))))))
 
+;;;; =====================================================================
+;;;; R30-4 — org-air-outline-mode: generic opt-in outline rail.
+;;;; =====================================================================
+
+(defmacro org-air-r30--with-outline-buffer (&rest body)
+  "Show a plain (non-Air) Org buffer with THREE headings in a live window.
+BODY runs in that buffer (its window selected), with `noninteractive'
+nil so the rail really pops and the aux buffers reset around it."
+  (declare (indent 0) (debug t))
+  `(save-window-excursion
+     (org-air-r27--kill-aux-buffers)
+     (org-air-r27--reset-rail-globals)
+     (let ((noninteractive nil)
+           (org-air-rail-min-width 40)
+           (buf (get-buffer-create "*org-air-r30-outline*")))
+       (unwind-protect
+           (with-current-buffer buf
+             (let ((inhibit-read-only t)) (erase-buffer))
+             (org-mode)
+             (insert "#+title: Plain Notes\n"
+                     "* Alpha\nalpha body\n"
+                     "** Beta\nbeta body\n"
+                     "* Gamma\ngamma body\n")
+             (goto-char (point-min))
+             (switch-to-buffer buf)
+             (delete-other-windows)
+             ,@body)
+         (with-current-buffer buf
+           (when (bound-and-true-p org-air-outline-mode)
+             (org-air-outline-mode -1)))
+         (org-air-r27--reset-rail-globals)
+         (org-air-r27--kill-aux-buffers)
+         (when (buffer-live-p buf)
+           (with-current-buffer buf (set-buffer-modified-p nil))
+           (kill-buffer buf))))))
+
+(ert-deftest org-air-r30-4-headings-primitive-generic ()
+  "`org-air-outline--headings' over a plain (non-Air) Org buffer returns
+the (LEVEL TITLE POS) rows; the project's `org-air-project--doc-outline'
+is byte-identical (the alias holds)."
+  (skip-unless (locate-library "org-air"))
+  (with-temp-buffer
+    (org-mode)
+    (insert "* One\n** Two\n* Three\n")
+    (let ((rows (org-air-outline--headings (current-buffer))))
+      (should (equal (mapcar (lambda (r) (list (nth 0 r) (nth 1 r)))
+                             rows)
+                     '((1 "One") (2 "Two") (1 "Three"))))
+      ;; every row carries a real buffer position.
+      (dolist (r rows) (should (integerp (nth 2 r))))
+      ;; the project alias is byte-identical.
+      (should (equal rows
+                     (org-air-project--doc-outline (current-buffer)))))))
+
+(ert-deftest org-air-r30-4-outline-mode-pops-rail ()
+  "Enabling `org-air-outline-mode' in a plain Org buffer pops the rail and
+the rail shows the buffer's headings (one row per heading, carrying
+`org-air-doc-heading-pos'); disabling tears it down (no timer, no
+overlay, rail hidden)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r30--with-outline-buffer
+    (org-air-outline-mode 1)
+    (should org-air-outline-mode)
+    (let ((rail (get-buffer org-air-rail-buffer-name)))
+      (should (buffer-live-p rail))
+      (should (window-live-p (get-buffer-window rail)))
+      (with-current-buffer rail
+        (let ((text (substring-no-properties (buffer-string)))
+              (heads 0))
+          (should (string-match-p "Alpha" text))
+          (should (string-match-p "Beta" text))
+          (should (string-match-p "Gamma" text))
+          ;; three rows carry the heading-pos property.
+          (save-excursion
+            (goto-char (point-min))
+            (while (not (eobp))
+              (when (get-text-property (point) 'org-air-doc-heading-pos)
+                (cl-incf heads))
+              (forward-line 1)))
+          (should (= heads 3)))))
+    ;; disable: teardown.
+    (org-air-outline-mode -1)
+    (should-not org-air-outline-mode)
+    (should (null org-air-outline--timer))
+    ;; the overlay is cleared (deleted -> detached from any buffer); the
+    ;; object may linger in the global slot but paints nothing.
+    (should-not (and (overlayp org-air-rail--outline-overlay)
+                     (overlay-buffer org-air-rail--outline-overlay)))
+    (let ((rail (get-buffer org-air-rail-buffer-name)))
+      (should-not (and rail (window-live-p (get-buffer-window rail)))))))
+
+(ert-deftest org-air-r30-4-highlight-follows-point ()
+  "Moving point past a heading in the plain Org buffer moves the single
+overlay onto the corresponding rail row (the R28-4 core, Air-free);
+degrades to no-highlight (never signals) when there is no rail."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r30--with-outline-buffer
+    (org-air-outline-mode 1)
+    (let ((rail (get-buffer org-air-rail-buffer-name))
+          (heads (org-air-outline--headings (current-buffer))))
+      ;; point inside the Beta section -> overlay on the Beta rail row.
+      (goto-char (+ (nth 2 (nth 1 heads)) 3))
+      (org-air-outline--highlight-update (current-buffer) rail)
+      (should (overlayp org-air-rail--outline-overlay))
+      (with-current-buffer rail
+        (let ((row (buffer-substring-no-properties
+                    (overlay-start org-air-rail--outline-overlay)
+                    (overlay-end org-air-rail--outline-overlay))))
+          (should (string-match-p "Beta" row))))
+      ;; point before the first heading -> no current row (overlay cleared
+      ;; to a zero-length / detached state, never an error).
+      (goto-char (point-min))
+      (org-air-outline--highlight-update (current-buffer) rail)
+      ;; a dead rail buffer degrades silently (no signal).
+      (should-not (org-air-outline--highlight-update
+                   (current-buffer) (generate-new-buffer " *dead*"))))))
+
+(ert-deftest org-air-r30-4-off-by-default ()
+  "The mode is nil unless enabled; a plain Org buffer has no rail and no
+overlay until `org-air-outline-mode' is turned on."
+  (skip-unless (locate-library "org-air"))
+  (with-temp-buffer
+    (org-mode)
+    (should-not (bound-and-true-p org-air-outline-mode))))
+
+(ert-deftest org-air-r30-4-no-air-dependency ()
+  "`org-air-outline-mode' loads + functions with `org-air-project' NOT
+required: in a FRESH batch Emacs only `org-air-view' is loaded, the mode
+enables in a plain Org buffer, builds the outline and follows point — all
+without `org-air-project' present in `features'."
+  (skip-unless (locate-library "org-air"))
+  (let* ((root (locate-dominating-file org-air-test-fixture-dir "Makefile"))
+         (init (expand-file-name "tests/org-air-test-init.el" root))
+         (script
+          (prin1-to-string
+           '(progn
+              (require 'org-air-view)
+              (when (featurep 'org-air-project) (kill-emacs 2))
+              (unless (fboundp 'org-air-outline-mode) (kill-emacs 3))
+              (unless (fboundp 'org-air-outline--headings) (kill-emacs 4))
+              (with-temp-buffer
+                (org-mode)
+                (insert "* A\n** B\n* C\n")
+                (let ((rows (org-air-outline--headings (current-buffer))))
+                  (unless (= (length rows) 3) (kill-emacs 5)))
+                ;; enabling must not require org-air-project.
+                (org-air-outline-mode 1)
+                (when (featurep 'org-air-project) (kill-emacs 6))
+                (org-air-outline-mode -1))
+              (kill-emacs 0)))))
+    (should root)
+    (with-temp-buffer
+      (let ((status (call-process
+                     (or (getenv "EMACS") "emacs") nil t nil
+                     "-Q" "--batch" "-l" init "--eval" script)))
+        (unless (eql status 0)
+          (ert-fail (format "no-air-dep subprocess exited %s: %s"
+                            status (buffer-string))))))))
+
 (provide 'org-air-round30-test)
 ;;; org-air-round30-test.el ends here

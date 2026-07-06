@@ -1716,19 +1716,10 @@ the session."
           (org-air-rail--show tree (org-air-project--render-width)))))))
 
 (defun org-air-project--doc-outline (docbuf)
-  "Return DOCBUF's Org outline as a list of (LEVEL TITLE POS) (R26-5)."
-  (with-current-buffer docbuf
-    (save-excursion
-      (save-restriction
-        (widen)
-        (goto-char (point-min))
-        (let (rows)
-          (while (re-search-forward "^\\(\\*+\\)[ \t]+\\(.*\\)$" nil t)
-            (push (list (length (match-string 1))
-                        (string-trim (match-string-no-properties 2))
-                        (match-beginning 0))
-                  rows))
-          (nreverse rows))))))
+  "Return DOCBUF's Org outline as a list of (LEVEL TITLE POS) (R26-5).
+R30-4: a thin alias over the extracted generic primitive
+`org-air-outline--headings' (byte-identical output; call site unchanged)."
+  (org-air-outline--headings docbuf))
 
 (defun org-air-project--insert-doc-context (docbuf doc width)
   "Insert the DOC-context rail body for DOC shown in DOCBUF (R26-5).
@@ -1782,61 +1773,26 @@ self-inserting `q'."
 Rescheduled (never stacked) on every doc-session command — the R27-1 S3
 timer discipline.")
 
-(defvar org-air-rail--outline-overlay nil
-  "The ONE current-heading overlay in the rail outline (R28-4).
-Overlay-only: overlays are not buffer text, so the rail byte goldens
-\(`buffer-substring' reads) never move.  Deleted (no highlight) on any
-error — graceful degrade, never flicker.")
-
-(defun org-air-rail--outline-highlight-clear ()
-  "Delete the R28-4 rail-outline overlay (the no-highlight degrade)."
-  (when (overlayp org-air-rail--outline-overlay)
-    (delete-overlay org-air-rail--outline-overlay)))
+;; R30-4: the overlay var + `-highlight-clear' + the generic scan/move
+;; core moved to org-air-view.el (`org-air-rail--outline-overlay',
+;; `org-air-rail--outline-highlight-clear', `org-air-outline--highlight-
+;; update') so the opt-in `org-air-outline-mode' can reuse them with NO
+;; org-air-project dependency.  The doc session keeps a thin GUARDED
+;; wrapper below (byte-identical highlight behaviour; call sites unchanged).
 
 (defun org-air-rail--outline-highlight-update (docbuf)
-  "Re-place the rail-outline current-heading overlay for DOCBUF (R28-4).
-The current heading is the LAST rail outline row whose
-`org-air-doc-heading-pos' is <= point in DOCBUF (a linear scan over the
-rail's few dozen rows — no Org re-parse); point before the first heading
-means NO current row.  Paints by `move-overlay' of the single overlay
-onto the row's line — NO re-render, NO buffer text change (the R27-1
-stamp guard sees nothing).  Wrapped in `condition-case': on ANY error
-the overlay is deleted — no highlight, never a flicker or a message."
+  "Re-place the doc-session rail-outline highlight for DOCBUF (R28-4/R30-4).
+A GUARDED wrapper over the extracted generic core
+`org-air-outline--highlight-update': fires only for a LIVE doc-session
+tree buffer (the R28-4 guards), else clears.  Clears the doc-session
+timer slot first (the R27-1 S3 discipline)."
   (setq org-air-rail--outline-timer nil)
-  (condition-case nil
-      (let* ((rail (get-buffer org-air-rail-buffer-name))
-             (pt (and (buffer-live-p docbuf)
-                      (buffer-local-value 'org-air-doc-session-mode docbuf)
-                      (buffer-local-value 'org-air-project--session-tree
-                                          docbuf)
-                      (with-current-buffer docbuf (point)))))
-        (if (not (and pt (buffer-live-p rail)))
-            (org-air-rail--outline-highlight-clear)
-          (with-current-buffer rail
-            (let (row-bol row-eol)
-              (save-excursion
-                (goto-char (point-min))
-                (while (not (eobp))
-                  (let ((hp (get-text-property
-                             (point) 'org-air-doc-heading-pos)))
-                    (when (and hp (<= hp pt))
-                      (setq row-bol (line-beginning-position)
-                            row-eol (line-end-position))))
-                  (forward-line 1)))
-              (if (null row-bol)
-                  (org-air-rail--outline-highlight-clear)
-                (if (overlayp org-air-rail--outline-overlay)
-                    ;; `move-overlay' also revives an evaporated/detached
-                    ;; overlay after a rail repaint's `erase-buffer'.
-                    (move-overlay org-air-rail--outline-overlay
-                                  row-bol row-eol rail)
-                  (setq org-air-rail--outline-overlay
-                        (make-overlay row-bol row-eol rail))
-                  (overlay-put org-air-rail--outline-overlay
-                               'face 'org-air-face-outline-current)
-                  (overlay-put org-air-rail--outline-overlay
-                               'evaporate t)))))))
-    (error (org-air-rail--outline-highlight-clear))))
+  (if (and (buffer-live-p docbuf)
+           (buffer-local-value 'org-air-doc-session-mode docbuf)
+           (buffer-local-value 'org-air-project--session-tree docbuf))
+      (org-air-outline--highlight-update
+       docbuf (get-buffer org-air-rail-buffer-name))
+    (org-air-rail--outline-highlight-clear)))
 
 (defun org-air-project--outline-post-command ()
   "Doc-session hook: schedule the DEBOUNCED outline highlight (R28-4).

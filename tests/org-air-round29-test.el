@@ -369,6 +369,41 @@ fired and point stuck at column 0)."
     (should (eq org-air-view--orientation 'two-pane))
     (should (> (org-air-r29--drive-line-motions (current-buffer)) 3))))
 
+(ert-deftest org-air-r29-2-evil-goto-top-bottom-land-on-title ()
+  "BOARD under REAL evil (motion state), the two STUCK shapes (board-only
+AND side-window popped): the R27-4 overriding map wins the `g' prefix so
+`gg'/`G' route to org-air's OWN `org-air-goto-top'/`org-air-goto-bottom'
+\(NOT evil's `evil-goto-first-line'/`evil-goto-line'), and from a forced
+bottom/column-0 start each lands ON the char carrying `org-air-row-title'.
+Completes the `j/k/gg/G' motion matrix (the vim-convention line-motion
+vocabulary the user drives) — no prior test exercised the top/bottom
+motions under evil at all."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (locate-library "evil"))
+  (require 'evil)
+  (org-air-r27--with-live-board
+    (evil-local-mode 1)
+    (should (eq evil-state 'motion))
+    ;; the R27-4 override wins the `g' prefix: `gg' -> org-air's top motion
+    ;; (over evil's `evil-goto-first-line'), `G' -> org-air's bottom.
+    (should (eq (key-binding (kbd "gg")) 'org-air-goto-top))
+    (should (eq (key-binding (kbd "G")) 'org-air-goto-bottom))
+    (dolist (shape '(board-only side-window))
+      (if (eq shape 'board-only)
+          (let ((org-air-rail-min-width 500))
+            (org-air-view--refresh-current))
+        (org-air-r27--pop-rail))
+      (should (eq org-air-view--orientation shape))
+      (let ((buf (current-buffer)))
+        ;; G (goto-bottom) from the top: lands on the LAST row's title.
+        (with-current-buffer buf (goto-char (point-min)))
+        (org-air-r29--press buf "G")
+        (should (= 1 (org-air-r29--assert-title-landing buf "G" t)))
+        ;; gg (goto-top) from a forced column-0 bottom: FIRST row's title.
+        (with-current-buffer buf (goto-char (point-max)) (beginning-of-line))
+        (org-air-r29--press buf "gg")
+        (should (= 1 (org-air-r29--assert-title-landing buf "gg" t)))))))
+
 (ert-deftest org-air-r29-2-evil-lines-land-on-title-project ()
   "PROJECT under REAL evil (directory AND state groupings): j/k (now
 core-bound — trunk had them UNBOUND here) and raw `evil-next-line' /
@@ -458,6 +493,13 @@ lands the NEXT row's title)."
         ;; line, STAYS.
         (org-air-r29--dispatch buf #'evil-beginning-of-line)
         (should (zerop (current-column)))
+        ;; evil `^' (evil-first-non-blank) -> the first non-blank glyph on
+        ;; the SAME line (the title, past the blank gutter margin), STAYS
+        ;; -- a same-line motion is never gated as a snap.
+        (let ((line (line-number-at-pos)))
+          (org-air-r29--dispatch buf #'evil-first-non-blank)
+          (should (= (line-number-at-pos) line))
+          (should (get-text-property (point) 'org-air-row-title)))
         ;; ...and the next LINE-crossing motion snaps to the NEXT title.
         (let ((line (line-number-at-pos)))
           (org-air-r29--press buf "j")

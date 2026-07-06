@@ -190,7 +190,25 @@ visible area."
      ((window-live-p window) (org-air-layout--usable-columns window))
      ((window-live-p (selected-window))
       (org-air-layout--usable-columns (selected-window)))
-     (t (frame-width)))))
+     ;; SEAM A (R31-1): no live window shows BUFFER and no live selected
+     ;; window to measure — the LAST raw-column term.  Route it through
+     ;; the frame-tier usable primitive so a fringe-less graphic frame
+     ;; reserves the continuation-glyph column here too (no composition
+     ;; can ever be sized to usable+1).  TTY/batch reserve none, so the
+     ;; value is byte-identical there.
+     (t (org-air-layout--usable-frame-columns)))))
+
+(defun org-air-layout--usable-frame-columns (&optional frame)
+  "Return the columns usable for a full line on FRAME with no window to query.
+Frame-tier analogue of `org-air-layout--usable-columns' (R31-1, Seam A):
+when neither the buffer nor the selected window is live there is no
+window whose `window-max-chars-per-line' we can read, so mirror the
+reserve the fringe-less continuation column costs — on a graphical frame
+return one less than `frame-width', on a TTY/batch frame the plain
+`frame-width' (no reserve, keeping goldens byte-identical)."
+  (if (display-graphic-p frame)
+      (max 1 (1- (frame-width frame)))
+    (frame-width frame)))
 
 (defun org-air-layout--usable-columns (window)
   "Return the columns usable for a full line in WINDOW.

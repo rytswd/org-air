@@ -200,6 +200,22 @@ roles (faded, subtle, salient, strong, popout, critical), each with explicit
 light *and* dark specs and a TTY fallback. Retint everything by editing
 `org-air-palette`.
 
+### Right-edge glyphs in a fringe-less GUI
+
+org-air sizes every line to the window's *usable* columns, so with a zero
+right fringe nothing overflows the visible edge. A few header/legend glyphs
+(the `·` separator, `…`, `✕`, and the `↑ ↓ → ↻` arrows) are Unicode
+*East-Asian Ambiguous-width* characters: Emacs measures them as one column
+(so the layout is exact), but some fonts *paint* them two columns wide. If
+you run a fringe-less GUI and see a stray truncation glyph at the extreme
+right edge, that is a font/`char-width-table` mismatch, not an org-air
+layout bug. The fix is a config one: either pick a font that renders those
+glyphs single-width, or tell Emacs to treat the ambiguous set as one column
+(e.g. keep the default `east-asian-ambiguous`/`char-width-table` mapping,
+or `(set-language-environment "UTF-8")`). org-air's own width math already
+compensates for whatever `char-width-table` reports — it is purely the
+painted advance that can differ.
+
 ---
 
 ## ⌨️ Keybindings

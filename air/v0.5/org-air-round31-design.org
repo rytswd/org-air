@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-31 DESIGN: fringe-less GUI x-overflow, INLINE two-pane + header — close the LAST raw-column seam, lock the inline width contract with executing ERTs, and guard the glyph-advance class the width math cannot own
-#+state: ready
+#+state: done
 #+FILETAGS: :ui:layout:rail:inline:gui:overflow:design:v0.5:
 
 * Scope of this document
@@ -353,3 +353,23 @@ invariant is locked by ERT #2 (=inline-rows-fit-and-align=).
   a documented font/char-width remedy.  R31-2: no separate alignment bug
   (divider column constant, measured) — folded into R31-1.  No golden
   moves, no manifest change.  Spec ready; implementation pending.
+- [2026-07-07] IMPLEMENTED.  Seam A closed: new
+  `org-air-layout--usable-frame-columns' (graphic: `(max 1 (1- (frame-width)))';
+  TTY/batch: `(frame-width)') now backs the final `(frame-width)' fallback
+  of `org-air-layout-current-width', so no composition in ANY frame state
+  can be sized to usable+1; TTY/batch value byte-identical.  Added
+  `tests/org-air-round31-test.el' (8 ERTs) reusing the R29 fringe-less /
+  fringed sim + R27 live harness: inline header ends at the contract
+  column at both parities; every inline row fits usable with a CONSTANT
+  divider column (R31-2 alignment lock); pure two-pane compose sweep
+  61..200 odd+even (row == W, header == W, divider constant); Seam-A
+  graphic reserve + TTY no-op with revert-guard; side-window/board-only
+  regression; fringed-GUI no-op; Seam-B status-glyph single-width +
+  header compose self-consistency under a WIDE `char-width-table'.  NOTE:
+  live insertion right-trims trailing pad, so the EXACT `== rendered-width'
+  invariant is locked by the pure sweep while the live rows assert
+  `<= usable' + constant divider (the user-visible contract).  Added a
+  doc-only README note on the ambiguous-width glyph / `char-width-table'
+  remedy (Seam B).  `make clean && make check' GREEN (537 tests, 0
+  unexpected, 5 skipped; lint clean).  No golden moves, no manifest
+  change — byte-invisible as specified.  State -> done.

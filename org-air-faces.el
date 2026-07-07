@@ -325,8 +325,16 @@ row of `─' reads as one faint connected line rather than a solid bar
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-cursor
-  '((t :inherit org-air-face-subtle :extend t))
-  "Face for the current-line / selected-item highlight."
+  '((t :inherit org-air-face-subtle))
+  "Face for the per-row hover (`mouse-face') highlight.
+R33-2: a PURE background highlight — it inherits `org-air-face-subtle'
+(a subtle :background) and carries NO metric-changing attribute (no
+:box / :weight / :height / :underline) AND no :extend, so a hover
+crossing re-blits only the row's own text span, never re-laying-out its
+glyphs, never re-rasterising the cached svg tag-pills, and never
+repainting the edge-extended blank of the image-bearing :extend rows.
+That keeps the R32 per-row hover instant and Lisp-free (the hover hot
+path runs ZERO org-air Lisp; the highlight is pure redisplay)."
   :group 'org-air-faces)
 
 ;;;; ---------------------------------------------------------------------

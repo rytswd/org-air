@@ -2654,7 +2654,18 @@ this one primitive, faces, truncation, alignment and svg pills)."
     (when (or props face)
       (add-text-properties start (point)
                            (append props
-                                   (when face (list 'font-lock-face face)))))))
+                                   (when face (list 'font-lock-face face))))
+      ;; R32-1: a row-separator newline must NOT carry `mouse-face', else
+      ;; adjacent direct-inserted rows (the project's board-only/side-window
+      ;; orientations) fuse into ONE hover run and hovering a single doc
+      ;; highlights the whole contiguous block.  Scope `mouse-face' to the
+      ;; row's own glyphs (start .. before the \n); every other row-identity
+      ;; property (`org-air-doc'/`org-air-item', marker, R21-2 title mark,
+      ;; `font-lock-face') stays over the full extent so click/RET still
+      ;; resolve the single doc under point.  Board/render-lines paths never
+      ;; propped the separator newline, so this is a no-op there.
+      (when (plist-member props 'mouse-face)
+        (remove-text-properties (1- (point)) (point) '(mouse-face nil))))))
 
 (defun org-air-view--insert-item (item bucket &optional omit-date)
   "Insert ITEM as an interactive row in BUCKET (V6 fixed-column table).

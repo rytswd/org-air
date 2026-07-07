@@ -153,9 +153,12 @@ newline, so each is its own hover region.  Trunk FAILED — one fused run."
 (ert-deftest org-air-r32-1-dir-and-heading-no-mouse-face ()
   "Directory-node lines and section-heading lines (the `org-air-section'
 non-doc lines) carry NO `mouse-face' anywhere over their extent — dir/
-heading rows get no hover highlight (regression guard; passes now, stays)."
+heading rows get no hover highlight, in ALL THREE groupings (state group
+headers, tag headers, and directory nodes+headers).  Regression guard;
+passes now, stays."
   (skip-unless (locate-library "org-air"))
-  (dolist (group '(org-air-project-group-by-directory
+  (dolist (group '(org-air-project-group-by-state
+                   org-air-project-group-by-directory
                    org-air-project-group-by-tag))
     (org-air-project-test--render
       (call-interactively group)

@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-31 DESIGN: fringe-less GUI x-overflow, INLINE two-pane + header — close the LAST raw-column seam, lock the inline width contract with executing ERTs, and guard the glyph-advance class the width math cannot own
-#+state: done
+#+state: complete
 #+FILETAGS: :ui:layout:rail:inline:gui:overflow:design:v0.5:
 
 * Scope of this document

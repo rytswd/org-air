@@ -1,0 +1,203 @@
+#+title: org-air v0.5 round-32 DESIGN: project-view mouse-hover highlights the whole doc block — scope mouse-face to each row's own extent (exclude the row-separator newline) in the shared row primitive
+#+state: complete
+#+FILETAGS: :ui:project:mouse:hover:rail:design:v0.5:
+
+* Scope of this document
+Round-32 DESIGN doc — one small, isolated bug, queued behind R31 (which
+is mid-integration; this spec touches NO R31 files and NO width code —
+it lands on R31's integrated tip later).
+
+- *R32-1* PROJECT-VIEW MOUSE HOVER HIGHLIGHTS THE WHOLE DOC SET.  In the
+  project view, hovering the mouse highlights the ENTIRE contiguous set
+  of doc rows (per directory / per section) as one block — misleading,
+  because a click opens only the single doc under the pointer.  WANT:
+  hover highlights ONLY the single doc ROW under the mouse (matching the
+  click); directory / section-heading lines get NO hover highlight.
+  ROOT-CAUSED on this trunk against the =.el= source.  [BUG]
+
+Constraints honoured: org-ql only; V6 pixel-lock untouched (no column
+widths move); the fix REUSES the shared row primitive
+(=org-air-view--insert-row=) — no fork; R31 width work not disturbed
+(no width path touched); fast gate; the ERTs EXECUTE.
+
+* Status
+Design-led, impl-ready.  Byte contract: *byte-INVISIBLE*.  =mouse-face=
+is a text property, and every golden is captured with
+=buffer-substring-no-properties= (verified: =tests/org-air-regen-mockups.el=
+reads =(buffer-substring-no-properties (point-min) (point-max))=), so no
+byte fixture and no property-golden captures it — no manifest change, no
+re-bless.  No existing ERT asserts the merged-row behaviour (the only
+=mouse-face= ERT, round-7, is about calendar day cells, unrelated).
+
+* Measured baseline (reproduction harness — EXECUTED on this trunk)
+Live project view over the fixture tree (=tests/fixtures/air-project=),
+all three groupings; the maximal =mouse-face= run around every buffer
+position was measured (a run = a contiguous span sharing the SAME
+=mouse-face= value — exactly what Emacs highlights on hover).
+#+begin_src text
+PROJECT, orientation=board-only (the direct-insert path):
+  group=directory  mouse-face runs that span >1 row:
+     [213,375) value=org-air-face-cursor  rows=Alpha+Beta           (v0.1/)
+     [619,943) value=org-air-face-cursor  rows=Zeta+Delta+Epsilon+Eta (v0.2/)
+  group=state      runs of 2-3 rows each (whole state bucket highlights)
+  group=tag        runs of up to 5 rows (whole tag section highlights)
+  -> hovering ONE doc highlights the whole contiguous doc block.  BUG.
+
+  per-line probe (group=directory):
+     "  | v0.1/"            DIR  bol-mf=nil  newline-mf=nil     <- no hover
+     "  +---- READY Alpha"  DOC  bol-mf=cursor newline-mf=cursor
+     "  +---- COMP  Beta"   DOC  bol-mf=cursor newline-mf=cursor
+     "  +- air-context/"    DIR  bol-mf=nil  newline-mf=nil     <- breaks run
+     ...
+  DIRECTORY / SECTION-HEADING lines already carry NO mouse-face (bol AND
+  newline nil) — the over-broad highlight is ONLY the merged DOC rows.
+
+BOARD (all orientations): mouse-face runs spanning >1 row = 0.  NOT
+  affected — see root cause.
+
+FIX SIMULATION (strip mouse-face from every row-separator newline):
+  group=tag: multi-line runs 0, single-line runs 10 — every doc row is
+  its OWN hover region.  Correct.
+#+end_src
+
+* R32-1 — project hover highlights the whole doc block: mouse-face spans the row-separator newline [BUG]
+
+** Root cause — the shared row primitive props the trailing newline too
+Both the board (=org-air-view--insert-item=) and the project
+(=org-air-project--insert-doc-row=) build a row through the ONE shared
+primitive =org-air-view--insert-row=, passing =mouse-face
+'org-air-face-cursor= inside =:props=.  The primitive applies them with:
+#+begin_src elisp
+(insert line "\n")
+(when (or props face)
+  (add-text-properties start (point)                 ; start .. AFTER the \n
+                       (append props (when face (list 'font-lock-face face)))))
+#+end_src
+=(point)= is AFTER the inserted =\n=, so the row-separator NEWLINE
+receives =mouse-face= too.  Emacs highlights the maximal run of
+positions sharing an =eq= =mouse-face= value: when row N's trailing
+newline AND row N+1's first glyph both carry =org-air-face-cursor=, the
+two rows fuse into ONE hover region.  Any number of adjacent doc rows
+therefore merge into a single block — exactly the report.
+
+Why the PROJECT shows it and the BOARD does not (measured, not assumed):
+- The project's =board-only= and =side-window= orientations call
+  =(funcall left-fn width)= which inserts doc rows DIRECTLY into the
+  real buffer, so the mouse-face-bearing newlines survive and adjacent
+  rows merge.
+- The BOARD always composes its body through
+  =org-air-view--render-lines= (render into a temp buffer, SPLIT on
+  newline into a list of line strings, then re-insert joined by FRESH
+  newlines).  The split DROPS the original newline characters, so the
+  re-inserted row separators carry NO props — board rows are already
+  independent hover regions (verified: zero multi-line runs in
+  board-only / two-pane / stacked).  The project's OWN =two-pane=
+  orientation uses the same render-lines path and is likewise fine; only
+  the project's DIRECT-insert orientations exhibit the merge.
+
+Directory-node lines (=org-air-project--insert-dir-node=) and
+section-heading lines (=org-air-project--insert-section-heading=) add
+only =org-air-section= / =org-air-count-badge= — NO =mouse-face= (bol
+and newline both nil, verified).  So there is nothing to REMOVE from the
+dir/header lines; the requirement "dir/header get no hover" already
+holds and is asserted below as a regression guard.
+
+** Decision — scope mouse-face to the row's own text, in the shared primitive
+One localized change in =org-air-view--insert-row= (no fork; fixes every
+direct-insert caller at once): keep all row-identity properties
+(=org-air-item= / =org-air-doc=, =org-air-marker=, the R21-2
+=org-air-row-title= mark, =font-lock-face=) over the FULL row extent as
+today, but apply =mouse-face= only over the row's own glyphs — i.e.
+=start .. (1- (point))=, EXCLUDING the trailing newline:
+#+begin_src elisp
+(insert line "\n")
+(when (or props face)
+  (add-text-properties start (point)
+                       (append props (when face (list 'font-lock-face face))))
+  ;; A row-separator newline must not carry mouse-face, else adjacent
+  ;; rows merge into one hover region (R32-1).  Scope it to the row body.
+  (when (plist-member props 'mouse-face)
+    (remove-text-properties (1- (point)) (point) '(mouse-face nil))))
+#+end_src
+Effect:
+- PROJECT direct-insert paths (board-only, side-window): each doc row's
+  =mouse-face= run is now bounded by its own newline (which carries no
+  =mouse-face=), so hover highlights exactly the single row under the
+  pointer, in all three groupings.  Verified in simulation (every run
+  single-line).
+- BOARD and the render-lines paths: byte- AND property-INVISIBLE — their
+  re-inserted newlines never carried =mouse-face= to begin with, so
+  stripping it there is a no-op (board still zero multi-line runs).
+- CLICK / RET unchanged: =org-air-doc= + =org-air-marker= (and even the
+  newline) still cover the row, so =mouse-1= / =RET= resolve the single
+  doc under point exactly as before — only =mouse-face= (the HOVER paint)
+  is narrowed.
+- KEYBOARD highlight: there is no persistent keyboard row highlight to
+  disturb — =org-air-face-cursor= is used ONLY as =mouse-face= (grep:
+  two call sites, both the shared row's =:props=); point landing is the
+  R21-2 title mark, and the jump-pulse
+  (=pulse-momentary-highlight-one-line=) is a separate momentary effect,
+  untouched.
+
+Board scope note (per the round's instruction): the board does NOT have
+the over-broad hover (render-lines already drops the separator props), so
+no board-only change is needed; the shared-primitive fix covers the
+project's direct paths AND future-proofs any new direct-insert row, and
+is the SAME one-line change — so it is made once, in the shared floor,
+not forked into the project.
+
+** Testability — EXECUTING acceptance ERTs
+New suite =tests/org-air-round32-test.el=, live project view over the
+fixture tree (reusing =org-air-project-test--render= /
+=org-air-project-test--with-frozen-mtime=), plus a board render.
+
+1. =org-air-r32-1-doc-row-mouse-face-own-span= — project board-only (and
+   side-window), all three groupings: for every doc row, the row's
+   glyphs carry =mouse-face 'org-air-face-cursor=, the row-separator
+   newline carries NONE, and the maximal =mouse-face= run containing any
+   doc position embeds ZERO newlines (spans exactly one row).  Trunk
+   FAILS (runs span 2-5 rows).
+2. =org-air-r32-1-adjacent-rows-independent= — two consecutive doc rows
+   in the SAME directory/section have DISTINCT =mouse-face= runs (the run
+   boundary lands on the separating newline).  Trunk FAILS (one shared
+   run).
+3. =org-air-r32-1-dir-and-heading-no-mouse-face= — every directory-node
+   line and section-heading line carries NO =mouse-face= at bol or over
+   its extent (regression guard; passes now, must stay).
+4. =org-air-r32-1-click-opens-single-doc= — =mouse-1= / =RET= on a doc
+   row still resolves =org-air-doc= + =org-air-marker= to the single doc
+   under point, and open/visit targets the row's own file (unchanged by
+   the mouse-face narrowing).
+5. =org-air-r32-1-board-unchanged= — the board render (board-only,
+   two-pane, stacked) still has ZERO multi-line =mouse-face= runs and
+   byte-identical visible text; the shared fix is board-invisible.
+6. Existing gate — all byte goldens byte-identical (=mouse-face= is a
+   text property, invisible to =buffer-substring-no-properties=); the
+   round-7 calendar mouse-face ERT stays green (unrelated cells).
+
+** Routing
+- org-air-view.el: =org-air-view--insert-row= — scope =mouse-face= to the
+  row body (strip it from the trailing newline).  One localized change in
+  the shared primitive; both callers (=--insert-item=,
+  =--insert-doc-row=) inherit it.
+- tests/org-air-round32-test.el: the ERTs above.
+- No manifest / golden change (byte-invisible).
+
+* Implementation History
+- [2026-07-07] Round-32 design opened and ROOT-CAUSED on this trunk
+  against the =.el= source.  EXECUTED reproduction: the shared
+  =org-air-view--insert-row= applies =:props= (incl. =mouse-face
+  'org-air-face-cursor=) over =start..(point)=, INCLUDING the trailing
+  newline; in the project's DIRECT-insert orientations (board-only,
+  side-window) consecutive doc rows' propertied newlines fuse adjacent
+  rows into one =mouse-face= hover run (measured 2-5 rows per run, all
+  three groupings), so hovering one doc highlights the whole contiguous
+  doc block.  Directory-node and section-heading lines already carry no
+  =mouse-face= (measured).  The BOARD is unaffected because it composes
+  through =org-air-view--render-lines= (split/rejoin drops the separator
+  props) — measured zero multi-line runs; the project's own two-pane
+  path is likewise fine.  Spec'd a one-line shared-primitive fix (strip
+  =mouse-face= from the row-separator newline; keep row-identity props +
+  click resolution intact), verified in simulation (every doc-row run
+  becomes single-line).  Byte-invisible (mouse-face is a text property;
+  goldens read no-properties).  Spec ready; implementation pending.

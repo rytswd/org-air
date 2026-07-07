@@ -1,0 +1,295 @@
+#+title: org-air v0.5 round-33 DESIGN: header STILL overflows even empty (Seam B — ambiguous-width middle-dot separator) · project hover highlight "too slow" (per-row redisplay unmasked by R32; lock zero per-motion hover work)
+#+state: ready
+#+FILETAGS: :ui:layout:header:chrome:glyph:mouse:hover:design:v0.5:
+
+* Scope of this document
+Round-33 DESIGN doc — two items on the integrated R31/R32 tip:
+
+- *R33-1* HEADER STILL OVERFLOWS EVEN WITH ZERO ITEMS (Seam B).  R31
+  fixed the column math (Seam A) and review confirmed the header ends at
+  the contract COLUMN.  The user (GUI) still sees the top header/title
+  overflow the right edge WITH NO ITEMS LOADED.  ROOT-CAUSED: the header
+  right segment contains an East-Asian *Ambiguous-width* glyph — the
+  =·= (U+00B7 MIDDLE DOT) separator in "Tue DD Mon · N items" — that a
+  GUI font can PAINT two columns wide while Emacs MEASURES it one
+  (=string-width= = 1).  org-air right-fills the header to the usable
+  width by COLUMN count, so one 2-col-painted glyph pushes the painted
+  line to usable+1 -> off-screen/truncated, and the =·= is present even
+  at 0 items.  [BUG — release-blocker]
+- *R33-2* PROJECT HOVER HIGHLIGHT "TOO SLOW".  After R32 the project
+  mouse-hover highlight lags/trails the pointer.  ROOT-CAUSED by
+  auditing the hover path.  [REGRESSION]
+
+Constraints honoured: org-ql only; V6 pixel-lock (the R33-1 swap keeps
+=string-width= identical so no column moves); the R31 width contract and
+R32 per-row hover scoping preserved; shared primitives reused (no fork);
+fast gate; ERTs EXECUTE (with a HEADLESS ambiguous-width detector — no
+font pixels).
+
+* Status
+Design-led, impl-ready.  Byte contract:
+- *R33-1* goldens MOVE — a 1:1, position-preserving character swap of
+  the chrome middle-dot separator (=·= U+00B7 -> an unambiguous
+  single-width dot); =string-width= is unchanged (both 1) so every
+  column and the whole V6/R31 width math are byte-identical in COLUMNS,
+  only the glyph byte changes.  ~31 chrome fixtures re-bless (HONEST
+  manifest route: the separator glyph changed by design).
+- *R33-2* byte-INVISIBLE — no rendered text changes (mouse-face is a
+  text property; the follow hooks are unchanged point-move handlers).
+  Pure invariant locks + a possible lightweight-face confirmation.
+
+* Measured baseline (reproduction harness — EXECUTED on the R31/R32 tip)
+Headless ambiguous-width detection WITHOUT font pixels: a glyph is
+East-Asian *Ambiguous* iff =char-width= is 1 by default but flips to 2
+when the ambiguous set is made wide (a CJK =char-width-table=, installed
+via a language-environment).  "Painted width" models the worst-case
+font: ambiguous glyphs count 2.
+#+begin_src text
+R33-1  EMPTY board header (org-air-view--insert-banner nil), W=80:
+   string-width = 80         (fits by column count — S7 contract holds)
+   painted(amb=2) = 81       (OVERFLOW by 1)               <<< Seam B
+   ambiguous glyphs on the line = 1   -> the "·" separator (U+00B7)
+   line = "  org-air ... Tue 07 Jul · 0 items "
+   -> even at 0 items the "·" is always present; a font that paints
+      U+00B7 2-wide pushes the right-filled header to usable+1.
+
+   ambiguous-width audit of org-air chrome glyphs (width flips 1->2
+   under CJK char-width-table):
+     AMBIGUOUS: · U+00B7  … U+2026  ✕ U+2715  × U+00D7  ▤ ● ◆ ▲ ★ ○ ■ □
+                → ↑ ↓ ↕  ▌ │ ─  (most box/geometric/dingbat glyphs)
+     UNAMBIGUOUS (stay width 1): ↻ U+21BB  ⇄ U+21C4  ‹ › U+2039/203A
+                ∙ U+2219 (BULLET OPERATOR, Neutral)  ⋅ U+22C5 (Neutral)
+   -> the HEADER's only ambiguous glyph is the "·" separator; the
+      structural glyphs (divider │, rules ─, calendar ●, badges) are
+      ambiguous too but out of scope here (see the decision).
+
+R33-2  hover-path audit (project view):
+   help-echo on doc rows ......... NONE (grep: no `help-echo' anywhere)
+   track-mouse / <mouse-movement>  NONE installed/bound
+   mouse-face .................... STATIC text property (R32, per-row)
+   inspector follow .............. `org-air-view--inspector-post-command'
+                                   on `post-command-hook' (POINT move),
+                                   debounced, `noninteractive'-guarded
+   pane follow ................... `org-air-view--view-pane-post-command'
+                                   on `post-command-hook' (POINT move),
+                                   idle-debounced, point-delta early-out
+   -> mouse HOVER runs ZERO org-air Lisp; it is pure redisplay.
+#+end_src
+
+* R33-1 — header overflow at 0 items: eliminate the ambiguous-width chrome separator [BUG]
+
+** Reproduction — the "·" separator is the last Seam-B glyph on the header
+=org-air-view--insert-banner= builds the right status from literal
+=" · "= (U+00B7) separators (count / filter / scope / sort segments) and
+right-justifies the whole line to the render width =w= (=
+=org-air-layout--usable-columns=, the R31 fix), reserving a trailing
+blank so the status ends at =w-1= (S7).  At 0 items the status collapses
+to =Tue DD Mon · N items= — still carrying ONE =·=.  =string-width=
+counts =·= as 1, so the composed line is exactly =w= columns and the S7
+column contract holds (R31 confirmed).  But =·= is East-Asian
+*Ambiguous*: a GUI font may PAINT it 2 columns wide.  Since org-air
+right-fills by column count, the painted line becomes =w+1= -> the last
+glyph sits past the usable edge and the continuation/truncation glyph the
+user sees appears.  Measured: empty header W=80, string-width 80, painted
+(ambiguous-as-2) 81 -> overflow.  This is font-side (the =char-width-table=
+vs the font's glyph advance), exactly the Seam-B class R31's README note
+described — now a release-blocker, so it must be FIXED, not documented.
+
+** Decision — replace the ambiguous middle-dot chrome separator with an unambiguous single-width dot (option a), swept across all chrome
+Choose *(a) eliminate ambiguous-width glyphs from CHROME text*, over
+*(b) budget them as 2 columns*, and justify:
+
+- *(b) is invasive and fights V6/R31.*  Budgeting ambiguous glyphs as 2
+  would either (i) reserve safety columns in EVERY chrome composer
+  (sprinkled per-line) AND move every affected golden, or (ii) to be
+  uniform, budget the STRUCTURAL glyphs too — the two-pane divider =│=,
+  the rules =─=, the calendar =●=, the state badges are ALL ambiguous;
+  budgeting those as 2 would change =item-width= / column math and break
+  the V6 pixel-lock and the R31 width contract.  A font that paints the
+  structural glyphs wide breaks the whole layout regardless — that is
+  the documented =char-width-table= config class (R31 README), out of
+  scope.  The reported bug is the HEADER, whose ONLY ambiguous glyph is
+  the =·= separator.
+- *(a) is localized, provable, and aesthetic-preserving.*  Replace the
+  chrome middle-dot with an UNAMBIGUOUS single-width dot that reads the
+  same: =∙= (U+2219 BULLET OPERATOR, East-Asian Neutral -> painted 1
+  everywhere) — a centered dot visually near-identical to =·=.  Because
+  =string-width('∙') = string-width('·') = 1=, every column position is
+  byte-identical: V6, R31 and the S7 contract are untouched in COLUMN
+  terms; only the glyph changes, so the painted width can no longer
+  exceed the computed width.
+
+Implementation shape (shared, no fork):
+1. Introduce one chrome-separator source of truth —
+   =org-air-chrome-separator= (defcustom, default ="∙"=; a small helper
+   =org-air-view--sep= returns =" %s "=-wrapped form) — and route ALL
+   chrome middle-dots through it: the header status segments
+   (=org-air-view--insert-banner=: count / filter / scope / sort), the
+   rail Source line ("all items · N loaded"), the Filter/Match legend
+   ("M-/ toggles · \\ clears", "s changes · S clears"), the Actions
+   legend ("c capture · / filter"), the pane header ("▤ file · title ·
+   state", currently already =org-air-view--glyph 'sep-dot=), and the
+   quiet-activity decoration ("· Nd quiet").  The existing =sep-dot=
+   glyph-table entry's GUI form is updated =("·" . "-")= -> =("∙" . "-")=
+   so the one already-routed site (pane header) moves too and a
+   pure-ASCII TTY still degrades to =-=.
+2. No structural glyph changes (divider / rules / calendar / badges keep
+   their glyphs — out of scope, documented font class).
+3. =string-width= is preserved, so the compute-once / V6 / R31 width
+   pipeline needs NO change — this is purely a glyph substitution.
+
+** Testability — EXECUTING acceptance ERTs (headless, no font pixels)
+A headless ambiguous-width detector (=org-air-r33--ambiguous-p=): a char
+is ambiguous iff =char-width= is 1 by default and 2 under a CJK
+=char-width-table= — installed via a language-environment inside an
+=unwind-protect= that restores the original, so the ERT has no global
+side effect and needs no font.  "Painted width" sums =2= per ambiguous
+glyph, else =char-width=.
+
+1. =org-air-r33-1-empty-header-fits-ambiguous-model= — render the EMPTY
+   board header at several widths (80/100/120, odd+even) and assert the
+   PAINTED width (ambiguous-as-2 model) is <= the usable width.  Trunk
+   FAILS (painted 81 > 80 at W=80; the =·=).  Post-fix passes (=∙= is
+   not ambiguous, painted == string-width == usable-bounded).
+2. =org-air-r33-1-chrome-has-no-ambiguous-glyph= — render the board AND
+   the project (incl. the popped rail: Source line, legends, Summary)
+   and assert every CHROME line (header, rail rules/labels, legends,
+   pane header) contains NO East-Asian-Ambiguous glyph.  Trunk FAILS
+   (the =·= separators).  (Structural glyphs live on body/divider lines,
+   explicitly excluded from the chrome-line set with a documented
+   predicate.)
+3. =org-air-r33-1-no-chrome-line-overflows-painted= — for the empty AND
+   a populated board/project, no CHROME line's painted width (ambiguous
+   -as-2) exceeds usable, at several widths.
+4. =org-air-r33-1-separator-width-preserved= — =string-width= of the new
+   separator equals that of =·= (1), so column math is unchanged (V6/R31
+   guard).
+5. Existing gate — the ~31 chrome fixtures re-bless (1:1 =·=->=∙= /
+   =-= in the TTY tier), manifest-routed and justified; all OTHER
+   goldens byte-identical.
+
+** Routing
+- org-air-layout.el: =sep-dot= glyph GUI form =·= -> =∙=.
+- org-air-view.el: =org-air-chrome-separator= defcustom + =--sep= helper;
+  route =org-air-view--insert-banner= (all segments), the rail Source
+  line, the Filter/Match/Actions legends, the quiet-activity marker, and
+  the pane header through it.
+- tests/org-air-round33-test.el: the ERTs + the headless detector.
+- manifest / golden re-bless: the chrome fixtures.
+
+* R33-2 — project hover highlight "too slow": per-row redisplay unmasked by R32; lock zero per-motion hover work [REGRESSION]
+
+** Reproduction — the hover path runs ZERO org-air Lisp; R32 unmasked redisplay
+=mouse-face= highlighting is a synchronous redisplay operation with no
+Lisp on the hot path UNLESS the buffer installs per-motion work.  The
+audit (measured, grep + hook inspection) finds NONE in org-air:
+- no =help-echo= property anywhere (so no tooltip function recomputed on
+  every mouse move);
+- no =track-mouse=, no =<mouse-movement>= binding, no mouse hook;
+- =mouse-face= is a STATIC text property, and R32 scoped it to a single
+  doc row;
+- the inspector-follow (=org-air-view--inspector-post-command=) and the
+  pane-follow (=org-air-view--view-pane-post-command=) are debounced
+  =post-command-hook= handlers keyed to POINT movement (commands),
+  =noninteractive=-guarded and point-delta early-outed — they never fire
+  on mouse motion (hover does not move point or run a command).
+
+So what changed after R32?  BEFORE R32 the whole hovered doc BLOCK was
+ONE =mouse-face= region (the bug R32 fixed): moving the pointer WITHIN
+the block changed nothing, so Emacs did no redisplay — hover felt free.
+R32 correctly narrowed =mouse-face= to a single row, so now every row the
+pointer crosses TOGGLES the highlighted region and redisplays the old +
+new rows.  Project doc rows carry cached svg tag-pill images and the
+=org-air-face-cursor= highlight has =:extend t= (fills to the window
+edge); each crossing therefore redisplays an image-bearing, edge-extended
+row.  That per-crossing redisplay — not any Lisp — is the "trailing"
+the user perceives.  R32's scoping is CORRECT (single-row hover is the
+desired behaviour); the fix is to keep that per-row highlight as CHEAP
+and Lisp-free as possible and to LOCK the invariants so a future
+help-echo / mouse hook / hover-follow can never reintroduce real lag.
+
+** Decision — static, lightweight, Lisp-free per-row hover; follow stays on point-move
+1. *Zero per-motion Lisp (locked).*  Keep =mouse-face= a static text
+   property; install NO =help-echo= on rows (or, if one is ever wanted,
+   only a CHEAP CONSTANT string, never a function); install NO
+   =track-mouse= / =<mouse-movement>= binding / mouse hook.  Assert these
+   as invariants (ERTs) so the hover hot path stays pure redisplay.
+2. *Follow is point-move only (kept + asserted).*  The inspector and
+   pane follow remain on =post-command-hook= (point movement), debounced;
+   they are NOT wired to mouse motion.  Assert that hovering (no point
+   move, no command) neither arms the inspector/pane timers nor updates
+   them.
+3. *Lightweight highlight.*  Confirm =org-air-face-cursor= (the
+   mouse-face) is a pure background highlight — it inherits
+   =org-air-face-subtle= (a subtle =:background=) with =:extend t= and NO
+   metric-changing attributes (no =:box= / =:weight= / =:height= /
+   =:underline=), so a row-highlight toggle re-blits the row without
+   re-laying-out its glyphs or re-rasterising the cached pills.  Keep it
+   that way (a guard test on the face spec); the cached svg image path
+   (R18 D-P1a) means the pills are not re-rendered on a face-only
+   redisplay.
+4. *R32 + click preserved.*  The per-row =mouse-face= scoping stays;
+   =mouse-1= / =RET= still open the single doc under point (org-air-doc /
+   org-air-marker unchanged).
+
+Explicitly out of scope: changing Emacs's redisplay of images, or
+disabling the single-row highlight (the correct R32 behaviour) — the
+substance is the guaranteed absence of per-motion Lisp + a lightweight
+static highlight.
+
+** Testability — EXECUTING acceptance ERTs
+Live project view (fixture tree); hover is not literally scriptable in
+batch, so the ERTs assert the INVARIANTS that make hover instant.
+
+1. =org-air-r33-2-no-help-echo-on-rows= — no doc row (board or project)
+   carries a =help-echo= text property (nor a function-valued one).
+2. =org-air-r33-2-no-mouse-motion-machinery= — after opening the project
+   view, no =<mouse-movement>= binding is reachable in the buffer's
+   maps, =track-mouse= is not enabled, and no mouse-movement hook was
+   installed by org-air.
+3. =org-air-r33-2-mouse-face-is-static-per-row= — each doc row's
+   =mouse-face= is the plain symbol =org-air-face-cursor= over exactly
+   its own row (R32 guard re-asserted); it is a text property, not an
+   overlay with a modification/motion hook.
+4. =org-air-r33-2-follow-is-point-move-not-hover= — the inspector-follow
+   and pane-follow are registered on =post-command-hook= (not on any
+   mouse hook); simulating a HOVER (point unchanged, no command
+   dispatched) arms/updates NEITHER the inspector timer nor the pane
+   timer, while a POINT move does (positive control).
+5. =org-air-r33-2-cursor-face-lightweight= — =org-air-face-cursor=
+   carries no metric-changing attribute (no =:box/:weight/:height/
+   :underline=), only background/extend, so a hover redisplay is a
+   pure re-blit.
+6. =org-air-r33-2-click-opens-single-doc= — =mouse-1= / =RET= on a doc
+   row still opens exactly the single doc under point (R32 preserved).
+
+** Routing
+- org-air-view.el / org-air-project.el: confirm/keep the invariants (no
+  help-echo, no mouse hook, follow on point-move, lightweight cursor
+  face); no rendered-text change.
+- tests/org-air-round33-test.el: the ERTs above.
+- No golden change (byte-invisible).
+
+* Implementation History
+- [2026-07-07] Round-33 design opened on the integrated R31/R32 tip.
+  R33-1 ROOT-CAUSED (executed): the empty-board header still carries the
+  East-Asian *Ambiguous* =·= (U+00B7) separator; measured painted width
+  (ambiguous-as-2 model) = 81 > usable 80 at W=80 while string-width = 80
+  (S7 column contract holds — this is Seam B, font-side).  Decided
+  option (a): replace the chrome middle-dot with an unambiguous
+  single-width dot (=∙= U+2219, Neutral) via one shared
+  =org-air-chrome-separator=, swept across header/source/legends/pane
+  header/quiet marker; =string-width= preserved so V6/R31 are untouched;
+  chrome fixtures re-bless (1:1 swap, manifest).  Justified (a) over (b):
+  budgeting ambiguous-as-2 would fight V6/R31 (the structural
+  divider/rules/calendar/badges are ambiguous too) and move goldens more,
+  for no aesthetic gain.  R33-2 ROOT-CAUSED (audited): the hover path
+  runs ZERO org-air Lisp (no help-echo, no track-mouse/mouse hook,
+  mouse-face static, inspector/pane follow on POINT-move post-command
+  only); R32's correct per-row scoping unmasked a dormant redisplay (the
+  pre-R32 single mega-region never changed on intra-block motion), so
+  crossing image-bearing =:extend= rows now redisplays per crossing.
+  Decided to keep hover static/lightweight/Lisp-free and LOCK the
+  invariants with ERTs (no help-echo, no mouse machinery, follow is
+  point-move, cursor face lightweight, click opens single doc).
+  Byte-invisible.  Both items specified; implementation pending.

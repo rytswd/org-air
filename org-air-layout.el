@@ -61,7 +61,7 @@
     (arrow . ("→" . "->"))
     (rail-marker . ("▌" . "|"))
     (view-pane . ("▤" . "#"))
-    (sep-dot . ("·" . "-"))
+    (sep-dot . ("∙" . "-"))
     (sort-asc . ("↑" . "^"))
     (sort-desc . ("↓" . "v"))
     (sort-key . ("↕" . "|"))

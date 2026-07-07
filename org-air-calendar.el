@@ -125,7 +125,7 @@ so a day carrying both reads as a deadline."
                      'org-air-face-calendar-deadline))
     ('scheduled (cons (org-air-calendar--glyph "●" "o")
                       'org-air-face-calendar-scheduled))
-    ('created (cons (org-air-calendar--glyph "·" ".")
+    ('created (cons (org-air-calendar--glyph "∙" ".")
                     'org-air-face-calendar-created))
     (_ nil)))
 
@@ -328,7 +328,7 @@ legend — the filled today cell is its own unmistakable cue."
         (sched (org-air-calendar--legend-entry
                 "●" "o" 'org-air-face-calendar-scheduled "sched"))
         (created (org-air-calendar--legend-entry
-                  "·" "." 'org-air-face-calendar-created "created")))
+                  "∙" "." 'org-air-face-calendar-created "created")))
     (if wide
         (string-join (list due sched created) "    ")
       (string-join (list due sched) "    "))))

@@ -1134,7 +1134,7 @@ filter is active, keeping the existing project goldens byte-identical."
                   (concat " " (org-air-view--filter-combinator-word) " ")
                 " ")))
     (if filters
-        (propertize (concat " · "
+        (propertize (concat (org-air-view--sep)
                             (mapconcat (lambda (tag) (concat "#" tag)) filters sep)
                             " " (org-air-view--glyph 'clear))
                     'face 'org-air-face-faded)
@@ -1146,7 +1146,7 @@ Empty at the default (titles), so every golden is byte-identical; while
 flipped it sits beside the sort indicator (same faded idiom) so a flipped
 buffer is never mistaken for odd titles."
   (if org-air-project--show-filenames
-      (propertize (concat (org-air-layout-glyph 'flip) " files · ")
+      (propertize (concat (org-air-layout-glyph 'flip) " files" (org-air-view--sep))
                   'face 'org-air-face-faded)
     ""))
 
@@ -1156,7 +1156,8 @@ The badge order is part of the byte contract (R16 D-P4).  R18 D-P3: an
 active tag filter + combinator is surfaced beside the title (empty when
 none, so the no-filter goldens are byte-identical).  R26-4: a flipped
 buffer gains the `⇄ files' chip next to the sort indicator."
-  (let* ((title (concat (propertize "  org-air · project" 'face 'org-air-face-title)
+  (let* ((title (concat (propertize (concat "  org-air" (org-air-view--sep) "project")
+                                    'face 'org-air-face-title)
                         (org-air-project--filter-segment)))
          (badge (concat (org-air-project--files-chip)
                         (org-air-project--sort-indicator)))

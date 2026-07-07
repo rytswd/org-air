@@ -54,6 +54,21 @@
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-chrome-separator "∙"
+  "Single source of truth for the org-air chrome middle-dot separator.
+Used to join header status segments, the rail Source line, the
+Filter/Match/Actions legends, the pane header, the quiet-activity marker
+and the calendar `created' key (R33-1).  The default is `∙' (U+2219
+BULLET OPERATOR, East-Asian *Neutral* -> painted one column in every
+font), replacing the visually similar `·' (U+00B7 MIDDLE DOT, East-Asian
+*Ambiguous* -> a GUI font may PAINT it two columns while `string-width'
+measures one).  Because `string-width' is identical (both 1), every
+column position and the whole V6/R31 width math are byte-identical in
+COLUMNS; only the glyph byte changes, so a right-filled chrome line can
+no longer be painted past its usable width (Seam B)."
+  :type 'string
+  :group 'org-air)
+
 (defcustom org-air-date-style 'pill
   "How the item-row date renders (R10).
 `pill' draws an svg-tag-style rounded pill on a graphical frame when SVG
@@ -1386,6 +1401,12 @@ naming makes their regexp true again; this makes it unnecessary."
   "Return glyph NAME with a TTY fallback."
   (org-air-layout-glyph name))
 
+(defun org-air-view--sep ()
+  "Return the chrome separator wrapped as \" SEP \" (R33-1).
+A single source of truth for the chrome middle-dot; see
+`org-air-chrome-separator'."
+  (format " %s " org-air-chrome-separator))
+
 (defun org-air-view--margin ()
   "Return the standard left margin string."
   (make-string org-air-margin ?\s))
@@ -1468,7 +1489,8 @@ fallback), never a crash."
                                             ((file-exists-p file)))
                                   (file-attribute-modification-time
                                    (file-attributes file))))))
-        (cons (format "· %dd quiet" (org-air-view--days-between activity now))
+        (cons (format "%s %dd quiet" org-air-chrome-separator
+                      (org-air-view--days-between activity now))
               'org-air-face-date))))))
 
 (defun org-air-view--priority-char (item)
@@ -1813,17 +1835,21 @@ optional segments (after filter, scope and count)."
                  (cond
                   (org-air-view--loading
                    (if (eq org-air-view--refresh-state 'refreshing)
-                       (format " · loading %d/%d files"
-                               (max 0 (- org-air-view--refresh-total
-                                         (length org-air-view--refresh-queue)))
-                               org-air-view--refresh-total)
-                     " · loading…"))
+                       (concat (org-air-view--sep)
+                               (format "loading %d/%d files"
+                                       (max 0 (- org-air-view--refresh-total
+                                                 (length org-air-view--refresh-queue)))
+                                       org-air-view--refresh-total))
+                     (concat (org-air-view--sep) "loading…")))
                   ((eq org-air-view--refresh-state 'refreshing)
-                   " · stale · refreshing…")
+                   (concat (org-air-view--sep) "stale"
+                           (org-air-view--sep) "refreshing…"))
                   ((eq org-air-view--refresh-state 'failed)
-                   " · stale · refresh failed (g retries)")
-                  (t (format " · %d items"
-                             (length (org-air-view--visible-items items)))))
+                   (concat (org-air-view--sep) "stale"
+                           (org-air-view--sep) "refresh failed (g retries)"))
+                  (t (concat (org-air-view--sep)
+                             (format "%d items"
+                                     (length (org-air-view--visible-items items))))))
                  'face (if (and (not busy) org-air-header-accent-count)
                            'org-air-face-count 'org-air-face-faded)))
          ;; R18 D-P2.3: with >=2 active filter tags, join them with the
@@ -1835,17 +1861,17 @@ optional segments (after filter, scope and count)."
                                     " ")))
                         (when filters
                           (propertize
-                           (concat " · "
+                           (concat (org-air-view--sep)
                                    (mapconcat (lambda (tag) (concat "#" tag)) filters sep)
                                    " " (org-air-view--glyph 'clear))
                            'face 'org-air-face-faded))))
          (scope-text (pcase org-air-view--scope
-                       (`(:tag ,tag) (propertize (concat " · #" tag)
+                       (`(:tag ,tag) (propertize (concat (org-air-view--sep) "#" tag)
                                                  'face 'org-air-face-faded))
-                       (`(:group ,group) (propertize (concat " · @" group)
+                       (`(:group ,group) (propertize (concat (org-air-view--sep) "@" group)
                                                      'face 'org-air-face-faded))
                        (`(:file ,file) (propertize
-                                        (concat " · " (file-name-nondirectory file))
+                                        (concat (org-air-view--sep) (file-name-nondirectory file))
                                         'face 'org-air-face-faded))
                        (_ nil)))
          ;; R22-3: the within-bucket sort indicator, shown ONLY when a
@@ -1855,7 +1881,7 @@ optional segments (after filter, scope and count)."
          ;; high-contrast `org-air-face-sort-active' and sheds LAST under
          ;; narrow widths (see the shed order below).
          (sort-text (unless (org-air-view--sort-default-p)
-                      (concat (propertize " · " 'face 'org-air-face-faded)
+                      (concat (propertize (org-air-view--sep) 'face 'org-air-face-faded)
                               (org-air-view--sort-indicator-text
                                (org-air-view--sort-active-key)
                                (org-air-view--sort-active-direction)
@@ -3258,8 +3284,9 @@ Names the two roles UNMISTAKABLY (the user kept reading them as the same):
                     "\n")
             (insert inset
                     (propertize
-                     (concat (format "Match: %s   M-/ toggles · \\ clears"
-                                     (org-air-view--filter-combinator-word))
+                     (concat (format "Match: %s   M-/ toggles %s \\ clears"
+                                     (org-air-view--filter-combinator-word)
+                                     org-air-chrome-separator)
                              ;; R22-4: when the lens removed rows, report it.
                              (when (< shown loaded)
                                (format "   %d of %d shown" shown loaded)))
@@ -3273,9 +3300,11 @@ Names the two roles UNMISTAKABLY (the user kept reading them as the same):
       (org-air-view--rail-header "Source" width)
       (insert inset
               (propertize (org-air-view--scope-label) 'face 'org-air-face-origin)
-              (propertize (format " · %d loaded" loaded) 'face 'org-air-face-faded)
+              (propertize (format " %s %d loaded" org-air-chrome-separator loaded)
+                          'face 'org-air-face-faded)
               (if org-air-view--scope
-                  (propertize "   s changes · S clears" 'face 'org-air-face-faded)
+                  (propertize (format "   s changes %s S clears" org-air-chrome-separator)
+                              'face 'org-air-face-faded)
                 "")
               "\n"))))
 
@@ -3896,7 +3925,7 @@ vertically, calendar first — always on-screen."
          (summary-fn (lambda () (org-air-view--insert-summary items col)))
          (filters-fn (lambda ()
                        (org-air-view--insert-rail-filters col)
-                       (insert (propertize "c capture · / filter"
+                       (insert (propertize (format "c capture %s / filter" org-air-chrome-separator)
                                            'face 'org-air-face-faded)))))
     (if (>= width (+ (* 3 col) (* 2 gutter)))
         (let ((cal-lines (org-air-view--render-lines col calendar-fn))

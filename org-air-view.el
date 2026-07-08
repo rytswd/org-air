@@ -761,7 +761,7 @@ never a partial paint.")
   "Alist FILE -> mtime captured per file AT SCAN TIME (R26-8).
 Persisted with the cache so the next start can detect staleness.")
 (defvar-local org-air-view--refresh-timer nil
-  "The pending one-shot idle timer of the in-flight refresh, or nil.")
+  "The single repeating idle pacing timer of the in-flight refresh, or nil (R34-3).")
 (defvar-local org-air-view--cache-stale-files nil
   "Files whose mtime diverged from the cache snapshot (R26-8).
 While REFRESHING, triage verbs on an item from one of these soft-error
@@ -6405,33 +6405,61 @@ must not re-block the frame)."
     (org-air-view--render org-air-view--items org-air-view--tag-filter)
     (org-air-view--restore-position token)))
 
+(defconst org-air-view--refresh-pace 0.05
+  "Bounded idle interval (seconds) pacing the chunked refresh slices (R34-3).
+An internal constant, never a defcustom.")
+
+(defun org-air-view--refresh-next-delay (idle-elapsed interrupted-p)
+  "Return the bounded delay before the next refresh slice (R34-3).
+Always the bounded constant `org-air-view--refresh-pace'.  It must NOT
+grow with the slice index — that was the R34-3 defect: the old chain
+re-armed a one-shot idle timer from inside its own idle callback, pushing
+the ABSOLUTE idle target forward ~0.05s per slice (target ~= k*0.05), so a
+large tree, or any interaction that reset the idle clock, could never
+reach the ever-larger far-future target and the chain stranded
+\(\"loading N/M\" / \"stale ∙ refreshing\" stuck forever).  IDLE-ELAPSED and
+INTERRUPTED-P are accepted for the model but never push the delay up: a
+resumable pace is constant."
+  (ignore idle-elapsed interrupted-p)
+  org-air-view--refresh-pace)
+
+(defun org-air-view--refresh-disarm ()
+  "Cancel the repeating pacing timer, if any (R34-3).  Single teardown point."
+  (when (timerp org-air-view--refresh-timer)
+    (cancel-timer org-air-view--refresh-timer))
+  (setq org-air-view--refresh-timer nil))
+
+(defun org-air-view--refresh-arm (buffer token)
+  "Arm ONE repeating idle pacing timer for BUFFER's refresh under TOKEN (R34-3).
+A REPEATING `run-with-idle-timer' fires every `org-air-view--refresh-pace'
+WHILE Emacs is idle and — crucially — is re-scheduled by Emacs when idle
+RESUMES after any interruption, so a large tree loads across successive
+idle periods and mid-load interaction merely PAUSES (never strands) the
+chain.  The slice runner does NOT re-arm; the repeat does the pacing and
+`org-air-view--refresh-disarm' (from finish / failure / cancel) is the
+only teardown, so exactly one live pacing timer exists at a time.  Never
+arms under `noninteractive' — the deterministic ERTs call
+`org-air-view--refresh-run-slice' directly instead."
+  (unless noninteractive
+    (with-current-buffer buffer
+      (unless (timerp org-air-view--refresh-timer)
+        (setq org-air-view--refresh-timer
+              (run-with-idle-timer
+               (org-air-view--refresh-next-delay 0 nil) t
+               #'org-air-view--refresh-run-slice buffer token))))))
+
 (defun org-air-view--refresh-cancel ()
   "Invalidate any in-flight refresh: bump the token, cancel the timer.
 Every pending slice callback carries the old token and self-cancels."
   (cl-incf org-air-view--refresh-token)
-  (when (timerp org-air-view--refresh-timer)
-    (cancel-timer org-air-view--refresh-timer))
-  (setq org-air-view--refresh-timer nil
-        org-air-view--refresh-queue nil
+  (org-air-view--refresh-disarm)
+  (setq org-air-view--refresh-queue nil
         org-air-view--refresh-acc nil))
 
 (defun org-air-view--refresh-teardown ()
   "Cancel the in-flight refresh outright (the board buffer is dying)."
   (org-air-view--refresh-cancel)
   (setq org-air-view--refresh-state nil))
-
-(defun org-air-view--refresh-schedule (buffer token)
-  "Schedule the next refresh slice for BUFFER under TOKEN (R26-8).
-One-shot idle timer, re-armed from each completed slice; relative to the
-current idleness so a chain that starts while Emacs is already idle keeps
-running.  Never schedules under `noninteractive' — the deterministic ERTs
-call `org-air-view--refresh-run-slice' directly instead."
-  (unless noninteractive
-    (with-current-buffer buffer
-      (setq org-air-view--refresh-timer
-            (run-with-idle-timer
-             (time-add (or (current-idle-time) 0) 0.05) nil
-             #'org-air-view--refresh-run-slice buffer token)))))
 
 (defun org-air-view--refresh-start ()
   "Enter REFRESHING for the current board buffer; return the new token.
@@ -6447,15 +6475,17 @@ header marker/progress is visible from the first paint."
         org-air-view--refresh-state 'refreshing)
   (if (null org-air-view--refresh-queue)
       (org-air-view--refresh-finish)
-    (org-air-view--refresh-schedule (current-buffer)
-                                    org-air-view--refresh-token))
+    (org-air-view--refresh-arm (current-buffer)
+                               org-air-view--refresh-token))
   org-air-view--refresh-token)
 
 (defun org-air-view--refresh-finish ()
   "All slices done: swap ONCE, re-render, clear the marker, write the cache.
 The single-swap rule (no partial paints): the accumulated items replace
 `org-air-view--items' in one motion, the board repaints once with point
-preserved, and the machine returns to FRESH."
+preserved, and the machine returns to FRESH.  Disarms the repeating pacer
+first so it cannot fire again after the chain is DONE (R34-3)."
+  (org-air-view--refresh-disarm)
   (let ((items org-air-view--refresh-acc)
         (mtimes org-air-view--refresh-mtimes))
     (setq org-air-view--items items
@@ -6483,7 +6513,9 @@ FAILED (header: `refresh failed (g retries)') and always clears
     (with-current-buffer buffer
       (when (and (eq token org-air-view--refresh-token)
                  (eq org-air-view--refresh-state 'refreshing))
-        (setq org-air-view--refresh-timer nil)
+        ;; R34-3: the repeating pacer re-fires itself; the slice does NOT
+        ;; touch the timer here (nil'ing it would drop the live handle),
+        ;; and does NOT re-arm.  `refresh-finish'/failure/cancel disarm.
         (condition-case err
             (let* ((slice (seq-take org-air-view--refresh-queue
                                     (max 1 org-air-refresh-files-per-slice))))
@@ -6501,12 +6533,14 @@ FAILED (header: `refresh failed (g retries)') and always clears
                             (org-air-query-items-in-files slice)))
                     org-air-view--refresh-queue
                     (nthcdr (length slice) org-air-view--refresh-queue))
-              (if org-air-view--refresh-queue
-                  ;; more to do: re-arm; the buffer text is NOT touched
-                  ;; between slices (single-swap rule).
-                  (org-air-view--refresh-schedule buffer token)
+              ;; R34-3: more to do -> nothing to schedule, the repeating
+              ;; pacer fires the next slice; the buffer text is NOT touched
+              ;; between slices (single-swap rule).  Done -> finish (which
+              ;; disarms the pacer).
+              (when (null org-air-view--refresh-queue)
                 (org-air-view--refresh-finish)))
           (error
+           (org-air-view--refresh-disarm)   ; stop the pacer on failure
            (setq org-air-view--refresh-state 'failed
                  org-air-view--refresh-queue nil
                  org-air-view--refresh-acc nil

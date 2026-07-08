@@ -1821,26 +1821,26 @@ timer slot, rescheduled — never stacked (R27-1 S3)."
 R28-3: the back cell's key text is DERIVED from the LIVE binding of
 `org-air-project-back' in DOCBUF (the session buffer) — never the
 hardcoded `q back' lie (`q' SELF-INSERTS in the editable doc file
-buffer; the real verb is the mode map's back binding).  `RET jump' and
-`| rail' stay
-literal: they are rail-buffer bindings, truthful for the buffer the
-legend lives in.  Cells are sized from their CONTENT and laid out
+buffer; the real verb is the mode map's back binding).  R39-3: the `jump'
+cell is gone (the doc leader `o' was dropped — RET is the sole open verb),
+so the doc Actions legend is just `back' + `rail'.  Cells are sized from
+their CONTENT and laid out
 greedily left-to-right with the existing gap; a cell that would cross
 WIDTH starts a NEW inset row — wrap, never overflow."
   (org-air-view--rail-header "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
          (gap (if (>= width 38) "    " " "))
          ;; R30-2: EVERY cell's key is derived from the LIVE binding in
-         ;; DOCBUF via `org-air-view--legend-key' — `RET'/`|' self-insert
-         ;; in the editable doc buffer, so the legend shows the LEADER
-         ;; form (C-c C-a o / C-c C-a |) that is actually reachable there.
+         ;; DOCBUF via `org-air-view--legend-key' — `|' self-inserts in the
+         ;; editable doc buffer, so the legend shows the LEADER form
+         ;; (C-c C-a |) that is actually reachable there.
+         ;; R39-3: the `jump' (outline-goto-current-heading) cell is DROPPED
+         ;; — the leader `o' that bound it in the doc buffer is gone (RET is
+         ;; the sole open verb there), so keeping a cell would lie about a
+         ;; dead binding.  No `org-air-view--legend-key' fallback survives to
+         ;; fabricate it.
          (cells (list (org-air-view--verb-cell
                        (org-air-project--doc-back-key docbuf) "back" 0)
-                      (org-air-view--verb-cell
-                       (org-air-view--legend-key
-                        #'org-air-outline-goto-current-heading docbuf
-                        "C-c C-a o")
-                       "jump" 0)
                       (org-air-view--verb-cell
                        (org-air-view--legend-key
                         #'org-air-rail-toggle docbuf "C-c C-a |")
@@ -1908,11 +1908,15 @@ unchanged; this leader is purely ADDITIVE.
 Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 ;; R35-1: the doc-session subset of the main-window leader (installer-
-;; owned) — rail toggle, outline jump/next/prev, and the session back verb,
+;; owned) — rail toggle, outline next/prev, and the session back verb,
 ;; reachable from the EDITABLE doc org buffer where single keys self-insert.
+;; R39-3: the leader `o' (outline-goto-current-heading) is DROPPED here — in
+;; the editable doc org buffer it merely duplicates RET, so RET is the sole
+;; open verb.  The board (`org-air-leader-map') and project
+;; (`org-air-project-leader-map') leaders keep `o' (rail-return) where it
+;; does NOT duplicate a bare RET.
 (org-air--register-default-keys 'org-air-doc-leader-map
   "|" #'org-air-rail-toggle
-  "o" #'org-air-outline-goto-current-heading
   "n" #'org-air-outline-next-heading
   "p" #'org-air-outline-prev-heading
   "q" #'org-air-project-back)

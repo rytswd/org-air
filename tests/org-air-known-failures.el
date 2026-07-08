@@ -61,6 +61,19 @@
     (org-air-r38-1-reverting-to-string-width-budget-fails . "R39-1: 2-col gutter absorbs the pixel-excess slack the revert-guard relied on; test seat retunes")
     (org-air-s7-header-status-ends-at-w-minus-1 . "R39-1: status now ends at W-1-banner-indent (symmetric gutter)")
     ;; ===================================================================
+    ;; v0.5 ROUND-39 grind (impl track) — R39-3 drop `C-c C-a o' in the
+    ;; doc/org buffer.  The leader `o' (outline-goto-current-heading)
+    ;; duplicated RET in the editable doc session, so it is removed from
+    ;; `org-air-doc-leader-map' ONLY (the board/project leaders keep their
+    ;; `o' = rail-return); the doc Actions legend `jump' cell drops with it
+    ;; (no dead/lying cell).  These three legacy ERTs assert the OLD
+    ;; behaviour (o bound in the doc buffer + a `C-c C-a o jump' legend
+    ;; cell) and are re-blessed by the TEST SEAT to the R39-3 contract
+    ;; (the new `org-air-r39-3-doc-leader-no-open' ERT locks the drop).
+    (org-air-r30-2-leader-reaches-actions-from-doc . "R39-3: doc leader `o' dropped (RET is the sole open verb)")
+    (org-air-r30-2-legend-shows-context-key . "R39-3: doc Actions `jump' legend cell dropped with the leader `o'")
+    (org-air-r28-3-legend-fits-narrow-rail . "R39-3: doc Actions `jump' legend cell dropped with the leader `o'")
+    ;; ===================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     ;; 2026-06-12: 5 date-label sign-inversion entries closed out — fix
     ;; landed on trunk3 (pwuqtvlt) and all 5 regression tests pass.

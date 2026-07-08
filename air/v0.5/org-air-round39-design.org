@@ -1,0 +1,262 @@
+#+title: org-air Round 39 — header LHS/RHS margin symmetry · no-rail fence realignment · drop 'C-c C-a o' in org buffers · repeatable p/n
+#+state: ready
+#+tags: layout header banner fence keybindings leader transient polish
+#+FILETAGS: :ui:layout:header:banner:fence:keymap:leader:transient:design:v0.5:
+
+* Summary
+
+Four user-reported polish items on top of the R38 header fix (the banner now
+FITS — pixel-true width shipped, no overflow). All four are small, surgical, and
+reuse existing layout/keymap primitives. Only R39-1 intentionally moves a batch
+golden (the banner right cluster shifts left 2 cols to gain a symmetric right
+gutter); every other item is byte-invisible to the goldens.
+
+- *R39-1* Header LHS/RHS margin symmetry — give the right status cluster a right
+  gutter equal to the left indent (2 cols), so the banner is balanced. Intended
+  golden move; test re-blesses honestly.
+- *R39-2* No-rail vertical-line / fence misalignment (regression) — the R34-2
+  no-rail fence column drifted off the row metadata cluster (R37 =usable=body−1=
+  / R38-2 inspector clamp shifted it). One constant column, derived from the
+  current usable width, shared by BOTH the fence and the cluster right-anchor.
+- *R39-3* Drop =C-c C-a o= in the doc/org buffer — the leader =o= (open)
+  duplicates RET there; remove it from the doc-session leader ONLY.
+- *R39-4* Make =C-c C-a p= / =C-c C-a n= repeatable — after the leader prefix,
+  prev/next install a transient map so bare =p=/=n= repeat until any other key.
+
+* R39-1 — header LHS/RHS margin symmetry [BUG]
+
+** Symptom (user)
+"The header lhs and rhs are not even — lhs has 2 empty spaces, and rhs has none.
+Make it at least consistent."
+
+** Root cause
+The banner's left token is =(propertize "  org-air" …)= — a 2-space indent baked
+into the token. R36-1 removed the reserved trailing space (to kill the fringed-
+frame overflow) so the right status now right-aligns to the *last usable column*
+(=usable−1=), FLUSH to the edge. Net asymmetry: 2 cols of margin on the left, 0
+on the right.
+
+** Decision — a symmetric right gutter equal to the left indent
+Introduce ONE constant for the chrome's horizontal indent and use it on BOTH
+sides of =org-air-view--insert-banner=. Do NOT hardcode =2= twice.
+
+#+begin_src emacs-lisp
+(defconst org-air-view--banner-indent 2
+  "Columns of horizontal margin the banner reserves on EACH side.
+The left token bakes this many leading spaces (\"  org-air\"); the right
+status cluster reserves the SAME count as a trailing gutter so the header is
+left/right symmetric.  One constant so the two sides can never drift.")
+#+end_src
+
+In =org-air-view--insert-banner= the right cluster's last glyph must end at
+column =(- usable 1 org-air-view--banner-indent)= (i.e. its last glyph sits at
+=usable − 3= for the default indent 2), leaving a =org-air-view--banner-indent=-
+wide trailing gutter mirroring the left indent:
+
+- =budget = (- w org-air-view--banner-indent (string-width right))= — the space
+  available for the left token, unchanged in spirit but now the right side is
+  reserved symmetrically.
+- The composed line is =(org-air-view--justify left right (- w org-air-view--banner-indent))=
+  — justify to =w − indent= so the right token ends at =w − indent − 1= and the
+  final =indent= columns are the trailing gutter. The gutter is NOT emitted as
+  trailing whitespace past the line's declared width — it stays INSIDE =w= (the
+  justify pad-to target shrinks by =indent=), exactly like R36-1 kept the left
+  margin inside =w=. No line ever exceeds =window-body-width=.
+
+Keep R38-1's pixel-true =left-cols= accounting intact: the left token's *display*
+cost (=left-cols=, ceil of =string-pixel-width= / =frame-char-width= on GUI,
+=string-width= in batch/TTY) is what the budget charges, so the row still fits
+WITH the new gutter. The gutter is defined in canonical columns and is subtracted
+from the same =w= that R38-1 already proved fits.
+
+Concretely the two budget/justify lines become, threading =left-cols= (R38-1)
+AND the indent constant (R39-1):
+- =budget = (- w left-cols org-air-view--banner-indent)=
+- pad run so the right token ends at =(- w org-air-view--banner-indent 1)=, with
+  =org-air-view--banner-indent= canonical columns of trailing gutter kept inside
+  =w=.
+
+** Intended golden move (honest re-bless)
+The batch banner golden shifts the right content left by =org-air-view--banner-indent=
+(2) columns. This is EXPECTED and the ONLY sanctioned golden churn this round.
+=make regen-mockups= re-blesses; the diff must be EXACTLY "right status moved
+left 2 cols, 2-col trailing gutter appears, no other line changed". If any OTHER
+line moves, that is a RED FLAG — do not manifest it away.
+
+** Scope
+=org-air-view--insert-banner= (org-air-view.el ~1976) + the new
+=org-air-view--banner-indent= defconst ONLY. No change to =usable-columns=,
+=org-air-layout=, or =org-air-view--justify='s signature.
+
+** Invariant
+=lhs-margin == rhs-margin == org-air-view--banner-indent=. The left token still
+begins with exactly that many spaces; the right cluster ends exactly that many
+columns before =usable=.
+
+* R39-2 — no-rail vertical-line / fence misalignment (regression) [BUG]
+
+** Symptom (user)
+"The vertical line when the rail is not shown … was fixed at one point, but got
+regressed again."
+
+** History
+R34-2 introduced the no-rail *fence*: with the side rail hidden, the board's
+right-hand vertical line / metadata cluster is right-anchored to ONE constant
+column derived from the compose width (=width − cluster-w=), constant across
+rows. Since then two width seams shifted underneath it:
+- R37: =usable = body − 1= universal reserve (continuation-glyph case).
+- R38-2: inspector refill clamps to the live =org-air-view--render-width=.
+Either can leave the fence line computed from a DIFFERENT width than the one the
+row cluster right-anchors to → the vertical line no longer sits on the cluster's
+right edge (off by 1–2 cols, exactly the reported drift).
+
+** Diagnosis (headless, do this first)
+Render the board in NO-RAIL mode headless (rail hidden) and probe:
+1. the column at which the fence vertical line / right cluster is DRAWN, and
+2. the column at which the per-row metadata cluster RIGHT-ANCHORS
+   (=org-air-view--insert-row= places it at =width − cluster-w=).
+Print both. They currently disagree because they read =width= from two sources
+(the fence from a stale/independently-computed width; the cluster from the live
+=org-air-view--render-width= threaded through the R37 usable path).
+
+** Decision — one constant column, one width source
+The fence column and the row cluster's right-anchor column MUST both be derived
+from the SAME =org-air-view--render-width= (the live usable width), through a
+single helper so they cannot diverge:
+
+#+begin_src emacs-lisp
+(defun org-air-view--fence-column (width)
+  "Return the single column the no-rail fence / metadata cluster right-anchors to.
+WIDTH is the live `org-air-view--render-width' (post R37 usable=body-1).  BOTH
+the vertical fence line and every row's metadata cluster right edge share this
+column so they align exactly.  One derivation — reverting it desynchronises the
+fence from the cluster.")
+#+end_src
+
+Route the no-rail fence renderer and =org-air-view--insert-row='s cluster
+right-anchor through =org-air-view--fence-column= with the SAME =width= argument.
+No path may read =org-air-view--render-width= before/around the R37 usable
+recompute or from a cached geometry (the R38-2 inspector-geom pitfall): the fence
+and the cluster take =width= from the one live value passed into the render pass.
+
+** Testability — EXECUTING ERT (revert-fails)
+=org-air-r39-2-fence-column-equals-cluster-column= — render the board headless in
+NO-RAIL mode; assert =(org-air-view--fence-column width)= == the actual column at
+which a rendered row's metadata cluster right edge lands, for a live =width=.
+Reverting R39-2 (fence and cluster read different widths) MUST fail this. Name the
+exact function under test: =org-air-view--fence-column= (and the row anchor in
+=org-air-view--insert-row=).
+
+* R39-3 — drop 'C-c C-a o' in doc/org buffers [BUG]
+
+** Symptom (user)
+"C-c C-a o is useless to have available from an org buffer — I'd just use enter."
+
+** Decision
+In the editable doc-session / outline context, the leader =o= (open / jump to
+outline) duplicates RET. Remove the =o= row from the DOC-SESSION leader ONLY,
+leaving RET as the sole way to open there.
+
+- Remove the =(org-air-doc-leader-map "o" …)= row from the canonical
+  =(MAP-SYMBOL KEY COMMAND)= table that drives
+  =org-air--install-default-keybindings= / =org-air--clear-default-keybindings=
+  (R35). Because both install and clear read that one table, removing the row is
+  the whole change — no drift.
+- VERIFY the =o= binding is kept where it is still meaningful: the board / rail /
+  project leader maps (=org-air-leader-map=, =org-air-project-leader-map=) where
+  =o= (open) does NOT duplicate a bare RET. Only =org-air-doc-leader-map= loses
+  it.
+- Gated behind =org-air-use-default-keybindings= exactly like every other key
+  (the table only installs when the knob is =t=).
+- Legend: the doc-session Actions legend cell for open, built via
+  =org-air-view--legend-key= (R30), drops accordingly since the command is no
+  longer bound there — no dead/lying cell.
+
+** Testability — EXECUTING ERT
+=org-air-r39-3-doc-leader-no-open= — in the doc-session org buffer with defaults
+installed, =(key-binding (kbd "C-c C-a o"))= is NOT the open/jump command (falls
+through / nil), while RET still opens; AND in the board buffer =C-c C-a o= (if
+still meaningful) is unchanged. Trunk (with =o= bound in doc) fails.
+
+* R39-4 — make 'C-c C-a p' / 'C-c C-a n' repeatable [BUG]
+
+** Symptom (user)
+"C-c C-a p/n should be repeatable (so I can do nnnn …)."
+
+** Decision — install a transient map after the leader prev/next
+After the leader prefix invokes prev/next, install a transient map so bare =p= /
+=n= repeat the motion without re-typing the leader, until ANY other key:
+
+#+begin_src emacs-lisp
+(defvar org-air--repeat-pn-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "n" #'org-air--repeat-next)
+    (define-key map "p" #'org-air--repeat-prev)
+    map)
+  "Transient repeat map for leader prev/next (R39-4).")
+
+;; each repeatable motion command ends with:
+(when org-air-use-default-keybindings
+  (set-transient-map org-air--repeat-pn-map t))
+#+end_src
+
+- =set-transient-map … t= (KEEP-PRED = t): the map stays active as long as the
+  last key was =n=/=p=; the first NON-repeat key deactivates it AND runs normally
+  (so =nnnnq= advances 4 then quits). No modeline hint required (bare repeat).
+- The repeat commands are the SAME existing prev/next command symbols (no fork) —
+  the motion primitive is unchanged; only a =set-transient-map= tail is added
+  after the motion in the leader path.
+- Applies to EVERY leader map that binds p/n — board (=org-air-leader-map=),
+  rail, and project (=org-air-project-leader-map=). The transient map is shared;
+  its =n=/=p= dispatch to the context-correct motion (resolve the live motion
+  command in the current buffer, so board-next vs outline-next both repeat
+  correctly).
+- Gated behind =org-air-use-default-keybindings= (the =set-transient-map= tail is
+  a no-op when the knob is nil, and the leader keys themselves are only installed
+  when it is =t=).
+
+** Testability — EXECUTING ERT (revert-fails)
+=org-air-r39-4-pn-repeatable= — drive =C-c C-a n= (leader-next) once, then bare
+=n= three more times (feed via the transient map / =key-binding= dispatch);
+assert the cursor / selected item advanced by exactly 4. Reverting R39-4 (no
+transient map) leaves it at 1 (bare =n= self-inserts / does nothing) → fails.
+
+* Regression fence (summary of executing ERTs)
+
+1. =org-air-r39-2-fence-column-equals-cluster-column= — no-rail fence column ==
+   row cluster right column (revert-fails).
+2. =org-air-r39-3-doc-leader-no-open= — doc leader no longer binds =o=; board
+   leader (if applicable) unchanged; RET still opens.
+3. =org-air-r39-4-pn-repeatable= — leader-n then bare n×3 advances 4
+   (revert-fails).
+4. R39-1 golden re-bless is asserted by the string-layer fence staying green
+   (banner still =string-width ≤ usable=, right cluster now ends at
+   =usable − 1 − org-air-view--banner-indent=, symmetric gutter present) — the
+   R38 pixel/string fences must STAY green with the shifted content.
+
+* Constraints
+
+- org-ql only; reuse layout/keymap primitives (=org-air-view--justify=,
+  =org-air-view--render-width=, the R35 canonical keybinding table,
+  =set-transient-map=). No new dependencies.
+- V6 pixel-lock preserved EXCEPT R39-1's intended banner golden move (test
+  re-blesses honestly). All other goldens byte-identical.
+- R38's pixel-true =left-cols= banner accounting stays intact (R39-1 threads the
+  indent constant through it, does not replace it).
+
+* Verification gate
+
+=make clean && make check= GREEN (0 unexpected, manifest EMPTY). Goldens
+byte-identical EXCEPT the sanctioned R39-1 banner shift (=make regen-mockups=
+shows ONLY "right status −2 cols + 2-col trailing gutter"). =airctl status -Da=
+parity exact. Orchestrator self-verifies the final tip before integrating.
+
+* Implementation History
+
+- (pending) R39-1 symmetric banner gutter (=org-air-view--banner-indent=); R39-2
+  no-rail fence column == cluster column (=org-air-view--fence-column=); R39-3
+  drop =o= from doc leader; R39-4 repeatable p/n via =set-transient-map=; four
+  executing ERTs.
+
+* History
+- 2026-07-09: State: draft → ready.

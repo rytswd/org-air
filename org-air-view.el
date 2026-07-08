@@ -1909,13 +1909,39 @@ properties are introduced."
         (concat trimmed (make-string missing ?\s))
       trimmed)))
 
-(defun org-air-view--justify (left right width)
-  "Return LEFT and RIGHT justified within display WIDTH."
+(defun org-air-view--banner-left-cols (left)
+  "Return the display column cost charged for the banner LEFT token.
+On a GRAPHICAL frame the left token carries the height-scaled
+`org-air-face-header' (:height 1.2), so it paints more canonical columns
+than `string-width' counts; charge it its TRUE pixel width
+\(`string-pixel-width' rounded up to whole columns) so the composed row's
+pixel extent never exceeds W canonical columns.  In BATCH/TTY this is
+exactly `string-width' so the golden path stays byte-identical."
+  (if (not (display-graphic-p))
+      (string-width left)
+    (let* ((px (condition-case nil
+                   (string-pixel-width left)
+                 (error nil)))
+           (cw (frame-char-width)))
+      (if (and (numberp px) (> px 0) (> cw 0))
+          (ceiling (/ px (float cw)))
+        (string-width left)))))
+
+(defun org-air-view--justify (left right width &optional left-cols)
+  "Return LEFT and RIGHT justified within display WIDTH.
+LEFT-COLS, when non-nil, is the display column cost charged for LEFT in
+place of its `string-width' (the banner charges a height-scaled title its
+true pixel width).  The emitted string still contains the literal LEFT
+bytes; only the pad run shrinks by the pixel excess, so the row's pixel
+extent becomes <= WIDTH canonical columns while the string stays a valid
+flush-right layout."
   (let* ((left (or left ""))
          (right (or right ""))
-         (available (- width (string-width left) (string-width right)))
+         (lcols (or left-cols (string-width left)))
+         (excess (- lcols (string-width left)))
+         (available (- width lcols (string-width right)))
          (padding (make-string (max 1 available) ?\s)))
-    (org-air-view--pad-to (concat left padding right) width)))
+    (org-air-view--pad-to (concat left padding right) (- width excess))))
 
 (defun org-air-view--right (string &optional face)
   "Return STRING with FACE padded to the current pane's right edge."
@@ -1988,6 +2014,11 @@ keeping the date.  R27-3: the active-sort badge sheds LAST of the
 optional segments (after filter, scope and count)."
   (let* ((w (org-air-view--render-width))
          (left (propertize "  org-air" 'face 'org-air-face-header))
+         ;; R38-1: on a GRAPHICAL frame the height-scaled title paints more
+         ;; canonical pixel-columns than `string-width' counts; charge it
+         ;; its true pixel cost so the row never overhangs the text area.
+         ;; In batch/TTY this is `string-width', so goldens are unchanged.
+         (left-cols (org-air-view--banner-left-cols left))
          ;; D-P3: per-segment faces — date salient, count faded (or salient
          ;; via `org-air-header-accent-count'), filter/scope faded.  The
          ;; assembled width is unchanged (propertize never alters it).
@@ -2061,7 +2092,7 @@ optional segments (after filter, scope and count)."
          ;; Budget for the status: window minus the left token and a >=2-col
          ;; gap.  R36-1: no reserved right-margin column (R34's usable-
          ;; columns already supplies the spare column upstream).
-         (budget (- w (string-width left) 2))
+         (budget (- w left-cols 2))
          (assemble (lambda (shed)
                      (concat date
                              (unless (memq :count shed) count)
@@ -2088,7 +2119,7 @@ optional segments (after filter, scope and count)."
          ;; trailing pad — the middle gap absorbs the slack, so the line
          ;; ends in the status' last glyph (not a reserved blank).  S7's
          ;; spare column is supplied by R34's fringe-aware usable-columns.
-         (line (org-air-view--justify left right w)))
+         (line (org-air-view--justify left right w left-cols)))
     (insert line "\n")))
 
 (defun org-air-view--rule-string (width)
@@ -3906,14 +3937,21 @@ Two paths, chosen by the target buffer's `org-air-view--inspector-geom':
                          (cur (buffer-substring beg end))
                          ;; preserve the item-row text in the first IW
                          ;; columns, re-pad to IW, then the divider + the
-                         ;; new rail cell.  Keep the full composed width so
-                         ;; the line stays exactly the board width — never
-                         ;; trim here (a trimmed line would break the
-                         ;; width-composition invariant the byte gate
-                         ;; asserts).
+                         ;; new rail cell.  R38-2: the composed width comes
+                         ;; from the CACHED geom; if the window narrowed
+                         ;; inside the resize debounce that width overhangs
+                         ;; the live text area as pure trailing whitespace +
+                         ;; a truncation arrow.  Route through
+                         ;; `org-air-view--postprocess-line' against the
+                         ;; LIVE render width so the refill never emits
+                         ;; whitespace past usable.  In the batch/fixed-
+                         ;; width path this pads to the seam exactly as
+                         ;; before, so the width-composition byte gate holds.
                          (item-part (org-air-view--pad-to
                                      (truncate-string-to-width cur iw) iw))
-                         (new (concat item-part div cell)))
+                         (new (org-air-view--postprocess-line
+                               (concat item-part div cell)
+                               (org-air-view--render-width))))
                     (delete-region beg end)
                     (insert new))
                   (forward-line 1))))))))))

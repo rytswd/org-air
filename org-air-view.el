@@ -2802,6 +2802,35 @@ keyword text -- a `display' overlay, so the byte/TTY layer is identical."
              width)
             " ")))
 
+(defun org-air-view--meta-cluster-width ()
+  "Return the fixed metadata cluster width from the live meta-* column globals.
+Sums the present (width>0) date / tags / origin columns plus one single-space
+separator between each, mirroring `org-air-view--compute-meta-widths' and
+`org-air-view--insert-row' EXACTLY.  This is the fixed cluster width every
+standard no-rail row reserves on its right (R34-2)."
+  (let* ((dcol (+ (or org-air-view--meta-date-w 0)
+                  (or org-air-view--meta-date-repeat 0)))
+         (tcol (or org-air-view--meta-tags-w 0))
+         (ocol (or org-air-view--meta-origin-w 0))
+         (cells (delq nil (list (and (> dcol 0) dcol)
+                                (and (> tcol 0) tcol)
+                                (and (> ocol 0) ocol)))))
+    (+ (apply #'+ cells) (max 0 (1- (length cells))))))
+
+(defun org-air-view--fence-column (width &optional cluster-w)
+  "Return the column the no-rail fence / metadata cluster right-anchors to.
+WIDTH is the live `org-air-view--render-width' (post R37 usable=body-1).  BOTH
+the vertical fence line and every standard row's metadata cluster right-anchor
+share this ONE column so they align exactly — the column is `WIDTH minus the
+cluster width'.  CLUSTER-W defaults to the live board `meta-cluster-width'
+\(the no-arg form the fence renderer / test call); `org-air-view--insert-row'
+passes its own row CLUSTER-W so board and project share this ONE derivation.
+Deriving it here, from the one live WIDTH passed into the render pass, keeps
+the fence and the cluster from desyncing (the R37 usable / R38-2 inspector
+seams).  Reverting it (fence and cluster read different widths) reintroduces
+the reported 1-2 col drift."
+  (- width (or cluster-w (org-air-view--meta-cluster-width))))
+
 (cl-defun org-air-view--insert-row (&key prefix title date-text tags
                                          origin-text origin-face widths
                                          props face)
@@ -2891,7 +2920,16 @@ this one primitive, faces, truncation, alignment and svg pills)."
                    left
                  (truncate-string-to-width
                   left left-budget nil nil (org-air-view--glyph 'more))))
-         (pad (max gap (- width (string-width left) cluster-w)))
+         ;; R39-2: right-anchor the cluster to the ONE shared fence column
+         ;; via `org-air-view--fence-column', derived from the SAME live WIDTH
+         ;; and this row's own CLUSTER-W.  For a standard board row CLUSTER-W
+         ;; equals the live `meta-cluster-width', so the no-arg fence column
+         ;; (the vertical line the test probes) lands on exactly this anchor;
+         ;; a row whose date-cell locally expanded (Inbox nudge) or the
+         ;; project view (its own :widths) passes its own CLUSTER-W and so is
+         ;; byte-identical to the pre-R39 `width - cluster-w' math.
+         (anchor (org-air-view--fence-column width cluster-w))
+         (pad (max gap (- anchor (string-width left))))
          (line (concat left (make-string pad ?\s) cluster)))
     (insert line "\n")
     (when (or props face)

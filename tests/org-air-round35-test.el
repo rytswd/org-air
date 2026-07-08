@@ -304,5 +304,125 @@ spot, and back to t re-installs it — exactly the runtime `customize' path."
       (setq org-air--default-keybindings-state 'unset)
       (org-air--sync-default-keybindings))))
 
+;;;; =====================================================================
+;;;; R35.1 GAPS — the D-2 sync state-guard, the empty-key opt-out's
+;;;; independence, and toggle-back re-installing the four stray sites too.
+;;;; (The four gated sites' t-vs-nil bindings themselves are covered in
+;;;; org-air-round35b-test.el; these lock the invariants around them.)
+;;;; =====================================================================
+
+(ert-deftest org-air-r35-1c-sync-state-guard-no-redundant-reinstall ()
+  "D-2 restored: `org-air--sync-default-keybindings' acts ONLY when the
+desired state differs from `org-air--default-keybindings-state', so it does
+NOT re-install (or re-clear) on every mode init.  Spying on the installer /
+clearer: a sync (and a mode init) whose value matches the current state is
+a no-op; a genuine flip runs exactly once; a repeat flip is guarded."
+  (skip-unless (locate-library "org-air"))
+  (let ((install 0) (clear 0)
+        (saved org-air-use-default-keybindings))
+    (unwind-protect
+        (cl-letf (((symbol-function 'org-air--install-default-keybindings)
+                   (lambda () (cl-incf install) t))
+                  ((symbol-function 'org-air--clear-default-keybindings)
+                   (lambda () (cl-incf clear) t)))
+          ;; already installed (state t): a sync is a NO-OP…
+          (setq org-air-use-default-keybindings t
+                org-air--default-keybindings-state t)
+          (org-air--sync-default-keybindings)
+          (should (= install 0))
+          (should (= clear 0))
+          ;; …and a fresh mode init (which calls sync) does NOT re-install.
+          (with-temp-buffer (org-air-view-mode))
+          (with-temp-buffer (org-air-project-mode))
+          (should (= install 0))
+          ;; a genuine flip to nil clears EXACTLY once…
+          (setq org-air-use-default-keybindings nil)
+          (org-air--sync-default-keybindings)
+          (should (= clear 1))
+          ;; …and a repeat sync at the same value is guarded (no 2nd clear).
+          (org-air--sync-default-keybindings)
+          (with-temp-buffer (org-air-view-mode))
+          (should (= clear 1))
+          (should (= install 0)))
+      ;; restore a real, installed default.
+      (setq org-air-use-default-keybindings saved
+            org-air--default-keybindings-state 'unset)
+      (org-air--sync-default-keybindings))))
+
+(ert-deftest org-air-r35-1c-return-key-empty-opt-out-independent ()
+  "The empty-string `org-air-return-key' opt-out is INDEPENDENT of the knob:
+even with the knob t, `org-air-view--enable-return' installs NO return key
+when `org-air-return-key' is \"\" — no map entry resolves to `org-air-return'
+\(the pre-existing per-key opt-out still wins), and the return minor mode is
+still enabled."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r35--with-knob t
+    (let ((org-air-return-key ""))
+      (with-temp-buffer
+        (org-mode)
+        ;; no error, mode enabled, and NO key resolves to org-air-return.
+        (org-air-view--enable-return nil nil)
+        (should (bound-and-true-p org-air-return-mode))
+        (should-not (where-is-internal 'org-air-return
+                                       org-air-return-mode-map))))))
+
+(ert-deftest org-air-r35-1c-toggle-back-reinstalls-all-four-sites ()
+  "Toggling the knob back to t re-installs ALL of R35.1's gated sites, not
+just the primary maps: the visited-file return key, the calendar day-cell
+RET, the snapshot pane `q', and the indirect-pane close map all resolve
+again (proving the installer table owns every stray site, reversibly)."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-return-key "C-c b"))
+    ;; go cleared first…
+    (org-air-r35--with-knob nil
+      (with-temp-buffer (org-mode) (org-air-view--enable-return nil nil)
+        (should (null (lookup-key org-air-return-mode-map (kbd "C-c b")))))
+      (should (null (lookup-key org-air-calendar-day-keymap (kbd "RET")))))
+    ;; …then flip back on and confirm every site re-installs.
+    (org-air-r35--with-knob t
+      ;; (1) visited-file return key.
+      (with-temp-buffer (org-mode) (org-air-view--enable-return nil nil)
+        (should (eq (lookup-key org-air-return-mode-map (kbd "C-c b"))
+                    'org-air-return)))
+      ;; (2) calendar day cell.
+      (should (eq (lookup-key org-air-calendar-day-keymap (kbd "RET"))
+                  'org-air-view-day))
+      ;; (3) snapshot pane q.
+      (should (eq (lookup-key org-air-entry-view-mode-map (kbd "q"))
+                  'org-air-view-pane-quit))
+      ;; (4) indirect-pane close map.
+      (with-temp-buffer (org-mode) (org-air-view-pane--install-close-map)
+        (should (eq (key-binding (kbd "C-c C-q")) 'org-air-view-pane-quit)))
+      ;; and a primary board key too (the whole set is back).
+      (org-air-r35--in-board
+        (should (eq (key-binding (kbd "c")) 'org-air-capture))))))
+
+(ert-deftest org-air-r35-1c-readme-scope-accurate ()
+  "README doc-accuracy fence (R35.1): the \"Disabling the default
+keybindings\" section describes the ACCURATE scope — it does NOT overstate
+that org-air \"installs none of its own keys\" (the maps keep their
+`special-mode' parent), it names the crucial visited-files scope
+\(`org-air-return-key' / the close keys in your OWN files), and it still
+notes special-mode survives.  Guards the prose from drifting back to the
+pre-R35.1 overstatement."
+  (skip-unless (and (boundp 'org-air-test-root)
+                    (file-exists-p (expand-file-name "README.org"
+                                                     org-air-test-root))))
+  (let ((readme (with-temp-buffer
+                  (insert-file-contents
+                   (expand-file-name "README.org" org-air-test-root))
+                  (buffer-string))))
+    ;; the section exists.
+    (should (string-match-p "Disabling the default keybindings" readme))
+    ;; the pre-R35.1 OVERSTATEMENT is gone (org-air never disowns the
+    ;; special-mode parent, so "installs none of its own keys" was wrong).
+    (should-not (string-match-p "installs \\*?none\\*? of its own keys" readme))
+    ;; the ACCURATE scope is stated: no keys OF ITS OWN, incl. visited files.
+    (should (string-match-p "no keys \\*?of its own\\*?" readme))
+    (should (string-match-p "org-air-return-key" readme))
+    (should (string-match-p "files you visit\\|your OWN files\\|visited" readme))
+    ;; and it still tells the user special-mode (q / g / scroll) survives.
+    (should (string-match-p "special-mode" readme))))
+
 (provide 'org-air-round35-test)
 ;;; org-air-round35-test.el ends here

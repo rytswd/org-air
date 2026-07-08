@@ -1,0 +1,301 @@
+#+title: org-air v0.5 round-36 DESIGN: header TRAILING-WHITESPACE overflow — the banner reserves a right margin the mirror of the left margin, so its last body column is a blank that falls off the right edge (the miss R29/R31/R33/R34 kept making)
+#+state: ready
+#+FILETAGS: :ui:layout:header:banner:width:trailing-whitespace:fringe:align:loading:skeleton:design:v0.5:
+
+* Scope of this document
+Round-36 DESIGN doc — ONE item, the header overflow the user has now
+diagnosed precisely and that every fix since R29 kept missing because
+they all chased the *usable-columns SOURCE* (R34 finally pinned that to
+=window-body-width=) and never MEASURED THE ACTUAL COMPOSED HEADER
+STRING.  This round measures the string and fixes the *composer*.
+
+- *R36-1* HEADER TRAILING-WHITESPACE OVERFLOW.  The board header AND the
+  loading-skeleton header compose a line whose content is right-aligned
+  to =window-body-width − 1= and then a RESERVED TRAILING SPACE (the S7
+  "one-column right margin", the mirror of the visible left margin) is
+  appended so the line FILLS the whole body — its LAST column is a blank.
+  On the user's real frame that final blank column is the one drawn OFF
+  the right edge, so the user sees a left margin but "NONE on the RIGHT —
+  in fact … a TRAILING EMPTY SPACE that's OFF the window", and the =↦=
+  continuation/truncation arrow past the right content.  [BUG —
+  release-blocker; the R29/R31/R33/R34 miss]
+
+  USER (exact words, GUI): "there is some padding on the LEFT, but NONE
+  on the RIGHT — in fact, on the right, there is a TRAILING EMPTY SPACE
+  that's OFF the window", with the =↦= arrow still shown past the right
+  content.  The screenshot is the LOADING SKELETON header ("Wed 08 Jul ∙
+  loading 3/50 files"), so the loading chrome overflows too.
+
+Constraints honoured: org-ql only; reuse the layout primitives (no
+fork); preserve R34's usable-columns guard (do NOT revert it) and R26-8
+loading-chrome behaviour; V6 pixel-lock.
+
+* Status
+Design-led, impl-ready.  Byte contract: *R36-1 is byte-VISIBLE in the
+header goldens* — every banner golden currently ENDS IN a reserved
+trailing space; removing it shifts the right status one column right (its
+last glyph lands on the final column instead of the penultimate one).
+That is the intended, correct change, so the affected goldens are
+re-baselined in the SAME change (manifest listed).  Everything else (rows,
+rule, rail, day-header, item panes) is untouched and byte-identical.  No
+new defcustom.
+
+* Measured baseline (reproduction harness — the miss, finally MEASURED)
+The prior rounds asserted on the =usable-columns= VARIABLE and never on
+the composed line, so they could not see this.  Measuring the literal
+banner string at several =window-body-width= values (headless, no GUI)
+shows the exact defect:
+
+#+begin_src text
+  w=40  NORMAL  len=40  string-width=40  ends-in-whitespace=t  last8="0 items "
+  w=80  NORMAL  len=80  string-width=80  ends-in-whitespace=t  last8="0 items "
+  w=120 NORMAL  len=120 string-width=120 ends-in-whitespace=t  last8="0 items "
+  w=191 NORMAL  len=191 string-width=191 ends-in-whitespace=t  last8="0 items "
+  w=191 LOADING len=191 string-width=191 ends-in-whitespace=t  last8="0 files "
+#+end_src
+
+Two facts, both from the literal string:
+1. =string-width= equals =w= EXACTLY (it is NOT a wide-glyph or a
+   length>width overshoot — R34 already pinned =w= = =window-body-width=,
+   so the composed line fills the body precisely).
+2. The line ALWAYS ENDS IN A TRAILING SPACE.  The right status is
+   justified so its last *visible* glyph sits at column =w−2=, and column
+   =w−1= (the final body column) is a RESERVED BLANK.
+
+So the excess the user sees is NOT extra content and NOT a wide glyph —
+it is the *reserved right-margin column itself*, emitted as literal
+trailing whitespace at the very last column of the body.  The left margin
+("  " before "org-air") sits INSIDE the window; its intended mirror on
+the right is drawn AT the last body column, which on the user's frame is
+the column that falls off the right edge → "trailing empty space that's
+OFF the window", and the =↦= continuation glyph over it.
+
+** Where it is emitted (single choke point)
+=org-air-view--insert-banner= (org-air-view.el ~1976) composes the line:
+
+#+begin_src emacs-lisp
+;; Budget for the status: window minus the left token, a >=2-col
+;; gap, and the reserved one-column right margin.
+(budget (- w (string-width left) 2 1))      ; <- the extra `1' reserves a right column
+...
+;; Justify with a trailing space so the status ends at W-1 and the
+;; final column W is always blank (the reserved margin).
+(line (org-air-view--justify left (concat right " ") w))   ; <- the appended " "
+#+end_src
+
+The =(concat right " ")= appends the reserved margin space; =budget='s
+trailing =1= keeps room for it.  =org-air-view--justify= then pads
+=left + middle-padding + (right " ")= to EXACTLY =w= via
+=org-air-view--pad-to=, so the line always fills the body and always ends
+in that blank.  This is the S7 hack: "so a zero-fringe GUI never draws a
+continuation glyph over it".
+
+** Why the S7 trailing-space hack is now BOTH redundant AND harmful
+R34 made =org-air-layout--usable-columns= fringe-aware: on a *zero-fringe*
+GUI it already returns =window-body-width − 1=, reserving the last body
+column for the continuation glyph at the WIDTH source.  So the header no
+longer needs to reserve a column by hand — R34 reserves it upstream.  The
+hand-reserved trailing space is therefore:
+- *Redundant* on zero-fringe (R34 already gives the spare column).
+- *Harmful* on the fringed frame (R34 gives usable = full body, so the
+  hand-reserved blank lands on the LAST body column, which the fringe/edge
+  then clips — exactly the user's report).
+
+** The correct pattern already exists in-tree (day-header)
+=org-air-view--render-day-pane= (org-air-view.el ~4152) composes its own
+full-width header with the SAME =org-air-view--justify= primitive but
+with NO reserved trailing space:
+
+#+begin_src emacs-lisp
+(org-air-view--justify
+   (concat (org-air-view--margin) …day-nav…)
+   (propertize (format "%d items" total) 'face 'org-air-face-faded)
+   width)                       ; right = "N items", NO trailing " "
+#+end_src
+
+Its right status' last glyph sits at column =width−1= (the true last
+column) with no trailing blank.  So the banner is the *sole* offender;
+the fix makes the banner follow the day-header's already-correct pattern.
+
+** Confirmed: board header and loading skeleton SHARE the composer
+=org-air-view--render= (~6131) and =org-air-view--render-loading= (~6453)
+BOTH insert the header through =org-air-view--insert-banner= (the loading
+path passes =items= = nil and relies on =org-air-view--loading= /
+=org-air-view--refresh-state= for the "loading I/N files" count slot).  So
+ONE fix in =insert-banner= corrects BOTH headers.  The measured LOADING
+row above is byte-for-byte the user's screenshot chrome.
+
+* R36-1 — remove the reserved trailing margin; right-align the status to the last usable column [BUG]
+** Decision — the banner's right status ends at column =usable−1= with NO trailing pad; the left margin is counted INSIDE the width, never mirrored as trailing whitespace
+The header line's TOTAL composed width (left margin + content) must be
+=<= window-body-width= with NO trailing whitespace past the content's
+right edge.  Concretely, in =org-air-view--insert-banner=:
+
+1. Drop the appended margin space: compose =(org-air-view--justify left
+   right w)= (NOT =(concat right " ")=).  The right status' last glyph
+   then lands on column =w−1= — the true final body column — and
+   =org-air-view--justify='s =pad-to= adds ZERO trailing padding (the
+   middle gap already absorbs the slack), so the line does not end in
+   whitespace.
+2. Drop the reserved column from the budget: =budget = (- w (string-width
+   left) 2)= (remove the trailing =1=).  The =>=2= keeps the minimum gap
+   between the left token and the right status; no right column is
+   reserved.
+3. The left margin ("  " inside "  org-air") stays counted INSIDE =w= (it
+   always was); it is NEVER mirrored as a trailing right blank.
+
+Why this fixes BOTH geometries WITHOUT reverting R34:
+- *Fringed frame (this user):* R34 gives usable = body (e.g. 191).  The
+  status' last glyph now sits at column 190 (the last body column) with
+  no trailing blank → nothing to draw off the right edge, no phantom
+  margin column, no =↦=.
+- *Zero-fringe GUI:* R34 gives usable = body − 1.  The header composes to
+  body−1, ending in real content at column body−2, leaving the last body
+  column spare for the continuation glyph — the S7 goal, now provided by
+  R34's WIDTH source (not the hand-reserved space).
+- *TTY / batch / mock:* usable = =window-body-width= as today; the ONLY
+  change is that the banner no longer appends a trailing space (goldens
+  re-baselined, below).
+
+R34's =org-air-layout--usable-columns= guard is preserved verbatim — this
+round does NOT touch the width source, only the composer that consumes it.
+
+** Verified fix behaviour (headless simulation of the composer change)
+Re-composing the banner with the reserved space removed and =budget=
+tightened, at the same widths:
+
+#+begin_src text
+  w=40  NORMAL  len=40  string-width=40  ends-in-whitespace=nil  last6=" items"
+  w=80  LOADING len=80  string-width=80  ends-in-whitespace=nil  last6=" files"
+  w=120 LOADING len=120 string-width=120 ends-in-whitespace=nil  last6=" files"
+  w=191 NORMAL  len=191 string-width=191 ends-in-whitespace=nil  last6=" items"
+  w=191 LOADING len=191 string-width=191 ends-in-whitespace=nil  last6=" files"
+#+end_src
+
+=string-width <= w= at every width AND the line no longer ends in
+whitespace — the right content's last glyph is the final column.  This is
+the decisive, measurable difference from the baseline table above.
+
+** Scope of the edit
+- =org-air-view--insert-banner= (org-air-view.el): the two lines above —
+  the =budget= (drop the reserved =1=) and the compose call (drop the
+  =(concat right " ")=).  Update the two comments (the "reserved
+  one-column right margin" and the "trailing space so the status ends at
+  W-1" notes) to describe the new invariant: content right-aligned to the
+  last usable column, no trailing pad, S7's spare column now supplied by
+  R34's fringe-aware usable-columns.
+- No change to =org-air-view--justify=, =org-air-view--pad-to=,
+  =org-air-layout--usable-columns= (R34), the shedding order, the R33 =∙=
+  separator, the loading/refresh count-slot logic (R26-8), or any row /
+  rule / rail / day-header composition.
+
+** Audit of other full-width chrome lines (no other offender found)
+Measured the same "does the composed line end in a reserved-whitespace
+column beyond its content" question against every full-width chrome line:
+- *Top rule* =org-air-view--insert-rule= — fills =render-width= with hrule
+  glyphs; ends in a glyph, no trailing pad.  OK.
+- *Day-header* =org-air-view--render-day-pane= — already the correct
+  no-trailing-pad pattern (see above).  OK.
+- *Calendar day-line* =org-air-view--indent-pane-lines= — justifies with
+  the nav segment as the right, no reserved space.  OK.
+- *Rail header / rail lines* — composed against the rail window's OWN
+  =window-body-width= via =org-air-view--rail-header= / the rail inset;
+  they pad to the rail width with content, not a reserved trailing blank.
+  OK (and they read R34's usable-columns through the same primitive).
+Only =org-air-view--insert-banner= appended a reserved trailing space, so
+this is the single choke point and the single edit.
+
+** Testability — DECISIVE EXECUTING acceptance ERTs (headless, batch)
+These are the assertions the prior rounds never wrote — they measure the
+LITERAL composed line, not the =usable-columns= variable.
+
+- *Banner has NO trailing whitespace past its content (board + loading).*
+  With the batch width seam =org-air-view-width= (and
+  =org-air-view--line-width=) bound across W ∈ {40, 80, 120, 191, 192,
+  195}, render the header in BOTH the normal board state and the
+  loading-skeleton state (=org-air-view--loading= t,
+  =org-air-view--refresh-state= 'refreshing, a total/queue giving
+  "loading I/N files").  For every line assert:
+  1. =(string-width line) <= W= — never overshoots (ties to R34).
+  2. =(not (string-match-p "[ \t]+\\'" line))= — the line does NOT end in
+     trailing whitespace; its last character is the right status' last
+     glyph (or, when there is no right status at all, the left token).
+  3. The right status' last visible glyph is at column =W−1= (the true
+     last usable column) — i.e. the content is flush-right, no phantom
+     margin column.
+  REVERT (restore =(concat right " ")= + the =budget= =1=) → assertion 2
+  FAILS on every width (the baseline table shows =ends-in-whitespace=t=).
+
+- *Loading skeleton parity.*  The exact user chrome ("… ∙ loading I/N
+  files") composes with =string-width <= W= and no trailing whitespace —
+  proving the loading header, not just the board header, is fixed (they
+  share the composer, asserted by rendering through the same function).
+
+- *R34 usable-columns guard preserved (regression fence).*  Keep the R34
+  =org-air-layout--usable-columns-for= ERTs green: =(usable-for t 191 8) =
+  191=, =(usable-for t 191 0) = 190=, =(usable-for nil …) = body=,
+  monotonic =<= body=.  This round must not perturb them.
+
+- *Real-frame (guarded) =skip-unless (display-graphic-p)=.*  Build a frame
+  with default fringes + right scroll-bar sized so =(window-body-width)= =
+  191 (retry a few widths), render the board AND the loading skeleton, and
+  assert the composed header's =string-width <= (window-body-width)= AND
+  it has no trailing whitespace beyond its content — the live analogue of
+  the headless assertions.
+
+- *Batch golden re-baseline (intended, listed in the manifest).*  The
+  representative board header golden(s) that currently end in a reserved
+  trailing space are regenerated so the right status ends at the final
+  column; the manifest records exactly these (header/banner) fixtures and
+  no others (rows/rule/rail/day-header/panes byte-identical).
+
+** Routing
+Bug fix on the integrated R34/R35 tip.  No new defcustom.  Header goldens
+re-baselined (byte-VISIBLE, intended); all non-header goldens
+byte-identical.  Cross-check: R33 header separator (=∙=), R34 width
+contract, and R26-8 loading count-slot behaviour are all preserved (only
+the trailing-margin emission changes).
+
+* Cross-item invariants (must hold after R36)
+- *No trailing-margin overflow.*  No full-width chrome line (board header,
+  loading-skeleton header, rule, day-header, rail) emits a reserved
+  trailing-whitespace column beyond its content; the left margin is
+  counted INSIDE the width and is NEVER mirrored as a trailing right
+  blank.  The right status' last glyph sits at the last usable column
+  (=usable−1=).
+- *One width contract (R34 preserved).*  =org-air-layout--usable-columns=
+  = fringe-aware =window-body-width=; every composed line is =<= that
+  width; the fix does not touch the width source.
+- *Both headers fixed by one edit.*  Board and loading-skeleton headers
+  share =org-air-view--insert-banner=; the single composer change covers
+  both.
+- *Batch stability outside the header.*  Only the header/banner goldens
+  change (intended re-baseline, manifested); every other golden is
+  byte-identical.
+
+* Implementation History
+- (design) 2026-07-08: Round-36 DESIGN authored (state ready).  ROOT-
+  CAUSED the header overflow R29/R31/R33/R34 kept missing by MEASURING THE
+  LITERAL COMPOSED BANNER STRING (headless), not the usable-columns
+  variable: =org-air-view--insert-banner= right-aligns the status to
+  column =w−2= and then APPENDS a reserved trailing space (S7 "one-column
+  right margin", the mirror of the visible left margin) via
+  =(org-air-view--justify left (concat right " ") w)= with =budget = (- w
+  (string-width left) 2 1)=, so the line fills =window-body-width= exactly
+  and its LAST column is a blank — the column drawn OFF the right edge on
+  the user's fringed frame ("trailing empty space that's OFF the window")
+  with the =↦= arrow.  The S7 hand-reserved column is now REDUNDANT (R34's
+  fringe-aware usable-columns already reserves the spare column on
+  zero-fringe) AND HARMFUL (on the fringed frame R34 gives usable = full
+  body, so the hand-reserved blank lands on the clipped last column).  FIX
+  (single choke point): drop the appended " " and the =budget='s reserved
+  =1= so the status' last glyph sits at =usable−1= with NO trailing pad —
+  matching the already-correct day-header pattern; KEEP R34's usable-
+  columns guard unchanged.  Covers BOTH the board header and the loading-
+  skeleton header (they share =insert-banner=).  Audited rule / day-header
+  / calendar day-line / rail: no other offender.  DECISIVE EXECUTING ERTs
+  measure the literal line at several window-body-widths for board AND
+  loading states — =string-width <= W=, NO trailing whitespace beyond
+  content, right glyph at =W−1= — revert fails; R34 guard fenced; real-
+  frame guarded test; header goldens re-baselined (intended, manifested).
+  IMPLEMENTATION PENDING.

@@ -44,14 +44,19 @@
 
 (defmacro org-air-r29--with-fringeless-gui (&rest body)
   "Run BODY under a simulated FRINGE-LESS GUI (R29-1 reproduction harness).
-Two stubs, per the documented Emacs contract: `display-graphic-p' -> t
-\(so `org-air-layout--usable-columns' takes its graphical branch) and
-`window-max-chars-per-line' -> `window-body-width' - 1 (a zero right
-fringe reserves the continuation-glyph column).  Live windows, no width
-seam — exactly the round's measured reproduction."
+Per the documented Emacs contract: `display-graphic-p' -> t (so
+`org-air-layout--usable-columns' takes its graphical branch) and
+`window-fringes' reports a ZERO right fringe (R34-1: the continuation
+glyph then steals the last text column, so usable == body - 1).  The
+legacy `window-max-chars-per-line' stub is kept for any residual reader
+but `org-air-layout--usable-columns' now derives from `window-body-width'
+and the fringe (R34-1).  Live windows, no width seam — the round's
+measured reproduction."
   (declare (indent 0) (debug t))
   `(cl-letf (((symbol-function 'display-graphic-p)
               (lambda (&optional _display) t))
+             ((symbol-function 'window-fringes)
+              (lambda (&optional _window) (list 0 0 nil)))
              ((symbol-function 'window-max-chars-per-line)
               (lambda (&optional window _face)
                 (1- (window-body-width (or window (selected-window)))))))
@@ -59,12 +64,14 @@ seam — exactly the round's measured reproduction."
 
 (defmacro org-air-r29--with-fringed-gui (&rest body)
   "Run BODY under a simulated GUI WITH fringes (R29-1 no-op variant).
-`display-graphic-p' -> t but `window-max-chars-per-line' returns the full
-body width (fringes host the continuation glyph), so usable == body and
-the R29-1 fix must change nothing."
+`display-graphic-p' -> t and `window-fringes' reports a POSITIVE right
+fringe (R34-1: the glyph lives in the fringe, so usable == body).  The
+R29-1/R34-1 fix must change nothing here."
   (declare (indent 0) (debug t))
   `(cl-letf (((symbol-function 'display-graphic-p)
               (lambda (&optional _display) t))
+             ((symbol-function 'window-fringes)
+              (lambda (&optional _window) (list 8 8 nil)))
              ((symbol-function 'window-max-chars-per-line)
               (lambda (&optional window _face)
                 (window-body-width (or window (selected-window))))))

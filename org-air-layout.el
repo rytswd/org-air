@@ -210,18 +210,41 @@ return one less than `frame-width', on a TTY/batch frame the plain
       (max 1 (1- (frame-width frame)))
     (frame-width frame)))
 
+(defun org-air-layout--usable-columns-for (graphic-p body right-fringe)
+  "Pure width model: usable columns for BODY text-columns.
+GRAPHIC-P is non-nil on a graphical frame; BODY is `window-body-width'
+\(fringes and scroll-bar already excluded); RIGHT-FRINGE is the window's
+right-fringe pixel width.  On a graphical frame with NO right fringe the
+continuation glyph steals the last text column, so reserve one; with a
+right fringe present (the common default) the glyph lives in the fringe
+and the whole body is usable.  On a TTY/mock return the plain body width,
+so every batch golden is byte-identical.  The result NEVER exceeds BODY."
+  (if graphic-p
+      (if (and (integerp right-fringe) (> right-fringe 0))
+          body
+        (max 1 (1- body)))
+    body))
+
 (defun org-air-layout--usable-columns (window)
-  "Return the columns usable for a full line in WINDOW.
-In a real graphical window this is `window-max-chars-per-line', which
-reserves the column the continuation/truncation glyph occupies when the
-right fringe is absent (common in minimal GUI configs) — so no composed
-line (not just the S7-margined header) can clip off the right edge.  In a
-terminal or a non-window mock it is the plain `window-body-width' in
-columns (keeping the U1 width-derivation tests green)."
+  "Return the columns a full board line may occupy in WINDOW.
+The true text-area width is `window-body-width' (fringes and scroll-bar
+already excluded).  On a graphical frame with NO right fringe the
+continuation glyph steals the last text column, so reserve one; with a
+right fringe present (the common default, including this user) the glyph
+lives in the fringe and the whole body is usable.  A TTY/mock returns the
+plain body width, so every batch golden is byte-identical.
+
+R29-1 previously used `window-max-chars-per-line', which is NOT bounded
+by the text-column count: it divides the body pixels by the default-face
+font's average advance, so a font narrower than the frame canonical cell
+\(one set after frame creation, say) returns MORE than
+`window-body-width' and overflows the text area by one column (R34-1)."
   (if (and (windowp window)
-           (display-graphic-p (window-frame window))
-           (fboundp 'window-max-chars-per-line))
-      (window-max-chars-per-line window)
+           (display-graphic-p (window-frame window)))
+      (org-air-layout--usable-columns-for
+       t
+       (window-body-width window)
+       (nth 1 (window-fringes window)))
     (window-body-width window)))
 
 (cl-defun org-air-layout-labelled-rule (label width &key suffix

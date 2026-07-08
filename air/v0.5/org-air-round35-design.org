@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-35 DESIGN: one switch to disable ALL default keybindings (org-air-use-default-keybindings) — maps still exist, evil setup gated, use-package :custom-safe
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:keybindings:keymap:evil:config:defcustom:opt-out:design:v0.5:
 
 * Scope of this document

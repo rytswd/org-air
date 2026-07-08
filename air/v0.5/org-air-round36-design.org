@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-36 DESIGN: header TRAILING-WHITESPACE overflow — the banner reserves a right margin the mirror of the left margin, so its last body column is a blank that falls off the right edge (the miss R29/R31/R33/R34 kept making)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:header:banner:width:trailing-whitespace:fringe:align:loading:skeleton:design:v0.5:
 
 * Scope of this document

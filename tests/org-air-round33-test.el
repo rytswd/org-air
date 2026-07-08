@@ -145,8 +145,9 @@ Trunk FAILED — painted 81 > usable 80 at W=80 (the lone `·').  Post-fix
     (dolist (w '(80 81 90 100 119 120))
       (let ((line (org-air-r33--compose-banner nil w)))
         (ert-info ((format "empty header W=%d line=%S" w line))
-          ;; S7 column contract: composes to exactly W columns.
-          (should (= (string-width line) w))
+          ;; R39-1 column contract: the header ends banner-indent columns
+          ;; before W (symmetric right gutter), so string-width == W - indent.
+          (should (= (string-width line) (- w org-air-view--banner-indent)))
           ;; Seam B: the worst-case painted width never exceeds usable.
           (should (<= (org-air-r33--painted-width line) w))
           ;; and equivalently, NO ambiguous glyph survives on the header.
@@ -165,7 +166,8 @@ ambiguous-width glyph on the right-filled header."
         (dolist (w '(80 100 120 160))
           (let ((line (org-air-r33--compose-banner items w)))
             (ert-info ((format "populated header W=%d line=%S" w line))
-              (should (= (string-width line) w))
+              ;; R39-1: symmetric right gutter -> string-width == W - indent.
+              (should (= (string-width line) (- w org-air-view--banner-indent)))
               (should (<= (org-air-r33--painted-width line) w))
               (should (= (org-air-r33--painted-width line)
                          (string-width line))))))))))

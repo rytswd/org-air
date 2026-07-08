@@ -170,22 +170,34 @@ Checked across bodies incl. the user's 191, both header flavours."
 (ert-deftest org-air-r38-1-reverting-to-string-width-budget-fails ()
   "NON-TAUTOLOGY / REVERT GUARD.  Reverting R38-1 (charge the GUI budget by
 `string-width' instead of the pixel-true cost) re-composes a banner row whose
-PIXEL extent OVERHANGS the text area — exactly the five-round header artifact.
-The fixed row fits; the reverted row does not."
+PIXEL extent is `excess' columns WIDER than the pixel-true row.  R39-1 added a
+symmetric right gutter of `org-air-view--banner-indent' columns: the fixed
+(pixel-true) row fits INSIDE that gutter (pixel extent <= (usable-indent)*cw),
+but the reverted row eats into it and OVERHANGS the gutter-reserved area —
+exactly the five-round header artifact, one gutter deeper in.  The 2-col
+gutter no longer masks it once the target is the gutter-reserved width."
   (skip-unless (locate-library "org-air"))
   (org-air-r38--with-graphical-frame
     (dolist (usable '(40 80 120 190))
       (let* ((fixed (car (org-air-r38--compose-banner usable nil)))
-             (budget-px (* usable org-air-r38--cw))
+             ;; R39-1: the header targets the gutter-reserved width
+             ;; (usable - banner-indent), so its pixel budget is that in pixels.
+             (gutter-px (* (- usable org-air-view--banner-indent) org-air-r38--cw))
              ;; revert: the GUI budget uses string-width (pre-R38-1).
              (reverted (cl-letf (((symbol-function 'org-air-view--banner-left-cols)
                                   (lambda (l) (string-width l))))
                          (car (org-air-r38--compose-banner usable nil)))))
         (ert-info ((format "usable %d fixed=%S reverted=%S" usable fixed reverted))
-          ;; the FIXED row's pixel extent fits…
-          (should (<= (org-air-r38--mock-pixel-width fixed) budget-px))
-          ;; …the REVERTED row's pixel extent OVERHANGS the text area.
-          (should (> (org-air-r38--mock-pixel-width reverted) budget-px)))))))
+          ;; the FIXED (pixel-true) row's pixel extent fits within the
+          ;; gutter-reserved width…
+          (should (<= (org-air-r38--mock-pixel-width fixed) gutter-px))
+          ;; …the REVERTED row's pixel extent OVERHANGS the gutter (it is
+          ;; `excess' columns wider, so it eats into the reserved margin).
+          (should (> (org-air-r38--mock-pixel-width reverted) gutter-px))
+          ;; and the reverted row is strictly wider than the fixed one
+          ;; (the pixel excess R38-1 charges is real).
+          (should (> (org-air-r38--mock-pixel-width reverted)
+                     (org-air-r38--mock-pixel-width fixed))))))))
 
 (ert-deftest org-air-r38-1-banner-row-pixel-fits-gui ()
   "GUI-DEFINITIVE variant (skipped in batch).  On a real graphical frame the

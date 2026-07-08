@@ -131,8 +131,10 @@ at column body-2 (usable-1) — leaving the clipped last body column EMPTY."
             (should (<= (string-width line) usable))
             ;; …no trailing whitespace past the content (R36 flush preserved)…
             (should-not (string-match-p "[ \t]+$" line))
-            ;; …flush to the last usable column: last glyph at usable-1 = body-2.
-            (should (= (string-width (string-trim-right line)) usable))
+            ;; …R39-1: last glyph ends banner-indent columns before the last
+            ;; usable column (symmetric right gutter), so trim == usable-indent.
+            (should (= (string-width (string-trim-right line))
+                       (- usable org-air-view--banner-indent)))
             ;; the last body column (body-1) is NOT occupied by content.
             (should (< (string-width line) body))))))))
 
@@ -157,13 +159,20 @@ regression that clipped the \"s\"."
     (should (= usable-r34 191))
     (let ((line-r37 (org-air-r37--compose-header usable-r37))
           (line-r34 (org-air-r37--compose-header usable-r34)))
-      ;; R37: last glyph flush at usable-1 = body-2 = 189, last column empty.
-      (should (= (string-width (string-trim-right line-r37)) 190))
+      ;; R39-1: each header ends banner-indent columns before the width it was
+      ;; composed at (symmetric right gutter).  The R34 (reverted) width is one
+      ;; column WIDER, so its content still lands one column further right than
+      ;; the R37 width — the reverted-width regression signal survives.
+      (should (= (string-width (string-trim-right line-r37))
+                 (- usable-r37 org-air-view--banner-indent)))   ; 190-indent = 188
       (should (< (string-width line-r37) body))
-      ;; R34 (reverted): content composed flush to body (191), last glyph on
-      ;; the CLIPPED last column body-1 = 190.
-      (should (= (string-width (string-trim-right line-r34)) 191))
-      (should (= (string-width line-r34) body)))))
+      (should (= (string-width (string-trim-right line-r34))
+                 (- usable-r34 org-air-view--banner-indent)))   ; 191-indent = 189
+      (should (= (string-width line-r34)
+                 (- usable-r34 org-air-view--banner-indent)))
+      ;; the reverted (wider) width pushes the content one column right.
+      (should (= (1+ (string-width (string-trim-right line-r37)))
+                 (string-width (string-trim-right line-r34)))))))
 
 (provide 'org-air-round37-test)
 ;;; org-air-round37-test.el ends here

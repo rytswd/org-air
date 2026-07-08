@@ -24,55 +24,41 @@
 (defvar org-air-test-known-failures
   '(
     ;; ===================================================================
-    ;; v0.5 ROUND-39 grind (impl track) — R39-1 SANCTIONED banner golden
-    ;; move.  The header now reserves a symmetric right gutter equal to the
-    ;; left indent (`org-air-view--banner-indent' = 2): the right status
-    ;; cluster's last glyph ends at (usable - 1 - banner-indent) = W-3 so
-    ;; lhs-margin == rhs-margin.  This intentionally shifts the batch banner
-    ;; golden (right status -2 cols, 2-col trailing gutter appears) and
-    ;; invalidates every assertion that hardcoded the pre-R39 flush-to-W-1
-    ;; contract.  `jj diff' of tests/fixtures = ONLY the banner line of each
-    ;; golden (right status -2 cols); every other row/rule/rail line is
-    ;; byte-identical.  The TEST SEAT re-blesses (regen-mockups + retune the
-    ;; end-column assertions to the W-1-banner-indent invariant) then
-    ;; deletes these entries.  No test/fixture edited on the impl seat.
-    ;;   BYTE goldens (banner line only): the layout-mockup-* tiers, the
-    ;;   board-only + denote-origin byte mockups.
-    ;;   ASSERTION re-bless (flush-at-W-1 -> ends at W-1-banner-indent, a
-    ;;   symmetric 2-col trailing gutter now present):
-    (org-air-layout-mockup-80 . "R39-1 sanctioned banner golden move (right status -2 cols)")
-    (org-air-layout-mockup-120 . "R39-1 sanctioned banner golden move (right status -2 cols)")
-    (org-air-layout-mockup-160 . "R39-1 sanctioned banner golden move (right status -2 cols)")
-    (org-air-layout-mockup-heights . "R39-1 sanctioned banner golden move (right status -2 cols)")
-    (org-air-layout-mockup-thresholds . "R39-1 sanctioned banner golden move (right status -2 cols)")
-    (org-air-r13-board-only-byte-mockup . "R39-1 sanctioned banner golden move (right status -2 cols)")
-    (org-air-r17-denote-origin-byte-mockup . "R39-1 sanctioned banner golden move (right status -2 cols)")
-    (org-air-r29-1-header-ends-at-contract-column . "R39-1: header now ends at W-1-banner-indent (symmetric gutter)")
-    (org-air-r31-1-inline-header-ends-at-contract-column . "R39-1: header now ends at W-1-banner-indent (symmetric gutter)")
-    (org-air-r31-1-inline-width-sweep . "R39-1: header now ends at W-1-banner-indent (symmetric gutter)")
-    (org-air-r31-1-side-window-and-board-only-still-fit . "R39-1: header now ends at W-1-banner-indent (symmetric gutter)")
-    (org-air-r31-1-status-glyphs-single-width . "R39-1: header now ends at W-1-banner-indent (symmetric gutter)")
-    (org-air-r33-1-empty-header-fits-ambiguous-model . "R39-1: header now ends at W-1-banner-indent (symmetric gutter)")
-    (org-air-r33-1-populated-header-fits-ambiguous-model . "R39-1: header now ends at W-1-banner-indent (symmetric gutter)")
-    (org-air-r36-1-header-no-reserved-trailing-margin . "R39-1: symmetric right gutter replaces flush-to-W-1 contract")
-    (org-air-r36-1-reverting-the-fix-fails-the-guard . "R39-1: symmetric right gutter replaces flush-to-W-1 contract")
-    (org-air-r37-1-header-fits-body-1-last-glyph-at-body-2 . "R39-1: last glyph now at W-1-banner-indent, not W-2")
-    (org-air-r37-1-reverting-to-r34-rule-clips-last-glyph . "R39-1: last glyph now at W-1-banner-indent, not W-2")
-    (org-air-r38-1-reverting-to-string-width-budget-fails . "R39-1: 2-col gutter absorbs the pixel-excess slack the revert-guard relied on; test seat retunes")
-    (org-air-s7-header-status-ends-at-w-minus-1 . "R39-1: status now ends at W-1-banner-indent (symmetric gutter)")
-    ;; ===================================================================
-    ;; v0.5 ROUND-39 grind (impl track) — R39-3 drop `C-c C-a o' in the
-    ;; doc/org buffer.  The leader `o' (outline-goto-current-heading)
-    ;; duplicated RET in the editable doc session, so it is removed from
-    ;; `org-air-doc-leader-map' ONLY (the board/project leaders keep their
-    ;; `o' = rail-return); the doc Actions legend `jump' cell drops with it
-    ;; (no dead/lying cell).  These three legacy ERTs assert the OLD
-    ;; behaviour (o bound in the doc buffer + a `C-c C-a o jump' legend
-    ;; cell) and are re-blessed by the TEST SEAT to the R39-3 contract
-    ;; (the new `org-air-r39-3-doc-leader-no-open' ERT locks the drop).
-    (org-air-r30-2-leader-reaches-actions-from-doc . "R39-3: doc leader `o' dropped (RET is the sole open verb); R39-4: doc leader n/p now route through the repeatable org-air--repeat-next/prev wrappers")
-    (org-air-r30-2-legend-shows-context-key . "R39-3: doc Actions `jump' legend cell dropped with the leader `o'")
-    (org-air-r28-3-legend-fits-narrow-rail . "R39-3: doc Actions `jump' legend cell dropped with the leader `o'")
+    ;; v0.5 ROUND-39 CLOSEOUT (impl tips pvvsknxmxqtl..snzpmtnrlzlx +
+    ;; test re-bless <this commit>).  ALL R39 grind entries CLOSED.
+    ;;   R39-1 SYMMETRIC BANNER GUTTER: the header now reserves a right
+    ;;     gutter equal to the left indent (`org-air-view--banner-indent'
+    ;;     = 2) so the right status ends banner-indent columns before the
+    ;;     last usable column (lhs-margin == rhs-margin).  The 28 chrome
+    ;;     byte goldens (layout-mockup-* tiers + board-only + empty +
+    ;;     denote-origin-{80,120}) regenerated via `make regen-mockups'
+    ;;     (FROZEN-CLOCK renderer, guards active; verified NO HANG, exit 0;
+    ;;     jj diff = ONLY the banner line of each golden, right status
+    ;;     -2 cols; every rule/rail/row/day-header line byte-identical).
+    ;;     The end-column assertions that hardcoded the pre-R39 flush-to-
+    ;;     W-1 contract (r29-1, r31-1 inline/sweep/side-window/glyphs,
+    ;;     r33-1 empty/populated, r36-1 no-reserved-margin +
+    ;;     reverting-the-fix, r37-1 fits-body-1 + reverting-to-r34, r38-1
+    ;;     reverting-to-string-width, s7 status-ends) re-blessed on the
+    ;;     test seat to the W-1-banner-indent (symmetric gutter) invariant.
+    ;;     R38's pixel-true `left-cols' accounting stays intact (R39-1
+    ;;     threads the indent constant through it); the R38 pixel/string
+    ;;     fences stay green with the shifted content.
+    ;;   R39-3 DROP `C-c C-a o' IN THE DOC BUFFER: the leader `o'
+    ;;     (outline-goto-current-heading) duplicated RET, so it is dropped
+    ;;     from `org-air-doc-leader-map' ONLY; the doc Actions legend
+    ;;     `jump' cell drops with it (no dead/lying cell).  The legacy ERTs
+    ;;     (r30-2-leader-reaches-actions-from-doc, r30-2-legend-shows-
+    ;;     context-key, r28-3-legend-fits-narrow-rail) re-blessed to the
+    ;;     R39-3 contract; the new `org-air-r39-3-doc-leader-no-open' ERT
+    ;;     locks the drop (RET still opens; board/project `o' unchanged).
+    ;;   R39-2 (byte-invisible) single fence column
+    ;;     (`org-air-view--fence-column') and R39-4 (byte-invisible)
+    ;;     repeatable leader p/n via `set-transient-map' are covered by the
+    ;;     new executing ERTs in tests/org-air-round39-test.el; no golden
+    ;;     moved for either.  No .el SOURCE touched (impl landed R39-1..
+    ;;     R39-4 in pvvsknxmxqtl..snzpmtnrlzlx).  Round-39 manifest is
+    ;;     EMPTY; the tests stay as permanent regression guards.
     ;; ===================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     ;; 2026-06-12: 5 date-label sign-inversion entries closed out — fix

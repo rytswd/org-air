@@ -239,20 +239,23 @@ equals the number of distinct items, never the sum of section badges."
 ;;;; S7 — right status ends at W-1, intact.
 
 (ert-deftest org-air-s7-header-status-ends-at-w-minus-1 ()
-  "R36-1: the header band reserves NO trailing right-margin column — its
-right-trimmed width equals the compose width W (the status' last glyph
-sits on the final usable column), and the status text is intact (no
-clipped 'item‥').  The S7 spare column is now supplied UPSTREAM by R34's
-fringe-aware `org-air-layout--usable-columns', not a hand-reserved
-trailing blank here.  Aesthetics spec S7 (as amended by R36-1)."
+  "R39-1: the header band reserves a symmetric right gutter equal to the
+left indent (`org-air-view--banner-indent') — its right-trimmed width
+equals the compose width W minus that gutter (the status' last glyph sits
+`banner-indent' columns before the final usable column, mirroring the
+left `  org-air' indent), and the status text is intact (no clipped
+'item‥').  The S7 spare column is supplied UPSTREAM by R34's fringe-aware
+`org-air-layout--usable-columns'.  Aesthetics spec S7 (R36-1/R39-1)."
   (skip-unless (locate-library "org-air"))
   (dolist (width '(80 120 160))
     (ert-info ((format "width %d" width))
       (org-air-viewport-test-with-dashboard width
         (let ((header (car (org-air-viewport-test-lines))))
           (should (string-match-p "[0-9]+ items" header))
-          ;; no trailing whitespace: trimmed width == full width == W.
-          (should (= (string-width (string-trim-right header)) width))
+          ;; R39-1 symmetric gutter: trimmed width == W - banner-indent,
+          ;; and no line exceeds W.
+          (should (= (string-width (string-trim-right header))
+                     (- width org-air-view--banner-indent)))
           (should (<= (string-width header) width)))))))
 
 ;;;; S8 — mechanism only (pixel effect is GUI-only, untestable in batch).

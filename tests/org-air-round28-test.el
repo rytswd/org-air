@@ -468,18 +468,21 @@ line exceeds the width and the derived key cell is present UNSPLIT; at
           (should (<= (string-width ln) w)))
         (should (cl-some (lambda (ln) (string-match-p "C-c C-q back" ln))
                          lines)))))
-  ;; R30-2: the doc legend now shows the LEADER forms (jump/rail self-
-  ;; insert in the editable doc buffer), so at 42 the three (wider) cells
-  ;; wrap across rows — each cell present UNSPLIT, no line over width.
+  ;; R30-2/R39-3: the doc legend shows the LEADER forms (rail self-inserts
+  ;; in the editable doc buffer); R39-3 dropped the `o'/`jump' cell, so the
+  ;; legend is now `back' + `rail' only — each cell present UNSPLIT, no line
+  ;; over width, and NO `jump' cell survives.
   (with-temp-buffer
     (org-air-project--insert-doc-actions 42 nil)
     (let ((lines (split-string (substring-no-properties (buffer-string))
                                "\n" t)))
       (dolist (ln lines)
         (should (<= (string-width ln) 42)))
-      (dolist (cell '("C-c C-q back" "C-c C-a o jump" "C-c C-a | rail"))
+      (dolist (cell '("C-c C-q back" "C-c C-a | rail"))
         (should (cl-some (lambda (ln) (string-match-p (regexp-quote cell) ln))
-                         lines))))))
+                         lines)))
+      ;; R39-3: the dropped `o'/`jump' cell must not reappear.
+      (should-not (cl-some (lambda (ln) (string-match-p "jump" ln)) lines)))))
 
 (ert-deftest org-air-r28-3-tree-legend-unchanged ()
   "The TREE-context 3×3 Actions table still renders its real cells — the

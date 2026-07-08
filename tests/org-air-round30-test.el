@@ -187,9 +187,12 @@ FAILED (tags sat AFTER origin/path)."
 (ert-deftest org-air-r30-2-leader-reaches-actions-from-doc ()
   "In the doc-session ORG buffer (main window focused, single keys
 self-insert) the leader reaches the rail actions: `C-c C-a |' is
-`org-air-rail-toggle', `C-c C-a o' jumps the outline
-\(`org-air-outline-goto-current-heading'), `C-c C-a q' is
-`org-air-project-back'.  Trunk FAILED (no leader; the keys self-insert)."
+`org-air-rail-toggle', `C-c C-a q' is `org-air-project-back'.  R39-3: the
+leader `o' (outline jump) is DROPPED here — RET is the sole open verb, so
+`C-c C-a o' no longer jumps the outline.  R39-4: the leader `n'/`p' now
+route through the repeatable wrappers `org-air--repeat-next'/`-prev'
+(same outline motion, then a shared p/n transient map).  Trunk FAILED
+(no leader; the keys self-insert)."
   (skip-unless (locate-library "org-air"))
   (org-air-r28--with-doc-session
     (with-current-buffer docbuf
@@ -199,12 +202,12 @@ self-insert) the leader reaches the rail actions: `C-c C-a |' is
       (should-not (eq (key-binding (kbd "|")) 'org-air-rail-toggle))
       ;; ...but the leader reaches every action.
       (should (eq (key-binding (kbd "C-c C-a |")) 'org-air-rail-toggle))
-      (should (eq (key-binding (kbd "C-c C-a o"))
-                  'org-air-outline-goto-current-heading))
-      (should (eq (key-binding (kbd "C-c C-a n"))
-                  'org-air-outline-next-heading))
-      (should (eq (key-binding (kbd "C-c C-a p"))
-                  'org-air-outline-prev-heading))
+      ;; R39-3: `o' is dropped from the doc leader (RET is the sole open verb).
+      (should-not (eq (key-binding (kbd "C-c C-a o"))
+                      'org-air-outline-goto-current-heading))
+      ;; R39-4: leader n/p run the repeatable wrappers.
+      (should (eq (key-binding (kbd "C-c C-a n")) 'org-air--repeat-next))
+      (should (eq (key-binding (kbd "C-c C-a p")) 'org-air--repeat-prev))
       (should (eq (key-binding (kbd "C-c C-a q")) 'org-air-project-back)))))
 
 (ert-deftest org-air-r30-2-leader-outline-jump-moves-point ()
@@ -235,16 +238,21 @@ tautology for the leader binding test."
 
 (ert-deftest org-air-r30-2-legend-shows-context-key ()
   "The DOC-session rail Actions legend cells read the LEADER form
-\(C-c C-a …) for the verbs that self-insert in the doc buffer (jump,
-rail), while the board/project rail legend reads BARE keys — both derived
-by `org-air-view--legend-key' from the correct buffer.  Trunk FAILED (the
-doc legend hardcoded `RET jump' / `| rail', dead from the doc buffer)."
+\(C-c C-a …) for the verbs that self-insert in the doc buffer, while the
+board/project rail legend reads BARE keys — both derived by
+`org-air-view--legend-key' from the correct buffer.  R39-3: the doc
+Actions legend is just `back' + `rail' now (the `jump'/`o' cell was
+dropped with the leader `o').  Trunk FAILED (the doc legend hardcoded
+`RET jump' / `| rail', dead from the doc buffer)."
   (skip-unless (locate-library "org-air"))
   (org-air-r28--with-doc-session
     ;; the doc legend, live in the rail, shows the reachable LEADER keys.
     (with-current-buffer org-air-rail-buffer-name
       (let ((text (substring-no-properties (buffer-string))))
-        (should (string-match-p "C-c C-a o jump" text))
+        ;; R39-3: the `jump' (outline `o') cell is DROPPED — no dead/lying
+        ;; cell for a binding that no longer exists in the doc buffer.
+        (should-not (string-match-p "jump" text))
+        (should-not (string-match-p "C-c C-a o" text))
         (should (string-match-p "C-c C-a | rail" text))
         ;; no dead bare `RET jump' cell (trunk hardcoded it; RET newlines
         ;; in the doc buffer).

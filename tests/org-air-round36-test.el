@@ -51,12 +51,13 @@ point, so this exercises the real production composer for each."
                                       (line-end-position)))))
 
 (defun org-air-r36--assert-header-fits (line width flavour)
-  "Assert LINE (a composed header of FLAVOUR) obeys the R36-1 contract at WIDTH.
+  "Assert LINE (a composed header of FLAVOUR) obeys the R39-1 contract at WIDTH.
 Contract: character length <= WIDTH; display width <= WIDTH; NO trailing
 whitespace past the right content; the S7 left margin is still present
-INSIDE the width; and the right content is right-aligned FLUSH to the
-last usable column (WIDTH), i.e. the final column carries content, not a
-reserved blank."
+INSIDE the width; and (R39-1) the right content ends `org-air-view--banner-
+indent' columns before WIDTH — a symmetric right gutter mirroring the left
+indent.  So the trimmed AND raw widths equal WIDTH - banner-indent (no
+trailing whitespace emitted; the gutter stays inside WIDTH)."
   (ert-info ((format "%s header @ width %d: %S" flavour width line))
     ;; fits the window body width — both the raw length and the display width.
     (should (<= (length line) width))
@@ -67,12 +68,13 @@ reserved blank."
     ;; the S7 left margin (2 spaces) is still present, inside the width.
     (should (string-prefix-p "  " line))
     (should (string-prefix-p org-air-r36--banner-left line))
-    ;; the right content is FLUSH to the last usable column — trimming the
-    ;; (absent) trailing whitespace does not shrink the line, so the final
-    ;; column carries content, not a reserved blank.  This is where the
-    ;; pre-R36 reserved-blank contract failed.
-    (should (= (string-width (string-trim-right line)) width))
-    (should (= (string-width line) width))))
+    ;; R39-1: the right content ends banner-indent columns before WIDTH
+    ;; (symmetric right gutter); no trailing whitespace is emitted, so the
+    ;; trimmed AND raw widths both equal WIDTH - banner-indent.
+    (should (= (string-width (string-trim-right line))
+               (- width org-air-view--banner-indent)))
+    (should (= (string-width line)
+               (- width org-air-view--banner-indent)))))
 
 ;;;; =====================================================================
 ;;;; R36-1 — the decisive composed-line guard for BOTH headers.

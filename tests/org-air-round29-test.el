@@ -167,11 +167,15 @@ flush at the window edge."
              (hw (org-air-r29--header-widths)))
         ;; compose width == usable columns (the R29-1 fix).
         (should (eql org-air-view--rendered-width usable))
-        ;; R36-1: status ends AT the last usable column (no reserved
-        ;; trailing blank) — trimmed width == compose width.
-        (should (= (cdr hw) org-air-view--rendered-width))
-        ;; the header's final column carries content (raw == compose).
-        (should (= (car hw) org-air-view--rendered-width)))
+        ;; R39-1: status ends banner-indent columns before the last usable
+        ;; column (a symmetric right gutter mirroring the left indent), so
+        ;; the trimmed header width == compose width - banner-indent.
+        (should (= (cdr hw)
+                   (- org-air-view--rendered-width org-air-view--banner-indent)))
+        ;; no trailing gutter is emitted past the content (justify pads only
+        ;; to w-indent), so raw == trimmed == compose - banner-indent.
+        (should (= (car hw)
+                   (- org-air-view--rendered-width org-air-view--banner-indent))))
       ;; the INLINE header keeps the same contract (regression guard).
       (setq-local org-air-view--rail-popped-out nil)
       (org-air-rail--hide (current-buffer))
@@ -180,7 +184,8 @@ flush at the window edge."
              (usable (org-air-layout--usable-columns bwin))
              (hw (org-air-r29--header-widths)))
         (should (eql org-air-view--rendered-width usable))
-        (should (= (cdr hw) org-air-view--rendered-width))))))
+        (should (= (cdr hw)
+                   (- org-air-view--rendered-width org-air-view--banner-indent)))))))
 
 (ert-deftest org-air-r29-1-rail-buffer-fits ()
   "Fringe-less GUI: the popped rail buffer's OWN lines fit its side

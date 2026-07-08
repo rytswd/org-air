@@ -144,11 +144,16 @@ header contract for the inline mode the user dogfooded."
                     (push usable widths)
                     ;; compose width IS the usable columns (R29-1 primitive).
                     (should (eql org-air-view--rendered-width usable))
-                    ;; R36-1: status ends AT the last usable column (no
-                    ;; reserved trailing blank) — trimmed == compose.
-                    (should (= (cdr hw) org-air-view--rendered-width))
-                    ;; the final column carries content (raw == compose).
-                    (should (= (car hw) org-air-view--rendered-width))))
+                    ;; R39-1: status ends banner-indent columns before the
+                    ;; last usable column (a symmetric right gutter mirroring
+                    ;; the left indent) — trimmed == compose - banner-indent.
+                    (should (= (cdr hw)
+                               (- org-air-view--rendered-width
+                                  org-air-view--banner-indent)))
+                    ;; no trailing gutter emitted: raw == trimmed.
+                    (should (= (car hw)
+                               (- org-air-view--rendered-width
+                                  org-air-view--banner-indent)))))
               (when (window-live-p other) (delete-window other)))))
         ;; the split pair really exercised BOTH parities.
         (should (cl-find-if #'cl-oddp widths))
@@ -223,8 +228,11 @@ invariant independent of any live window (the batch width seam)."
             ;; the divider is present and lands on ONE column, every row.
             (should dcols)
             (should (= 1 (length (delete-dups (copy-sequence dcols)))))
-            ;; the header composed at this width is exactly W wide.
-            (should (= (car (org-air-r31--banner-width items)) w)))))
+            ;; R39-1: the header composed at this width ends banner-indent
+            ;; columns before W (symmetric right gutter), so its width is
+            ;; W - banner-indent.
+            (should (= (car (org-air-r31--banner-width items))
+                       (- w org-air-view--banner-indent))))))
       (should saw-odd)
       (should saw-even))))
 
@@ -278,7 +286,10 @@ fringe-less, still fit usable with the header at the contract column."
                      (org-air-layout--usable-columns bwin)))
         (org-air-r29--assert-lines-fit bwin)
         (let ((hw (org-air-r29--header-widths)))
-          (should (= (cdr hw) org-air-view--rendered-width))))
+          ;; R39-1: symmetric right gutter — trimmed == compose - banner-indent.
+          (should (= (cdr hw)
+                     (- org-air-view--rendered-width
+                        org-air-view--banner-indent)))))
       ;; BOARD-ONLY (rail forced off).
       (setq-local org-air-view--rail-popped-out nil)
       (org-air-rail--hide (current-buffer))
@@ -348,16 +359,18 @@ assumes ambiguous == 1)."
                             (string-to-char (org-air-r31--preferred-glyph name)))
                           org-air-r31--ambiguous-glyphs))
            (org-air-view--line-width 80)
-           ;; baseline: header composes to exactly the render width.
+           ;; R39-1 baseline: header composes to render width minus the
+           ;; symmetric right gutter (banner-indent).
            (base (car (org-air-r31--banner-width items))))
-      (should (= base 80))
+      (should (= base (- 80 org-air-view--banner-indent)))
       (let ((char-width-table (copy-sequence char-width-table)))
         (dolist (ch chars) (aset char-width-table ch 2))
         ;; sanity: the table really marks them wide now.
         (should (= (char-width (car chars)) 2))
-        ;; the composed header STILL measures exactly the render width
-        ;; (measured with the same WIDE table — self-consistent).
-        (should (= (car (org-air-r31--banner-width items)) 80))))))
+        ;; the composed header STILL measures the render width minus the
+        ;; gutter (measured with the same WIDE table — self-consistent).
+        (should (= (car (org-air-r31--banner-width items))
+                   (- 80 org-air-view--banner-indent)))))))
 
 (provide 'org-air-round31-test)
 ;;; org-air-round31-test.el ends here

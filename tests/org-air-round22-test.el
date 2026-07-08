@@ -620,7 +620,7 @@ the top) — so RET opens a pane showing the DOC, not an item subtree."
 
 ;;;; =====================================================================
 ;;;; R22-6 — project by-directory grouping: ONE header/dir, quiet aligned
-;;;; letter-counts (airctl -Da parity), real nesting indent.
+;;;; letter-counts (airctl status -Da parity), real nesting indent.
 ;;;; =====================================================================
 
 (defun org-air-r22-6--dir-lines ()

@@ -221,7 +221,7 @@ old `[U]' bracket token), the v0.2 per-dir Draft count is NOT inflated
 (Epsilon only), and `OVERVIEW.org' contributes NOTHING -- no title row, no
 `#summary' tag, no Ready badge in v0.2.  R22-6 re-bless: the per-dir
 counts are the quiet right-aligned LETTER-count summary (`W1 X1 D1', same
-numbers / `airctl -Da' parity) now, not the old `[W] 1  [X] 1  [D] 1'
+numbers / `airctl status -Da' parity) now, not the old `[W] 1  [X] 1  [D] 1'
 badge wall."
   (skip-unless (locate-library "org-air"))
   (let ((text (string-join

@@ -294,7 +294,7 @@ AFTER (R24-2: the rail threads down to every doc; columns unchanged):
 #+end_src
 Now =Alpha=/=Beta= hang under =▌ v0.1/= as siblings of the =├─ air-context/=
 child, and =Gamma= hangs under =air-context/= with the =│= rail leading the eye
-down v0.1's branch — the same rail-to-leaf shape as =airctl -Da=.  Note the
+down v0.1's branch — the same rail-to-leaf shape as =airctl status -Da=.  Note the
 date/tag/origin columns are byte-for-byte where they were (right-pinned); only
 leading gutter SPACES became =│=/=├─=/=└─= glyphs.
 
@@ -361,7 +361,7 @@ the state cell shifts right with it; this is the only case anything moves, it is
 deliberate, and it still never touches the right-pinned date/tag/origin cluster.)
 
 *** (3) Counts + parity UNCHANGED
-=org-air-project--dir-count-summary= and the =airctl -Da= COUNT parity (R22-6)
+=org-air-project--dir-count-summary= and the =airctl status -Da= COUNT parity (R22-6)
 are untouched — only the doc-row LEFT gutter changed.  The state-/tag-grouping
 views (no dir tree) call =--insert-doc-row= with no rail context (=rails= nil,
 =depth= nil) so they render exactly as today.

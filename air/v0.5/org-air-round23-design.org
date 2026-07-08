@@ -445,7 +445,7 @@ The own-doc indent stays =(* 2 (1+ depth))=; with the 6-col =item-margin= a
 depth-d doc sits at col =6 + 2(1+d)= (8/10/12 for d=0/1/2), always DEEPER than
 that dir's name (col 4/5/8) and deeper than any child-dir connector — so docs
 remain clearly under their dir with no doc-row re-bless.  The right-aligned
-=--dir-count-summary= and =airctl -Da= parity are untouched (only the LEFT
+=--dir-count-summary= and =airctl status -Da= parity are untouched (only the LEFT
 guide changed).
 
 ** Byte / batch contract — a DELIBERATE, design-blessed re-bless (dir headers only)

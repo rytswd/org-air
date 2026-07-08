@@ -441,7 +441,7 @@ dogfooded and what impl edits.)
 ** Decision — one header per directory, a quiet right-aligned count, real indent
 Collapse the two header lines to ONE per directory, replace the badge wall with
 a calm right-aligned count summary, and indent the whole header (marker + name)
-by depth so the tree reads.  Keep the numbers identical to =airctl -Da=.
+by depth so the tree reads.  Keep the numbers identical to =airctl status -Da=.
 
 *** (1) Drop the rolled-up box header; ONE header per dir node
 In =org-air-project--insert-dir-node= remove step (1) entirely (the =when topp=
@@ -467,7 +467,7 @@ nano-calm):
 State as a quiet faded LETTER (not the coloured badge), own count, faded
 `(+M)' nested rollup; states absent from BOTH omitted; display order =
 `org-air-project--state-display-order'.  Numerically identical to the old
-`--count-badges' / `airctl -Da'."
+`--count-badges' / `airctl status -Da'."
   (let (cells)
     (dolist (state org-air-project--state-display-order)
       (let ((n (or (cdr (assoc state direct)) 0))
@@ -513,7 +513,7 @@ two indents in under =air-template/= and its docs three — the nesting is
 visible.  The accent marker (=org-air-project--marker=) prints once per header
 as the quiet bullet; it is NOT repeated mid-line.
 
-*** Numerical parity with airctl -Da
+*** Numerical parity with airctl status -Da
 =direct-counts= / =desc-counts= already feed the summary; the own =N= and
 nested =(+M)= match =airctl status -Da= cell-for-cell.  A test asserts the org-
 air summary for =v0.1/= equals =R4(+1) C14(+14) X1(+9) D2(+8)= (the airctl
@@ -536,7 +536,7 @@ header builder is reused there.
   rolled-up duplicate.
 - ERT (airctl parity): =org-air-project--dir-count-summary= for a node with
   known direct/desc counts equals the expected =R4(+1) …= string (numbers match
-  =airctl -Da=); states absent from both are omitted.
+  =airctl status -Da=); states absent from both are omitted.
 - ERT (alignment): the count summaries of two sibling dir headers start at the
   SAME column (right-aligned to the fixed counts column).
 - ERT (nesting): a child dir header is indented deeper than its parent, and a

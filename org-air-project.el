@@ -82,7 +82,8 @@ so they never shadow the shared board keys s / d / t."
 
 (defconst org-air-project--state-display-order
   '("ready" "work-in-progress" "complete" "dropped" "draft")
-  "Canonical state order for the directory tree (R20-5), matching `airctl -Da'.
+  "Canonical state order for the directory tree (R20-5).
+Matches `airctl status -Da'.
 Drives BOTH the per-dir count badges (Ready · Work-In-Progress · Complete ·
 Dropped · Draft, only those present) AND the state-first ordering of a
 directory's own docs, so the two can never drift.  R25-3 dropped the
@@ -606,7 +607,7 @@ Buckets with zero docs are omitted; any state not listed is appended."
 
 (defun org-air-project--state-first-lessp (a b)
   "Non-nil when doc A precedes B state-first, then by the ACTIVE key (R26-7).
-State-display-rank stays PRIMARY (the airctl -Da shape); the within-state
+State-display-rank stays PRIMARY (the airctl status -Da shape); the within-state
 order delegates to `org-air-project--doc-compare-key' — the active `o'/`O'
 sort — instead of the old fixed name tiebreak (which starved the sort key
 in the DEFAULT directory grouping).  Byte-stable at the default: key
@@ -740,7 +741,7 @@ DIRECT is the dir's OWN per-state counts, DESC its descendants' rollup.
 State as a quiet faded LETTER (not the coloured badge), own count, faded
 `(+M)' nested rollup; states absent from BOTH are omitted; display order =
 `org-air-project--state-display-order'.  Numerically identical to the old
-`--count-badges' / `airctl -Da' (own N + nested +M)."
+`--count-badges' / `airctl status -Da' (own N + nested +M)."
   (let (cells)
     (dolist (state org-air-project--state-display-order)
       (let ((n (or (cdr (assoc state direct)) 0))
@@ -808,7 +809,7 @@ gets the ascii `|  ' / `+- ' fallback."
     (insert header "\n")
     (add-text-properties start (point) (list 'org-air-section path))
     ;; R24-2: thread the rail DOWN to the OWN docs so each doc visibly hangs
-    ;; under its directory (matching airctl -Da).  Own docs are emitted
+    ;; under its directory (matching airctl status -Da).  Own docs are emitted
     ;; BEFORE the child dirs, so the `last child overall' corner (└─) lands
     ;; on the FINAL own-doc ONLY when this dir has no child dirs; otherwise
     ;; the own docs are tees (├─) and the corner goes to the last child dir.
@@ -1554,7 +1555,7 @@ Non-interactive sibling of `org-air-project-refresh' used by the shared
   (org-air-project-refresh))
 
 (defun org-air-project-group-by-directory ()
-  "Group the project view by directory (airctl -Da)."
+  "Group the project view by directory (airctl status -Da)."
   (interactive)
   (setq org-air-project-group 'directory)
   (org-air-project-refresh))

@@ -1,13 +1,19 @@
 #+TITLE: org-air
-#+SUBTITLE: A modern, aesthetic GTD dashboard *and* Air project viewer for Emacs — built on org-ql, with no org-agenda.
-#+OPTIONS: toc:nil num:nil
+#+AUTHOR: rytswd
+#+OPTIONS: toc:nil num:nil ^:nil
 
-A modern, aesthetic GTD dashboard *and* Air project viewer for Emacs — built on [[https://github.com/alphapapa/org-ql][org-ql]], with no ~org-agenda~.
+#+html:<div align="center">
+#+html:<p>A modern, aesthetic GTD dashboard <b>and</b> Air project viewer for Emacs — built on <a href="https://github.com/alphapapa/org-ql">org-ql</a>, with no <code>org-agenda</code>.</p>
+#+html:<p>
+#+html:<img src="https://img.shields.io/badge/Emacs-29.1%2B-7F5AB6?style=flat-square&logo=gnuemacs&logoColor=white" alt="Emacs 29.1+">
+#+html:<img src="https://img.shields.io/badge/backend-org--ql-4E9A06?style=flat-square" alt="Built on org-ql">
+#+html:<img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square" alt="License GPL-3.0-or-later">
+#+html:<img src="https://img.shields.io/badge/version-0.1.0-lightgrey?style=flat-square" alt="Version 0.1.0">
+#+html:<a href="https://github.com/rytswd/org-air"><img src="https://img.shields.io/badge/Source-grey?style=flat-square&logo=github" alt="GitHub Source"></a>
+#+html:</p>
+#+html:</div>
 
-[[https://img.shields.io/badge/Emacs-29.1%2B-7F5AB6][Emacs 29.1+]] ·
-[[https://img.shields.io/badge/backend-org--ql-4E9A06][Built on org-ql]] ·
-[[https://img.shields.io/badge/license-GPL--3.0--or--later-blue][License GPL-3.0-or-later]] ·
-[[https://img.shields.io/badge/version-0.1.0-lightgrey][Version 0.1.0]]
+-----
 
 org-air answers one question well — /what deserves my attention right now?/ — and gets out of the way. It reads your Org files through ~org-ql~, classifies each heading into a handful of meaningful buckets, and renders them with a quiet, legible visual language inspired by [[https://github.com/rougier/nano-emacs][N Λ N O]] and mu4e.
 
@@ -18,7 +24,7 @@ org-air is *two surfaces over your Org files*, sharing one visual language, one 
 | Surface              | Command               | What it is                                                                                                                                                                             |
 |----------------------+-----------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | *GTD dashboard*      | ~M-x org-air~         | A read-first board: capture → glance → process. Items grouped into Inbox / Needs attention / Upcoming / High priority / Stale, with a live calendar, filter, sort, and inbox workflow. |
-| *Air project viewer* | ~M-x org-air-project~ | A planning-doc tree for repositories managed with [[https://github.com/rytswd/air][Air]] — state-grouped documents (~airctl -Da~ parity), a side-rail inspector, and an in-place doc session.                             |
+| *Air project viewer* | ~M-x org-air-project~ | A planning-doc tree for repositories managed with [[https://github.com/rytswd/air][Air]] — state-grouped documents (~airctl status -Da~ parity), a side-rail inspector, and an in-place doc session.                             |
 
 The philosophy:
 
@@ -49,7 +55,7 @@ The philosophy:
 
 *Project viewer (~org-air-project~)*
 
-- ~airctl -Da~ *parity tree*: documents grouped by state (draft → ready → work-in-progress → complete → dropped), directory, or tag.
+- ~airctl status -Da~ *parity tree*: documents grouped by state (draft → ready → work-in-progress → complete → dropped), directory, or tag.
 - A side-rail *inspector* showing the doc's state, tags, path, and metadata.
 - An in-place *doc session*: open a planning doc in the same window, edit it live, and jump back to the tree — with a rail *outline* that follows point.
 
@@ -240,7 +246,7 @@ The capture → process loop is two steps:
 
 ** The Air project viewer — ~M-x org-air-project~
 
-For repositories planned with [[https://github.com/rytswd/air][Air]], the project viewer renders the planning docs as a state-grouped tree (parity with ~airctl -Da~), sortable and filterable, with a side-rail inspector. ~RET~ opens a doc in a same-window *session*: you edit the real file, the rail shows a live outline that follows point, and ~C-c C-q~ returns you to the tree. org-air the package has no runtime dependency on Air or ~airctl~.
+For repositories planned with [[https://github.com/rytswd/air][Air]], the project viewer renders the planning docs as a state-grouped tree (parity with ~airctl status -Da~), sortable and filterable, with a side-rail inspector. ~RET~ opens a doc in a same-window *session*: you edit the real file, the rail shows a live outline that follows point, and ~C-c C-q~ returns you to the tree. org-air the package has no runtime dependency on Air or ~airctl~.
 
 * 🧵 ~org-air-outline-mode~
 

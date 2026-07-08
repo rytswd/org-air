@@ -843,7 +843,7 @@ indicator updates (built in the project buffer), the rows cannot.
    =--sort-items= then read the user's real state inside every pane; =O=
    (direction) rides the same fix.
 2. *Project directory grouping*: =--sort-own-docs= keeps its state-display-
-   rank PRIMARY (the airctl -Da shape) and delegates the within-state order
+   rank PRIMARY (the airctl status -Da shape) and delegates the within-state order
    to =--doc-compare-key= (the active-key comparator, L995) instead of the
    bare name tiebreak.  Byte-stable at the default: key ='name= ascending ⇒
    =string-lessp= on names + the name/relpath tiebreak ≡ today's order

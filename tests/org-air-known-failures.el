@@ -70,7 +70,7 @@
     ;; behaviour (o bound in the doc buffer + a `C-c C-a o jump' legend
     ;; cell) and are re-blessed by the TEST SEAT to the R39-3 contract
     ;; (the new `org-air-r39-3-doc-leader-no-open' ERT locks the drop).
-    (org-air-r30-2-leader-reaches-actions-from-doc . "R39-3: doc leader `o' dropped (RET is the sole open verb)")
+    (org-air-r30-2-leader-reaches-actions-from-doc . "R39-3: doc leader `o' dropped (RET is the sole open verb); R39-4: doc leader n/p now route through the repeatable org-air--repeat-next/prev wrappers")
     (org-air-r30-2-legend-shows-context-key . "R39-3: doc Actions `jump' legend cell dropped with the leader `o'")
     (org-air-r28-3-legend-fits-narrow-rail . "R39-3: doc Actions `jump' legend cell dropped with the leader `o'")
     ;; ===================================================================

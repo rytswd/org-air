@@ -1917,8 +1917,11 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 ;; does NOT duplicate a bare RET.
 (org-air--register-default-keys 'org-air-doc-leader-map
   "|" #'org-air-rail-toggle
-  "n" #'org-air-outline-next-heading
-  "p" #'org-air-outline-prev-heading
+  ;; R39-4: the leader n/p go through the repeatable wrappers (they call the
+  ;; SAME outline motion, then arm the shared p/n transient map so a bare
+  ;; n/p repeats until any other key).
+  "n" #'org-air--repeat-next
+  "p" #'org-air--repeat-prev
   "q" #'org-air-project-back)
 
 ;; R30-2/R35-1: install the leader on the doc-session map (nav/back/rail).
@@ -2014,6 +2017,9 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 ;; state/dir/tag (airctl -a/-Da/-Ta parity on keys); `(' flips rows; `/'
 ;; the per-mode doc-tag filter; `g' refresh; `q' quit.
 (org-air--register-default-keys 'org-air-project-mode-map
+  ;; Bare n/p in the read-only project buffer are already repeatable
+  ;; (special-mode single keys); R39-4's transient-map wrappers are only for
+  ;; the doc-session LEADER n/p (where a bare key self-inserts).
   "n" #'org-air-project-next
   "p" #'org-air-project-prev
   "RET" #'org-air-project-open

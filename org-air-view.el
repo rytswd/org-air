@@ -1134,6 +1134,57 @@ reused by the R30-2 leader outline motions and the R30-4 outline mode."
           (push (match-beginning 0) ps))
         (nreverse ps)))))
 
+(defun org-air--repeat-pn-commands ()
+  "Return (NEXT . PREV) the live prev/next motion commands for this buffer.
+Resolves the context-correct motion so ONE shared repeat map (R39-4) steps
+the board items, the project rows, or the doc/outline headings, whichever
+the current buffer is.  The doc/outline motion is the fallback."
+  (cond
+   ((derived-mode-p 'org-air-view-mode)
+    (cons #'org-air-next-item #'org-air-prev-item))
+   ((derived-mode-p 'org-air-project-mode)
+    (cons #'org-air-project-next #'org-air-project-prev))
+   (t (cons #'org-air-outline-next-heading #'org-air-outline-prev-heading))))
+
+(defvar org-air--repeat-pn-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "n" #'org-air--repeat-next)
+    (define-key map "p" #'org-air--repeat-prev)
+    map)
+  "Transient repeat map for the leader prev/next motions (R39-4).
+Armed via `set-transient-map' after a leader (or bare) prev/next so a bare
+`n'/`p' repeats the motion until ANY other key; its `n'/`p' dispatch to the
+context-correct motion via `org-air--repeat-pn-commands'.")
+
+(defun org-air--repeat-pn-arm ()
+  "Install the shared p/n repeat transient map (R39-4), gated on the knob.
+`set-transient-map' with KEEP-PRED = t keeps the map live as long as the
+last key was a bound `n'/`p'; the first other key deactivates it AND runs
+normally.  A no-op when `org-air-use-default-keybindings' is nil.  Only the
+LEADER-path wrappers (`org-air--repeat-next'/`-prev') arm the map; the bare
+motion primitives stay pure so nothing leaks the transient map into an
+unrelated buffer."
+  (when org-air-use-default-keybindings
+    (set-transient-map org-air--repeat-pn-map t)))
+
+(defun org-air--repeat-next ()
+  "Leader NEXT motion made repeatable: run the context motion, arm p/n (R39-4).
+Bound at the leader `n' (and in `org-air--repeat-pn-map'); it calls the SAME
+context-correct motion primitive (no fork) then arms the transient map so a
+bare `n'/`p' repeats until any other key."
+  (interactive)
+  (call-interactively (car (org-air--repeat-pn-commands)))
+  (org-air--repeat-pn-arm))
+
+(defun org-air--repeat-prev ()
+  "Leader PREV motion made repeatable: run the context motion, arm p/n (R39-4).
+Bound at the leader `p' (and in `org-air--repeat-pn-map'); it calls the SAME
+context-correct motion primitive (no fork) then arms the transient map so a
+bare `n'/`p' repeats until any other key."
+  (interactive)
+  (call-interactively (cdr (org-air--repeat-pn-commands)))
+  (org-air--repeat-pn-arm))
+
 (defun org-air-outline-next-heading ()
   "Move point to the next Org heading in this buffer (R30-2 leader `n')."
   (interactive)

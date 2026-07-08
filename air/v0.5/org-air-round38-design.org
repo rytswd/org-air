@@ -1,0 +1,126 @@
+#+title: org-air Round 38 — Pixel-true banner width (header :height 1.2 overflow)
+#+state: ready
+#+tags: layout header banner pixel-width release-blocker
+
+* Summary
+
+The five-round header-overflow hunt (R29→R37) chased the *column count*. A fresh
+full-code review (Fable, read-only; report at
+=/tmp/org-air-ace/fable-review/REPORT.md=) proved the character/string layer is
+now correct (banner renders at exactly =usable= columns, flush, no trailing
+space) and identified the real, *pixel-level* root cause that column math is
+structurally blind to.
+
+Decision (user): KEEP the enlarged title; fix the composer to charge the token
+its true pixel width (review Option 2, not the "drop :height" Option 1).
+
+* Root cause (confirmed)
+
+- =org-air-faces.el:173= — =org-air-face-header= carries =:height 1.2= and wraps
+  the banner's left token =(propertize "  org-air" 'face 'org-air-face-header)=
+  (=org-air-view.el:1990=). It is the ONLY height-scaled face in the package.
+- Every width budget counts that 9-character token as =string-width= = 9
+  columns, but at 1.2x it paints ≈ 9 × 1.2 ≈ 11 canonical columns of *pixels*.
+- The banner row is therefore ≈ 2 canonical pixel-columns wider than its
+  =usable=-char count. With =truncate-lines=, the display engine runs past the
+  text area on that row → truncation arrow + trailing "overhang", header row
+  ONLY. A ±1 column reserve cannot absorb a ~2 pixel-column excess — which is
+  exactly why the symptom slid one glyph per round but never vanished.
+
+* R38-1 — Charge the scaled left token its true pixel width in the banner
+
+Scope: =org-air-view--insert-banner= (=org-air-view.el= ~1976–2092) and its
+helper =org-air-view--justify= (~1912) ONLY. No change to =usable-columns= /
+=org-air-layout=; keep R37's =body-1= universal reserve (it is independently
+valid for the fringe-less continuation-glyph case).
+
+Behaviour:
+- On a GRAPHICAL frame, compute the left token's *display* column cost:
+  =left-cols = (ceil (/ (string-pixel-width left) (float (frame-char-width))))=
+  (Emacs 29.1+ has =string-pixel-width=; if measuring in a non-displayed
+  temp-buffer returns 0/unreliable, fall back to
+  =window-text-pixel-size= on the target window, else to =string-width=).
+- In BATCH / TTY (=(not (display-graphic-p))=), =left-cols = (string-width left)=
+  exactly as today — so the golden/mockup path is byte-identical.
+- Budget + justify use =left-cols= in place of =(string-width left)=:
+  - =budget = (- w left-cols 2)=
+  - the pad run = =(- w left-cols (string-width right))= spaces
+  - the emitted STRING still contains the literal =left= token (unchanged
+    bytes); only the number of pad spaces shrinks by the pixel excess, so the
+    row's pixel extent becomes ≤ =w= canonical columns while the *string* stays
+    ≤ =w= characters and flush-right is preserved.
+- Right token unchanged (normal-height face). No =(space :align-to)= display
+  specs (they would change bytes and defeat string-width tests).
+
+Invariants:
+- Goldens byte-identical (batch path untouched). If any golden moves, that is a
+  RED FLAG the batch branch was altered — do not manifest it away; fix the guard.
+- The left token bytes are unchanged; =:height 1.2= stays on the face (title
+  still enlarged).
+
+* R38-2 — Inspector refill must not emit off-edge trailing whitespace
+
+The review found the one latent *body-row* version of the same artifact class:
+=org-air-view--render-inspector-region= (the "never trim here" branch, ~3866–
+3921) runs AFTER =org-air-view--finalize-buffer-lines= and re-inserts rows
+padded with trailing whitespace to the full composed width taken from the
+*cached* =org-air-view--inspector-geom=. If the window narrowed inside the
+resize-debounce (or a re-render failed), these rows overhang as pure trailing
+whitespace + arrow — the exact reported artifact, on inspector body rows.
+
+Fix: clamp the refill against the live =org-air-view--render-width= before
+padding (or route the refilled lines through =org-air-view--postprocess-line= /
+=--finalize-buffer-lines= trailing-trim). Do NOT introduce trailing whitespace
+past =usable=.
+
+* Regression fence (headless + one GUI assertion)
+
+1. STRING layer (headless, keep): render via the live finalize path with the
+   width getter pinned (see review probe): assert no line's =string-width= >
+   =usable=; banner (line 0) does NOT end in whitespace. This must stay green.
+2. PIXEL layer (the check that was missing five rounds):
+   - Preferred, headless-capable: assert that with =:height 1.2= present, the
+     banner composer's =left-cols= ≥ =(string-width left)= on a graphical frame,
+     AND a =string-pixel-width=-based reconstruction of the row is ≤
+     =(* usable (frame-char-width))= pixels. Reverting R38-1 (use =string-width=
+     for the budget on GUI) MUST fail this.
+   - GUI-only (=skip-unless (display-graphic-p)=): in a real =*org-air*= window,
+     =(car (window-text-pixel-size win (point-min) (line-end-position 1) …))
+     ≤ (window-body-width win t)= for the banner row. Skipped in batch.
+3. Face-hygiene fence (cheap, catches the whole class): iterate =face-list=,
+   filter =org-air-face-*= used in chrome; assert any face with =:height= ≠
+   unspecified/1.0 is only ever consumed by a composer that charges pixel-true
+   width (i.e. the banner). This is the assertion that would have caught the bug
+   in R29.
+
+* Also fold back
+
+The R37 executing ERTs (right-scrollbar sim, =usable=body-1=, 214 lines) were
+lost to a jj cleanup mishap but survive in the test workspace
+(=../org-air-test/tests/org-air-round37-test.el=). Re-add them this round.
+
+* Deferred follow-ups (from review §5 — NOT this round)
+
+- =org-air-view--justify= =(max 1 available)= can eat the right token's tail for
+  shed-less callers (project header, calendar header). Compose-first-hope-later.
+- =org-air-layout-current-width= multi-window ambiguity (any window on any frame).
+- =org-air-layout.el:32= =(set (intern "│") "│")= — a global var literally named
+  =│=; dead-code smell at the top of the width module.
+- R33's own audit left =─ … ● ▲ ■ □ ★ ○= (East-Asian-ambiguous) in chrome;
+  extend the headless ambiguous-width detector to them.
+- =org-air-rail--window-cols= (view.el:4725) uses raw =(frame-width)= with no −1
+  reserve, unlike =--usable-frame-columns=.
+- Pixel-metric split-brain: SVG pills sized by =window-font-width= vs budget by
+  =frame-char-width=; add one capture-path assertion if they diverge.
+
+* Verification gate
+
+=make clean && make check= GREEN (0 unexpected, manifest EMPTY), goldens
+byte-identical (=make regen-mockups= zero churn), =airctl status -Da= parity
+exact. Review gate: Fable (holds the full diagnosis). Orchestrator self-verifies
+the final tip before integrating.
+
+* Implementation History
+
+- (pending) R38-1 pixel-true banner width; R38-2 inspector refill trailing-ws;
+  regression fence; R37 ERT fold-back.

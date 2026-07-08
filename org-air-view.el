@@ -1999,6 +1999,12 @@ width is unchanged, so fixtures hold."
   :type 'boolean
   :group 'org-air)
 
+(defconst org-air-view--banner-indent 2
+  "Columns of horizontal margin the banner reserves on EACH side.
+The left token bakes this many leading spaces (\"  org-air\"); the right
+status cluster reserves the SAME count as a trailing gutter so the header is
+left/right symmetric.  One constant so the two sides can never drift.")
+
 (defun org-air-view--insert-banner (items)
   "Insert the org-air header band for ITEMS (S1 single in-buffer band).
 The right status is justified to the displaying window width W and its
@@ -2089,10 +2095,11 @@ optional segments (after filter, scope and count)."
                                (org-air-view--sort-active-key)
                                (org-air-view--sort-active-direction)
                                (not (org-air-view--sort-default-p))))))
-         ;; Budget for the status: window minus the left token and a >=2-col
-         ;; gap.  R36-1: no reserved right-margin column (R34's usable-
-         ;; columns already supplies the spare column upstream).
-         (budget (- w left-cols 2))
+         ;; Budget for the status: window minus the left token, the >=1-col
+         ;; gap, and R39-1's symmetric right gutter (the same indent the left
+         ;; token bakes).  R36-1: no reserved right-margin column beyond this
+         ;; (R34's usable-columns already supplies the spare column upstream).
+         (budget (- w left-cols org-air-view--banner-indent))
          (assemble (lambda (shed)
                      (concat date
                              (unless (memq :count shed) count)
@@ -2115,11 +2122,15 @@ optional segments (after filter, scope and count)."
          ;; D-P3: the segments already carry their faces; keep the assembled
          ;; status as-is (no blanket faded override).
          (right status)
-         ;; R36-1: right-align the status to the last usable column with NO
-         ;; trailing pad — the middle gap absorbs the slack, so the line
-         ;; ends in the status' last glyph (not a reserved blank).  S7's
-         ;; spare column is supplied by R34's fringe-aware usable-columns.
-         (line (org-air-view--justify left right w left-cols)))
+         ;; R39-1: right-align the status to (usable - banner-indent) so the
+         ;; header has a trailing gutter equal to the left indent — the line
+         ;; is symmetric (lhs-margin == rhs-margin == banner-indent).  The
+         ;; gutter stays INSIDE w (justify pads to w-indent), never emitted as
+         ;; trailing whitespace past the declared width.  S7's spare column is
+         ;; supplied upstream by R34's fringe-aware usable-columns.
+         (line (org-air-view--justify left right
+                                      (- w org-air-view--banner-indent)
+                                      left-cols)))
     (insert line "\n")))
 
 (defun org-air-view--rule-string (width)

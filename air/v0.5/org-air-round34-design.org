@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-34 DESIGN: header STILL 1-col over on the user's REAL geometry (fringed + right scroll-bar, not fringe-less) · no-rail view rows misaligned · cache-first lazy-load broken (idle re-arm stall)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:header:width:fringe:scrollbar:align:lazy-load:cache:async:timer:design:v0.5:
 
 * Scope of this document

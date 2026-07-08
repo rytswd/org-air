@@ -149,6 +149,7 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | ~org-air-tag-style~                 | ~pill~                                       | Tag chips: ~pill~ (svg) or ~text~.                                        |
 | ~org-air-priority-style~            | ~square~                                     | Priority cookie: ~square~/~badge~/~text~.                                 |
 | ~org-air-leader-key~                | ~"C-c C-a"~                                  | Main-window action leader prefix.                                         |
+| ~org-air-use-default-keybindings~   | ~t~                                          | Install org-air's default keys; set ~nil~ to install NONE (maps still exist for your own binds). |
 | ~org-air-inspector-max-title-lines~ | ~nil~                                        | Cap on wrapped inspector title lines (~nil~ = wrap fully).                |
 | *Project*                           |                                              |                                                                           |
 | ~org-air-sources~                   | ~nil~                                        | Where the project viewer finds Air content.                               |
@@ -230,6 +231,30 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~C-c C-a n~ / ~C-c C-a p~ | Next / previous heading     |
 
 Because the doc buffer is fully editable (single keys self-insert), the main-window actions live under the ~C-c C-a~ leader. Legends show the context-correct key — the bare key where it works, the leader form where it doesn't.
+
+** Disabling the default keybindings
+
+The stock bindings are useful, but some users already have their own scheme. One boolean opts out of *every* org-air default key at once:
+
+#+begin_src emacs-lisp
+(use-package org-air
+  :custom (org-air-use-default-keybindings nil))
+#+end_src
+
+With it ~nil~, org-air installs *none* of its own keys — the board, project, rail, and doc-session maps, the ~z~ column-toggle prefix, the ~g~ prefix, the ~C-c C-a~ leader (and its project / doc-session subsets), and the evil overriding-map integration are all skipped. The switch is honoured however you set it: ~use-package~ ~:custom~, a plain ~setq~ before loading org-air, or a runtime ~customize~ (the maps re-sync on the next org-air buffer, and immediately on a ~customize~ set).
+
+The keymaps still *exist* and keep their ~special-mode~ parent, so ~q~ (quit), ~g~ (revert), and scrolling still work, and you own all the org-air *action* keys. To re-add them:
+
+- *The whole stock set* — ~M-x org-air--install-default-keybindings~ (or call it from your config).
+- *A subset* — ~define-key~ the command symbols you want into the still-live maps:
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'org-air
+  (define-key org-air-view-mode-map (kbd "C-n") #'org-air-next-item)
+  (define-key org-air-view-mode-map (kbd "C-c r") #'org-air-refresh))
+#+end_src
+
+The global entry-point keys you bind yourself (e.g. ~C-c a~ → ~org-air~) are *your* bindings, not defaults, so they are unaffected by this switch.
 
 * 🗂️ The two views
 

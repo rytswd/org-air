@@ -862,19 +862,170 @@ of whether the wrapping pane margin is added later (D6).")
     (stale "Stale" "Nothing has gone stale."))
   "Section descriptors in display order.")
 
+;;;; =====================================================================
+;;;; R35-1 — one switch to opt out of EVERY default keybinding.
+;;;; `org-air-use-default-keybindings' (default t).  When nil org-air
+;;;; installs NONE of its own keys — the board / project / rail /
+;;;; doc-session maps, the `z' column-toggle prefix, the `g' prefix, the
+;;;; `C-c C-a' leader (and its project / doc-session subsets) and the evil
+;;;; overriding-map setup are all skipped.  The keymaps still EXIST and
+;;;; keep their `special-mode' parent, so navigation/quit still work and
+;;;; users can `define-key' their own commands into them.
+;;;;
+;;;; ONE installer + ONE clearer, both driven by ONE data table
+;;;; (`org-air--default-key-specs' + `org-air--default-leader-specs'), so
+;;;; install and clear can never drift.  The keymap OBJECTS are mutated in
+;;;; place; the map variables are NEVER rebound, so every captured
+;;;; reference (derived-mode map value, minor-mode :keymap, the leader
+;;;; installs, the `org-air-mode-map' alias) stays valid.  `sync' is called
+;;;; at LOAD (seed — byte-identical under the default t), at every org-air
+;;;; MODE INIT (honours use-package `:custom' / a runtime `setq' on the
+;;;; next org-air buffer) and from the defcustom `:set' (instant runtime
+;;;; toggle) — the mechanism that "just works" for `:custom',
+;;;; `setq'-before-`require' AND `customize'.
+;;;; =====================================================================
+
+(defvar org-air--default-key-specs nil
+  "Registry of org-air default key bindings (R35-1).
+Each entry is (MAP-SYMBOL KEY BINDING): MAP-SYMBOL names a shared keymap
+variable; KEY is a `kbd' STRING or a raw key VECTOR (e.g. `[remap
+quit-window]'); BINDING is a command symbol or a `(:prefix . PREFIX-MAP-
+SYMBOL)' marker for a nested prefix map.  Populated by
+`org-air--register-default-keys' right after each keymap `defvar' (in this
+file and in `org-air-project.el'); consumed by
+`org-air--install-default-keybindings' / `-clear-default-keybindings'.")
+
+(defvar org-air--default-leader-specs nil
+  "Registry of (HOST-MAP-SYMBOL . PREFIX-MAP-SYMBOL) leader installs (R35-1).
+Each registered pair is installed at `org-air-leader-key' via
+`org-air-view--leader-install' when the defaults are on, and unbound when
+they are off.")
+
+(defvar org-air--default-keybindings-state 'unset
+  "Whether the org-air defaults are currently installed (R35-1).
+One of `unset' (never synced), t (installed) or nil (cleared).  Guards the
+`org-air-leader-key' :set reinstall (D-4): a leader re-bind is a no-op
+while the defaults are not installed.")
+
+(defcustom org-air-use-default-keybindings t
+  "When non-nil (the default), install org-air's default keybindings (R35-1).
+Set to nil to make org-air install NONE of its own keys — the board /
+project / rail / doc-session maps, the `z' column-toggle prefix, the `g'
+prefix, the `org-air-leader-key' leader (and its project / doc-session
+subsets), `org-air-outline-mode's rail keys, AND the evil overriding-map
+setup are all skipped.  The keymaps still EXIST and keep their `special-mode'
+parent, so navigation/quit still work and you can `define-key' your own
+commands into them (see `org-air--install-default-keybindings' to re-add
+the full set, or bind individual command symbols).
+
+Honoured whether set via `use-package' `:custom', a plain `setq' before
+loading org-air, or a runtime `customize' — the maps re-sync on the next
+org-air buffer and immediately on a `customize' set.  Does not affect the
+global entry-point keys you bind yourself (e.g. `C-c a' -> `org-air');
+those are your bindings, not defaults."
+  :type 'boolean
+  :group 'org-air
+  :set (lambda (sym val)
+         (set-default sym val)
+         (when (fboundp 'org-air--sync-default-keybindings)
+           (org-air--sync-default-keybindings))))
+
+(defun org-air--register-default-keys (map-symbol &rest bindings)
+  "Register default BINDINGS for MAP-SYMBOL into `org-air--default-key-specs'.
+BINDINGS is a flat list of KEY BINDING KEY BINDING…: KEY a `kbd' STRING or
+a raw key VECTOR; BINDING a command symbol or a `:prefix' marker cons
+`(:prefix . PREFIX-SYM)' (R35-1).  Data only, nothing is bound until
+`sync' runs."
+  (while bindings
+    (let ((key (pop bindings))
+          (binding (pop bindings)))
+      (push (list map-symbol key binding) org-air--default-key-specs)))
+  org-air--default-key-specs)
+
+(defun org-air--register-default-leader (host-symbol prefix-symbol)
+  "Register a (HOST-SYMBOL . PREFIX-SYMBOL) default leader install (R35-1)."
+  (cl-pushnew (cons host-symbol prefix-symbol) org-air--default-leader-specs
+              :test #'equal)
+  org-air--default-leader-specs)
+
+(defun org-air--default-key-descriptor (key)
+  "Return the internal key descriptor for KEY (a `kbd' STRING or a VECTOR)."
+  (if (stringp key) (kbd key) key))
+
+(defun org-air--install-default-keybindings ()
+  "Install EVERY org-air default binding into the shared maps (R35-1).
+Idempotent: populates the board / view-core / project / doc-session / rail
+maps and the prefix maps from `org-air--default-key-specs', and installs
+the `org-air-leader-key' leader subsets from `org-air--default-leader-
+specs'.  Never
+touches keymap PARENTS (set once at each `defvar').  Returns t."
+  (dolist (spec (reverse org-air--default-key-specs))
+    (pcase-let ((`(,map-symbol ,key ,binding) spec))
+      (when (boundp map-symbol)
+        (define-key (symbol-value map-symbol)
+                    (org-air--default-key-descriptor key)
+                    (if (and (consp binding) (eq (car binding) :prefix))
+                        (symbol-value (cdr binding))
+                      binding)))))
+  (dolist (pair (reverse org-air--default-leader-specs))
+    (when (and (boundp (car pair)) (boundp (cdr pair)))
+      (org-air-view--leader-install (symbol-value (car pair))
+                                    (symbol-value (cdr pair)))))
+  t)
+
+(defun org-air--clear-default-keybindings ()
+  "Remove every org-air default binding, KEEPING the maps + parents (R35-1).
+Each key this package installs is REMOVED (the `define-key' REMOVE arg, so
+it truly falls through to the `special-mode' parent — `q' -> `quit-window',
+`g' -> `revert-buffer', SPC scroll — rather than being nil-SHADOWED); a key
+with no parent binding becomes unbound (self-insert).  The prefix host
+keys are removed and the leader prefix unbound, leaving the submaps
+dormant.  Evil registration is not undone at runtime — with the knob nil it
+was never added.  Returns t."
+  (dolist (spec org-air--default-key-specs)
+    (pcase-let ((`(,map-symbol ,key ,_binding) spec))
+      (when (boundp map-symbol)
+        (define-key (symbol-value map-symbol)
+                    (org-air--default-key-descriptor key)
+                    nil t))))
+  (dolist (pair org-air--default-leader-specs)
+    (when (boundp (car pair))
+      (let ((host (symbol-value (car pair))))
+        (when org-air-view--leader-installed-key
+          (define-key host (kbd org-air-view--leader-installed-key) nil t))
+        (define-key host (kbd org-air-leader-key) nil t))))
+  (setq org-air-view--leader-installs nil
+        org-air-view--leader-installed-key nil)
+  t)
+
+(defun org-air--sync-default-keybindings ()
+  "Install-or-clear the defaults to match `org-air-use-default-keybindings'.
+Called at LOAD (seed), at every org-air mode init (so a `use-package'
+`:custom' / a runtime `setq' are honoured on the next org-air buffer), and
+from the defcustom `:set' (so a live `customize' set takes effect
+immediately).  Idempotent — running it twice changes nothing (R35-1)."
+  (let ((want (and org-air-use-default-keybindings t)))
+    (if want
+        (org-air--install-default-keybindings)
+      (org-air--clear-default-keybindings))
+    (setq org-air--default-keybindings-state want)))
+
 (defvar org-air-g-prefix-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "r") #'org-air-refresh)
-    (define-key map (kbd "g") #'org-air-goto-top)
-    (define-key map (kbd "R") #'org-air-refresh-all)
-    ;; R22-3: o/O now drive the shared SORT (view-core), so the board's
-    ;; visit verbs relocate under the g-prefix: `g RET' visits in the other
-    ;; window, `g o' visits but stays.  GUI visit stays on S-RET.
-    (define-key map (kbd "RET") #'org-air-visit-item)
-    (define-key map (kbd "o") #'org-air-visit-item-stay)
-    map)
+  (make-sparse-keymap)
   "Transient g-prefix map (B4): r refresh, g top of pane, R refresh+clear.
-R22-3: g RET visit, g o visit-stay (o/O are the shared sort now).")
+R22-3: g RET visit, g o visit-stay (o/O are the shared sort now).
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
+
+;; R35-1: the g-prefix default keys (installer-owned).  R22-3: o/O now
+;; drive the shared SORT (view-core), so the board's visit verbs relocate
+;; under the g-prefix: `g RET' visits in the other window, `g o' visits but
+;; stays.  GUI visit stays on S-RET.
+(org-air--register-default-keys 'org-air-g-prefix-map
+  "r" #'org-air-refresh
+  "g" #'org-air-goto-top
+  "R" #'org-air-refresh-all
+  "RET" #'org-air-visit-item
+  "o" #'org-air-visit-item-stay)
 
 ;;;; =====================================================================
 ;;;; R30-2 — a main-window C-c LEADER for the rail actions.  The rail/
@@ -912,14 +1063,18 @@ leader prefix on every content buffer's map (the legend follows via
 Unbinds the previous key first (a no-op on a fresh install), so a
 `org-air-leader-key' change moves the prefix without leaving the old one
 bound.  The legend follows automatically (it derives keys via
-`where-is')."
+`where-is').
+R35-1 (D-4): a no-op while the org-air defaults are NOT installed — there
+is no leader prefix to move; when the user later turns the defaults on the
+installer binds the leader at the then-current `org-air-leader-key'."
+  (unless (eq org-air--default-keybindings-state nil)
   (dolist (pair org-air-view--leader-installs)
     (when (and org-air-view--leader-installed-key
                (not (equal org-air-view--leader-installed-key
                            org-air-leader-key)))
       (define-key (car pair) (kbd org-air-view--leader-installed-key) nil))
     (define-key (car pair) (kbd org-air-leader-key) (cdr pair)))
-  (setq org-air-view--leader-installed-key org-air-leader-key))
+  (setq org-air-view--leader-installed-key org-air-leader-key)))
 
 (defun org-air-view--leader-install (host-map prefix-map)
   "Bind PREFIX-MAP at `org-air-leader-key' in HOST-MAP (R30-2).
@@ -986,17 +1141,20 @@ the editable doc buffer, where `RET' self-inserts."
       (message "org-air: point is before the first heading"))))
 
 (defvar org-air-leader-map
-  (let ((map (make-sparse-keymap)))
-    ;; Board/project content buffers: rail toggle, outline jump, the
-    ;; shared sort, the per-view filter — all EXISTING commands, reached
-    ;; from the main window under the `C-c' leader (never a fork).
-    (define-key map (kbd "|") #'org-air-rail-toggle)
-    (define-key map (kbd "o") #'org-air-rail-return)
-    (define-key map (kbd "s") #'org-air-view-sort-cycle)
-    (define-key map (kbd "/") #'org-air-filter)
-    map)
+  (make-sparse-keymap)
   "Leader prefix map for the BOARD content buffer (R30-2).
-Installed at `org-air-leader-key' on `org-air-view-mode-map'.")
+Installed at `org-air-leader-key' on `org-air-view-mode-map'.
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
+
+;; R35-1: the board leader default keys (installer-owned).  Board/project
+;; content buffers: rail toggle, outline jump, the shared sort, the
+;; per-view filter — all EXISTING commands, reached from the main window
+;; under the `C-c' leader (never a fork).
+(org-air--register-default-keys 'org-air-leader-map
+  "|" #'org-air-rail-toggle
+  "o" #'org-air-rail-return
+  "s" #'org-air-view-sort-cycle
+  "/" #'org-air-filter)
 
 ;;;; =====================================================================
 ;;;; R30-3 — dashboard column toggles (defcustom-backed display group).
@@ -1034,119 +1192,101 @@ stays aligned."
   (org-air-view--toggle-column 'org-air-show-tags "tags"))
 
 (defvar org-air-columns-prefix-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "f") #'org-air-toggle-origin)
-    (define-key map (kbd "d") #'org-air-toggle-dates)
-    (define-key map (kbd "t") #'org-air-toggle-tags)
-    map)
+  (make-sparse-keymap)
   "Display-column toggle prefix map (R30-3), bound to `z' on the board.
-`z f' origin (Filename), `z d' dates, `z t' tags.")
+`z f' origin (Filename), `z d' dates, `z t' tags.
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
+
+;; R35-1: the `z' column-toggle default keys (installer-owned).
+(org-air--register-default-keys 'org-air-columns-prefix-map
+  "f" #'org-air-toggle-origin
+  "d" #'org-air-toggle-dates
+  "t" #'org-air-toggle-tags)
 
 (defvar org-air-view-core-map
   (let ((map (make-sparse-keymap)))
     ;; Keep the `special-mode' defaults reachable below the shared core.
+    ;; PARENT stays at defvar time — always, even with the knob nil (R35-1).
     (set-keymap-parent map special-mode-map)
-    ;; R18 D-P3: the unambiguous VIEW-CORE keys live here ONCE, so they can
-    ;; never drift between the board and project maps (both inherit this via
-    ;; `set-keymap-parent').  RET owns the bottom view pane; v/V open+close
-    ;; it; \ clears the filter; M-/ toggles AND/OR.  Each child overrides
-    ;; only its motion, its per-mode `/' filter, its S-RET visit target and
-    ;; its DOMAIN verbs.
-    (define-key map (kbd "RET") #'org-air-view-pane-return)
-    (define-key map (kbd "<mouse-1>") #'org-air-view-pane-return)
-    (define-key map (kbd "v") #'org-air-view-pane)
-    (define-key map (kbd "V") #'org-air-view-pane-close)
-    (define-key map (kbd "\\") #'org-air-filter-clear)
-    (define-key map (kbd "M-/") #'org-air-filter-toggle-match)
-    ;; R22-3: the shared within-view SORT — `o' cycles the key, `O' reverses
-    ;; the direction — bound ONCE here so the board and the project inherit
-    ;; the same UX (no fork); each seeds its own key list + refresh fn.
-    (define-key map (kbd "o") #'org-air-view-sort-cycle)
-    (define-key map (kbd "O") #'org-air-view-sort-reverse)
-    ;; R22-5: pop the context rail in/out of a native side window — shared
-    ;; so BOTH the board and the project toggle their rail with `|'.
-    (define-key map (kbd "|") #'org-air-rail-toggle)
-    ;; R29-2: vim-ish j/k line motion moves UP from the board map (R3) so
-    ;; the PROJECT has the title-landing motions too (it bound neither, so
-    ;; under evil j/k resolved to evil-next-line/evil-previous-line whose
-    ;; goal-column pinned point at column 0), and the R27-4 evil overriding
-    ;; map has the keys to override.  Identical bindings on the board
-    ;; (byte- and behavior-identical there — inheritance, not a copy).
-    (define-key map (kbd "j") #'org-air-next-line)
-    (define-key map (kbd "k") #'org-air-prev-line)
     map)
   "Shared view-core keymap, parent of the board + project mode maps (R18 D-P3).
 Reuse the core, override the bespoke: the keys here are identical across
-both views; per-mode domain verbs stay in each child map.")
+both views; per-mode domain verbs stay in each child map.
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
+
+;; R35-1: the shared VIEW-CORE default keys (installer-owned).  R18 D-P3:
+;; the unambiguous keys live here ONCE, so they can never drift between the
+;; board and project maps (both inherit via `set-keymap-parent').  RET owns
+;; the bottom view pane; v/V open+close it; \ clears the filter; M-/
+;; toggles AND/OR.  R22-3: o/O are the shared within-view SORT.  R22-5: `|'
+;; pops the rail.  R29-2: vim-ish j/k line motion is shared here.
+(org-air--register-default-keys 'org-air-view-core-map
+  "RET" #'org-air-view-pane-return
+  "<mouse-1>" #'org-air-view-pane-return
+  "v" #'org-air-view-pane
+  "V" #'org-air-view-pane-close
+  "\\" #'org-air-filter-clear
+  "M-/" #'org-air-filter-toggle-match
+  "o" #'org-air-view-sort-cycle
+  "O" #'org-air-view-sort-reverse
+  "|" #'org-air-rail-toggle
+  "j" #'org-air-next-line
+  "k" #'org-air-prev-line)
 
 (defvar org-air-view-mode-map
   (let ((map (make-sparse-keymap)))
     ;; R18 D-P3: inherit the shared view-core keys (RET pane, v/V, \, M-/).
+    ;; PARENT stays at defvar time — always, even with the knob nil (R35-1).
     (set-keymap-parent map org-air-view-core-map)
-    ;; R18 D-P4: visiting the file in the other window is S-RET (and `O' as
-    ;; a TTY alias since terminals can't send S-RET); RET itself opens the
-    ;; pane (inherited from the core map).
-    (define-key map (kbd "<S-return>") #'org-air-visit-item)
-    (define-key map (kbd "S-RET") #'org-air-visit-item)
-    (define-key map (kbd "n") #'org-air-next-item)
-    (define-key map (kbd "p") #'org-air-prev-item)
-    ;; R3/R29-2: vim-ish j/k line navigation (NOT destructive) is inherited
-    ;; from `org-air-view-core-map' now — shared with the project.
-    ;; T2: TAB toggles expand/collapse of the section at point; section
-    ;; MOTION lives on M-n/M-p (and M-TAB) so both verbs are reachable.
-    (define-key map (kbd "TAB") #'org-air-toggle-section)
-    (define-key map (kbd "<backtab>") #'org-air-prev-section)
-    (define-key map (kbd "M-TAB") #'org-air-next-section)
-    (define-key map (kbd "M-n") #'org-air-forward-section)
-    (define-key map (kbd "M-p") #'org-air-back-section)
-    (define-key map (kbd "SPC") #'org-air-peek-item)
-    (define-key map (kbd "c") #'org-air-capture)
-    (define-key map (kbd "m") #'org-air-toggle-mark)
-    ;; Triage disposition vocabulary (air/v0.2/org-air-triage.org).
-    ;; R5: `s' is board SCOPE again (the user-facing mnemonic; the
-    ;; round-5 schedule-on-s remap is reverted).  Inline scheduling lives
-    ;; in the process-inbox flow.
-    (define-key map (kbd "s") #'org-air-scope)
-    (define-key map (kbd "d") #'org-air-item-deadline)
-    (define-key map (kbd "r") #'org-air-refile-item)
-    (define-key map (kbd "f") #'org-air-item-file-group)
-    (define-key map (kbd "t") #'org-air-set-tag)
-    (define-key map (kbd "T") #'org-air-item-cycle-todo)
-    (define-key map (kbd "a") #'org-air-item-archive)
-    (define-key map (kbd "D") #'org-air-item-done)
-    ;; R3: the kill/delete disposition moves OFF the motion key `k' onto
-    ;; the guarded `x' (it still confirms); `k' is now line-up.
-    (define-key map (kbd "x") #'org-air-item-kill)
-    (define-key map (kbd "u") #'org-air-triage-undo)
-    (define-key map (kbd "I") #'org-air-process-inbox)
-    ;; `/' is the per-mode filter (board item tags); `\' clear + `M-/'
-    ;; toggle are inherited from the shared core map (R18 D-P3).
-    (define-key map (kbd "/") #'org-air-filter)
-    ;; Scope moves off the prime key so s = schedule (the triage verb).
-    (define-key map (kbd "S") #'org-air-scope-clear)
-    ;; B4: vim/evil g-prefix — "g r" refresh, "g g" top of pane, "g R"
-    ;; refresh+clear; "G" jumps to the bottom of the pane.
-    (define-key map (kbd "g") org-air-g-prefix-map)
-    (define-key map (kbd "G") #'org-air-goto-bottom)
-    ;; F5: open the Air-docs project tree view.
-    (define-key map (kbd "P") #'org-air-project)
-    (define-key map (kbd "<") #'org-air-calendar-prev)
-    (define-key map (kbd ">") #'org-air-calendar-next)
-    (define-key map (kbd ".") #'org-air-calendar-today)
-    ;; R30-3: the `z' display-column toggle group (vim view/fold family;
-    ;; ours wins under the R27-4 overriding map).
-    (define-key map (kbd "z") org-air-columns-prefix-map)
-    (define-key map (kbd "?") #'org-air-help)
-    ;; R16 D-P3 / R18 D-P3: v/V open+close the bottom view pane — inherited
-    ;; from `org-air-view-core-map' now (shared with the project).
-    (define-key map (kbd "q") #'org-air-quit)
     map)
-  "Keymap for `org-air-view-mode'.")
+  "Keymap for `org-air-view-mode'.
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
-;; R30-2: install the main-window leader on the board map so the rail
-;; actions (rail toggle, outline jump, sort, filter) are reachable from
-;; the board content buffer under `C-c C-a', not only the side window.
-(org-air-view--leader-install org-air-view-mode-map org-air-leader-map)
+;; R35-1: the BOARD default keys (installer-owned).  R18 D-P4: S-RET visits
+;; the file in the other window (and `O' via the shared core sort); RET
+;; opens the pane (inherited).  T2: TAB toggles a section; motion on
+;; M-n/M-p/M-TAB.  Triage verbs c/m/s/d/r/f/t/T/a/D/x/u/I.  `/' per-mode
+;; filter.  `g' -> g-prefix, `z' -> columns prefix.
+(org-air--register-default-keys 'org-air-view-mode-map
+  "<S-return>" #'org-air-visit-item
+  "S-RET" #'org-air-visit-item
+  "n" #'org-air-next-item
+  "p" #'org-air-prev-item
+  "TAB" #'org-air-toggle-section
+  "<backtab>" #'org-air-prev-section
+  "M-TAB" #'org-air-next-section
+  "M-n" #'org-air-forward-section
+  "M-p" #'org-air-back-section
+  "SPC" #'org-air-peek-item
+  "c" #'org-air-capture
+  "m" #'org-air-toggle-mark
+  "s" #'org-air-scope
+  "d" #'org-air-item-deadline
+  "r" #'org-air-refile-item
+  "f" #'org-air-item-file-group
+  "t" #'org-air-set-tag
+  "T" #'org-air-item-cycle-todo
+  "a" #'org-air-item-archive
+  "D" #'org-air-item-done
+  "x" #'org-air-item-kill
+  "u" #'org-air-triage-undo
+  "I" #'org-air-process-inbox
+  "/" #'org-air-filter
+  "S" #'org-air-scope-clear
+  "g" '(:prefix . org-air-g-prefix-map)
+  "G" #'org-air-goto-bottom
+  "P" #'org-air-project
+  "<" #'org-air-calendar-prev
+  ">" #'org-air-calendar-next
+  "." #'org-air-calendar-today
+  "z" '(:prefix . org-air-columns-prefix-map)
+  "?" #'org-air-help
+  "q" #'org-air-quit)
+
+;; R30-2/R35-1: install the main-window leader on the board map so the rail
+;; actions (rail toggle, outline jump, sort, filter) are reachable from the
+;; board content buffer under `C-c C-a', not only the side window.
+(org-air--register-default-leader 'org-air-view-mode-map 'org-air-leader-map)
 
 (defalias 'org-air-mode-map 'org-air-view-mode-map)
 
@@ -1225,6 +1365,10 @@ line either way, so the body-height derivation is unchanged; byte-invisible
 
 (define-derived-mode org-air-view-mode special-mode "org-air"
   "Major mode for the org-air dashboard."
+  ;; R35-1: reconcile the shared maps to `org-air-use-default-keybindings'
+  ;; on the FIRST org-air buffer — honours use-package `:custom' / a runtime
+  ;; `setq' (always run after load) before the map is consulted here.
+  (org-air--sync-default-keybindings)
   (setq-local truncate-lines t)
   ;; S1: the header band is in-buffer text only; never a header line.
   (setq-local header-line-format nil)
@@ -1289,7 +1433,11 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   (unless noninteractive
     (add-hook 'pre-command-hook #'org-air-view--pre-command-snapshot nil t)
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
-  (org-air-view--setup-evil 'org-air-view-mode org-air-view-mode-map)
+  ;; R35-1: the evil overriding-map setup is gated on the knob — with the
+  ;; defaults off there is nothing to override, so no motion state is
+  ;; forced and `org-air-view--evil-modes' stays empty.
+  (when org-air-use-default-keybindings
+    (org-air-view--setup-evil 'org-air-view-mode org-air-view-mode-map))
   (org-air-layout-install-window-size-hook))
 
 (defun org-air-view--text-scale-refresh ()
@@ -4452,6 +4600,9 @@ dependency on `org-air-project' / org-ql / airctl — a light, generic
 scaffold.  Off by default; a no-op outside `org-mode'."
   :lighter " ◦outline"
   :group 'org-air
+  ;; R35-1: reconcile the shared rail map to the knob before the rail is
+  ;; shown (honours use-package `:custom' / a runtime `setq').
+  (org-air--sync-default-keybindings)
   (if org-air-outline-mode
       (if (not (derived-mode-p 'org-mode))
           ;; soft: enabling in a non-org buffer is a no-op.
@@ -4470,16 +4621,21 @@ scaffold.  Off by default; a no-op outside `org-mode'."
 
 (defvar org-air-rail-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; R16 D-P1: the rail is `other-window'-reachable now; `q' from inside
-    ;; it pops the rail back inline on the board (cooperative).  R26-5: in
-    ;; a DOC session `q' returns to the tree instead (the dispatcher), RET
-    ;; jumps the main window to the outline heading at point, and `|' pops
-    ;; the rail in (the legend's `| rail').
-    (define-key map (kbd "q") #'org-air-rail-quit)
-    (define-key map (kbd "RET") #'org-air-rail-return)
-    (define-key map (kbd "|") #'org-air-rail-popin)
+    ;; PARENT stays at defvar time — always, even with the knob nil, so a
+    ;; key-less rail (outline mode / defaults off) still quits/scrolls via
+    ;; `special-mode' (R35-1).
+    (set-keymap-parent map special-mode-map)
     map)
-  "Keymap for `org-air-rail-mode' (R16 D-P1 / R26-5).")
+  "Keymap for `org-air-rail-mode' (R16 D-P1 / R26-5).
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
+
+;; R35-1: the rail default keys (installer-owned).  R16 D-P1: `q' pops the
+;; rail back inline (or, in a DOC session, returns to the tree); RET jumps
+;; the main window to the outline heading at point; `|' pops the rail in.
+(org-air--register-default-keys 'org-air-rail-mode-map
+  "q" #'org-air-rail-quit
+  "RET" #'org-air-rail-return
+  "|" #'org-air-rail-popin)
 
 (defun org-air-rail-quit ()
   "Quit the rail: back to the tree in a DOC session, else pop inline.
@@ -4527,7 +4683,9 @@ reading/scrolling, and `q' pops the rail back inline on the board."
   (setq-local buffer-read-only t)
   ;; R27-4: the board's evil parity for the rail too — under evil, `q'/`RET'
   ;; /`|' were shadowed (evil-record-macro / evil-ret / evil-goto-column).
-  (org-air-view--setup-evil 'org-air-rail-mode org-air-rail-mode-map))
+  ;; R35-1: gated on the knob (skipped with the defaults off).
+  (when org-air-use-default-keybindings
+    (org-air-view--setup-evil 'org-air-rail-mode org-air-rail-mode-map)))
 
 (defun org-air-rail--get-buffer ()
   "Get or create the `*org-air-rail*' buffer in `org-air-rail-mode' (R15 D-P2)."
@@ -5275,8 +5433,10 @@ A read-only snapshot of the selected item's Org entry with Org font-lock,
   (setq-local buffer-read-only t)
   ;; R27-4: evil parity for the read-only pane — under evil, `q' resolved
   ;; to evil-record-macro instead of closing the pane.
-  (org-air-view--setup-evil 'org-air-entry-view-mode
-                            org-air-entry-view-mode-map))
+  ;; R35-1: gated on the knob (skipped with the defaults off).
+  (when org-air-use-default-keybindings
+    (org-air-view--setup-evil 'org-air-entry-view-mode
+                              org-air-entry-view-mode-map)))
 
 (defun org-air-view-pane--buffer ()
   "Get or create the `*org-air-view*' pane buffer in `org-air-entry-view-mode'."

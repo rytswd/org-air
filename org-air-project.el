@@ -1888,35 +1888,38 @@ The doc-session leg of `org-air-view--refresh-current' (the `|' toggle)."
     (org-air-rail--hide docbuf)))
 
 (defvar org-air-doc-session-mode-map
-  (let ((map (make-sparse-keymap)))
-    ;; R20-3a rule: the doc FILE buffer is EDITABLE, so plain `q' must
-    ;; stay self-insert HERE; the back verbs are C-c C-q + the quit-window
-    ;; remap.  Plain `q' -> back lives in the read-only side rail.
-    (define-key map (kbd "C-c C-q") #'org-air-project-back)
-    (define-key map [remap quit-window] #'org-air-project-back)
-    map)
-  "Keymap for `org-air-doc-session-mode' (R26-5).")
+  (make-sparse-keymap)
+  "Keymap for `org-air-doc-session-mode' (R26-5).
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
+
+;; R35-1: the doc-session default keys (installer-owned).  R20-3a rule: the
+;; doc FILE buffer is EDITABLE, so plain `q' stays self-insert here; the
+;; back verbs are C-c C-q + the quit-window remap.
+(org-air--register-default-keys 'org-air-doc-session-mode-map
+  "C-c C-q" #'org-air-project-back
+  [remap quit-window] #'org-air-project-back)
 
 (defvar org-air-doc-leader-map
-  (let ((map (make-sparse-keymap)))
-    ;; R30-2: the doc-session subset of the main-window leader — rail
-    ;; toggle, outline jump/next/prev, and the session back verb, all
-    ;; reachable from the EDITABLE doc org buffer where single keys
-    ;; self-insert.  Every binding reuses an existing command (no fork).
-    (define-key map (kbd "|") #'org-air-rail-toggle)
-    (define-key map (kbd "o") #'org-air-outline-goto-current-heading)
-    (define-key map (kbd "n") #'org-air-outline-next-heading)
-    (define-key map (kbd "p") #'org-air-outline-prev-heading)
-    (define-key map (kbd "q") #'org-air-project-back)
-    map)
+  (make-sparse-keymap)
   "Leader prefix map for the doc-session content buffer (R30-2).
 Installed at `org-air-leader-key' on `org-air-doc-session-mode-map'.  The
 direct back binding still wins `where-is', so the R28-3 back legend is
-unchanged; this leader is purely ADDITIVE.")
+unchanged; this leader is purely ADDITIVE.
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
-;; R30-2: install the leader on the doc-session map (nav/back/rail subset).
-(org-air-view--leader-install org-air-doc-session-mode-map
-                              org-air-doc-leader-map)
+;; R35-1: the doc-session subset of the main-window leader (installer-
+;; owned) — rail toggle, outline jump/next/prev, and the session back verb,
+;; reachable from the EDITABLE doc org buffer where single keys self-insert.
+(org-air--register-default-keys 'org-air-doc-leader-map
+  "|" #'org-air-rail-toggle
+  "o" #'org-air-outline-goto-current-heading
+  "n" #'org-air-outline-next-heading
+  "p" #'org-air-outline-prev-heading
+  "q" #'org-air-project-back)
+
+;; R30-2/R35-1: install the leader on the doc-session map (nav/back/rail).
+(org-air--register-default-leader 'org-air-doc-session-mode-map
+                                  'org-air-doc-leader-map)
 
 (define-minor-mode org-air-doc-session-mode
   "Minor mode in a doc FILE buffer opened from the project tree (R26-5).
@@ -1927,6 +1930,9 @@ line names the back verb; a kill mid-session hands the window and side
 rail back to the tree."
   :lighter " ↳air"
   :keymap org-air-doc-session-mode-map
+  ;; R35-1: reconcile the shared maps to `org-air-use-default-keybindings'
+  ;; (honours use-package `:custom' / a runtime `setq' on the next session).
+  (org-air--sync-default-keybindings)
   (if org-air-doc-session-mode
       (progn
         (setq-local header-line-format
@@ -1992,60 +1998,57 @@ the rail on screen."
   (let ((map (make-sparse-keymap)))
     ;; R20-5(b): a THIN child of the shared view-core map.  Every shared
     ;; board key keeps the board's meaning by INHERITANCE (RET pane,
-    ;; mouse-1, v/V pane open/close, \ filter-clear, M-/ AND/OR toggle); the
-    ;; old domain verbs that SHADOWED s / d / t / o / O are GONE — a user
-    ;; who knows the board drives the project with no relearning.  The
-    ;; state / tag groupings and the sort cycle stay reachable via
-    ;; `M-x org-air-project-group-by-state' / `-by-tag' / `-sort-cycle', so
-    ;; the airctl -a / -Ta parity exists without stealing the shared keys.
+    ;; mouse-1, v/V pane open/close, \ filter-clear, M-/ AND/OR toggle).
+    ;; PARENT stays at defvar time — always, even with the knob nil (R35-1).
     (set-keymap-parent map org-air-view-core-map)
-    (define-key map (kbd "n") #'org-air-project-next)
-    (define-key map (kbd "p") #'org-air-project-prev)
-    ;; R26-3: RET is the SAME-WINDOW doc open (the R26-5 session model) —
-    ;; the shared pane-return stays the BOARD's RET only.  `v' keeps the
-    ;; bottom peek pane; S-RET keeps the other-window visit.
-    (define-key map (kbd "RET") #'org-air-project-open)
-    (define-key map (kbd "<mouse-1>") #'org-air-project-open)
-    (define-key map (kbd "<S-return>") #'org-air-project-visit)
-    (define-key map (kbd "S-RET") #'org-air-project-visit)
-    ;; R26-3: airctl -a/-Da/-Ta parity ON KEYS — s/d/t are free in the
-    ;; project map (the board's triage verbs never applied here).
-    (define-key map (kbd "s") #'org-air-project-group-by-state)
-    (define-key map (kbd "d") #'org-air-project-group-by-directory)
-    (define-key map (kbd "t") #'org-air-project-group-by-tag)
-    ;; R26-4: dired-style `(' flips doc rows filename<->title.
-    (define-key map (kbd "(") #'org-air-project-toggle-filenames)
-    ;; R26-3: `?' help (project-aware section; special-mode's describe-mode
-    ;; fallback is not the legend's promise).
-    (define-key map (kbd "?") #'org-air-help)
-    ;; The per-mode doc-tag filter (shares the board's pre-fill + AND
-    ;; default + M-/ toggle core); `g' refreshes, `q' quits.
-    (define-key map (kbd "/") #'org-air-project-filter)
-    (define-key map (kbd "g") #'org-air-project-refresh)
-    (define-key map (kbd "q") #'org-air-project-quit)
     map)
-  "Keymap for `org-air-project-mode'.")
+  "Keymap for `org-air-project-mode'.
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
+
+;; R35-1: the PROJECT default keys (installer-owned).  R26-3: RET is the
+;; SAME-WINDOW doc open; S-RET is the other-window visit; s/d/t group by
+;; state/dir/tag (airctl -a/-Da/-Ta parity on keys); `(' flips rows; `/'
+;; the per-mode doc-tag filter; `g' refresh; `q' quit.
+(org-air--register-default-keys 'org-air-project-mode-map
+  "n" #'org-air-project-next
+  "p" #'org-air-project-prev
+  "RET" #'org-air-project-open
+  "<mouse-1>" #'org-air-project-open
+  "<S-return>" #'org-air-project-visit
+  "S-RET" #'org-air-project-visit
+  "s" #'org-air-project-group-by-state
+  "d" #'org-air-project-group-by-directory
+  "t" #'org-air-project-group-by-tag
+  "(" #'org-air-project-toggle-filenames
+  "?" #'org-air-help
+  "/" #'org-air-project-filter
+  "g" #'org-air-project-refresh
+  "q" #'org-air-project-quit)
 
 (defvar org-air-project-leader-map
-  (let ((map (make-sparse-keymap)))
-    ;; R30-2: the project's main-window leader subset — rail toggle,
-    ;; outline jump, the shared sort, and the PROJECT doc-tag filter
-    ;; (`/' on the project map is `org-air-project-filter', not the
-    ;; board's `org-air-filter').  All existing commands (no fork).
-    (define-key map (kbd "|") #'org-air-rail-toggle)
-    (define-key map (kbd "o") #'org-air-rail-return)
-    (define-key map (kbd "s") #'org-air-view-sort-cycle)
-    (define-key map (kbd "/") #'org-air-project-filter)
-    map)
+  (make-sparse-keymap)
   "Leader prefix map for the project content buffer (R30-2).
-Installed at `org-air-leader-key' on `org-air-project-mode-map'.")
+Installed at `org-air-leader-key' on `org-air-project-mode-map'.
+Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
-;; R30-2: install the leader on the project map (filter/sort/rail subset).
-(org-air-view--leader-install org-air-project-mode-map
-                              org-air-project-leader-map)
+;; R35-1: the project's main-window leader subset (installer-owned) — rail
+;; toggle, outline jump, the shared sort, and the PROJECT doc-tag filter
+;; (`/' here is `org-air-project-filter', not the board's `org-air-filter').
+(org-air--register-default-keys 'org-air-project-leader-map
+  "|" #'org-air-rail-toggle
+  "o" #'org-air-rail-return
+  "s" #'org-air-view-sort-cycle
+  "/" #'org-air-project-filter)
+
+;; R30-2/R35-1: install the leader on the project map (filter/sort/rail).
+(org-air--register-default-leader 'org-air-project-mode-map
+                                  'org-air-project-leader-map)
 
 (define-derived-mode org-air-project-mode special-mode "Org-Air-Project"
   "Major mode for the Air-docs project tree view (F5)."
+  ;; R35-1: reconcile the shared maps to `org-air-use-default-keybindings'
+  ;; on the first project buffer (honours use-package `:custom' / `setq').
+  (org-air--sync-default-keybindings)
   (setq-local truncate-lines t)
   (setq-local cursor-type 'box)
   (setq-local line-spacing org-air-line-spacing)
@@ -2092,7 +2095,9 @@ Installed at `org-air-leader-key' on `org-air-project-mode-map'.")
   ;; evil-open-below, RET -> evil-ret…  "ALL the key bindings are weird").
   ;; Motion state + overriding map, exactly the board's proven U2 contract;
   ;; fboundp-gated soft dep — non-evil users untouched.
-  (org-air-view--setup-evil 'org-air-project-mode org-air-project-mode-map)
+  ;; R35-1: gated on the knob (skipped with the defaults off).
+  (when org-air-use-default-keybindings
+    (org-air-view--setup-evil 'org-air-project-mode org-air-project-mode-map))
   (org-air-layout-install-window-size-hook)
   (buffer-disable-undo))
 
@@ -2127,6 +2132,15 @@ With several configured projects, prompt for one (`org-air-projects' /
     (pop-to-buffer buffer)
     (with-current-buffer buffer
       (org-air-project--render org-air-project--root))))
+
+;; R35-1: LOAD-time seed — this is the last org-air source loaded, so every
+;; keymap `defvar' and every `org-air--register-default-*' from both files
+;; has run.  A single sync now populates (default t) or leaves bare (a
+;; `setq'-before-`require' to nil) the shared maps, so anything that reads a
+;; map at load is byte-identical to today under the default; use-package
+;; `:custom' (set AFTER load) is picked up on the first org-air buffer via
+;; the mode-init sync, and a runtime `customize' via the defcustom `:set'.
+(org-air--sync-default-keybindings)
 
 (provide 'org-air-project)
 

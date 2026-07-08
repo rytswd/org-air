@@ -358,3 +358,27 @@ a live org-air buffer; no golden touched.
   binds unaffected.  ERTs EXECUTE (key-binding/lookup-key/where-is in live
   buffers; evil-call stubs; use-package load-order simulation).
   IMPLEMENTATION PENDING.
+- (impl) 2026-07-08: Round-35 IMPLEMENTED (product code).  Added the
+  =org-air-use-default-keybindings= defcustom (default t, =:set= re-syncs).
+  Factored every default =define-key= / z / g / leader out of the keymap
+  =defvar= let-bodies + top-level leader-install forms (view.el: g-prefix,
+  columns-prefix, leader, view-core, view-mode, rail; project.el:
+  doc-session, doc-leader, project, project-leader) into ONE data table
+  (=org-air--default-key-specs= + =org-air--default-leader-specs=, filled
+  by =org-air--register-default-keys= / =-register-default-leader= right
+  after each map defvar).  ONE installer =org-air--install-default-
+  keybindings= + its mirror =org-air--clear-default-keybindings= (uses the
+  =define-key … nil t= REMOVE arg so cleared keys FALL THROUGH to the
+  =special-mode= parent — q/g/SPC — not nil-shadow it; leader prefix
+  unbound).  Reconciled by =org-air--sync-default-keybindings= at LOAD
+  (seed at the END of org-air-project.el, the last source loaded, so both
+  files' registrations are present — byte-identical under the default), at
+  every MODE INIT (view/project/doc-session/outline) and from the
+  defcustom =:set=.  Skeletal =defvar= bodies keep the =special-mode= /
+  core PARENT.  Evil setup is knob-gated at each mode init
+  (board/project/rail/entry-pane) so with the knob nil
+  =org-air-view--evil-modes= stays empty; the =org-air-leader-key= =:set=
+  reinstall is a no-op while cleared (D-4).  README: "Disabling the
+  default keybindings" subsection + a Configuration-table row.  make clean
+  && make check GREEN (563 tests, 0 unexpected, lint clean); no golden
+  bytes changed (keymaps are not in goldens).  DONE.

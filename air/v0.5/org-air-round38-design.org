@@ -1,5 +1,5 @@
 #+title: org-air Round 38 — Pixel-true banner width (header :height 1.2 overflow)
-#+state: ready
+#+state: complete
 #+tags: layout header banner pixel-width release-blocker
 
 * Summary
@@ -124,3 +124,6 @@ the final tip before integrating.
 
 - (pending) R38-1 pixel-true banner width; R38-2 inspector refill trailing-ws;
   regression fence; R37 ERT fold-back.
+
+* History
+- 2026-07-09: State: ready → complete.

@@ -145,16 +145,18 @@ no-reserved-column change did not push any sibling chrome past the edge."
 ;;;; =====================================================================
 
 (ert-deftest org-air-r36-1-r34-usable-columns-guard-preserved ()
-  "R36-1 supplies the S7 spare column UPSTREAM via R34's fringe-aware
-`org-air-layout--usable-columns-for'; that model must stay intact.  A
-graphical frame with a right fringe uses the WHOLE body; a fringe-less
-graphical frame reserves exactly one column; a TTY/mock uses the plain
-body — and usable NEVER exceeds body.  (Fenced so an R36 refactor that
-disturbs R34 trips here too.)"
+  "R36-1 supplies the S7 spare column UPSTREAM via the shared
+`org-air-layout--usable-columns-for'; that model must stay intact.  R37
+made the reserve UNIVERSAL: EVERY graphical frame reserves exactly one
+right column (the fringed+scrollbar case that clipped this user, the
+fringe-less continuation column, and the partial-cell rounding case); a
+TTY/mock uses the plain body — and usable NEVER exceeds body.  (Fenced so
+an R36 refactor that disturbs the model trips here too.)"
   (skip-unless (locate-library "org-air"))
   (should (fboundp 'org-air-layout--usable-columns-for))
-  ;; fringed graphical: usable == body (the user's frame — where the bug bit).
-  (should (= (org-air-layout--usable-columns-for t 191 8) 191))
+  ;; fringed graphical (R37 re-bless 191->190): the last body column clips
+  ;; under the right scroll bar / is a partial cell -> reserve one.
+  (should (= (org-air-layout--usable-columns-for t 191 8) 190))
   ;; fringe-less graphical: reserve exactly one column.
   (should (= (org-air-layout--usable-columns-for t 191 0) 190))
   (should (= (org-air-layout--usable-columns-for t 80 nil) 79))

@@ -63,10 +63,10 @@ measured reproduction."
      ,@body))
 
 (defmacro org-air-r29--with-fringed-gui (&rest body)
-  "Run BODY under a simulated GUI WITH fringes (R29-1 no-op variant).
+  "Run BODY under a simulated GUI WITH fringes.
 `display-graphic-p' -> t and `window-fringes' reports a POSITIVE right
-fringe (R34-1: the glyph lives in the fringe, so usable == body).  The
-R29-1/R34-1 fix must change nothing here."
+fringe.  Under R37 the fringe/scroll-bar geometry is advisory only: EVERY
+graphical frame reserves one right column, so usable == body-1 here too."
   (declare (indent 0) (debug t))
   `(cl-letf (((symbol-function 'display-graphic-p)
               (lambda (&optional _display) t))
@@ -222,27 +222,29 @@ FAILED (the shared host-width helper measured raw body width)."
                        org-air-project--rendered-width))))))))
 
 (ert-deftest org-air-r29-1-fringed-gui-unchanged ()
-  "A GUI WITH fringes has `window-max-chars-per-line' == body width, so
-the R29-1 fix is a no-op there: with the rail popped, the rendered width
-and the longest composed line are exactly the values of the plain
-\(TTY-measured) render in the same window geometry."
+  "R37 made the right-column reserve UNIVERSAL: a GUI WITH fringes now
+ALSO reserves one column (the last body column can sit under a right
+scroll bar / be a partial cell / hold a continuation glyph), so with the
+rail popped the fringed render is `window-body-width' - 1 — exactly one
+LESS than the plain (TTY) render in the same geometry.  Every composed
+line still fits the reserved width."
   (skip-unless (locate-library "org-air"))
   (org-air-r27--with-live-board
     ;; plain render (TTY tier: usable == body) — the trunk values.
     (org-air-r27--pop-rail)
     (org-air-view--refresh-current)
     (let ((plain-width org-air-view--rendered-width)
-          (plain-longest (org-air-r27--longest-line))
           (bwin (get-buffer-window (current-buffer))))
       (should (eql plain-width (window-body-width bwin)))
-      ;; fringed GUI: usable == body, so nothing moves.
+      ;; fringed GUI (R37): reserve one column -> body-1, one less than plain.
       (org-air-r29--with-fringed-gui
         (org-air-view--refresh-current)
-        (should (eql org-air-view--rendered-width plain-width))
-        (should (= (org-air-r27--longest-line) plain-longest))
+        (should (eql org-air-view--rendered-width (1- plain-width)))
         (should (eql org-air-view--rendered-width
-                     (window-body-width
-                      (get-buffer-window (current-buffer)))))))))
+                     (1- (window-body-width
+                          (get-buffer-window (current-buffer))))))
+        (should (<= (org-air-r27--longest-line)
+                    org-air-view--rendered-width))))))
 
 ;;;; =====================================================================
 ;;;; R29-2 — command-agnostic line-motion-gated title snap (evil cursor

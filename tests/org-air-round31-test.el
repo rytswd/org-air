@@ -295,26 +295,27 @@ fringe-less, still fit usable with the header at the contract column."
 ;;;; =====================================================================
 
 (ert-deftest org-air-r31-1-fringed-gui-unchanged ()
-  "A GUI WITH fringes (usable == body): the INLINE rendered width and the
-longest composed line are byte-for-byte the plain (TTY-measured) values.
-Where a live window exists the Seam-A branch is never reached; the fix is
-a no-op with fringes."
+  "A GUI WITH fringes (R37 universal reserve: usable == body-1): the
+INLINE rendered width is one LESS than the plain (TTY-measured) value,
+and every composed line fits the reserved width.  Where a live window
+exists the Seam-A branch is never reached; the window-tier primitive
+reserves one right column on every graphical frame."
   (skip-unless (locate-library "org-air"))
   (org-air-r27--with-live-board
     ;; plain render (TTY tier: usable == body) — the trunk values.
     (org-air-r31--render-inline)
     (let ((plain-width org-air-view--rendered-width)
-          (plain-longest (org-air-r27--longest-line))
           (bwin (get-buffer-window (current-buffer))))
       (should (eql plain-width (window-body-width bwin)))
-      ;; fringed GUI: usable == body, so nothing moves.
+      ;; fringed GUI (R37): reserve one column -> body-1, one less than plain.
       (org-air-r29--with-fringed-gui
         (org-air-r31--render-inline)
-        (should (eql org-air-view--rendered-width plain-width))
-        (should (= (org-air-r27--longest-line) plain-longest))
+        (should (eql org-air-view--rendered-width (1- plain-width)))
         (should (eql org-air-view--rendered-width
-                     (window-body-width
-                      (get-buffer-window (current-buffer)))))))))
+                     (1- (window-body-width
+                          (get-buffer-window (current-buffer))))))
+        (should (<= (org-air-r27--longest-line)
+                    org-air-view--rendered-width))))))
 
 ;;;; =====================================================================
 ;;;; R31-1 #7 — SEAM B guard: status/separator glyphs are single-width,

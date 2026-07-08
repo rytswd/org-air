@@ -48,16 +48,20 @@
 ;;;; =====================================================================
 
 (ert-deftest org-air-r34-1-usable-columns-for-both-geometries ()
-  "The pure width model `org-air-layout--usable-columns-for' returns the
-right usable columns for every geometry:
-- fringed + right scroll-bar (this user): the whole body is usable;
-- fringe-less GUI: the continuation column is reserved (R29-1 preserved);
-- TTY / mock (non-graphic): always the plain body width (goldens intact)."
+  "The pure width model `org-air-layout--usable-columns-for' reserves ONE
+right column on EVERY graphical frame (R37 universal safety margin):
+- fringed + right scroll-bar (this user): body-1 (the last column sits
+  under the scroll bar / is a partial cell; a glyph there clips);
+- fringe-less GUI: body-1 (the continuation column, R29-1 preserved);
+- TTY / mock (non-graphic): always the plain body width (goldens intact).
+The fringe/scroll-bar arg is now advisory only; the reserve is
+unconditional on graphical frames."
   (skip-unless (locate-library "org-air"))
   (should (fboundp 'org-air-layout--usable-columns-for))
-  ;; fringed + right scroll-bar: right-fringe 8px > 0 -> usable == body.
-  (should (= (org-air-layout--usable-columns-for t 191 8) 191))
-  ;; fringe-less GUI: right-fringe 0 -> reserve the continuation column.
+  ;; fringed + right scroll-bar (R37 re-bless 191->190): the last body
+  ;; column clips under the scroll bar / is a partial cell -> reserve one.
+  (should (= (org-air-layout--usable-columns-for t 191 8) 190))
+  ;; fringe-less GUI: reserve the continuation column (R29-1 preserved).
   (should (= (org-air-layout--usable-columns-for t 191 0) 190))
   (should (= (org-air-layout--usable-columns-for t 80 nil) 79))
   ;; TTY / mock: the plain body width regardless of the fringe value.
@@ -80,11 +84,9 @@ body+1).  Reverting to a body+1 source fails this guard."
             (should (<= u body))
             ;; …and never collapses below one column.
             (should (>= u 1))
-            ;; graphical + a right fringe present uses the WHOLE body.
-            (when (and graphic (integerp rf) (> rf 0))
-              (should (= u body)))
-            ;; graphical + NO right fringe reserves exactly one column.
-            (when (and graphic (or (null rf) (and (integerp rf) (= rf 0))))
+            ;; graphical (R37): reserve exactly one column regardless of
+            ;; the fringe/scroll-bar geometry (universal safety margin).
+            (when graphic
               (should (= u (max 1 (1- body)))))
             ;; non-graphic is always the plain body width.
             (unless graphic

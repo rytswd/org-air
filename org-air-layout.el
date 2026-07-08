@@ -210,29 +210,31 @@ return one less than `frame-width', on a TTY/batch frame the plain
       (max 1 (1- (frame-width frame)))
     (frame-width frame)))
 
-(defun org-air-layout--usable-columns-for (graphic-p body right-fringe)
-  "Pure width model: usable columns for BODY text-columns.
+(defun org-air-layout--usable-columns-for (graphic-p body &rest _ignored)
+  "Pure width model: columns a full board line may occupy for BODY text-columns.
 GRAPHIC-P is non-nil on a graphical frame; BODY is `window-body-width'
-\(fringes and scroll-bar already excluded); RIGHT-FRINGE is the window's
-right-fringe pixel width.  On a graphical frame with NO right fringe the
-continuation glyph steals the last text column, so reserve one; with a
-right fringe present (the common default) the glyph lives in the fringe
-and the whole body is usable.  On a TTY/mock return the plain body width,
-so every batch golden is byte-identical.  The result NEVER exceeds BODY."
-  (if graphic-p
-      (if (and (integerp right-fringe) (> right-fringe 0))
-          body
-        (max 1 (1- body)))
-    body))
+\(fringes and scroll-bar WIDTH already excluded).  On ANY graphical frame
+reserve ONE right column (R37): the last body column can be stolen by the
+continuation glyph (fringe-less GUI, R29-1), sit under a RIGHT scroll bar,
+or be a PARTIAL cell when the body pixels are not an exact multiple of the
+char advance (fringed+right-scrollbar — this user; the R34 miss) — a glyph
+there clips.  Reserving one column is correct for all three and costs at
+most one spare column on a fringed, no-scroll-bar frame.  On a TTY/mock
+return the plain BODY width so every batch golden is byte-identical.  The
+result NEVER exceeds BODY.  (Extra fringe/scroll-bar args are accepted and
+ignored — the reserve is unconditional on graphical frames.)"
+  (if graphic-p (max 1 (1- body)) body))
 
 (defun org-air-layout--usable-columns (window)
   "Return the columns a full board line may occupy in WINDOW.
-The true text-area width is `window-body-width' (fringes and scroll-bar
-already excluded).  On a graphical frame with NO right fringe the
-continuation glyph steals the last text column, so reserve one; with a
-right fringe present (the common default, including this user) the glyph
-lives in the fringe and the whole body is usable.  A TTY/mock returns the
-plain body width, so every batch golden is byte-identical.
+On a graphical frame reserve one right column (R37 universal safety
+margin): the last `window-body-width' column can be stolen by the
+continuation glyph (fringe-less GUI), sit under a RIGHT scroll bar, or be
+a PARTIAL cell when the body pixels are not an exact multiple of the char
+advance — a glyph there clips.  On a TTY/mock return the plain
+`window-body-width' so goldens are byte-identical.  The fringe/scroll-bar
+geometry is now advisory only; the reserve is unconditional on graphical
+frames.
 
 R29-1 previously used `window-max-chars-per-line', which is NOT bounded
 by the text-column count: it divides the body pixels by the default-face
@@ -242,9 +244,7 @@ font's average advance, so a font narrower than the frame canonical cell
   (if (and (windowp window)
            (display-graphic-p (window-frame window)))
       (org-air-layout--usable-columns-for
-       t
-       (window-body-width window)
-       (nth 1 (window-fringes window)))
+       t (window-body-width window))
     (window-body-width window)))
 
 (cl-defun org-air-layout-labelled-rule (label width &key suffix

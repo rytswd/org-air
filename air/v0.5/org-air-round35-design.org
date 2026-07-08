@@ -1,0 +1,360 @@
+#+title: org-air v0.5 round-35 DESIGN: one switch to disable ALL default keybindings (org-air-use-default-keybindings) — maps still exist, evil setup gated, use-package :custom-safe
+#+state: ready
+#+FILETAGS: :ui:keybindings:keymap:evil:config:defcustom:opt-out:design:v0.5:
+
+* Scope of this document
+Round-35 DESIGN doc — a SINGLE feature: let a user opt out of EVERY
+default org-air key with ONE boolean, while the mode maps still exist so
+they can bind their own.
+
+- *R35-1* =org-air-use-default-keybindings= (boolean, default =t=).  When
+  =nil=, org-air installs NONE of its default keys — the board core +
+  view map, the project map, the =z= column-toggle prefix, the =g=
+  prefix, the =C-c C-a= leader (and its doc-session / project subsets),
+  =org-air-outline-mode='s rail keys, AND the evil overriding-map setup
+  are all skipped.  The keymaps still EXIST and keep their =special-mode=
+  parent, so navigation/quit still work and users can =define-key= their
+  own commands into them.  [FEATURE]
+
+  USER: "the keybinding as the stock setup is useful, but some users will
+  undoubtedly have other bindings, so we should be able to disable all of
+  the default bindings at once."
+
+Constraints honoured: org-ql only; soft-deps stay soft (evil setup is
+gated OFF with the knob, so a nil knob touches no evil symbol beyond the
+existing =fboundp= guards); reuse the shared setup (ONE installer, no
+fork); every R18/R27/R30 keymap behaviour is byte-for-byte preserved when
+the knob is =t=.
+
+* Status
+Design-led, impl-ready.  Byte contract: keymaps are NOT part of any
+golden, so the whole feature is byte-invisible.  With the knob =t= (the
+default) every map is populated exactly as today — same objects, same
+parents, same leader/z/g/evil installation — so all existing keymap ERTs
+and every text golden are unchanged.  With the knob =nil= the action keys
+are simply absent from org-air's own maps.
+
+* Problem framing — why a naive load-time gate would miss use-package :custom
+Today the default keys are installed at LOAD time, three ways:
+1. Inside each keymap =defvar='s =(let ((map (make-sparse-keymap))) …)=
+   body — =org-air-view-core-map=, =org-air-view-mode-map=,
+   =org-air-project-mode-map=, =org-air-doc-session-mode-map=,
+   =org-air-rail-mode-map=, and the prefix maps =org-air-g-prefix-map=,
+   =org-air-columns-prefix-map=, =org-air-leader-map=,
+   =org-air-project-leader-map=, =org-air-doc-leader-map=.
+2. Top-level forms after the defvars — the =z= / =g= prefix binds on the
+   board map and the three =org-air-view--leader-install= calls (board,
+   project, doc-session).
+3. Per-mode-init =(org-air-view--setup-evil MODE MAP)= in
+   =org-air-view-mode= and =org-air-project-mode= (plus the R27-4 rail /
+   pane views), and the =org-air-view--evil-registration-replay= seam.
+
+A boolean read ONCE at load cannot honour =use-package='s =:custom=,
+which sets the variable AFTER the feature is loaded.  So a user writing
+#+begin_src emacs-lisp
+(use-package org-air :custom (org-air-use-default-keybindings nil))
+#+end_src
+would still get the defaults if the gate fired only at load.  The design
+must make "turn it off" STICK for =:custom=, for =setq=-before-=require=,
+AND for a runtime toggle.
+
+* Decision — factor ALL default installation into one installer, gate it at MODE INIT (re-evaluated per buffer) with a load-time seed and a :set re-sync
+** D-1  One installer / one clearer, driven by a single data table
+Move every default =define-key= / prefix-bind / leader-install / evil call
+out of the =defvar= let-bodies and top-level forms into ONE function:
+
+#+begin_src emacs-lisp
+(defun org-air--install-default-keybindings ()
+  "Install EVERY org-air default binding into the shared maps (R35-1).
+Idempotent: populates `org-air-view-core-map', `-view-mode-map',
+`-project-mode-map', `-doc-session-mode-map', `-rail-mode-map' and the
+prefix maps; binds the `z' / `g' prefixes and the `C-c C-a' leader
+subsets; and registers the evil overriding maps.  Never touches keymap
+PARENTS (set once at defvar).  Returns t.")
+
+(defun org-air--clear-default-keybindings ()
+  "Remove every org-air default binding, KEEPING the maps + parents (R35-1).
+`define-key … nil' each key this package installs so it falls through to
+the `special-mode' parent (nav/quit) or self-insert; the prefix submaps
+are left dormant (their host prefix key is nil'd).  Evil registration is
+not undone at runtime — with the knob nil it was never added.")
+#+end_src
+
+Both read from ONE canonical data structure — a list of
+=(MAP-SYMBOL KEY COMMAND)= rows plus the prefix/leader/evil registrations
+— so install (=define-key= to the command) and clear (=define-key= to
+=nil=) can never drift.  The keymap OBJECTS are mutated in place; the map
+variables are NEVER rebound, so every captured reference
+(=define-derived-mode= map value, minor-mode =:keymap=, the leader
+installs, the =defalias 'org-air-mode-map=) stays valid.
+
+Keymap =defvar='s become skeletal — the object + its parent only:
+#+begin_src emacs-lisp
+(defvar org-air-view-core-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map special-mode-map)   ; PARENT stays — always
+    map)                                        ; keys installed by the installer
+  "Shared view-core keymap (parent of board + project).")
+#+end_src
+The parent links (=special-mode-map= for core; =org-air-view-core-map= for
+the board + project maps) stay at defvar time, so even with the knob nil
+every org-air buffer keeps =special-mode= navigation/quit and remains a
+=define-key= target.
+
+** D-2  Gate at MODE INIT (primary), seed at LOAD, re-sync on :set
+A single sync entry point reconciles the shared maps to the current value:
+
+#+begin_src emacs-lisp
+(defvar org-air--default-keybindings-state 'unset
+  "Whether the defaults are currently installed: `unset' / t / nil (R35-1).")
+
+(defun org-air--sync-default-keybindings ()
+  "Install-or-clear the defaults to match `org-air-use-default-keybindings'.
+Idempotent: acts only when the desired state differs from
+`org-air--default-keybindings-state'.  Called at LOAD (seed), at every
+org-air mode init (so use-package `:custom' / a runtime `setq' are
+honoured on the next org-air buffer), and from the defcustom `:set' (so a
+live `customize' / `setq'+set toggle takes effect immediately)."
+  (let ((want (and org-air-use-default-keybindings t)))
+    (unless (eq want org-air--default-keybindings-state)
+      (if want (org-air--install-default-keybindings)
+        (org-air--clear-default-keybindings))
+      (setq org-air--default-keybindings-state want))))
+#+end_src
+
+Wiring:
+- *LOAD seed* — one top-level =(org-air--sync-default-keybindings)= after
+  all defvars/defuns.  With the default =t= this installs everything (so
+  anything reading a map at load, incl. the byte gate, is byte-identical
+  to today); a =setq=-before-=require= to =nil= is already visible here,
+  so the seed installs NOTHING.
+- *MODE-INIT gate* — each org-air mode body (=org-air-view-mode=,
+  =org-air-project-mode=, and the =org-air-doc-session-mode= /
+  =org-air-outline-mode= minor modes) calls
+  =(org-air--sync-default-keybindings)= FIRST.  Because the maps are
+  shared (not buffer-local), this re-syncs the shared maps to the CURRENT
+  value the moment a user opens their first org-air buffer — which is
+  always after =use-package='s =:custom= ran.  So =:custom (org-air-use-
+  default-keybindings nil)= reliably yields an unbound board on first
+  =M-x org-air=.
+- *:set re-sync* — the defcustom's =:set= sets the value then calls
+  =org-air--sync-default-keybindings=, so a runtime =customize= or
+  =(setq …)= +=customize-set-variable= flips live maps WITHOUT needing a
+  fresh buffer.
+- *EVIL* — =org-air--install-default-keybindings= is the ONLY caller of
+  =org-air-view--setup-evil= for the default maps; with the knob nil it is
+  never called, so no overriding map and no forced motion state are
+  created (nothing to override — correct).  The late-load
+  =org-air-view--evil-registration-replay= only replays modes recorded in
+  =org-air-view--evil-modes=, which the installer populates; with the knob
+  nil that table stays empty, so a deferred evil also registers nothing.
+
+Why mode-init gating is the clean primary (per the round brief): each
+org-air mode buffer re-evaluates the current value and the shared maps
+converge to it; combined with the load seed it is byte-identical under the
+default, and combined with the =:set= it is instant at runtime.  This
+single mechanism satisfies all three entry styles:
+
+| Configuration style                                   | Honoured because                                  |
+|-------------------------------------------------------+---------------------------------------------------|
+| =use-package :custom (… nil)= (set AFTER load)        | mode-init sync re-reads on first org-air buffer   |
+| =setq= / =:init= BEFORE =require=                     | load seed reads the already-set value             |
+| runtime =customize= / =setq= + =customize-set-variable= | defcustom =:set= re-syncs the live maps           |
+
+** D-3  The defcustom
+#+begin_src emacs-lisp
+(defcustom org-air-use-default-keybindings t
+  "When non-nil (the default), install org-air's default keybindings (R35-1).
+Set to nil to make org-air install NONE of its own keys — the board /
+project / rail / doc-session maps, the `z' column-toggle prefix, the `g'
+prefix, the `C-c C-a' leader (and its project / doc-session subsets),
+`org-air-outline-mode's rail keys, AND the evil overriding-map setup are
+all skipped.  The keymaps still EXIST and keep their `special-mode'
+parent, so navigation/quit still work and you can `define-key' your own
+commands into them (see `org-air--install-default-keybindings' to re-add
+the full set, or bind individual command symbols).
+
+Honoured whether set via `use-package' `:custom', a plain `setq' before
+loading org-air, or a runtime `customize' — the maps re-sync on the next
+org-air buffer and immediately on a `customize' set.  Does not affect the
+global entry-point keys you bind yourself (e.g. `C-c a' -> `org-air');
+those are your bindings, not defaults."
+  :type 'boolean
+  :group 'org-air
+  :set (lambda (sym val)
+         (set-default sym val)
+         (when (fboundp 'org-air--sync-default-keybindings)
+           (org-air--sync-default-keybindings))))
+#+end_src
+
+** D-4  Interaction with org-air-leader-key
+=org-air-leader-key='s own =:set= (=org-air-view--leader-reinstall=) must
+be a no-op when the defaults are NOT installed: guard the reinstall on
+=org-air--default-keybindings-state= (or on
+=org-air-view--leader-installs= being non-empty).  When the defaults are
+installed, the leader re-bind works exactly as R30-2.  When the user later
+turns defaults on, =org-air--install-default-keybindings= runs the leader
+installs at the then-current =org-air-leader-key=.
+
+* Exhaustive inventory of the DEFAULT bindings the installer owns (knob-gated)
+Everything below is installed only when =org-air-use-default-keybindings=
+is non-nil; the maps + parents always exist.
+
+** Board — org-air-view-core-map (shared parent) + org-air-view-mode-map
+Core (inherited by board + project): =RET= =<mouse-1>= (pane-return),
+=v= =V= (pane open/close), =\= (filter-clear), =M-/= (filter AND/OR),
+=o= =O= (sort cycle/reverse), =|= (rail toggle), =j= =k= (line motion).
+Board: =<S-return>= / =S-RET= / =O= (visit), =n= =p= (item motion),
+=TAB= =<backtab>= =M-TAB= =M-n= =M-p= (section), =SPC= (peek), =c=
+(capture), =m= (mark), =s= (scope) =S= (scope-clear), =d= (deadline), =r=
+(refile), =f= (file-group), =t= =T= (tag / cycle-todo), =a= (archive),
+=D= (done), =x= (kill), =u= (undo), =I= (process-inbox), =/= (filter),
+=g= → =org-air-g-prefix-map=, =G= (goto-bottom), =P= (project), =<= =>=
+=.= (calendar), =z= → =org-air-columns-prefix-map=, =?= (help), =q=
+(quit).
+
+** g-prefix — org-air-g-prefix-map
+=r= refresh, =g= goto-top, =R= refresh-all, =RET= visit, =o= visit-stay.
+
+** z-prefix (columns) — org-air-columns-prefix-map
+=f= toggle-origin, =d= toggle-dates, =t= toggle-tags.
+
+** Leader (main window) — org-air-leader-map @ org-air-leader-key
+=|= rail-toggle, =o= rail-return, =s= sort-cycle, =/= filter.
+Installed on =org-air-view-mode-map= via =org-air-view--leader-install=.
+
+** Project — org-air-project-mode-map (child of core) + project leader
+=n= =p= (motion), =RET= / =<mouse-1>= (open), =<S-return>= / =S-RET=
+(visit), =s= =d= =t= (group by state/dir/tag), =(= (flip filenames), =?=
+(help), =/= (filter), =g= (refresh), =q= (quit); plus the inherited core
+keys.  Project leader (=org-air-project-leader-map= @ leader-key): =|=
+rail, =o= outline jump, =s= sort, =/= project-filter.
+
+** Doc session — org-air-doc-session-mode-map + doc leader
+=C-c C-q= back, =[remap quit-window]= back; doc leader
+(=org-air-doc-leader-map= @ leader-key): =|= rail, =o= outline jump, =n=
+=p= heading motion, =q= back.
+
+** Rail — org-air-rail-mode-map
+=q= rail-quit, =RET= rail-return, =|= rail-popin.  These are the keys
+=org-air-outline-mode= exposes too (it reuses the shared rail; it defines
+no action keys of its own — with the knob nil the rail buffer carries no
+org-air keys and =q= falls through to =special-mode='s =quit-window=).
+
+** Evil — org-air-view--setup-evil (per default map)
+The motion-state initial state + overriding-map registration for
+=org-air-view-mode= and =org-air-project-mode= (and the R27-4
+rail / entry-pane views).  Skipped entirely when the knob is nil.
+
+* What SURVIVES with the knob nil (special-mode inheritance)
+The maps keep their =special-mode= chain, so the stock =special-mode=
+keys remain: =q= =quit-window=, =g= =revert-buffer=, =SPC= / =S-SPC=
+scroll, =<= => beginning/end, =h= describe-mode, digits, etc.  So a user
+with the knob nil can still quit and scroll, and can =define-key= any
+org-air command into =org-air-view-mode-map= / =org-air-project-mode-map=
+/ =org-air-doc-session-mode-map= / =org-air-rail-mode-map=.  With the knob
+nil the USER owns all org-air ACTION keys; to re-add the whole stock set
+they may call =(org-air--install-default-keybindings)=; to re-add a
+subset they bind individual command symbols, e.g.:
+#+begin_src emacs-lisp
+(with-eval-after-load 'org-air
+  (define-key org-air-view-mode-map (kbd "C-n") #'org-air-next-item)
+  (define-key org-air-view-mode-map (kbd "C-c r") #'org-air-refresh))
+#+end_src
+The command symbols to bind are the board / g-prefix / z / leader /
+project / doc-session / rail commands inventoried in the previous section
+(e.g. =org-air-next-item=, =org-air-prev-item=, =org-air-capture=,
+=org-air-refile-item=, =org-air-filter=, =org-air-view-sort-cycle=,
+=org-air-rail-toggle=, =org-air-refresh=, =org-air-project=,
+=org-air-toggle-dates=, =org-air-quit=, and the project /
+doc-session / rail equivalents).
+
+* README changes (spec — implemented with the feature)
+- *Configuration table*: add a row —
+  =org-air-use-default-keybindings= · default =t= · "Install org-air's
+  default keys; set nil to install NONE (maps still exist for your own
+  binds)."
+- *New subsection "Disabling the default keybindings"* under Keybindings:
+  show =(use-package org-air :custom (org-air-use-default-keybindings
+  nil))=; state that the board / project / rail / doc-session maps still
+  exist and inherit =special-mode= (so =q= / scrolling still work); that
+  the user then owns all org-air action keys; how to re-add the full set
+  (=M-x= or call =org-air--install-default-keybindings=) or a subset
+  (=define-key= a command into the map); and that evil integration is
+  skipped when off.
+- Keep the use-package block's global entry-point binds (=C-c a= →
+  =org-air=, =C-c A= → =org-air-project=, =C-c c= → =org-air-capture=)
+  intact — those are USER-chosen globals, unaffected by the knob.
+
+* Testability — EXECUTING acceptance ERTs (deterministic, batch)
+All assertions read =key-binding= / =lookup-key= / =where-is-internal= in
+a live org-air buffer; no golden touched.
+
+- *Default (t) — keys resolve.*  In a board buffer =(key-binding (kbd
+  "c"))= = =org-air-capture=, =(kbd "r")= = =org-air-refile-item=, the
+  =z= prefix resolves =z d= → =org-air-toggle-dates=, the =g= prefix
+  =g r= → =org-air-refresh=, and the leader =C-c C-a |= → =org-air-rail-
+  toggle=.  In a project buffer =s= → =org-air-project-group-by-state=,
+  =RET= → =org-air-project-open=.  (Regression fence over R18/R27/R30.)
+- *Off (nil) — keys unbound in org-air maps.*  Bind
+  =org-air-use-default-keybindings= nil, sync, create a board buffer:
+  =(lookup-key org-air-view-mode-map (kbd "c"))= is nil (and =c=
+  self-inserts / falls through), the =z= and =g= prefix keys are nil, the
+  leader key =C-c C-a= is nil; same for the project map's =s= / =RET=.
+  =q= still resolves to =quit-window= via =special-mode= (the parent
+  survives).
+- *Off — evil setup skipped.*  With the knob nil,
+  =org-air-view--evil-modes= is empty after mode init, and (stubbing
+  =evil-make-overriding-map= / =evil-set-initial-state= to record calls)
+  neither is invoked; with the knob t both are invoked for board +
+  project.
+- *Maps still exist + inherit special-mode.*  With the knob nil,
+  =(keymapp org-air-view-mode-map)= and =(keymapp org-air-project-mode-
+  map)=, and =special-mode-map= is reachable in the parent chain
+  (=org-air-view-mode-map= → =org-air-view-core-map= → =special-mode-
+  map=); a =(define-key org-air-view-mode-map (kbd "X") #'ignore)= sticks
+  and resolves.
+- *Toggle back to t re-installs.*  From the nil state, set the knob t via
+  its =:set= (or call =org-air--sync-default-keybindings=): the board
+  =c= / =z d= / leader keys resolve again — proving install⇄clear is
+  reversible and idempotent (running sync twice changes nothing).
+- *use-package :custom ordering.*  Simulate the load-order: load org-air
+  (seed at t), THEN =setq= the knob nil + create the first board buffer
+  (mode-init sync) → keys unbound, mirroring =:custom=.  And =setq= nil
+  BEFORE the load seed → unbound from the first buffer.
+- *Batch byte-stability.*  A representative board + project text golden is
+  byte-identical with the knob t (the default), confirming the refactor
+  is invisible.
+
+* Cross-cutting invariants (must hold after R35)
+- *One installer.*  Exactly one function installs defaults and one clears;
+  both driven by one data table — no per-map fork, no drift from R18/R27/
+  R30.
+- *Maps + parents always live.*  The map objects and their =special-mode=
+  / core parents exist regardless of the knob; variables are never
+  rebound.
+- *Soft-deps stay soft.*  With the knob nil, evil registration is skipped
+  and no evil/dimmer symbol is created beyond the existing =fboundp= /
+  =boundp= guards.
+- *Byte-invisible.*  Default =t= reproduces today exactly; keymaps are not
+  in goldens.
+
+* Implementation History
+- (design) 2026-07-08: Round-35 DESIGN authored (state ready).  Specified
+  =org-air-use-default-keybindings= (boolean, default t): factor ALL
+  default =define-key= / z / g / leader / evil installation out of the
+  keymap =defvar= let-bodies + top-level forms into ONE data-table-driven
+  =org-air--install-default-keybindings= (with a mirror
+  =org-air--clear-default-keybindings=), reconciled by
+  =org-air--sync-default-keybindings= called at LOAD (seed, byte-identical
+  default), at each org-air MODE INIT (honours use-package =:custom= /
+  =setq= on the next buffer) and from the defcustom =:set= (instant
+  runtime toggle) — the mechanism that "just works" for =:custom=,
+  =setq=-before-=require= AND =customize=.  Maps + =special-mode= parents
+  always exist; with the knob nil evil setup is skipped and the user owns
+  all action keys (re-add via =org-air--install-default-keybindings= or
+  per-command =define-key=).  README: a "Disabling the default
+  keybindings" subsection + a Configuration-table row; global entry-point
+  binds unaffected.  ERTs EXECUTE (key-binding/lookup-key/where-is in live
+  buffers; evil-call stubs; use-package load-order simulation).
+  IMPLEMENTATION PENDING.

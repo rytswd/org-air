@@ -299,3 +299,26 @@ the trailing-margin emission changes).
   content, right glyph at =W−1= — revert fails; R34 guard fenced; real-
   frame guarded test; header goldens re-baselined (intended, manifested).
   IMPLEMENTATION PENDING.
+- (impl) 2026-07-08: R36-1 LANDED in =org-air-view--insert-banner=
+  (org-air-view.el).  Dropped the appended reserved margin space — compose
+  =(org-air-view--justify left right w)= (was =(concat right " ")=) — and
+  the budget's reserved =1= — =budget = (- w (string-width left) 2)= (was
+  =... 2 1=).  The right status' last glyph now lands on column =w−1= (the
+  true final body column) with ZERO trailing pad (the middle gap absorbs
+  the slack).  Updated the docstring + the two inline comments to the new
+  invariant (content right-aligned to the last usable column; S7's spare
+  column now supplied UPSTREAM by R34's fringe-aware usable-columns, not a
+  hand-reserved trailing space).  Headless verification reproduced the
+  spec's fix table exactly: at W ∈ {40,80,120,191} =len = string-width =
+  W=, =ends-in-whitespace = nil=, line ends in " items".  ONE edit fixes
+  BOTH the board header AND the loading-skeleton header (shared composer).
+  =org-air-view--justify=, =--pad-to=, =org-air-layout--usable-columns=
+  (R34), the shed order, the R33 =∙= separator and the R26-8 loading
+  count-slot are untouched.  Byte-VISIBLE header re-baseline: the right
+  status shifts one column right, so the chrome byte goldens
+  (layout-mockup-80/120/160 + heights/thresholds, board-only, denote-
+  origin) and the legacy S7/R29/R31 reserved-blank assertions now move —
+  all 11 recorded in the known-failures manifest for the test seat to
+  regen/re-bless via =make regen-mockups=; every non-header golden is
+  byte-identical.  =make clean && make check= GREEN (581 tests, 0
+  unexpected, 11 expected failures).  IMPLEMENTATION COMPLETE.

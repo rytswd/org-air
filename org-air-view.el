@@ -1975,10 +1975,14 @@ width is unchanged, so fixtures hold."
 
 (defun org-air-view--insert-banner (items)
   "Insert the org-air header band for ITEMS (S1 single in-buffer band).
-The right status is justified to the displaying window width W with a
-reserved one-column right margin: its last visible glyph sits at column
-W-1, never W, so a zero-fringe GUI never draws a continuation glyph over
-it (S7).  When the window is too narrow the status sheds tokens in
+The right status is justified to the displaying window width W and its
+last visible glyph sits at the last usable column (W-1) with NO trailing
+pad past the content: the left margin is counted INSIDE W and is never
+mirrored as a trailing right blank.  R36-1: the S7 spare column (so a
+zero-fringe GUI never draws a continuation glyph over the content) is now
+supplied UPSTREAM by R34's fringe-aware `org-air-layout--usable-columns',
+not by a hand-reserved trailing space here.  When the window is too
+narrow the status sheds tokens in
 priority order — filter chips, then scope, then the item count — always
 keeping the date.  R27-3: the active-sort badge sheds LAST of the
 optional segments (after filter, scope and count)."
@@ -2054,9 +2058,10 @@ optional segments (after filter, scope and count)."
                                (org-air-view--sort-active-key)
                                (org-air-view--sort-active-direction)
                                (not (org-air-view--sort-default-p))))))
-         ;; Budget for the status: window minus the left token, a >=2-col
-         ;; gap, and the reserved one-column right margin.
-         (budget (- w (string-width left) 2 1))
+         ;; Budget for the status: window minus the left token and a >=2-col
+         ;; gap.  R36-1: no reserved right-margin column (R34's usable-
+         ;; columns already supplies the spare column upstream).
+         (budget (- w (string-width left) 2))
          (assemble (lambda (shed)
                      (concat date
                              (unless (memq :count shed) count)
@@ -2079,9 +2084,11 @@ optional segments (after filter, scope and count)."
          ;; D-P3: the segments already carry their faces; keep the assembled
          ;; status as-is (no blanket faded override).
          (right status)
-         ;; Justify with a trailing space so the status ends at W-1 and the
-         ;; final column W is always blank (the reserved margin).
-         (line (org-air-view--justify left (concat right " ") w)))
+         ;; R36-1: right-align the status to the last usable column with NO
+         ;; trailing pad — the middle gap absorbs the slack, so the line
+         ;; ends in the status' last glyph (not a reserved blank).  S7's
+         ;; spare column is supplied by R34's fringe-aware usable-columns.
+         (line (org-air-view--justify left right w)))
     (insert line "\n")))
 
 (defun org-air-view--rule-string (width)

@@ -1092,7 +1092,7 @@ board, with every marker slot cons-hydrated (FILE . POS)."
 
 (ert-deftest org-air-r26-8-stale-paint-marker-then-swap ()
   "Cache present + one file touched: the first paint equals the CACHED
-board (no new item) with the `stale · refreshing' marker; driving the
+board (no new item) with the `stale ∙ refreshing' marker; driving the
 slices to completion repaints ONCE with the new item and CLEARS the
 marker."
   (skip-unless (locate-library "org-air"))
@@ -1116,14 +1116,14 @@ marker."
         (org-air-view--refresh-start)
         (org-air-view--render org-air-view--items nil)
         (let ((text (substring-no-properties (buffer-string))))
-          (should (string-match-p "stale · refreshing" text))
+          (should (string-match-p "stale ∙ refreshing" text))
           (should-not (string-match-p "Cache stale probe" text)))
         ;; slices to completion: single swap, marker cleared.
         (org-air-r26--run-slices)
         (should-not org-air-view--refresh-state)
         (let ((text (substring-no-properties (buffer-string))))
           (should (string-match-p "Cache stale probe" text))
-          (should-not (string-match-p "stale · refreshing" text)))))))
+          (should-not (string-match-p "stale ∙ refreshing" text)))))))
 
 (ert-deftest org-air-r26-8-mtime-fast-path-no-scan ()
   "Cache present, nothing touched: FRESH — no stale files, so the dispatch

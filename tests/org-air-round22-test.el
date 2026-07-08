@@ -23,7 +23,7 @@
 ;;   R22-4  scope vs filter clarity — the rail names FILTER (`none' when
 ;;          empty) vs SOURCE (the dataset chip + `M loaded'); `N of M
 ;;          shown' appears only when a filter NARROWS; the mode-line reads
-;;          `filter none · source ...'.
+;;          `filter none ∙ source ...'.
 ;;   R22-5  project rail-toggle — `|' pops the rail in the PROJECT (not
 ;;          just the board) without the board-only crash, and v/V/RET open
 ;;          a pane showing the doc's whole FILE.
@@ -505,7 +505,7 @@ its plain text (a generous width so nothing truncates the count cues)."
 `none' (it drops the old `all items' dataset claim) and the SOURCE block
 carries the dataset chip + a `M loaded' count; neither now reads the bare
 duplicated `all items', and the mode-line mirrors it as
-`filter none · source ...'."
+`filter none ∙ source ...'."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
@@ -516,10 +516,11 @@ duplicated `all items', and the mode-line mirrors it as
         (should-not (string-match-p "No filters" text))
         ;; Source block: dataset chip + the loaded count.
         (should (string-match-p "Source" text))
-        (should (string-match-p "all items \u00b7 [0-9]+ loaded" text))
+        ;; R33-1: chrome separator swapped U+00B7 (ambiguous) -> U+2219.
+        (should (string-match-p "all items \u2219 [0-9]+ loaded" text))
         ;; unfiltered carries NO narrowing count.
         (should-not (string-match-p "[0-9]+ of [0-9]+ shown" text)))))
-  ;; the mode-line says `filter none · source ...' (not `scope ... all items').
+  ;; the mode-line says `filter none ∙ source ...' (not `scope ... all items').
   (with-temp-buffer
     (org-air-view-mode)
     (setq org-air-view--mode-line-count 3

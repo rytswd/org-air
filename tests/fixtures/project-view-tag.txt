@@ -1,4 +1,4 @@
-  org-air · project                                                                       | name ^
+  org-air ∙ project                                                                       | name ^
 
   | #context 2                                                        | | June 2026              < >
       DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |     Su Mo Tu We Th Fr Sa
@@ -13,7 +13,7 @@
       UNKNO Eta notes                   ~ 2026-05-01  #notes          | | Filter
                                                                       |  none
   | #ui 4                                                             | | Source
-      DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |  all items · 7 loaded
+      DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |  all items ∙ 7 loaded
       READY Alpha feature               ~ 2026-05-01  #ui   #core     |
       WIP   Zeta work in progress       ~ 2026-05-01  #core   #ui     | | Summary
       DROP  Delta UI exploration        ~ 2026-05-01  #ui             |    2  Draft

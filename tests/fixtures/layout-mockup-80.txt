@@ -1,4 +1,4 @@
-  org-air                                                 Mon 15 Jun · 23 items
+  org-air                                                 Mon 15 Jun ∙ 23 items
   ──────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3
@@ -29,5 +29,5 @@
       TODO ■ Prep client presentation      Tomorrow        #work   #client
 
   ○ Stale 2
-      TODO   Dust off old archive project  · 225d quiet    #projects   #archive
-      TODO   Learn lute                    · 273d quiet    #someday   #hobby
+      TODO   Dust off old archive project  ∙ 225d quiet    #projects   #archive
+      TODO   Learn lute                    ∙ 273d quiet    #someday   #hobby

@@ -482,10 +482,11 @@ cons; falls back to historical defaults when the entry is absent."
   ;; T3b: the calendar distinguishes three mark KINDS, each its own glyph
   ;; (GUI . TTY), hardcoded in org-air-calendar.el's `org-air-calendar--mark'
   ;; rather than `org-air-glyphs' — mirror those literals here.  Deadline
-  ;; moved to ◆ (was ●); ● is now SCHEDULED; · is CREATED.
+  ;; moved to ◆ (was ●); ● is now SCHEDULED; ∙ is CREATED (R33-1: the
+  ;; created glyph swapped U+00B7 ambiguous -> U+2219 neutral single-width).
   '((deadline  . ("◆" . "!"))
     (scheduled . ("●" . "o"))
-    (created   . ("·" . ".")))
+    (created   . ("∙" . ".")))
   "Alist of calendar mark KIND -> (GUI . TTY) glyph (T3b).")
 
 (defun org-air-viewport-test--calendar-today-glyph (which)
@@ -500,7 +501,7 @@ TIER is `narrow' (the 95-119 / stacked form, no `created' word) or
 `wide' (the >=120 form).  WHICH selects the glyph set (`gui', default,
 or `tty').  R7 (design vlpzyquw) drops the today token — today is a
 background highlight on its cell, so the legend needs no entry for it:
-narrow ◆ due  ●  sched / wide adds ·  created.  GLYPHS are derived from
+narrow ◆ due  ●  sched / wide adds ∙  created.  GLYPHS are derived from
 the mark table so a respec never rots the assertion.  Format (D5c): each
 GLYPH is spaced from its WORD (glyph, space, word) and entries are
 joined by a wider 4-space gap."
@@ -569,7 +570,7 @@ the legend line never matches."
 (defun org-air-viewport-test-calendar-marks (&optional which)
   "Parse the rendered calendar grid: return (MARKED-DAYS . TODAY-DAYS).
 MARKED-DAYS are day numbers carrying ANY date mark (deadline ◆,
-scheduled ● or created · — T3b); TODAY-DAYS carry the
+scheduled ● or created ∙ — T3b); TODAY-DAYS carry the
 `org-air-face-calendar-today' face (R7: the ■ glyph is gone, today is a
 background highlight).  WHICH selects the glyph set (`gui'/`tty').  Sorted."
   (let* ((by-kind (org-air-viewport-test-calendar-marks-by-kind which))

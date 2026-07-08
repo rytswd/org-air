@@ -1,4 +1,4 @@
-  org-air · project                                                                       | name ^
+  org-air ∙ project                                                                       | name ^
 
   | DRAFT Draft 2                                                     | | June 2026              < >
       DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |     Su Mo Tu We Th Fr Sa
@@ -13,7 +13,7 @@
   | COMP  Complete 1                                                  | | Filter
       COMP  Beta CLI                    ~ 2026-05-01  #core           |  none
                                                                       | | Source
-  | DROP  Dropped 1                                                   |  all items · 7 loaded
+  | DROP  Dropped 1                                                   |  all items ∙ 7 loaded
       DROP  Delta UI exploration        ~ 2026-05-01  #ui             |
                                                                       | | Summary
   | UNKNO Unknown 1                                                   |    2  Draft

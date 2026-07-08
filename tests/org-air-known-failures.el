@@ -771,38 +771,37 @@
     ;; dropped origin in R25-5, so tree shape + counts are UNCHANGED).
     ;; Round-30 manifest is EMPTY; the tests stay as permanent guards.
     ;; =================================================================
-    ;; v0.5 ROUND-33 R33-1 impl grind (air/v0.5/org-air-round33-design.org).
-    ;; The chrome middle-dot separator swaps `·' (U+00B7 MIDDLE DOT,
-    ;; East-Asian AMBIGUOUS -> a GUI font may PAINT it two columns while
-    ;; `string-width' measures one, overflowing the right-filled header even
-    ;; at 0 items = Seam B) -> `∙' (U+2219 BULLET OPERATOR, Neutral, always
-    ;; painted one column) via the shared `org-air-chrome-separator'.  Routed
-    ;; across the header status segments, the rail Source line, the Filter/
-    ;; Match/Actions legends, the pane header (`sep-dot' glyph), the quiet-
-    ;; activity marker, the project header/filter/files chip, and the
-    ;; calendar `created' key.  `string-width' is IDENTICAL (both 1) so every
-    ;; column and the whole V6/R31 width math are byte-identical in COLUMNS;
-    ;; only the glyph BYTE changes.  The chrome byte goldens + the assertion
-    ;; ERTs that hardcode the old U+00B7 therefore move; these are the
-    ;; design-blessed 1:1 swap (test seat re-blesses via make regen-mockups
-    ;; + retargets the U+00B7 literals to U+2219 / `-' TTY).  Fixtures NOT
-    ;; edited on the impl track.
-    (org-air-f5-project-view-byte-mockups . "R33-1: project header `·'->`∙' chrome swap")
-    (org-air-layout-mockup-80 . "R33-1: header/rail `·'->`∙' chrome swap")
-    (org-air-layout-mockup-120 . "R33-1: header/rail `·'->`∙' chrome swap")
-    (org-air-layout-mockup-160 . "R33-1: header/rail `·'->`∙' chrome swap")
-    (org-air-layout-mockup-heights . "R33-1: header/rail `·'->`∙' chrome swap")
-    (org-air-layout-mockup-thresholds . "R33-1: header/rail `·'->`∙' chrome swap")
-    (org-air-r13-board-only-byte-mockup . "R33-1: header `·'->`∙' chrome swap")
-    (org-air-r17-denote-origin-byte-mockup . "R33-1: header `·'->`∙' chrome swap")
-    (org-air-layout-empty-board-holds-shape . "R33-1: empty header `·'->`∙' chrome swap")
-    (org-air-layout-calendar-survives-all-hiding-filter . "R33-1: calendar `· created' key + header `·'->`∙'")
-    (org-air-t3b-calendar-legend-per-tier . "R33-1: calendar `· created' legend key `·'->`∙'")
-    (org-air-s1-no-duplicate-banner-in-header-line . "R33-1: header `·'->`∙' chrome swap")
-    (org-air-r22-4-source-and-filter-named-distinctly . "R33-1: Source `all items · N loaded' `·'->`∙'")
-    (org-air-r9-q1-rail-advertises-scope-reset . "R33-1: Source/Scope `·'->`∙' chrome swap")
-    (org-air-r9-d5c-legend-separated-and-spaced . "R33-1: calendar `· created' legend key `·'->`∙'")
-    (org-air-r26-8-stale-paint-marker-then-swap . "R33-1: header `stale · refreshing' marker `·'->`∙'")
+    ;; v0.5 ROUND-33 CLOSEOUT (impl tips tpylzztr..qtmsmtxooyls +
+    ;; test re-bless <this commit>).  ALL 16 R33-1 grind entries CLOSED.
+    ;;   R33-1 (16) AMBIGUOUS-WIDTH CHROME SEPARATOR: the chrome middle-dot
+    ;;     separator swapped `·' (U+00B7 MIDDLE DOT, East-Asian AMBIGUOUS ->
+    ;;     a GUI font may PAINT it two columns while `string-width' measures
+    ;;     one, overflowing the right-filled header even at 0 items = Seam B)
+    ;;     -> `∙' (U+2219 BULLET OPERATOR, Neutral, always painted one
+    ;;     column) via the shared `org-air-chrome-separator' / `sep-dot'
+    ;;     glyph.  `string-width' is IDENTICAL (both 1) so every column and
+    ;;     the whole V6/R31 width math are byte-identical in COLUMNS; only
+    ;;     the glyph BYTE changes.  The 31 chrome byte goldens regenerated
+    ;;     via make regen-mockups (FROZEN-CLOCK renderer, guards active):
+    ;;     jj-verified the ONLY fixture delta is 113 `·'->`∙' swaps (removed
+    ;;     and added line sets are identical multisets after normalising the
+    ;;     glyph — nothing else moved, columns unchanged).  The assertion
+    ;;     ERTs that hardcoded the old U+00B7 (r22-4 Source line, r9-q1
+    ;;     Source/Scope, r9-d5c + t3b + calendar-survives calendar `∙ created'
+    ;;     legend key, r26-8 `stale ∙ refreshing' marker, s1 header, empty-
+    ;;     board header) retargeted to U+2219 on the test seat.  No product
+    ;;     code touched on the test track (impl landed R33-1 in nvyxvtvp).
+    ;;   NEW R33 ERTs (round33-test.el): R33-1 empty-header fits the
+    ;;     ambiguous-width-2 model + no East-Asian-Ambiguous glyph in swept
+    ;;     chrome (the r31-1 single-width guard); R33-2 hover invariants
+    ;;     (no help-echo, no track-mouse/<mouse-movement> hook, static
+    ;;     background-only mouse-face, follow on point-move post-command,
+    ;;     click/RET single-doc open) PASS on the .el source.
+    ;; airctl `status -Da' parity RE-VERIFIED on ~/Coding/github.com/withre/
+    ;; air (airctl output itself is unchanged — the chrome glyph swap is
+    ;; org-air-side and preserves string-width, so no column shifted).
+    ;; Round-33 manifest is EMPTY; the tests stay as permanent guards.
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

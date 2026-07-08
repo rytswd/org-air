@@ -1,4 +1,4 @@
-  org-air                                                                                          Mon 15 Jun · 2 items
+  org-air                                                                                          Mon 15 Jun ∙ 2 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 1                                                                           │ ▌ June 2026                  ‹ ›
@@ -14,7 +14,7 @@
   ★ High priority 0                                                                   │ ▌ Filter
       No #A items.                                                                    │    none
                                                                                       │ ▌ Source
-  ○ Stale 0                                                                           │    all items · 2 loaded
+  ○ Stale 0                                                                           │    all items ∙ 2 loaded
       Nothing has gone stale.                                                         │
                                                                                       │ ▌ Summary
                                                                                       │      1   Inbox

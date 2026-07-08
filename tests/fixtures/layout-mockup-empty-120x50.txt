@@ -1,4 +1,4 @@
-  org-air                                                                                          Mon 15 Jun · 0 items
+  org-air                                                                                          Mon 15 Jun ∙ 0 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 0                                                                           │ ▌ June 2026                  ‹ ›
@@ -14,7 +14,7 @@
       No #A items.                                                                    │ ▌ Filter
                                                                                       │    none
   ○ Stale 0                                                                           │ ▌ Source
-      Nothing has gone stale.                                                         │    all items · 0 loaded
+      Nothing has gone stale.                                                         │    all items ∙ 0 loaded
                                                                                       │
       Nothing here yet. Press c to capture your first note.                           │ ▌ Summary
                                                                                       │      0   Inbox

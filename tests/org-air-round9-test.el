@@ -350,8 +350,9 @@ swapping in for `TAB expand' while scoped)."
           ;; the labelled Source block (R22-4 renamed Scope -> Source),
           (should (string-match-p (concat (regexp-quote mk) " Source") text))
           ;; the lens token + its dataset count + the in-place
-          ;; `s changes · S clears' hint (R22-4 adds the `· N loaded' count),
-          (should (string-match-p "#work · [0-9]+ loaded   s changes · S clears"
+          ;; `s changes ∙ S clears' hint (R22-4 adds the `∙ N loaded' count;
+          ;; R33-1 swapped the ambiguous U+00B7 separator -> U+2219),
+          (should (string-match-p "#work ∙ [0-9]+ loaded   s changes ∙ S clears"
                                   text))
           ;; and the literal `S reset' cue in the Actions block (qqpuoqlv).
           (should (string-match-p "S reset" text)))))))
@@ -457,7 +458,7 @@ The day grid + weekday row stay centred below (round-10 D-P4)."
 (ert-deftest org-air-r9-d5c-legend-separated-and-spaced ()
   "D5c: the calendar legend is separated from the grid by one blank line,
 indented to the spine, with a space between each glyph and its word
-(◆ due, ● sched, · created) and a wide gap between entries."
+(◆ due, ● sched, ∙ created) and a wide gap between entries."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
@@ -469,7 +470,8 @@ indented to the spine, with a space between each glyph and its word
         (let ((line (nth idx rail)))
           (should (string-match-p "◆ due" line))
           (should (string-match-p "● sched" line))
-          (should (string-match-p "· created" line))
+          ;; R33-1: calendar `created' legend key U+00B7 -> U+2219.
+          (should (string-match-p "∙ created" line))
           ;; wider (>=3 space) gap between entries, not a single space.
           (should (string-match-p "due \\{3,\\}●" line)))
         ;; separated from the grid by a blank rail line above.
@@ -502,7 +504,7 @@ centred off that spine."
                      (cl-find-if (lambda (l) (string-match-p rx l)) rail)))
              (weekday (funcall pick "Su .*Mo .*Tu"))
              ;; R22-4: the empty Filter block's placeholder reads `none'
-             ;; now (was `No filters · all items'); it is the rail's first
+             ;; now (was `No filters ∙ all items'); it is the rail's first
              ;; left-aligned text block, still on the content spine.
              (filters (funcall pick "\\bnone\\b"))
              (actions (funcall pick "c capture")))

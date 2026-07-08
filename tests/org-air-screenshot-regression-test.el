@@ -53,12 +53,12 @@ empty string in --batch)."
 
 (defun org-air-s1--banner-count ()
   "Number of in-buffer banner bands in the current dashboard.
-The banner carries the unique \"· N items\" count badge (the filter line
-reads \"· all items\", never a digit), so this counts true banners only."
+The banner carries the unique \"∙ N items\" count badge (the filter line
+reads \"∙ all items\", never a digit), so this counts true banners only."
   (let ((n 0) (case-fold-search nil))
     (save-excursion
       (goto-char (point-min))
-      (while (re-search-forward "·[[:space:]]*[0-9]+[[:space:]]+items\\b" nil t)
+      (while (re-search-forward "∙[[:space:]]*[0-9]+[[:space:]]+items\\b" nil t)
         (setq n (1+ n))))
     n))
 
@@ -101,7 +101,7 @@ carries a box-drawing horizontal glyph (GUI ─ or its ASCII fallback)."
   (should (= (org-air-s1--banner-count) 1))
   (let ((line1 (org-air-s1--line1)))
     (should (string-match-p "org-air" line1))
-    (should (string-match-p "·[[:space:]]*[0-9]+[[:space:]]+items\\b" line1)))
+    (should (string-match-p "∙[[:space:]]*[0-9]+[[:space:]]+items\\b" line1)))
   ;; The header-line never duplicates that banner/status...
   (should-not (org-air-s1--header-line-duplicates-banner-p))
   ;; ...and IF it is set, it is the frame border (T7 chrome), not a banner.
@@ -302,7 +302,7 @@ MOVES the `created' boundary up from the round-7 120 to 150."
 (ert-deftest org-air-t3b-calendar-legend-per-tier ()
   "The calendar legend is single-line and tier-dependent (tynxttsz +
 R7 + D5c): narrow (95-119 / stacked) reads \"◆ due    ● sched\"; wide
-(>=120) reads \"◆ due    ● sched    · created\" (D5c glyph-spaced).  R7
+(>=120) reads \"◆ due    ● sched    ∙ created\" (D5c glyph-spaced).  R7
 drops the today token entirely (today is a
 background highlight, self-evident).  The wide tier names `created',
 the narrow tier does not.  Asserted on GUI and TTY glyph sets."
@@ -332,7 +332,7 @@ the narrow tier does not.  Asserted on GUI and TTY glyph sets."
                               (should (string-match-p (regexp-quote created) text))
                             (should-not
                              (string-match-p (regexp-quote created) text)))))))))
-        ;; GUI uses ◆ ● ·; --batch is a real TTY for the ! o . path.
+        ;; GUI uses ◆ ● ∙; --batch is a real TTY for the ! o . path.
         (if (eq which 'gui)
             (org-air-viewport-test-as-gui (funcall run))
           (funcall run))))))

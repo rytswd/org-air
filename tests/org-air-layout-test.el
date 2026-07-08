@@ -163,7 +163,7 @@ under a filter that hides every item."
   (org-air-viewport-test-with-dashboard 120
     (org-air-filter '("org-air-no-such-tag"))
     ;; Header band is in-buffer text (spec rev §1.1/§2).
-    (should (string-match-p "· 0 items" (buffer-string)))
+    (should (string-match-p "∙ 0 items" (buffer-string)))
     (should (org-air-viewport-test-calendar-present-p))))
 
 ;;;; §9.3 Empty board holds shape.
@@ -188,13 +188,13 @@ dataset count (R22-4 wording), and the calendar grid all render."
       (should (string-match-p "Inbox zero — nothing to process\\." text))
       (should (string-match-p "Nothing overdue\\.\\s-+Nice\\.\\|Nothing overdue\\. Nice\\." text))
       ;; In-buffer header band reports an empty board (§5.2).
-      (should (string-match-p "· 0 items" text))
+      (should (string-match-p "∙ 0 items" text))
       ;; Rail: summary total, the Filter empty-state `none' placeholder +
-      ;; the Source `all items · M loaded' dataset line (R22-4: was the
-      ;; single `No filters · all items'), calendar grid.
+      ;; the Source `all items ∙ M loaded' dataset line (R22-4: was the
+      ;; single `No filters ∙ all items'), calendar grid.
       (should (string-match-p "0\\s-+total" text))
       (should (string-match-p "\\bnone\\b" text))
-      (should (string-match-p "all items · 0 loaded" text))
+      (should (string-match-p "all items ∙ 0 loaded" text))
       (should-not (string-match-p "No filters" text))
       (should (org-air-viewport-test-calendar-present-p)))))
 

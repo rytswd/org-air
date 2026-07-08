@@ -1,4 +1,4 @@
-  org-air · project                                                                       | name ^
+  org-air ∙ project                                                                       | name ^
 
   | v0.1/                                                 R1 C1 D(+1) | | June 2026              < >
   +---- READY Alpha feature             ~ 2026-05-01  #ui   #core     |     Su Mo Tu We Th Fr Sa
@@ -13,7 +13,7 @@
   +---- UNKNO Eta notes                 ~ 2026-05-01  #notes          | | Filter
                                                                       |  none
                                                                       | | Source
-                                                                      |  all items · 7 loaded
+                                                                      |  all items ∙ 7 loaded
                                                                       |
                                                                       | | Summary
                                                                       |    2  Draft

@@ -1,4 +1,4 @@
-  org-air                                                                 Mon 15 Jun · 23 items
+  org-air                                                                 Mon 15 Jun ∙ 23 items
   ──────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3                                                       │ ▌ June 2026              ‹ ›
@@ -14,7 +14,7 @@
       TODO   Untracked idea with no …  no date         #projects… │ ▌ Filter
              Reference notes without…  no date         #projects… │  none
       …and 2 more — press TAB on the title to expand              │ ▌ Source
-                                                                  │  all items · 23 loaded
+                                                                  │  all items ∙ 23 loaded
   ◆ Upcoming 8                                                    │
       TODO   Renew library card        Today           #personal… │ ▌ Summary
       TODO   Water the garden          Today           #projects… │    3   Inbox
@@ -29,8 +29,8 @@
       TODO ■ Prep client presentation  Tomorrow        #work   #… │  Quick note about org-air
                                                                   │  idea
   ○ Stale 2                                                       │  #inbox
-      TODO   Dust off old archive pr…  · 225d quiet    #projects… │
-      TODO   Learn lute                · 273d quiet    #someday … │  ▤ inbox.org
+      TODO   Dust off old archive pr…  ∙ 225d quiet    #projects… │
+      TODO   Learn lute                ∙ 273d quiet    #someday … │  ▤ inbox.org
                                                                   │
                                                                   │  Bucket  Inbox
                                                                   │

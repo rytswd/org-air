@@ -1,4 +1,4 @@
-  org-air                                                                                         Mon 15 Jun · 23 items
+  org-air                                                                                         Mon 15 Jun ∙ 23 items
   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3                                                                           │ ▌ June 2026                  ‹ ›
@@ -14,7 +14,7 @@
       TODO   Untracked idea with no dates       no date         #projects   #someday  │ ▌ Filter
              Reference notes without a todo s…  no date         #projects   #note     │    none
       …and 2 more — press TAB on the title to expand                                  │ ▌ Source
-                                                                                      │    all items · 23 loaded
+                                                                                      │    all items ∙ 23 loaded
   ◆ Upcoming 8                                                                        │
       TODO   Renew library card                 Today           #personal   #admin    │ ▌ Summary
       TODO   Water the garden                   Today           #projects   #home     │      3   Inbox
@@ -29,5 +29,5 @@
       TODO ■ Prep client presentation           Tomorrow        #work   #client       │
                                                                                       │ ▌ Actions
   ○ Stale 2                                                                           │    c capture / filter   s source
-      TODO   Dust off old archive project       · 225d quiet    #projects   #archive  │    g refresh TAB expand ? help
-      TODO   Learn lute                         · 273d quiet    #someday   #hobby     │
+      TODO   Dust off old archive project       ∙ 225d quiet    #projects   #archive  │    g refresh TAB expand ? help
+      TODO   Learn lute                         ∙ 273d quiet    #someday   #hobby     │

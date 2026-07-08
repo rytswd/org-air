@@ -132,11 +132,12 @@ so a day carrying both reads as a deadline."
 (declare-function org-air-view-day "org-air-view")
 
 (defvar org-air-calendar-day-keymap
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "RET") #'org-air-view-day)
-    (define-key map [mouse-1] #'org-air-view-day)
-    map)
-  "Keymap active on a calendar day cell to focus its single-day view (R6).")
+  (make-sparse-keymap)
+  "Keymap active on a calendar day cell to focus its single-day view (R6).
+Keys (RET / mouse-1 -> `org-air-view-day') are installed by
+`org-air--install-default-keybindings' (R35.1), so the
+`org-air-use-default-keybindings' knob gates the calendar day cells too;
+registered from `org-air-view.el' (which requires this file).")
 
 (defun org-air-calendar--glyph (gui tty)
   "Return GUI glyph or TTY fallback."

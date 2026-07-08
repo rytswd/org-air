@@ -241,9 +241,18 @@ The stock bindings are useful, but some users already have their own scheme. One
   :custom (org-air-use-default-keybindings nil))
 #+end_src
 
-With it ~nil~, org-air installs *none* of its own keys — the board, project, rail, and doc-session maps, the ~z~ column-toggle prefix, the ~g~ prefix, the ~C-c C-a~ leader (and its project / doc-session subsets), and the evil overriding-map integration are all skipped. The switch is honoured however you set it: ~use-package~ ~:custom~, a plain ~setq~ before loading org-air, or a runtime ~customize~ (the maps re-sync on the next org-air buffer, and immediately on a ~customize~ set).
+With it ~nil~, org-air binds *no keys of its own* — not in any org-air buffer, and not in the files you visit from org-air. Specifically, all of the following are skipped:
 
-The keymaps still *exist* and keep their ~special-mode~ parent, so ~q~ (quit), ~g~ (revert), and scrolling still work, and you own all the org-air *action* keys. To re-add them:
+- the board, project, rail, and doc-session maps;
+- the ~z~ column-toggle prefix, the ~g~ prefix, and the ~C-c C-a~ leader (with its project / doc-session subsets);
+- ~org-air-outline-mode~'s rail keys and the calendar day-cell keys (~RET~ / ~mouse-1~);
+- the read-only snapshot pane's ~q~;
+- the evil overriding-map integration; and
+- *crucially, the keys org-air would otherwise add to your OWN files*: the ~org-air-return-key~ in a visited source buffer, and the ~C-c C-q~ / ~quit-window~ close keys in an editable doc-session or indirect pane.
+
+The switch is honoured however you set it: ~use-package~ ~:custom~, a plain ~setq~ before loading org-air, or a runtime ~customize~ (the maps re-sync on the next org-air buffer, and immediately on a ~customize~ set).
+
+The org-air keymaps still *exist* and keep their ~special-mode~ parent, so ~q~ (quit), ~g~ (revert), and scrolling still work, and you own all the org-air *action* keys. To re-add them:
 
 - *The whole stock set* — ~M-x org-air--install-default-keybindings~ (or call it from your config).
 - *A subset* — ~define-key~ the command symbols you want into the still-live maps:

@@ -382,3 +382,24 @@ a live org-air buffer; no golden touched.
   default keybindings" subsection + a Configuration-table row.  make clean
   && make check GREEN (563 tests, 0 unexpected, lint clean); no golden
   bytes changed (keymaps are not in goldens).  DONE.
+- (impl) 2026-07-08: Round-35.1 continuation — review found FOUR default-
+  binding sites OUTSIDE the R35 gate; folded them under the SAME knob so
+  "disable ALL default keys" also covers keys org-air adds to the USER'S
+  OWN files.  (1) HIGHEST PRIORITY =org-air-view--enable-return= now gates
+  the =org-air-return-key= define-key in the VISITED file buffer on the
+  knob (and actively REMOVES a stale binding of the current key when off);
+  still honours the empty-string opt-out.  (2) =org-air-calendar-day-
+  keymap= RET/mouse-1 stripped from its calendar.el defvar and registered
+  into the installer table from org-air-view.el (which requires calendar).
+  (3) =org-air-entry-view-mode-map= `q' moved into the installer table
+  (special-mode parent kept).  (4) =org-air-view-pane--install-close-map=
+  (C-c C-q + quit-window remap on the editable indirect pane) gated at its
+  call site.  Also restored the D-2 state-guard in
+  =org-air--sync-default-keybindings= (=unless (eq want state)=) so it no
+  longer re-runs every mode init (the single guarded seed at the END of
+  project.el is sufficient).  README "Disabling the default keybindings"
+  reworded to the accurate scope (no keys in ANY org-air buffer OR your
+  visited files, itemised).  Added executing ERTs for the four sites
+  (tests/org-air-round35b-test.el): each gated t (present) vs nil (absent
+  / fall-through), incl. the return key NOT bound in a visited user file.
+  make clean && make check GREEN; byte-invisible.  DONE.

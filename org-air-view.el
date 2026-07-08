@@ -909,11 +909,16 @@ while the defaults are not installed.")
 
 (defcustom org-air-use-default-keybindings t
   "When non-nil (the default), install org-air's default keybindings (R35-1).
-Set to nil to make org-air install NONE of its own keys — the board /
-project / rail / doc-session maps, the `z' column-toggle prefix, the `g'
-prefix, the `org-air-leader-key' leader (and its project / doc-session
-subsets), `org-air-outline-mode's rail keys, AND the evil overriding-map
-setup are all skipped.  The keymaps still EXIST and keep their `special-mode'
+Set to nil to make org-air install NO keys of its own — in ANY org-air
+buffer OR in the files you visit from org-air.  Skipped when nil: the
+board / project / rail / doc-session maps, the `z' column-toggle prefix,
+the `g' prefix, the `org-air-leader-key' leader (and its project /
+doc-session subsets), `org-air-outline-mode's rail keys, the calendar
+day-cell keys, the read-only snapshot pane's `q', the evil overriding-map
+setup, AND — crucially — the keys org-air would otherwise add to YOUR OWN
+files: the `org-air-return-key' in a visited source buffer and the
+dedicated close key + `quit-window' remap in an editable doc-session /
+indirect pane.  The org-air keymaps still EXIST and keep their `special-mode'
 parent, so navigation/quit still work and you can `define-key' your own
 commands into them (see `org-air--install-default-keybindings' to re-add
 the full set, or bind individual command symbols).
@@ -955,9 +960,12 @@ a raw key VECTOR; BINDING a command symbol or a `:prefix' marker cons
 (defun org-air--install-default-keybindings ()
   "Install EVERY org-air default binding into the shared maps (R35-1).
 Idempotent: populates the board / view-core / project / doc-session / rail
-maps and the prefix maps from `org-air--default-key-specs', and installs
-the `org-air-leader-key' leader subsets from `org-air--default-leader-
-specs'.  Never
+/ calendar-day / snapshot-pane maps and the prefix maps from
+`org-air--default-key-specs', and installs the `org-air-leader-key' leader
+subsets from `org-air--default-leader-specs'.  The per-buffer visited-file
+keys (the `org-air-return-key' and the indirect-pane close map) are gated
+separately at their install call sites (R35.1), since they bind into the
+user's OWN buffers at visit time, not into these shared maps.  Never
 touches keymap PARENTS (set once at each `defvar').  Returns t."
   (dolist (spec (reverse org-air--default-key-specs))
     (pcase-let ((`(,map-symbol ,key ,binding) spec))
@@ -1003,12 +1011,24 @@ was never added.  Returns t."
 Called at LOAD (seed), at every org-air mode init (so a `use-package'
 `:custom' / a runtime `setq' are honoured on the next org-air buffer), and
 from the defcustom `:set' (so a live `customize' set takes effect
-immediately).  Idempotent — running it twice changes nothing (R35-1)."
+immediately).  Acts only when the desired state differs from
+`org-air--default-keybindings-state' (D-2), so it does not redundantly
+re-run every mode init; idempotent either way (R35-1)."
   (let ((want (and org-air-use-default-keybindings t)))
-    (if want
-        (org-air--install-default-keybindings)
-      (org-air--clear-default-keybindings))
-    (setq org-air--default-keybindings-state want)))
+    (unless (eq want org-air--default-keybindings-state)
+      (if want
+          (org-air--install-default-keybindings)
+        (org-air--clear-default-keybindings))
+      (setq org-air--default-keybindings-state want))))
+
+;; R35.1: the calendar day-cell keys (installer-owned).  `org-air-calendar'
+;; is required at the top of this file, so `org-air-calendar-day-keymap'
+;; already exists; registering here folds it into the same knob so the
+;; day cells lose RET / mouse-1 -> `org-air-view-day' when the defaults
+;; are off (the cells then fall through to the major-mode map).
+(org-air--register-default-keys 'org-air-calendar-day-keymap
+  "RET" #'org-air-view-day
+  [mouse-1] #'org-air-view-day)
 
 (defvar org-air-g-prefix-map
   (make-sparse-keymap)
@@ -5412,12 +5432,19 @@ the base file buffer and stay savable.")
 
 (defvar org-air-entry-view-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; R20-3a: the snapshot pane is read-only, so `q' closes it (overrides
-    ;; `special-mode's bury so the pane is actually torn down) instead of
-    ;; merely burying the buffer and leaving the split behind.
-    (define-key map (kbd "q") #'org-air-view-pane-quit)
+    ;; PARENT stays at defvar time — always, even with the knob nil, so a
+    ;; key-less snapshot pane still buries/scrolls via `special-mode'
+    ;; (R35.1).
+    (set-keymap-parent map special-mode-map)
     map)
-  "Keymap for `org-air-entry-view-mode' (the read-only snapshot pane).")
+  "Keymap for `org-air-entry-view-mode' (the read-only snapshot pane).
+Keys installed by `org-air--install-default-keybindings' (R35-1 / R35.1).")
+
+;; R35.1: the snapshot-pane close key (installer-owned).  R20-3a: the pane
+;; is read-only, so `q' closes it (overrides `special-mode's bury so the
+;; pane is actually torn down) instead of merely burying the buffer.
+(org-air--register-default-keys 'org-air-entry-view-mode-map
+  "q" #'org-air-view-pane-quit)
 
 (define-derived-mode org-air-entry-view-mode special-mode "org-air-view"
   "Major mode for the bottom `*org-air-view*' source/entry pane (R16 D-P3).
@@ -5682,12 +5709,17 @@ locked)."
 dedicated `org-air-view-pane-quit' key (surfaced in the header-line hint);
 `quit-window' is remapped so the standard quit key tears the indirect down
 cleanly too.  Built on the current local map (the parent), so every binding
-from `org-mode' still works underneath."
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map (current-local-map))
-    (define-key map (kbd "C-c C-q") #'org-air-view-pane-quit)
-    (define-key map [remap quit-window] #'org-air-view-pane-quit)
-    (use-local-map map)))
+from `org-mode' still works underneath.
+R35.1: gated on `org-air-use-default-keybindings' — with the knob nil
+org-air installs NO close map in this editable indirect pane (which is the
+user's OWN file content); the dedicated close key + the `quit-window'
+remap are then absent and the buffer keeps its plain `org-mode' local map."
+  (when org-air-use-default-keybindings
+    (let ((map (make-sparse-keymap)))
+      (set-keymap-parent map (current-local-map))
+      (define-key map (kbd "C-c C-q") #'org-air-view-pane-quit)
+      (define-key map [remap quit-window] #'org-air-view-pane-quit)
+      (use-local-map map))))
 
 (defun org-air-view-pane--render-snapshot (ctx src)
   "Render the READ-ONLY entry snapshot for CTX/SRC into `*org-air-view*'.
@@ -7507,13 +7539,21 @@ configuration is restored with one key (T4)."
   :keymap org-air-return-mode-map)
 
 (defun org-air-view--enable-return (config origin)
-  "Enable `org-air-return-mode', recording window CONFIG and ORIGIN (T4)."
+  "Enable `org-air-return-mode', recording window CONFIG and ORIGIN (T4).
+R35.1: the `org-air-return-key' binding is gated on
+`org-air-use-default-keybindings' — with the knob nil org-air installs NO
+key in the user's OWN visited file buffer (and still honours the existing
+empty `org-air-return-key' opt-out).  When gated off, any stale binding of
+the current key is actively REMOVED from the shared return map so a prior
+knob-on visit does not leave a key behind."
   (setq org-air-view--visit-config config
         org-air-view--visit-origin origin)
   (when (and (stringp org-air-return-key)
              (not (string-empty-p org-air-return-key)))
-    (define-key org-air-return-mode-map (kbd org-air-return-key)
-                #'org-air-return))
+    (if org-air-use-default-keybindings
+        (define-key org-air-return-mode-map (kbd org-air-return-key)
+                    #'org-air-return)
+      (define-key org-air-return-mode-map (kbd org-air-return-key) nil t)))
   (org-air-return-mode 1))
 
 ;;;###autoload

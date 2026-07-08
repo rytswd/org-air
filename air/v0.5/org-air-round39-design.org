@@ -1,5 +1,5 @@
 #+title: org-air Round 39 — header LHS/RHS margin symmetry · no-rail fence realignment · drop 'C-c C-a o' in org buffers · repeatable p/n
-#+state: ready
+#+state: complete
 #+tags: layout header banner fence keybindings leader transient polish
 #+FILETAGS: :ui:layout:header:banner:fence:keymap:leader:transient:design:v0.5:
 
@@ -260,3 +260,4 @@ parity exact. Orchestrator self-verifies the final tip before integrating.
 
 * History
 - 2026-07-09: State: draft → ready.
+- 2026-07-09: State: ready → complete.

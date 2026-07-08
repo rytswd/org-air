@@ -1,0 +1,397 @@
+#+title: org-air v0.5 round-34 DESIGN: header STILL 1-col over on the user's REAL geometry (fringed + right scroll-bar, not fringe-less) · no-rail view rows misaligned · cache-first lazy-load broken (idle re-arm stall)
+#+state: ready
+#+FILETAGS: :ui:layout:header:width:fringe:scrollbar:align:lazy-load:cache:async:timer:design:v0.5:
+
+* Scope of this document
+Round-34 DESIGN doc — three items on the integrated R31/R32/R33 tip.
+The header overflow is FINALLY reproducible for real because we now have
+the user's authoritative frame geometry, which overturns the assumption
+every fix since R29 was built on.
+
+- *R34-1* HEADER STILL 1 COL OVER — REAL GEOMETRY (reframe: the user's
+  frame is NOT fringe-less).  Authoritative reading on the overflowing
+  board: =(window-body-width)=191=, =(window-total-width)=195=,
+  =(frame-width)=191=, =fringe-mode=nil= (DEFAULT fringes ON, ~8px
+  each), =scroll-bar-mode=right= (ON), font ="Adwaita Mono" 15px=.  So
+  the 4-col gap between total (195) and body (191) is L-fringe +
+  R-fringe + right scroll-bar; the text area is 191 columns.  The header
+  paints ~1 col wider than the 191-col body → the =↦= truncation arrow
+  in the right fringe ("one character too many at the top line where it
+  says 583 items").  ROOT-CAUSED: R29-1 set the compose target to
+  =window-max-chars-per-line=, which is NOT bounded by the text-column
+  count and can exceed =window-body-width= on this font.  [BUG —
+  release-blocker]
+- *R34-2* NO-RAIL VIEW ROWS MISALIGNED.  In the no-rail view (rail
+  popped OUT to a side window, or board-only) the rows are "so not
+  aligned" — the date/tag/state cluster does not land on one screen
+  column down the list.  [BUG — release-blocker's sibling]
+- *R34-3* CACHE-FIRST LAZY-LOAD BROKEN.  "The lazy loading of the
+  dashboard is broken."  The R26-8 cache-first paint + chunked idle
+  refresh strands: the idle-slice re-arm pushes its ABSOLUTE idle-time
+  target forward every slice, so a large tree — or any user interaction
+  mid-load — stalls the chain ("loading N/M" / "stale ∙ refreshing"
+  never clears).  [BUG — release-blocker]
+
+Constraints honoured: org-ql only; V6 pixel-lock; reuse the layout
+primitives (no fork); preserve R26-8 (batch sync path, single-swap,
+mtime invalidation, failure-keeps-board + =g= retries), R27-1/R27-2
+(frame-derived rail cols, host-width), R31 (Seam A/B width contract).
+ERTs EXECUTE and are deterministic in batch (no real timers, no font
+pixels): a HEADLESS width model for both geometries, a real-frame test
+guarded by =skip-unless (display-graphic-p)=, and the state machine
+driven by the named slice runner.
+
+* Status
+Design-led, impl-ready.  Byte contract:
+- *R34-1* byte-INVISIBLE in batch.  =org-air-layout--usable-columns= is
+  re-derived from =window-body-width= (never =window-max-chars-per-line=).
+  Under =noninteractive= / TTY the value is =window-body-width= exactly
+  as today, so every golden is byte-identical.  Only live GRAPHICAL
+  frames change (fringed → body; fringe-less → body-1, unchanged).
+- *R34-2* byte-INVISIBLE in batch.  The fix threads ONE width through
+  the header band, the meta-width fit and every row in the no-rail
+  paths; the batch width seam (=org-air-view-width=) already pins one
+  width, so goldens hold.  Pure alignment invariant + guard.
+- *R34-3* byte-INVISIBLE.  The state machine (states, single-swap,
+  token guard, mtime, failure) is untouched; only the *scheduling* of
+  the next slice changes (idle re-arm), which never runs under
+  =noninteractive= and is captured by no golden.
+
+* Measured baseline (reproduction harness)
+** R34-1 — why "usable = window-max-chars-per-line" overshoots this frame
+The user's frame is fringed with a right scroll-bar, so the text area is
+=window-body-width= = 191 columns (fringes + scroll-bar already excluded
+from the body).  R29-1 replaced =window-body-width= with
+=window-max-chars-per-line= to reserve the continuation-glyph column in a
+FRINGE-LESS GUI (there =window-max-chars-per-line= = body − 1).  But the
+two primitives divide the SAME body pixel width by DIFFERENT references:
+
+#+begin_src text
+  window-body-width      = body_pixels / frame-char-width      (frame canonical cell)
+  window-max-chars-per-line ≈ body_pixels / font-average-width (default-face font)
+#+end_src
+
+When the default-face font's average advance is NARROWER than the frame's
+canonical char width — exactly the "Adwaita Mono 15px (m-0 monospace)"
+case, and common whenever the font is set AFTER frame creation — the
+division by the smaller number yields MORE characters, so
+=window-max-chars-per-line= > =window-body-width=.  On this frame it
+returns 192 for a 191-col body.  The header (and every row) is composed
+to that width via =org-air-view--render-width= →
+=org-air-layout-current-width= → =org-air-layout--usable-columns=, so the
+composed line is 192 columns in a 191-column text area → +1 overflow →
+the =↦= truncation arrow.  The =·→∙= R33 swap was orthogonal and correct;
+this is a WIDTH-source bug, not a glyph one.
+
+Confirmed structurally in-tree: =org-air-layout--usable-columns=
+(org-air-layout.el ~213) returns =window-max-chars-per-line= for a live
+graphical window; =org-air-rail--host-width= and =org-air-rail--show= use
+the same primitive, so the popped-out rail's own lines inherit the same
+overshoot.
+
+** R34-2 — where the no-rail rows can lose their common column
+Every row's metadata cluster is right-anchored to the compose width:
+=org-air-view--insert-row= places the cluster at column
+=width − cluster-w= where =width= = =(org-air-view--render-width)= and
+=cluster-w= is FIXED across rows via the meta-width pass
+(=org-air-view--meta-date-w= / =-meta-tags-w= / =-meta-origin-w=).
+Row-to-row alignment therefore holds IFF (i) every row reads the SAME
+=width=, and (ii) the meta widths are set (non-nil) so =cluster-w= is
+constant.  Two ways the no-rail paths break that invariant:
+
+1. *Width overshoot (shared root with R34-1).*  When
+   =usable-columns= returns body+1, the 192-col line is truncated by
+   redisplay in the 191-col area; the visible right cluster is clipped
+   /unevenly/ across rows whose title/cluster mix differs, so the
+   columns visibly disagree.  Fixing R34-1 removes this cause.
+2. *Width-source divergence in the popped-out (side-window) path.*
+   =org-air-view--render= recomputes =width= via
+   =org-air-rail--host-width= (which creates the side window, then
+   measures the host window) ONLY for the =side-window= orientation,
+   AFTER the initial =render-width=.  The header band, the meta-width
+   pass and the rows must all see this ONE recomputed =width=; any path
+   that reads =org-air-view--render-width= before/around the recompute,
+   or measures a host window whose body has not yet shrunk after the
+   side window was created in the same command, composes a different
+   column.  The reproduction MEASURES the per-row cluster start-column
+   in board-only AND side-window and asserts constancy + equality with
+   the inline item-pane column math.
+
+** R34-3 — the idle re-arm strands the chunked refresh
+=org-air-view--refresh-schedule= arms the next slice with:
+
+#+begin_src emacs-lisp
+(run-with-idle-timer (time-add (or (current-idle-time) 0) 0.05) nil
+                     #'org-air-view--refresh-run-slice buffer token)
+#+end_src
+
+This is the standard "chain idle timers by adding =current-idle-time=" so
+a chain that starts while Emacs is already idle keeps firing.  But each
+completed slice re-arms from INSIDE its own idle callback, so the
+ABSOLUTE idle target grows by ≥0.05s every slice: slice k fires at idle
+≈ k·0.05s.  A one-shot idle timer fires only if Emacs stays CONTINUOUSLY
+idle until its (ever-larger) target.  Consequences the user sees as
+"broken":
+- *Large tree.*  =org-air-refresh-files-per-slice= = 3; a 583-item tree
+  is dozens–hundreds of slices, so the tail slices demand many seconds of
+  UNBROKEN idle — any stray =post-command= / cursor blink / mouse move
+  resets the idle clock and the pending far-future target never arrives →
+  "loading N/M" (COLD) or "stale ∙ refreshing" (WARM) stuck.
+- *Interaction mid-load.*  The instant the user touches the (skeleton or
+  cached) board, idle resets to 0 while the pending timer still targets a
+  large idle value → the chain dies until Emacs happens to sit idle that
+  long again.
+The state machine itself is correct and already GREEN in batch
+(round-26 R26-8 tests drive =org-air-view--refresh-run-slice= directly);
+the defect is purely the interactive SCHEDULING, which no batch test
+exercises.  Cold =render-loading=→single-swap and the WARM stale-marker
+clear are correct ONCE the chain is allowed to run to completion.
+
+* R34-1 — header overflow on the fringed+scrollbar frame: compose to window-body-width [BUG]
+** Decision — derive "usable" from window-body-width; reserve the continuation column only when the right fringe is absent
+=window-max-chars-per-line= is abandoned as the compose target: it is not
+bounded by the text-column count.  The correct universal target for a
+full board line is the window's true text-area column count,
+=window-body-width= (fringes + scroll-bar already excluded), minus ONE
+only when there is no right fringe to hold the continuation glyph:
+
+#+begin_src emacs-lisp
+(defun org-air-layout--usable-columns (window)
+  "Return the columns a full board line may occupy in WINDOW.
+The true text-area width is `window-body-width' (fringes and scroll-bar
+already excluded).  On a graphical frame with NO right fringe the
+continuation glyph steals the last text column, so reserve one; with a
+right fringe present (the common default, incl. this user) the glyph
+lives in the fringe and the whole body is usable.  A TTY/mock returns the
+plain body width, so every batch golden is byte-identical."
+  (if (and (windowp window)
+           (display-graphic-p (window-frame window)))
+      (let* ((body (window-body-width window))
+             (right-fringe (nth 1 (window-fringes window))))
+        (if (and (integerp right-fringe) (> right-fringe 0))
+            body
+          (max 1 (1- body))))
+    (window-body-width window)))
+#+end_src
+
+Why it fits BOTH geometries:
+- *Fringed + right scroll-bar (this user):* right-fringe 8px > 0 ⇒
+  usable = body = 191.  Header/rows compose to 191 ≤ 191 body → no arrow.
+- *Fringe-less GUI (the earlier assumption):* right-fringe 0 ⇒
+  usable = body − 1, exactly the R29-1 reservation → no regression.
+- *TTY / batch / mock:* non-graphic branch ⇒ =window-body-width= as
+  today → goldens byte-identical.
+
+The margins the header/rows already carry (=org-air-margin=, the header's
+reserved trailing column, the S7 budget) stay counted INSIDE this width —
+never added on top of a body-width content.  No composed line (header,
+row, divider, rail, legend) may exceed =window-body-width= of its host
+window; that is the single width contract for both geometries.
+
+The frame-tier seam =org-air-layout--usable-frame-columns= (no live
+window yet, e.g. the very first paint) keeps its conservative graphical
+=(1- (frame-width))= — it can only UNDERSHOOT by one on a fringed frame
+(one wasted column for one paint), never overshoot, and is corrected on
+the next render once the window is live.  Left as-is to avoid churn.
+
+** Scope of the edit
+- =org-air-layout--usable-columns= (org-air-layout.el) — the derivation
+  above.  This is the single choke point:
+  =org-air-view--render-width=, =org-air-rail--host-width=,
+  =org-air-rail--show= and the project all read through it, so the rail
+  and popped-out lines are fixed in one place (no fork).
+- No change to =org-air-view--insert-banner=, the S7 margin, the R33 =∙=
+  separator, or any composition arithmetic.
+
+** Testability — EXECUTING acceptance ERTs
+Headless MODEL (no font pixels, deterministic in batch): refactor the
+graphical arithmetic behind a pure helper
+=org-air-layout--usable-columns-for (graphic-p body right-fringe)= that
+=org-air-layout--usable-columns= calls after reading the live window; the
+ERTs exercise the pure helper for both geometries:
+
+- =(usable-for t 191 8) = 191= — fringed+scrollbar (this user): the whole
+  body is usable; a 191-col header/row fits a 191 body.
+- =(usable-for t 191 0) = 190= — fringe-less: the continuation column is
+  reserved (R29-1 preserved, no regression).
+- =(usable-for nil 191 0) = 191= and =(usable-for nil 80 8) = 80= —
+  TTY/mock: always the plain body width (goldens intact).
+- Monotonic guard: for every =(body, right-fringe)= the result never
+  exceeds =body= — the invariant that killed the +1.
+
+Integration (batch, width seam): with =org-air-view-width= bound across a
+sweep W ∈ {40, 80, 120, 191, 192, 195}, render the board and assert the
+=string-width= of the header line AND of every item row is ≤ W (never
+W+1), i.e. the composition never overshoots its target at any width.
+
+Real-frame (guarded): =skip-unless (display-graphic-p)= — build a frame,
+set =scroll-bar-mode 'right= + default fringes, size it so
+=(window-body-width)= = 191 (and re-try a few widths), render the board,
+and assert the composed header + every row have =string-width= ≤
+=(window-body-width)= AND that =org-air-layout--usable-columns= ≤
+=(window-body-width)= (the assertion that FAILS today on a font whose
+average advance < the frame canonical cell).
+
+** Routing
+Bug fix on the integrated tip.  No new defcustom.  Fixtures unchanged
+(batch path byte-identical).  Cross-check: the R31 Seam-A/B width
+contract and the R33 header goldens still hold (they are TTY/batch, so
+=window-body-width= unchanged).
+
+* R34-2 — no-rail rows misaligned: one width, one cluster column [BUG]
+** Decision — a single compose width threaded through header + meta-width + rows in the no-rail paths, and a per-row cluster-column invariant
+Two coupled fixes:
+
+1. *Inherit R34-1.*  Correcting =usable-columns= removes the body+1
+   overshoot that clipped the right cluster unevenly.  The R34-2 ERT
+   below runs at the fringed geometry and must go green once R34-1 lands;
+   if it does not, the divergence is (2).
+2. *Single width source.*  In =org-air-view--render=, once =width= is
+   finalised (including the =side-window= =org-air-rail--host-width=
+   recompute), that ONE =width= must drive the header band, the
+   =org-air-view--compute-meta-widths= pass and every
+   =org-air-view--insert-row= — the board-only and side-window
+   orientations already funnel the item pane through
+   =org-air-view--insert-item-pane items width= (which binds
+   =org-air-view--line-width=), so the contract is: no code on these
+   paths may read =org-air-view--render-width= for a row/cluster before
+   the final =width= is bound.  The =host-width= recompute measures the
+   host window AFTER =ensure-window=; if the host body has not yet shrunk
+   in the same command, the SAME (possibly pre-shrink) =width= is still
+   used uniformly for header + rows, so the render is internally
+   consistent and the next configuration-change render reconciles — the
+   invariant is INTERNAL per-render consistency, asserted below.
+
+Concretely the code already binds =org-air-view--line-width= to =width=
+around the item pane and computes the cluster column as
+=width − cluster-w= with a FIXED =cluster-w=; the fix is to LOCK and TEST
+that invariant for the no-rail orientations (and to ensure the meta-width
+pass is never skipped, so =cluster-w= is never the per-row fallback).
+
+** Testability — EXECUTING acceptance ERTs
+- *Row-to-row column constancy (board-only).*  Render board-only
+  (=width < org-air-rail-min-width=, or force the orientation) with a
+  multi-row fixture spanning varied title lengths, keyword/no-keyword and
+  tag/no-tag rows.  For every item row, compute the screen column where
+  the metadata cluster starts (first non-space after the flexed title
+  gap, located via the fixed =meta-*-w= widths) and assert it is
+  IDENTICAL across all rows.
+- *Row-to-row column constancy (side-window / rail popped out).*  Same
+  assertion under the =side-window= orientation via the batch width seam,
+  so the popped-out board rows share one cluster column.
+- *No-rail vs inline parity of the primitive.*  Assert the cluster
+  column equals =width − cluster-w= in BOTH the no-rail item pane and the
+  inline (two-pane) item pane for the same items (the shared
+  =org-air-view--insert-row= math), proving the paths do not fork.
+- *Fringed-geometry integration (guarded).*  =skip-unless
+  (display-graphic-p)=: at =window-body-width= = 191 with the rail popped
+  out, assert every row's cluster start-column is constant and every row
+  =string-width= ≤ body (ties R34-2 to R34-1).
+
+** Routing
+Bug fix; no new defcustom; batch goldens byte-identical (the seam pins
+one width).  If the constancy ERT is already green post-R34-1 with no
+code change, R34-2 reduces to LOCKING it with the invariant tests (a
+regression fence), which is an acceptable, honest outcome to record in
+Implementation History.
+
+* R34-3 — cache-first lazy-load broken: bound the idle re-arm [BUG]
+** Decision — re-arm the chunked refresh with a bounded, resumable idle timer
+Replace the growing-absolute-target one-shot chain with a re-arm that
+fires a SHORT bounded delay after Emacs is idle, and RESUMES promptly
+after any interruption.  Two acceptable shapes; the doc specifies the
+first as primary:
+
+*Primary — a single repeating idle timer for the whole chain.*
+=org-air-view--refresh-start= arms ONE =run-with-idle-timer= with
+=REPEAT= = a small interval (≈0.05s) that calls the slice runner; the
+runner does NOT re-arm (the repeat does it), and =org-air-view--refresh-
+finish= / the failure path / =org-air-view--refresh-cancel= cancel it.  A
+repeating idle timer fires every interval WHILE idle and, crucially, is
+re-scheduled by Emacs when idle RESUMES after an interruption — so a
+large tree loads across successive idle periods and mid-load interaction
+merely pauses (never strands) the chain.  The token guard already makes a
+stale tick a no-op, so a superseding =g= (token bump) + cancel is clean.
+
+*Alternative — one-shot re-arm at a FIXED short idle delay measured from
+idle START, not accumulated.*  Compute the next fire as "idle-start +
+0.05" using a stored idle base captured once per idle period, so the
+target does not creep forward per slice.  Kept as a fallback if a
+repeating idle timer proves awkward with the token/teardown lifecycle.
+
+Both keep the R26-8 machine bytes intact: states, =org-air-refresh-files-
+per-slice= chunking, the single-swap at =refresh-finish=, mtime
+invalidation, and the failure-keeps-board + =g=-retries contract are
+unchanged; only the timer that PACES the slices changes.  No slice ever
+runs under =noninteractive= (batch drives the runner directly), so the
+gate and every golden are unaffected.
+
+** Extract a pure pacing seam so the fix is deterministically testable
+Factor the "when does the next slice run" decision into a pure helper —
+e.g. =org-air-view--refresh-next-delay (idle-elapsed interrupted-p)= —
+returning the delay the scheduler will use, and (for the repeating-timer
+shape) a =org-air-view--refresh-arm= / =-disarm= pair whose EFFECT the
+ERT can inspect (timer live vs cancelled) without waiting on wall-clock
+idle.  The pure helper lets a batch ERT prove the anti-stall property
+directly.
+
+** Testability — EXECUTING acceptance ERTs (deterministic, no real timers)
+- *Anti-stall pacing (pure).*  For a simulated chain of N slices with an
+  interruption injected mid-way, assert =refresh-next-delay= stays
+  BOUNDED (≤ a small constant, e.g. 0.05s) at every slice — it must NOT
+  grow with the slice index (the exact defect: today's effective target
+  ≈ k·0.05 is unbounded).
+- *Lifecycle (repeating-timer shape).*  =refresh-start= arms exactly one
+  live pacing timer; =refresh-finish= and the failure path and
+  =refresh-cancel=/=-teardown= leave NO live pacing timer; a token bump
+  (=g= mid-refresh) plus re-arm never leaves two live timers.
+- *Cold end-to-end (driven, no timers).*  Simulate the COLD dispatch:
+  =org-air-view--loading= t, =refresh-start=, =render-loading= (skeleton
+  paints "loading 0/N"); then drive =org-air-view--refresh-run-slice= to
+  completion and assert the single swap populated the board,
+  =org-air-view--loading= cleared, =refresh-state= nil, and no "loading"
+  marker remains — proving the machine reaches DONE when the pacer lets
+  the slices run (regression fence over the reported "stuck forever").
+- *Warm marker clears (driven).*  The existing R26-8 stale-paint test
+  already proves "stale ∙ refreshing" → cleared after the driven slices;
+  keep it green and add the pacing-lifecycle assertion so the WARM path
+  cannot strand.
+- *Failure + g still honest.*  Preserve the R26-8 failure test (slice
+  signals → board byte-intact, header "refresh failed (g retries)", =g=
+  restarts and completes) under the new pacer.
+
+** Routing
+Bug fix; no new defcustom (the ≈0.05s pace stays an internal constant, as
+now).  Batch byte-identical; interactive-only behaviour change.  Preserves
+R26-8/R27-1 single-scanner and token invariants.
+
+* Cross-item invariants (must all hold after R34)
+- *One width contract.*  No composed line exceeds =window-body-width= of
+  its host window, in BOTH fringed and fringe-less geometries; margins
+  are counted inside the width, never added on top.  (R34-1 primitive;
+  R34-2 consumes it.)
+- *One cluster column.*  Every board row's metadata cluster starts at the
+  same screen column, in inline, board-only and side-window
+  orientations.  (R34-2.)
+- *No strand.*  The chunked refresh always reaches its single swap (or an
+  honest FAILED that =g= retries); the pacer never pushes the next slice
+  to an unbounded future idle target.  (R34-3.)
+- *Batch byte-stability.*  Every change is invisible under
+  =noninteractive= / TTY; the gate and all goldens are byte-identical.
+
+* Implementation History
+- (design) 2026-07-08: Round-34 DESIGN authored (state ready).  Three
+  release-blocking bugs root-caused on the integrated R31/R32/R33 tip:
+  R34-1 header +1 overflow traced to =window-max-chars-per-line= >
+  =window-body-width= on the user's fringed+right-scrollbar frame (font
+  average advance < frame canonical cell) — fix: derive "usable" from
+  =window-body-width=, reserve the continuation column only when the
+  right fringe is 0.  R34-2 no-rail row misalignment traced to the same
+  overshoot plus a single-width-source invariant for the board-only /
+  side-window paths — fix + row-cluster-column constancy fence.  R34-3
+  cache-first lazy-load strand traced to the idle re-arm's unbounded
+  absolute target — fix: bounded/repeating resumable idle pacer, state
+  machine bytes intact.  All ERTs EXECUTE deterministically (headless
+  width model for both geometries, real-frame guarded test, pure pacing
+  seam; state machine driven by the named slice runner — no real timers,
+  no font pixels).  IMPLEMENTATION PENDING.

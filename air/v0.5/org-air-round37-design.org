@@ -1,0 +1,262 @@
+#+title: org-air v0.5 round-37 DESIGN: usable width is 1 TOO HIGH on fringed+right-scrollbar frames — adopt a UNIVERSAL 1-column right safety margin (usable = body-1 on every graphical frame) so R36's flush content stops clipping under the scroll bar
+#+state: ready
+#+FILETAGS: :ui:layout:header:banner:width:usable-columns:fringe:scrollbar:clip:off-by-one:design:v0.5:
+
+* Scope of this document
+Round-37 DESIGN doc — ONE item, the SAME header, a DIFFERENT and now
+precisely-bounded failure that R36 exposed.  R36 removed the banner's
+reserved trailing space so the right status is FLUSH to
+=window-body-width=; on the user's fringed + right-scroll-bar frame that
+flush position is itself one column too far right, so the last content
+glyph is clipped.  This round fixes the *target width*, not the composer.
+
+- *R37-1* USABLE WIDTH IS 1 TOO HIGH ON FRINGED + RIGHT-SCROLLBAR FRAMES.
+  R34 set =usable = window-body-width= and reserved the continuation
+  column ONLY when =right-fringe == 0=.  On a frame with a RIGHT SCROLL
+  BAR (and/or when the body pixels are not an exact integer multiple of
+  the char advance, so =window-body-width= rounds UP), the LAST body
+  column (the 191st) sits under the scroll bar / is a partial column, and
+  a glyph placed there is clipped.  R36's flush content therefore loses
+  its last character: "… files" displays as "… file" — the final "s" is
+  off the display window.  [BUG — release-blocker; the 5th round on this
+  off-by-one]
+
+  USER (GUI, after R36): the header's LAST CONTENT CHARACTER now clips —
+  "… files" shows as "… file", the final "s" is OFF the display window.
+
+Authoritative geometry (unchanged from R34/R36): =(window-body-width)=191=,
+=(window-total-width)=195=, =(frame-width)=191=, =fringe-mode=nil=
+(default fringes ON), =scroll-bar-mode=right= (scroll bar ON, right side),
+"Adwaita Mono 15px".
+
+Constraints honoured: org-ql only; reuse the ONE layout primitive; V6
+pixel-lock; preserve R36's composed-string flush-ness (now flush to the
+NEW usable = body-1) and its no-trailing-pad guard, and R26-8 loading
+chrome.
+
+* Status
+Design-led, impl-ready.  Byte contract: the change lives ENTIRELY in the
+graphical branch of =org-air-layout--usable-columns-for= /
+=org-air-layout--usable-columns=.  Under =noninteractive= / TTY / batch
+the value stays =window-body-width= exactly as today, so every text
+golden is byte-identical (the graphical branch never runs in batch).  The
+ONLY test expectation that moves is the R34 UNIT assertion for the
+fringed+scrollbar geometry (=usable-for t 191 8=): =191 → 190=, an honest
+re-bless of a unit expectation (NOT a golden), because that number is now
+deliberately different.  No new defcustom.
+
+* Measured baseline — why R34's rule is one too high on THIS frame
+R36 already proved the composed banner is FLUSH: its right status' last
+glyph sits at column =w−1= where =w = (org-air-view--render-width) =
+org-air-layout--usable-columns = window-body-width= (R34's rule returns
+the full body when a right fringe is present, which it is here).  So the
+"s" of "files" is composed at column =190= (=body−1=, 0-indexed) on the
+191-column body.
+
+R34's assumption was: "with a right fringe present the continuation glyph
+lives in the fringe and the WHOLE body is usable".  That is false on this
+frame for two independent, additive reasons:
+
+1. *Right scroll bar.*  =scroll-bar-mode = right= draws the scroll bar on
+   the RIGHT.  =window-body-width= excludes the scroll-bar WIDTH in whole
+   columns, but the last usable text column can still be visually abutted
+   / partially occluded by the scroll bar's border, so a glyph at the
+   very last body column clips.  =window-fringes= says nothing about the
+   scroll bar, so R34's =right-fringe > 0= test cannot see it.
+2. *Fractional body column (rounding UP).*  =window-body-width= is
+   =floor(body-pixels / frame-char-width)=, but when the body pixels are
+   not an exact multiple of the char advance the last "column" is a
+   PARTIAL cell; a full glyph placed there is clipped on the right.  A
+   font set after frame creation ("Adwaita Mono 15px") makes this common.
+
+Either way the effective safe text width is =window-body-width − 1=, not
+=window-body-width=.  R36's composed string is CORRECT (no trailing pad);
+the TARGET WIDTH fed to it is one too high.
+
+* R37-1 — reserve the last column universally: usable = body-1 on every graphical frame [BUG]
+** Decision — a UNIVERSAL 1-column right safety margin (the bulletproof choice after five rounds)
+On ANY graphical frame, reserve ONE column on the right:
+
+#+begin_src emacs-lisp
+(defun org-air-layout--usable-columns-for (graphic-p body &rest _ignored)
+  "Pure width model: columns a full board line may occupy for BODY text-columns.
+BODY is `window-body-width' (fringes and scroll-bar WIDTH already
+excluded).  On ANY graphical frame reserve ONE right column (R37): the
+last body column can be stolen by the continuation glyph (fringe-less
+GUI, R29-1), sit under a RIGHT scroll bar, or be a PARTIAL cell when the
+body pixels are not an exact multiple of the char advance
+(fringed+right-scrollbar — this user; the R34 miss) — a glyph there
+clips.  Reserving one column is correct for all three and costs at most
+one spare column on a fringed, no-scroll-bar frame.  On a TTY/mock return
+the plain BODY width so every batch golden is byte-identical.  The result
+NEVER exceeds BODY.  (Extra fringe/scroll-bar args are accepted and
+ignored — the reserve is unconditional on graphical frames.)"
+  (if graphic-p (max 1 (1- body)) body))
+#+end_src
+
+and the live wrapper reads the body and delegates (the fringe/scroll-bar
+arguments become advisory only):
+
+#+begin_src emacs-lisp
+(defun org-air-layout--usable-columns (window)
+  "Return the columns a full board line may occupy in WINDOW.
+On a graphical frame reserve one right column (R37 universal safety
+margin); on a TTY/mock return the plain `window-body-width' so goldens are
+byte-identical."
+  (if (and (windowp window)
+           (display-graphic-p (window-frame window)))
+      (org-air-layout--usable-columns-for
+       t (window-body-width window))
+    (window-body-width window)))
+#+end_src
+
+Why UNIVERSAL rather than a targeted scroll-bar test:
+- *Fringe-less GUI:* R29-1 already wanted =body−1= (continuation glyph in
+  the last column).  Universal gives it. ✔
+- *Fringed + right scroll bar (this user):* =body−1= leaves the clipped
+  last column empty; content ends at =body−2=. ✔
+- *Fringed, no scroll bar:* =body−1= wastes at most ONE spare column — a
+  harmless, invisible cost, and it ALSO covers the fractional-column
+  rounding case that no fringe/scroll-bar predicate can detect. ✔
+
+We have now spent FIVE rounds (R29/R31/R33/R34/R36) on this single
+off-by-one, each time with a cleverer conditional that a new geometry
+falsified.  The universal =body−1= has NO geometry-dependent branch to be
+wrong about: it is correct or harmless in every configuration.  That
+robustness is worth one wasted column on the rare fringed-no-scrollbar
+setup.
+
+*Alternative considered (targeted) and rejected:* reserve when
+=right-fringe == 0= OR a right scroll bar is present (via
+=(window-scroll-bars window)= → the SIDE is =right= / =t=).  This is more
+"precise" but (a) still misses the fractional-column rounding case, (b)
+adds a second geometry predicate that the next unusual frame can falsify,
+and (c) gains only one column on fringed-no-scrollbar frames.  After five
+misses, precision is the wrong optimisation target; pick the bulletproof
+rule.
+
+** The frame-tier seam already agrees
+=org-air-layout--usable-frame-columns= (Seam A, no live window) already
+returns =(max 1 (1- (frame-width)))= on a graphical frame — the SAME
+universal =−1= reserve.  So the window-tier and frame-tier primitives are
+now CONSISTENT (both reserve one graphical column), removing the R34
+divergence where the window tier could return one MORE than the frame
+tier.  No change needed there.
+
+** One primitive, all consumers inherit
+Every full-width consumer reads through =org-air-layout--usable-columns=
+(directly or via =org-air-layout-current-width= /
+=org-air-view--render-width=): the header/banner (R36), the board rows,
+the loading skeleton, the divider/rule, the rail (=org-air-rail--host-
+width= / =--show=) and the project view (=org-air-project.el= ~1880).  So
+the single-line reserve fixes ALL of them; none composes to =body= any
+more.  R36's flush composer is unchanged — it simply flushes to the NEW
+=w = body−1=, so the right status' last glyph now sits at =body−2= and the
+last body column (=body−1=) is left empty (under the scroll bar / spare).
+
+** Scope of the edit
+- =org-air-layout--usable-columns-for= (org-air-layout.el ~213): collapse
+  the graphical branch to the unconditional =(max 1 (1- body))=; accept &
+  ignore the extra fringe/scroll-bar args (keep the arity tolerant so
+  existing 3-arg callers/tests still call it).
+- =org-air-layout--usable-columns= (org-air-layout.el ~228): stop reading
+  =window-fringes=; delegate the body to the pure helper.  Refresh the
+  docstrings (R37 rationale).
+- NO change to =org-air-view--insert-banner= (R36), the rows, the rule,
+  the rail composer, or =org-air-layout--usable-frame-columns=.
+
+** Testability — DECISIVE EXECUTING acceptance ERTs (headless, batch)
+- *Pure model reserves one column on every graphical frame.*  =(usable-for
+  t 191 …) = 190= for the fringed+scrollbar, the fringe-less
+  (=right-fringe 0=) AND the fringed-no-scrollbar inputs — one assertion
+  per geometry, all = =body−1=.  =(usable-for nil 191 …) = 191= (TTY
+  parity).  Monotonic: result =<= body= and =>= 1= for a sweep of bodies.
+- *Right-scroll-bar simulation (live, guarded).*  =skip-unless
+  (display-graphic-p)=: build a frame with default fringes and
+  =scroll-bar-mode 'right=, force =(set-window-scroll-bars win nil 'right)=,
+  size it so =(window-body-width)= = 191 (retry a few widths), and assert
+  =(org-air-layout--usable-columns win) = 190= (=body−1=), NOT 191.
+- *Composed header + rows fit body-1, last glyph at body-2, last column
+  EMPTY.*  With the batch width seam =org-air-view-width= bound to a NEW
+  =usable = body−1= across W ∈ {39, 79, 119, 190} (i.e. body−1 for
+  {40,80,120,191}), render the board AND the loading skeleton (R26-8
+  state) AND item rows and assert for every line:
+  1. =(string-width line) <= W= (fits the reserved width),
+  2. content is NOT clipped — the right status' last VISIBLE glyph is
+     within =W= (its last char is real content, e.g. the "s" of "files"),
+  3. R36's no-trailing-pad guard still holds — the line does not end in
+     reserved whitespace beyond its content.
+- *Revert guard (decisive).*  Restoring R34's rule (graphical branch
+  returns =body= when =right-fringe > 0=) makes =usable-columns= return
+  191 on the scroll-bar frame → the composed header's last glyph lands on
+  column =body−1= (the clipped column) → the "content within body−1"
+  assertion FAILS.  This is the exact regression that clipped the "s".
+- *R36 parity preserved.*  Keep the R36 "no trailing whitespace past
+  content" ERTs green at the new width (they assert on the composed
+  string, which is unchanged in shape — only its target width shrank by
+  one).
+
+** Honest re-bless (test expectations, not goldens)
+- =tests/org-air-round34-test.el= =r34-1-usable-columns-for-both-
+  geometries=: the fringed+scrollbar case =(usable-for t 191 8)= changes
+  =191 → 190= (deliberately — that was the wrong number).  Update the
+  assertion + its comment to state the R37 universal reserve; keep the
+  fringe-less (=… 191 0 → 190=) and TTY (=… nil 191 0 → 191=) cases
+  unchanged (already =body−1= / =body=).  No golden files move (graphical
+  branch never runs under =noninteractive=).
+- If ANY batch width golden moves (it should NOT — the seam pins the batch
+  width and the change is graphical-only), manifest it and re-bless
+  honestly.
+
+** Routing
+Bug fix on the integrated R34/R36 tip.  No new defcustom.  Single-line
+semantic change in the shared layout primitive; every consumer inherits
+it.  Cross-check: R36 flush + no-trailing-pad preserved; R26-8 loading
+count-slot preserved; R33 separator, R31 width contract unaffected.
+
+* Cross-item invariants (must hold after R37)
+- *One universal reserve.*  On every graphical frame =usable =
+  window-body-width − 1= (window tier AND frame tier agree); on TTY/batch
+  =usable = window-body-width=.  No geometry-dependent branch remains to
+  be wrong about.
+- *No clip.*  No full-width chrome line's last VISIBLE glyph lands on the
+  last body column on a graphical frame; the last body column is always
+  empty (safe under a right scroll bar / a partial column / a
+  continuation glyph).
+- *R36 preserved.*  Content stays FLUSH to the (new) usable width with NO
+  trailing whitespace past its right edge.
+- *Batch byte-stability.*  Every change is invisible under =noninteractive=
+  / TTY; only the R34 UNIT expectation for the fringed+scrollbar geometry
+  is re-blessed (191→190).  No golden bytes change.
+
+* Implementation History
+- (design) 2026-07-08: Round-37 DESIGN authored (state ready).  ROOT-
+  CAUSED the post-R36 clip: R34 set =usable = window-body-width= and
+  reserved the continuation column ONLY when =right-fringe == 0=, so on
+  the user's fringed + RIGHT-scroll-bar frame the whole 191-col body was
+  declared usable; R36's flush composer then placed the last content glyph
+  ("s" of "files") on column =body−1=, which sits under the scroll bar /
+  is a partial column (=window-body-width= rounds up when body pixels
+  aren't an exact multiple of the char advance) and clips.  FIX: adopt a
+  UNIVERSAL 1-column right safety margin — =org-air-layout--usable-
+  columns-for= returns =(max 1 (1- body))= on EVERY graphical frame
+  (correct for fringe-less per R29-1, for fringed+scrollbar per this user,
+  harmless one-spare-column for fringed-no-scrollbar, and it also covers
+  the fractional-column rounding that no fringe/scroll-bar predicate can
+  detect); =org-air-layout--usable-columns= stops reading =window-fringes=
+  and delegates the body.  Chosen over a targeted =right-fringe==0 OR
+  window-scroll-bars= predicate because after FIVE rounds on this
+  off-by-one the bulletproof unconditional rule beats one more
+  falsifiable conditional; the frame-tier seam already reserves one
+  graphical column, so the two tiers are now consistent.  One primitive →
+  all consumers (header/banner, rows, loading skeleton, divider, rail,
+  project) inherit; R36 flush + no-trailing-pad unchanged (now flush to
+  =body−1=).  DECISIVE EXECUTING ERTs: pure model returns =body−1= for
+  fringed+scrollbar / fringe-less / fringed-no-scrollbar, =body= on TTY; a
+  guarded live right-scroll-bar frame asserts =usable = 190= at
+  =body=191=; composed header + rows fit =body−1= with the last glyph at
+  =body−2= and the last column EMPTY, content NOT clipped; reverting to
+  R34's rule FAILS the guard (last glyph on the clipped column).  Honest
+  re-bless: R34's =usable-for t 191 8= unit expectation 191→190 (a number,
+  not a golden); no golden bytes move (graphical-only change).
+  IMPLEMENTATION PENDING.

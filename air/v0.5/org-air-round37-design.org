@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-37 DESIGN: usable width is 1 TOO HIGH on fringed+right-scrollbar frames — adopt a UNIVERSAL 1-column right safety margin (usable = body-1 on every graphical frame) so R36's flush content stops clipping under the scroll bar
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:header:banner:width:usable-columns:fringe:scrollbar:clip:off-by-one:design:v0.5:
 
 * Scope of this document

@@ -802,59 +802,51 @@
     ;; org-air-side and preserves string-width, so no column shifted).
     ;; Round-33 manifest is EMPTY; the tests stay as permanent guards.
     ;; =================================================================
-    ;; v0.5 ROUND-36 impl grind (air/v0.5/org-air-round36-design.org).
-    ;; R36-1 HEADER TRAILING-WHITESPACE OVERFLOW: the board header AND the
-    ;; loading-skeleton header shared `org-air-view--insert-banner', which
-    ;; right-aligned the status to column W-2 and then APPENDED a reserved
-    ;; one-column right margin (the S7 mirror of the visible left margin)
-    ;; via `(org-air-view--justify left (concat right " ") w)' with
-    ;; `budget = (- w (string-width left) 2 1)', so the composed line
-    ;; filled `window-body-width' EXACTLY and its LAST column was a blank —
-    ;; the column drawn OFF the right edge on the user's fringed frame
-    ;; ("trailing empty space that's OFF the window") with the `↦' arrow.
-    ;; The S7 hand-reserved column is now REDUNDANT (R34's fringe-aware
-    ;; `org-air-layout--usable-columns' already reserves the spare column
-    ;; on zero-fringe) AND HARMFUL (on the fringed frame R34 gives usable =
-    ;; full body, so the hand-reserved blank lands on the clipped last
-    ;; column).  FIX (single choke point, impl tip <this commit>): drop the
-    ;; appended " " and the budget's reserved `1' so the status' last glyph
-    ;; sits at column W-1 (the true last usable column) with NO trailing
-    ;; pad — matching the already-correct day-header pattern; R34's
-    ;; usable-columns guard is preserved verbatim.  Covers BOTH headers
-    ;; (they share `insert-banner').  This is byte-VISIBLE in the header
-    ;; goldens: the right status shifts one column right (its last glyph
-    ;; lands on the final column instead of the penultimate one), so the
-    ;; right-trimmed banner line gains one space in its middle gap.  The
-    ;; chrome byte goldens (layout-mockup-80/120/160 + heights/thresholds,
-    ;; the board-only mockup, the denote-origin goldens) therefore move and
-    ;; the legacy S7/R29/R31 assertions that hardcoded the reserved-blank
-    ;; contract (right-trimmed width = W-1, header ends at contract column
-    ;; W-1 with a blank final column) now FAIL — they must be regenerated /
-    ;; re-blessed to the new no-trailing-pad invariant on the test seat via
-    ;; make regen-mockups (frozen-clock, guards active).  Every non-header
-    ;; golden (rows/rule/rail/day-header/panes) is byte-identical.
-    (org-air-layout-mockup-80
-     . "R36-1: banner right status shifts one column right (no reserved trailing margin) — regen")
-    (org-air-layout-mockup-120
-     . "R36-1: banner right status shifts one column right (no reserved trailing margin) — regen")
-    (org-air-layout-mockup-160
-     . "R36-1: banner right status shifts one column right (no reserved trailing margin) — regen")
-    (org-air-layout-mockup-heights
-     . "R36-1: banner right status shifts one column right (no reserved trailing margin) — regen")
-    (org-air-layout-mockup-thresholds
-     . "R36-1: banner right status shifts one column right (no reserved trailing margin) — regen")
-    (org-air-r13-board-only-byte-mockup
-     . "R36-1: board-only banner right status shifts one column right — regen")
-    (org-air-r17-denote-origin-byte-mockup
-     . "R36-1: denote-origin banner right status shifts one column right — regen")
-    (org-air-s7-header-status-ends-at-w-minus-1
-     . "R36-1: status now ends AT the last column (W), no reserved blank — re-bless")
-    (org-air-r29-1-header-ends-at-contract-column
-     . "R36-1: header ends at usable-1 with content (no blank final column) — re-bless")
-    (org-air-r31-1-inline-header-ends-at-contract-column
-     . "R36-1: inline header ends at usable-1 with content (no blank final column) — re-bless")
-    (org-air-r31-1-side-window-and-board-only-still-fit
-     . "R36-1: header last glyph now at usable-1 (no reserved trailing blank) — re-bless")
+    ;; v0.5 ROUND-36 CLOSEOUT (impl tip pxmorlro + test re-bless <this
+    ;; commit>).  ALL 11 grind entries CLOSED.
+    ;;   R36-1 HEADER TRAILING-WHITESPACE OVERFLOW: the board header AND
+    ;;     the loading-skeleton header shared `org-air-view--insert-banner',
+    ;;     which right-aligned the status to column W-2 and then APPENDED a
+    ;;     reserved one-column right margin (the S7 mirror of the visible
+    ;;     left margin) via `(org-air-view--justify left (concat right " ")
+    ;;     w)' with `budget = (- w (string-width left) 2 1)', so the
+    ;;     composed line filled `window-body-width' EXACTLY and its LAST
+    ;;     column was a blank — the column drawn OFF the right edge on the
+    ;;     user's fringed frame ("trailing empty space that's OFF the
+    ;;     window", the `↦' arrow).  The impl dropped the appended " " and
+    ;;     the budget's reserved `1' (compose `(org-air-view--justify left
+    ;;     right w)', `budget = (- w (string-width left) 2)') so the
+    ;;     status' last glyph sits on column W-1 (the true last usable
+    ;;     column) with NO trailing pad; the S7 spare column is now
+    ;;     supplied UPSTREAM by R34's fringe-aware usable-columns (guard
+    ;;     preserved verbatim).  Byte-VISIBLE header re-baseline: the 28
+    ;;     chrome byte goldens (layout-mockup 70..160 + x24/x50 tiers +
+    ;;     board-only + empty-120x50, denote-origin-{80,120}) regenerated
+    ;;     via `make regen-mockups' (FROZEN-CLOCK renderer, guards active;
+    ;;     jj diff --stat = ONLY the header line of each golden — every
+    ;;     row/rule/rail/day-header/pane line is byte-identical; the
+    ;;     project goldens are byte-identical too).  The status shifts one
+    ;;     column right (its last glyph lands on the final column instead
+    ;;     of the penultimate one).  The legacy S7/R29/R31 assertions that
+    ;;     hardcoded the reserved-blank contract (right-trimmed width =
+    ;;     W-1, blank final column) re-blessed on the test seat to the
+    ;;     no-trailing-pad invariant (trimmed width == compose width, raw
+    ;;     == compose): org-air-s7-header-status-ends-at-w-minus-1,
+    ;;     org-air-r29-1-header-ends-at-contract-column, org-air-r31-1-
+    ;;     inline-header-ends-at-contract-column, org-air-r31-1-side-
+    ;;     window-and-board-only-still-fit.  R34's usable-columns guard
+    ;;     (org-air-r34-*) stays GREEN unchanged.
+    ;;   NEW R36 DECISIVE ERT (round36-test.el): the headless composed-line
+    ;;     guard for BOTH the BOARD header AND the LOADING-SKELETON header,
+    ;;     at several window-body-widths (incl. the user's 191): asserts
+    ;;     (length <= W), (string-width <= W), NO trailing whitespace past
+    ;;     the right content, the left margin STILL present inside W, and
+    ;;     the right content right-aligned FLUSH to the last usable column.
+    ;;     Reverting the fix (re-adding the reserved trailing margin col)
+    ;;     -> the guard FAILS (asserted in-process by re-composing the
+    ;;     old-contract line).  No .el SOURCE touched (impl landed R36-1 in
+    ;;     pxmorlro).  Round-36 manifest is EMPTY; the tests stay as
+    ;;     permanent regression guards.
     ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

@@ -119,11 +119,12 @@ honoured — the Seam-B self-consistency probe)."
 
 (ert-deftest org-air-r31-1-inline-header-ends-at-contract-column ()
   "INLINE two-pane (rail NOT popped), fringe-less GUI, at odd AND even
-host widths: the compose width == the window's usable columns, the
-right-trimmed header width == compose-width - 1 (S7), and the header's
-final column is blank (the S7 margin sits INSIDE the displayable area, so
-a zero-fringe GUI never draws a continuation glyph over the status).
-Locks the header contract for the inline mode the user dogfooded."
+host widths: the compose width == the window's usable columns, and
+(R36-1) the right status sits FLUSH on the last usable column — the
+right-trimmed header width == compose-width (no reserved trailing blank;
+the zero-fringe spare column is supplied UPSTREAM by R34's usable-
+columns, so no continuation glyph draws over the status).  Locks the
+header contract for the inline mode the user dogfooded."
   (skip-unless (locate-library "org-air"))
   (org-air-r27--with-live-board
     (org-air-r29--with-fringeless-gui
@@ -143,10 +144,11 @@ Locks the header contract for the inline mode the user dogfooded."
                     (push usable widths)
                     ;; compose width IS the usable columns (R29-1 primitive).
                     (should (eql org-air-view--rendered-width usable))
-                    ;; status ends at W-1 of the compose width (S7).
-                    (should (= (cdr hw) (1- org-air-view--rendered-width)))
-                    ;; the final column of the header is blank.
-                    (should (< (car hw) org-air-view--rendered-width))))
+                    ;; R36-1: status ends AT the last usable column (no
+                    ;; reserved trailing blank) — trimmed == compose.
+                    (should (= (cdr hw) org-air-view--rendered-width))
+                    ;; the final column carries content (raw == compose).
+                    (should (= (car hw) org-air-view--rendered-width))))
               (when (window-live-p other) (delete-window other)))))
         ;; the split pair really exercised BOTH parities.
         (should (cl-find-if #'cl-oddp widths))
@@ -276,7 +278,7 @@ fringe-less, still fit usable with the header at the contract column."
                      (org-air-layout--usable-columns bwin)))
         (org-air-r29--assert-lines-fit bwin)
         (let ((hw (org-air-r29--header-widths)))
-          (should (= (cdr hw) (1- org-air-view--rendered-width)))))
+          (should (= (cdr hw) org-air-view--rendered-width))))
       ;; BOARD-ONLY (rail forced off).
       (setq-local org-air-view--rail-popped-out nil)
       (org-air-rail--hide (current-buffer))

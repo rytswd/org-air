@@ -150,11 +150,12 @@ side-window rail (every line one column past the usable area: 51 > 50)."
 
 (ert-deftest org-air-r29-1-header-ends-at-contract-column ()
   "Fringe-less GUI: the S7 header contract holds where the user looks —
-the right-trimmed header width equals compose-width - 1, the compose
-width equals the window's USABLE columns, and the header's final column
-is blank (the S7 margin column sits INSIDE the displayable area).  Trunk
-FAILED under side-window: compose width = usable + 1, so the status glyph
-sat flush at the window edge."
+the compose width equals the window's USABLE columns, and (R36-1) the
+right status sits FLUSH on the last usable column: the right-trimmed
+header width equals the compose width (no reserved trailing blank; the
+spare column is supplied UPSTREAM by R34's usable-columns).  Trunk FAILED
+under side-window: compose width = usable + 1, so the status glyph sat
+flush at the window edge."
   (skip-unless (locate-library "org-air"))
   (org-air-r27--with-live-board
     (org-air-r29--with-fringeless-gui
@@ -166,11 +167,11 @@ sat flush at the window edge."
              (hw (org-air-r29--header-widths)))
         ;; compose width == usable columns (the R29-1 fix).
         (should (eql org-air-view--rendered-width usable))
-        ;; status ends at W-1 of the compose width (S7, unchanged).
-        (should (= (cdr hw) (1- org-air-view--rendered-width)))
-        ;; the final column of the header is blank (right-trimmed line is
-        ;; strictly narrower than the compose width).
-        (should (< (car hw) org-air-view--rendered-width)))
+        ;; R36-1: status ends AT the last usable column (no reserved
+        ;; trailing blank) — trimmed width == compose width.
+        (should (= (cdr hw) org-air-view--rendered-width))
+        ;; the header's final column carries content (raw == compose).
+        (should (= (car hw) org-air-view--rendered-width)))
       ;; the INLINE header keeps the same contract (regression guard).
       (setq-local org-air-view--rail-popped-out nil)
       (org-air-rail--hide (current-buffer))
@@ -179,7 +180,7 @@ sat flush at the window edge."
              (usable (org-air-layout--usable-columns bwin))
              (hw (org-air-r29--header-widths)))
         (should (eql org-air-view--rendered-width usable))
-        (should (= (cdr hw) (1- org-air-view--rendered-width)))))))
+        (should (= (cdr hw) org-air-view--rendered-width))))))
 
 (ert-deftest org-air-r29-1-rail-buffer-fits ()
   "Fringe-less GUI: the popped rail buffer's OWN lines fit its side

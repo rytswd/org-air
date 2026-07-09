@@ -7,15 +7,16 @@
 ;; 1a1a4484), pinned against the LIVE renderer — no fixture bytes are trusted
 ;; here, every assertion probes the actual composed columns:
 ;;
-;;   R40-1  HEADER SEPARATOR RULE SYMMETRY.  `org-air-view--insert-rule' now
-;;          reserves a RIGHT gutter equal to its LEFT margin
-;;          (`org-air-view--banner-indent' = `org-air-margin' = 2) instead of
-;;          filling flush to the right edge, so the `─' rule spans EXACTLY the
-;;          R39-1 symmetric banner content columns (`indent' .. `usable -
-;;          indent').  Guard: the rule's first/last non-space column ==
-;;          the banner content's (line 0); lhs-margin == rhs-gutter ==
-;;          banner-indent; reverting to a flush-right rule (0-col right
-;;          gutter) FAILS.
+;;   R41-1  HEADER SEPARATOR RULE FULL-WIDTH (supersedes the R40-1 inset).
+;;          `org-air-view--insert-rule' now spans the FULL usable width
+;;          (`0' .. `usable', flush to BOTH text-area edges) — `org-air-view
+;;          --banner-indent' (2) columns wider on the LEFT (no leading margin)
+;;          and 2 wider on the RIGHT than the R40-1 inset, while the R39-1
+;;          banner CONTENT stays inset (full-bleed rule under inset content).
+;;          Guard: the rule's first-non-space col == 0 AND last-non-space col
+;;          == `usable - 1' AND (rule width - banner content width) ==
+;;          2*banner-indent; the rule never overshoots `usable'; reverting to
+;;          the R40 inset rule (banner-indent margins each side) FAILS.
 ;;
 ;;   R40-2  NO-RAIL FENCE CONTINUITY.  `org-air-view--insert-row' now
 ;;          right-anchors the standard board row to the ONE shared board-wide
@@ -45,17 +46,17 @@
   (1- (string-width (string-trim-right s))))
 
 (ert-deftest org-air-r40-1-rule-margins-symmetric ()
-  "R40-1: the header separator rule spans EXACTLY the banner content columns.
+  "R41-1: the header separator rule spans the FULL usable width (flush edges).
 Rendered headless over the fixtures at several widths, the `─' rule
-(`org-air-view--insert-rule', buffer line 1) must reserve a SYMMETRIC
-gutter equal to its left margin — so its first-non-space column ==
-`org-air-view--banner-indent' AND its last-non-space column ==
-`usable - banner-indent - 1' (i.e. right gutter == banner-indent), and
-that span is IDENTICAL to the banner content span (line 0).  Reverting to
-the pre-R40 flush-right rule (right gutter 0, running `banner-indent'
-columns past the content) fails the symmetric-gutter assertions — proven
-in-process by re-composing the old flush-to-W rule and showing it violates
-the contract this test enforces."
+(`org-air-view--insert-rule', buffer line 1) is now full-bleed: its
+first-non-space column == 0 (no leading margin, flush the left edge) AND
+its last-non-space column == `usable - 1' (flush the last usable column,
+no overshoot).  The rule is therefore `2*banner-indent' columns WIDER than
+the still-inset R39-1 banner content (line 0): it gains `banner-indent'
+columns on the LEFT and `banner-indent' on the RIGHT.  Reverting to the
+R40 inset rule (a `banner-indent' margin each side) fails the flush-edge
+assertions — proven in-process by re-composing the old inset rule and
+showing it violates the full-width contract this test enforces."
   (skip-unless (locate-library "org-air"))
   (should (fboundp 'org-air-view--insert-rule))
   (dolist (width '(70 96 120 160))
@@ -69,46 +70,49 @@ the contract this test enforces."
              (b-last (org-air-r40--last-col banner))
              (r-first (org-air-r40--first-col rule))
              (r-last (org-air-r40--last-col rule))
-             ;; the rule's right gutter, measured from the last usable column.
-             (r-right-gutter (- (1- usable) r-last))
+             ;; content spans (last - first + 1), display columns.
+             (banner-content-width (1+ (- b-last b-first)))
+             (rule-width (1+ (- r-last r-first)))
              ;; the horizontal-rule glyph (`─' on GUI, `-' in batch).
              (hrule (org-air-view--glyph 'hrule)))
         (ert-info ((format
-                    "width=%d usable=%d indent=%d banner[%d..%d] rule[%d..%d] gutter=%d rule=%S"
-                    width usable indent b-first b-last r-first r-last
-                    r-right-gutter rule))
+                    "width=%d usable=%d indent=%d banner[%d..%d]=%d rule[%d..%d]=%d"
+                    width usable indent b-first b-last banner-content-width
+                    r-first r-last rule-width))
           ;; sanity: line 1 really is a horizontal rule (anti-tautology).
           (should (string-match-p (regexp-quote hrule) rule))
           ;; the rule never overshoots the usable width.
           (should (<= (string-width rule) usable))
-          ;; LEFT: the rule starts at the banner-indent margin — the same
-          ;; column as the banner content (`org-air').
-          (should (= r-first indent))
-          (should (= r-first b-first))
-          ;; RIGHT (the R40-1 fix): a SYMMETRIC right gutter == banner-indent,
-          ;; so the rule ends where the banner content ends — no overshoot.
-          (should (= r-right-gutter indent))
-          (should (= r-last (- usable indent 1)))
-          (should (= r-last b-last))
-          ;; lhs-margin == rhs-gutter (the whole point of R40-1).
-          (should (= r-first r-right-gutter))
-          ;; the rule span EQUALS the banner content span.
-          (should (and (= r-first b-first) (= r-last b-last)))
-          ;; REVERT GUARD: the pre-R40 flush-right rule (glyph run =
-          ;; usable - margin, prefixed by the margin) runs `banner-indent'
-          ;; columns PAST the content — its last glyph sits on the final
-          ;; usable column with a 0-col right gutter, so it FAILS the
-          ;; symmetric contract asserted above.
-          (let* ((margin (make-string org-air-margin ?\s))
-                 (flush (concat margin
+          ;; LEFT (the R41-1 fix): the rule is flush to the left edge — no
+          ;; leading margin, unlike the still-inset banner content.
+          (should (= r-first 0))
+          ;; RIGHT: the rule ends at the LAST usable column — flush, no
+          ;; overshoot past `usable'.
+          (should (= r-last (1- usable)))
+          ;; the rule spans the full usable width.
+          (should (= rule-width usable))
+          ;; the banner CONTENT stays inset by banner-indent (R39-1) — so it
+          ;; is strictly narrower than the full-bleed rule.
+          (should (= b-first indent))
+          (should (= b-last (- usable indent 1)))
+          ;; THE CONTRACT: the rule is exactly 2*banner-indent columns wider
+          ;; than the banner content — banner-indent gained on EACH side.
+          (should (= (- rule-width banner-content-width) (* 2 indent)))
+          ;; REVERT GUARD: the R40 inset rule (a banner-indent margin each
+          ;; side, glyph run = usable - 2*indent) is NOT flush to the edges —
+          ;; its first col == indent (not 0) and its last col == usable -
+          ;; indent - 1 (not usable - 1), so it FAILS the full-width contract.
+          (let* ((margin (make-string indent ?\s))
+                 (inset (concat margin
                                 (org-air-view--rule-string
-                                 (- usable org-air-margin))))
-                 (f-last (org-air-r40--last-col flush))
-                 (f-gutter (- (1- usable) f-last)))
-            (should (= f-last (1- usable)))       ; flush to the last column…
-            (should (= f-gutter 0))               ; …NO right gutter…
-            (should-not (= f-gutter indent))      ; …i.e. NOT symmetric.
-            (should-not (= f-last r-last))))))))   ; 2 cols longer than R40.
+                                 (- usable (* 2 indent)))))
+                 (i-first (org-air-r40--first-col inset))
+                 (i-last (org-air-r40--last-col inset)))
+            (should (= i-first indent))           ; leading margin present…
+            (should-not (= i-first 0))             ; …i.e. NOT flush left…
+            (should (= i-last (- usable indent 1))) ; inset right gutter…
+            (should-not (= i-last (1- usable)))     ; …i.e. NOT flush right.
+            (should-not (= (string-width inset) usable))))))))
 
 ;;;; =====================================================================
 ;;;; R40-2 — the no-rail fence is one shared board-wide column.

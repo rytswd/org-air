@@ -766,8 +766,12 @@ renders never show it.")
 The board repaints exactly once, when the whole accumulation swaps in —
 never a partial paint.")
 (defvar-local org-air-view--refresh-mtimes nil
-  "Alist FILE -> mtime captured per file AT SCAN TIME (R26-8).
-Persisted with the cache so the next start can detect staleness.")
+  "Alist FILE -> mtime captured per file AT SCAN TIME (R26-8/R42-1).
+Captured by `org-air-view--refresh-run-slice' as each slice reads its
+files, then consumed by `org-air-view--refresh-finish' to build the new
+mtime baseline from SCAN-TIME data (never a finish-time re-stat, which
+would stamp a fresh mtime over items read from an older revision — the
+B1 coherence hole).")
 (defvar-local org-air-view--refresh-timer nil
   "The single repeating idle pacing timer of the in-flight refresh, or nil (R34-3).")
 (defvar-local org-air-view--refresh-watchdog nil
@@ -7032,11 +7036,32 @@ The single-swap rule (no partial paints): the accumulated items replace
 preserved, and the machine returns to FRESH.  Disarms the repeating pacer
 first so it cannot fire again after the chain is DONE (R34-3)."
   (org-air-view--refresh-disarm)
-  ;; R42-1: the merged accumulator (retained unchanged items ∪ rescanned
-  ;; changed items) is the full set; the fresh full mtime snapshot is the
-  ;; new incremental baseline persisted with (and stored alongside) it.
-  (let ((items org-air-view--refresh-acc)
-        (mtimes (org-air-view--mtimes-snapshot (org-air-query-files))))
+  ;; R42-1 (B1): the merged accumulator (retained unchanged items ∪
+  ;; rescanned changed items) is the full set; its mtime baseline is built
+  ;; ENTIRELY from SCAN-TIME data — never re-stat'd at finish.  For each
+  ;; current file take the scan-time mtime captured by the slices
+  ;; (`org-air-view--refresh-mtimes', one entry per file actually read),
+  ;; else — for a retained (unchanged, un-scanned) file — the existing
+  ;; baseline entry.  Re-stat'ing here would stamp a FRESH mtime over items
+  ;; read from an OLDER revision (a file written during the paced-scan
+  ;; window — an external git-pull/sync write to a retained file, or a
+  ;; changed file re-touched after its slice) so the next refresh's
+  ;; no-change short-circuit would call it FRESH and mask the staleness
+  ;; FOREVER.  Building from scan-time data instead leaves such a file with
+  ;; its pre-write mtime, so the NEXT `--changed-files' names it and it
+  ;; re-scans — errors converge instead of sticking.  (This is the seam the
+  ;; B1 revert-fails ERT drives: external write to a retained file
+  ;; mid-paced-scan => next `--changed-files' must name it.)
+  (let* ((items org-air-view--refresh-acc)
+         (changed org-air-view--cache-stale-files)
+         (scan-time org-air-view--refresh-mtimes)
+         (mtimes (delq nil
+                       (mapcar
+                        (lambda (f)
+                          (or (assoc f scan-time)
+                              (and (not (member f changed))
+                                   (assoc f org-air-view--items-mtimes))))
+                        (org-air-query-files)))))
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)
           org-air-view--items-mtimes mtimes

@@ -6964,22 +6964,25 @@ marker/progress is visible from the first paint."
                    files org-air-view--items-mtimes)))
     (cond
      ;; No-change short-circuit: prove "0 files to reparse" and stop.  The
-     ;; board already shows exactly these items, so REPAINT only when a
-     ;; marker (`refreshing'/`failed'/`loading') was up and must be cleared
-     ;; — the common warm no-change `g r' is then a sub-frame no-op.
+     ;; board already shows exactly these items, so no org-ql call, no
+     ;; slice, no pacer.  F2: REPAINT UNCONDITIONALLY — the day-keyed
+     ;; classify cache (`--classify-cache-day') only invalidates ON RENDER
+     ;; and there is no midnight timer, so skipping the repaint would strand
+     ;; yesterday's overdue/today/upcoming bucketing on screen after a day
+     ;; rolls (and would break the R18 D-P1c "next refresh picks it up"
+     ;; promise for a retuned classify defcustom).  Render is ~28ms.  B1:
+     ;; keep the existing mtime baseline VERBATIM (do NOT re-stat) — it just
+     ;; proved itself (every current file matched, none vanished); a re-stat
+     ;; would only risk masking a file changed post-diff/pre-restat.
      ((null changed)
-      (let ((had-marker (or org-air-view--refresh-state
-                            org-air-view--loading)))
-        (setq org-air-view--refresh-acc nil
-              org-air-view--refresh-queue nil
-              org-air-view--refresh-total 0
-              org-air-view--refresh-mtimes nil
-              org-air-view--refresh-state nil
-              org-air-view--cache-stale-files nil
-              org-air-view--loading nil
-              org-air-view--items-mtimes (org-air-view--mtimes-snapshot files))
-        (when had-marker
-          (org-air-view--refresh-repaint))))
+      (setq org-air-view--refresh-acc nil
+            org-air-view--refresh-queue nil
+            org-air-view--refresh-total 0
+            org-air-view--refresh-mtimes nil
+            org-air-view--refresh-state nil
+            org-air-view--cache-stale-files nil
+            org-air-view--loading nil)
+      (org-air-view--refresh-repaint))
      ;; Sync fast path: few changed files -> one query, merge, single-swap,
      ;; DONE.  Never enters `refreshing' (so it cannot strand); no pacer.
      ;; Skipped on the COLD load (board not yet painted -> keep the paced

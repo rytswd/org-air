@@ -1,5 +1,5 @@
 #+title: org-air Round 40 — header separator rule asymmetry (rhs overshoots 2 cols) · no-rail fence continuity hardening (per-row cluster-w → shared board column)
-#+state: ready
+#+state: complete
 #+tags: layout header rule separator fence no-rail alignment pixel-width
 #+FILETAGS: :ui:layout:header:rule:separator:fence:no-rail:align:design:v0.5:
 
@@ -216,3 +216,4 @@ parity exact. Orchestrator self-verifies the final tip before integrating.
 
 * History
 - 2026-07-09: State: draft → ready.
+- 2026-07-09: State: ready → complete.

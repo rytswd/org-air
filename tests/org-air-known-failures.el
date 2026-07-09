@@ -885,6 +885,33 @@
     ;;     pxmorlro).  Round-36 manifest is EMPTY; the tests stay as
     ;;     permanent regression guards.
     ;; =================================================================
+    ;; v0.5 ROUND-40 R40-1 grind (impl track) — the header separator RULE
+    ;; gains a symmetric RIGHT gutter equal to its left margin
+    ;; (`org-air-view--banner-indent' = 2), so `org-air-view--insert-rule'
+    ;; now spans EXACTLY the R39-1 banner content columns (indent ..
+    ;; usable-indent) instead of filling flush to the right edge.  This is
+    ;; the design-blessed INTENTIONAL golden move (air/v0.5/org-air-round40-
+    ;; design.org R40-1): every chrome byte golden's line-1 `─' rule shrinks
+    ;; by exactly `banner-indent' (2) glyphs on the RIGHT at every width
+    ;; (now ending where the banner content ends); NO other line moves.
+    ;; Fixtures NOT edited on the impl track — these byte goldens + the
+    ;; legacy r36-1 rule-fills-width assertion (which hardcoded the pre-R40
+    ;; flush-to-W contract `(= (string-width rule) width)') are manifested
+    ;; expected-to-fail until the test seat re-blesses via
+    ;; `make regen-mockups' and retargets the rule assertion to the
+    ;; symmetric-gutter (width - 2*margin) span.  The new executing ERT
+    ;; `org-air-r40-1-rule-margins-symmetric' (rule span == banner content
+    ;; span, lhs-margin == rhs-margin == banner-indent) locks the contract
+    ;; and passes on the .el source.
+    (org-air-layout-mockup-80 . "R40-1 rule +2-col right gutter (golden re-bless)")
+    (org-air-layout-mockup-120 . "R40-1 rule +2-col right gutter (golden re-bless)")
+    (org-air-layout-mockup-160 . "R40-1 rule +2-col right gutter (golden re-bless)")
+    (org-air-layout-mockup-heights . "R40-1 rule +2-col right gutter (golden re-bless)")
+    (org-air-layout-mockup-thresholds . "R40-1 rule +2-col right gutter (golden re-bless)")
+    (org-air-r13-board-only-byte-mockup . "R40-1 rule +2-col right gutter (golden re-bless)")
+    (org-air-r17-denote-origin-byte-mockup . "R40-1 rule +2-col right gutter (golden re-bless)")
+    (org-air-r36-1-right-padded-chrome-lines-do-not-overshoot . "R40-1 rule no longer fills flush to W; symmetric right gutter (test re-bless)")
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

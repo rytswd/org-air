@@ -45,4 +45,11 @@ FAILS.
 
 * Implementation History
 
-- (pending) R41-1 full-width header rule.
+- (done) R41-1 full-width header rule. `org-air-view--insert-rule' now
+  emits the `─' run at the FULL usable width (0 .. usable, no leading
+  margin), 2 cols wider each side than the R40 inset span; header content
+  (R39-1) untouched. The 9 intentional golden/contract moves (5
+  layout-mockup byte goldens + r13 board-only + r17 denote-origin +
+  r36-1 overshoot + r40-1 rule-margins-symmetric) added to
+  tests/org-air-known-failures.el as expected-fail pending test re-bless;
+  fixtures NOT edited. make clean && make check GREEN (0 unexpected).

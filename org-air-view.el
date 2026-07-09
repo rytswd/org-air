@@ -2190,19 +2190,17 @@ optional segments (after filter, scope and count)."
     (mapconcat #'identity (make-list width glyph) "")))
 
 (defun org-air-view--insert-rule ()
-  "Insert a faint separator whose LEFT and RIGHT margins are EQUAL (R40-1).
-Both gutters are `org-air-view--margin' wide — which equals
-`org-air-view--banner-indent' — so the rule spans exactly the same
-columns as the R39-1 symmetric banner content (`indent' .. `usable -
-indent'), never overshooting the right edge."
-  (let* ((margin (org-air-view--margin))
-         (mw (string-width margin))
-         ;; R40-1: subtract the margin on BOTH sides (was left only) so the
-         ;; rule's right edge lands `mw' cols short of `usable', matching the
-         ;; banner's symmetric right gutter.
-         (rule-width (max 0 (- (org-air-view--render-width) (* 2 mw)))))
-    (insert margin
-            (propertize (org-air-view--rule-string rule-width)
+  "Insert a faint FULL-WIDTH separator flush to both text-area edges (R41-1).
+The rule spans the entire usable width (`0' .. `usable', where `usable' =
+`org-air-view--render-width', the R37 body-1 safety margin), so it is
+`org-air-view--banner-indent' (2) columns wider on the LEFT and 2 wider
+on the RIGHT than the R40-1 inset rule — a full-bleed rule under the
+inset R39-1 banner content.  The rule ends exactly at the last usable
+column (`usable - 1') and never overshoots past `usable'."
+  (let* (;; R41-1: full usable width, no leading margin — flush left window
+         ;; edge, ending at the last usable column (no right overshoot).
+         (rule-width (max 0 (org-air-view--render-width))))
+    (insert (propertize (org-air-view--rule-string rule-width)
                         'face 'org-air-face-separator)
             "\n")))
 

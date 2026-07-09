@@ -931,6 +931,42 @@
     ;; R40-1/R40-2 in 60dd39c4..1a1a4484).  Round-40 manifest is EMPTY; the
     ;; tests stay as permanent regression guards.
     ;; =================================================================
+    ;; v0.5 ROUND-41 GRIND (impl this commit; test re-bless PENDING).
+    ;;   R41-1 FULL-WIDTH HEADER SEPARATOR RULE: impl changed
+    ;;     `org-air-view--insert-rule' from the R40-1 inset span
+    ;;     (`banner-indent' .. `usable - banner-indent') to the FULL usable
+    ;;     width (`0' .. `usable', flush to both text-area edges) — the rule
+    ;;     is now `banner-indent' (2) `─' glyphs WIDER on the LEFT (no
+    ;;     leading margin) and 2 wider on the RIGHT than R40, while the R39-1
+    ;;     banner CONTENT stays inset (full-bleed rule under inset content,
+    ;;     the nano-emacs look).  This is an INTENTIONAL golden move: the
+    ;;     chrome byte fixtures still carry the R40 inset rule, so every
+    ;;     mockup whose render includes a header/section rule now differs by
+    ;;     exactly the moved rule line(s) (lead 0, run == usable).  These
+    ;;     stay expected-fail until the test seat re-blesses the fixtures via
+    ;;     `make regen-mockups' and retunes the R40 rule-margin ERTs to the
+    ;;     full-width contract (rule first-non-space col == 0 AND last ==
+    ;;     usable-1 AND rule-width - banner-content-width == 2*banner-indent;
+    ;;     revert to the R40 inset FAILS).  Fixtures NOT edited here.
+    (org-air-layout-mockup-80
+     . "R41-1: fixture carries R40 inset rule; header rule now full-width (0..usable), re-bless pending")
+    (org-air-layout-mockup-120
+     . "R41-1: fixture carries R40 inset rule; header rule now full-width (0..usable), re-bless pending")
+    (org-air-layout-mockup-160
+     . "R41-1: fixture carries R40 inset rule; header rule now full-width (0..usable), re-bless pending")
+    (org-air-layout-mockup-heights
+     . "R41-1: fixture carries R40 inset rule; header rule now full-width (0..usable), re-bless pending")
+    (org-air-layout-mockup-thresholds
+     . "R41-1: fixture carries R40 inset rule; header rule now full-width (0..usable), re-bless pending")
+    (org-air-r13-board-only-byte-mockup
+     . "R41-1: board-only fixture carries R40 inset rule; header rule now full-width, re-bless pending")
+    (org-air-r17-denote-origin-byte-mockup
+     . "R41-1: denote-origin fixture carries R40 inset rule; header rule now full-width, re-bless pending")
+    (org-air-r36-1-right-padded-chrome-lines-do-not-overshoot
+     . "R41-1: rule now spans full usable width (string-width rule == usable), retune from R40 inset contract pending")
+    (org-air-r40-1-rule-margins-symmetric
+     . "R41-1: rule is now full-width (lhs==rhs==0, 2 cols wider than content each side), supersedes R40 symmetric-inset contract; retune pending")
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

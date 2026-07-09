@@ -1,0 +1,218 @@
+#+title: org-air Round 40 — header separator rule asymmetry (rhs overshoots 2 cols) · no-rail fence continuity hardening (per-row cluster-w → shared board column)
+#+state: ready
+#+tags: layout header rule separator fence no-rail alignment pixel-width
+#+FILETAGS: :ui:layout:header:rule:separator:fence:no-rail:align:design:v0.5:
+
+* Summary
+
+Two visual items the user still reports after R39, both diagnosed HEADLESS
+against the live renderer (findings below, with the observed columns/rows).
+
+- *R40-1* Header separator RULE asymmetry — R39-1 made the banner CONTENT margins
+  symmetric (=banner-indent= = 2 on each side) but the =─= rule under it was NOT
+  updated: it still fills flush to the right edge. HEADLESS PROOF: at W120 the
+  banner content spans cols =2..117= (left 2 / right gutter 2) but the rule spans
+  =2..119= (left 2 / right gutter 0) — the rule overshoots the content's right
+  edge by exactly =banner-indent= columns. Fix: the rule spans exactly
+  =banner-indent .. usable−banner-indent=, matching the banner content. Intended
+  golden move (the rule shrinks 2 cols on the right at every width).
+- *R40-2* No-rail fence continuity — HEADLESS PROOF: in every batch orientation
+  the fence is currently CONTINUOUS and aligned (board-only W70: every item row
+  anchors the metadata cluster to col 39; W88: col 51; two-pane W96/120/160: the
+  cluster/=│= divider sits at cols 66/86/116 on EVERY body + fill row). So the
+  column ARITHMETIC (R39-2) is correct. The residual, and the honest live-only
+  root cause, is that R39-2 anchors each row to its OWN per-row =cluster-w=, so
+  fence continuity depends on the COINCIDENCE that every row's cluster width is
+  identical, rather than being enforced. Harden it: anchor every standard board
+  row to the ONE board-wide fence column derived from the shared
+  =meta-cluster-width=, so a divergent row can never shift the line.
+
+* HEADLESS DIAGNOSIS (concrete)
+
+Rendered via the live finalize path (=org-air-viewport-test-with-dashboard=,
+GUI glyphs, frozen clock), probing the actual buffer columns.
+
+** R40-1 — banner content vs rule columns
+| width | usable | banner content (first..last) | left/right gutter | rule (first..last) | left/right gutter |
+|-------+--------+------------------------------+-------------------+--------------------+-------------------|
+|    70 |     70 | 2..67                        | 2 / 2  (symmetric)| 2..69              | 2 / 0  (RHS over) |
+|   120 |    120 | 2..117                       | 2 / 2  (symmetric)| 2..119             | 2 / 0  (RHS over) |
+
+The banner is already symmetric (R39-1). The rule's left margin already equals
+=banner-indent= (2) — so the user's "lhs touching the first letter" is simply the
+rule starting at the same column as =org-air= (correct, it matches the content).
+The ONLY defect is the RHS: the rule has NO right gutter, so it runs
+=banner-indent= columns past the content's right edge — the "long on rhs (two
+extra line lengths)" the user sees. =org-air-view--insert-rule= computes
+=rule-width = render-width − (string-width margin)= (=one= margin, left only).
+
+** R40-2 — no-rail fence column across all rows
+| orientation | width | anchor / fence column | rows measured | continuous? |
+|-------------+-------+-----------------------+---------------+-------------|
+| board-only  |    70 | 39 (=70 − 31)         | 19 item rows  | YES, all 39 |
+| board-only  |    88 | 51 (=88 − 37)         | 19 item rows  | YES, all 51 |
+| two-pane    |    96 | tag/│ col 66          | all body+fill | YES         |
+| two-pane    |   120 | tag/│ col 86          | all body+fill | YES         |
+| two-pane    |   160 | tag/│ col 116         | all body+fill | YES         |
+
+Per-row trace of =org-air-view--insert-row= (advised): every board-only row calls
+=(org-air-view--fence-column width row-cluster-w)= with =row-cluster-w= = 31 (W70)
+/ 37 (W88) — identical for every row, so every anchor coincides and the fence IS a
+clean continuous vertical line in the batch goldens. There is NO literal =│= glyph
+in the no-rail (board-only / side-window) body — the "vertical line" the user
+refers to (R34-2's "fence") is the LEFT edge of the right-anchored metadata
+cluster, i.e. the column where the date/tag/origin block begins on every row.
+
+Root cause of the residual breakage (why the user still sees it live but the
+goldens are green): R39-2's =org-air-view--insert-row= right-anchors the cluster
+to =(org-air-view--fence-column width row-cluster-w)= where =row-cluster-w =
+(string-width cluster)= is THIS ROW's own cluster width. The fence is continuous
+ONLY because, in the fixtures, every row's =cluster-w= equals the board-wide
+=meta-cluster-width= (each cell is padded to its global column). That equality is
+NOT enforced — it is a property of the current data. Any row whose actual cluster
+width diverges from the board-wide width shifts its own anchor and BREAKS the
+line:
+- the =date-cell= "expands locally" =(pad-to date-text (max dcol (string-width
+  date-text)))= — if a row's date label ever exceeds =dcol= (e.g. a real-data
+  label or repeat marker wider than the R20-6 SUBSET the meta-width pass
+  measured, then rendered after a TAB section-expand), that row's =cluster-w >
+  meta-cluster-width= → its anchor is LEFT of the shared column;
+- symmetrically, a row/caller whose cluster is NARROWER anchors RIGHT of it.
+Because the anchor is a per-row quantity, the fence is one coincidence away from
+the discontinuous/misaligned segments the user reports — and no batch golden
+covers the divergent row.
+
+* R40-1 — header separator rule: symmetric banner-indent margins [BUG]
+
+** Decision — the rule reserves the SAME margin on the right as on the left
+=org-air-view--insert-rule= (=org-air-view.el:2192=) currently pads the left with
+=org-air-view--margin= and fills =rule-width = (- (render-width) (string-width
+margin))= — flush to the right edge. Reserve an EQUAL gutter on the right so the
+rule is symmetric (lhs == rhs) and matches the banner content:
+
+#+begin_src emacs-lisp
+(defun org-air-view--insert-rule ()
+  "Insert a faint separator whose LEFT and RIGHT margins are EQUAL (R40-1).
+Both gutters are `org-air-view--margin' wide — which equals
+`org-air-view--banner-indent' — so the rule spans exactly the same columns as
+the R39-1 symmetric banner content (`indent' .. `usable - indent'), never
+overshooting the right edge."
+  (let* ((margin (org-air-view--margin))
+         (mw (string-width margin))
+         ;; R40-1: subtract the margin on BOTH sides (was left only) so the
+         ;; rule's right edge lands `mw' cols short of `usable', matching the
+         ;; banner's symmetric right gutter.
+         (rule-width (max 0 (- (org-air-view--render-width) (* 2 mw)))))
+    (insert margin
+            (propertize (org-air-view--rule-string rule-width)
+                        'face 'org-air-face-separator)
+            "\n")))
+#+end_src
+
+Invariant (=org-air-margin= = =org-air-view--banner-indent= = 2 by default): the
+rule spans =mw .. usable − mw − 1= = the banner content's =2 .. usable − 2 − 1=.
+Verified headless: W70 rule 2..67 (was 2..69) == banner 2..67; W120 rule 2..117
+(was 2..119) == banner 2..117.
+
+Note: =org-air-view--insert-rule= is shared by the (default-off) section-rule and
+footer-rule; both keep left margin =org-air-view--margin= (matching their own
+section/footer content) and simply gain the symmetric right gutter — consistent
+and correct. With =org-air-section-rule= / =org-air-show-footer= nil (defaults)
+the ONLY live caller is the header rule, so the golden churn is the header rule
+line alone.
+
+** Intended golden move (honest re-bless)
+Every fixture's rule line (line 1) shrinks by =2·(margin − banner-indent side)=…
+concretely by =org-air-view--banner-indent= (2) glyphs on the RIGHT at every
+width. =make regen-mockups= re-blesses; the diff MUST be EXACTLY "the =─= rule is
+2 cols shorter on the right, now ending where the banner content ends". If any
+OTHER line moves, that is a RED FLAG — fix the guard, do not manifest it away.
+
+** Testability — EXECUTING ERT (revert-fails)
+=org-air-r40-1-rule-margins-symmetric= — render the board headless; for the
+header rule line assert =first-nonspace-col == banner-indent=, =right-gutter ==
+banner-indent= (i.e. =last-nonspace-col == usable − banner-indent − 1=), and
+=left-margin == right-margin=; AND assert the rule's span EQUALS the banner
+content's span (=first/last non-space cols match line 0's). Reverting R40-1 (fill
+to the right edge) leaves =right-gutter = 0= → fails.
+
+* R40-2 — no-rail fence continuity: one board-wide column, not per-row [BUG]
+
+** Decision — anchor every standard board row to the SHARED fence column
+The fence line is a BOARD property, not a per-row one. Enforce it: every standard
+board row right-anchors its cluster to the ONE column =org-air-view--fence-column=
+computes from the board-wide =meta-cluster-width=, independent of the row's own
+cluster width.
+
+- In =org-air-view--insert-row= the board floor path anchors to
+  =(org-air-view--fence-column width)= — the NO-ARG (shared) form that reads
+  =meta-cluster-width= — NOT =(org-air-view--fence-column width row-cluster-w)=.
+  The cluster field is a FIXED =meta-cluster-width=-wide region; a row whose
+  actual cluster is narrower is right-justified WITHIN that field (its right edge
+  at =width=, its metadata still right-aligned) so its LEFT edge — the visible
+  fence — always lands on the shared column. A row whose cluster is WIDER than
+  the shared width is the bug source: the meta-width pass must have UNDER-measured
+  it; the fix is to keep the two in lockstep (below), not to let the row push the
+  fence.
+- Keep the single-derivation guarantee: =org-air-view--fence-column= stays the ONE
+  place the column is computed. The board floor passes NO per-row =cluster-w= so
+  it cannot diverge; the project view / day pane, which legitimately compose their
+  own cluster field, keep passing their own =cluster-w= (documented exception) —
+  those panes are not the no-rail board fence the user is reporting.
+- Lockstep invariant (defensive): =org-air-view--meta-cluster-width= (what the
+  fence column uses) MUST equal every rendered board row's cluster field width.
+  Because =compute-meta-widths= sizes each column to the max over the ACTUALLY
+  RENDERED rows (R20-6 subset PLUS expanded sections), pad each cell to its global
+  column with NO local expansion past =dcol= (the R26-6 no-nudge contract already
+  removed the one expander). Assert this in the ERT so a future local-expansion
+  regression is caught.
+
+** Impl MUST also reproduce the live case
+Before/after: render the board GUI (=display-graphic-p=), rail hidden (board-only
+/ popped-out-then-hidden), over data with a row whose natural cluster width
+differs (e.g. a longer date label than its neighbours), and confirm the metadata
+cluster LEFT edge lands on ONE column for every item row. The headless ERT
+(below) pins the invariant; this manual check confirms the user-visible fix.
+
+** Testability — EXECUTING ERT (revert-fails)
+=org-air-r40-2-fence-continuous-under-divergent-cluster= — render the board
+headless in NO-RAIL (board-only) mode over a fixture that includes at least one
+row whose natural cluster width diverges from the others (constructed so R39-2's
+per-row anchoring WOULD shift it). Assert:
+1. EVERY item row's metadata cluster begins at the SAME display column, and
+2. that column == =(org-air-view--fence-column (org-air-view--render-width))= (the
+   shared, no-arg form), and
+3. =meta-cluster-width= == every rendered row's cluster field width (lockstep).
+Reverting R40-2 (per-row =cluster-w= anchoring) makes the divergent row's column
+disagree → fails. Name the exact functions: =org-air-view--insert-row= (the board
+anchor) and =org-air-view--fence-column= (the shared column).
+
+* Constraints
+
+- org-ql only; reuse the existing layout primitives (=org-air-view--insert-rule=,
+  =org-air-view--fence-column=, =org-air-view--meta-cluster-width=,
+  =org-air-view--render-width=). No new dependencies, no new glyph.
+- V6 pixel-lock preserved EXCEPT R40-1's intended header-rule shift (test
+  re-blesses honestly). R40-2 is byte-identical on the current fixtures (every row
+  already anchors to the shared column) — its ERT adds the divergent-row case that
+  the goldens never covered; if any existing golden moves under R40-2 that is a
+  RED FLAG (a fixture row was silently divergent) and must be understood, not
+  blessed away.
+
+* Verification gate
+
+=make clean && make check= GREEN (0 unexpected, manifest EMPTY). Goldens
+byte-identical EXCEPT the sanctioned R40-1 header-rule shift (=make regen-mockups=
+shows ONLY "rule 2 cols shorter on the right" at every width). =airctl status -Da=
+parity exact. Orchestrator self-verifies the final tip before integrating.
+
+* Implementation History
+
+- (pending) R40-1 symmetric rule margins in =org-air-view--insert-rule= (rhs
+  gutter == lhs == banner-indent; intended golden move); R40-2 no-rail fence
+  hardened to the shared board-wide column in =org-air-view--insert-row=
+  (=org-air-view--fence-column= no-arg) + lockstep invariant; two executing ERTs
+  (rule symmetry, fence continuity under a divergent cluster).
+
+* History
+- 2026-07-09: State: draft → ready.

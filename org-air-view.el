@@ -6858,21 +6858,61 @@ Every pending slice callback carries the old token and self-cancels."
   (setq org-air-view--refresh-state nil))
 
 (defun org-air-view--refresh-start ()
-  "Enter REFRESHING for the current board buffer; return the new token.
-Cancels any in-flight refresh (its slices go stale via the token), queues
-the CURRENT file list — `g' is exactly this same path — and schedules the
-first slice.  The caller paints (board or skeleton) after this so the
-header marker/progress is visible from the first paint."
+  "Enter (or short-circuit) a refresh for the current board; return the token.
+Mtime-incremental (R42-2): cancels any in-flight refresh (its slices go
+stale via the token), stats the CURRENT file list and diffs it against the
+`org-air-view--items-mtimes' baseline via `org-air-view--changed-files'.
+
+- No file changed => single-swap the same items, clear the marker, refresh
+  the baseline, DONE.  No org-ql call, no slice, no pacer (the board is
+  already painted; this is the initial-load FRESH behaviour, now on the
+  refresh path too).
+
+- Otherwise the accumulator is SEEDED with the retained unchanged items
+  (reused verbatim — their markers are valid by mtime match) and ONLY the
+  changed files are queued; on finish the accumulator = retained ∪
+  rescanned = the full set (ordering is irrelevant, the R20-6 partition
+  regroups/sorts at render).  The changed subset is paced by the existing
+  R34-3 idle machine.
+
+The caller paints (board or skeleton) after this so the header
+marker/progress is visible from the first paint."
   (org-air-view--refresh-cancel)
-  (setq org-air-view--refresh-queue (org-air-query-files)
-        org-air-view--refresh-total (length org-air-view--refresh-queue)
-        org-air-view--refresh-acc nil
-        org-air-view--refresh-mtimes nil
-        org-air-view--refresh-state 'refreshing)
-  (if (null org-air-view--refresh-queue)
-      (org-air-view--refresh-finish)
-    (org-air-view--refresh-arm (current-buffer)
-                               org-air-view--refresh-token))
+  (let* ((files (org-air-query-files))
+         (changed (org-air-view--changed-files
+                   files org-air-view--items-mtimes)))
+    (cond
+     ;; No-change short-circuit: prove "0 files to reparse" and stop.
+     ((null changed)
+      (setq org-air-view--refresh-acc nil
+            org-air-view--refresh-queue nil
+            org-air-view--refresh-total 0
+            org-air-view--refresh-mtimes nil
+            org-air-view--refresh-state nil
+            org-air-view--cache-stale-files nil
+            org-air-view--loading nil
+            org-air-view--items-mtimes (org-air-view--mtimes-snapshot files))
+      (org-air-view--refresh-repaint))
+     ;; Incremental: retain unchanged items, queue only the changed files.
+     (t
+      (let ((existing (seq-filter #'file-exists-p changed))
+            (retained (seq-remove
+                       (lambda (it)
+                         (member (org-air-item-file it) changed))
+                       org-air-view--items)))
+        (setq org-air-view--refresh-queue existing
+              org-air-view--refresh-total (length existing)
+              org-air-view--refresh-acc (copy-sequence retained)
+              org-air-view--refresh-mtimes nil
+              org-air-view--cache-stale-files changed
+              org-air-view--refresh-state 'refreshing)
+        ;; Every changed file may have vanished (existing empty) — finish
+        ;; immediately so the retained set (minus the dropped rows) swaps in
+        ;; and the state can never stick at `refreshing'.
+        (if (null org-air-view--refresh-queue)
+            (org-air-view--refresh-finish)
+          (org-air-view--refresh-arm (current-buffer)
+                                     org-air-view--refresh-token))))))
   org-air-view--refresh-token)
 
 (defun org-air-view--refresh-finish ()

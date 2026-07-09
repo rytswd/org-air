@@ -1191,6 +1191,10 @@ completes."
   (org-air-r26--with-cache-env
     (with-current-buffer (org-air-r26--cache-board)
       (org-air-r26--scan-and-cache)
+      ;; R42-2: refresh is mtime-incremental, so dirty one file to give the
+      ;; machine work (a no-change refresh short-circuits with no slice).
+      (write-region "* TODO Failure probe\n" nil org-air-inbox-file 'append)
+      (set-file-times org-air-inbox-file (time-add (current-time) 5))
       ;; start a refresh whose first slice blows up.
       (org-air-view--refresh-start)
       (let ((body-before

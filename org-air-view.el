@@ -770,6 +770,12 @@ never a partial paint.")
 Persisted with the cache so the next start can detect staleness.")
 (defvar-local org-air-view--refresh-timer nil
   "The single repeating idle pacing timer of the in-flight refresh, or nil (R34-3).")
+(defvar-local org-air-view--refresh-watchdog nil
+  "One-shot wall-clock safety timer for the paced refresh, or nil (R42-2).
+Armed with the idle pacer; if the machine is STILL `refreshing' under the
+same token when it fires, it drains the remaining queue synchronously and
+finishes, so the idle pacer stranding (Emacs never going idle, or the idle
+clock repeatedly reset) can never leave the state stuck at `refreshing'.")
 (defvar-local org-air-view--cache-stale-files nil
   "Files whose mtime diverged from the cache snapshot (R26-8).
 While REFRESHING, triage verbs on an item from one of these soft-error
@@ -6805,6 +6811,21 @@ must not re-block the frame)."
   "Bounded idle interval (seconds) pacing the chunked refresh slices (R34-3).
 An internal constant, never a defcustom.")
 
+(defconst org-air-view--refresh-sync-budget 12
+  "Changed-file count at/below which refresh scans SYNCHRONOUSLY (R42-2).
+Warm per-file reparse is ~0.13ms, so up to this many changed files finish
+well under one frame with no idle pacer and no marker churn; a larger
+change set (a bulk edit, or the cold first load which routes through
+`org-air-view' not the refresh) keeps the R34-3 repeating idle pacer over
+the changed subset.  An internal constant, never a defcustom.")
+
+(defconst org-air-view--refresh-watchdog-timeout 8.0
+  "Seconds before a stranded paced scan is force-completed (R42-2).
+A wall-clock backstop only — the R34-3 idle pacer resumes across idle
+periods and normally finishes long before this — that guarantees
+`org-air-view--refresh-state' can never persist at `refreshing'
+indefinitely (the user's \"refreshing FOREVER\" failure).")
+
 (defun org-air-view--refresh-next-delay (idle-elapsed interrupted-p)
   "Return the bounded delay before the next refresh slice (R34-3).
 Always the bounded constant `org-air-view--refresh-pace'.  It must NOT
@@ -6819,11 +6840,50 @@ resumable pace is constant."
   (ignore idle-elapsed interrupted-p)
   org-air-view--refresh-pace)
 
+(defun org-air-view--refresh-watchdog-disarm ()
+  "Cancel the one-shot refresh safety timer, if any (R42-2)."
+  (when (timerp org-air-view--refresh-watchdog)
+    (cancel-timer org-air-view--refresh-watchdog))
+  (setq org-air-view--refresh-watchdog nil))
+
+(defun org-air-view--refresh-watchdog-fire (buffer token)
+  "Force a stranded paced refresh to completion (R42-2 safety backstop).
+If BUFFER is still `refreshing' under TOKEN when the watchdog fires, the
+idle pacer failed to drain the queue; disarm it, scan any remaining files
+synchronously and finish (or fail honestly).  Token-guarded, so a
+superseded refresh's watchdog is a silent no-op.  The state can never be
+left at `refreshing'."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (when (and (eq token org-air-view--refresh-token)
+                 (eq org-air-view--refresh-state 'refreshing))
+        (org-air-view--refresh-disarm)
+        (condition-case err
+            (progn
+              (when org-air-view--refresh-queue
+                (setq org-air-view--refresh-acc
+                      (nconc org-air-view--refresh-acc
+                             (copy-sequence
+                              (org-air-query-items-in-files
+                               org-air-view--refresh-queue)))
+                      org-air-view--refresh-queue nil))
+              (org-air-view--refresh-finish))
+          (error
+           (setq org-air-view--refresh-state 'failed
+                 org-air-view--refresh-queue nil
+                 org-air-view--refresh-acc nil
+                 org-air-view--loading nil)
+           (org-air-view--refresh-repaint)
+           (message "org-air: refresh failed: %s (g retries)"
+                    (org-air-view--short-error err))))))))
+
 (defun org-air-view--refresh-disarm ()
-  "Cancel the repeating pacing timer, if any (R34-3).  Single teardown point."
+  "Cancel the pacing + watchdog timers, if any (R34-3/R42-2).
+Single teardown point for every timer the paced refresh arms."
   (when (timerp org-air-view--refresh-timer)
     (cancel-timer org-air-view--refresh-timer))
-  (setq org-air-view--refresh-timer nil))
+  (setq org-air-view--refresh-timer nil)
+  (org-air-view--refresh-watchdog-disarm))
 
 (defun org-air-view--refresh-arm (buffer token)
   "Arm ONE repeating idle pacing timer for BUFFER's refresh under TOKEN (R34-3).
@@ -6842,7 +6902,14 @@ arms under `noninteractive' — the deterministic ERTs call
         (setq org-air-view--refresh-timer
               (run-with-idle-timer
                (org-air-view--refresh-next-delay 0 nil) t
-               #'org-air-view--refresh-run-slice buffer token))))))
+               #'org-air-view--refresh-run-slice buffer token))
+        ;; R42-2: a wall-clock backstop the idle pacer can never outlive,
+        ;; so `refreshing' can never persist indefinitely if idle stalls.
+        (org-air-view--refresh-watchdog-disarm)
+        (setq org-air-view--refresh-watchdog
+              (run-with-timer
+               org-air-view--refresh-watchdog-timeout nil
+               #'org-air-view--refresh-watchdog-fire buffer token))))))
 
 (defun org-air-view--refresh-cancel ()
   "Invalidate any in-flight refresh: bump the token, cancel the timer.
@@ -6857,8 +6924,12 @@ Every pending slice callback carries the old token and self-cancels."
   (org-air-view--refresh-cancel)
   (setq org-air-view--refresh-state nil))
 
-(defun org-air-view--refresh-start ()
+(defun org-air-view--refresh-start (&optional cold)
   "Enter (or short-circuit) a refresh for the current board; return the token.
+With COLD non-nil (the initial skeleton load, where the board is NOT yet
+painted) the sync fast path is bypassed so the async skeleton machine
+paints instantly and keeps input live; only a WARM refresh (already
+painted) takes the sync path.
 Mtime-incremental (R42-2): cancels any in-flight refresh (its slices go
 stale via the token), stats the CURRENT file list and diffs it against the
 `org-air-view--items-mtimes' baseline via `org-air-view--changed-files'.
@@ -6868,12 +6939,18 @@ stale via the token), stats the CURRENT file list and diffs it against the
   already painted; this is the initial-load FRESH behaviour, now on the
   refresh path too).
 
-- Otherwise the accumulator is SEEDED with the retained unchanged items
-  (reused verbatim — their markers are valid by mtime match) and ONLY the
-  changed files are queued; on finish the accumulator = retained ∪
-  rescanned = the full set (ordering is irrelevant, the R20-6 partition
-  regroups/sorts at render).  The changed subset is paced by the existing
-  R34-3 idle machine.
+- A small changed set (<= `org-air-view--refresh-sync-budget') is scanned
+  SYNCHRONOUSLY in one `org-air-query-items-in-files' call, merged with
+  the retained items and single-swapped in — no timer, no marker churn,
+  well under one frame for the common save-a-file case.  This path never
+  enters `refreshing', so it can never strand.
+
+- A larger changed set (bulk edit) SEEDS the accumulator with the retained
+  unchanged items (reused verbatim — their markers are valid by mtime
+  match) and queues ONLY the changed files, paced by the R34-3 idle
+  machine (with the R42-2 watchdog backstop); on finish the accumulator =
+  retained ∪ rescanned = the full set (ordering is irrelevant, the R20-6
+  partition regroups/sorts at render).
 
 The caller paints (board or skeleton) after this so the header
 marker/progress is visible from the first paint."
@@ -6882,18 +6959,51 @@ marker/progress is visible from the first paint."
          (changed (org-air-view--changed-files
                    files org-air-view--items-mtimes)))
     (cond
-     ;; No-change short-circuit: prove "0 files to reparse" and stop.
+     ;; No-change short-circuit: prove "0 files to reparse" and stop.  The
+     ;; board already shows exactly these items, so REPAINT only when a
+     ;; marker (`refreshing'/`failed'/`loading') was up and must be cleared
+     ;; — the common warm no-change `g r' is then a sub-frame no-op.
      ((null changed)
-      (setq org-air-view--refresh-acc nil
-            org-air-view--refresh-queue nil
-            org-air-view--refresh-total 0
-            org-air-view--refresh-mtimes nil
-            org-air-view--refresh-state nil
-            org-air-view--cache-stale-files nil
-            org-air-view--loading nil
-            org-air-view--items-mtimes (org-air-view--mtimes-snapshot files))
-      (org-air-view--refresh-repaint))
-     ;; Incremental: retain unchanged items, queue only the changed files.
+      (let ((had-marker (or org-air-view--refresh-state
+                            org-air-view--loading)))
+        (setq org-air-view--refresh-acc nil
+              org-air-view--refresh-queue nil
+              org-air-view--refresh-total 0
+              org-air-view--refresh-mtimes nil
+              org-air-view--refresh-state nil
+              org-air-view--cache-stale-files nil
+              org-air-view--loading nil
+              org-air-view--items-mtimes (org-air-view--mtimes-snapshot files))
+        (when had-marker
+          (org-air-view--refresh-repaint))))
+     ;; Sync fast path: few changed files -> one query, merge, single-swap,
+     ;; DONE.  Never enters `refreshing' (so it cannot strand); no pacer.
+     ;; Skipped on the COLD load (board not yet painted -> keep the paced
+     ;; skeleton machine).
+     ((and (not cold)
+           (<= (length changed) org-air-view--refresh-sync-budget))
+      (let* ((existing (seq-filter #'file-exists-p changed))
+             (retained (seq-remove
+                        (lambda (it)
+                          (member (org-air-item-file it) changed))
+                        org-air-view--items))
+             (fresh (copy-sequence
+                     (org-air-query-items-in-files existing)))
+             (merged (nconc retained fresh)))
+        (setq org-air-view--items merged
+              org-air-view--items-key (list org-air-files org-air-inbox-file)
+              org-air-view--items-mtimes (org-air-view--mtimes-snapshot files)
+              org-air-view--classify-cache nil
+              org-air-view--refresh-acc nil
+              org-air-view--refresh-queue nil
+              org-air-view--refresh-total 0
+              org-air-view--refresh-mtimes nil
+              org-air-view--refresh-state nil
+              org-air-view--cache-stale-files nil
+              org-air-view--loading nil)
+        (org-air-view--refresh-repaint)
+        (org-air-view--cache-write merged org-air-view--items-mtimes)))
+     ;; Bulk/cold: retain unchanged items, PACE only the changed subset.
      (t
       (let ((existing (seq-filter #'file-exists-p changed))
             (retained (seq-remove
@@ -7077,7 +7187,7 @@ buffer can never wedge in a loading state."
         (setq org-air-view--loading t)
         (condition-case err
             (progn
-              (org-air-view--refresh-start)  ; state first: header shows 0/N
+              (org-air-view--refresh-start t) ; COLD: paced skeleton machine
               (org-air-view--render-loading)
               (redisplay t))
           (error

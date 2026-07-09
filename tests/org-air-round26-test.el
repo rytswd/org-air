@@ -1025,7 +1025,12 @@ help — the single teaching surface now — says `r refile'."
             (org-air-view-height 50)
             (org-air-cache-file
              (expand-file-name "cache/board.eld" org-air-test--dir))
-            (org-air-view-buffer-name "*org-air-r26-8*"))
+            (org-air-view-buffer-name "*org-air-r26-8*")
+            ;; R42-2: these suites drive the CHUNKED/paced machine directly
+            ;; (slices, tokens, timers).  A 0 sync budget forces every
+            ;; change through the paced path the tests are written for; the
+            ;; sync fast path has its own coverage.
+            (org-air-view--refresh-sync-budget 0))
         (unwind-protect
             (progn ,@body)
           (when (get-buffer org-air-view-buffer-name)

@@ -233,7 +233,10 @@ slice chain repaints exactly ONCE, at the swap."
   (org-air-test-with-fixtures
     (let ((org-air-view-width 120)
           (org-air-view-height 50)
-          (org-air-view-buffer-name "*org-air-r27-swap*"))
+          (org-air-view-buffer-name "*org-air-r27-swap*")
+          ;; R42-2: drive the paced machine (this test asserts the chunked
+          ;; single-repaint), so force the paced path with a 0 sync budget.
+          (org-air-view--refresh-sync-budget 0))
       (unwind-protect
           (with-current-buffer (get-buffer-create org-air-view-buffer-name)
             (org-air-view-mode)

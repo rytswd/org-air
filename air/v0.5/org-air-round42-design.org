@@ -1,5 +1,5 @@
 #+title: org-air Round 42 — Refresh performance (mtime-incremental, drop the pacer floor)
-#+state: ready
+#+state: complete
 #+tags: performance refresh cache incremental profiling
 
 * Summary
@@ -232,3 +232,6 @@ under =noninteractive= (calls the helpers directly, no timers):
 - (done) Gate: =make clean && make check= GREEN (615 tests, 0 unexpected, 8
   pre-existing GUI skips); =make regen-mockups= ZERO churn (batch path
   byte-identical); manifest EMPTY; =airctl status -Da= parity exact.
+
+* History
+- 2026-07-10: State: ready → complete.

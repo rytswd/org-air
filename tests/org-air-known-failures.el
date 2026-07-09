@@ -885,32 +885,51 @@
     ;;     pxmorlro).  Round-36 manifest is EMPTY; the tests stay as
     ;;     permanent regression guards.
     ;; =================================================================
-    ;; v0.5 ROUND-40 R40-1 grind (impl track) — the header separator RULE
-    ;; gains a symmetric RIGHT gutter equal to its left margin
-    ;; (`org-air-view--banner-indent' = 2), so `org-air-view--insert-rule'
-    ;; now spans EXACTLY the R39-1 banner content columns (indent ..
-    ;; usable-indent) instead of filling flush to the right edge.  This is
-    ;; the design-blessed INTENTIONAL golden move (air/v0.5/org-air-round40-
-    ;; design.org R40-1): every chrome byte golden's line-1 `─' rule shrinks
-    ;; by exactly `banner-indent' (2) glyphs on the RIGHT at every width
-    ;; (now ending where the banner content ends); NO other line moves.
-    ;; Fixtures NOT edited on the impl track — these byte goldens + the
-    ;; legacy r36-1 rule-fills-width assertion (which hardcoded the pre-R40
-    ;; flush-to-W contract `(= (string-width rule) width)') are manifested
-    ;; expected-to-fail until the test seat re-blesses via
-    ;; `make regen-mockups' and retargets the rule assertion to the
-    ;; symmetric-gutter (width - 2*margin) span.  The new executing ERT
-    ;; `org-air-r40-1-rule-margins-symmetric' (rule span == banner content
-    ;; span, lhs-margin == rhs-margin == banner-indent) locks the contract
-    ;; and passes on the .el source.
-    (org-air-layout-mockup-80 . "R40-1 rule +2-col right gutter (golden re-bless)")
-    (org-air-layout-mockup-120 . "R40-1 rule +2-col right gutter (golden re-bless)")
-    (org-air-layout-mockup-160 . "R40-1 rule +2-col right gutter (golden re-bless)")
-    (org-air-layout-mockup-heights . "R40-1 rule +2-col right gutter (golden re-bless)")
-    (org-air-layout-mockup-thresholds . "R40-1 rule +2-col right gutter (golden re-bless)")
-    (org-air-r13-board-only-byte-mockup . "R40-1 rule +2-col right gutter (golden re-bless)")
-    (org-air-r17-denote-origin-byte-mockup . "R40-1 rule +2-col right gutter (golden re-bless)")
-    (org-air-r36-1-right-padded-chrome-lines-do-not-overshoot . "R40-1 rule no longer fills flush to W; symmetric right gutter (test re-bless)")
+    ;; v0.5 ROUND-40 CLOSEOUT (impl tips 60dd39c4..1a1a4484 + test re-bless
+    ;; <this commit>).  ALL grind entries CLOSED — the moved rule goldens
+    ;; regenerated from impl's render via the FROZEN-CLOCK renderer (make
+    ;; regen-mockups, guards active; verified NO HANG, exit 0) and the
+    ;; legacy r36-1 rule assertion retuned to the design-blessed R40
+    ;; contracts (air/v0.5/org-air-round40-design.org):
+    ;;   R40-1 (28 goldens) HEADER SEPARATOR RULE SYMMETRY: the header rule
+    ;;     (`org-air-view--insert-rule') now reserves a RIGHT gutter equal
+    ;;     to its left margin (`org-air-view--banner-indent' = `org-air-
+    ;;     margin' = 2) instead of filling flush to W, so the `─' rule spans
+    ;;     EXACTLY the R39-1 symmetric banner content columns (indent ..
+    ;;     usable-indent).  make regen-mockups re-blessed the 28 chrome byte
+    ;;     goldens (layout-mockup 70..160 + x24/x50 tiers + board-only +
+    ;;     empty-120x50, denote-origin-{80,120}); jj-verified the ONLY
+    ;;     fixture delta is the `─' rule shrinking by EXACTLY `banner-indent'
+    ;;     (2) glyphs on the RIGHT at every width (31 rule lines total incl.
+    ;;     the W90 calendar-band separator) — every row/header/rail/day-
+    ;;     header/pane line is byte-identical (each changed line is a pure
+    ;;     spaces+`─' rule; lead stays 2, run = width - 2*margin).  The
+    ;;     legacy org-air-r36-1-right-padded-chrome-lines-do-not-overshoot
+    ;;     (which hardcoded the pre-R40 flush-to-W contract `(= (string-width
+    ;;     rule) width)') retuned on the test seat to the symmetric contract
+    ;;     (right gutter == left margin == banner-indent; run == width -
+    ;;     2*margin; no overshoot) — now PASSES, deleted from the manifest.
+    ;;   R40-2 (byte-invisible) NO-RAIL FENCE CONTINUITY: `org-air-view--
+    ;;     insert-row' now right-anchors the standard board row to the ONE
+    ;;     shared board-wide `org-air-view--fence-column' (no-arg form,
+    ;;     derived from `meta-cluster-width') rather than the per-row
+    ;;     CLUSTER-W, so the fence is CONTINUOUS BY CONSTRUCTION; every board
+    ;;     row already anchored to the shared column on the fixtures, so no
+    ;;     golden moved.
+    ;; NEW R40 EXECUTING ERTs (tests/org-air-round40-test.el, revert-fails):
+    ;;   org-air-r40-1-rule-margins-symmetric — the rule's first/last non-
+    ;;     space cols == the banner content's (lhs-margin == rhs-margin ==
+    ;;     banner-indent); reverting to a flush-right rule FAILS.
+    ;;   org-air-r40-2-fence-continuous-under-divergent-cluster — the fence
+    ;;     column is IDENTICAL on every board row (incl. blank/fill/separator
+    ;;     rows) even with DIVERGENT per-row cluster widths, and equals the
+    ;;     shared no-arg `org-air-view--fence-column'; reverting to per-row
+    ;;     CLUSTER-W anchoring FAILS (fence varies row-to-row).
+    ;; airctl `status -Da' parity RE-VERIFIED (the rule symmetry is org-air-
+    ;; side chrome and preserves every column; the fence hardening is byte-
+    ;; identical on the current data).  No .el SOURCE touched (impl landed
+    ;; R40-1/R40-2 in 60dd39c4..1a1a4484).  Round-40 manifest is EMPTY; the
+    ;; tests stay as permanent regression guards.
     ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

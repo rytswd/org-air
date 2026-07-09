@@ -124,23 +124,41 @@ is exactly what this asserts.  For each width the ACTUAL fixed line passes."
 
 (ert-deftest org-air-r36-1-right-padded-chrome-lines-do-not-overshoot ()
   "The other right-padded full-width chrome lines that ride the same render
-width must not overshoot: the S7 rule (`org-air-view--insert-rule') fills
-to EXACTLY the render width with no trailing overshoot, so the header's
-no-reserved-column change did not push any sibling chrome past the edge."
+width must not overshoot: the S7 rule (`org-air-view--insert-rule') must
+not run PAST the render width.  R40-1 tightened the contract further — the
+rule now reserves a SYMMETRIC right gutter equal to its left margin
+\(`org-air-view--banner-indent' = `org-air-margin' = 2) instead of filling
+flush to W, so the rule spans EXACTLY the R39-1 symmetric banner content
+columns (`indent' .. `usable - indent').  This asserts the new symmetric
+contract: no overshoot AND a right gutter equal to the left margin (the
+pre-R40 flush-to-W rule, with a 0-col right gutter, would fail here)."
   (skip-unless (locate-library "org-air"))
   (dolist (width '(40 80 120 191 200))
     (with-temp-buffer
       (let ((org-air-view--line-width width))
         (org-air-view--insert-rule)
         (goto-char (point-min))
-        (let ((rule (buffer-substring-no-properties (line-beginning-position)
-                                                    (line-end-position))))
+        (let* ((rule (buffer-substring-no-properties (line-beginning-position)
+                                                     (line-end-position)))
+               (margin org-air-margin)
+               (rulew (string-width rule))
+               ;; the glyph run is everything right of the left margin.
+               (glyphs (- rulew margin))
+               ;; columns of blank between the rule's last glyph and W.
+               (right-gutter (- width rulew)))
           (ert-info ((format "rule @ width %d: %S" width rule))
-            (should (<= (string-width rule) width))
-            ;; the rule fills the whole width (margin + contiguous glyph run).
-            (should (= (string-width rule) width))
-            ;; the left margin is present; the run does not overshoot.
-            (should (string-prefix-p "  " rule))))))))
+            ;; never overshoots the render width…
+            (should (<= rulew width))
+            ;; …and R40-1: no longer flush to W — a real right gutter exists.
+            (should (< rulew width))
+            ;; the left margin is present (banner-indent leading spaces).
+            (should (string-prefix-p (make-string margin ?\s) rule))
+            ;; SYMMETRIC gutters: right gutter == left margin == banner-indent.
+            (should (= right-gutter margin))
+            (should (= right-gutter org-air-view--banner-indent))
+            ;; the glyph run spans exactly the symmetric interior width - 2*margin
+            ;; (`indent' .. `usable - indent'), not the pre-R40 flush width-margin.
+            (should (= glyphs (- width (* 2 margin))))))))))
 
 ;;;; =====================================================================
 ;;;; R36-1 — R34's usable-columns model is preserved verbatim (fenced).

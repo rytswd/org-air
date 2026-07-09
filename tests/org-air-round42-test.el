@@ -1,0 +1,373 @@
+;;; org-air-round42-test.el --- executing ERTs for v0.5 round-42 -*- lexical-binding: t; -*-
+
+;;; Commentary:
+;; Acceptance ERTs for v0.5 round-42 (air/v0.5/org-air-round42-design.org):
+;; the mtime-incremental refresh that collapses the ~850ms idle-pacer floor.
+;;
+;; These are the DECISIVE perf/correctness fences for Fix A/B/C.  All run
+;; deterministically under `noninteractive' — they call the refresh helpers
+;; directly (no timers, no idle waits): the pacer never arms under batch, so
+;; the paced path is driven either by the named slice runner in a loop or by
+;; firing the watchdog by hand.  org-ql scans are counted at the SCAN ENTRY
+;; POINTS — `org-air-query-items-in-files' (the incremental/sync/paced
+;; reparse) and `org-air-query-items' (a full re-scan) — because `org-ql-
+;; select' is a MACRO expanded into the byte-compiled callers, so a live
+;; call count only exists at these named functions; the changed-file subset
+;; is captured from the FILES argument of the former.
+;;
+;;   R42-2 NO-CHANGE short-circuit — a warm board + matching mtime snapshot
+;;         refreshes with ZERO org-ql scans, single-swaps the same items
+;;         (`eq'), and returns state to nil (never `refreshing).  Reverting
+;;         Fix B (re-scan all files) drives the scan counter > 0 => FAILS.
+;;   R42-2 INCREMENTAL — one changed file => ONLY that file is (re)queried,
+;;         the other files' items are reused verbatim (`eq'), and the merged
+;;         set equals the full set.  Reverting (re-scan all) loses the `eq'
+;;         retention => FAILS.
+;;   R42-2 SYNC FAST PATH — a changed set <= the budget (12) scans
+;;         synchronously (state nil at return, no queue, no marker); a set >
+;;         budget routes to the paced machine (state `refreshing, queue
+;;         non-empty).  Reverting the sync path (always-pace) leaves a
+;;         <=budget change `refreshing => FAILS.
+;;   R42-2 WATCHDOG / no-strand — the paced path's `refreshing state ALWAYS
+;;         resolves to nil (finish) or `failed; the wall-clock watchdog
+;;         force-completes a stranded scan.  Reverting (a no-op watchdog)
+;;         leaves the state stuck at `refreshing => FAILS.
+;;   R42-1 `org-air-view--changed-files' pure table — new / changed /
+;;         vanished / all-match(nil).
+;;   R42   Timing sanity — a warm no-change refresh finishes well under a
+;;         generous wall-clock bound.
+
+;;; Code:
+
+(require 'ert)
+(require 'cl-lib)
+(require 'subr-x)
+(require 'org)
+(require 'org-air-test-helpers)
+
+(when (locate-library "org-air")
+  (require 'org-air))
+
+;;;; -------------------------------------------------------------------
+;;;; Fixtures / warm-board scaffolding
+;;;; -------------------------------------------------------------------
+
+(defvar org-air-r42--ql-calls 0
+  "Count of org-ql SCAN calls while a counter is installed.
+Every call to a scan entry point (`org-air-query-items-in-files' or the
+full `org-air-query-items') = one real org-ql pass (`org-ql-select' is a
+macro, so this is the only place a live count exists).")
+
+(defvar org-air-r42--in-files-args nil
+  "List of FILES arguments passed to `org-air-query-items-in-files'.")
+
+(defmacro org-air-r42--counting (&rest body)
+  "Run BODY with the org-ql scan entry points counted.
+Resets and exposes `org-air-r42--ql-calls' (number of real org-ql scans:
+calls to `org-air-query-items-in-files' + `org-air-query-items') and
+`org-air-r42--in-files-args' (the FILES lists the incremental/sync paths
+asked to reparse)."
+  (declare (indent 0) (debug t))
+  `(let ((org-air-r42--ql-calls 0)
+         (org-air-r42--in-files-args nil))
+     (cl-letf* ((inf-orig (symbol-function 'org-air-query-items-in-files))
+                ((symbol-function 'org-air-query-items-in-files)
+                 (lambda (files &rest rest)
+                   (cl-incf org-air-r42--ql-calls)
+                   (push (copy-sequence files) org-air-r42--in-files-args)
+                   (apply inf-orig files rest)))
+                (items-orig (symbol-function 'org-air-query-items))
+                ((symbol-function 'org-air-query-items)
+                 (lambda (&rest rest)
+                   (cl-incf org-air-r42--ql-calls)
+                   (apply items-orig rest))))
+       ,@body)))
+
+(defmacro org-air-r42--with-warm-board (&rest body)
+  "Fixtures + a WARM, fully-scanned board buffer as the current buffer.
+Binds a scratch fixture set, opens a board buffer in `org-air-view-mode',
+runs ONE full synchronous scan and records the completed-scan mtime
+baseline (`org-air-view--items-mtimes') exactly as the live sync path
+does, then paints.  BODY runs warm — a subsequent `org-air-view--refresh-
+start' is the real `g r'."
+  (declare (indent 0) (debug t))
+  `(org-air-test-with-fixtures
+    (let ((org-air-view-width 120)
+          (org-air-view-height 50)
+          (org-air-view-buffer-name "*org-air-r42*")
+          (org-air-cache-file
+           (expand-file-name "cache/board-r42.eld" org-air-test--dir)))
+      (unwind-protect
+          (with-current-buffer (get-buffer-create org-air-view-buffer-name)
+            (unless (derived-mode-p 'org-air-view-mode) (org-air-view-mode))
+            (let ((files (org-air-query-files)))
+              (setq org-air-view--items (org-air-query-items)
+                    org-air-view--items-key (list org-air-files
+                                                  org-air-inbox-file)
+                    org-air-view--classify-cache nil
+                    org-air-view--items-mtimes
+                    (org-air-view--mtimes-snapshot files))
+              (org-air-view--render org-air-view--items nil))
+            ,@body)
+        (when (get-buffer org-air-view-buffer-name)
+          (let ((kill-buffer-query-functions nil))
+            (kill-buffer org-air-view-buffer-name)))))))
+
+(defun org-air-r42--titles (items)
+  "Return the sorted list of ITEM titles (a set-comparable signature)."
+  (sort (mapcar (lambda (it) (or (org-air-item-title it) "")) items)
+        #'string<))
+
+(defun org-air-r42--touch (file)
+  "Bump FILE's mtime decisively forward so the snapshot diverges."
+  (set-file-times file (time-add (current-time) 10)))
+
+;;;; -------------------------------------------------------------------
+;;;; 1. NO-CHANGE short-circuit — ZERO org-ql scans, state nil, items eq
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-no-change-zero-scans ()
+  "Warm board + matching mtime snapshot: `g r' with nothing changed does
+ZERO org-ql scans, single-swaps the SAME items (`eq'), leaves the queue
+empty and returns state to nil (NOT `refreshing).  Revert-fails: the R41
+all-files re-queue would call org-ql (scan count > 0)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let ((before org-air-view--items))
+      (org-air-r42--counting
+        (org-air-view--refresh-start)
+        ;; the decisive fence (counters are dynamic in the block): NOT ONE
+        ;; org-ql scan, and nothing was queued.
+        (should (= org-air-r42--ql-calls 0))
+        (should (null org-air-r42--in-files-args)))
+      ;; synchronous, no marker: state clears, no paced machine.
+      (should-not org-air-view--refresh-state)
+      (should (null org-air-view--refresh-queue))
+      (should-not org-air-view--refresh-timer)
+      ;; same items, reused verbatim (single-swap, no new structs).
+      (should (eq org-air-view--items before))
+      ;; the baseline is refreshed so the NEXT `g r' is still incremental.
+      (should org-air-view--items-mtimes))))
+
+;;;; -------------------------------------------------------------------
+;;;; 2. INCREMENTAL — one changed file, only that file reparsed, rest eq
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-incremental-one-file ()
+  "One file's mtime diverges: `org-air-view--changed-files' names exactly
+it; the refresh reparses ONLY that file (a SINGLE org-ql scan over the
+one-file subset, never the other four); the unchanged files' items are
+reused `eq' (never re-queried); and the merged set equals the full set.
+Revert-fails: an all-files re-scan makes the scan count/argument the whole
+file set, not the one changed file."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let* ((files (org-air-query-files))
+           (changed-file (car files))
+           (before org-air-view--items)
+           (before-titles (org-air-r42--titles before)))
+      ;; exactly one file changed.
+      (org-air-r42--touch changed-file)
+      (should (equal (org-air-view--changed-files
+                      files org-air-view--items-mtimes)
+                     (list changed-file)))
+      (org-air-r42--counting
+        (org-air-view--refresh-start)
+        ;; ONLY the one changed file was reparsed: a single scan, over it
+        ;; alone (counters are dynamic — read them inside the block).
+        (should (= org-air-r42--ql-calls 1))
+        (should (equal org-air-r42--in-files-args
+                       (list (list changed-file)))))
+      ;; synchronous single-swap (1 <= budget): state clears.
+      (should-not org-air-view--refresh-state)
+      ;; every UNCHANGED file's items are reused verbatim (`eq') — they were
+      ;; never re-queried, only the changed file was.  (The changed file's
+      ;; items may legitimately be `eq' too when org-ql serves them from its
+      ;; parse cache, so we do NOT assert their identity — the decisive
+      ;; incremental fence is the scan count/argument above.)
+      (dolist (it before)
+        (unless (equal (org-air-item-file it) changed-file)
+          (should (memq it org-air-view--items))))
+      ;; merged set is complete: identical to the full set (no content
+      ;; edit here, so the titles are preserved end-to-end).
+      (should (equal (org-air-r42--titles org-air-view--items)
+                     before-titles)))))
+
+(ert-deftest org-air-r42-incremental-content-merge-complete ()
+  "A REAL edit to one file (a new heading) is picked up incrementally and
+the merged set equals a full re-scan — retained-plus-rescanned == full."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let* ((files (org-air-query-files))
+           (target (file-truename org-air-inbox-file)))
+      ;; a REAL edit saved through the live Org buffer (the after-save flow):
+      ;; org-ql keeps the file's buffer resident, so the change must land in
+      ;; that buffer (a bare disk write would leave the resident parse stale).
+      (with-current-buffer (find-file-noselect org-air-inbox-file)
+        (goto-char (point-max))
+        (insert "\n* TODO R42 incremental probe\n")
+        (let ((save-silently t)) (save-buffer)))
+      (org-air-r42--touch org-air-inbox-file)   ; decisive mtime divergence
+      (should (member target
+                      (org-air-view--changed-files
+                       files org-air-view--items-mtimes)))
+      (org-air-r42--counting
+        (org-air-view--refresh-start)
+        (should (= org-air-r42--ql-calls 1)))
+      (should-not org-air-view--refresh-state)
+      ;; the new heading is present…
+      (should (org-air-test-find-item "R42 incremental probe"
+                                      org-air-view--items))
+      ;; …and the incremental merge == a fresh full scan (set-equal).
+      (should (equal (org-air-r42--titles org-air-view--items)
+                     (org-air-r42--titles (org-air-query-items)))))))
+
+;;;; -------------------------------------------------------------------
+;;;; 3. SYNC FAST PATH vs PACED — budget gate
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-sync-fast-path-under-budget ()
+  "A changed set at/below the budget scans SYNCHRONOUSLY: no queue is left
+paced, no timer armed, state nil at return.  Revert-fails: an always-pace
+refresh would leave a <=budget change `refreshing with a non-empty queue."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let ((changed-file (car (org-air-query-files))))
+      (should (<= 1 org-air-view--refresh-sync-budget))
+      (org-air-r42--touch changed-file)
+      (org-air-view--refresh-start)
+      ;; SYNC: finished before returning — no paced machine state at all.
+      (should-not org-air-view--refresh-state)
+      (should (null org-air-view--refresh-queue))
+      (should-not org-air-view--refresh-timer)
+      (should-not org-air-view--refresh-watchdog))))
+
+(ert-deftest org-air-r42-over-budget-routes-to-paced ()
+  "A changed set ABOVE the budget routes to the R34-3 paced machine: state
+`refreshing, the changed subset queued (non-empty).  Forcing the budget to
+0 makes a single changed file exceed it (the sync fast path is skipped)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let ((org-air-view--refresh-sync-budget 0)
+          (changed-file (car (org-air-query-files))))
+      (org-air-r42--touch changed-file)
+      (org-air-view--refresh-start)
+      ;; PACED: the machine is live, the changed file queued for slicing.
+      (should (eq org-air-view--refresh-state 'refreshing))
+      (should (member changed-file org-air-view--refresh-queue))
+      (should (= (length org-air-view--refresh-queue) 1))
+      ;; driving the slices to completion resolves it (single swap, nil).
+      (let ((token org-air-view--refresh-token)
+            (n 20))
+        (while (and (> n 0) (eq org-air-view--refresh-state 'refreshing))
+          (org-air-view--refresh-run-slice (current-buffer) token)
+          (cl-decf n)))
+      (should-not org-air-view--refresh-state))))
+
+;;;; -------------------------------------------------------------------
+;;;; 4. WATCHDOG / no-strand — `refreshing NEVER persists
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-watchdog-force-completes-strand ()
+  "A stranded paced refresh (queue never drained) is force-completed by the
+wall-clock watchdog: `refreshing resolves to nil, items swapped in.
+Revert-fails: a no-op watchdog leaves the state stuck at `refreshing."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let ((org-air-view--refresh-sync-budget 0)
+          (changed-file (car (org-air-query-files))))
+      (org-air-r42--touch changed-file)
+      (org-air-view--refresh-start)
+      (should (eq org-air-view--refresh-state 'refreshing))
+      ;; do NOT drain the queue; fire the watchdog by hand (batch has no
+      ;; timers).  It must resolve the strand to a terminal state.
+      (org-air-view--refresh-watchdog-fire (current-buffer)
+                                           org-air-view--refresh-token)
+      (should-not (eq org-air-view--refresh-state 'refreshing))
+      (should-not org-air-view--refresh-state)   ; finished, not merely !refreshing
+      (should org-air-view--items))))
+
+(ert-deftest org-air-r42-watchdog-fails-honestly ()
+  "If the force-completion scan itself errors, the watchdog leaves the
+state at `failed (an honest terminal state) — NEVER stuck at `refreshing."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let ((org-air-view--refresh-sync-budget 0)
+          (changed-file (car (org-air-query-files))))
+      (org-air-r42--touch changed-file)
+      (org-air-view--refresh-start)
+      (should (eq org-air-view--refresh-state 'refreshing))
+      (cl-letf (((symbol-function 'org-air-query-items-in-files)
+                 (lambda (&rest _) (error "disk on fire"))))
+        (org-air-view--refresh-watchdog-fire (current-buffer)
+                                             org-air-view--refresh-token))
+      (should (eq org-air-view--refresh-state 'failed))
+      (should-not (eq org-air-view--refresh-state 'refreshing)))))
+
+(ert-deftest org-air-r42-watchdog-superseded-token-noop ()
+  "A watchdog carrying a stale TOKEN (a superseded refresh) never touches
+the live state — it is a silent no-op, so it can never corrupt a fresh
+refresh."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let ((org-air-view--refresh-sync-budget 0)
+          (changed-file (car (org-air-query-files))))
+      (org-air-r42--touch changed-file)
+      (org-air-view--refresh-start)
+      (should (eq org-air-view--refresh-state 'refreshing))
+      (let ((stale (1- org-air-view--refresh-token)))
+        (org-air-view--refresh-watchdog-fire (current-buffer) stale)
+        ;; the live refresh is untouched by the stale watchdog.
+        (should (eq org-air-view--refresh-state 'refreshing))))))
+
+;;;; -------------------------------------------------------------------
+;;;; 5. `org-air-view--changed-files' — pure table
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-changed-files-table ()
+  "The shared staleness oracle: all-match => nil; a changed mtime, a new
+file (absent from snapshot), and a vanished snapshot file each surface."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (let* ((files (org-air-query-files))
+           (snapshot (org-air-view--mtimes-snapshot files)))
+      ;; all mtimes match => FRESH (no scan at all).
+      (should (null (org-air-view--changed-files files snapshot)))
+      ;; a changed mtime surfaces exactly its file.
+      (let ((f (car files)))
+        (org-air-r42--touch f)
+        (should (equal (org-air-view--changed-files files snapshot)
+                       (list f)))
+        ;; refresh the snapshot for f so the next probes isolate cleanly.
+        (setq snapshot (org-air-view--mtimes-snapshot files)))
+      ;; a NEW file (present on disk, absent from the snapshot) surfaces.
+      (let* ((partial (cdr snapshot))          ; drop the first file's entry
+             (new-file (car (mapcar #'car snapshot)))
+             (changed (org-air-view--changed-files files partial)))
+        (should (member new-file changed))
+        (should (= (length changed) 1)))
+      ;; a VANISHED snapshot file (in the baseline, no longer configured)
+      ;; surfaces so its stale rows are dropped.
+      (let* ((ghost (expand-file-name "ghost.org" org-air-test--dir))
+             (haunted (cons (cons ghost (current-time)) snapshot))
+             (changed (org-air-view--changed-files files haunted)))
+        (should (member ghost changed))))))
+
+;;;; -------------------------------------------------------------------
+;;;; 6. Timing sanity — warm no-change refresh is sub-frame-ish (generous)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-no-change-timing-bound ()
+  "A warm no-change refresh completes well under a generous wall-clock
+bound (no org-ql scan, no ~850ms pacer floor).  Deliberately generous so
+it is not a CI/GUI-fragile micro-benchmark — it only guards against a
+regression back to the paced all-files re-scan."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let ((t0 (float-time)))
+      (org-air-view--refresh-start)
+      (should-not org-air-view--refresh-state)
+      (should (< (- (float-time) t0) 0.5)))))
+
+(provide 'org-air-round42-test)
+;;; org-air-round42-test.el ends here

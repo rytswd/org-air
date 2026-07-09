@@ -203,3 +203,32 @@ under =noninteractive= (calls the helpers directly, no timers):
   all-files re-scan with no mtime short-circuit (numbers above).
 - (pending) R42-2 mtime-incremental refresh: snapshot + =--changed-files= +
   no-change short-circuit + ≤12 sync fast path + paced only for bulk/cold.
+- (done) R42 executing ERTs =tests/org-air-round42-test.el= (10 fences, all
+  deterministic under =noninteractive=; org-ql scans counted at the SCAN ENTRY
+  POINTS =org-air-query-items-in-files= / =org-air-query-items= because
+  =org-ql-select= is a macro expanded into its byte-compiled callers):
+  - NO-CHANGE short-circuit: warm board + matching snapshot => *0* scan calls,
+    same items reused =eq=, state -> nil (never =refreshing=).  Revert Fix B
+    (all-files re-scan) drives the count > 0 => FAILS (verified).
+  - INCREMENTAL: one changed file => exactly *1* scan over that one file
+    (=in-files-args= == the single changed file), the other four reused =eq=,
+    merged set == full set; a real saved edit merges == a full re-scan.
+  - SYNC FAST-PATH: ≤budget(12) => state nil at return, no queue/timer/watchdog;
+    >budget (forced via budget 0) => =refreshing=, changed subset queued, then
+    drains to nil.  Revert (always-pace, budget -1) => FAILS (verified).
+  - WATCHDOG / no-strand: a stranded paced =refreshing= is force-completed by
+    =--refresh-watchdog-fire= to nil (finish) or =failed= (scan errors) — never
+    persists; superseded-token watchdog is a silent no-op.  Revert (no-op
+    watchdog) => FAILS (verified).
+  - =--changed-files= pure table: new / changed / vanished / all-match(nil).
+  - Timing sanity: warm no-change refresh < 0.5s (generous, not GUI-fragile).
+- (done) Reviewed + OWNED the impl's test retunes: =round26= drives the
+  chunked/paced machine directly, so the cache-env now binds
+  =org-air-view--refresh-sync-budget 0= (forcing every change through the paced
+  path those suites assert) and the failure-probe dirties one file so the
+  incremental machine has work (a no-change =g r= now short-circuits with no
+  slice); =round27='s single-repaint test likewise pins budget 0.  Honest
+  retunes to the new incremental/sync contract — not gutted.
+- (done) Gate: =make clean && make check= GREEN (615 tests, 0 unexpected, 8
+  pre-existing GUI skips); =make regen-mockups= ZERO churn (batch path
+  byte-identical); manifest EMPTY; =airctl status -Da= parity exact.

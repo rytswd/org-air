@@ -1,0 +1,48 @@
+#+title: org-air Round 41 — Header separator rule full-width
+#+state: ready
+#+tags: layout header rule polish
+
+* Summary
+
+User request (GUI, after R40): "make the header dash separator to be 2 space
+width longer for both lhs and rhs". R40-1 inset the rule to match the content's
+symmetric =banner-indent= margins (span =banner-indent .. usable-banner-indent=).
+The user now wants the rule extended 2 columns on EACH side — i.e. a FULL-WIDTH
+separator flush to both edges, with the content still inset. This is the classic
+nano-emacs look (full-bleed rule under inset content).
+
+* R41-1 — Header rule spans the full usable width (flush both edges)
+
+Scope: =org-air-view--insert-rule= ONLY (the header ───── separator).
+
+- Change the rule span from =banner-indent .. (usable - banner-indent)= (R40-1)
+  to =0 .. usable= — the full usable width, flush to the left window edge and the
+  right safety margin. That is exactly =banner-indent= (2) columns longer on the
+  LHS and =banner-indent= (2) longer on the RHS than R40-1.
+- The rule is made of =─= (U+2500, string-width 1, default face, no scaling), so a
+  run of =usable= glyphs fits the text area exactly — no overflow (respects the
+  R37 =usable = body-1= safety margin; the rule ends at the last usable column,
+  never past it).
+- The header CONTENT stays inset by =banner-indent= (R39-1 unchanged): title
+  "  org-air" and the right status keep their symmetric 2-col gutters. Only the
+  RULE goes full-width. Result: full-bleed rule, inset content — intentional and
+  consistent (LHS rule margin == RHS rule margin == 0).
+- Do NOT reintroduce any right overshoot past =usable= (the pre-R40 bug); flush
+  means exactly the last usable column, not beyond.
+
+Intended golden move: the rule line gains 2 leading + 2 trailing =─= vs the R40
+goldens → test re-blesses the chrome fixtures honestly and retunes the R40-1
+"rule margins == content margins" ERT to the new contract "rule spans full usable
+width (0 .. usable), 2 cols wider than content each side" (revert-fails).
+
+* Verification
+
+=make clean && make check= GREEN (0 unexpected, manifest EMPTY after re-bless),
+=make regen-mockups= zero residual churn, airctl status -Da parity exact. Executing
+ERT: rule first-non-space col == 0 AND rule last-non-space col == usable-1 AND
+(rule width - banner-content width) == 2*banner-indent; reverting to the R40 inset
+FAILS.
+
+* Implementation History
+
+- (pending) R41-1 full-width header rule.

@@ -6986,27 +6986,47 @@ marker/progress is visible from the first paint."
      ;; skeleton machine).
      ((and (not cold)
            (<= (length changed) org-air-view--refresh-sync-budget))
-      (let* ((existing (seq-filter #'file-exists-p changed))
-             (retained (seq-remove
-                        (lambda (it)
-                          (member (org-air-item-file it) changed))
-                        org-air-view--items))
-             (fresh (copy-sequence
-                     (org-air-query-items-in-files existing)))
-             (merged (nconc retained fresh)))
-        (setq org-air-view--items merged
-              org-air-view--items-key (list org-air-files org-air-inbox-file)
-              org-air-view--items-mtimes (org-air-view--mtimes-snapshot files)
-              org-air-view--classify-cache nil
-              org-air-view--refresh-acc nil
-              org-air-view--refresh-queue nil
-              org-air-view--refresh-total 0
-              org-air-view--refresh-mtimes nil
-              org-air-view--refresh-state nil
-              org-air-view--cache-stale-files nil
-              org-air-view--loading nil)
-        (org-air-view--refresh-repaint)
-        (org-air-view--cache-write merged org-air-view--items-mtimes)))
+      ;; F3: the scan is the one sync site that used to run UNPROTECTED — a
+      ;; signal here (with the board `refreshing'+`loading' on a small cold
+      ;; load whose all-changed set fits the budget) would leave state
+      ;; `refreshing' with no timer and no watchdog: the exact strand this
+      ;; round exists to kill.  Mirror the slice handler: error -> `failed'
+      ;; + repaint.
+      (condition-case err
+          (let* ((existing (seq-filter #'file-exists-p changed))
+                 (retained (seq-remove
+                            (lambda (it)
+                              (member (org-air-item-file it) changed))
+                            org-air-view--items))
+                 ;; B1: stat the FULL set ONCE *before* the scan reads any
+                 ;; file, so no file is stat'd AFTER it is read; a file
+                 ;; changed post-stat/pre-read then diverges next refresh
+                 ;; and re-scans (errors converge) instead of masking.
+                 (snapshot (org-air-view--mtimes-snapshot files))
+                 (fresh (copy-sequence
+                         (org-air-query-items-in-files existing)))
+                 (merged (nconc retained fresh)))
+            (setq org-air-view--items merged
+                  org-air-view--items-key (list org-air-files org-air-inbox-file)
+                  org-air-view--items-mtimes snapshot
+                  org-air-view--classify-cache nil
+                  org-air-view--refresh-acc nil
+                  org-air-view--refresh-queue nil
+                  org-air-view--refresh-total 0
+                  org-air-view--refresh-mtimes nil
+                  org-air-view--refresh-state nil
+                  org-air-view--cache-stale-files nil
+                  org-air-view--loading nil)
+            (org-air-view--refresh-repaint)
+            (org-air-view--cache-write merged snapshot))
+        (error
+         (setq org-air-view--refresh-state 'failed
+               org-air-view--refresh-queue nil
+               org-air-view--refresh-acc nil
+               org-air-view--loading nil)
+         (org-air-view--refresh-repaint)
+         (message "org-air: refresh failed: %s (g retries)"
+                  (org-air-view--short-error err)))))
      ;; Bulk/cold: retain unchanged items, PACE only the changed subset.
      (t
       (let ((existing (seq-filter #'file-exists-p changed))

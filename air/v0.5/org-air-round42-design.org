@@ -1,0 +1,205 @@
+#+title: org-air Round 42 — Refresh performance (mtime-incremental, drop the pacer floor)
+#+state: ready
+#+tags: performance refresh cache incremental profiling
+
+* Summary
+
+User request (GUI): "the refresh takes a long time, check how we can improve
+that." Refresh is the =g r= / =g= command on the board (=org-air-refresh= →
+=org-air-view--refresh-start=, the R26-8/R34-3 token-guarded chunked machine).
+
+This round is DIAGNOSIS-FIRST: a headless profile of the refresh path against the
+demo (=/tmp/org-air=, 583 entries / 50 files) locates the cost, then specs the
+fix. The measured verdict: the scan itself is cheap when warm; the *dominant
+perceived cost is ~850 ms of pure idle-pacer floor* imposed on every refresh, and
+refresh *never uses the mtime-FRESH short-circuit* the initial cache-first load
+(R26-8) already has, so it re-scans all 50 files even when nothing changed.
+
+* R42-1 — STEP 1: HEADLESS PROFILE (the numbers)
+
+Method: =emacs -Q --batch=, =org-air-files = '("/tmp/org-air")=, steady-state
+=(benchmark-run …)= around each stage (buffers warmed once first, matching a live
+session where the previous scan left the 50 Org files resident). org-ql opens
+files with =find-file-noselect= and *never kills them* (org-ql.el:387-391) and
+caches parses in =org-ql--select-cached= — so after the first load every file is a
+live, parse-cached Org buffer. That is the state a real =g r= runs in.
+
+** Stage breakdown (50 files / 583 items)
+
+| Stage                                    | Cold (first ever) | Warm (real =g r=) |
+|------------------------------------------+-------------------+-------------------|
+| (a) file discovery + mtime stat          |            3.6 ms |            3.6 ms |
+| (b) org-ql query + org parse             |    *223.0 ms*     |            4.2 ms |
+| (c) classify all items                   |           19.6 ms |           19.6 ms |
+| (d) sort / group / partition (R20-6)     |           29.6 ms |           29.6 ms |
+| (e) render (compose + insert + finalize) |           28.6 ms |           28.6 ms |
+| (f) mtime-only re-stat (no-change probe) |            3.6 ms |           0.65 ms |
+
+Warm scan+classify+partition+render ≈ *82 ms* total. Cold (b) is 223 ms only
+because it parses 50 files from disk *once*; org-ql's live buffers make every
+subsequent scan ~4 ms (a 50× gap).
+
+** The dominant cost is the idle-pacer floor, not the scan
+
+=org-air-view--refresh-start= chunks the scan into slices of
+=org-air-refresh-files-per-slice= (=3) files, paced by a *repeating* idle timer at
+=org-air-view--refresh-pace= (=0.05 s). For 50 files:
+
+: files=50  files/slice=3  ->  slices=17
+: idle-pacer floor = 17 slices x 0.050 s = 850 ms of PURE PACING
+: per-slice org-ql (3 files, warm) = 0.18 ms  x17 = 2.98 ms of actual scan work
+: one-shot org-ql (all 50 files, warm) = 1.20 ms
+
+So a warm =g r= spends ~*850 ms* of wall-clock idling between slices to do ~3 ms
+of work, and shows the =stale · refreshing…= marker the whole time. The chunking
+exists to keep the *cold 223 ms first parse* off the frame — a one-time cost that
+org-ql's resident buffers already amortise — but it is billed to *every* refresh.
+
+** Refresh bypasses the initial-load fast paths
+
+- *No mtime-FRESH short-circuit.* =org-air-view= (initial load, R26-8) computes
+  =org-air-view--cache-load= → when *all* file mtimes equal the cache snapshot it
+  paints and does *zero* scanning. =org-air-view--refresh-start= throws the
+  snapshot away (=org-air-view--refresh-mtimes nil=) and unconditionally
+  re-queues =(org-air-query-files)= — the full 17-slice machine — even when
+  nothing changed. Measured no-change mtime probe: *0.65 ms* to prove "0 files to
+  reparse", vs the 850 ms floor actually paid.
+- *No incremental (changed-files-only) skip.* Even when one file changed, refresh
+  re-parses all 50. Warm re-parse of a *single* changed file = *0.13 ms*.
+- The board is *already painted* on refresh (it keeps the current rows under the
+  marker), so refresh does NOT need the "paint cached instantly" half of the
+  cache-first dance — only the "re-scan cheaply / don't re-scan at all" half.
+
+*Dominant cost named:* the ~850 ms idle-pacer floor, multiplied onto an
+all-files re-scan that the mtime snapshot proves is unnecessary.
+
+* R42-2 — STEP 2: THE FIX (mtime-incremental refresh, pacer only when cold-heavy)
+
+Payoff order the data dictates (differs from the prompt's default because the
+board is already painted): (ii) incremental first, (i) reuse the bounded pacer
+*only* for the genuinely large/cold set, (iii) unchanged-section render is a
+non-goal (render is 28 ms and already single-swap; not worth the reconcile risk).
+
+** Fix A — Keep an in-memory mtime snapshot of the last completed scan
+
+New buffer-local =org-air-view--items-mtimes= (alist file→mtime). Populate it
+wherever =org-air-view--items= is set to a completed full scan:
+- =org-air-view--refresh-finish= (write the merged snapshot),
+- the synchronous =org-air-refresh= / =org-air-view= (=cached=/=noninteractive=)
+  paths (snapshot the freshly-queried files),
+- =org-air-view--cache-load= hydration (seed from the persisted =:mtimes=).
+
+Extract the mtime-compare already inlined in =org-air-view--cache-load= into a
+pure helper and share it:
+
+: (defun org-air-view--changed-files (files snapshot)
+:   "Return files whose mtime diverged from SNAPSHOT: new, changed, or vanished.")
+
+** Fix B — =org-air-view--refresh-start= becomes mtime-incremental
+
+1. Stat mtimes (stage (a), ~3.6 ms). =changed = (org-air-view--changed-files
+   files org-air-view--items-mtimes)=.
+2. *No-change short-circuit:* =changed= empty → refresh single-swaps the same
+   items, clears the marker, refreshes the snapshot mtimes, DONE. No org-ql call,
+   no slice, no pacer. Perceived < ~10 ms. (This is the initial-load FRESH
+   behaviour, now on the refresh path too.)
+3. *Incremental queue:* seed =org-air-view--refresh-acc= with the *retained*
+   items (those whose file is NOT in =changed= and not vanished), reused verbatim
+   — markers in unchanged files are valid by construction (mtime match). Queue
+   *only* the changed files. On finish the accumulator = retained ∪ rescanned =
+   the full set; the single swap replaces =org-air-view--items=. Ordering is
+   irrelevant — the R20-6 partition regroups/sorts at render.
+
+** Fix C — Collapse the pacer floor for small change-sets (sync fast path)
+
+Warm per-file parse is ~0.13 ms and even a full 50-file warm scan is 1.2 ms, so
+the idle pacer only earns its keep against the cold ~223 ms first parse. Add a
+bounded budget:
+
+: (defconst org-air-view--refresh-sync-budget 12
+:   "Changed-file count at/below which refresh scans SYNCHRONOUSLY (no pacer).")
+
+- =changed= count ≤ budget → scan the changed files in one =org-air-query-items-in-files=
+  call, merge, single-swap, DONE — no timer, no marker churn, well under one
+  frame (16 ms) for the common "saved a file / a few dates rolled" case.
+- =changed= count > budget (bulk edit, or the cold first load which still routes
+  through =org-air-view= not =refresh=) → keep the existing R34-3 repeating idle
+  pacer over the changed subset (non-blocking, marker visible). The pacer path is
+  preserved intact for exactly the case it was designed for.
+
+** Invariants held
+
+- *Non-blocking:* the >budget path still uses the single repeating idle timer
+  (R34-3), token-guarded, single-swap. The ≤budget/no-change paths finish faster
+  than a frame, so blocking is a non-issue.
+- *Frozen-clock batch path stays SYNC + byte-identical.* =org-air-refresh= under
+  =noninteractive= keeps the exact =(org-air-query-items)= + =--render= path (it
+  only additionally snapshots mtimes into the new local, which no golden reads).
+  =org-air-view= batch path unchanged. Goldens stable → =make regen-mockups= zero
+  churn.
+- *Stale-file triage guard (R26-8)* unchanged: mid-refresh, only items in the
+  =changed= set are guarded; unchanged-file positions stay live.
+
+** Before / after targets (warm session, the real complaint)
+
+| Scenario                        | Before (R41)             | After (R42)                    |
+|---------------------------------+--------------------------+--------------------------------|
+| =g r=, nothing changed          | ~850 ms paced, 50 reparse| < ~10 ms, *0* reparse          |
+| =g r=, 1 file changed           | ~850 ms paced, 50 reparse| < ~40 ms sync, *1* reparse     |
+| =g r=, few files changed (≤12)  | ~850 ms paced, 50 reparse| < ~60 ms sync, N reparse       |
+| =g r=, bulk change (>12) / cold | ~850 ms paced            | paced over changed subset only |
+
+Perceived: ~850 ms → *<10 ms* for the overwhelmingly common no-change / after-save
+refresh (=org-air-view--after-save-refresh= touches one file → 1 reparse, sync).
+
+** Functions / vars to change (exact)
+
+- New =defvar-local org-air-view--items-mtimes= — last-completed-scan snapshot.
+- New pure =org-air-view--changed-files (files snapshot)= — extracted from the
+  inline compare in =org-air-view--cache-load= (which then calls it).
+- New =defconst org-air-view--refresh-sync-budget= (=12).
+- =org-air-view--refresh-start= — stat mtimes, compute =changed=; empty →
+  short-circuit finish; ≤budget → sync scan+merge+swap; >budget → seed retained
+  acc + queue changed subset + arm the existing pacer. Returns the token.
+- =org-air-view--refresh-finish= — merge retained ∪ rescanned; set
+  =org-air-view--items-mtimes= to the fresh snapshot before/with the cache write.
+- =org-air-view--cache-load= — hydrate =org-air-view--items-mtimes= from
+  =:mtimes= so the FIRST post-cache =g r= is already incremental.
+- =org-air-refresh= — no behavioural change beyond delegating to the smarter
+  =refresh-start= (interactive) / unchanged sync path (noninteractive) + snapshot.
+- =org-air-view= (=cached=/=noninteractive= sync branches) — snapshot mtimes when
+  it sets =org-air-view--items= from a full query.
+
+* Verification
+
+=make clean && make check= GREEN (0 unexpected, manifest EMPTY), =make
+regen-mockups= zero residual churn (batch path byte-identical), airctl status -Da
+parity exact.
+
+Executing headless benchmark ERT (=tests/org-air-round42-test.el=), deterministic
+under =noninteractive= (calls the helpers directly, no timers):
+
+1. *No-change ⇒ zero reparse.* Warm =org-air-view--items= + a matching
+   =org-air-view--items-mtimes= snapshot; advise/counter =org-ql-select= (or
+   =org-air-query-items-in-files=); call the refresh entry; ASSERT the counter is
+   *0* (no org-ql call) AND state returns to nil AND items unchanged. *Revert-fails*:
+   the R41 all-files re-queue calls org-ql 50 files' worth → counter > 0.
+2. *One changed file ⇒ exactly one file reparsed.* Touch one snapshot mtime
+   backwards (simulate change); ASSERT =org-air-view--changed-files= returns that
+   one file, the reparse touches only it, retained items for the other 49 are
+   reused =eq=, and the merged set is complete. Revert (re-scan all) fails the
+   "only 1 file's items are fresh structs / 49 are reused =eq=" check.
+3. *Bound.* With warm buffers + unchanged mtimes the refresh entry completes under
+   a generous wall-clock bound (e.g. < 50 ms) and issues 0 slices; a >budget
+   changed-set routes to the paced machine (assert a timer is armed / queue
+   non-empty). Reverting the sync fast path (always-pace) leaves the queue paced
+   for a ≤budget set → fails.
+4. =org-air-view--changed-files= pure-unit table: new file, changed mtime,
+   vanished snapshot file, all-match ⇒ nil.
+
+* Implementation History
+
+- (pending) R42-1 headless profile: dominant cost = 850 ms idle-pacer floor +
+  all-files re-scan with no mtime short-circuit (numbers above).
+- (pending) R42-2 mtime-incremental refresh: snapshot + =--changed-files= +
+  no-change short-circuit + ≤12 sync fast path + paced only for bulk/cold.

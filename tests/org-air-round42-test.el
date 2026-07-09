@@ -36,6 +36,25 @@
 ;;         vanished / all-match(nil).
 ;;   R42   Timing sanity — a warm no-change refresh finishes well under a
 ;;         generous wall-clock bound.
+;;
+;; R42.1 REVIEW FENCES (the three Fable asked for; each REVERT-FAILS):
+;;   B1  RETAINED-file coherence — force the PACED path, then EXTERNALLY
+;;       write-region a RETAINED (unchanged-at-start) file BETWEEN
+;;       `--refresh-start' and draining the slice queue (the git-pull /
+;;       sync-daemon case: no after-save hook).  After finish, the NEXT
+;;       refresh's `org-air-view--changed-files' MUST name that file — its
+;;       baseline mtime is the PRE-write (scan-time) value, so the divergence
+;;       is visible.  Reverting B1 (a finish-time full re-stat) stamps the
+;;       POST-write mtime over the OLD items => masked FRESH forever => FAILS.
+;;   F2  no-change REPAINT — a no-change `g r' with NO marker up still
+;;       repaints (`buffer-chars-modified-tick' advances AND the day-keyed
+;;       classify cache rebuilds to today's day).  Reverting to the
+;;       `had-marker' skip strands yesterday's bucketing => FAILS.
+;;   F3  sync fast-path is FAIL-SAFE — a scan error on the SYNC path (with
+;;       the board already `refreshing' + `loading', the mid-load strand
+;;       route) resolves to `failed' with the board intact, NEVER stuck at
+;;       `refreshing'.  Reverting (drop the condition-case) lets the signal
+;;       propagate and the state stays `refreshing' => FAILS.
 
 ;;; Code:
 
@@ -368,6 +387,141 @@ regression back to the paced all-files re-scan."
       (org-air-view--refresh-start)
       (should-not org-air-view--refresh-state)
       (should (< (- (float-time) t0) 0.5)))))
+
+;;;; -------------------------------------------------------------------
+;;;; 7. R42.1 B1 — RETAINED file written externally mid-paced-scan is NOT
+;;;;    masked FRESH by a finish-time re-stat (THE decisive coherence fence)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-b1-retained-external-write-not-masked ()
+  "Force the PACED path (budget 0, one changed file queued).  BETWEEN
+`--refresh-start' and draining the slice queue, EXTERNALLY write a RETAINED
+(unchanged-at-start, un-queued) file so its mtime diverges — the git-pull /
+sync-daemon case (no after-save hook fires).  After finish the retained
+file's baseline mtime must be its PRE-write (scan-time) value, so the NEXT
+refresh's `org-air-view--changed-files' NAMES it and it re-scans.
+
+Revert-fails: the pre-R42.1 finish RE-STAT'd every file at finish time,
+stamping the retained file's POST-write mtime over its OLD (pre-write)
+items — the next no-change short-circuit then calls it FRESH and the
+staleness is masked FOREVER, so this `should' FAILS."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let* ((files (org-air-query-files))
+           (org-air-view--refresh-sync-budget 0)   ; force the PACED path
+           (changed-file (car files))
+           (retained-file (cadr files)))           ; unchanged AT START
+      ;; exactly one file changed at start => the paced machine queues it and
+      ;; retains everything else (retained-file among them).
+      (org-air-r42--touch changed-file)
+      (should-not (member retained-file
+                          (org-air-view--changed-files
+                           files org-air-view--items-mtimes)))
+      (org-air-view--refresh-start)
+      (should (eq org-air-view--refresh-state 'refreshing))
+      (should (member changed-file org-air-view--refresh-queue))
+      (should-not (member retained-file org-air-view--refresh-queue))
+      ;; --- the paced-scan WINDOW: an EXTERNAL writer (git pull / sync
+      ;; daemon) rewrites a RETAINED file on disk; no after-save hook, no
+      ;; entry in the changed set, no slice will read it.
+      (with-temp-buffer
+        (insert "* TODO sneaky external write mid-paced-scan\n")
+        (write-region (point-min) (point-max) retained-file nil 'silent))
+      (org-air-r42--touch retained-file)          ; decisive mtime divergence
+      ;; drain the queued slices to the terminal single-swap.
+      (let ((token org-air-view--refresh-token) (n 30))
+        (while (and (> n 0) (eq org-air-view--refresh-state 'refreshing))
+          (org-air-view--refresh-run-slice (current-buffer) token)
+          (cl-decf n)))
+      (should-not org-air-view--refresh-state)     ; finished cleanly
+      ;; THE FENCE: the retained file's external write survived the finish —
+      ;; its baseline is the PRE-write mtime, so the next diff names it.
+      (should (member retained-file
+                      (org-air-view--changed-files
+                       files org-air-view--items-mtimes)))
+      ;; guard against tautology: the QUEUED changed file was read at scan
+      ;; time and is legitimately FRESH now (not a blanket "everything
+      ;; changed" that would satisfy the fence trivially).
+      (should-not (member changed-file
+                          (org-air-view--changed-files
+                           files org-air-view--items-mtimes))))))
+
+;;;; -------------------------------------------------------------------
+;;;; 8. R42.1 F2 — no-change `g r' REPAINTS even with NO marker up
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-f2-no-change-repaints ()
+  "A no-change `g r' with NO marker up (the common warm case) still REPAINTS:
+`buffer-chars-modified-tick' advances AND the day-keyed classify cache,
+left stamped with YESTERDAY's day, rebuilds to today's day on the render.
+This is the documented \"single-swap the same items, clear the marker\"
+(repaint) contract — without it, a day rolling over after midnight leaves
+yesterday's overdue/today/upcoming bucketing on screen indefinitely (no
+midnight timer; the classify cache invalidates only ON RENDER).
+
+Revert-fails: the pre-R42.1 `had-marker' guard SKIPPED the repaint when no
+`refreshing'/`failed'/`loading' marker was up — the tick would not advance
+and the classify day would stay YESTERDAY, so both `should's FAIL."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    ;; no marker: a plain warm board (the fixture leaves state/loading nil).
+    (should-not org-air-view--refresh-state)
+    (should-not org-air-view--loading)
+    (let ((tick0 (buffer-chars-modified-tick))
+          (yesterday (1- (time-to-days (current-time))))
+          (today (time-to-days (current-time))))
+      ;; stamp the classify cache with a STALE (yesterday) day, as a board
+      ;; left open across midnight would be.
+      (setq org-air-view--classify-cache-day yesterday)
+      (should org-air-view--classify-cache)      ; a table is present to rebuild
+      (org-air-view--refresh-start)
+      ;; no-change: synchronous, no paced machine, state stays nil.
+      (should-not org-air-view--refresh-state)
+      ;; …but it REPAINTED: the buffer's char tick advanced…
+      (should (> (buffer-chars-modified-tick) tick0))
+      ;; …and the render rebuilt the classify cache for TODAY (drops the
+      ;; stale midnight bucketing).
+      (should (eql org-air-view--classify-cache-day today)))))
+
+;;;; -------------------------------------------------------------------
+;;;; 9. R42.1 F3 — sync fast-path scan error => `failed', never stranded
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r42-f3-sync-scan-error-fails-not-strands ()
+  "The SYNC fast path is fail-safe.  Model the residual strand route: the
+board is already `refreshing' + `loading' (a small cold load mid-flight),
+the user presses `g', the all-changed set fits the budget so the SYNC
+branch runs — and the scan SIGNALS.  It must resolve to `failed' with the
+painted board intact (`--items' untouched), NEVER left stuck at
+`refreshing' with no timer and no watchdog.
+
+Revert-fails: without the condition-case the signal propagates out of
+`--refresh-start' with state untouched, so it stays `refreshing' — the
+exact \"refreshing FOREVER\" strand this round exists to kill — and the
+`failed' assertion FAILS."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r42--with-warm-board
+    (let* ((changed-file (car (org-air-query-files)))
+           (before org-air-view--items))
+      ;; one changed file: the change set (1) fits the sync budget (>=1).
+      (should (<= 1 org-air-view--refresh-sync-budget))
+      (org-air-r42--touch changed-file)
+      ;; simulate the mid-load state a `g' would land on: `--refresh-cancel'
+      ;; (inside `--refresh-start') disarms timers but does NOT clear state.
+      (setq org-air-view--refresh-state 'refreshing
+            org-air-view--loading t)
+      (cl-letf (((symbol-function 'org-air-query-items-in-files)
+                 (lambda (&rest _) (error "disk on fire"))))
+        ;; catch here so the FIX passes cleanly (it handles internally) while
+        ;; the REVERT — which lets the signal escape — leaves state
+        ;; `refreshing' and the assertion below fails.
+        (condition-case _ (org-air-view--refresh-start) (error nil)))
+      ;; honest terminal state, never stranded.
+      (should (eq org-air-view--refresh-state 'failed))
+      (should-not (eq org-air-view--refresh-state 'refreshing))
+      ;; the painted board is intact — the failed scan swapped nothing in.
+      (should (eq org-air-view--items before))
+      (should-not org-air-view--loading))))
 
 (provide 'org-air-round42-test)
 ;;; org-air-round42-test.el ends here

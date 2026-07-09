@@ -977,6 +977,12 @@ margin + state cell, byte-identical to today."
      :widths (list org-air-project--meta-date-w
                    org-air-project--meta-tags-w
                    0)
+     ;; R40-2: the project view composes its OWN cluster field from its own
+     ;; `org-air-project--meta-*' globals (distinct from the board's
+     ;; `org-air-view--meta-*'), so it anchors to THIS row's cluster width
+     ;; (OWN-FENCE t) — the shared no-arg board fence column would read the
+     ;; wrong globals.  This is the documented no-rail-board exception.
+     :own-fence t
      :props (list 'org-air-doc doc
                   'org-air-marker (org-air-doc-file doc)
                   'mouse-face 'org-air-face-cursor)

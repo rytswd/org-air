@@ -2892,7 +2892,7 @@ the reported 1-2 col drift."
 
 (cl-defun org-air-view--insert-row (&key prefix title date-text tags
                                          origin-text origin-face widths
-                                         props face)
+                                         props face own-fence)
   "Insert one shared V6 fixed-column row (D-P5.A; the board + project floor).
 PREFIX leads the line (todo/priority markers, or a state chip); the TITLE
 owns the LEFT and stays clean; the metadata is a fixed-width
@@ -2920,12 +2920,19 @@ this one primitive, faces, truncation, alignment and svg pills)."
          (dcol (or (nth 0 widths) 0))
          (tcol (or (nth 1 widths) 0))
          (ocol (or (nth 2 widths) 0))
-         ;; date cell: left-justified; expands locally (e.g. for the Inbox
-         ;; nudge baked into DATE-TEXT) so the row alone widens, never clips.
+         ;; date cell: left-justified, padded to EXACTLY its global column
+         ;; DCOL — no local expansion past DCOL (R40-2 lockstep).  The R26-6
+         ;; no-nudge contract removed the one expander (the "· r to file"
+         ;; Inbox nudge that baked extra width into DATE-TEXT), so a bare
+         ;; DATE-TEXT always fits DCOL and this is byte-identical to the old
+         ;; `(max dcol …)' form on every fixture.  Keeping it at DCOL (not
+         ;; `max') means the cluster field width can never exceed the
+         ;; board-wide `meta-cluster-width', so every row's cluster field ==
+         ;; `meta-cluster-width' in lockstep and the shared fence column
+         ;; below is exact for all rows (a divergent wide date is truncated,
+         ;; never allowed to shove the fence).
          (date-cell (when (> dcol 0)
-                      (org-air-view--pad-to
-                       (or date-text "")
-                       (max dcol (string-width (or date-text ""))))))
+                      (org-air-view--pad-to (or date-text "") dcol)))
          (tags-cell (when (> tcol 0) (org-air-view--pad-to (or tags "") tcol)))
          (origin-cell (when (> ocol 0)
                         ;; R17: the fit pass can shrink OCOL below a capped
@@ -2979,15 +2986,21 @@ this one primitive, faces, truncation, alignment and svg pills)."
                    left
                  (truncate-string-to-width
                   left left-budget nil nil (org-air-view--glyph 'more))))
-         ;; R39-2: right-anchor the cluster to the ONE shared fence column
-         ;; via `org-air-view--fence-column', derived from the SAME live WIDTH
-         ;; and this row's own CLUSTER-W.  For a standard board row CLUSTER-W
-         ;; equals the live `meta-cluster-width', so the no-arg fence column
-         ;; (the vertical line the test probes) lands on exactly this anchor;
-         ;; a row whose date-cell locally expanded (Inbox nudge) or the
-         ;; project view (its own :widths) passes its own CLUSTER-W and so is
-         ;; byte-identical to the pre-R39 `width - cluster-w' math.
-         (anchor (org-air-view--fence-column width cluster-w))
+         ;; R40-2: right-anchor the cluster to the ONE board-wide fence
+         ;; column.  The standard no-rail BOARD row (OWN-FENCE nil) anchors
+         ;; to the SHARED no-arg `org-air-view--fence-column' — derived from
+         ;; the live WIDTH and the board-wide `meta-cluster-width' — so the
+         ;; vertical fence is CONTINUOUS BY CONSTRUCTION: every board row
+         ;; (and every blank/fill/separator row that reads the same helper)
+         ;; lands on the identical column regardless of its OWN cluster
+         ;; width, in LOCKSTEP.  This supersedes R39-2's per-row CLUSTER-W
+         ;; anchoring, whose continuity was one divergent row away from
+         ;; breaking.  The project view / day pane compose their OWN cluster
+         ;; field (different globals) and pass OWN-FENCE t to keep anchoring
+         ;; to THIS row's CLUSTER-W (documented exception — not the no-rail
+         ;; board fence the user reports); with a lockstep cluster field this
+         ;; is byte-identical to the board path on the current fixtures.
+         (anchor (org-air-view--fence-column width (and own-fence cluster-w)))
          (pad (max gap (- anchor (string-width left))))
          (line (concat left (make-string pad ?\s) cluster)))
     (insert line "\n")
@@ -3055,6 +3068,12 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
      ;; R22-7: the origin reads at AA (mid-tier) instead of sub-AA faded.
      :origin-face 'org-air-face-origin
      :widths (list dcol tcol ocol)
+     ;; R40-2: the STANDARD no-rail board row (OMIT-DATE nil) anchors to the
+     ;; SHARED board-wide fence column (OWN-FENCE nil) so the vertical fence
+     ;; is continuous by construction.  The R6 DAY PANE (OMIT-DATE) composes
+     ;; its own focused cluster field with the board globals let-unset, so it
+     ;; keeps anchoring to THIS row's cluster width (OWN-FENCE t).
+     :own-fence omit-date
      :props (list 'org-air-item item
                   'org-air-marker (org-air-item-marker item)
                   'mouse-face 'org-air-face-cursor)

@@ -684,6 +684,14 @@ to `any', where either tag matches.  The predicate honours both modes."
 
 (defvar-local org-air-view--items nil)
 (defvar-local org-air-view--items-key nil)
+(defvar-local org-air-view--items-mtimes nil
+  "Alist FILE -> mtime of the last COMPLETED full scan (R42-1).
+The in-memory baseline `org-air-view--refresh-start' diffs against so a
+refresh reparses only the files that actually changed (or, when nothing
+changed, nothing at all) instead of re-scanning every file.  Set wherever
+`org-air-view--items' is filled from a full query (`org-air-view'
+sync/cached branches, `org-air-refresh', `org-air-view--refresh-finish')
+and hydrated from the persisted `:mtimes' by `org-air-view--cache-load'.")
 (defvar-local org-air-view--classify-cache nil
   "Per-board memo mapping an `org-air-item' to its cached bucket list.
 An `eq' hash (R18 D-P1c).  Auto-invalidates because a re-query yields new
@@ -6737,26 +6745,52 @@ are all silently \"no cache\" — the cold path."
                data))
       (error nil))))
 
+(defun org-air-view--mtimes-snapshot (files)
+  "Return an alist FILE -> current mtime for FILES (R42-1).
+The baseline recorded in `org-air-view--items-mtimes' after a completed
+full scan, so a later `org-air-view--refresh-start' can prove — via
+`org-air-view--changed-files' — exactly which files changed without
+reparsing anything."
+  (mapcar (lambda (f)
+            (cons f (file-attribute-modification-time
+                     (file-attributes f))))
+          files))
+
+(defun org-air-view--changed-files (files snapshot)
+  "Return the FILES whose mtime diverged from SNAPSHOT (R42-1).
+SNAPSHOT is an alist FILE -> mtime from the last completed full scan.  A
+file is \"changed\" when it is new (absent from SNAPSHOT), its mtime
+differs, or it VANISHED (present in SNAPSHOT but no longer among FILES —
+its stale rows must be dropped).  Pure: the shared staleness oracle for
+both the cache-first load (`org-air-view--cache-load') and the
+mtime-incremental refresh (`org-air-view--refresh-start').  nil when every
+mtime matches (FRESH: no scan at all)."
+  (let ((changed (seq-remove
+                  (lambda (f)
+                    (equal (cdr (assoc f snapshot))
+                           (file-attribute-modification-time
+                            (file-attributes f))))
+                  files)))
+    ;; a snapshot file that vanished also invalidates (its rows linger).
+    (dolist (entry snapshot)
+      (unless (member (car entry) files)
+        (push (car entry) changed)))
+    changed))
+
 (defun org-air-view--cache-load ()
   "Return (ITEMS . STALE-FILES) from the persisted cache, or nil.
 ITEMS carry cons (FILE . POS) marker slots (hydrated on demand by
 `org-air-view--item-pos').  STALE-FILES is the list of configured files
 whose mtime diverged from the snapshot — new files and snapshot files now
-missing included — nil when every mtime matches (FRESH: no scan at all)."
+missing included — nil when every mtime matches (FRESH: no scan at all).
+Hydrates `org-air-view--items-mtimes' from the persisted `:mtimes' so the
+FIRST post-cache `g r' is already mtime-incremental (R42-1)."
   (when-let* ((data (org-air-view--cache-read)))
     (let* ((files (org-air-query-files))
-           (mtimes (plist-get data :mtimes))
-           (stale (seq-remove
-                   (lambda (f)
-                     (equal (cdr (assoc f mtimes))
-                            (file-attribute-modification-time
-                             (file-attributes f))))
-                   files)))
-      ;; a snapshot file that vanished also invalidates (its rows linger).
-      (dolist (entry mtimes)
-        (unless (member (car entry) files)
-          (push (car entry) stale)))
-      (cons (plist-get data :items) stale))))
+           (mtimes (plist-get data :mtimes)))
+      (setq org-air-view--items-mtimes mtimes)
+      (cons (plist-get data :items)
+            (org-air-view--changed-files files mtimes)))))
 
 (defun org-air-view--refresh-repaint ()
   "Repaint the board from `org-air-view--items' as-is, preserving point.
@@ -6848,15 +6882,20 @@ The single-swap rule (no partial paints): the accumulated items replace
 preserved, and the machine returns to FRESH.  Disarms the repeating pacer
 first so it cannot fire again after the chain is DONE (R34-3)."
   (org-air-view--refresh-disarm)
+  ;; R42-1: the merged accumulator (retained unchanged items ∪ rescanned
+  ;; changed items) is the full set; the fresh full mtime snapshot is the
+  ;; new incremental baseline persisted with (and stored alongside) it.
   (let ((items org-air-view--refresh-acc)
-        (mtimes org-air-view--refresh-mtimes))
+        (mtimes (org-air-view--mtimes-snapshot (org-air-query-files))))
     (setq org-air-view--items items
           org-air-view--items-key (list org-air-files org-air-inbox-file)
+          org-air-view--items-mtimes mtimes
           org-air-view--classify-cache nil
           org-air-view--refresh-state nil
           org-air-view--refresh-acc nil
           org-air-view--refresh-queue nil
           org-air-view--refresh-total 0
+          org-air-view--refresh-mtimes nil
           org-air-view--cache-stale-files nil
           org-air-view--loading nil)
     (org-air-view--refresh-repaint)
@@ -6964,9 +7003,13 @@ buffer can never wedge in a loading state."
         (unless cached
           ;; R18 D-P1c: fresh structs from a re-query invalidate the
           ;; classify cache (old `eq' entries can never be wrongly hit, but
-          ;; drop them).
+          ;; drop them).  R42-1: snapshot the queried files' mtimes as the
+          ;; incremental baseline (a display-invisible local; no golden
+          ;; reads it, so the byte fixtures are untouched).
           (setq org-air-view--items (org-air-query-items)
-                org-air-view--classify-cache nil))
+                org-air-view--classify-cache nil
+                org-air-view--items-mtimes
+                (org-air-view--mtimes-snapshot (org-air-query-files))))
         (org-air-view--render org-air-view--items org-air-view--tag-filter))
        ;; R26-8 CACHED: a valid persisted cache paints the FULL last-known
        ;; board instantly.  All mtimes match -> FRESH, no scan at all; any
@@ -7030,9 +7073,12 @@ exact synchronous re-query it always was."
       (setq org-air-view--cache-stale-files nil)
       ;; R18 D-P1c: a re-query builds fresh item structs, so drop the
       ;; classify cache (bounds memory; picks up a changed classify-tuning
-      ;; defcustom on the next refresh).
+      ;; defcustom on the next refresh).  R42-1: refresh the incremental
+      ;; mtime baseline too (display-invisible local; no golden reads it).
       (setq org-air-view--items (org-air-query-items)
-            org-air-view--classify-cache nil)
+            org-air-view--classify-cache nil
+            org-air-view--items-mtimes
+            (org-air-view--mtimes-snapshot (org-air-query-files)))
       (org-air-view--render org-air-view--items filter)
       (org-air-view--restore-position token))))
 

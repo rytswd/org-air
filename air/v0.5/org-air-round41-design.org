@@ -1,5 +1,5 @@
 #+title: org-air Round 41 — Header separator rule full-width
-#+state: ready
+#+state: complete
 #+tags: layout header rule polish
 
 * Summary
@@ -53,3 +53,6 @@ FAILS.
   r36-1 overshoot + r40-1 rule-margins-symmetric) added to
   tests/org-air-known-failures.el as expected-fail pending test re-bless;
   fixtures NOT edited. make clean && make check GREEN (0 unexpected).
+
+* History
+- 2026-07-10: State: ready → complete.

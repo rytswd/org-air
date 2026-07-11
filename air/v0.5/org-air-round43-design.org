@@ -1,5 +1,5 @@
 #+title: org-air Round 43 — The board↔rail divider breaks in the lower portion (live-only; terminal │)
-#+state: ready
+#+state: complete
 #+tags: layout divider two-pane rail live-path finalize regression
 
 * Summary
@@ -207,3 +207,6 @@ fixture items, two-pane, sections EXPANDED so board_rows ≫ rail_rows:
   tail stays governed by the R38-2 refill trim contract (deliberately out of
   scope — the fix targets the board ≫ rail lower portion the user reported).
   make clean && make check GREEN (618 tests, 0 unexpected, 8 skipped).
+
+* History
+- 2026-07-12: State: ready → complete.

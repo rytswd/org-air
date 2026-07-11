@@ -821,6 +821,16 @@ The splice reuses the EXACT body-target formula so the spliced buffer is
 byte-identical to a full render.")
 (defvar-local org-air-view--body-fill-row nil
   "Fill row used to pad the body band to full height (R18 D-P1b).")
+(defvar-local org-air-view--pane-divider-col nil
+  "Display column of the two-pane board/rail divider, or nil (R43-2).
+`org-air-view--render' sets this to the column carrying the
+`org-air-face-pane-border' vrule (`item-width' + the divider's leading
+space) when the orientation is `two-pane', nil otherwise.
+`org-air-view--finalize-buffer-lines' reads it so a two-pane BODY row is
+padded to full width (the divider stays INTERIOR, byte-identical to the
+normalize/golden shape) instead of having its blank rail tail trimmed —
+which would demote the divider to the row's TERMINAL glyph and break the
+rule into segments on every blank-rail row (board ≫ rail).")
 (defvar-local org-air-view--orientation nil
   "Last chosen layout orientation, `two-pane' or `stacked' (D1 hysteresis).")
 (defvar-local org-air-view--rail-popped-out 'unset
@@ -4408,11 +4418,43 @@ now-redundant date."
         (insert (org-air-view--pad-to line width)))
       (forward-line 1))))
 
-(defun org-air-view--finalize-buffer-lines (width)
+(defun org-air-view--pane-divider-line-p (line col)
+  "Return non-nil if LINE carries the pane divider at display column COL.
+The divider is the `org-air-face-pane-border'-faced vrule glyph the
+two-pane composer (`org-air-view--compose-columns' /
+`org-air-view--two-pane-body' fill-row) emits at COL on EVERY board row.
+Returns nil when COL is nil (board-only / stacked / side-window: no pane
+divider), so those orientations keep the plain trim path."
+  (and col
+       (let ((glyph (string-to-char (org-air-view--glyph 'vrule)))
+             (i 0) (w 0) (len (length line)) (found nil))
+         (while (and (not found) (<= w col) (< i len))
+           (let ((ch (aref line i)))
+             (when (and (= w col)
+                        (eq ch glyph)
+                        (let ((f (get-text-property i 'face line)))
+                          (or (eq f 'org-air-face-pane-border)
+                              (and (listp f)
+                                   (memq 'org-air-face-pane-border f)))))
+               (setq found t))
+             (setq w (+ w (char-width ch)) i (1+ i))))
+         found)))
+
+(defun org-air-view--finalize-buffer-lines (width &optional divider-col)
   "Cap each line at WIDTH and strip trailing whitespace (D7/D6, live mode).
 No line may exceed the window actually displaying the dashboard so the
 rail/calendar are never pushed off-screen (D7); full-width and stacked
-rows carry no trailing whitespace (D6)."
+rows carry no trailing whitespace (D6).
+
+R43-2: when DIVIDER-COL is non-nil (two-pane) any line carrying the pane
+divider at that column is PADDED to WIDTH instead of trimmed, so the
+blank rail tail is preserved and the divider stays an INTERIOR cell on
+every board row — byte-identical to the normalize/golden shape.  Trimming
+that tail would demote the divider to the row's TERMINAL glyph and break
+the rule into segments on every blank-rail row (board ≫ rail).  Header
+banner, header rule and footer carry no divider, so they keep the R36-1 /
+R37 no-trailing-pad contract; board-only / stacked / side-window pass
+DIVIDER-COL nil and are untouched."
   (save-excursion
     (goto-char (point-min))
     (while (not (eobp))
@@ -4423,10 +4465,12 @@ rows carry no trailing whitespace (D6)."
                          (truncate-string-to-width line width nil nil
                                                    (org-air-view--glyph 'more))
                        line))
-             (trimmed (string-trim-right capped)))
-        (unless (string= trimmed line)
+             (result (if (org-air-view--pane-divider-line-p capped divider-col)
+                         (org-air-view--pad-to capped width)
+                       (string-trim-right capped))))
+        (unless (string= result line)
           (delete-region beg end)
-          (insert trimmed)))
+          (insert result)))
       (forward-line 1))))
 
 (defun org-air-view--collapse-blank-lines ()
@@ -6363,6 +6407,22 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
       (setq-local org-air-view--body-target-floor
                   (- height (length header) (length footer))
                   org-air-view--body-fill-row fill-row)
+      ;; R43-2: the two-pane pane-divider column (item-width + the divider's
+      ;; leading space), so the finalize tail keeps the divider INTERIOR on
+      ;; every board row instead of trimming the blank rail tail.  Nil for
+      ;; board-only / stacked / side-window (and plain style, which has no
+      ;; faced vrule) — those keep today's trim behaviour exactly.
+      (setq-local org-air-view--pane-divider-col
+                  (and (eq org-air-view--orientation 'two-pane)
+                       (let* ((geom org-air-view--inspector-geom)
+                              (iw (plist-get geom :item-width))
+                              (div (plist-get geom :divider))
+                              (pos (and (stringp div)
+                                        (string-match
+                                         (regexp-quote
+                                          (org-air-view--glyph 'vrule))
+                                         div))))
+                         (and (integerp iw) pos (+ iw pos)))))
       (org-air-view--insert-lines header)
       (setq-local org-air-view--body-beg (point-marker))
       (org-air-view--insert-lines body)
@@ -6370,8 +6430,9 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
       (org-air-view--insert-lines footer))
     (if (integerp org-air-view-width)
         (org-air-view--normalize-buffer-lines org-air-view-width)
-      ;; D7/D6 — cap every line at the displaying window and right-trim.
-      (org-air-view--finalize-buffer-lines width))
+      ;; D7/D6 — cap every line at the displaying window and right-trim;
+      ;; R43-2 — two-pane divider rows are padded to width (divider interior).
+      (org-air-view--finalize-buffer-lines width org-air-view--pane-divider-col))
     ;; T5: drop the trailing newline so the buffer is EXACTLY the filled
     ;; line count — otherwise the final \n renders one phantom blank row
     ;; below the footer, overrunning the body height by one.

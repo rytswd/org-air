@@ -183,12 +183,27 @@ fixture items, two-pane, sections EXPANDED so board_rows ≫ rail_rows:
 
 * Implementation History
 
-- (pending) R43-1 headless reproduction: hypothesis REFUTED — the composer
+- (impl) R43-1 headless reproduction: hypothesis REFUTED — the composer
   (=--compose-columns= + =--two-pane-body= fill-row) emits │ on every board row
   (GOLDEN: 602/602 interior at W=191 expanded). Real cause NAMED:
   =org-air-view--finalize-buffer-lines= =string-trim-right= demotes │ to TERMINAL
   on every blank-rail row (LIVE: 572/602 terminal), a live-only divergence from
   the normalize/golden path — the segmented rule the user sees.
-- (pending) R43-2 fix: divider-aware finalize — pane-divider rows padded to full
-  width (│ interior, byte-identical to golden); header/footer + board-only/stacked/
-  side-window unchanged. Batch goldens: zero churn.
+- (impl) R43-2 fix LANDED: `org-air-view--finalize-buffer-lines' is now
+  divider-aware. `org-air-view--render' stashes the two-pane pane-divider
+  column (`org-air-view--pane-divider-col' = item-width + the divider's leading
+  space, computed from `org-air-view--inspector-geom'; nil for board-only /
+  stacked / side-window / plain style) and passes it to finalize. Finalize
+  detects a pane-divider row via `org-air-view--pane-divider-line-p' (the
+  `org-air-face-pane-border'-faced vrule at that display column) and PADS such
+  rows to full width instead of `string-trim-right' — the │ stays INTERIOR on
+  every board content + fill row, byte-identical to the normalize/golden shape.
+  Header banner / header rule / footer carry no divider → keep the R36-1 / R37
+  no-trailing-pad trim; board-only / stacked / side-window pass nil → D6/D7
+  trim unchanged. Direct finalize-tail seam: 40/40 board rows interior WITH the
+  fix, 35/40 terminal + 40 sub-width when the pad is REVERTED (the segmented
+  rule). Batch goldens byte-identical (regen zero churn; the fixed-width path
+  runs `--normalize', untouched). NOTE: the mid-rail inspector band's blank
+  tail stays governed by the R38-2 refill trim contract (deliberately out of
+  scope — the fix targets the board ≫ rail lower portion the user reported).
+  make clean && make check GREEN (618 tests, 0 unexpected, 8 skipped).

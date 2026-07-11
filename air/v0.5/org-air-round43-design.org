@@ -1,0 +1,194 @@
+#+title: org-air Round 43 — The board↔rail divider breaks in the lower portion (live-only; terminal │)
+#+state: ready
+#+tags: layout divider two-pane rail live-path finalize regression
+
+* Summary
+
+User (GUI, rail SHOWN, 191 cols, 583 items): the vertical divider between the
+board and the right rail is SOLID down the top portion (where the rail carries
+content — calendar / Filter / Source / Summary / inspector / Actions) but BREAKS
+INTO SEGMENTS / vanishes in the LOWER portion, where the board (583 items) is much
+TALLER than the rail content. Batch goldens (few items, board≈rail height) look
+fine — so this is a LIVE-PATH / board≫rail defect the goldens never cover. Recurs
+after R39-2/R40-2 (which touched the *in-row cluster fence* │, a different glyph);
+this round is the *pane* divider.
+
+This round is HEADLESS DIAGNOSIS-FIRST. The prompt's hypothesis — "the composer
+draws │ only on rows that HAVE rail content; past the rail end the board rows get
+no divider, so the line breaks" — is *REFUTED at the text layer* and *replaced*
+with the true, reproduced root cause: the composer emits │ on EVERY board row
+(including every row past the rail-content end); the break is introduced AFTER
+composition by =org-air-view--finalize-buffer-lines= (the LIVE render tail), whose
+=string-trim-right= strips the blank rail tail on every row whose rail cell is
+blank, turning the │ into that row's TERMINAL glyph. A terminal box-drawing │ does
+not tile with the interior │ cells above/below it, so the rule reads as broken
+segments — exactly and only where the rail cell is blank (the board≫rail gaps).
+The batch/golden tail (=org-air-view--normalize-buffer-lines=) pads to width and
+keeps │ interior, which is why no golden ever caught it.
+
+* R43-1 — STEP 1: HEADLESS REPRODUCTION (hypothesis refuted; real cause named)
+
+Method: =emacs -Q --batch=, =display-graphic-p= stubbed t (the real GUI path),
+demo =/tmp/org-air= (583 items / 50 files, =generate-large.py=), width 120 / 150 /
+191, =org-air-view-height 60=, sections EXPANDED so the board is 600+ rows (the
+"board much taller than rail" state). For each render the divider column is
+computed from the two-pane geometry (=item-width + leading divider space=) and
+every row is classified: is a │ present, at the shared column, and is it INTERIOR
+(a cell follows it) or TERMINAL (last glyph on the row)?
+
+** The composer emits │ on EVERY board row — hypothesis REFUTED
+
+Rendering through the BATCH tail (=org-air-view-width= set →
+=org-air-view--normalize-buffer-lines=, the golden path):
+
+| render (W=191, sections expanded) | body rows | │ at shared col | interior │ | terminal │ |
+|-----------------------------------+-----------+----------------+------------+------------|
+| GOLDEN (normalize / pad-to-width) |       602 |            602 |        602 |          0 |
+
+Every one of the 602 body rows — through the LAST — carries │ at the shared
+column, INTERIOR. =org-air-view--compose-columns= zips (item-lines . item-width)
+with (rail-lines . rail-width) via =string-join … divider=, and when the rail runs
+out it pads the short side with =org-air-view--pad-to "" rail-width= (blanks) and
+STILL joins the divider; =org-air-view--two-pane-body= returns a FILL-ROW =(concat
+(make-string item-width ?\s) divider (make-string rail-width ?\s))= that also
+carries the divider, and =org-air-view--pad-line-list= fills the body to the target
+height with it. So the composer draws the divider on every board row past the rail
+end. **The prompt's hypothesis is false.**
+
+** The LIVE tail turns │ terminal on every blank-rail row — the real cause
+
+Rendering the identical items through the LIVE tail (=org-air-view-width= NIL, width
+driven by =org-air-view--line-width= → =org-air-view--finalize-buffer-lines=, the
+real-GUI path):
+
+| render (W=191, sections expanded) | body rows | │ at shared col | interior │ | TERMINAL │ | short-width rows |
+|-----------------------------------+-----------+----------------+------------+------------+------------------|
+| LIVE (finalize / string-trim-right) |     602 |            602 |         30 |    *572*   |       *601*      |
+| W=120 (item-w 85, rail-w 32)        |     602 |            602 |         ~31 |    *571*  |            *601* |
+
+The │ is STILL present on all 602 rows (so a naive "is │ present?" test passes even
+with the bug), but 572/602 rows are now TERMINAL — the │ is the last glyph, the
+row is 148 cols wide instead of 191. The 30 INTERIOR rows are precisely the rows
+whose rail cell is non-blank: the calendar block (top ~10 rows), the Filter /
+Summary / inspector fields, and the ACTIONS foot pinned to the bottom. Everything
+in between and after — the blank-rail gaps — is trimmed to a terminal │. That is
+the segmented rule the user sees: solid over the calendar/summary/actions bands,
+broken in every blank-rail gap.
+
+** The exact composer / place
+
+- Composer that BUILDS the divider correctly (hypothesis refuted here):
+  =org-air-view--compose-columns= (=org-air-view.el=, zips item+rail with =divider=
+  via =string-join=) and =org-air-view--two-pane-body= (the FILL-ROW) — both emit │
+  on every board row; the rail side is blank-padded, never divider-skipped.
+- The exact place the divider is DEMOTED from interior to terminal:
+  =org-air-view--finalize-buffer-lines= (=org-air-view.el=), the
+  =(trimmed (string-trim-right capped))= line. It strips the blank rail tail AND
+  the divider's trailing space on every board row whose rail cell is blank, so │
+  becomes the terminal glyph. This tail runs ONLY on the LIVE path (=org-air-view-
+  width= nil); the batch/golden path takes =org-air-view--normalize-buffer-lines=
+  (pad-to-width, │ interior) — hence no golden covers it, and it recurs whenever a
+  fix lands only on the composer/golden side.
+
+** Break-point row characterization (for the summary)
+
+The break is NOT a clean "top solid / bottom broken" split — it is "│ INTERIOR iff
+the rail cell on that row is non-blank." Measured at W=191, expanded:
+first-TERMINAL-row = 10 (right after the calendar block's last content row);
+last-INTERIOR-row = 59 (the Actions foot). Every row between whose rail cell is
+blank is a break. In the *collapsed* board (rail ≈ board height) only a handful of
+rows break — which is why small-fixture goldens look fine and the user only sees it
+once the board grows past the rail (many items / expanded sections / scroll).
+
+* R43-2 — STEP 2: THE FIX (the pane divider is INTERIOR on every board row)
+
+Spec: the board↔rail divider is CONTINUOUS for the full board height — every
+board *content and fill* row emits │ at the shared column with the rail column
+PRESERVED (blank-padded past the rail's content end) so the │ is an INTERIOR cell
+on every board row, byte-identical to the normalize/golden shape. NOT on the
+header banner, the header rule row, or the footer (they carry no divider and keep
+their trim). The live render must match the golden here.
+
+** Fix — =org-air-view--finalize-buffer-lines= becomes divider-aware
+
+The trim exists for D6/D7 (board-only + stacked rows carry no trailing whitespace;
+no line exceeds the window). It is correct for those orientations, but for a
+two-pane BODY row the "trailing whitespace" it strips is the RAIL COLUMN — legitimate
+content whose removal breaks the divider. Scope the trim so it never demotes the
+pane divider:
+
+1. =org-air-view--render= passes the two-pane pane-divider column to the finalize
+   pass (nil in board-only / stacked / side-window — those keep today's behaviour
+   exactly). The column is =item-width + string-width(leading divider space)=,
+   already known from the =org-air-view--two-pane-body= geometry (stash it beside
+   the existing =org-air-view--inspector-geom= / =org-air-view--body-fill-row=).
+2. In =org-air-view--finalize-buffer-lines=, for each line: if a pane divider
+   column is in force AND the line carries the pane-border-faced │ at that column,
+   PAD the line to the full render width (=org-air-view--pad-to line width=) instead
+   of =string-trim-right= — the │ stays interior, the rail column is preserved.
+   Every other line (header banner, header rule, footer, and any non-divider body
+   row) keeps the existing cap + =string-trim-right= untouched.
+
+Equivalent framing: two-pane BODY rows are normalized (pad-to-width, the golden
+shape); header/footer keep the R36/R37 no-trailing-pad invariant. This is why the
+fix is divider-ROW-scoped rather than routing the whole two-pane buffer through
+=normalize= — the latter would pad the header too and could disturb the R36-1 /
+R37 "header last visible glyph at W-1, no trailing pad" contract.
+
+** Invariants held / re-bless expectation
+
+- *Batch goldens UNCHANGED.* The batch path (=org-air-view-width= set) already
+  runs =normalize= (pad-to-width, │ interior); the fix does not touch it. =make
+  regen-mockups= → zero churn.
+- *Header no-trailing-pad (R36-1 / R37) HELD.* The banner and header rule carry no
+  pane divider, so they keep the existing trim — their W-1 flush contract is
+  untouched.
+- *Board-only / stacked / side-window UNCHANGED.* No pane-divider column is passed
+  for those orientations, so =finalize= trims exactly as today (D6/D7 preserved).
+- *Intended re-bless:* if any *live-path* test asserted the OLD trimmed two-pane
+  body shape (a terminal │ / sub-W row width), it moves to the interior-│ /
+  full-W shape and is re-blessed honestly (the divergence WAS the bug). No batch
+  golden is expected to move; if one does, that golden had encoded the defect and
+  the move is intended.
+
+* Verification
+
+=make clean && make check= GREEN (0 unexpected, manifest EMPTY), =make
+regen-mockups= zero residual churn (batch normalize path byte-identical), airctl
+status -Da parity exact.
+
+Executing ERT (=tests/org-air-round43-test.el=), deterministic under
+=noninteractive= — it drives the LIVE finalize tail directly (=org-air-view-width=
+NIL, width via =org-air-view--line-width=, =display-graphic-p= stubbed t), demo/
+fixture items, two-pane, sections EXPANDED so board_rows ≫ rail_rows:
+
+1. *Divider interior on EVERY board row through the last.* For the two-pane body
+   band, ASSERT every row that carries the pane divider has │ at the SAME shared
+   column AND the │ is INTERIOR (a cell follows it) AND the row is full render
+   width — through the LAST body row. *Revert FAILS*: the current
+   =string-trim-right= leaves 572/602 rows TERMINAL / sub-width (measured), so the
+   interior/full-width assertion fails on the blank-rail rows.
+2. *Break-point = blank-rail rows (characterization guard).* Under the OLD tail,
+   the set of terminal-│ rows equals exactly the set of blank-rail rows and is
+   non-empty (first terminal row right after the calendar block); the fix drives
+   that set to EMPTY. Asserted by re-composing the old-contract line in-process so
+   the guard is decisive without a live frame.
+3. *Header / footer untouched.* The banner + header rule still carry NO trailing
+   pad (R36-1 / R37 contract): =string-width (string-trim-right header) ==
+   string-width header=, last visible glyph at W-1 — proving the divider-scoped
+   pad did not leak into the header.
+4. *Orientation scope.* Board-only and side-window renders (no pane divider) are
+   byte-identical before/after the fix (the pane-divider column is nil → trim
+   path unchanged) — the fix touches ONLY two-pane divider rows.
+
+* Implementation History
+
+- (pending) R43-1 headless reproduction: hypothesis REFUTED — the composer
+  (=--compose-columns= + =--two-pane-body= fill-row) emits │ on every board row
+  (GOLDEN: 602/602 interior at W=191 expanded). Real cause NAMED:
+  =org-air-view--finalize-buffer-lines= =string-trim-right= demotes │ to TERMINAL
+  on every blank-rail row (LIVE: 572/602 terminal), a live-only divergence from
+  the normalize/golden path — the segmented rule the user sees.
+- (pending) R43-2 fix: divider-aware finalize — pane-divider rows padded to full
+  width (│ interior, byte-identical to golden); header/footer + board-only/stacked/
+  side-window unchanged. Batch goldens: zero churn.

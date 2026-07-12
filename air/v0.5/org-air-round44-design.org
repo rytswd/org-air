@@ -241,7 +241,26 @@ photons.
   12d= −11px; a badge+date+tag row pulls the divider 20px (≈2.2 cells) LEFT of a
   bare row → the zig-zag the user sees though buffer column 146 is exact. Every
   prior ERT checks columns, not pixels, so all passed.
-- (pending) R44-2 fix (Hybrid C, B load-bearing): (B) size every pill image
+- (landed) R44-2 fix (Hybrid C, B load-bearing): (B)
+  =org-air-view--char-dimensions= now resolves the char advance off the
+  DESTINATION window (=window-font-width= of the selected graphical window)
+  when no live board window shows the buffer yet, NEVER the
+  =frame-char-width= fallback while the two disagree — so every pill is sized
+  =:width = ncols * Wtext= and stops dragging the divider left; (A) the LIVE
+  finalize tail (=org-air-view--finalize-buffer-lines=) AND the
+  inspector-region re-fill (=org-air-view--postprocess-line=) pin the divider
+  with =display (space :align-to (COL . width))= on the leading space before
+  =│= on every two-pane divider row, so it lands at ONE font-relative pixel-X
+  — =(COL . width)= measures COL in default-face char-advance units (the
+  divider column's metric), always at-or-ahead of the exactly-ncols board run
+  (pads forward, never collapses). Batch text goldens BYTE-IDENTICAL
+  (=make regen-mockups= zero churn; svg =:width= + align-to are golden-
+  invisible — goldens strip properties); R43 continuity + R36/R37 header
+  contract held; =make clean && make check= GREEN (0 unexpected). ERT
+  =tests/org-air-round44-test.el= (5 fences) asserts the pixel-exact
+  mechanism on every divider row; revert fails on the per-pill −3…−11px, the
+  drift, and the absent align-to spec.
+- (superseded) R44-2 fix (Hybrid C, B load-bearing): (B) size every pill image
   =:width = ncols * Wcol=, the SAME char advance the divider column uses
   (=window-font-width=, never the =frame-char-width= fallback while they disagree;
   defer pill draw until a live window resolves the metric); (A) pin the divider

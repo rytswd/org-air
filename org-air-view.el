@@ -2351,9 +2351,31 @@ otherwise — so every item-row title starts at the same column (V6)."
   "Return (CHAR-W . CHAR-H) device pixels for the displaying window (C2/C3).
 Uses `window-font-width'/`window-font-height' on the window actually
 showing the org-air buffer so the metrics track the current font AND any
-`text-scale-mode' adjustment (C3); falls back to the frame char metrics
-when no graphical window is available."
-  (let ((win (get-buffer-window (current-buffer) t)))
+`text-scale-mode' adjustment (C3).
+
+R44-1 (pixel split-brain fix): a board svg pill spans N text cells as a
+`display' image whose width is N * this CHAR-W, while the redisplay engine
+advances the divider column and the surrounding plain text at the window's
+REAL default-face font advance (`window-font-width').  When the two
+disagree (HiDPI / fractional text-scale / a fallback glyph in the default
+face) every pill is baked NARROWER than its cells and drags the divider
+glyph LEFT, so col 146 lands at a different pixel-X on every row (the
+zig-zag).  To keep the pill metric == the divider column's advance ALWAYS,
+when no live window yet shows this buffer (async / first render, BEFORE
+`pop-to-buffer' settles) the metric is resolved off the DESTINATION window
+(the selected window on its graphical frame) via `window-font-width' —
+NEVER the `frame-char-width' fallback while the two disagree.  Only a
+truly non-graphical context (pure batch, no frame) keeps the frame char
+metrics, and there svg pills are not drawn at all (the TTY text fallback)."
+  (let ((win (or (get-buffer-window (current-buffer) t)
+                 ;; R44-1: no live window shows this buffer yet — resolve
+                 ;; the metric off the destination window so a pill is sized
+                 ;; to `window-font-width', the SAME advance the divider
+                 ;; column and plain text use, not `frame-char-width'.
+                 (let ((sw (selected-window)))
+                   (and (window-live-p sw)
+                        (display-graphic-p (window-frame sw))
+                        sw)))))
     (if (and win (display-graphic-p (window-frame win))
              (fboundp 'window-font-width))
         (cons (or (ignore-errors (window-font-width win)) (frame-char-width))

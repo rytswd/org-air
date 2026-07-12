@@ -222,12 +222,26 @@ confirm the eliminated freeze.
   EXACT synchronous =--render= with no skeleton and no timer. Verified: =make
   clean && make check= GREEN (0 unexpected, 8 skipped); =make regen-mockups= zero
   fixture churn (only =org-air-view.el= changed).
-- (pending) R45-2 fix (Option A): the cache-first branch paints
-  =org-air-view--render-loading= + =(redisplay t)= FIRST (instant, pill-free, like
-  cold), then defers the cached full-board =org-air-view--render= to a token-guarded
-  one-shot idle callback SEEDED with the cached items (no re-scan); pills rasterize
-  off the launch critical path. =noninteractive=/batch and WARM re-open keep the
-  EXACT synchronous render (goldens byte-identical, no skeleton, no timer). Single-
-  swap + no-wedge + no-rescan held. Structural ERT asserts skeleton-before-full-
-  render on the cached branch (revert fails), FRESH-cache no re-scan, batch exact,
-  and cold-path skeleton-first regression guard.
+- (DONE, R45 test) Executing STRUCTURAL ERT landed
+  (=tests/org-air-round45-test.el=, 5 tests). Drives =org-air-view=
+  deterministically under =noninteractive= bound nil with =display-graphic-p=
+  stubbed t and all frame side effects neutralised (=pop-to-buffer=/=redisplay=
+  no-op; =run-with-idle-timer= CAPTURES the one-shot so none fires; =--render-
+  loading=/=--render= spied for call ORDER; the deferred one-shot fired by
+  hand). Fences: (1) cached branch paints =--render-loading= FIRST and DEFERS
+  the full-board =--render= via =org-air-view--deferred-first-paint= (never sync
+  in the command body); (2) FRESH cache does ZERO org-ql scans on the launch
+  path AND in the deferred paint (=org-air-query-items=/=-in-files= counted ==
+  0), cached items seeded/rendered as-is; (3) =noninteractive= runs the EXACT
+  synchronous =--render= with NO skeleton and NO timer armed (=--refresh-timer=/
+  =--deferred-timer= nil); (4) cold path still skeleton-first — its full render
+  reached ONLY via the paced machine (state =refreshing= on the launch frame),
+  regression guard; (5) no wedge — a stale-token or dead-buffer one-shot is a
+  silent no-op (no double render, no error, =--loading= never strands).
+  REVERT-CHECK: restoring the old synchronous cache-HIT full paint FAILS fences
+  1/2/5 (recorded order =(render)=, no skeleton, no one-shot) while the batch
+  and cold-path fences stay green — confirming the guard is decisive. Verified:
+  =make clean && make check= GREEN (632 tests, 0 unexpected, 8 GUI-only
+  skipped); =make regen-mockups= zero fixture churn (only the new test file
+  changed); airctl status -Da parity exact; R42 no-change/mtime-incremental
+  fences remain green.

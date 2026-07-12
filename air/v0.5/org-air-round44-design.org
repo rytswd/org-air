@@ -1,5 +1,5 @@
 #+title: org-air Round 44 — The board↔rail divider is PIXEL-broken though the BUFFER is correct (SVG pill split-brain)
-#+state: ready
+#+state: complete
 #+tags: layout divider two-pane rail pixel pill svg split-brain live-path finalize regression
 
 * Summary
@@ -269,3 +269,6 @@ photons.
   golden-invisible); R43 continuity + R36/R37 header contract held. ERT asserts the
   pixel-exact mechanism on every divider row; revert fails on the per-pill −3…−11px
   and the 20px per-row divider swing.
+
+* History
+- 2026-07-12: State: ready → complete.

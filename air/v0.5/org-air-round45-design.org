@@ -196,7 +196,7 @@ confirm the eliminated freeze.
 
 * Implementation History
 
-- (pending) R45-1 confirmation: the =org-air-view= cached branch (~7350) calls
+- (DONE) R45-1 confirmation: the =org-air-view= cached branch (~7350) calls
   =org-air-view--render= synchronously in the command with no prior skeleton, so a
   fresh Emacs (empty SVG image cache) rasterizes the viewport's cold pills during
   that first redisplay = the 2–10s blank-frozen launch; the FRESH sub-case (no
@@ -206,6 +206,22 @@ confirm the eliminated freeze.
   caught it. Deleting the cache routes through the cold skeleton-first path (no
   blocking launch paint) → the hang vanishes. Cold path's finish-repaint is the
   same rasterization cost but off the launch critical path (post-skeleton, idle).
+- (DONE, R45 impl) R45-2 fix (Option A): implemented on the =org-air-view=
+  cache-HIT branch (=org-air-view.el=). New locals/helpers:
+  =org-air-view--deferred-timer= (defvar-local), =org-air-view--deferred-disarm=,
+  =org-air-view--deferred-arm=, =org-air-view--deferred-first-paint=. The
+  cache-HIT branch now paints =org-air-view--render-loading= + =(redisplay t)=
+  FIRST (instant, pill-free), then: FRESH (no stale files) defers the cached
+  full-board =org-air-view--render= to the token-guarded one-shot idle callback
+  seeded with the cached items (NO org-ql call); STALE passes COLD to
+  =org-air-view--refresh-start= so its finish-repaint is the deferred full render,
+  now preceded by the visible skeleton (no sync fast-path repaint on the launch
+  path). Interactive (re)entry calls =org-air-view--deferred-disarm= before the
+  cond so a stale one-shot never double-renders; teardown disarms it too. The
+  =(or cached noninteractive)= arm is UNTOUCHED — batch/WARM re-open stays the
+  EXACT synchronous =--render= with no skeleton and no timer. Verified: =make
+  clean && make check= GREEN (0 unexpected, 8 skipped); =make regen-mockups= zero
+  fixture churn (only =org-air-view.el= changed).
 - (pending) R45-2 fix (Option A): the cache-first branch paints
   =org-air-view--render-loading= + =(redisplay t)= FIRST (instant, pill-free, like
   cold), then defers the cached full-board =org-air-view--render= to a token-guarded

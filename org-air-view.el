@@ -780,6 +780,13 @@ Armed with the idle pacer; if the machine is STILL `refreshing' under the
 same token when it fires, it drains the remaining queue synchronously and
 finishes, so the idle pacer stranding (Emacs never going idle, or the idle
 clock repeatedly reset) can never leave the state stuck at `refreshing'.")
+(defvar-local org-air-view--deferred-timer nil
+  "One-shot idle timer for the cache-first deferred first paint, or nil (R45-2).
+The cache-HIT FRESH branch paints a pill-free skeleton instantly, then
+defers the cached full-board render to this token-guarded one-shot so the
+SVG pill rasterization happens OFF the launch critical path (no 2-10s
+blank-frozen open on a fresh Emacs with a cold image cache).  Never armed
+under `noninteractive' (the byte gate stays synchronous with no timer).")
 (defvar-local org-air-view--cache-stale-files nil
   "Files whose mtime diverged from the cache snapshot (R26-8).
 While REFRESHING, triage verbs on an item from one of these soft-error
@@ -7068,7 +7075,53 @@ Every pending slice callback carries the old token and self-cancels."
 (defun org-air-view--refresh-teardown ()
   "Cancel the in-flight refresh outright (the board buffer is dying)."
   (org-air-view--refresh-cancel)
+  (org-air-view--deferred-disarm)
   (setq org-air-view--refresh-state nil))
+
+(defun org-air-view--deferred-disarm ()
+  "Cancel the pending one-shot cache-first first-paint timer, if any (R45-2).
+Called on every interactive (re)entry and on teardown so a stale one-shot
+never double-renders and a killed buffer's timer never strands."
+  (when (timerp org-air-view--deferred-timer)
+    (cancel-timer org-air-view--deferred-timer))
+  (setq org-air-view--deferred-timer nil))
+
+(defun org-air-view--deferred-arm (buffer token)
+  "Arm the one-shot idle first-paint for BUFFER under TOKEN (R45-2).
+Scheduled by the cache-HIT FRESH branch AFTER the pill-free skeleton is
+painted, so the cached full board (and its cold SVG pill rasterization)
+lands OFF the launch critical path.  Never arms under `noninteractive'
+\(the byte gate stays synchronous with no timer); the deterministic ERTs
+call `org-air-view--deferred-first-paint' directly instead."
+  (unless noninteractive
+    (with-current-buffer buffer
+      (org-air-view--deferred-disarm)
+      (setq org-air-view--deferred-timer
+            (run-with-idle-timer
+             0 nil #'org-air-view--deferred-first-paint buffer token)))))
+
+(defun org-air-view--deferred-first-paint (buffer token)
+  "Render the cached full board off the launch critical path (R45-2).
+The one-shot the cache-HIT FRESH branch schedules after its skeleton
+paint.  Renders the cached items AS-IS — org-ql is NOT called, so the
+cache's no-scan benefit is fully preserved.  Robustness mirrors the slice
+runner: a stale TOKEN (a re-open / refresh bumped it) or a dead BUFFER is
+a silent no-op, so the buffer can never wedge; any render error falls back
+to the single-message + empty-board discipline."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (setq org-air-view--deferred-timer nil)
+      (when (eq token org-air-view--refresh-token)
+        (condition-case err
+            (org-air-view--render org-air-view--items
+                                  org-air-view--tag-filter)
+          (error
+           (setq org-air-view--items nil
+                 org-air-view--classify-cache nil
+                 org-air-view--loading nil)
+           (org-air-view--render nil org-air-view--tag-filter)
+           (message "org-air: load failed: %s"
+                    (org-air-view--short-error err))))))))
 
 (defun org-air-view--refresh-start (&optional cold)
   "Enter (or short-circuit) a refresh for the current board; return the token.
@@ -7336,6 +7389,13 @@ buffer can never wedge in a loading state."
                           display-buffer-same-window
                           display-buffer-full-frame))))
     (with-current-buffer buffer
+      ;; R45-2: an interactive (re)entry supersedes any pending one-shot
+      ;; first paint — the buffer is about to be (re)painted synchronously
+      ;; (WARM/cache-hit) or via a fresh skeleton (cold/stale), so a stale
+      ;; one-shot must never fire and double-render.  Interactive only: the
+      ;; batch gate never arms the timer, so there is nothing to disarm.
+      (unless noninteractive
+        (org-air-view--deferred-disarm))
       (cond
        ;; Cache hit, or batch/noninteractive (the byte goldens never see the
        ;; fast-paint path): synchronous — unchanged behaviour, byte-stable.
@@ -7362,9 +7422,31 @@ buffer can never wedge in a loading state."
                                               org-air-inbox-file)
                 org-air-view--classify-cache nil
                 org-air-view--cache-stale-files (cdr cache))
-          (when (cdr cache)
-            (org-air-view--refresh-start))
-          (org-air-view--render org-air-view--items org-air-view--tag-filter)
+          ;; R45-2: paint the pill-free chrome skeleton FIRST (instant, like
+          ;; the cold path), then let the full pill-bearing board land OFF
+          ;; the launch critical path — never a blocking full paint in the
+          ;; command body (a fresh Emacs has a cold SVG image cache, so that
+          ;; first full paint rasterizes the viewport's pills synchronously =
+          ;; the 2-10s blank-frozen open).  The board still appears in ONE
+          ;; motion, merely deferred one idle tick behind the skeleton.
+          (org-air-view--render-loading)
+          (redisplay t)
+          (if (cdr cache)
+              ;; STALE: the paced machine scans ONLY the changed subset (no
+              ;; re-scan of unchanged files); pass COLD so it never takes the
+              ;; synchronous fast-path repaint on the launch path — its
+              ;; finish-repaint IS the deferred full render, now correctly
+              ;; preceded by the visible skeleton (the `stale · refreshing…'
+              ;; header still shows once the board lands).
+              (org-air-view--refresh-start t)
+            ;; FRESH (no stale files): no scan at all.  Defer the cached
+            ;; full-board render to a token-guarded one-shot idle callback
+            ;; SEEDED with the cached items — NO org-ql call, the cache's
+            ;; no-scan benefit is fully preserved.  Bump the token first
+            ;; (via cancel) so any earlier in-flight callback self-cancels.
+            (org-air-view--refresh-cancel)
+            (org-air-view--deferred-arm (current-buffer)
+                                        org-air-view--refresh-token))
           t))
        ;; R26-8 COLD (no cache): honest fast paint of the chrome skeleton,
        ;; then the SAME chunked refresh — input stays live over the

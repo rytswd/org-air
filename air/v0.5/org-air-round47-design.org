@@ -1,5 +1,5 @@
 #+title: org-air Round 47 — Mouse HOVER is very noticeably SLOW on the board (Emacs 30 re-rasterizes every SVG pill under the mouse-face highlight, per crossing)
-#+state: ready
+#+state: complete
 #+tags: performance hover mouse-face svg pill image-cache redisplay emacs30 regression
 
 * Summary
@@ -385,3 +385,4 @@ grind fences until the implementation lands, keeping =make check= binary-green.
   today-svg seam); awaiting test-seat integration.
 - 2026-07-13: R47 test seat landed (ERT r47-1/-2/-3/-4 + the 3 legacy
   re-blesses); manifest EMPTY, gate GREEN 639/0.
+- 2026-07-13: State: ready → complete.

@@ -1005,51 +1005,61 @@
     ;; churn, project goldens byte-identical).  Round-46 manifest is EMPTY;
     ;; the tests stay as permanent regression guards.
     ;; =================================================================
-    ;; v0.5 ROUND-47 (impl track) — the two legacy R32 assertions the
-    ;; design-blessed hover-band narrowing moves, expected-to-fail until
-    ;; the test seat re-blesses them to the title-mark contract
-    ;; (air/v0.5/org-air-round47-design.org R47-2).
-    ;;
-    ;; 2026-07-13: R47-2 landed in org-air-view.el —
-    ;; `org-air-view--insert-row' now pops `mouse-face' out of the
-    ;; whole-extent PROPS and applies it ONLY over the TEXT-ONLY title
-    ;; band [title-start, cluster-start) (title mark through the flex
-    ;; pad, ending at the R40-2 fence), so NO buffer position carries
-    ;; both `mouse-face' and an image `display' and Emacs 30's
-    ;; DRAW_MOUSE_FACE SVG re-lookup (xdisp.c, e69fafdb/bug#67794) can
-    ;; never re-rasterize a pill on a row crossing.  Every other
-    ;; row-identity property (org-air-item/org-air-doc, marker, title
-    ;; mark, font-lock-face) keeps the FULL row extent (click/RET/R32-3
-    ;; unchanged); byte goldens are byte-identical (`mouse-face' is a
-    ;; text property — verified: every golden/byte ERT passes).  The two
-    ;; R32 ERTs below hardcode the PRE-R47 "hover run covers the row
-    ;; body from BOL" contract; per the spec they re-bless on the TEST
-    ;; track to "run starts at the `org-air-row-title' mark, ends before
-    ;; the meta cluster" (the no-fusion / no-newline-span / distinct-run
-    ;; assertions carry over verbatim and still hold).
-    (org-air-r32-1-doc-row-mouse-face-own-span
-     . "R47-2 narrowed the hover span to the title band; BOL (tree \
-gutter/state cell) no longer carries `mouse-face' — re-bless the run \
-start to the title mark (design R47-2)")
-    (org-air-r32-1-adjacent-rows-independent
-     . "R47-2 narrowed the hover span to the title band; the run no \
-longer starts at BOL / ends at the newline — re-bless run edges to \
-title-start..cluster-start (design R47-2); rows stay distinct, unfused")
-    ;; Second seam the invariant surfaced (beyond `--insert-row'): the
-    ;; calendar TODAY cell is the ONE day cell that is NOT plain text —
-    ;; D-P2.B wraps it in a rounded svg background `display' — so its
-    ;; `mouse-face' put it under the same Emacs 30 per-crossing re-raster.
-    ;; `org-air-calendar--today-svg' now strips `mouse-face' from the
-    ;; svg-displayed cell (keymap + `org-air-day' stay — click/RET still
-    ;; focus today; every plain-text day cell keeps its hover highlight;
-    ;; the TTY/no-svg fallback is untouched).  The R6 ERT asserts
-    ;; `mouse-face' on exactly the TODAY-faced cell under the GUI stub;
-    ;; re-bless it to keymap/org-air-day clickability (or a non-today
-    ;; plain-text cell for the mouse-face half).
-    (org-air-r6-calendar-cells-clickable
-     . "R47-2 invariant: the svg-backed TODAY cell must not carry \
-`mouse-face' over its image display; re-bless clickability to the \
-keymap/org-air-day props or assert mouse-face on a plain-text day cell")
+    ;; v0.5 ROUND-47 CLOSEOUT (impl tip wwxwvynl + test re-bless <this
+    ;; commit>).  ALL 3 grind entries CLOSED — byte goldens byte-IDENTICAL
+    ;; (make regen-mockups verified ZERO churn: `mouse-face' is a text
+    ;; property invisible to `buffer-substring-no-properties' captures),
+    ;; so the re-bless is assertion-only:
+    ;;   R47-2 HOVER = TEXT-ONLY TITLE BAND: `org-air-view--insert-row'
+    ;;     pops `mouse-face' out of the whole-extent PROPS and applies it
+    ;;     ONLY over [title-start, cluster-start) — so NO buffer position
+    ;;     carries both `mouse-face' and an image `display', and Emacs
+    ;;     30's DRAW_MOUSE_FACE SVG re-lookup (xdisp.c e69fafdb/bug#67794;
+    ;;     C image cache keyed on face fg/bg/font → hover-face MISS →
+    ;;     synchronous librsvg re-raster per crossing) can never fire.
+    ;;     org-air-r32-1-doc-row-mouse-face-own-span +
+    ;;     org-air-r32-1-adjacent-rows-independent re-blessed from the
+    ;;     BOL..newline run edges to title-start..cluster-start (run
+    ;;     starts AT the `org-air-row-title' mark, BOL/tree-gutter/state
+    ;;     badge carry NO mouse-face; the no-fusion / no-newline-span /
+    ;;     distinct-run assertions carry over verbatim).  Verified both
+    ;;     REVERT-FAIL on the pre-impl trunk (whole-row spans from BOL).
+    ;;   R47-2 second seam — the svg TODAY cell:
+    ;;     org-air-r6-calendar-cells-clickable re-blessed to the R47
+    ;;     contract — the svg-backed TODAY cell is clickable via keymap +
+    ;;     `org-air-day' with NO `mouse-face' over its image `display';
+    ;;     plain-text day cells keep hover highlight + keymap.  Verified
+    ;;     REVERT-FAILS on the pre-impl trunk (today cell carried both).
+    ;; NEW R47 EXECUTING ERTs (tests/org-air-round47-test.el; the impl
+    ;; head-start draft was validated and REWORKED — its row scanner
+    ;; looped forever and its commentary pinned the WRONG mechanism):
+    ;;   org-air-r47-1-no-image-under-mouse-face-{board,project} — ZERO
+    ;;     positions carry both `mouse-face' + image `display' (incl. the
+    ;;     calendar band / svg TODAY cell); trunk FAILS (measured on the
+    ;;     pre-impl trunk: board 139 overlapping svg-glyph runs on the
+    ;;     fully-EXPANDED 120x80 fixture render incl. the today cell — the
+    ;;     design's 95 was the unexpanded board — project 17, exactly the
+    ;;     design's count).
+    ;;   org-air-r47-2-hover-run-is-single-title-band — every item/doc
+    ;;     row: EXACTLY ONE maximal run, starting at the title mark, no
+    ;;     newline, text-only, ending before the first cluster pill;
+    ;;     anti-tautology >20 board hover rows; trunk FAILS.
+    ;;   org-air-r47-3-zero-pill-builds-per-hover-sweep — counters on
+    ;;     `org-air-view--svg-image-cached' (build) + `svg-image': a
+    ;;     simulated sweep across every run = 0 builds, 0 svg-image calls
+    ;;     (elisp layer, R33-2) AND 0 svg glyphs inside any resolved run
+    ;;     (the Emacs 30 C-path guard); trunk FAILS on the third conjunct.
+    ;;   org-air-r47-4-no-inspector-or-outline-recompute-per-crossing —
+    ;;     inspector/outline counters stay 0 across the sweep, no debounce
+    ;;     timer armed, followers wired ONLY on pre/post-command hooks
+    ;;     (extends the R33-2 lock; already-true by design).
+    ;; make regen-mockups: NO HANG, exit 0, jj diff — ZERO fixture churn
+    ;; (every board/project/entry/denote golden byte-identical).  airctl
+    ;; `status -Da' parity unaffected (hover is a text-property span;
+    ;; project tree shape / counts / columns unchanged — org-air-r22-6-*
+    ;; + org-air-f5-* stay green).  No .el SOURCE touched (impl landed
+    ;; R47-2 in wwxwvynl).  Round-47 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

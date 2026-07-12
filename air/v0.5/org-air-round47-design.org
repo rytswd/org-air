@@ -295,7 +295,8 @@ grind fences until the implementation lands, keeping =make check= binary-green.
   rather than by deferral.
 
 * Implementation History
-- (pending) R47-1 DIAGNOSIS: hover slowness reproduced structurally headless;
+- (DONE, R47-1 diagnosis confirmed by the landed impl + tests below.)
+  R47-1 DIAGNOSIS: hover slowness reproduced structurally headless;
   mechanism named — Emacs 30 =draw_glyphs= re-looks-up every SVG glyph under
   =DRAW_MOUSE_FACE= with the hover face; C image cache keys on face fg/bg/font
   → miss → synchronous librsvg re-raster of ~pills-per-row per crossing (95
@@ -329,6 +330,58 @@ grind fences until the implementation lands, keeping =make check= binary-green.
   mark) and =org-air-r6-calendar-cells-clickable= (re-bless the svg TODAY
   cell to keymap clickability).  =make check= binary-green.  ERT
   r47-1/-2/-3/-4 remain the test seat's to add per this spec.
+- 2026-07-13 (DONE, R47 test seat) Executing acceptance ERTs landed
+  (=tests/org-air-round47-test.el=, 4+1 tests) + the 3 manifested legacy
+  re-blesses; round-47 manifest is EMPTY.  The impl head-start draft of
+  the test file was VALIDATED and REWORKED: its row scanner looped
+  forever (=line-end-position= evaluated at an unmoving =point=) and its
+  commentary pinned the WRONG mechanism ("not re-rasterization") — the
+  probes worth keeping (image-cell detection, the memo-build counter)
+  carry over under the design-blessed names.  All guards run the R24-3
+  =display-graphic-p= stub (real svg =display= images headless; pill
+  metrics resolve through the render's own =--char-dimensions=) on the
+  fully-EXPANDED 120x80 fixture dashboard (24 item hover rows — the >20
+  anti-tautology floor) + the fixture project view:
+  =org-air-r47-1-no-image-under-mouse-face-{board,project}= — ZERO
+  positions carry both =mouse-face= and an image =display=, incl. the
+  calendar band's svg TODAY cell (trunk FAILS: board 139 overlapping
+  svg-glyph runs on the expanded render — the spec's 95 was the
+  unexpanded board — project 17, exactly the spec's count);
+  =org-air-r47-2-hover-run-is-single-title-band= — EXACTLY ONE maximal
+  hover run per item/doc row, starting AT the =org-air-row-title= mark
+  (never BOL), text-only, no newline, ending before the first cluster
+  pill (trunk FAILS: 7 fused runs incl. day cells on the first row);
+  =org-air-r47-3-zero-pill-builds-per-hover-sweep= — counters on
+  =org-air-view--svg-image-cached= (build, positive-controlled) and
+  =svg-image=: a simulated sweep across EVERY hover run (the
+  Lisp-visible face of =note_mouse_highlight=: run-extent resolution +
+  help-echo/keymap lookups) performs 0 builds + 0 =svg-image= calls
+  (elisp layer, R33-2) AND 0 svg glyphs inside any resolved run (the
+  Emacs 30 C-path guard; trunk FAILS on this conjunct);
+  =org-air-r47-4-no-inspector-or-outline-recompute-per-crossing= —
+  inspector/outline counters 0 across the sweep, no debounce timer
+  armed, followers wired ONLY on pre/post-command hooks (live-board
+  positive control; extends the R33-2 lock, already-true by design).
+  REVERT-VERIFIED against the pre-impl trunk: r47-1 board/project,
+  r47-2, r47-3 all FAIL there; r47-4 passes (the lock).  Legacy
+  re-blesses (all three ALSO revert-FAIL on trunk):
+  =org-air-r32-1-doc-row-mouse-face-own-span= +
+  =org-air-r32-1-adjacent-rows-independent= — run edges BOL..newline →
+  title-start..cluster-start, BOL/gutter/badge assert NO =mouse-face=,
+  the no-fusion/no-newline/distinct-run clauses carried over verbatim;
+  =org-air-r6-calendar-cells-clickable= — the svg TODAY cell asserts
+  keymap + =org-air-day= clickability with NO =mouse-face= over its
+  image, plain-text day cells keep hover + keymap.  VERIFIED: =make
+  regen-mockups= ZERO churn (all goldens byte-identical — =mouse-face=
+  is display-layer, exactly as the impl entry predicted); airctl
+  =status -Da= parity exact (v0.1/ own R4(+1) C14(+14) X1(+9) D2(+8)
+  unchanged on withre/air; the hover span is not a column); full gate
+  =make clean && make check= GREEN — 639 tests, 0 unexpected, 0
+  expected failures, 8 GUI-only skipped.
 
 * History
 - 2026-07-13: Created from the R47 hover-slowness report. State: ready.
+- 2026-07-13: R47-2 impl landed (title-band hover scoping + the calendar
+  today-svg seam); awaiting test-seat integration.
+- 2026-07-13: R47 test seat landed (ERT r47-1/-2/-3/-4 + the 3 legacy
+  re-blesses); manifest EMPTY, gate GREEN 639/0.

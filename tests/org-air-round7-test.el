@@ -248,24 +248,39 @@ for a given date (a scoped render reusing the R10 item line)."
   (should (commandp 'org-air-view-day)))
 
 (ert-deftest org-air-r6-calendar-cells-clickable ()
-  "R6 [interaction]: each calendar day cell carries a `mouse-face' and a
-keymap so mouse-1 / RET focuses that day (org-air-view-day)."
+  "R6 [interaction]: calendar day cells are clickable — mouse-1 / RET
+focuses the day (org-air-view-day).  R47-2 re-bless (design
+air/v0.5/org-air-round47-design.org): the svg-backed TODAY cell must NOT
+carry `mouse-face' over its image `display' (Emacs 30's DRAW_MOUSE_FACE
+SVG re-lookup would re-rasterize it per hover crossing) — its
+clickability is the keymap + `org-air-day' props; every PLAIN-TEXT day
+cell keeps the hover highlight + keymap."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 120
-      ;; Find a calendar day-number cell carrying a date mark and assert it
-      ;; has a mouse-face + keymap (focusable).
-      (let ((found nil))
-        (save-excursion
-          (goto-char (point-min))
-          (while (and (not found) (re-search-forward "[0-9]+" nil t))
-            (let ((p (match-beginning 0)))
-              (when (and (memq 'org-air-face-calendar-today
-                               (org-air-viewport-test--face-list-at p))
-                         (get-text-property p 'mouse-face)
-                         (get-text-property p 'keymap))
-                (setq found t)))))
-        (should found)))))
+      (let ((pos (point-min)) (today nil) (plain nil))
+        (while (< pos (point-max))
+          (when (get-text-property pos 'org-air-day)
+            (let* ((d (get-text-property pos 'display))
+                   (img (and d (eq (car-safe d) 'image))))
+              (cond ((and img (not today)
+                          (memq 'org-air-face-calendar-today
+                                (org-air-viewport-test--face-list-at pos)))
+                     (setq today pos))
+                    ((and (not img) (not plain)
+                          (get-text-property pos 'mouse-face))
+                     (setq plain pos)))))
+          (setq pos (1+ pos)))
+        ;; the svg TODAY cell (GUI stub): clickable via keymap +
+        ;; `org-air-day', with NO `mouse-face' over the image (R47-2).
+        (should today)
+        (should (get-text-property today 'keymap))
+        (should (get-text-property today 'org-air-day))
+        (should-not (get-text-property today 'mouse-face))
+        ;; plain-text day cells keep the hover highlight + keymap.
+        (should plain)
+        (should (get-text-property plain 'mouse-face))
+        (should (get-text-property plain 'keymap))))))
 
 (provide 'org-air-round7-test)
 ;;; org-air-round7-test.el ends here

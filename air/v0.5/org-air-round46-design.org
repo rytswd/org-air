@@ -221,7 +221,8 @@ in =tests/org-air-known-failures.el= as R46 grind fences until the impl lands, s
 (=org-air-r46--visible-band=) exempts genuinely blank rows (col 0 legitimate).
 
 * Implementation History
-- (pending) R46-1 DIAGNOSIS: cursor-jump reproduced headless and mechanism named.
+- (DONE, R46-1 diagnosis confirmed by the landed impl + tests below.)
+  R46-1 DIAGNOSIS: cursor-jump reproduced headless and mechanism named.
   It is the R22-2/R29-2 title snap =org-air-view--normalize-point= →
   =org-air-view--dead-zone-p= UNDER-firing, not over-firing and not a pixel
   defect. Blind spot 1: clause (1) requires =org-air-item=/=org-air-doc= on the
@@ -264,7 +265,41 @@ in =tests/org-air-known-failures.el= as R46 grind fences until the impl lands, s
   round's band table deliberately inverts (banner band = its first
   visible glyph, col 2); manifested on the impl track for the test seat
   to re-bless (see tests/org-air-known-failures.el).
-- (pending) R46-2 fix (SPEC): a UNIVERSAL per-row TITLE-BAND clamp on EVERY board
+- 2026-07-13 (DONE, R46 test seat) Executing acceptance ERTs landed
+  (=tests/org-air-round46-test.el=, 2 tests) + the r22-2 clause-(3)
+  re-bless.  Both ERTs drive the REAL command loop (pre/post-command
+  hooks, =this-command=/=last-command= bound) down AND up the live
+  fixture board — board-only, side-window popped, and the EMPTY board's
+  =Nothing scheduled …= notes — covering every trigger row kind (section
+  headers, the =…and N more= note, banner, =─= rule, item rows with and
+  without a date cell) under three goal-column walks: HOSTILE col 0
+  (default =line-move-visual= — on a batch frame the visual pixel goal
+  resolves to column 0 on every press, the round's deterministic
+  LEFT-MOST reproduction), HOSTILE EOL via the logical goal path
+  (=line-move-visual= nil — the only column-true goal in batch), and an
+  IN-BAND goal (title+2) asserted to land EXACTLY (goal column
+  respected, never hijacked).  Every non-blank landing must sit inside
+  its row's visible band, computed from the RAW line text (never
+  =org-air-view--row-band= — no tautology); blank rows exempt; each walk
+  validates >12 non-blank rows (anti-tautology) and the trigger rows are
+  asserted present.  =org-air-r46-2-native-vertical-nav-stays-in-band=
+  (native =next-line=/=previous-line=) and
+  =org-air-r46-2-evil-vertical-nav-stays-in-band= (REAL evil from .deps,
+  motion state, =evil-next-line=/=evil-previous-line=) both REVERT-FAIL
+  against the pre-impl trunk — verified: each dies on the diagnosed
+  shape (=line 9 lands col 0 OUTSIDE visible band [2..21]:
+  "  ! Needs attention 17"=) — and PASS on the impl.  The legacy
+  =org-air-r22-2-normalize-point-snaps-off-dead-column= clause (3)
+  re-blessed to the R46 band contract (the banner top clamps onto the
+  banner's first visible glyph, idempotent there; clauses (1)/(2)
+  unchanged) and its grind entry DELETED — the round-46 manifest is
+  EMPTY.  VERIFIED: =make regen-mockups= ZERO churn (goldens
+  byte-identical — nav is not a render change); airctl =status -Da=
+  parity exact (point-only, no column moved); full gate =make clean &&
+  make check= GREEN — 634 tests, 0 unexpected, 0 expected failures,
+  8 GUI-only skipped.
+- (DONE per the impl entry above) R46-2 fix (SPEC): a UNIVERSAL per-row
+  TITLE-BAND clamp on EVERY board
   row after a line-crossing motion. =org-air-view--row-band= → =(start . end)=
   (title-pos … last-visible for item/doc rows; first-visible for
   section/note/banner; nil for blank rows). The clamp keeps point in
@@ -275,11 +310,14 @@ in =tests/org-air-known-failures.el= as R46 grind fences until the impl lands, s
   ERT =tests/org-air-round46-test.el= (native + REAL evil) drives next/previous-
   line down/up a realistic board and asserts every non-blank landing is in-band;
   both revert-FAIL on the col-0/EOL collapse. Batch text goldens expected
-  byte-identical (point-only). Registered as R46 grind in the known-failures
-  manifest; full suite currently 634 tests, 0 unexpected, 2 expected failures.
+  byte-identical (point-only).
 
 * History
 - 2026-07-13: Created. State: ready.
 - 2026-07-13: R46-2 impl landed (universal per-row title-band clamp +
   title-mark re-apply); awaiting test-seat integration of the R46 ERTs +
   the r22-2 clause-(3) re-bless.
+- 2026-07-13: R46 test seat: both acceptance ERTs landed (revert-FAIL
+  verified against the pre-impl trunk), r22-2 clause (3) re-blessed,
+  known-failures manifest EMPTY, regen zero churn, full gate GREEN
+  (634 tests, 0 unexpected).

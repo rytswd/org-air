@@ -967,26 +967,43 @@
     ;; .el SOURCE touched (impl landed R41-1 in rxlsswny).  Round-41 manifest
     ;; is EMPTY; the tests stay as permanent regression guards.
     ;; =================================================================
-    ;; v0.5 ROUND-46 grind (impl track) — ONE legacy assertion inverted by
-    ;; the design-blessed universal title-band clamp
-    ;; (air/v0.5/org-air-round46-design.org, R46-2).
-    ;;
-    ;; 2026-07-13: R46-2 landed in org-air-view.el — the R29-2 item/doc-only
-    ;; LEFT-only dead-zone snap (`org-air-view--dead-zone-p') is replaced by
-    ;; the UNIVERSAL per-row title-band clamp (`org-air-view--row-band' +
-    ;; the two-edged clamp in `--normalize-point-now'), so EVERY visible
-    ;; board row — including the header banner — now clamps a stray col-0 /
-    ;; EOL landing into its title band.  The r22-2 ERT's clause (3) asserts
-    ;; the PRE-R46 contract ("a non-row line (the banner top) -> NO-OP",
-    ;; point held at point-min col 0); under R46 the banner's band is its
-    ;; first visible glyph (col 2, past the `  ' indent), so the entry clamp
-    ;; moves point 1 -> 3 and the `(= (point) p)' assertion fails.  This is
-    ;; the design-blessed inversion, NOT an impl bug — clauses (1)/(2)
-    ;; (dead-col snap onto the title / in-band NO-OP) still hold.  The test
-    ;; seat re-blesses clause (3) to the R46 band contract (banner landing =
-    ;; first visible glyph), then deletes this entry.
-    (org-air-r22-2-normalize-point-snaps-off-dead-column
-     . "R46-2 universal band clamp: banner top now clamps col 0 -> first visible glyph (design-blessed inversion of the pre-R46 'never touched' clause; re-bless on the test seat)")
+    ;; v0.5 ROUND-46 CLOSEOUT (impl tip yswxwpwl + test re-bless <this
+    ;; commit>).  The single grind entry CLOSED — nothing left open.
+    ;;   R46-2 UNIVERSAL PER-ROW TITLE-BAND CLAMP (byte-invisible; make
+    ;;     regen-mockups verified ZERO churn — the clamp is point-only):
+    ;;     the R29-2 item/doc-only, LEFT-only dead-zone snap
+    ;;     (`org-air-view--dead-zone-p') is replaced by
+    ;;     `org-air-view--row-band' + the two-edged clamp in
+    ;;     `--normalize-point-now' behind the unchanged R29-2 line-motion
+    ;;     gate, so EVERY visible board row — section headers, the
+    ;;     `…and N more' / `Nothing scheduled …' notes, the banner, the
+    ;;     item-row RIGHT edges — clamps a stray col-0 / EOL landing into
+    ;;     its title band while an in-band goal column is KEPT.
+    ;;   The legacy org-air-r22-2-normalize-point-snaps-off-dead-column
+    ;;     clause (3) asserted the PRE-R46 contract ("the banner top is
+    ;;     never touched", point held at point-min col 0) — the
+    ;;     design-blessed inversion this round.  Re-blessed on the test
+    ;;     seat: the banner top now clamps onto the banner's first visible
+    ;;     glyph (`org-air-view--beginning-of-visible', col 2) and the
+    ;;     clamp is idempotent there; clauses (1)/(2) unchanged.  Now
+    ;;     PASSES — entry deleted.
+    ;; NEW R46 EXECUTING ERTs (tests/org-air-round46-test.el, each
+    ;; REVERT-FAILS — verified against the pre-impl trunk, where both die
+    ;; on the diagnosed shape `line 9 lands col 0 OUTSIDE visible band
+    ;; [2..21]: "  ! Needs attention 17"'):
+    ;;   org-air-r46-2-native-vertical-nav-stays-in-band — NATIVE
+    ;;     next-line/previous-line down AND up the live fixture board
+    ;;     (board-only + side-window popped + the EMPTY board's `Nothing
+    ;;     scheduled …' notes) through the real command loop with hostile
+    ;;     goal columns (col 0 — the batch-deterministic visual pixel goal
+    ;;     — and EOL via the logical goal path); every non-blank landing
+    ;;     inside its row's visible band, in-band goal respected EXACTLY.
+    ;;   org-air-r46-2-evil-vertical-nav-stays-in-band — REAL evil from
+    ;;     .deps (motion state): evil-next-line/evil-previous-line (vanilla
+    ;;     evil's j/k) over the same walks.
+    ;; airctl `status -Da' parity unaffected (point-only; zero fixture
+    ;; churn, project goldens byte-identical).  Round-46 manifest is EMPTY;
+    ;; the tests stay as permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

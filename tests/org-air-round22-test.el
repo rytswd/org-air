@@ -254,9 +254,14 @@ board item wins over any rail property — so RET/v/r act on the row."
       (should (eq (org-air-view--item-at-point) title-item)))))
 
 (ert-deftest org-air-r22-2-normalize-point-snaps-off-dead-column ()
-  "R22-2b: `--normalize-point' (the post-command snap) moves point off a
-DEAD column onto the row title; it is a NO-OP when point already sits on
-the title, and on a non-row line (section heading / blank)."
+  "R22-2b (clause 3 re-blessed by R46-2): `--normalize-point' (the
+post-command snap) moves point off a DEAD column onto the row title and
+is a NO-OP when point already sits on the title.  Clause (3) UPDATED to
+the R46-2 universal title-band clamp (air/v0.5/org-air-round46-design.org):
+the banner top is no longer exempt — EVERY visible row now has a band
+(the banner's is its first visible glyph, past the 2-col indent), so the
+entry normalize clamps `point-min' (col 0) onto the banner's own text
+instead of the pre-R46 no-op that parked point in the indent margin."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-dashboard 120
     (org-air-view--goto-first-item)
@@ -270,8 +275,16 @@ the title, and on a non-row line (section heading / blank)."
     (let ((p (point)))
       (org-air-view--normalize-point)
       (should (= (point) p)))
-    ;; (3) a non-row line (the empty board banner top) -> NO-OP.
+    ;; (3) R46-2: the banner top CLAMPS to its first visible glyph — the
+    ;; band start (col 2, past the indent) — never left at col 0.
     (goto-char (point-min))
+    (org-air-view--normalize-point)
+    (should (> (current-column) 0))
+    (should (= (point) (save-excursion
+                         (goto-char (point-min))
+                         (org-air-view--beginning-of-visible)
+                         (point))))
+    ;; ...and the clamp is idempotent there (in-band -> NO-OP).
     (let ((p (point)))
       (org-air-view--normalize-point)
       (should (= (point) p)))))

@@ -1,5 +1,5 @@
 #+title: org-air Round 46 — Vertical arrow / j-k navigation drops point to the LEFT-MOST (col 0) or RIGHT-MOST (EOL) char on non-item board rows
-#+state: ready
+#+state: complete
 #+tags: navigation cursor point normalize dead-zone goal-column band section note two-pane arrows evil regression
 
 * Summary
@@ -321,3 +321,4 @@ in =tests/org-air-known-failures.el= as R46 grind fences until the impl lands, s
   verified against the pre-impl trunk), r22-2 clause (3) re-blessed,
   known-failures manifest EMPTY, regen zero churn, full gate GREEN
   (634 tests, 0 unexpected).
+- 2026-07-13: State: ready → complete.

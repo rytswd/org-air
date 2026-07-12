@@ -1,0 +1,253 @@
+#+title: org-air Round 46 — Vertical arrow / j-k navigation drops point to the LEFT-MOST (col 0) or RIGHT-MOST (EOL) char on non-item board rows
+#+state: ready
+#+tags: navigation cursor point normalize dead-zone goal-column band section note two-pane arrows evil regression
+
+* Summary
+
+User (board view, GUI): "sometimes the cursor moves to the LEFT-MOST or
+RIGHT-MOST char, making it hard to navigate items with arrow keys." Driving the
+board with the arrows (=next-line=/=previous-line=), evil =j/k= or
+=evil-next-line=/=evil-previous-line=, point intermittently collapses to column 0
+(the leading indent margin) or jumps to end-of-line, instead of holding a stable
+column down the item-title band.
+
+This round REPRODUCES the jump headless, NAMES the exact mechanism, and SPECS the
+fix. Root cause CONFIRMED and it is NOT a display/pixel defect (that was R44) and
+NOT the evil col-0 dead-zone normalize over-firing — it is the OPPOSITE: the R22-2
+/ R29-2 title snap =org-air-view--normalize-point= (via =org-air-view--dead-zone-p=)
+is *UNDER*-firing. Its gate only fires on rows that carry =org-air-item= /
+=org-air-doc= AND only guards the LEFT dead zone. Every board row that is NOT an
+item/doc row — section headers, the =…and N more= note, the empty-section notes
+(=Nothing scheduled in the next 7 days.=), the header banner, the =─= rule, and
+two-pane fill rows — is EXCLUDED from the gate entirely, so native/evil vertical
+motion leaves point wherever =line-move= dropped it. And the RIGHT edge of item
+rows is unguarded too (the gate checks only =(< point title-pos)=), so a goal
+column at/after the title is never pulled back. The result is the col-0 / EOL jump
+the user sees.
+
+The prompt's other suspects were checked and CLEARED as the cause (below): the R44
+=(space :align-to)= divider pin and the narrower-than-text SVG pills EXPLAIN why
+the GUI resolves the stray goal column to EOL specifically (the pixel goal column
+maps nonlinearly across those display runs), but they are the SYMPTOM's amplifier,
+not its origin; the origin is the too-narrow normalize gate. org-ql is the only
+query path throughout.
+
+* R46-1 — DIAGNOSIS (reproduced headless; the exact mechanism, named)
+
+Method: render the fixture board LIVE (=org-air-r27--with-live-board=, rail popped
+→ board-only buffer so the visible band is unambiguous), place point on the first
+item, set a HOSTILE goal column (the row's EOL — as if the user had been reading a
+date/tag pill at the row's right edge), then drive =next-line=/=previous-line= (and
+REAL =evil-next-line=/=evil-previous-line=) down and up the board through the true
+command loop (=this-command=/=last-command= bound, =pre-command-hook= +
+=post-command-hook= run) so goal-column tracking and the R29-2 snap gate behave
+exactly as in live use. For each landing we record point's column and the row's
+visible band =[first-non-space .. last-non-space]=.
+
+** WHICH rows trigger it (measured on the demo board)
+
+| row (line)                         | kind    | visible band | landing col (trunk) | jump      |
+|------------------------------------+---------+--------------+---------------------+-----------|
+| =! Needs attention 17=             | section | [2 .. 21]    |                   0 | LEFT-MOST |
+| => Upcoming 0=                     | section | [2 .. 13]    |                   0 | LEFT-MOST |
+| =* High priority 3=                | section | [2 .. 18]    |                   0 | LEFT-MOST |
+| =…and 11 more — press TAB…=        | note    | [6 .. 50]    |                   0 | LEFT-MOST |
+| =Nothing scheduled in the next 7…= | note    | [6 .. 42]    |                   0 | LEFT-MOST |
+| an item row, goal col = EOL        | item    | [6 .. 50]    |                  51 | RIGHT-MOST (EOL) |
+| header banner / =─= rule           | chrome  | —            |                   0 | LEFT-MOST |
+
+Item rows whose point is snapped by the (working) left-dead-zone gate land in-band
+(the title). The jumps are on the rows the gate DOES NOT COVER — every non-item
+row — plus the right edge of item rows when the goal column is high.
+
+** The exact mechanism — name the fn
+
+=org-air-view--normalize-point= (=org-air-view.el= ~4660) runs in
+=post-command-hook=, gated (R29-2) on LINE MOTION via
+=org-air-view--pre-command-snapshot=. When it fires it calls
+=org-air-view--normalize-point-now= (~4648), which snaps point ONLY when
+=org-air-view--dead-zone-p= (~4630) is non-nil. That predicate is:
+
+#+begin_src elisp
+(and (or (org-air-view--row-property 'org-air-item)
+         (org-air-view--row-property 'org-air-doc))     ; (1) ROW-ONLY gate
+     (or (and (not (get-text-property (point) 'org-air-item))
+              (not (get-text-property (point) 'org-air-doc)))
+         (< (point) (org-air-view--row-title-pos))))     ; (2) LEFT-ONLY guard
+#+end_src
+
+Two structural blind spots, each a distinct jump:
+
+1. *LEFT-MOST on non-item rows.* Clause (1) requires =org-air-item= /
+   =org-air-doc= SOMEWHERE on the line (=org-air-view--row-property=). Section
+   headers, the =…and N more= note, the empty-section notes, the banner and the
+   =─= rule carry NO such property, so =dead-zone-p= returns nil unconditionally
+   and =normalize-point= does NOTHING. Native/evil vertical motion has already
+   left point at column 0 (the leading indent margin, BEFORE the row's own text
+   at col 2/6), and it STAYS there. This is the LEFT-MOST jump — and it is the
+   one that reproduces deterministically in batch.
+
+2. *RIGHT-MOST (EOL) on item rows.* Clause (2) guards only the LEFT side:
+   =(< (point) (org-air-view--row-title-pos))= plus the no-row-property columns.
+   On most item rows the trailing pad AFTER the title still carries
+   =org-air-item= (the property covers the whole board run), so a goal column
+   at/after the title — e.g. the row's EOL — has =org-air-item= under point and
+   =point >= title-pos=: NOT a dead zone. So =normalize-point= leaves point at
+   EOL. This is the RIGHT-MOST jump.
+
+3. *The "stable" band is not even stable when the snap DOES fire.* The snap
+   target =org-air-view--goto-row-title= → =org-air-view--row-title-pos= (~4573)
+   lands on the =org-air-row-title= mark, but on rows whose title truncated away
+   at a narrow width (the =OVERDUE …= rows on the popped/narrow board) the mark
+   is GONE — the re-truncation of =left= in =org-air-view--insert-row=
+   (=truncate-string-to-width= against =left-budget=, ~3040) chops the marked
+   first glyph — so =row-title-pos= falls back to =beginning-of-visible= (the
+   =TODO= keyword at col 6) instead of the title at col 13. So even the guarded
+   rows wander between col 5/6/13 down a single section. Secondary, but it means
+   "land on the title" is not currently a stable column.
+
+** The prompt's other suspects — checked, and their real role
+
+- =R44 (space :align-to)= before the divider + narrower-than-text SVG pills
+  (=org-air-view--pin-pane-divider=, =org-air-view--svg-pillify=): these do NOT
+  originate the jump (the jump reproduces with pills/align-to absent, in batch),
+  but they EXPLAIN the GUI's RIGHT-MOST variant. =next-line=/=evil-next-line=
+  default to =line-move-visual= t, so the goal column is a PIXEL-X resolved by
+  =vertical-motion=. Across a =(space :align-to)= stretch and a pill image whose
+  advance ≠ its ncols of text, the pixel-X↔column map is nonlinear, so a mid-row
+  goal-X can resolve to the row's first column (col 0, before a wide stretch) or
+  be pushed past the last glyph to EOL. The align-to/pills are the AMPLIFIER that
+  turns "unguarded row" into "EOL" rather than "col 0" on the GUI; the fix must
+  therefore clamp on BOTH edges, not just add a left guard.
+- Post-command overlays (R28 current-heading, inspector follow): checked — they
+  do not move point; not implicated.
+- intangible/field/read-only stops: the board rows carry no =intangible=/=field=
+  capturing stop at an edge; not implicated.
+- The evil col-0 dead-zone normalize OVER-firing: the opposite is true — it
+  UNDER-fires (it never runs on non-item rows). Not over-firing.
+
+* R46-2 — SPEC of the fix: a UNIVERSAL per-row TITLE-BAND clamp
+
+Replace the item/doc-only, left-only dead-zone gate with a per-row *title-band
+clamp* that runs on EVERY board row after a line-crossing motion, keeping point
+inside the row's visible band and honouring a goal column that already lies inside
+it. This subsumes the R21-2/R29-2 "land on title" behaviour (title-pos is the
+band's left edge) and closes both blind spots.
+
+** The band, per row kind
+
+Define =org-air-view--row-band= → =(BAND-START . BAND-END)= (buffer positions on
+the current line), or nil for a genuinely blank/whitespace row:
+
+- *Item / doc rows*: =BAND-START= = =org-air-view--row-title-pos= (the
+  =org-air-row-title= mark, or the row's first visible glyph fallback);
+  =BAND-END= = the LAST visible (non-space) column of the row's board content
+  (before the trailing pad / rail). Point past =BAND-END= (trailing pad, EOL,
+  rail) clamps back to =BAND-END=; the col-0 / gutter case clamps to =BAND-START=
+  exactly as R29-2 does today.
+- *Section headers, =…and N more=, empty-section notes, banner*: =BAND-START= =
+  =BAND-END= = the row's first visible glyph (=org-air-view--beginning-of-visible=
+  — col 2 for headings, col 6 for the notes). Point is placed on the row's own
+  text, never in the col-0 margin.
+- *Blank / fill rows* (no visible glyph): band is nil — leave point at col 0
+  (genuinely short; col 0 is the only legitimate landing). Never error.
+
+** The clamp (goal column respected)
+
+After a line-crossing motion, for the current row's band =(s . e)=:
+
+#+begin_src elisp
+(cond ((null band) nil)                 ; blank row — leave col 0
+      ((< (point) s) (goto-char s))     ; col-0 / gutter escape -> band start
+      ((> (point) e) (goto-char e))     ; trailing-pad / EOL escape -> band end
+      (t nil))                          ; already IN band -> KEEP (goal-column)
+#+end_src
+
+So a goal column already inside the title band is preserved (the prompt's
+"respects goal-column"); only the col-0 (LEFT-MOST) and trailing-pad/EOL
+(RIGHT-MOST) escapes are corrected; and a genuinely shorter row is never forced
+off col 0. This is command-agnostic and reuses the existing R29-2 line-motion gate
+(=org-air-view--pre-command-snapshot=), so it covers =next-line=/=previous-line=,
+=evil-next-line=/=evil-previous-line=, the arrows and any future package, while the
+in-row horizontal exemption (=h/l=, =0/^= keep the same line) is preserved
+untouched.
+
+** Wiring
+
+- =org-air-view--dead-zone-p= is generalised (or replaced by
+  =org-air-view--row-band= + the clamp) so it no longer requires an
+  =org-air-item=/=org-air-doc= property on the line, and it bounds the band on
+  BOTH edges. =org-air-view--normalize-point-now= applies the clamp instead of the
+  one-sided =goto-row-title=. =org-air-view--normalize-point= (the post-command
+  gate) is unchanged in structure — same line-motion snapshot, same "fires on
+  line change or on entry" logic.
+- The entry/restore tails (=org-air-view--normalize-point-now= callers: R21-1
+  restore, pane return, doc-session return, =org-air-view--goto-first-item=) keep
+  working — the clamp is idempotent on/inside the band.
+- *Secondary*: ensure the =org-air-row-title= mark survives the =left=
+  re-truncation in =org-air-view--insert-row= (mark the title's first glyph AFTER
+  the final truncation, or re-apply it), so =BAND-START= is the true title on
+  narrow rows and the stable column stops wandering (col 6 vs 13). Optional for
+  the col-0/EOL fix, required for a genuinely stable band.
+
+** Invariants preserved
+
+- Batch text goldens BYTE-IDENTICAL (the clamp is point-only; it inserts/moves no
+  text; =make regen-mockups= zero churn expected).
+- R29-2 evil col-0 snap still holds (the left edge of the band is =title-pos=; the
+  existing R29-2 board/project ERTs stay green — verified: full suite 634 tests,
+  0 unexpected with this round's grind added).
+- R21-2 open/first-item landing unchanged (band start == title).
+- In-row horizontal motion still parks in the gutter (line-motion gate unchanged).
+
+* R46-2 — Executing ERT (acceptance; each REVERT-FAILS)
+
+=tests/org-air-round46-test.el= drives the real command loop down AND up a
+realistic fixture board with a HOSTILE goal column and asserts every non-blank row
+landing sits within its visible band — never col 0 (LEFT-MOST), never EOL
+(RIGHT-MOST):
+
+- =org-air-r46-2-native-vertical-nav-stays-in-band= — =next-line= /
+  =previous-line= (the arrow commands) on the board-only board buffer.
+- =org-air-r46-2-evil-vertical-nav-stays-in-band= — REAL evil (motion state)
+  =evil-next-line= / =evil-previous-line=.
+
+Both FAIL on trunk (section headers and the =…and N more= / =Nothing scheduled=
+notes collapse to col 0 — measured band =[2..21]= / =[6..50]=, landing col 0), and
+PASS under the R46 band clamp. They are anti-tautology-guarded
+(=(should (> n 12))= — the walk really visits >12 non-blank rows) and registered
+in =tests/org-air-known-failures.el= as R46 grind fences until the impl lands, so
+=make check= stays binary-green in the meantime. The band helper
+(=org-air-r46--visible-band=) exempts genuinely blank rows (col 0 legitimate).
+
+* Implementation History
+- (pending) R46-1 DIAGNOSIS: cursor-jump reproduced headless and mechanism named.
+  It is the R22-2/R29-2 title snap =org-air-view--normalize-point= →
+  =org-air-view--dead-zone-p= UNDER-firing, not over-firing and not a pixel
+  defect. Blind spot 1: clause (1) requires =org-air-item=/=org-air-doc= on the
+  line, so ALL non-item rows (section headers, =…and N more=, empty-section
+  notes, banner, =─= rule, fill rows) are excluded → native/evil vertical motion
+  leaves point at col 0 (LEFT-MOST). Blind spot 2: clause (2) guards only
+  =(< point title-pos)=, and the trailing pad still carries =org-air-item=, so a
+  high goal column stays at EOL (RIGHT-MOST). The R44 =(space :align-to)= pin +
+  narrower-than-text pills are the GUI amplifier that resolves the stray pixel
+  goal column to EOL (checked, cleared as origin). Secondary: the
+  =org-air-row-title= mark is chopped by the =left= re-truncation in
+  =org-air-view--insert-row= on narrow rows, so the snapped column wanders
+  (col 6 vs 13).
+- (pending) R46-2 fix (SPEC): a UNIVERSAL per-row TITLE-BAND clamp on EVERY board
+  row after a line-crossing motion. =org-air-view--row-band= → =(start . end)=
+  (title-pos … last-visible for item/doc rows; first-visible for
+  section/note/banner; nil for blank rows). The clamp keeps point in
+  =[start..end]=: col-0/gutter → start, trailing-pad/EOL → end, in-band → KEEP
+  (goal-column respected); blank rows stay col 0. Reuses the R29-2 line-motion
+  snapshot (command-agnostic; arrows, evil, future packages). Plus re-mark the
+  title's first glyph AFTER the final truncation so the band start is stable.
+  ERT =tests/org-air-round46-test.el= (native + REAL evil) drives next/previous-
+  line down/up a realistic board and asserts every non-blank landing is in-band;
+  both revert-FAIL on the col-0/EOL collapse. Batch text goldens expected
+  byte-identical (point-only). Registered as R46 grind in the known-failures
+  manifest; full suite currently 634 tests, 0 unexpected, 2 expected failures.
+
+* History
+- 2026-07-13: Created. State: ready.

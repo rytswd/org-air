@@ -1,5 +1,5 @@
 #+title: org-air Round 45 — Interactive launch HANGS 2–10s on every fresh Emacs open (cache-first path does a blocking full-board paint)
-#+state: ready
+#+state: complete
 #+tags: performance launch cache async svg pill first-paint regression priority
 
 * Summary

@@ -1,0 +1,217 @@
+#+title: org-air Round 45 — Interactive launch HANGS 2–10s on every fresh Emacs open (cache-first path does a blocking full-board paint)
+#+state: ready
+#+tags: performance launch cache async svg pill first-paint regression priority
+
+* Summary
+
+PRIORITY defect (user, GUI): opening the dashboard on a FRESH Emacs is
+blank-frozen for 2–10s on EVERY open — the frame is unresponsive until the board
+appears in one motion. The user isolated it precisely: *deleting the disk cache*
+(=~/.cache/org-air/board-cache.eld=) makes the hang VANISH — the cold path feels
+instant. So the freeze lives on the CACHE-HIT branch, and it is NOT the cache read
+(=org-air-view--cache-load= is ~4ms).
+
+This round CONFIRMS the orchestrator's mechanism and specs the fix. Root cause
+reproduced and named: the =org-air-view= entry has two interactive branches with
+OPPOSITE first-paint discipline. The CACHED branch (=org-air-view.el= ~7350) calls
+=(org-air-view--render org-air-view--items …)= — a FULL synchronous board paint —
+directly in the command, before yielding. The COLD branch (~7378) instead paints a
+light chrome skeleton (=org-air-view--render-loading=) + =(redisplay t)= and fills
+the board asynchronously off the critical path. On a fresh Emacs the SVG pill image
+cache (=org-air-view--svg-image-cached=) is EMPTY, so that first full paint forces
+the GUI redisplay to RASTERIZE every visible pill's SVG SYNCHRONOUSLY (state badges,
+date pills, tag pills, priority squares, file icons across the viewport). SVG
+rasterization needs a real GUI frame, so it is INVISIBLE to every batch test — the
+batch full render is only 177ms and rasterizes nothing. That GUI-only, cold-cache,
+viewport-many-pills rasterization IS the 2–10s freeze; deleting the cache routes the
+open through the skeleton-first cold path, which never does a blocking full paint on
+the launch critical path, so the freeze disappears.
+
+* R45-1 — CONFIRMATION: the two branches, and why only the cached one freezes
+
+Method: read the entry cond in =org-air-view= (=org-air-view.el= ~7276) and the two
+async primitives it calls. org-ql is the only query path throughout.
+
+** The cached branch blocks; the cold branch yields
+
+- *Cache HIT branch* (=(when-let* ((cache (org-air-view--cache-load))) …)=, ~7350):
+  seeds =org-air-view--items= from the cache (no scan when all mtimes match =
+  FRESH), then calls =(org-air-view--render org-air-view--items
+  org-air-view--tag-filter)= *synchronously, in the command body, with no prior
+  skeleton and no redisplay yield*. Control does not return to the user until that
+  full render AND its triggering redisplay complete. On a fresh Emacs the redisplay
+  must rasterize ~=visible-rows × pills-per-row= cold SVGs → the 2–10s block.
+- *COLD branch* (=(t …)=, ~7378): =(org-air-view--refresh-start t)= (seed the paced
+  skeleton machine) → =(org-air-view--render-loading)= → =(redisplay t)=. The
+  skeleton has NO pills (=render-loading= draws only banner/rule + a centred
+  "Loading your board…" + footer), so its redisplay rasterizes nothing and the
+  frame appears within one paint; input stays live while slices scan in idle time.
+
+** Why the FRESH cache is the worst case (and hits every open)
+
+When every file's mtime matches the cache snapshot, the cache branch takes the
+FRESH sub-case: =(cdr cache)= (stale files) is nil, so =org-air-view--refresh-start=
+is NOT called at all — there is no async machine, no skeleton, nothing deferred.
+It is a pure, unconditional, synchronous full board paint. That is the common
+every-open state (nothing changed since last session), which is exactly why the
+user sees the hang on EVERY fresh open, not just occasionally.
+
+** The cost is GUI SVG rasterization, not the cache or the elisp render
+
+- =org-air-view--cache-load= (read + =read= the =.eld=): ~4ms — NOT the cost.
+- =org-air-view--render= elisp (line assembly) in batch: ~177ms, and it rasterizes
+  ZERO images (=display-graphic-p= nil in batch) — NOT the 2–10s cost, and the
+  reason no batch test ever caught this.
+- The 2–10s is the GUI redisplay rasterizing the viewport's cold pill SVGs on the
+  first paint. It scales with visible pill count (tall window / many badges+dates+
+  tags) — matching the reported 2–10s spread. It needs a live GUI frame, so it is
+  structurally invisible to =noninteractive= ERTs; the guard must be STRUCTURAL.
+
+** Cross-check: does the COLD path secretly do the same big final-swap block?
+
+Partly — and it must be noted so the fix does not merely relocate the freeze. When
+the cold/paced machine finishes, =org-air-view--refresh-finish= →
+=org-air-view--refresh-repaint= → a full =org-air-view--render= single-swap, whose
+redisplay ALSO rasterizes the viewport's still-cold pills. The difference is that
+this swap happens AFTER the skeleton is already visible and input is live (it fires
+from an idle-timer slice, not on the launch critical path), so the user experiences
+"the board fills in a moment" rather than "the launch is frozen blank." The block
+is the same rasterization cost; only its POSITION differs. The fix therefore aims
+at a single invariant for BOTH paths: *the first meaningful frame is a pill-free
+skeleton painted instantly; the pill-bearing full board is only ever rendered off
+the launch critical path.*
+
+* R45-2 — THE FIX: the cache-first path paints skeleton first, then swaps the cached board off-critical-path
+
+Options (pick the one that makes first paint instant + input live, matching the
+cold path's feel, WITHOUT re-scanning — the cache's whole benefit):
+
+- *(A) Skeleton-first, then deferred cached full render (same idle mechanism).* On
+  the cached branch, paint =org-air-view--render-loading= + =(redisplay t)= FIRST
+  (instant, pill-free, exactly like cold), then schedule the cached full-board
+  =org-air-view--render= on an idle timer, SEEDED with the cached items (no
+  re-scan). Pills rasterize off the launch critical path; the launch frame is
+  instant and input is live, identical to the cold feel — while keeping the cache's
+  no-scan benefit.
+- *(B) Yield between chunks of the cached paint.* Render the board in bounded slices
+  with redisplay yields so no single 2–10s block occurs. Heavier: the current
+  =org-air-view--render= is a single-swap whole-buffer builder; chunking the PAINT
+  (as opposed to the SCAN) means partial boards on screen (violates the single-swap
+  rule) and a much larger change surface.
+- *(C) Prewarm / viewport-cap pill rasterization.* Emacs already rasterizes ONLY
+  visible display images (off-screen pills defer to scroll-in), so the cost is
+  already viewport-bounded; a persistent on-disk pill raster cache is impractical
+  (SVG images are in-memory, frame/font/scale specific). "Prewarm" reduces to
+  moving rasterization off the critical path — which is what (A) does.
+
+*Decision: (A).* It reuses the exact skeleton + idle mechanism the cold path
+already proves, keeps the cache's no-scan benefit, honours the single-swap rule
+(the board still appears in ONE motion, just deferred one idle tick), and needs no
+partial-paint machinery. (C)'s viewport-bounding is inherent and free; (B) is
+rejected for the partial-paint / single-swap violation.
+
+** Fix — unify both interactive branches on skeleton-first
+
+1. *Cache-HIT branch:* replace the direct =(org-air-view--render …)= with:
+   =(org-air-view--render-loading)= → =(redisplay t)= → schedule a ONE-SHOT idle
+   callback that runs the cached full-board =org-air-view--render
+   org-air-view--items org-air-view--tag-filter= (items already seeded from the
+   cache; NO =org-air-query-*= call). Reuse the existing idle plumbing:
+   - FRESH sub-case (no stale files): a new one-shot
+     =org-air-view--deferred-first-paint= scheduled via =run-with-idle-timer 0 nil=,
+     token-guarded like the slice runner (a re-open / kill before it fires is a
+     silent no-op), that simply calls =org-air-view--render= on the cached items.
+   - STALE sub-case: =org-air-view--refresh-start= already paces the changed subset
+     and its =refresh-finish= repaint is the deferred full render — now correctly
+     preceded by a visible skeleton. Its very-first marker paint also moves behind
+     the skeleton (the =stale · refreshing…= header still shows once the board
+     lands). No re-scan of unchanged files (the R42-2 retain-unchanged path is
+     preserved verbatim).
+2. *=noninteractive= / batch and WARM re-open (=cached= in-buffer, first cond arm):
+   EXACT sync path, byte-identical.* The batch gate keeps
+   =(org-air-view--render org-air-view--items …)= synchronous with no skeleton and
+   no idle timer (=org-air-view--refresh-arm= already refuses to arm under
+   =noninteractive=; the one-shot must be gated the same way and run inline/skip
+   under batch). Every fixture is produced exactly as before; the gate never reads
+   or writes the cache file.
+3. *Cold path final-swap:* already off-critical-path (post-skeleton, idle). Left
+   as-is functionally; the shared skeleton-first invariant now documents that its
+   finish-repaint block is acceptable BY POSITION (after the instant skeleton),
+   matching the cached path.
+
+** Invariants held
+
+- *Byte goldens UNTOUCHED.* The batch/noninteractive arm keeps the exact synchronous
+  =--render=; no skeleton, no timer under =noninteractive=. =make regen-mockups= →
+  zero churn. The skeleton (=render-loading=) is a GUI-only launch frame, never a
+  fixture.
+- *No re-scan.* The cached items are rendered as-is; org-ql is not called on the
+  FRESH cache path (cache benefit preserved). Only genuinely changed files are
+  paced (unchanged R42-2 behaviour).
+- *Single-swap rule.* The full board still appears in ONE motion; it is merely
+  deferred one idle tick behind the pill-free skeleton (no partial-board paints).
+- *No wedge.* The one-shot is token-guarded and =--loading= stays coherent; a
+  re-open / buffer-kill before it fires is a silent no-op, and any render error
+  falls back to the existing single-message + empty-board discipline.
+
+* Verification
+
+=make clean && make check= GREEN (0 unexpected, manifest EMPTY); =make
+regen-mockups= zero churn (batch arm unchanged); airctl status -Da parity exact.
+org-ql only.
+
+Executing ERT (=tests/org-air-round45-test.el=), STRUCTURAL (SVG rasterization
+timing is GUI-only and cannot be measured in batch) — the guard proves the cached
+branch never issues a blocking full paint before yielding:
+
+1. *Cached branch paints a skeleton BEFORE any full render.* Drive the entry with
+   =display-graphic-p= stubbed t and a valid FRESH cache; record the call order of
+   =org-air-view--render-loading= vs =org-air-view--render= (advice/spy). ASSERT
+   =render-loading= (or a bounded skeleton) fires FIRST and =org-air-view--render=
+   on the full board is DEFERRED (scheduled via the idle one-shot), NOT called
+   synchronously in the command body. *Revert FAILS*: today the cached arm calls
+   =org-air-view--render= directly with no prior skeleton.
+2. *FRESH cache does not re-scan.* On an all-mtimes-match cache, ASSERT
+   =org-air-query-items= / =org-air-query-items-in-files= are NOT called on the
+   cached open (the cache benefit is intact); the deferred paint renders exactly the
+   cached items.
+3. *=noninteractive= path EXACT + goldens stable.* Under =noninteractive= ASSERT the
+   entry runs the synchronous =org-air-view--render= with NO skeleton and NO idle
+   timer armed (=org-air-view--refresh-timer= nil, one-shot skipped); a representative
+   fixture render is byte-identical to the committed golden.
+4. *Cold path already skeleton-first (regression guard).* ASSERT the cold branch
+   still paints =render-loading= + redisplay before its paced scan, and that its
+   finish-repaint full render is reached only via the idle machine (not on the
+   launch critical path) — documenting that the block is acceptable by position and
+   that the fix did not regress the cold feel.
+5. *No wedge.* A re-open (or buffer kill) BEFORE the one-shot fires is a silent
+   no-op (token guard); =--loading= never strands.
+
+Final proof is the user's GUI: a fresh Emacs open now shows the chrome skeleton +
+"Loading your board…" instantly with live input, then the full board (cached items,
+no re-scan) fills a beat later as pills rasterize off the critical path — identical
+in feel to the cold path the user already reports as instant. The ERT proves the
+STRUCTURE (skeleton-first, deferred full render, no re-scan); only the GUI can
+confirm the eliminated freeze.
+
+* Implementation History
+
+- (pending) R45-1 confirmation: the =org-air-view= cached branch (~7350) calls
+  =org-air-view--render= synchronously in the command with no prior skeleton, so a
+  fresh Emacs (empty SVG image cache) rasterizes the viewport's cold pills during
+  that first redisplay = the 2–10s blank-frozen launch; the FRESH sub-case (no
+  stale files → no =refresh-start=) makes it unconditional on every open. Cache
+  read is ~4ms and the batch render is ~177ms with zero rasterization, so the cost
+  is GUI-only SVG pill rasterization — invisible to batch, which is why no test
+  caught it. Deleting the cache routes through the cold skeleton-first path (no
+  blocking launch paint) → the hang vanishes. Cold path's finish-repaint is the
+  same rasterization cost but off the launch critical path (post-skeleton, idle).
+- (pending) R45-2 fix (Option A): the cache-first branch paints
+  =org-air-view--render-loading= + =(redisplay t)= FIRST (instant, pill-free, like
+  cold), then defers the cached full-board =org-air-view--render= to a token-guarded
+  one-shot idle callback SEEDED with the cached items (no re-scan); pills rasterize
+  off the launch critical path. =noninteractive=/batch and WARM re-open keep the
+  EXACT synchronous render (goldens byte-identical, no skeleton, no timer). Single-
+  swap + no-wedge + no-rescan held. Structural ERT asserts skeleton-before-full-
+  render on the cached branch (revert fails), FRESH-cache no re-scan, batch exact,
+  and cold-path skeleton-first regression guard.

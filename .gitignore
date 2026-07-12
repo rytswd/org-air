@@ -1,2 +1,12 @@
-/.deps/
+# Emacs byte-compiled output
 *.elc
+
+# Test dependencies (installed by the Makefile via package.el)
+/.deps/
+
+# direnv local cache (the flake devshell)
+/.direnv/
+
+# nix build result symlinks
+result
+result-*

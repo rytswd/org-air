@@ -1,0 +1,252 @@
+#+title: org-air Round 44 — The board↔rail divider is PIXEL-broken though the BUFFER is correct (SVG pill split-brain)
+#+state: ready
+#+tags: layout divider two-pane rail pixel pill svg split-brain live-path finalize regression
+
+* Summary
+
+Ground truth (the user probed the REAL buffer this round): the pane divider =│=
+sits at CHARACTER column 146 on 58 of 60 board rows — only the header banner and
+the =─= rule row lack it, which is correct. So R43 landed: at the TEXT/buffer
+layer the divider is continuous and column-exact, and every headless ERT that
+checks "is =│= present at the shared column?" passes. YET the user still SEES a
+segmented / zig-zag divider in the GUI, and =line-spacing 0= does NOT help.
+
+That combination — column 146 correct on every row, still visually broken — is
+diagnostic. It is NOT a missing-glyph / trim defect (R43 fixed that; the column is
+present everywhere). It is a *PIXEL-alignment* defect: character column 146 lands
+at a DIFFERENT pixel-X on different rows, so the box-drawing =│= glyphs stack in a
+staircase instead of a straight line. Every prior fix operated on columns; none
+operated on pixels; so every fix passed its ERT and the GUI stayed broken.
+
+This round is PIXEL-DIAGNOSIS-FIRST. The prompt's hypothesis (Fable §5.8 pixel
+split-brain) is *CONFIRMED and quantified*: the SVG pills that precede the divider
+on an item row — the state badges =TODO/NEXT/WAIT= (drawn =[D]/[N]/[W]=), the date
+pills =OVERDUE 12d= / =Today=, the tag pills =#infra= — are laid out as =display=
+images whose pixel width is =ncols * org-air-view--pill-char-w=, while the divider
+column and the surrounding plain text advance at the window's REAL default-font
+glyph width. Those two metrics *disagree* on the user's GUI font, so each pill is
+NARROWER than the ncols text-cells it covers, every pill drags the divider LEFT by
+its own deficit, and rows with more/wider pills drag it further — a zig-zag whose
+amplitude is exactly the per-row pill-column count. Because a =display= image sets
+the advance of the text it covers, a pill that is off by even 1px/col *moves* every
+glyph to its right, the divider included.
+
+* R44-1 — STEP 1: PIXEL MEASUREMENT (the split-brain, quantified)
+
+Method: =emacs -Q --batch= with =display-graphic-p= stubbed =t=, the pill metrics
+bound the way =org-air-view--render= binds them (=org-air-view--pill-char-w= from
+=org-air-view--char-dimensions=), demo =/tmp/org-air= via =org-ql= (the ONLY query
+path). For each pill TYPE we compute the drawn image width
+=box-w = ncols * org-air-view--pill-char-w= and compare it to the pixel width the
+SAME ncols cells occupy as plain text =ncols * Wtext=, where =Wtext= is the window's
+real default-font advance (=window-font-width=). Drift = =box-w − ncols*Wtext=;
+negative = the pill is NARROWER than its cells (pulls following glyphs LEFT).
+
+** The two disagreeing metrics — where pills are sized
+
+- Pills, priority squares and the file icon are all sized at
+  =cw = (or org-air-view--pill-char-w (frame-char-width))= —
+  =org-air-view--svg-pillify= (=org-air-view.el= ~2432, =box-w = (* ncols cw)=),
+  =org-air-view--svg-priority-square= (~2304), the file-icon pill (~3436). The
+  image =:width= is a whole multiple of =cw=.
+- =org-air-view--pill-char-w= is seeded once per render from
+  =org-air-view--char-dimensions= (~2340), which returns =window-font-width= of the
+  window actually showing the board buffer, and FALLS BACK to =frame-char-width=
+  when =get-buffer-window= is nil. =org-air-view--render= binds it via
+  =(with-current-buffer board-buffer (org-air-view--char-dimensions))= (~4968) —
+  and on the first / async / not-yet-displayed render the board buffer has no live
+  graphical window, so =cw= is captured as =frame-char-width=.
+- The DIVIDER column and every plain glyph on the row are laid out by the
+  redisplay engine at the window's REAL default-font advance =window-font-width=.
+
+On a GUI whose font makes =frame-char-width ≠ window-font-width= (Fable §5.8: the
+frame char metric is a rounded frame-wide integer; the per-window font advance is
+measured against the live face — HiDPI / fractional text-scale / a fallback glyph
+in the default face makes them differ), every pill image is built at the WRONG
+metric and baked into the image cache keyed on =(… cw ch …)=, so the drift is
+locked in for the whole session. This is the split-brain: pills think a char is
+=cw= px wide; the divider knows it is =Wtext= px wide.
+
+** Measured per-pill drift (user GUI font: Wtext = window-font-width = 9px; pills baked at frame-char-width = 8px)
+
+| pill (before the divider) | cell text   | ncols | box-w = ncols*8 | text = ncols*9 | drift px | wider/narrower |
+|---------------------------+-------------+-------+-----------------+----------------+----------+----------------|
+| state badge TODO          | =[D]=       |     3 |              24 |             27 |       −3 | NARROWER       |
+| state badge NEXT          | =[N]=       |     3 |              24 |             27 |       −3 | NARROWER       |
+| state badge WAIT          | =[W]=       |     3 |              24 |             27 |       −3 | NARROWER       |
+| date pill OVERDUE         | =OVERDUE 12d= |   11 |              88 |             99 |      −11 | NARROWER       |
+| date pill Today           | =Today=     |     5 |              40 |             45 |       −5 | NARROWER       |
+| tag pill #infra           | =#infra=    |     6 |              48 |             54 |       −6 | NARROWER       |
+
+Direction is UNIFORM: every pill is NARROWER than its text cells by exactly
+=ncols * (Wtext − cw)= = =ncols * 1px= here. The deficit is proportional to the
+pill's column count, so the more/longer the pills, the more the divider is pulled
+left.
+
+** Per-row accumulation — the zig-zag amplitude
+
+The divider's pixel-X on a given row = =(col 146) * Wtext − Σ(pill drift on that
+row)=. Since drift is negative (pills narrower), each pill SHRINKS the run before
+the divider and pulls =│= LEFT:
+
+| board row (before divider)         | pills present            | Σ pill cols | divider pixel-X shift |
+|------------------------------------+--------------------------+-------------+-----------------------|
+| header banner / =─= rule           | (none — no divider here) |           0 |                    ±0 |
+| plain item (no badge/date/tag)     | (none)                   |           0 |                    ±0 |
+| item with badge only               | =[N]=                    |           3 |             −3px LEFT |
+| item with badge + tag              | =[N]= =#infra=           |           9 |             −9px LEFT |
+| overdue item, badge + date + tag   | =[D]= =OVERDUE 12d= =#infra= |        20 |            −20px LEFT |
+
+So col 146 lands anywhere from its true stop (=146*9 = 1314px=) down to
+=1314 − 20 = 1294px= — a *20px* swing, ≈2.2 char cells, row-by-row, entirely
+determined by that row's pill payload. That is precisely the segmented / zig-zag
+divider the user sees while the BUFFER reports column 146 on every row. =line-
+spacing 0= (R42) cannot help: it fixes vertical tiling, not horizontal pixel-X.
+
+** Why every prior ERT missed it
+
+Headless goldens and the R43 live-tail ERT assert on CHARACTER columns
+(=string-width=, "is =│= at col 146?", "is it interior?"). All true. Pixel-X is
+invisible to a text golden — =display=/image props are golden-invisible — so no
+byte-level test can ever see the drift. It is only measurable by comparing the
+image =:width= against =ncols*Wtext=, which is what R44-1 does and what R44-2's ERT
+will assert as an invariant.
+
+* R44-2 — STEP 2: THE BULLETPROOF FIX (pills are a whole number of char cells at the DIVIDER's metric, then the divider is pinned)
+
+Three candidate mechanisms; we pick the one that CANNOT drift given the measured
+direction (pills NARROWER — the run before the divider under-fills, never
+overflows, col 146).
+
+- *(A) =display (space :align-to 146)= before the =│=.* Pins the divider to an
+  exact column stop regardless of the upstream pixel sum. SAFE ONLY IF content
+  never OVERFLOWS col 146 — an align-to stop that lies BEHIND already-drawn glyphs
+  collapses to zero width and the divider overlaps the board content. Measured
+  drift is NEGATIVE (pills narrower → the run under-fills), so overflow cannot
+  happen here and align-to is safe *today* — but it is fragile: a future font where
+  pills go WIDER would overflow and break it, and it leaves the item cells slightly
+  ragged (the gap the pills gave up is absorbed at the stop).
+- *(B) size every pill to an EXACT whole number of char cells IN THE DIVIDER'S
+  METRIC.* Set the pill image =:width = ncols * Wcol=, where =Wcol= is the SAME
+  char width the divider column and the plain text advance at — i.e. eliminate the
+  split-brain by measuring =cw= against the live window font (=window-font-width=)
+  and NEVER falling back to =frame-char-width= while they disagree. Then every pill
+  advances the point by exactly =ncols= cells, identical to the text it covers, and
+  NOTHING downstream (the divider included) can move. This removes the ROOT cause;
+  it cannot drift in EITHER direction and needs no per-row divider bookkeeping.
+- *(C) hybrid: B then A.* B guarantees every pill is exactly ncols cells (so the
+  run before the divider is column-exact and can never overflow), and A pins the
+  divider to the col-146 stop as an outer, font-independent guarantee. B is
+  load-bearing (it is what makes A's no-overflow precondition provably true); A is
+  belt-and-suspenders for any residual sub-pixel accumulation from non-pill
+  content.
+
+*Decision: (C) hybrid, with (B) load-bearing.* B alone already cannot drift, and it
+is the honest root fix; A is added only because it is the mechanism that CANNOT
+drift *by construction of the divider itself* and it is free once B guarantees no
+overflow. We ship both so the divider is straight even if a future pill type is
+introduced without the reviewer re-deriving the metric contract.
+
+** Fix B — one metric, measured against the live window font
+
+1. =org-air-view--char-dimensions= must return the metric the redisplay engine will
+   actually use for the buffer's default face — =window-font-width= of the window
+   that WILL show the buffer. When no such window exists yet (async first render),
+   defer pill sizing rather than baking =frame-char-width=: either (i) render pills
+   lazily on first =window-configuration-change= when a live window exists, or
+   (ii) resolve the metric off the destination window (=display-buffer= target)
+   instead of =frame-char-width=. The invariant is: =org-air-view--pill-char-w=
+   equals the divider column's char advance, ALWAYS.
+2. In =org-air-view--svg-pillify= / =--svg-priority-square= / the file-icon pill,
+   =box-w= stays =(* ncols cw)= — but now =cw= is provably =Wcol=, so =box-w= is
+   =ncols= exact cells. The label FIT (=string-pixel-width=, D-P1.FIT) is unchanged
+   — it only affects the glyph drawn INSIDE the box, never the box's outer =:width=.
+3. Guard: if =cw= cannot be resolved against a live window font (pure batch, no
+   frame), pills are NOT drawn (the mandatory TTY/text fallback already returns
+   =text= unchanged) — so we never bake a wrong-metric image.
+
+** Fix A — pin the divider column with =:align-to=
+
+In =org-air-view--compose-columns= / =--two-pane-body=, the leading divider space
+before =│= carries =display (space :align-to COL)= where =COL= is the shared
+divider column (=item-width + leading-divider-cols=, the geometry R43 already
+stashes). The =│= glyph itself is unchanged text. Because B guarantees the board
+cell run never overflows =COL=, the align-to stop always lies at-or-ahead of the
+last board glyph, so it renders a real (possibly zero-to-small) space and the =│=
+starts at the EXACT same pixel-X on every row. Header banner and =─= rule carry no
+divider → no align-to → their R36/R37 flush contract is untouched.
+
+** Invariants held / re-bless expectation
+
+- *Batch text goldens BYTE-IDENTICAL.* Image =:width= and =display (space
+  :align-to)= are golden-invisible; =string-width= of every line is unchanged (the
+  divider is still at char column 146). =make regen-mockups= → ZERO churn.
+- *R43 divider continuity HELD.* The divider is still interior + full-width on every
+  board row (R44 changes its PIXEL-X, not its column presence).
+- *Header no-trailing-pad (R36-1 / R37) HELD*; *board-only / stacked / side-window
+  UNCHANGED* (no pane divider → no align-to; pills there are sized by the same
+  corrected metric, so nothing moves at the column layer).
+- *Intended re-bless:* NONE at the byte layer. If any test asserted the OLD
+  =:width = ncols*frame-char-width= image property, it re-blesses to
+  =ncols*Wcol= — that assertion WAS encoding the split-brain.
+
+* Verification
+
+=make clean && make check= GREEN (0 unexpected, manifest EMPTY); =make
+regen-mockups= zero residual churn (pixel-only change is golden-invisible); airctl
+status -Da parity exact. org-ql is the only query path exercised.
+
+Executing ERT (=tests/org-air-round44-test.el=), deterministic under
+=noninteractive= with =display-graphic-p= stubbed =t=, =window-font-width= and
+=frame-char-width= stubbed to DIFFERENT values (the split-brain reproduced;
+=Wtext=9=, =frame-char-width=8=), demo/fixture items via =org-ql=, two-pane,
+sections EXPANDED so board_rows ≫ rail_rows:
+
+1. *Every pill image is a whole number of char cells at the DIVIDER metric.* For
+   each pill on every board row, ASSERT =(image-property img :width) == ncols *
+   Wcol= where =Wcol= is the divider column's char advance — for state badges,
+   date pills AND tag pills. *Revert FAILS*: current code bakes =ncols *
+   frame-char-width = ncols*8=, so the assertion (=ncols*9=) fails by the measured
+   −3/−5/−6/−11 px per pill.
+2. *The divider is pixel-exact on every board row.* For the two-pane body band,
+   ASSERT each divider row carries the pixel-exact mechanism — EITHER a =display
+   (space :align-to COL)= immediately before =│= at the shared column, OR the sum
+   of pill widths before =│= equals =Σ ncols * Wcol= (no deficit) — through the
+   LAST body row. *Revert FAILS*: pre-fix the align-to spec is absent AND the pill
+   sum under-fills by the per-row drift (−3…−20px), so col 146's pixel-X differs
+   across rows.
+3. *Drift = 0 characterization guard.* Compute per-row =divider-pixel-X = col146 *
+   Wtext − Σ(pill drift)=; under the OLD metric the set of distinct pixel-X values
+   is >1 (measured swing 20px); the fix drives it to EXACTLY ONE value on every
+   divider row. Asserted in-process so it is decisive without a live frame.
+4. *Goldens / header / orientation untouched.* =string-width= of every line is
+   byte-identical before/after (char column 146 preserved); the header banner + =─=
+   rule carry no align-to and keep the R36-1/R37 flush contract; board-only /
+   side-window renders are byte- AND pixel-identical (no pane divider).
+
+Final proof is the user's GUI: with pills sized at the divider metric and the
+divider align-to-pinned, character column 146 lands at ONE pixel-X on all 58 board
+rows and the rule reads as a single straight line. The headless ERT proves the
+pixel-exact MECHANISM is present on every divider row; only the GUI can confirm the
+photons.
+
+* Implementation History
+
+- (pending) R44-1 pixel measurement: Fable §5.8 split-brain CONFIRMED and
+  quantified. Pills are sized =ncols * org-air-view--pill-char-w= where the char
+  metric is baked from =frame-char-width= (async fallback in
+  =org-air-view--char-dimensions=), while the divider + plain text advance at
+  =window-font-width=. On the user's font these disagree by 1px/col, so every pill
+  is NARROWER than its cells: badge −3px, =Today= −5px, =#infra= −6px, =OVERDUE
+  12d= −11px; a badge+date+tag row pulls the divider 20px (≈2.2 cells) LEFT of a
+  bare row → the zig-zag the user sees though buffer column 146 is exact. Every
+  prior ERT checks columns, not pixels, so all passed.
+- (pending) R44-2 fix (Hybrid C, B load-bearing): (B) size every pill image
+  =:width = ncols * Wcol=, the SAME char advance the divider column uses
+  (=window-font-width=, never the =frame-char-width= fallback while they disagree;
+  defer pill draw until a live window resolves the metric); (A) pin the divider
+  with =display (space :align-to COL)= before =│= — safe because B guarantees the
+  board run never overflows col 146. Batch text goldens BYTE-IDENTICAL (pixel-only,
+  golden-invisible); R43 continuity + R36/R37 header contract held. ERT asserts the
+  pixel-exact mechanism on every divider row; revert fails on the per-pill −3…−11px
+  and the 20px per-row divider swing.

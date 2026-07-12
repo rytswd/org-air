@@ -235,6 +235,35 @@ in =tests/org-air-known-failures.el= as R46 grind fences until the impl lands, s
   =org-air-row-title= mark is chopped by the =left= re-truncation in
   =org-air-view--insert-row= on narrow rows, so the snapped column wanders
   (col 6 vs 13).
+- 2026-07-13 R46-2 IMPL LANDED (org-air-view.el; impl track): the R29-2
+  item/doc-only, left-only dead-zone gate is REPLACED by the universal
+  per-row title-band clamp exactly as specced.  New
+  =org-air-view--row-band= → =(START . END)= (item/doc rows:
+  =row-title-pos= … the last visible glyph of the row's OWN
+  item/doc-property run — the trailing pad/rail are outside the band;
+  section/note/banner/rule rows: first visible glyph on the BOARD side of
+  the divider via new =org-air-view--row-pane-limit=, so a two-pane fill
+  row — blank board, live rail — reads as genuinely blank; blank rows:
+  nil).  =org-air-view--normalize-point-now= now applies the two-edged
+  clamp (col-0/gutter → band start, trailing-pad/EOL → band end, in-band
+  → KEEP — goal column respected, blank rows untouched);
+  =org-air-view--dead-zone-p= is deleted (no other caller).  The R29-2
+  line-motion snapshot gate (=org-air-view--normalize-point= /
+  =--pre-command-snapshot=) is structurally unchanged, so the in-row
+  horizontal exemption (h/l, 0/^) is preserved.  Secondary fix shipped
+  too: =org-air-view--insert-row= re-applies the =org-air-row-title= mark
+  to the title's surviving first glyph (or the ellipsis remnant) when the
+  LEFT re-truncation chopped the marked glyph, so the band start is
+  stable on narrow rows (text property only — bytes untouched).
+  VERIFIED: both R46-2 acceptance ERTs (native + REAL evil) FAIL on trunk
+  and PASS on this impl; =make regen-mockups= zero churn (goldens
+  byte-identical — the clamp is point-only); full gate =make clean &&
+  make check= GREEN — 632 tests, 0 unexpected, 1 expected failure: the
+  legacy =org-air-r22-2-normalize-point-snaps-off-dead-column= clause (3)
+  asserted the PRE-R46 "banner top is never touched" contract, which this
+  round's band table deliberately inverts (banner band = its first
+  visible glyph, col 2); manifested on the impl track for the test seat
+  to re-bless (see tests/org-air-known-failures.el).
 - (pending) R46-2 fix (SPEC): a UNIVERSAL per-row TITLE-BAND clamp on EVERY board
   row after a line-crossing motion. =org-air-view--row-band= → =(start . end)=
   (title-pos … last-visible for item/doc rows; first-visible for
@@ -251,3 +280,6 @@ in =tests/org-air-known-failures.el= as R46 grind fences until the impl lands, s
 
 * History
 - 2026-07-13: Created. State: ready.
+- 2026-07-13: R46-2 impl landed (universal per-row title-band clamp +
+  title-mark re-apply); awaiting test-seat integration of the R46 ERTs +
+  the r22-2 clause-(3) re-bless.

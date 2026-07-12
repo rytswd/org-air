@@ -967,6 +967,26 @@
     ;; .el SOURCE touched (impl landed R41-1 in rxlsswny).  Round-41 manifest
     ;; is EMPTY; the tests stay as permanent regression guards.
     ;; =================================================================
+    ;; v0.5 ROUND-46 grind (impl track) — ONE legacy assertion inverted by
+    ;; the design-blessed universal title-band clamp
+    ;; (air/v0.5/org-air-round46-design.org, R46-2).
+    ;;
+    ;; 2026-07-13: R46-2 landed in org-air-view.el — the R29-2 item/doc-only
+    ;; LEFT-only dead-zone snap (`org-air-view--dead-zone-p') is replaced by
+    ;; the UNIVERSAL per-row title-band clamp (`org-air-view--row-band' +
+    ;; the two-edged clamp in `--normalize-point-now'), so EVERY visible
+    ;; board row — including the header banner — now clamps a stray col-0 /
+    ;; EOL landing into its title band.  The r22-2 ERT's clause (3) asserts
+    ;; the PRE-R46 contract ("a non-row line (the banner top) -> NO-OP",
+    ;; point held at point-min col 0); under R46 the banner's band is its
+    ;; first visible glyph (col 2, past the `  ' indent), so the entry clamp
+    ;; moves point 1 -> 3 and the `(= (point) p)' assertion fails.  This is
+    ;; the design-blessed inversion, NOT an impl bug — clauses (1)/(2)
+    ;; (dead-col snap onto the title / in-band NO-OP) still hold.  The test
+    ;; seat re-blesses clause (3) to the R46 band contract (banner landing =
+    ;; first visible glyph), then deletes this entry.
+    (org-air-r22-2-normalize-point-snaps-off-dead-column
+     . "R46-2 universal band clamp: banner top now clamps col 0 -> first visible glyph (design-blessed inversion of the pre-R46 'never touched' clause; re-bless on the test seat)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

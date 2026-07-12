@@ -3026,6 +3026,7 @@ this one primitive, faces, truncation, alignment and svg pills)."
                       (put-text-property 0 1 'org-air-row-title t tt)
                       tt)
                   title))
+         (had-title (> (length title) 0))
          (left (concat prefix title))
          ;; V6 (D-P1.PAD fix): the cluster MUST start at the fixed column
          ;; `width - cluster-w' regardless of prefix/title/pad.  At the
@@ -3041,6 +3042,25 @@ this one primitive, faces, truncation, alignment and svg pills)."
                    left
                  (truncate-string-to-width
                   left left-budget nil nil (org-air-view--glyph 'more))))
+         ;; R46-2 (secondary): the LEFT re-truncation above can chop the
+         ;; R21-2-marked title glyph on a narrow row (the ellipsis replaces
+         ;; the whole title cell), leaving the row with NO title mark, so
+         ;; `org-air-view--row-title-pos' fell back to the row's first
+         ;; visible glyph (the keyword cell) and the R46 band start
+         ;; wandered between columns down one section.  Re-apply the mark
+         ;; to the title's surviving first glyph — or the ellipsis remnant
+         ;; when even that is gone — so the band start is stable.  A text
+         ;; property only; the visible bytes are untouched.
+         (left (if (and had-title (> (length left) 0)
+                        (not (text-property-not-all
+                              0 (length left) 'org-air-row-title nil left)))
+                   (let ((lt (copy-sequence left)))
+                     (put-text-property
+                      (min (length prefix) (1- (length lt)))
+                      (min (1+ (length prefix)) (length lt))
+                      'org-air-row-title t lt)
+                     lt)
+                 left))
          ;; R40-2: right-anchor the cluster to the ONE board-wide fence
          ;; column.  The standard no-rail BOARD row (OWN-FENCE nil) anchors
          ;; to the SHARED no-arg `org-air-view--fence-column' — derived from
@@ -4627,41 +4647,104 @@ only when the command moved point to a DIFFERENT line than this snapshot
 Buffer-local `pre-command-hook' in the board and project views."
   (setq org-air-view--pre-command-line (line-number-at-pos)))
 
-(defun org-air-view--dead-zone-p ()
-  "Non-nil when point sits in the DEAD ZONE of a row-owning line (R29-2).
-On a line that owns a row (`org-air-item'/`org-air-doc' anywhere on it,
-via `org-air-view--row-property'), the dead zone is every column BEFORE
-the row's title mark (the leading margin, todo cell and priority cell —
-the R21-2 `org-air-row-title' position via `org-air-view--row-title-pos')
-PLUS any column carrying no row property under point (the two-pane
-margin/rail/pad columns — the R22-2 clause, preserved verbatim).  R22-2's
-property-only predicate was provably dead under board-only/side-window
-composition and on EVERY project doc row, where the row property covers
-all columns including column 0.  Lines owning no row (section headings,
-banner, blanks) have no dead zone — never touched."
-  (and (or (org-air-view--row-property 'org-air-item)
-           (org-air-view--row-property 'org-air-doc))
-       (or (and (not (get-text-property (point) 'org-air-item))
-                (not (get-text-property (point) 'org-air-doc)))
-           (< (point) (org-air-view--row-title-pos)))))
+(defun org-air-view--row-pane-limit (bol eol)
+  "Return the exclusive END of the current row's BOARD segment (R46-2).
+On a two-pane line (`org-air-view--pane-divider-col' set) the board
+segment ends at the `org-air-face-pane-border'-faced vrule glyph the
+composer put on the line; every other orientation (board-only, stacked,
+side-window) — and any line not carrying the faced vrule (banner, rule,
+footer) — uses EOL.  BOL/EOL bound the scan.  Keeps the R46-2 title band
+on the BOARD side of the divider, so a two-pane fill row (blank board,
+live rail) reads as genuinely blank."
+  (or (and org-air-view--pane-divider-col
+           (let ((pos bol) (found nil))
+             (while (and (not found) (< pos eol))
+               (let ((f (get-text-property pos 'face)))
+                 (if (or (eq f 'org-air-face-pane-border)
+                         (and (listp f) (memq 'org-air-face-pane-border f)))
+                     (setq found pos)
+                   (setq pos (1+ pos)))))
+             found))
+      eol))
+
+(defun org-air-view--row-band ()
+  "Return the current row's TITLE BAND as (START . END), or nil (R46-2).
+START/END are buffer positions on the current line; point anywhere in
+[START..END] is a legitimate landing for a line-crossing motion.
+Supersedes the R29-2 `dead-zone' predicate, which fired only on item/doc
+rows and guarded only the LEFT edge — so every non-item row (section
+headers, the `…and N more' / empty-section notes, banner) and the RIGHT
+edge of item rows were unguarded and vertical motion dropped point to
+column 0 or EOL (the R46 cursor jump).
+
+- Item / doc rows (`org-air-item'/`org-air-doc' anywhere on the line,
+  via `org-air-view--row-property'): START is the R21-2 title
+  (`org-air-view--row-title-pos'); END is the row's LAST visible
+  (non-space) glyph within the row's own property run — the board
+  content, before the trailing pad / two-pane rail.
+- Every other visible row (section headers, the truncation/empty-section
+  notes, the banner, the header rule): START = END = the row's first
+  visible glyph on the BOARD side of the divider
+  (`org-air-view--row-pane-limit'), so point rides the row's own text,
+  never the col-0 indent margin.
+- Genuinely blank rows (spacers, two-pane fill rows): nil — column 0 is
+  the only legitimate landing; never touched."
+  (let* ((bol (line-beginning-position))
+         (eol (line-end-position)))
+    (if (or (org-air-view--row-property 'org-air-item)
+            (org-air-view--row-property 'org-air-doc))
+        (let* ((start (org-air-view--row-title-pos))
+               ;; End of the row's own item/doc property run: the trailing
+               ;; pad may still carry the property (it covers the whole
+               ;; board run), but the rail columns never do (R22-2).
+               (run-end (let ((pos eol))
+                          (while (and (> pos bol)
+                                      (not (get-text-property
+                                            (1- pos) 'org-air-item))
+                                      (not (get-text-property
+                                            (1- pos) 'org-air-doc)))
+                            (setq pos (1- pos)))
+                          pos))
+               ;; ...trimmed to the run's last visible glyph.
+               (end (save-excursion
+                      (goto-char run-end)
+                      (skip-chars-backward " \t" bol)
+                      (point))))
+          (cons start (max start (1- end))))
+      (let* ((limit (org-air-view--row-pane-limit bol eol))
+             (first (save-excursion
+                      (goto-char bol)
+                      (skip-chars-forward " \t" limit)
+                      (point))))
+        (when (< first limit)
+          (cons first first))))))
 
 (defun org-air-view--normalize-point-now ()
-  "Snap point onto the row title when it sits in the dead zone (R29-2).
-The gate-free snap: entry/restore tails call this DIRECTLY after placing
+  "Clamp point into the current row's TITLE BAND (R46-2).
+The gate-free clamp: entry/restore tails call this DIRECTLY after placing
 point (the R21-1 restore tail, the pane return, the doc-session return)
-so a restored dead column is corrected immediately, not on the next
-keystroke.  Idempotent: on/after the title — or on a non-row line — it
-does nothing, so it composes with R21-1's restored column."
+so a stray column is corrected immediately, not on the next keystroke.
+Universal (EVERY board row) and two-edged: a col-0/gutter landing snaps
+forward to the band start (subsuming the R21-2/R29-2 title snap — the
+band start IS the title), a trailing-pad/EOL landing snaps BACK to the
+band end, and a point already INSIDE the band is KEPT, so the goal
+column of `next-line'/`evil-next-line' is respected.  Blank rows have no
+band and are never touched (col 0 is their only legitimate landing).
+Idempotent on/inside the band, so it composes with R21-1's restored
+column."
   (when (and (not (window-minibuffer-p))
-             (memq major-mode '(org-air-view-mode org-air-project-mode))
-             (org-air-view--dead-zone-p))
-    (org-air-view--goto-row-title)))
+             (memq major-mode '(org-air-view-mode org-air-project-mode)))
+    (let ((band (org-air-view--row-band)))
+      (cond ((null band) nil)
+            ((< (point) (car band)) (goto-char (car band)))
+            ((> (point) (cdr band)) (goto-char (cdr band)))))))
 
 (defun org-air-view--normalize-point ()
-  "Snap point onto the row title after a LINE-crossing command (R29-2).
-Runs in `post-command-hook'.  Command-agnostic by construction (there is
-no command whitelist): the buffer-local snapshot recorded by
-`org-air-view--pre-command-snapshot' gates the snap on LINE MOTION — it
+  "Clamp point into the row's title band after a LINE-crossing command.
+Runs in `post-command-hook' (R29-2 gate, R46-2 clamp).  Command-agnostic
+by construction (there is no command whitelist): the buffer-local
+snapshot recorded by
+`org-air-view--pre-command-snapshot' gates the clamp on LINE MOTION — it
 fires only when the command moved point to a DIFFERENT line
 \(`evil-next-line'/`evil-previous-line'/`evil-goto-line', arrows,
 `next-line'/`previous-line', any future package) or when no snapshot

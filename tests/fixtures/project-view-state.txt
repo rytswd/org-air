@@ -14,7 +14,7 @@
       COMP  Beta CLI                    ~ 2026-05-01  #core           |  none
                                                                       | | Source
   | DROP  Dropped 1                                                   |  all items ∙ 7 loaded
-      DROP  Delta UI exploration        ~ 2026-05-01  #ui             |
+      ... 1 dropped — TAB to show                                     |
                                                                       | | Summary
   | UNKNO Unknown 1                                                   |    2  Draft
       UNKNO Eta notes                   ~ 2026-05-01  #notes          |    1  Ready

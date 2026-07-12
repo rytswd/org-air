@@ -1061,29 +1061,67 @@
     ;; R47-2 in wwxwvynl).  Round-47 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
     ;; =================================================================
-    ;; v0.5 ROUND-48 grind (impl seat, <this commit>) — dropped docs grey
-    ;; + collapse by default (air/v0.5/org-air-round48-design.org).  The
-    ;; three project byte goldens MOVE by design (the DROP rows fold
-    ;; behind the per-group `… N dropped — TAB to show' row;
-    ;; `org-air-project-collapse-dropped' defaults t) — the test seat
-    ;; re-blesses via `make regen-mockups' + assertion re-bless, then
-    ;; deletes these entries.  Board/layout mockups: ZERO churn.
-    (org-air-f5-project-view-byte-mockups
-     . "R48-3: project-view-{dir,state,tag}.txt goldens move — the DROP
-row folds behind the `… 1 dropped' fold row (dir: last own-doc slot of
-v0.2/; state: the Dropped section body; tag: appended after #ui's
-visible rows).  Fixtures NOT edited on the impl seat; test seat
-re-blesses via make regen-mockups.")
-    (org-air-f5-tree-structure
-     . "R48-3: the `every fixture doc renders by its TITLE' conjunct
-assumed dropped rows inline; Delta UI exploration is now folded by
-default in the state grouping.  Test seat re-blesses the conjunct to
-the fold contract.")
-    (org-air-r18-dp3-project-filter-narrows
-     . "R48-3: the NO-FILTER baseline + the clear-restores conjuncts
-assert the dropped Delta doc visible; it is folded by default now (the
-filter-LIVE conjuncts still hold — the fold bypass).  Test seat
-re-blesses baseline/clear to the fold contract.")
+    ;; v0.5 ROUND-48 CLOSEOUT (impl tip xprqntst/785bfa4d + test re-bless
+    ;; <this commit>).  ALL 3 grind entries CLOSED — the three project
+    ;; byte goldens regenerated from impl's render via the FROZEN-CLOCK
+    ;; renderer (make regen-mockups AFTER make clean — stale pre-impl
+    ;; .elc first shadowed the R48 .el and regenerated a byte-identical
+    ;; no-op; verified NO HANG, exit 0; jj diff --stat = ONLY the 3
+    ;; project goldens, 5 changed lines total — every board / layout /
+    ;; entry-view / denote golden is byte-identical, confirming R48-2 is
+    ;; a face, byte-invisible) and the two flagged assertion ERTs
+    ;; re-blessed HONESTLY to the design-blessed R48 contracts
+    ;; (air/v0.5/org-air-round48-design.org):
+    ;;   R48-3 (1 golden set) DROPPED-DOC FOLD: project-view-dir.txt —
+    ;;     the `+---- DROP Delta UI exploration' row is replaced by the
+    ;;     `+---- … 1 dropped — TAB to show' fold row as the LAST
+    ;;     own-doc slot of v0.2/ (after UNKNO Eta; connector math holds;
+    ;;     the header's X1 rollup is UNCHANGED); project-view-state.txt —
+    ;;     the `Dropped 1' heading stays, its body becomes the fold row;
+    ;;     project-view-tag.txt — #ui loses the Delta row, gains the
+    ;;     fold row after its visible rows (`| #ui 4' count unchanged).
+    ;;   org-air-f5-tree-structure re-blessed STRONG (not gutted): the
+    ;;     `every fixture doc renders by TITLE' conjunct splits — every
+    ;;     NON-dropped doc renders by title, the dropped Delta title is
+    ;;     ABSENT behind the `… 1 dropped' fold row, AND a knob-nil
+    ;;     re-render brings EVERY doc (dropped included) back by title,
+    ;;     so a render that simply lost the doc can never pass.
+    ;;   org-air-r18-dp3-project-filter-narrows re-blessed: the NO-FILTER
+    ;;     baseline + clear-restores conjuncts assert every NON-dropped
+    ;;     title + the fold row (Delta ABSENT); the filter-LIVE conjuncts
+    ;;     (Delta VISIBLE under #ui — the R48-3 fold bypass) carry over
+    ;;     VERBATIM and now double as the bypass guard.
+    ;; NEW R48 EXECUTING ERTs (tests/org-air-round48-test.el; revert of
+    ;; the collapse/grey FAILS r48-1/-2/-3/-4/-6):
+    ;;   r48-1 folded-by-default (dir grouping: no visible dropped doc,
+    ;;     ONE fold row keyed (directory . "v0.2"), X1 rollup unmoved,
+    ;;     fold row carries NO org-air-doc + text-only mouse-face);
+    ;;   r48-2 fold rows per group in ALL groupings (state: heading +
+    ;;     count stay, body = the fold row, key (state . "dropped");
+    ;;     tag: exactly one fold row keyed (tag . "#ui"));
+    ;;   r48-3 TAB toggle round-trip (expand from the fold row: Delta
+    ;;     revealed GREYED `org-air-face-project-dropped' in its
+    ;;     state-first slot, visible rows +EXACTLY the hidden count —
+    ;;     anti-tautology — point on the revealed title, no residual
+    ;;     fold row; rule-2 re-collapse from the dropped row: point back
+    ;;     on the fold row, `--expanded-dropped' round-trips empty; the
+    ;;     face DEFINITION asserted: inherits faded + :strike-through t,
+    ;;     DISTINCT from the badge-only air-state-dropped);
+    ;;   r48-4 knob nil = inline greyed in TODAY's byte position, no
+    ;;     fold row in ANY grouping (R48-2 independent of the fold);
+    ;;   r48-5 LOCK-style numeric fence (dir X1 rollup / `Dropped 1'
+    ;;     heading / `#ui 4' / rail Summary `1 Dropped' all count the
+    ;;     folded doc, pinned against `--collect-docs' ground truth —
+    ;;     the airctl -Da parity surface);
+    ;;   r48-6 live-filter bypass (`delta' token: the match VISIBLE +
+    ;;     greyed, NO fold row; clearing restores the fold);
+    ;;   r48-7 LOCK-style scope fence (board render carries no
+    ;;     `org-air-dropped-fold', board TAB stays org-air-toggle-section
+    ;;     while project TAB is the R48 toggle, and the expansion
+    ;;     survives refresh — the R26-5 session locals).
+    ;; No .el SOURCE touched on the test track (impl landed R48-2/R48-3
+    ;; in xprqntst).  Round-48 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

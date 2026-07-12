@@ -126,7 +126,13 @@ project row (the dir tree + title already carry that signal).  The old
 single V6 `↻ YYYY-MM-DD' cell (TTY `~ …').  The nested directory tree,
 per-dir counts and the shared rail are UNCHANGED; section headers keep the
 round-11 `▌'/`|' prefix + `[badge] State N'.  No box-drawing tree
-(air/v0.5/org-air-round21-design.org §R21-5)."
+(air/v0.5/org-air-round21-design.org §R21-5).
+R48-3 re-bless: dropped docs FOLD by default
+(`org-air-project-collapse-dropped' t), so the every-doc-by-title conjunct
+splits — every NON-dropped doc renders by title while the dropped doc
+hides behind the `… N dropped' fold row, and STILL renders by title once
+the knob is nil (folding off) — the assertion stays strong, not weakened
+(air/v0.5/org-air-round48-design.org §R48-3)."
   (skip-unless (locate-library "org-air"))
   ;; Render at the blessed fixture width (100).
   (let ((org-air-project-view-width 100))
@@ -142,10 +148,32 @@ round-11 `▌'/`|' prefix + `[badge] State N'.  No box-drawing tree
       (should-not (string-match-p "[┌┐└┘├┤┬┴┼]" text))
       ;; State grouping carries no descendant roll-up.
       (should-not (string-match-p "(\\+[0-9]+)" text))
-      ;; Every fixture doc renders by its TITLE.
+      ;; R48-3 re-bless: every NON-dropped fixture doc renders by its
+      ;; TITLE; the dropped doc is FOLDED by default (knob t) behind the
+      ;; `… N dropped' fold row, so its title is ABSENT from the default
+      ;; render.
       (dolist (doc org-air-project-test-docs)
-        (should (string-match-p (regexp-quote (plist-get (cdr doc) :title))
-                                text)))
+        (if (eq (plist-get (cdr doc) :state) 'dropped)
+            (should-not (string-match-p
+                         (regexp-quote (plist-get (cdr doc) :title)) text))
+          (should (string-match-p (regexp-quote (plist-get (cdr doc) :title))
+                                  text))))
+      ;; …the fold affordance stands in for the hidden dropped doc…
+      (should (string-match-p
+               (regexp-quote (format "%s 1 dropped"
+                                     (org-air-view--glyph 'more)))
+               text))
+      ;; …and with the knob nil (folding OFF) EVERY doc — dropped
+      ;; included — renders by its TITLE again (the strong half of the
+      ;; re-blessed conjunct; a render that simply lost the dropped doc
+      ;; could never pass this).
+      (let ((org-air-project-collapse-dropped nil))
+        (org-air-project-refresh)
+        (let ((all (buffer-string)))
+          (dolist (doc org-air-project-test-docs)
+            (should (string-match-p
+                     (regexp-quote (plist-get (cdr doc) :title)) all)))))
+      (org-air-project-refresh)
       ;; R21-5 ONE-LINE shape: a doc's state badge, clean TITLE and the V6
       ;; date cell all sit on the SAME buffer line (the two-line block is
       ;; gone).  R25-5 re-bless: the doc row no longer carries the relpath
@@ -389,16 +417,32 @@ count as two rows (the follow change-guard keys on the doc object)."
   "R18 D-P3: a tag filter thins the project docs exactly like the board.
 AND shows only docs carrying ALL active tags; OR shows any; clearing
 restores every doc.  Driven through the shared filter STATE + the doc-aware
-`org-air-view--tags-pass-filter-p' (set the state, refresh, read the docs)."
+`org-air-view--tags-pass-filter-p' (set the state, refresh, read the docs).
+R48-3 re-bless: with NO filter live the dropped doc is FOLDED by default
+(`org-air-project-collapse-dropped' t), so the baseline and the
+clear-restores conjuncts assert every NON-dropped title + the fold row
+(dropped title ABSENT); the filter-LIVE conjuncts still assert the dropped
+Delta doc VISIBLE — the R48-3 filter bypass
+(air/v0.5/org-air-round48-design.org §R48-3)."
   (skip-unless (locate-library "org-air"))
   (let ((org-air-project-view-width 100))
     (org-air-project-test--render
      (when (commandp 'org-air-project-group-by-state)
        (call-interactively 'org-air-project-group-by-state))
      (let ((all (buffer-string)))
-       ;; baseline: every fixture doc title renders.
+       ;; R48-3 baseline: NO filter live -> the dropped doc is FOLDED, so
+       ;; every NON-dropped fixture doc title renders while the dropped
+       ;; Delta title is ABSENT behind the `… N dropped' fold row.
        (dolist (doc org-air-project-test-docs)
-         (should (string-match-p (regexp-quote (plist-get (cdr doc) :title)) all))))
+         (if (eq (plist-get (cdr doc) :state) 'dropped)
+             (should-not (string-match-p
+                          (regexp-quote (plist-get (cdr doc) :title)) all))
+           (should (string-match-p
+                    (regexp-quote (plist-get (cdr doc) :title)) all))))
+       (should (string-match-p
+                (regexp-quote (format "%s 1 dropped"
+                                      (org-air-view--glyph 'more)))
+                all)))
      ;; #ui filter -> only the four ui-tagged docs.
      (setq org-air-view--tag-filter '("ui") org-air-filter-match 'all)
      (org-air-project-refresh)
@@ -429,11 +473,22 @@ restores every doc.  Driven through the shared filter STATE + the doc-aware
        (should (string-match-p "Beta CLI" text))            ; core
        (should (string-match-p "Delta UI exploration" text)) ; ui
        (should-not (string-match-p "Gamma context" text)))  ; neither
-     ;; clear -> all docs back.
+     ;; clear -> the no-filter render back: every NON-dropped doc title
+     ;; restored AND the R48-3 fold restored (the dropped Delta title —
+     ;; visible under the live filters above via the fold BYPASS — folds
+     ;; away again behind the fold row).
      (org-air-filter-clear)
      (let ((text (buffer-string)))
        (dolist (doc org-air-project-test-docs)
-         (should (string-match-p (regexp-quote (plist-get (cdr doc) :title)) text)))))))
+         (if (eq (plist-get (cdr doc) :state) 'dropped)
+             (should-not (string-match-p
+                          (regexp-quote (plist-get (cdr doc) :title)) text))
+           (should (string-match-p
+                    (regexp-quote (plist-get (cdr doc) :title)) text))))
+       (should (string-match-p
+                (regexp-quote (format "%s 1 dropped"
+                                      (org-air-view--glyph 'more)))
+                text))))))
 
 (ert-deftest org-air-r18-dp3-project-filter-command-prefills ()
   "`org-air-project-filter' pre-fills the prompt with the active filter.

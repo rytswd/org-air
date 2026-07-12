@@ -1,5 +1,5 @@
 #+title: org-air Round 48 — Dropped docs: grey them out AND collapse them by default (project view)
-#+state: ready
+#+state: complete
 #+tags: project-view dropped fold collapse face de-emphasis ux
 
 * Summary
@@ -314,6 +314,40 @@ the fold-row branch in =org-air-project-open= (RET/mouse-1).
     =org-air-f5-tree-structure=, =org-air-r18-dp3-project-filter-narrows=)
     registered in tests/org-air-known-failures.el for the test-seat
     re-bless (fixtures NOT edited).  make check GREEN (0 unexpected).
+- 2026-07-13: R48 CLOSEOUT (test seat).  ALL 3 grind entries CLOSED —
+  manifest EMPTY.
+  - Goldens: =make clean && make regen-mockups= (FROZEN-CLOCK renderer,
+    guards active; NO HANG, exit 0 — note: a first regen WITHOUT the
+    clean was a no-op because stale pre-impl .elc shadowed the R48 .el).
+    jj diff = ONLY the 3 project goldens, 5 lines total: dir — the
+    =DROP Delta= row → the =… 1 dropped — TAB to show= fold row as the
+    LAST own-doc slot of =v0.2/= (after UNKNO Eta; connector math holds;
+    header =X1= rollup unchanged); state — the =Dropped 1= heading stays,
+    body = the fold row; tag — =#ui= loses Delta, gains the fold row
+    after its visible rows (=| #ui 4= unchanged).  Every board / layout /
+    entry-view / denote golden byte-identical (R48-2 is a face —
+    byte-invisible).
+  - Re-blessed HONESTLY (strong, not gutted): =org-air-f5-tree-structure=
+    (every NON-dropped doc renders by title + the fold row present +
+    a knob-nil re-render brings EVERY doc back by title) and
+    =org-air-r18-dp3-project-filter-narrows= (baseline/clear assert the
+    fold; the filter-LIVE conjuncts — Delta VISIBLE — carry over
+    verbatim as the bypass guard).
+  - NEW executing ERTs (tests/org-air-round48-test.el): r48-1..r48-7
+    per §R48-4.  REVERT-VERIFIED against the pre-impl trunk
+    (wnsrzqyrkzsk): r48-1/-2/-3/-4/-6 FAIL exactly as specced (r48-6 on
+    the face conjunct), r48-5 + r48-7 PASS lock-style (their R48-side
+    conjuncts guarded on the command's presence so the numeric/scope
+    fences hold on BOTH sides).
+  - airctl =status -Da= parity RE-VERIFIED on
+    ~/Coding/github.com/withre/air: =v0.1/= header
+    =R4(+1) C14(+14) X1(+9) D2(+8)= byte-matches airctl's
+    =🎯 4 (+1)  ✅ 14 (+14)  🗑️ 1 (+9)  📝 2 (+8)=; child rollups
+    (ai-integration =X2=, air-context =C2 X2 D1=, air-template
+    =C4 X1 D(+2)=) all match while the fold rows carry the correct
+    per-dir hidden counts — counts NEVER move when rows fold.
+  - make clean && make check GREEN: 646 ran, 0 unexpected, 8 environment
+    skips; manifest EMPTY.  No .el SOURCE touched on the test track.
 
 * History
 - 2026-07-13: Created from the R48 dropped-docs report (grey out + collapse

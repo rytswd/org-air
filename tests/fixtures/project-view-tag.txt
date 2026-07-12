@@ -16,7 +16,7 @@
       DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |  all items ∙ 7 loaded
       READY Alpha feature               ~ 2026-05-01  #ui   #core     |
       WIP   Zeta work in progress       ~ 2026-05-01  #core   #ui     | | Summary
-      DROP  Delta UI exploration        ~ 2026-05-01  #ui             |    2  Draft
+      ... 1 dropped — TAB to show                                     |    2  Draft
                                                                       |    1  Ready
                                                                       |    1  Work In Progress
                                                                       |    1  Complete

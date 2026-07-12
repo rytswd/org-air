@@ -70,6 +70,31 @@ rail of Summary + Inspector); below it the view is board-only."
   :type 'boolean
   :group 'org-air)
 
+(defcustom org-air-project-collapse-dropped t
+  "When non-nil (the DEFAULT), fold dropped docs per group (R48-3).
+Docs in the terminal `dropped' state are hidden per group behind a
+compact `… N dropped — TAB to show' fold row; TAB/RET on the row
+reveals them (greyed, `org-air-face-project-dropped'), TAB on a revealed
+dropped row re-collapses the group.  nil: no folding anywhere — dropped
+rows render inline exactly in today's positions (but still greyed;
+R48-2 is unconditional).  A LIVE tag filter suspends folding entirely so
+filter output always shows its matches.  Spelled `collapse' (not
+`show') so the default is the truthy value, matching
+`org-air-project-show-inspector'."
+  :type 'boolean
+  :group 'org-air)
+
+(defvar-local org-air-project--expanded-dropped nil
+  "Per-buffer list of EXPANDED dropped-fold group keys (R48-3).
+Mirror of the board's `org-air-view--expanded-sections'.  Each key is a
+cons (GROUPING . ID) — (directory . \"v0.2\") (the dir node's :path,
+\"\" for the root-docs node), (state . \"dropped\"), (tag . \"#ui\") —
+grouping-qualified so each grouping mode keeps its own expansions and
+the s/d/t switches never misapply them.  Compared with `equal'.
+Survives refresh/resize/sort/flip/filter/rail-toggle because the R26-5
+idempotent entry never wipes locals; a key whose group disappears is
+harmless (never rendered).")
+
 (defcustom org-air-project-group 'directory
   "Default grouping for the Air project view: `state', `directory' or `tag'.
 Mirrors `airctl status' -a / -Da / -Ta.  R20-5: the default is `directory'
@@ -757,6 +782,106 @@ State as a quiet faded LETTER (not the coloured badge), own count, faded
                 cells))))
     (mapconcat #'identity (nreverse cells) " ")))
 
+;;;; ---------------------------------------------------------------------
+;;;; Dropped-doc fold (R48) — grey + collapse per group
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-project--doc-row-face (state)
+  "Return the row face for a doc in STATE (R48-2).
+`org-air-face-project-dropped' (dim + struck) for \"dropped\", else the
+plain `org-air-face-title' — the one selector `--insert-doc-row' passes
+as the row's `font-lock-face', so a dropped row's title band visibly
+recedes wherever it renders (pre-faced cells keep their own `face')."
+  (if (equal state "dropped")
+      'org-air-face-project-dropped
+    'org-air-face-title))
+
+(defun org-air-project--dropped-expanded-p (key)
+  "Non-nil when dropped docs RENDER inline for group KEY (R48-3).
+Equivalently, the fold is ACTIVE for KEY iff this returns nil:
+  knob `org-air-project-collapse-dropped' nil  -> expanded (never fold);
+  a LIVE filter (`org-air-view--tag-filter')   -> expanded (the filter
+    bypass — filter output must show its matches);
+  KEY in `org-air-project--expanded-dropped'   -> expanded (user TAB);
+  otherwise                                    -> folded (the default)."
+  (or (not org-air-project-collapse-dropped)
+      (and org-air-view--tag-filter t)
+      (and (member key org-air-project--expanded-dropped) t)))
+
+(defun org-air-project--partition-dropped (docs key)
+  "Return (VISIBLE . HIDDEN) splitting DOCS on the dropped fold for KEY.
+When the fold is active for KEY (`org-air-project--dropped-expanded-p'
+nil), VISIBLE is DOCS minus the dropped docs and HIDDEN the dropped docs
+in their given (already-sorted) order; otherwise (DOCS . nil).  Callers
+pass ALREADY-sorted lists so expanded dropped rows keep their exact
+current positions (state-first mid-list in the dir tree; the section
+comparator order in state/tag sections)."
+  (if (org-air-project--dropped-expanded-p key)
+      (cons docs nil)
+    (cons (seq-remove (lambda (d) (equal (org-air-doc-state d) "dropped"))
+                      docs)
+          (seq-filter (lambda (d) (equal (org-air-doc-state d) "dropped"))
+                      docs))))
+
+(defun org-air-project--tree-gutter (depth rails lastp)
+  "Return the painted tree GUTTER for a dir-tree row at DEPTH (R24-2/R26-1).
+RAILS is the faded ancestor rail string, LASTP the corner selector.
+The faded ancestor rails + this row's `box-tee-left'/`box-bottom-left'
+connector + the `box-horizontal' arm (stopping ONE column short so a
+single breathing-room SPACE joins arm to what follows), sized to EXACTLY
+the width the old plain indent produced (truncate/pad clamp) so nothing
+to the right of the gutter moves (V6 pixel-lock).  Degenerate clamp:
+rails so deep that no column remains after the corner get no arm AND no
+space.  Factored out of `--insert-doc-row' (R48-3) so the dropped fold
+row paints the SAME gutter a doc row at its position would."
+  (let* ((margin-w  (string-width (org-air-view--item-margin)))
+         (old-indent (* 2 (1+ depth)))
+         (gutter-w  (+ margin-w old-indent))
+         (hbar      (org-air-layout-glyph 'box-horizontal))
+         (corner    (org-air-layout-glyph
+                     (if lastp 'box-bottom-left 'box-tee-left)))
+         (lead      (concat "  " (or rails "") corner)) ; margin+rails+corner
+         (armlen    (max 0 (- gutter-w (string-width lead) 1)))
+         (arm       (concat
+                     (apply #'concat (make-list armlen hbar))
+                     (if (> (- gutter-w (string-width lead)) 0)
+                         " " ""))))
+    (org-air-view--pad-to
+     (propertize (truncate-string-to-width
+                  (concat lead arm) gutter-w)
+                 'face 'org-air-face-air-tree)
+     gutter-w)))
+
+(defun org-air-project--insert-dropped-fold-row
+    (n key width &optional depth rails lastp)
+  "Insert the one-line `… N dropped — TAB to show' fold affordance (R48-3).
+N is the hidden dropped count for group KEY, WIDTH the content width.
+In the directory tree DEPTH/RAILS/LASTP paint the same gutter a doc row
+at this position would (`org-air-project--tree-gutter'); with DEPTH nil
+\(state/tag sections) the plain item margin leads.  In place of the state
+cell + title sits the faded label (ellipsis via the shared `more' glyph;
+singular/plural `dropped' is invariant; board `…and N more' affordance
+parity).  The row carries `org-air-dropped-fold' KEY (the dispatch
+handle) and `mouse-face' over the text-only label — NO `org-air-doc', so
+n/p doc motion and the inspector skip it by construction."
+  (let* ((start (point))
+         (gutter (if (null depth)
+                     (org-air-view--item-margin)
+                   (org-air-project--tree-gutter depth rails lastp)))
+         (label (propertize
+                 (format "%s %d dropped — TAB to show"
+                         (org-air-view--glyph 'more) n)
+                 'face 'org-air-face-faded
+                 'mouse-face 'org-air-face-cursor))
+         (line (concat gutter label)))
+    (insert (if (> (string-width line) width)
+                (truncate-string-to-width line width nil nil
+                                          (org-air-view--glyph 'more))
+              line)
+            "\n")
+    (add-text-properties start (point)
+                         (list 'org-air-dropped-fold key))))
+
 (defun org-air-project--insert-dir-node (node width &optional rails lastp)
   "Insert NODE (a dir tree node) and its subtree into the buffer at WIDTH.
 ONE header per directory (R22-6) with classic TREE CONNECTORS (R23-3): a
@@ -813,14 +938,26 @@ gets the ascii `|  ' / `+- ' fallback."
     ;; BEFORE the child dirs, so the `last child overall' corner (└─) lands
     ;; on the FINAL own-doc ONLY when this dir has no child dirs; otherwise
     ;; the own docs are tees (├─) and the corner goes to the last child dir.
-    (let* ((docs (plist-get node :own-docs))
-           (ndocs (length docs))
+    ;; R48-3: partition the own docs on the dropped fold.  When HIDDEN is
+    ;; non-empty the fold row renders as the LAST own-doc slot (after the
+    ;; visible own docs, before child dirs), participating in the lastp
+    ;; corner math as one extra trailing element (the └─ corner lands on
+    ;; the fold row when the dir has no child dirs).
+    (let* ((key (cons 'directory path))
+           (part (org-air-project--partition-dropped
+                  (plist-get node :own-docs) key))
+           (docs (car part))
+           (hidden (cdr part))
+           (nslots (+ (length docs) (if hidden 1 0)))
            (nkids (length children))
            (i 0))
       (dolist (doc docs)
         (setq i (1+ i))
         (org-air-project--insert-doc-row
-         doc width depth child-rails (and (= i ndocs) (zerop nkids))))
+         doc width depth child-rails (and (= i nslots) (zerop nkids))))
+      (when hidden
+        (org-air-project--insert-dropped-fold-row
+         (length hidden) key width depth child-rails (zerop nkids)))
       ;; Recurse into the children (name-sorted), threading rails + last-child.
       (let ((j 0))
         (dolist (child children)
@@ -919,34 +1056,11 @@ margin + state cell, byte-identical to today."
             ;; Directory tree: paint the faded ancestor rails + connector
             ;; into the gutter, to the SAME width the old plain indent
             ;; produced (so nothing to the right of the gutter moves).
-            ;; R25-1: fill the run AFTER the corner with `box-horizontal'
-            ;; glyphs (not spaces) so the arm REACHES the badge.  R26-1:
-            ;; the arm run stops ONE column short and the freed column
-            ;; renders as a single breathing-room SPACE joining arm to
-            ;; badge (`+---- [R]', was `+-----[R]').  The gutter TOTAL
-            ;; width stays EXACTLY `gutter-w' (truncate/pad clamp), so the
-            ;; state cell / title / right cluster do not move (V6
-            ;; pixel-lock).  Degenerate clamp: when the rails are so deep
-            ;; that no column is left after the corner, there is no arm
-            ;; AND no space — the corner alone touches the badge.
-            (let* ((margin-w  (string-width (org-air-view--item-margin)))
-                   (old-indent (* 2 (1+ depth)))
-                   (gutter-w  (+ margin-w old-indent))
-                   (hbar      (org-air-layout-glyph 'box-horizontal))
-                   (corner    (org-air-layout-glyph
-                               (if lastp 'box-bottom-left 'box-tee-left)))
-                   (lead      (concat "  " (or rails "") corner)) ; margin+rails+corner
-                   (armlen    (max 0 (- gutter-w (string-width lead) 1)))
-                   (arm       (concat
-                               (apply #'concat (make-list armlen hbar))
-                               (if (> (- gutter-w (string-width lead)) 0)
-                                   " " "")))
-                   (guide     (org-air-view--pad-to
-                               (propertize (truncate-string-to-width
-                                            (concat lead arm) gutter-w)
-                                           'face 'org-air-face-air-tree)
-                               gutter-w)))
-              (concat guide (org-air-project--state-cell state)))))
+            ;; R25-1 arm / R26-1 breathing space / V6 clamp commentary
+            ;; lives in the factored `org-air-project--tree-gutter'
+            ;; (R48-3: shared with the dropped fold row).
+            (concat (org-air-project--tree-gutter depth rails lastp)
+                    (org-air-project--state-cell state))))
          (date   (org-air-project--doc-date-text doc))
          (tags   (org-air-project--doc-tagstr doc)))
     (org-air-view--insert-row
@@ -986,7 +1100,10 @@ margin + state cell, byte-identical to today."
      :props (list 'org-air-doc doc
                   'org-air-marker (org-air-doc-file doc)
                   'mouse-face 'org-air-face-cursor)
-     :face 'org-air-face-title)))
+     ;; R48-2: one selector, one seam — a dropped row's `font-lock-face'
+     ;; dims + strikes the title band; every other state keeps the plain
+     ;; title face (byte-invisible; pre-faced cells outrank it).
+     :face (org-air-project--doc-row-face state))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; View
@@ -1181,8 +1298,21 @@ buffer gains the `⇄ files' chip next to the sort indicator."
     ;; R21-5: one board-style row per doc.  The row ALWAYS carries the
     ;; state cell now, so the per-section SHOW-STATE conditional is gone
     ;; (a doc under a state section reads identically to one under a dir).
-    (dolist (doc (plist-get section :docs))
-      (org-air-project--insert-doc-row doc width))
+    ;; R48-3: partition on the dropped fold — state grouping keys the one
+    ;; `Dropped' section as (state . "dropped") (its heading + COUNT stay
+    ;; for discoverability; the body collapses to the fold row alone), tag
+    ;; sections key on their `#tag' title; the fold row appends after the
+    ;; section's visible rows.
+    (let* ((key (if (eq org-air-project-group 'tag)
+                    (cons 'tag (plist-get section :title))
+                  (cons 'state "dropped")))
+           (part (org-air-project--partition-dropped
+                  (plist-get section :docs) key)))
+      (dolist (doc (car part))
+        (org-air-project--insert-doc-row doc width))
+      (when (cdr part)
+        (org-air-project--insert-dropped-fold-row
+         (length (cdr part)) key width)))
     (insert "\n")))
 
 (defun org-air-project--insert-state-summary-line (docs)
@@ -1421,6 +1551,13 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
          ;; titles again (the side-window/board-only paths run left-fn in
          ;; the real buffer and never hit this).
          (flip org-air-project--show-filenames)
+         ;; R48-3: carry the buffer-local dropped-fold expansion state and
+         ;; the live filter across the SAME temp-buffer seam — the fold
+         ;; predicate reads both (`--dropped-expanded-p'), and the inline
+         ;; two-pane body composes in a temp buffer where the locals fall
+         ;; back to their global defaults (the R28-5 flip precedent).
+         (expanded org-air-project--expanded-dropped)
+         (filter org-air-view--tag-filter)
          ;; R21-5: compute the fixed metadata column widths over the
          ;; DISPLAYED docs at the ACTUAL render width W (board parity:
          ;; cap + title-protecting fit), and bind them for the row pass so
@@ -1428,6 +1565,8 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
          (left-fn
           (lambda (w)
             (let* ((org-air-project--show-filenames flip)
+                   (org-air-project--expanded-dropped expanded)
+                   (org-air-view--tag-filter filter)
                    (mw (org-air-project--fit-meta-widths docs w))
                    (org-air-project--meta-date-w (nth 0 mw))
                    (org-air-project--meta-tags-w (nth 1 mw))
@@ -1632,6 +1771,16 @@ so the back verbs restore the tree exactly; a popped side rail flips to
 the DOC context (outline + meta + legend).  `v' keeps the bottom peek
 pane; S-RET visits in the other window."
   (interactive)
+  ;; R48-3: the fold-row branch BEFORE the doc check — RET (and <mouse-1>
+  ;; via this same command) on the `… N dropped' row dispatches to the
+  ;; toggle instead of erroring "No Air document on this line" — and does
+  ;; ONLY that (the toggle re-lands point; nothing opens).
+  (if (get-text-property (point) 'org-air-dropped-fold)
+      (org-air-project-toggle-dropped)
+    (org-air-project--open-doc)))
+
+(defun org-air-project--open-doc ()
+  "Open the Air doc at point in the SAME window (the RET body; R26-3/R26-5)."
   (let ((doc (get-text-property (point) 'org-air-doc)))
     (unless doc
       (user-error "No Air document on this line"))
@@ -1966,6 +2115,99 @@ rail back to the tree."
                  #'org-air-project--outline-post-command t)
     (org-air-rail--outline-highlight-teardown)))
 
+(defun org-air-project--nearest-section-title ()
+  "Return the nearest `org-air-section' value at or above point (R48-3).
+The tag grouping's group id for a doc row — its `#tag' section title."
+  (save-excursion
+    (let ((val (get-text-property (line-beginning-position)
+                                  'org-air-section)))
+      (while (and (not val) (not (bobp)))
+        (forward-line -1)
+        (setq val (get-text-property (line-beginning-position)
+                                     'org-air-section)))
+      val)))
+
+(defun org-air-project--dropped-key-for (doc)
+  "Return DOC's dropped-fold group key under the current grouping (R48-3).
+Directory: (directory . PATH) from DOC's own dir segments (\"\" for a
+root doc); state: (state . \"dropped\") — the one section holding dropped
+docs; tag: (tag . TITLE) from the nearest `org-air-section' above point
+\(the row's `#tag' section)."
+  (pcase org-air-project-group
+    ('tag (cons 'tag (org-air-project--nearest-section-title)))
+    ('state (cons 'state "dropped"))
+    (_ (cons 'directory
+             (string-join (org-air-project--doc-dir-segments doc) "/")))))
+
+(defun org-air-project--goto-fold-row (key)
+  "Move point to the fold row carrying `org-air-dropped-fold' KEY (R48-3)."
+  (when-let* ((pos (org-air-view--find-property 'org-air-dropped-fold key)))
+    (goto-char pos)
+    (org-air-view--goto-row-title)))
+
+(defun org-air-project--goto-dropped-row (key)
+  "Move point to the first REVEALED dropped doc row of group KEY (R48-3)."
+  (let ((pos (point-min)) (found nil))
+    (while (and (not found) pos (< pos (point-max)))
+      (let ((doc (get-text-property pos 'org-air-doc)))
+        (when (and doc (equal (org-air-doc-state doc) "dropped"))
+          (save-excursion
+            (goto-char pos)
+            (when (equal (org-air-project--dropped-key-for doc) key)
+              (setq found pos)))))
+      (setq pos (next-single-property-change pos 'org-air-doc nil
+                                             (point-max))))
+    (when found
+      (goto-char found)
+      (org-air-view--goto-row-title))))
+
+(defun org-air-project-toggle-dropped ()
+  "Toggle the per-group dropped-doc fold at point (R48-3).  Key TAB.
+Board TAB-safety parity — never errors, never hangs:
+1. On a `… N dropped' fold row: toggle its group key in
+   `org-air-project--expanded-dropped', re-render, and restore point —
+   to the first revealed dropped row on expand, back to the fold row on
+   collapse.
+2. On a VISIBLE dropped doc row (knob on, no live filter): resolve its
+   group key from the current grouping and COLLAPSE it — point lands on
+   the fold row.  This is the re-collapse verb for expanded groups
+   (which render no residual fold row).
+3. Anywhere else: move point to the NEXT fold row; a no-op with a
+   message when none exist."
+  (interactive)
+  (let* ((fold-key (org-air-view--row-property 'org-air-dropped-fold))
+         (doc (and (not fold-key)
+                   (org-air-view--row-property 'org-air-doc))))
+    (cond
+     (fold-key
+      (let ((expandp (not (member fold-key
+                                  org-air-project--expanded-dropped))))
+        (setq org-air-project--expanded-dropped
+              (if expandp
+                  (cons fold-key org-air-project--expanded-dropped)
+                (cl-remove fold-key org-air-project--expanded-dropped
+                           :test #'equal)))
+        (org-air-project--render-current)
+        (if expandp
+            (org-air-project--goto-dropped-row fold-key)
+          (org-air-project--goto-fold-row fold-key))))
+     ((and doc (equal (org-air-doc-state doc) "dropped")
+           org-air-project-collapse-dropped
+           (null org-air-view--tag-filter))
+      (let ((key (org-air-project--dropped-key-for doc)))
+        (setq org-air-project--expanded-dropped
+              (cl-remove key org-air-project--expanded-dropped
+                         :test #'equal))
+        (org-air-project--render-current)
+        (org-air-project--goto-fold-row key)))
+     (t
+      (let ((pos (text-property-not-all (line-end-position) (point-max)
+                                        'org-air-dropped-fold nil)))
+        (if pos
+            (progn (goto-char pos)
+                   (org-air-view--goto-row-title))
+          (message "org-air project: no dropped folds")))))))
+
 (defun org-air-project-toggle-filenames ()
   "Flip project doc rows between doc title and relpath (R26-4).  Key `('."
   (interactive)
@@ -2036,6 +2278,10 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "d" #'org-air-project-group-by-directory
   "t" #'org-air-project-group-by-tag
   "(" #'org-air-project-toggle-filenames
+  ;; R48-3: TAB toggles the per-group dropped fold (TAB is free here —
+  ;; the board's TAB/`org-air-toggle-section' is `org-air-view-mode-map'-
+  ;; only, and this map inherits `special-mode-map' where TAB is unbound).
+  "TAB" #'org-air-project-toggle-dropped
   "?" #'org-air-help
   "/" #'org-air-project-filter
   "g" #'org-air-project-refresh

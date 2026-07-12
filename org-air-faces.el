@@ -784,7 +784,23 @@ The 5th Air state (between Ready and Complete)."
 
 (custom-declare-face 'org-air-face-air-state-dropped
   '((t :inherit org-air-face-faded :strike-through t))
-  "Air doc state badge: Dropped (🗑) — faded + struck through."
+  "Air doc state badge: Dropped (🗑) — faded + struck through.
+Badge-ONLY: this face colours the DROP chip/token cell; the dropped
+row's title band takes `org-air-face-project-dropped' (R48-2), so the
+two can be customised independently."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-project-dropped
+  '((t :inherit org-air-face-faded :strike-through t))
+  "Face for a DROPPED doc's row in the Air project view (R48-2).
+Applied as the row `font-lock-face' by `org-air-project--doc-row-face'
+wherever a dropped row is visible (expanded fold, the
+`org-air-project-collapse-dropped' nil inline mode, filter-revealed
+rows), so the title + flex pad visibly RECEDE — dim + struck.  A
+DISTINCT face from the badge-only `org-air-face-air-state-dropped'
+\(even though the default spec matches): customise THIS face to change
+the row treatment (e.g. drop the strikethrough, keep the dim) without
+touching the DROP chip."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-tree

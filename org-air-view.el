@@ -8234,7 +8234,7 @@ board (R6); only then does a press quit org-air itself — rail teardown +
   ;; R19-4d: name the two roles distinctly — Filter is the LIVE tag
   ;; narrowing (multi-tag, AND/OR), Scope is the structural LENS.
   (if (derived-mode-p 'org-air-project-mode)
-      (message "org-air project: RET open (same window), S-RET visit other window, ( flip filename↔title, o/O sort cycle/reverse, s/d/t group state/dir/tag, / filter · \\ clear · M-/ AND↔OR, | rail, v peek pane, g refresh, q quit")
+      (message "org-air project: RET open (same window), S-RET visit other window, TAB dropped (fold/reveal), ( flip filename↔title, o/O sort cycle/reverse, s/d/t group state/dir/tag, / filter · \\ clear · M-/ AND↔OR, | rail, v peek pane, g refresh, q quit")
     (message "org-air: n/p items, TAB sections, RET visit, c capture, r refile, / filter (tags, live) · \\ clear · M-/ AND↔OR, s scope (lens: file/group/all) · S clear, z columns (z f origin/z d dates/z t tags), g refresh, q quit")))
 
 ;;;###autoload

@@ -288,7 +288,32 @@ the fold-row branch in =org-air-project-open= (RET/mouse-1).
   TAB proves tedious on large trees.
 
 * Implementation History
-- (none yet — spec ready; impl + test seats to execute per R48-2/-3/-4.)
+- 2026-07-13: R48-2 + R48-3 implemented (impl seat).
+  - R48-2: =org-air-face-project-dropped= (org-air-faces.el, project block;
+    docstrings cross-linked with the badge-only
+    =org-air-face-air-state-dropped=); =org-air-project--doc-row-face=
+    selector; =--insert-doc-row= passes it as the row =:face= — dropped
+    title bands dim + strike wherever visible (expanded, knob nil,
+    filter-revealed, =(= flip).
+  - R48-3: =org-air-project-collapse-dropped= (defcustom, default t) ·
+    =org-air-project--expanded-dropped= (defvar-local, grouping-qualified
+    =(GROUPING . ID)= keys) · =--dropped-expanded-p= (knob/filter/key
+    table) · =--partition-dropped= · =--insert-dropped-fold-row= (gutter
+    factored into the reusable =--tree-gutter=; label =… N dropped — TAB
+    to show=, =org-air-dropped-fold= dispatch prop, text-only mouse-face,
+    NO =org-air-doc=) · wiring in =--insert-dir-node= (fold row = last
+    own-doc slot, corner math) + =--insert-doc-sections= (state key
+    =(state . "dropped")=, tag key =(tag . TITLE)=) · filter bypass ·
+    render carries expansion + filter across the temp-buffer pane seam
+    (R28-5 precedent) · =org-air-project-toggle-dropped= on TAB (3-rule
+    board-safety contract) · fold-row branch in =org-air-project-open=
+    (RET/mouse-1) · =?= help gains =TAB dropped=.  Counts/summaries/rail/
+    board untouched (row-insertion loops only).
+  - Byte goldens: project-view-{dir,state,tag}.txt move as specced; the
+    three affected tests (=org-air-f5-project-view-byte-mockups=,
+    =org-air-f5-tree-structure=, =org-air-r18-dp3-project-filter-narrows=)
+    registered in tests/org-air-known-failures.el for the test-seat
+    re-bless (fixtures NOT edited).  make check GREEN (0 unexpected).
 
 * History
 - 2026-07-13: Created from the R48 dropped-docs report (grey out + collapse

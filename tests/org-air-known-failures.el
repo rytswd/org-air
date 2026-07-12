@@ -1060,6 +1060,30 @@
     ;; + org-air-f5-* stay green).  No .el SOURCE touched (impl landed
     ;; R47-2 in wwxwvynl).  Round-47 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
+    ;; =================================================================
+    ;; v0.5 ROUND-48 grind (impl seat, <this commit>) — dropped docs grey
+    ;; + collapse by default (air/v0.5/org-air-round48-design.org).  The
+    ;; three project byte goldens MOVE by design (the DROP rows fold
+    ;; behind the per-group `… N dropped — TAB to show' row;
+    ;; `org-air-project-collapse-dropped' defaults t) — the test seat
+    ;; re-blesses via `make regen-mockups' + assertion re-bless, then
+    ;; deletes these entries.  Board/layout mockups: ZERO churn.
+    (org-air-f5-project-view-byte-mockups
+     . "R48-3: project-view-{dir,state,tag}.txt goldens move — the DROP
+row folds behind the `… 1 dropped' fold row (dir: last own-doc slot of
+v0.2/; state: the Dropped section body; tag: appended after #ui's
+visible rows).  Fixtures NOT edited on the impl seat; test seat
+re-blesses via make regen-mockups.")
+    (org-air-f5-tree-structure
+     . "R48-3: the `every fixture doc renders by its TITLE' conjunct
+assumed dropped rows inline; Delta UI exploration is now folded by
+default in the state grouping.  Test seat re-blesses the conjunct to
+the fold contract.")
+    (org-air-r18-dp3-project-filter-narrows
+     . "R48-3: the NO-FILTER baseline + the clear-restores conjuncts
+assert the dropped Delta doc visible; it is folded by default now (the
+filter-LIVE conjuncts still hold — the fold bypass).  Test seat
+re-blesses baseline/clear to the fold contract.")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -303,12 +303,32 @@ grind fences until the implementation lands, keeping =make check= binary-green.
   Elisp memo NOT defeated (0 builds per hover); inspector/R28 outline cleared
   (post-command + debounced, never motion-driven); mouse-face confirmed to
   cover image glyphs (the violation).
-- (pending) R47-2 fix (SPEC): scope =mouse-face= to the text-only TITLE BAND
-  =[title-start, cluster-start)= inside =org-air-view--insert-row= (one seam;
-  board + project + day pane inherit). Invariant: NO position carries both
-  =mouse-face= and an image =display=. ERT r47-1/-2/-3/-4 (structural,
-  batch-visible; r47-1/-3 revert-FAIL on trunk); R32 bol-run assertions
-  re-blessed to the title mark; byte goldens byte-identical expected.
+- 2026-07-13 R47-2 LANDED (impl track, org-air-view.el +
+  org-air-calendar.el): =org-air-view--insert-row= pops =mouse-face= out of
+  the whole-extent PROPS and applies it ONLY over the text-only title band
+  =[title-start, cluster-start)= (title mark through the flex pad, ending at
+  the R40-2 fence; degenerate title-less rows get NO span; the R32-1 newline
+  strip is vacuous and dropped — its no-fusion invariant holds by
+  construction).  Board + project + day pane inherit with zero caller edits;
+  every other row-identity property keeps the full row extent (click/RET/
+  R32-3/inspector untouched).  SECOND seam the invariant surfaced: the
+  calendar TODAY cell (the one day cell that is NOT plain text — D-P2.B svg
+  background) carried =mouse-face= over its image =display=;
+  =org-air-calendar--today-svg= now strips =mouse-face= from the
+  svg-displayed cell (keymap + =org-air-day= stay; plain-text day cells and
+  the TTY fallback keep their hover highlight).  Verified headless with the
+  R24-3 GUI stub: board 0 positions carry both =mouse-face= and an image
+  =display= (was 95+2), project 0 (was 17); every item/doc hover run is ONE
+  band starting at the title mark, embedding no newline; the only other
+  carriers are the 29 plain-text calendar day cells.  Byte goldens
+  byte-identical (every golden ERT green — =mouse-face= is display-layer).
+  Legacy assertions moved by the blessing manifested as R47 grind fences for
+  the test seat (tests/org-air-known-failures.el):
+  =org-air-r32-1-doc-row-mouse-face-own-span= +
+  =org-air-r32-1-adjacent-rows-independent= (re-bless run edges BOL→title
+  mark) and =org-air-r6-calendar-cells-clickable= (re-bless the svg TODAY
+  cell to keymap clickability).  =make check= binary-green.  ERT
+  r47-1/-2/-3/-4 remain the test seat's to add per this spec.
 
 * History
 - 2026-07-13: Created from the R47 hover-slowness report. State: ready.

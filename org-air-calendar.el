@@ -183,7 +183,17 @@ mandatory fallback; the buffer text (the bytes) is never touched."
                             (org-air-view--svg-image-cached
                              (list 'today text bg fg cw ch) build)
                           (funcall build))))
-            (propertize text 'display image)))
+            ;; R47-2 invariant: NO buffer position may carry both
+            ;; `mouse-face' and an image `display' — Emacs 30's
+            ;; DRAW_MOUSE_FACE SVG re-lookup (e69fafdb, bug#67794) would
+            ;; synchronously re-rasterize this cell on every hover crossing
+            ;; (and the hover face can't tint an image anyway).  The day
+            ;; cell's `org-air-day' + keymap stay, so click/RET still focus
+            ;; today; the TTY/no-svg fallback below keeps its text
+            ;; `mouse-face' untouched.
+            (let ((cell (propertize text 'display image)))
+              (remove-text-properties 0 (length cell) '(mouse-face nil) cell)
+              cell)))
         text)))
 
 (defun org-air-calendar--weekdays ()

@@ -2959,7 +2959,12 @@ fixed width the columns line up vertically down the list (V6).  The title
 flexes and truncates LAST (D2) in the single gap before the cluster.
 PROPS are added as text properties over the whole row and FACE is its
 `font-lock-face' (so both the board's items and the project's docs share
-this one primitive, faces, truncation, alignment and svg pills)."
+this one primitive, faces, truncation, alignment and svg pills).
+Exception (R47-2): a `mouse-face' in PROPS is scoped to the TEXT-ONLY
+title band [title-start, cluster-start) instead of the whole row, so no
+position ever carries both `mouse-face' and an image `display' — hover
+never re-rasterizes the SVG pills (Emacs 30's DRAW_MOUSE_FACE SVG
+re-lookup can never fire)."
   (let* ((start (point))
          (width (org-air-view--render-width))
          (prefix (or prefix ""))
@@ -3080,20 +3085,57 @@ this one primitive, faces, truncation, alignment and svg pills)."
          (line (concat left (make-string pad ?\s) cluster)))
     (insert line "\n")
     (when (or props face)
-      (add-text-properties start (point)
-                           (append props
-                                   (when face (list 'font-lock-face face))))
-      ;; R32-1: a row-separator newline must NOT carry `mouse-face', else
-      ;; adjacent direct-inserted rows (the project's board-only/side-window
-      ;; orientations) fuse into ONE hover run and hovering a single doc
-      ;; highlights the whole contiguous block.  Scope `mouse-face' to the
-      ;; row's own glyphs (start .. before the \n); every other row-identity
-      ;; property (`org-air-doc'/`org-air-item', marker, R21-2 title mark,
-      ;; `font-lock-face') stays over the full extent so click/RET still
-      ;; resolve the single doc under point.  Board/render-lines paths never
-      ;; propped the separator newline, so this is a no-op there.
-      (when (plist-member props 'mouse-face)
-        (remove-text-properties (1- (point)) (point) '(mouse-face nil))))))
+      ;; R47-2: pop `mouse-face' OUT of the whole-extent PROPS.  Since Emacs
+      ;; 30 (commit e69fafdb, bug#67794, "Respect mouse-face on SVG image
+      ;; glyphs") `draw_glyphs' re-looks-up EVERY SVG image glyph drawn under
+      ;; DRAW_MOUSE_FACE with the hover face; the C image cache keys on the
+      ;; face's fg/bg/font, and the hover :background DIFFERS from the row
+      ;; face by construction, so a full-row `mouse-face' forced a synchronous
+      ;; librsvg re-rasterization of every SVG pill in the row on EVERY
+      ;; crossing (the R45 cold-pill cost relocated onto the hover hot path).
+      ;; Invariant: NO buffer position may carry both `mouse-face' and an
+      ;; image `display'.  Every OTHER row-identity property
+      ;; (`org-air-item'/`org-air-doc', marker, R21-2 title mark,
+      ;; `font-lock-face') keeps the FULL row extent so click/RET resolution,
+      ;; R32-3 open-target and the inspector are untouched — ONLY the
+      ;; highlight span narrows.
+      (let ((hover (plist-member props 'mouse-face))
+            (row-props nil))
+        (let ((tail props))
+          (while tail
+            (unless (eq (car tail) 'mouse-face)
+              (setq row-props
+                    (nconc row-props (list (car tail) (cadr tail)))))
+            (setq tail (cddr tail))))
+        (when (or row-props face)
+          (add-text-properties start (point)
+                               (append row-props
+                                       (when face
+                                         (list 'font-lock-face face)))))
+        ;; R47-2: apply the popped `mouse-face' over the TEXT-ONLY TITLE
+        ;; BAND [title-start, cluster-start) — from the R21-2/R46 title mark
+        ;; through the flex pad, ENDING where the meta cluster begins (the
+        ;; R40-2 fence).  The band is text-only BY CONSTRUCTION (the title is
+        ;; `substring-no-properties' plain text per R23-1; every pill lives
+        ;; in the prefix badges BEFORE it or the cluster AFTER it), so it is
+        ;; ONE contiguous hover run per row that never covers an SVG pill —
+        ;; a crossing re-blits only text glyph backgrounds: ZERO pill
+        ;; rasterizations, ZERO `lookup_image' calls, on every Emacs
+        ;; version.  It also matches R46: the highlight shows exactly the
+        ;; band point is clamped to on click.  Degenerate rows (empty title
+        ;; after truncation, no title mark) get NO `mouse-face' at all — NO
+        ;; span is always safer than a wrong span.  The R32-1 invariant (no
+        ;; hover run spans a newline, so adjacent rows never fuse) holds by
+        ;; construction: the band ends at the cluster start, never reaching
+        ;; the row's newline; the old explicit newline strip is vacuous now
+        ;; and dropped.
+        (when (cadr hover)
+          (let ((title-idx (text-property-not-all
+                            0 (length left) 'org-air-row-title nil left)))
+            (when title-idx
+              (put-text-property (+ start title-idx)
+                                 (+ start (length left) pad)
+                                 'mouse-face (cadr hover)))))))))
 
 (defun org-air-view--insert-item (item bucket &optional omit-date)
   "Insert ITEM as an interactive row in BUCKET (V6 fixed-column table).

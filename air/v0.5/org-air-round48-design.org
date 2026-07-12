@@ -1,0 +1,295 @@
+#+title: org-air Round 48 — Dropped docs: grey them out AND collapse them by default (project view)
+#+state: ready
+#+tags: project-view dropped fold collapse face de-emphasis ux
+
+* Summary
+
+User (org-air-PROJECT view): docs in the =dropped= state (=#+state: dropped= —
+airctl's terminal "won't do" state) currently render fully inline with every
+live doc: a DROP badge and the ordinary title face, one row per dropped doc, in
+every grouping. Two asks:
+
+- (a) *GREYED OUT* — dropped rows should visually RECEDE: a dim face over the
+  row (keeping the strikethrough treatment the dropped state already carries),
+  so a dropped doc reads as history, not work.
+- (b) *COLLAPSED BY DEFAULT* — dropped docs should not clutter the tree at all:
+  hidden per group behind a compact =… N dropped= summary row that expands on
+  TAB/RET, revealable on demand.
+
+This round specs both: R48-1 pins the CURRENT rendering (investigated), R48-2
+the dim face, R48-3 the per-group fold (defcustom
+=org-air-project-collapse-dropped=, default COLLAPSED, per-buffer expansion
+state that respects the R26-5 session locals — sort, filter, =(= flip, rail
+placement — exactly as they survive today). The board (=org-air=) is untouched
+— dropped is an Air DOC state; board items have no such state. org-ql stays the
+only query path; nothing here touches querying (the project view's doc collect
+is the existing file scan; the fold is pure render + interaction).
+
+Byte-golden note (intended movement): the three project fixtures
+(=tests/fixtures/project-view-{dir,state,tag}.txt=) WILL move — the DROP rows
+fold behind the summary row. =make regen-mockups= + this design's bless is the
+re-bless; the board/layout mockups must NOT move.
+
+* R48-1 — Current dropped rendering (investigated; the baseline being changed)
+
+- *Faces*: =org-air-face-air-state-dropped= (org-air-faces.el ~785) is
+  =:inherit org-air-face-faded :strike-through t= — but it is applied ONLY to
+  the state BADGE cell (=org-air-project--state-face= →
+  =--state-token=/=--state-svg-badge=/=--state-cell=, org-air-project.el
+  ~306/420/507). The strikethrough the user perceives is the struck DROP token
+  (TTY) / the faded-colour DROP pill (GUI, colour derived from the face
+  foreground). The row TITLE is plain =org-air-face-title= for EVERY state —
+  =org-air-project--insert-doc-row= (~894) passes =:face 'org-air-face-title=
+  unconditionally. So today a dropped row's title is exactly as loud as a
+  READY row's.
+- *Visibility*: dropped docs render as ordinary rows in all three groupings —
+  directory tree (=--insert-dir-node= own-docs loop, state-first order where
+  =dropped= ranks 4th of 5 per =org-air-project--state-display-order=, i.e.
+  BETWEEN complete and draft, mid-list), state sections (a whole =Dropped=
+  section via =org-air-project-sections=), tag sections (mixed in per tag).
+  Nothing folds; the only fold machinery in the codebase is the BOARD's
+  section cap (=org-air-view--expanded-sections= + =org-air-toggle-section= +
+  the "…and N more — press TAB on the title to expand" row, org-air-view.el
+  ~3378/7846) — the project view binds NO TAB at all (its map inherits
+  =org-air-view-core-map= → =special-mode-map=; TAB is free).
+- *Counts*: dropped participates in every count surface — the per-dir letter
+  rollup (=X1= via =--dir-count-summary=), section heading counts, the rail
+  Summary block, the board-only state summary line, and airctl =status -Da=
+  parity. These are NUMERIC contracts and must NOT move when rows fold.
+
+* R48-2 — GREYED: the dim dropped-row face
+
+New face (org-air-faces.el, project-view block):
+
+- =org-air-face-project-dropped= — =((t :inherit org-air-face-faded
+  :strike-through t))=. A DISTINCT face (not a reuse of
+  =org-air-face-air-state-dropped=) even though the default spec matches the
+  badge face: the badge face is documented as badge-only and users must be
+  able to customise the ROW treatment (e.g. drop the strikethrough, keep the
+  dim) without touching the chip. Docstring cross-links both ways.
+
+Application (one selector, one seam):
+
+- =org-air-project--doc-row-face (state)= — new: returns
+  =org-air-face-project-dropped= for ="dropped"=, else =org-air-face-title=.
+- =org-air-project--insert-doc-row= passes =:face
+  (org-air-project--doc-row-face state)= instead of the literal. The shared
+  =org-air-view--insert-row= applies FACE as the row's =font-lock-face=, so
+  the title + flex pad dim and strike; the pre-faced cells keep their own
+  =face= (which outranks =font-lock-face=): the DROP badge keeps
+  =org-air-face-air-state-dropped= (already faded+struck; the GUI pill colour
+  is already derived from that faded foreground), date/tag pills keep their
+  pill faces. The title band is the row's dominant mass, so the row visibly
+  recedes; dimming the tag/date pills themselves would need a faded
+  re-pillify variant and is explicitly OUT of scope (noted for a future
+  round if the pills still shout).
+- Scope: doc rows only. Dir headers, section headings, counts, rail Summary
+  are untouched (the =X= rollup letter already renders in the faded dropped
+  face today via =--state-letter= + =--state-face=).
+- The greyed face applies WHEREVER a dropped row is visible: expanded folds
+  (R48-3), =org-air-project-collapse-dropped= nil, filter-revealed rows, and
+  the =(= filename flip (the flip changes the title TEXT, never the face).
+- R47/R46 compatibility: the face is a =font-lock-face= value on buffer text
+  — no =display=, no metric changers (=:strike-through= does not move
+  glyphs), so the R47 no-image-under-mouse-face invariant and the R46/R29-2
+  title-band clamp are structurally unaffected.
+
+* R48-3 — FOLDED: dropped docs collapse per group behind a =… N dropped= toggle
+
+** Knob + state
+
+- =defcustom org-air-project-collapse-dropped t= (org-air-project.el,
+  =:type 'boolean=, =:group 'org-air=) — non-nil (the DEFAULT): dropped docs
+  are hidden per group behind the fold row. nil: no folding anywhere; dropped
+  rows render inline exactly as today's positions — but greyed (R48-2 is
+  unconditional). Chosen over the =org-air-project-show-dropped= spelling so
+  the default is the truthy value (house precedent:
+  =org-air-project-show-inspector t=).
+- =defvar-local org-air-project--expanded-dropped nil= — the per-buffer list
+  of EXPANDED group keys (mirror of the board's
+  =org-air-view--expanded-sections=). A key is a cons =(GROUPING . ID)=:
+  =(directory . "v0.2")= (the dir node's =:path=; ="" for the root-docs
+  node), =(state . "dropped")=, =(tag . "#ui")= — grouping-qualified so each
+  grouping mode keeps its own expansions and =s=/=d=/=t= switches never
+  misapply them. Compared with =equal=. Survives refresh/resize/sort/flip/
+  filter/rail-toggle because the R26-5 idempotent entry never wipes locals.
+
+** Partition + render
+
+- =org-air-project--dropped-expanded-p (key)= — new: nil when
+  =org-air-project-collapse-dropped= is nil?  No — the knob OFF means "never
+  fold", so the predicate is: fold ACTIVE for KEY iff the knob is non-nil,
+  NO filter is live (below), and KEY is not in =--expanded-dropped=.
+  (Named positively in code as "folded-p"; the docstring carries this table.)
+- =org-air-project--partition-dropped (docs key)= — new: returns =(VISIBLE
+  . HIDDEN)=; when the fold is active for KEY, VISIBLE = DOCS minus dropped,
+  HIDDEN = the dropped docs (in their sorted order); otherwise =(DOCS . nil)=.
+  Callers pass ALREADY-sorted lists so expanded dropped rows keep their exact
+  current positions (state-first mid-list in the dir tree; the section's
+  comparator order in state/tag sections).
+- =org-air-project--insert-dropped-fold-row (n key width &optional depth
+  rails lastp)= — new: inserts the one-line affordance row. Body: the same
+  gutter a doc row at that position would paint (dir grouping: ancestor
+  RAILS + tee/corner + arm via the existing R24-2/R26-1 gutter math,
+  factored for reuse; state/tag sections: the plain margin + indent), then —
+  in place of the state cell + title — the faded label
+  =… N dropped — TAB to show= (ellipsis via =(org-air-view--glyph 'more)=,
+  singular/plural =dropped= is invariant; face =org-air-face-faded=; board
+  "…and N more" affordance parity). Text properties over the row:
+  =org-air-dropped-fold KEY= (the dispatch handle) and =mouse-face
+  'org-air-face-cursor= over the text-only label (trivially R47-safe: the
+  fold row contains no images). NO =org-air-doc= — n/p doc motion and the
+  inspector skip it by construction (same contract as the board's "…and N
+  more" row; the R46 universal title-band clamp already guards point on
+  non-item rows).
+- Wiring, per grouping:
+  - *Directory* (=--insert-dir-node=): partition the node's =:own-docs= with
+    key =(directory . PATH)=. Visible docs render first; when HIDDEN is
+    non-empty the fold row renders as the LAST own-doc slot (after the
+    visible own docs, before child dirs), participating in the existing
+    lastp corner math as one extra trailing element (the └─ corner lands on
+    the fold row when the dir has no child dirs). When EXPANDED, dropped
+    rows render in their normal state-first position (mid-list) greyed, and
+    NO fold row renders — re-collapse is TAB on any dropped row (below).
+  - *State sections* (=--insert-doc-sections=): the =Dropped= section is the
+    only section holding dropped docs. Collapsed: the heading stays (badge +
+    title + COUNT — discoverability), the body is the fold row alone, key
+    =(state . "dropped")=. Expanded: the rows, greyed.
+  - *Tag sections*: partition each section's docs with key =(tag . TITLE)=
+    (the =#tag= title); fold row appended after the section's visible rows.
+- *Filter bypass*: when a filter is LIVE (=org-air-view--tag-filter=
+  non-nil), folding is suspended entirely — every doc that passed the R24-6
+  token filter renders (dropped ones greyed). Rationale: filter output must
+  show its matches; a fold that hides a match makes =/delta= report nothing
+  while the Summary says it exists. (The docs list is pre-thinned by the
+  filter in =--render=, so a hidden count under a live filter would also be
+  filter-relative and misleading — bypass is both simpler and truthful.)
+- *Counts do not move*: =--dir-count-summary= (=X1(+…)= letters), section
+  heading counts, =--insert-state-summary-line=, the rail =Summary= block and
+  the =--calendar-marks= table all keep reading the FULL doc list (they
+  already do — the fold partitions only the row-insertion loops). airctl
+  =status -Da= numeric parity is a locked invariant.
+
+** Interaction
+
+- =org-air-project-toggle-dropped= — new command, bound to =TAB= in
+  =org-air-project-mode-map= (TAB is currently unbound there; the board's
+  TAB/=org-air-toggle-section= is =org-air-view-mode-map=-only, so no
+  collision). Behaviour (board TAB-safety parity — never errors, never
+  hangs):
+  1. On a fold row (=org-air-dropped-fold= at point): toggle that KEY in
+     =--expanded-dropped=, re-render via the existing
+     =org-air-project--render-current= seam, and restore point — to the
+     first REVEALED dropped row on expand (=org-air-view--goto-row-title=),
+     to the fold row (found back via the =org-air-dropped-fold= property) on
+     collapse.
+  2. On a VISIBLE dropped doc row (=org-air-doc= at point with state
+     ="dropped"= and the knob on, no live filter): resolve its group key
+     from the current grouping (dir path / ="dropped"= / nearest
+     =org-air-section= tag title) and COLLAPSE it — point lands on the fold
+     row. This is the re-collapse verb for expanded groups (which render no
+     residual fold row).
+  3. Anywhere else: move point to the NEXT fold row (wrapping not required;
+     no-op with a message when none exist) — the board's "TAB on a
+     non-header is safe motion" precedent.
+- =RET= on the fold row: =org-air-project-open= grows a fold-row branch
+  BEFORE its =org-air-doc= check — when =org-air-dropped-fold= is at point,
+  dispatch to =org-air-project-toggle-dropped= instead of erroring "No Air
+  document on this line". =<mouse-1>= inherits this via the same command.
+  S-RET (=org-air-project-visit=) keeps its plain error on the fold row.
+- Rail =Actions= legend + =?= help: the R26-3 legend-truth contract says
+  every surfaced key must resolve in the map — TAB joins the =?= help text
+  (=TAB dropped=); the 3×3 =--actions-table= grid is full, so the legend
+  cell is NOT reshuffled this round (help-only; the legend ERT derives from
+  the table and stays green).
+
+** Golden impact (intended re-bless; test seat executes)
+
+- =project-view-dir.txt=: the =v0.2/= =DROP Delta UI exploration= row is
+  replaced by the =… 1 dropped — TAB to show= fold row rendered as the last
+  own-doc slot of =v0.2/= (connector math per above); the =X1= rollup letter
+  in the dir header is UNCHANGED.
+- =project-view-state.txt=: the =Dropped 1= section keeps its heading; its
+  body becomes the fold row.
+- =project-view-tag.txt=: the =#ui= section loses the Delta row, gains the
+  fold row after its visible rows.
+- All board/layout/rail mockups: ZERO churn (the fold is project-render
+  only; R48-2 is a face — byte-invisible).
+
+* R48-4 — Executing ERT (=tests/org-air-round48-test.el=; revert-FAILS)
+
+All tests render the REAL project view over the existing =air-project=
+fixture root (the round-20 helpers) — executing renders, not unit stubs.
+Trunk-failing tests are registered in =tests/org-air-known-failures.el= as
+R48 grind fences until the impl lands (=make check= stays binary-green).
+
+- =org-air-r48-1-dropped-rows-folded-by-default= — directory grouping,
+  default knob: NO visible row carries an =org-air-doc= whose state is
+  ="dropped"= (Delta UI is NOT in the visible tree); a fold row with
+  =org-air-dropped-fold (directory . "v0.2")= and the text =… 1 dropped=
+  is present under =v0.2/=; the =v0.2/= header still reads =X1=.
+  *Trunk FAILS* (the DROP row is inline).
+- =org-air-r48-2-fold-rows-per-group-all-groupings= — state grouping: the
+  =Dropped= section heading remains with count 1 and its body is exactly the
+  fold row (key =(state . "dropped")=); tag grouping: =#ui= carries a fold
+  row, sections without dropped docs carry none. *Trunk FAILS.*
+- =org-air-r48-3-toggle-reveals-greyed-and-hides= — point on the =v0.2/=
+  fold row, call =org-air-project-toggle-dropped=: the Delta UI row appears
+  in its state-first position with =font-lock-face
+  'org-air-face-project-dropped= on its title (the face inherits
+  =org-air-face-faded= and sets =:strike-through=  — asserted via the face
+  definition, not pixels), point is on the revealed row's title; toggle
+  again (rule 2, from the dropped row): the row folds back, point lands on
+  the fold row; =--expanded-dropped= round-trips. *Trunk FAILS* (no command,
+  no face). Anti-tautology: assert the visible row COUNT changes by exactly
+  the hidden count.
+- =org-air-r48-4-collapse-dropped-nil-renders-inline-greyed= — knob nil: no
+  fold row anywhere in any grouping; the Delta row is visible in TODAY's
+  byte position AND carries the dim face (proves R48-2 is independent of the
+  fold). *Trunk FAILS* on the face conjunct.
+- =org-air-r48-5-counts-and-summaries-unmoved-while-folded= — default knob,
+  all three groupings: dir letter rollups, section counts, the board-only
+  state summary line and the rail Summary block all count dropped docs
+  exactly as trunk (values pinned against =--collect-docs=, airctl -Da
+  parity). Lock-style: must pass BEFORE and AFTER the impl.
+- =org-air-r48-6-live-filter-bypasses-fold= — filter ="delta"= (matches only
+  the dropped doc): the Delta row IS visible (greyed), NO fold row renders;
+  clearing the filter restores the fold. *Trunk FAILS* on the face conjunct;
+  the visibility conjunct guards the bypass forever.
+- =org-air-r48-7-board-and-session-unaffected= — the fixture BOARD render
+  contains no =org-air-dropped-fold= property and is byte-identical to its
+  goldens (already covered by the mockup suite; re-asserted here as the
+  scope fence); TAB in =org-air-view-mode= still runs
+  =org-air-toggle-section=. Lock-style (passes on trunk too).
+
+Named implementation fns (the test seat drives exactly these):
+=org-air-face-project-dropped= (face) ·
+=org-air-project-collapse-dropped= (defcustom) ·
+=org-air-project--expanded-dropped= (defvar-local) ·
+=org-air-project--doc-row-face= ·
+=org-air-project--dropped-expanded-p= ·
+=org-air-project--partition-dropped= ·
+=org-air-project--insert-dropped-fold-row= ·
+=org-air-project-toggle-dropped= (TAB) ·
+the fold-row branch in =org-air-project-open= (RET/mouse-1).
+
+* Notes
+
+- org-ql remains the only query path; this round is render/faces/interaction
+  only (the project doc collect is the existing directory scan, untouched).
+- The fold hides ROWS, never DATA: =org-air-view--items= (the rail
+  back-pointer), the inspector fields, calendar marks and every count read
+  the full doc list.
+- Grouping-qualified keys mean =s=/=d=/=t= switches never leak expansions
+  across grouping modes; a group that disappears (filter, file deletion)
+  simply leaves a dead key in the list — harmless, never rendered.
+- Future (out of scope, noted): faded re-pillify for a dropped row's
+  tag/date pills; a =g x= style "expand all dropped" bulk verb if per-group
+  TAB proves tedious on large trees.
+
+* Implementation History
+- (none yet — spec ready; impl + test seats to execute per R48-2/-3/-4.)
+
+* History
+- 2026-07-13: Created from the R48 dropped-docs report (grey out + collapse
+  by default). State: ready.

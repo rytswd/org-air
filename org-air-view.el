@@ -2363,7 +2363,7 @@ glyph LEFT, so col 146 lands at a different pixel-X on every row (the
 zig-zag).  To keep the pill metric == the divider column's advance ALWAYS,
 when no live window yet shows this buffer (async / first render, BEFORE
 `pop-to-buffer' settles) the metric is resolved off the DESTINATION window
-(the selected window on its graphical frame) via `window-font-width' —
+\(the selected window on its graphical frame) via `window-font-width' —
 NEVER the `frame-char-width' fallback while the two disagree.  Only a
 truly non-graphical context (pure batch, no frame) keeps the frame char
 metrics, and there svg pills are not drawn at all (the TTY text fallback)."
@@ -4462,6 +4462,49 @@ divider), so those orientations keep the plain trim path."
              (setq w (+ w (char-width ch)) i (1+ i))))
          found)))
 
+(defun org-air-view--pane-divider-glyph-index (line col)
+  "Return the STRING index of the faced pane-divider vrule at display COL in LINE.
+Mirrors `org-air-view--pane-divider-line-p' but returns the index of the
+`org-air-face-pane-border'-faced vrule glyph (nil when absent), so the
+divider can be pinned relative to it (R44-2, Fix A)."
+  (and col
+       (let ((glyph (string-to-char (org-air-view--glyph 'vrule)))
+             (i 0) (w 0) (len (length line)) (found nil))
+         (while (and (not found) (<= w col) (< i len))
+           (let ((ch (aref line i)))
+             (when (and (= w col)
+                        (eq ch glyph)
+                        (let ((f (get-text-property i 'face line)))
+                          (or (eq f 'org-air-face-pane-border)
+                              (and (listp f)
+                                   (memq 'org-air-face-pane-border f)))))
+               (setq found i))
+             (setq w (+ w (char-width ch)) i (1+ i))))
+         found)))
+
+(defun org-air-view--pin-pane-divider (line col)
+  "Pin the pane divider at display COL to an exact pixel-stop (R44-2 Fix A).
+Attaches `display (space :align-to (COL . width))' to the SINGLE leading
+space immediately BEFORE the faced vrule so the `│' glyph lands at the
+same font-relative pixel-X on every board row — straightening the rule even
+if any residual pill sub-pixel drift remains.  `(COL . width)' measures COL
+in units of the buffer default face's char advance (the UNIT the divider
+column and plain text advance at), so the align-to stop always lies
+AT-OR-AHEAD of the (Fix-B, exactly-ncols-cells) board run — it only ever
+pads FORWARD and can NEVER collapse behind a drawn glyph.  Applied only on
+a graphical display (a TTY has no pixel drift); returns LINE unchanged
+otherwise or when the leading divider space is not found."
+  (if (not (display-graphic-p))
+      line
+    (let ((idx (org-air-view--pane-divider-glyph-index line col)))
+      (if (and idx (> idx 0) (eq (aref line (1- idx)) ?\s))
+          (let ((out (copy-sequence line)))
+            (put-text-property (1- idx) idx
+                               'display (list 'space :align-to (cons col 'width))
+                               out)
+            out)
+        line))))
+
 (defun org-air-view--finalize-buffer-lines (width &optional divider-col)
   "Cap each line at WIDTH and strip trailing whitespace (D7/D6, live mode).
 No line may exceed the window actually displaying the dashboard so the
@@ -4488,9 +4531,18 @@ DIVIDER-COL nil and are untouched."
                                                    (org-air-view--glyph 'more))
                        line))
              (result (if (org-air-view--pane-divider-line-p capped divider-col)
-                         (org-air-view--pad-to capped width)
+                         ;; R44-2 Fix A: pad the blank rail tail (R43-2
+                         ;; interior divider) THEN pin the divider column to
+                         ;; an exact pixel-stop with `:align-to' so it lands
+                         ;; at ONE pixel-X on every board row.
+                         (org-air-view--pin-pane-divider
+                          (org-air-view--pad-to capped width) divider-col)
                        (string-trim-right capped))))
-        (unless (string= result line)
+        ;; R44-2: compare INCLUDING text properties so a divider row whose
+        ;; chars are already full width but now carries the `:align-to' pin
+        ;; is still rewritten (a plain `string='/`equal' ignores the added
+        ;; display property and would drop the pin).
+        (unless (equal-including-properties result line)
           (delete-region beg end)
           (insert result)))
       (forward-line 1))))
@@ -6487,15 +6539,22 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
 (defun org-air-view--postprocess-line (line width)
   "Return LINE post-processed to match a full render's output (R18 D-P1b).
 Mirror `org-air-view--normalize-buffer-lines' (pad to the fixed width seam)
-or `org-air-view--finalize-buffer-lines' (cap to WIDTH + right-trim) so a
-spliced line is byte-identical to the corresponding full-render line."
+or `org-air-view--finalize-buffer-lines' (cap to WIDTH + right-trim, and —
+R43-2/R44-2 — pad + `:align-to'-pin a pane-divider row) so a spliced /
+inspector-refilled line is byte-identical AND pixel-identical to the
+corresponding full-render line.  The pin keeps the divider straight on the
+inspector-region rows too (they are re-composed here AFTER finalize)."
   (if (integerp org-air-view-width)
       (org-air-view--pad-to line org-air-view-width)
-    (let ((capped (if (> (string-width line) width)
-                      (truncate-string-to-width
-                       line width nil nil (org-air-view--glyph 'more))
-                    line)))
-      (string-trim-right capped))))
+    (let* ((capped (if (> (string-width line) width)
+                       (truncate-string-to-width
+                        line width nil nil (org-air-view--glyph 'more))
+                     line))
+           (col org-air-view--pane-divider-col))
+      (if (org-air-view--pane-divider-line-p capped col)
+          (org-air-view--pin-pane-divider
+           (org-air-view--pad-to capped width) col)
+        (string-trim-right capped)))))
 
 (defun org-air-view--body-region ()
   "Return (BEG . END) buffer positions of the live body band, or nil (R18)."

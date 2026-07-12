@@ -1,0 +1,314 @@
+#+title: org-air Round 47 — Mouse HOVER is very noticeably SLOW on the board (Emacs 30 re-rasterizes every SVG pill under the mouse-face highlight, per crossing)
+#+state: ready
+#+tags: performance hover mouse-face svg pill image-cache redisplay emacs30 regression
+
+* Summary
+
+User (board view, GUI, Emacs 30.2): moving the mouse across the board is very
+noticeably slow — each row crossing visibly lags. R32-1 scoped the hover
+highlight to one row and R33-2 made the hover hot path run ZERO org-air Lisp
+(pure redisplay, background-only face), yet hovering is still slow.
+
+This round REPRODUCES the structural defect headless, NAMES the exact mechanism
+(with the Emacs C source line), and SPECS the fix. Root cause CONFIRMED — it is
+option (a) of the prompt, with a precise twist:
+
+- The org-air ELISP pill memo (=org-air-view--svg-image-cache=) is *NOT* defeated:
+  a hover runs zero org-air Lisp and zero pill-spec builds (measured below). The
+  defeated cache is Emacs's *C-level image (raster) cache*.
+- Since *Emacs 30* (commit =e69fafdb=, "Respect mouse-face on SVG image glyphs",
+  bug#67794 — present in the emacs-30 branch =xdisp.c= =draw_glyphs=, absent from
+  Emacs 28/29), drawing a glyph run with =DRAW_MOUSE_FACE= RE-LOOKS-UP every SVG
+  image glyph in the run with the MOUSE-FACE face:
+  =lookup_image (f, s->img->spec, hlinfo->mouse_face_face_id)=.
+- =lookup_image= keys the C image cache on =(spec, face-foreground,
+  face-background, font-size, font-family)= (=image.c= =search_image_cache=). The
+  mouse-face-merged face has a DIFFERENT :background than the row face *by
+  construction — that is the entire point of the highlight* — so the lookup
+  MISSES and =svg_load= (librsvg parse + full rasterization) runs SYNCHRONOUSLY
+  inside redisplay for EVERY SVG pill in the hovered row, on the crossing. This
+  is exactly the R45 cold-pill rasterization cost, relocated onto the hover hot
+  path.
+- Our rows put =mouse-face= over the WHOLE row body — including the pill IMAGE
+  glyphs (state badges, priority squares, date pills, tag pills, file icons).
+  Measured on the fixtures: board 55 hover rows carry 95 SVG images under
+  =mouse-face= (avg 1.7, max 5 per row); project view 7 doc rows carry 17
+  (2–3 per row). Real boards (more tags, file icons, taller viewports) carry
+  more per row.
+
+The other two suspects are CLEARED: the inspector follow / R28 outline highlight
+are point-driven =post-command-hook= consumers with idle debounce (a hover
+dispatches no command, so they never run per crossing), and no =help-echo= /
+=track-mouse= / mouse-motion machinery exists on the rows (the R33-2 locks hold).
+
+Fix (R47-2): hover must be a cheap background-only face change on CACHED TEXT
+content — scope =mouse-face= to the row's TITLE BAND (title start → meta-cluster
+start), which is text-only by construction, so ZERO image glyphs ever sit under
+=mouse-face= and the Emacs 30 SVG re-lookup block can never fire. org-ql is the
+only query path throughout; nothing in this round touches querying.
+
+* R47-1 — DIAGNOSIS (measured headless; the exact mechanism, named)
+
+Method: batch render of the fixture BOARD (=org-air-view--render= over
+=org-air-query-items=) and PROJECT view (=org-air-project--render=) with the SVG
+path forced on (the R24-3 =display-graphic-p= stub + pill char metrics bound), an
+advice counter on =org-air-view--svg-image-cached= distinguishing memo hits from
+thunk builds, and a property walk correlating =mouse-face= runs with =display=
+image specs. Emacs C behaviour verified against the emacs-30 branch sources
+(=src/xdisp.c=, =src/image.c=) — the exact code the user's 30.2 runs.
+
+** (a) Does hover defeat the SVG pill image cache? YES — the C raster cache, not the elisp memo
+
+Two caches exist; the prompt's question splits cleanly across them:
+
+1. *The org-air elisp memo is healthy and hover-irrelevant.* Rendering the
+   fixture board builds 27 pill images and takes 143 memo hits; a simulated
+   hover sweep across every row performs *0* builds and *0* memo lookups —
+   hover runs no org-air Lisp at all (R33-2 still true). The pill *specs* are
+   shared, stable, =equal=-identical objects.
+
+2. *The Emacs C image (raster) cache is defeated per crossing.* Emacs 30's
+   =draw_glyphs= (=xdisp.c=, the =#ifdef HAVE_RSVG= block, ~31239 on the
+   emacs-30 branch) does, when drawing a run with =hl == DRAW_MOUSE_FACE=:
+
+   #+begin_src c
+   /* Update SVG image glyphs with mouse face features.  FIXME: ... */
+   if (hl == DRAW_MOUSE_FACE)
+     for (s = head; s; s = s->next)
+       if (s->first_glyph->type == IMAGE_GLYPH
+           && EQ (image_spec_value (s->img->spec, QCtype, NULL), Qsvg))
+         {
+           id = lookup_image (f, s->img->spec, hlinfo->mouse_face_face_id);
+           s->img = IMAGE_FROM_ID (f, id);
+           prepare_image_for_display (f, s->img);
+         }
+   #+end_src
+
+   and =lookup_image= (=image.c= ~3484) keys =search_image_cache= (~2206) on
+   =(spec-hash, spec-equal, face_foreground, face_background, face_font_size,
+   face_font_family)=. The mouse-face face id is the merged
+   =org-air-face-cursor=-over-row face, whose *:background differs from the
+   normal row face by construction* (a highlight that didn't differ would be
+   invisible). So for every SVG pill glyph inside the hovered =mouse-face= run:
+
+   - The cache lookup with the hover face MISSES (the pill was rasterized at
+     layout time against the NORMAL face key).
+   - =make_image= + =svg_load= run *synchronously inside redisplay*: librsvg
+     XML parse + full raster of that pill — the R45-measured GUI-only cost,
+     now ×(pills under the hovered run) per row ENTER. Un-hovering redraws
+     with =DRAW_NORMAL_TEXT= (the stored, cached normal raster — cheap), so
+     the cost lands exactly on each crossing INTO a row.
+   - The hover-variant raster IS cached afterwards, but only per
+     (pill, hover-face) key: the first sweep across a board pays it for EVERY
+     row, and =image-cache-eviction-delay= (default 300s; hover variants are
+     only "displayed" while hovered) silently evicts them, so the cost RECURS
+     after idle periods, font/text-scale changes, and theme switches — plus
+     the variants double the C cache's pill memory. Even on a warm hit, every
+     row entry still pays =sxhash= + =Fequal= over the full SVG XML string per
+     pill (small, but nonzero and per-crossing).
+
+*Why R32/R33-2 lightened it but did not cure it:* R32-1 confined the run to one
+row (so a crossing re-rasters ~pills-per-row, not the whole block) and R33-2
+removed all Lisp and metric-changing face attributes — both verdicts stand. But
+the residual cost lives BELOW Lisp, in the Emacs 30 redisplay change (Dec 2023,
+first shipped in 30.1): "pure redisplay" now includes per-crossing librsvg work
+whenever =mouse-face= covers SVG glyphs. This also explains why every batch ERT
+stayed green: batch never rasterizes (=display-graphic-p= nil), the same
+structural blindness R45 documented for the launch freeze.
+
+*Measured overlap (the count the block re-rasterizes per crossing):*
+
+| view              | hover rows | svg images under mouse-face | per row (min/avg/max) |
+|-------------------+------------+-----------------------------+-----------------------|
+| board (fixtures)  |         55 |                          95 | 0 / 1.7 / 5           |
+| project (air dir) |          7 |                          17 | 2 / 2.4 / 3           |
+
+Per-row image glyphs are the tag pills + date pill (board cluster), the project
+state badge (=READY= chip in the row prefix), priority squares / keyword badges
+when their styles are active, and the origin file icon — real user boards sit at
+the max, not the average. At R45's measured GUI raster cost (a viewport of pills
+= 2–10s) a 3–5-pill row crossing is tens to a few hundred ms of synchronous
+redisplay — precisely "hover is very noticeably slow", and it blocks input
+because it runs inside redisplay.
+
+** (b) Does hover run the inspector follow / snapshot+fontify or the R28 outline recompute? NO — cleared
+
+All point-followers are command-driven and debounced, never motion-driven:
+
+- =org-air-view--inspector-post-command= — buffer-local =post-command-hook=,
+  =noninteractive=-guarded, arms a =org-air-inspector-debounce= idle timer →
+  =org-air-view--inspector-update-now=. A hover dispatches NO command, so the
+  hook never fires on mouse motion.
+- =org-air-outline--post-command= (R28-4/R30-4 rail outline) — same shape:
+  =post-command-hook= + 0.1s idle tick → =org-air-outline--highlight-update=,
+  which is a single =move-overlay= (no re-render) even when it does run.
+- =org-air-view--view-pane-post-command= and the R29-2/R46
+  =org-air-view--normalize-point= pair — =post-command-hook= only.
+- No =track-mouse=, no =mouse-movement= dispatch (globally bound to the
+  =ignore=-family), and NO =help-echo= anywhere under a row's =mouse-face= run
+  (measured; the R33-2 locks in =tests/org-air-round33-test.el= already fence
+  these). So the only per-crossing work is redisplay itself — which is exactly
+  where (a) found the cost.
+
+** (c) Is mouse-face applied over the image glyphs at all? YES — the violation
+
+Both row inserters pass =mouse-face 'org-air-face-cursor= in =:props= to the
+shared =org-air-view--insert-row= (=org-air-view--insert-item=,
+=org-air-view.el= ~3130; =org-air-project= doc rows, =org-air-project.el= ~988),
+and =insert-row= applies PROPS over the ENTIRE row body (start → before the
+R32-1-stripped newline). That span includes every pill's image glyph — the
+prefix badges AND the whole meta cluster. =org-air-face-cursor= itself is
+correct (R33-2: background-only, no :extend, no metric changers) — the defect is
+purely WHERE the property lands. The calendar day cells (the only other
+=mouse-face= carrier) are plain text — unaffected.
+
+* R47-2 — THE FIX: hover = background-only face on the TEXT-ONLY title band; zero image glyphs under mouse-face
+
+Requirement (the invariant, stated positively): *no buffer position may carry
+both =mouse-face= and an image =display=*. Then the Emacs 30 SVG-mouse-face
+block never matches a glyph, a crossing re-blits only text glyph backgrounds
+(pure, cheap redisplay), and there are ZERO pill rasterizations, ZERO
+=lookup_image= calls, ZERO cache-variant memory — per crossing, forever, on
+every Emacs version.
+
+Options considered:
+
+- *(A) Keep the full-row span, strip =mouse-face= at image positions.* Satisfies
+  the invariant, but =mouse-face= highlighting extends over the run of `eq'
+  property VALUES — punching holes splits each row into several disjoint hover
+  runs (margin / title / inter-pill pads), so hovering highlights only the
+  fragment under the pointer. A visibly broken, flickery highlight. Rejected.
+- *(B) Prewarm the hover raster variants off the hot path* (rasterize each pill
+  under a face equal to the merged hover face at render/idle time so the C
+  cache hits on first crossing). Rejected: it must reproduce Emacs's merged
+  =mouse_face_face_id= fg/bg/font key EXACTLY (internal, version-dependent,
+  per-theme), doubles C image-cache memory, still pays per-crossing
+  =sxhash=/=Fequal= spec walks, and silently re-breaks on eviction. Treats the
+  symptom while keeping images under the highlight.
+- *(C) Scope =mouse-face= to the row's TITLE BAND* — from the R21-2
+  =org-air-row-title= mark through the flex pad, ENDING where the meta cluster
+  begins. Text-only by construction (the title is =substring-no-properties=
+  plain text per R23-1; every pill lives in the prefix badges before it or the
+  cluster after it), so it is ONE contiguous hover run per row and the
+  invariant holds structurally, not by patching holes. It also matches R46,
+  which just made the title band the row's universal interaction band (point is
+  clamped there) — the hover highlight now shows exactly where point will land
+  on click. Calmer visually, zero pill work.
+
+*Decision: (C).*
+
+** Wiring (one seam, both views)
+
+All changes live in =org-air-view--insert-row= — the single shared row
+primitive; the board's =--insert-item=, the project's doc rows, and the day pane
+inherit it with NO caller edits:
+
+1. Pop ='mouse-face= out of PROPS before the whole-extent
+   =add-text-properties= (every other row-identity property — =org-air-item= /
+   =org-air-doc=, marker, title mark, =font-lock-face= — keeps the FULL row
+   extent so click/RET resolution, R32-3 open-target and the inspector are
+   untouched; only the HIGHLIGHT span narrows).
+2. Apply the popped =mouse-face= over =[title-start, cluster-start)= —
+   =title-start= = START + (length of the final clamped prefix) (the same
+   position the =org-air-row-title= mark occupies, POST the R46 re-mark-after-
+   truncation fix), =cluster-start= = the position where the padded cluster
+   begins (=insert-row= already computes both spans to assemble the line; no
+   new parsing). The flex pad between title and cluster stays IN the band — a
+   generous, stable hover target ending at the R40-2 fence.
+3. Degenerate rows (empty title after truncation): apply no =mouse-face= at
+   all — a hover highlight on a title-less row highlights nothing meaningful,
+   and NO span is always safer than a wrong span.
+4. Belt-and-braces (cheap, render-time): after applying, assert-in-tests that
+   no position in the band carries an image =display= (the invariant below);
+   no runtime scan is needed since the band is text-only by construction.
+
+The R32-1 newline strip becomes vacuous (the band never reaches the newline)
+but its INVARIANT — no hover run spans a newline — is retained and re-asserted.
+=org-air-face-cursor= is untouched (the R33-2 background-only/no-:extend
+contract stays the other half of "hover is pure cheap redisplay").
+
+** Behaviour + invariants
+
+- Hover highlight now paints the title band (title + pad up to the cluster
+  fence), not the pill cluster/prefix badges. This is the ONLY user-visible
+  change, and it is coherent with R46's title-band clamp (highlight == where
+  point lands). Pills render identically hovered or not — and therefore never
+  re-rasterize.
+- Byte goldens BYTE-IDENTICAL (=mouse-face= is a text property; =make
+  regen-mockups= zero churn expected). TTY unaffected (no images there; the
+  narrower highlight band applies equally, keeping GUI/TTY consistent).
+- Click/RET behaviour unchanged: =org-air-item=/=org-air-doc=/markers still
+  span the full row (R32-3 single-doc resolution intact); =follow-link= /
+  =mouse-1= bindings are position-property-driven, not mouse-face-driven.
+- R32 tests that assert the hover run starts at BOL are re-blessed to assert it
+  starts at the title mark (the no-fusion / no-newline-span assertions carry
+  over verbatim).
+- Existing R33-2 locks (no help-echo, no motion machinery, lightweight face)
+  stay green and now guard the OTHER half of the contract.
+
+* R47-3 — Executing ERT (=tests/org-air-round47-test.el=; revert-FAILS)
+
+Batch contract: SVG rasterization timing is GUI-ONLY (librsvg needs a real
+frame) and structurally invisible to =noninteractive= ERTs — the R45 lesson. So
+the guards are STRUCTURAL: they pin the exact preconditions under which the
+Emacs 30 =DRAW_MOUSE_FACE= block can rasterize, with the SVG spec layer forced
+on via the R24-3 =display-graphic-p= stub + bound pill char metrics.
+
+- =org-air-r47-1-no-image-under-mouse-face-board= — full fixture board render:
+  ZERO buffer positions carry both =mouse-face= and an image =display= spec.
+  *Trunk FAILS: 95 overlapping positions-runs measured.* This count is exactly
+  the number of per-crossing SVG re-lookups Emacs 30 performs, so "0 pill image
+  rebuilds per crossing" is asserted as "0 svg glyphs under any hover run".
+- =org-air-r47-1-no-image-under-mouse-face-project= — same over the project
+  view (state badges + date/tag pills). *Trunk FAILS: 17.*
+- =org-air-r47-2-hover-run-is-single-title-band= — every item/doc row has
+  EXACTLY ONE maximal =mouse-face= run; it begins at the =org-air-row-title=
+  mark, ends before the meta cluster, and embeds no newline (carries the R32-1
+  no-fusion invariant forward). Anti-tautology: assert the board yields >20
+  hover rows.
+- =org-air-r47-3-zero-pill-builds-per-hover-sweep= — advice counters on
+  =org-air-view--svg-image-cached= (memo build/hit) and =svg-image= (raster-
+  spec construction); simulate a hover sweep across every row (the Lisp-visible
+  face of =note_mouse_highlight=: resolve each row's =mouse-face= run +
+  =help-echo= lookup) and assert 0 builds, 0 =svg-image= calls, and 0 svg
+  glyphs inside any resolved run. The first two conjuncts lock the elisp layer
+  (already true — R33-2); the third is the Emacs 30 C-path guard that
+  *revert-FAILS*.
+- =org-air-r47-4-no-inspector-or-outline-recompute-per-crossing= — counters on
+  =org-air-view--maybe-update-inspector=, =org-air-view--inspector-update-now=
+  and =org-air-outline--highlight-update= stay 0 across the simulated sweep;
+  no inspector debounce timer is armed; the follow hooks live ONLY on
+  pre/post-command hooks (a hover dispatches no command). Extends the R33-2
+  lock so a future hover-follow can never reintroduce per-motion work.
+
+Trunk-failing tests are registered in =tests/org-air-known-failures.el= as R47
+grind fences until the implementation lands, keeping =make check= binary-green.
+
+* Notes
+
+- org-ql remains the only query path; this round is render/redisplay-only.
+- Emacs-version note for the doc/comments: the SVG-under-mouse-face re-lookup is
+  new in Emacs 30 (=e69fafdb=, bug#67794); Emacs 28/29 never re-rastered on
+  hover. The fix is correct-and-cheap on ALL versions, so no version gate.
+- The R45 skeleton-first launch discipline is untouched; this round removes the
+  same rasterization cost from the OTHER hot path (hover), by construction
+  rather than by deferral.
+
+* Implementation History
+- (pending) R47-1 DIAGNOSIS: hover slowness reproduced structurally headless;
+  mechanism named — Emacs 30 =draw_glyphs= re-looks-up every SVG glyph under
+  =DRAW_MOUSE_FACE= with the hover face; C image cache keys on face fg/bg/font
+  → miss → synchronous librsvg re-raster of ~pills-per-row per crossing (95
+  svg glyphs under hover on the fixture board; 17 on the project view).
+  Elisp memo NOT defeated (0 builds per hover); inspector/R28 outline cleared
+  (post-command + debounced, never motion-driven); mouse-face confirmed to
+  cover image glyphs (the violation).
+- (pending) R47-2 fix (SPEC): scope =mouse-face= to the text-only TITLE BAND
+  =[title-start, cluster-start)= inside =org-air-view--insert-row= (one seam;
+  board + project + day pane inherit). Invariant: NO position carries both
+  =mouse-face= and an image =display=. ERT r47-1/-2/-3/-4 (structural,
+  batch-visible; r47-1/-3 revert-FAIL on trunk); R32 bol-run assertions
+  re-blessed to the title mark; byte goldens byte-identical expected.
+
+* History
+- 2026-07-13: Created from the R47 hover-slowness report. State: ready.

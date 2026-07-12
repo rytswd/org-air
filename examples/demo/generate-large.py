@@ -14,7 +14,11 @@ import sys, os, random, datetime
 
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "/tmp/org-air"
 TODAY = datetime.date.today()
-R = random.Random(20260618)  # deterministic
+R = random.Random(20260712)  # deterministic (reseed = a fresh task set)
+
+# Dates spread EVENLY across the current month +-2 months (~+-75 days) so no
+# single month (least of all the current one) dominates the calendar dots.
+SPREAD = 75
 
 def stamp(offset, active=True):
     dt = TODAY + datetime.timedelta(days=offset)
@@ -55,14 +59,16 @@ def entry():
     lines = [head]
     kind = R.random()
     rep = R.choice(REPEATERS)
-    if kind < 0.30:      # scheduled (some overdue, some upcoming, some today)
-        lines.append(f"  SCHEDULED: {stamp(R.randint(-8, 21))[:-1]}{rep}>")
-    elif kind < 0.50:    # deadline
-        lines.append(f"  DEADLINE: {stamp(R.randint(-6, 30))[:-1]}{rep}>")
-    elif kind < 0.58:    # both
-        lines.append(f"  SCHEDULED: {stamp(R.randint(-4, 10))}")
-        lines.append(f"  DEADLINE: {stamp(R.randint(0, 20))}")
-    created = R.randint(-60, -1)
+    if kind < 0.30:      # scheduled, spread evenly across +-2 months
+        lines.append(f"  SCHEDULED: {stamp(R.randint(-SPREAD, SPREAD))[:-1]}{rep}>")
+    elif kind < 0.50:    # deadline, spread evenly across +-2 months
+        lines.append(f"  DEADLINE: {stamp(R.randint(-SPREAD, SPREAD))[:-1]}{rep}>")
+    elif kind < 0.58:    # both (scheduled earlier, deadline a bit later)
+        s = R.randint(-SPREAD, SPREAD - 20)
+        lines.append(f"  SCHEDULED: {stamp(s)}")
+        lines.append(f"  DEADLINE: {stamp(s + R.randint(3, 20))}")
+    # CREATED is inherently in the past; spread it over the past two months.
+    created = R.randint(-SPREAD, -1)
     lines += ["  :PROPERTIES:", f"  :CREATED:  {stamp(created, active=False)}"]
     if todo == "DONE":
         lines.append(f"  :CLOSED:   {stamp(R.randint(created, 0), active=False)}")

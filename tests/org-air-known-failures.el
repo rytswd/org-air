@@ -1122,6 +1122,76 @@
     ;; No .el SOURCE touched on the test track (impl landed R48-2/R48-3
     ;; in xprqntst).  Round-48 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
+    ;; =================================================================
+    ;; v0.5 ROUND-49 CLOSEOUT (impl tip ooxvoxlv/bc4fd92e + test additions
+    ;; <this commit>).  ZERO grind entries were ever opened — `make clean
+    ;; && make regen-mockups' verified ZERO fixture churn (NO HANG, exit
+    ;; 0, jj: working copy unchanged): the R49-2/R49-3 placement seeds are
+    ;; interactive-only (batch normalises the `unset' sentinel to nil
+    ;; exactly as before, so batch renders never consult placement) and
+    ;; the R49-4 max(doc-h,window)->window rail-foot change is inert at
+    ;; fixture sizes — every board/layout/project/entry/denote golden is
+    ;; byte-identical.  ONE legacy assertion re-blessed honestly:
+    ;;   org-air-r26-5-placement-default-pops-project-rail — its "fresh
+    ;;     board stays inline" half pinned the OLD R26-5 asymmetric
+    ;;     default, the design-blessed R49-3 inversion (and had gone
+    ;;     VACUOUS anyway: the R26-8 cold interactive entry paints the
+    ;;     skeleton and defers the full render, so the placement seed —
+    ;;     which lives in `org-air-view--render' — never ran in that
+    ;;     conjunct).  Re-scoped to pin the LEGACY back-compat surface
+    ;;     explicitly instead: under the old R26-5 alist shape
+    ;;     '((board . inline) (project . side-window)) the board still
+    ;;     seeds inline (zero-migration `consp' branch); the project-pops
+    ;;     + owner + no-inline-text conjuncts survive verbatim.  The NEW
+    ;;     consistent default is pinned by org-air-r49-2 (below).
+    ;; NEW R49 EXECUTING ERTs (tests/org-air-round49-test.el;
+    ;; r49-1/-2/-3/-4 verified FAIL on the pre-impl trunk, r49-5/-6 are
+    ;; both-sides locks):
+    ;;   r49-1 resolver table — shipped defaults CONSISTENT (the ONE
+    ;;     shared `org-air-rail-placement' = side-window; every per-view
+    ;;     override nil-inherit), override wins for THAT view only, nil
+    ;;     inherits a flipped shared value, the LEGACY alist bound to the
+    ;;     shared knob resolves per view (unnamed views fall back to
+    ;;     side-window), and the override beats even the alist.  Trunk
+    ;;     FAILS (no resolver, no per-view defcustoms).
+    ;;   r49-2 consistent default SEEDS both — a fresh interactive BOARD
+    ;;     (rendered with the `unset' sentinel intact so the seed — not a
+    ;;     pre-cooked flag — is what runs) and a fresh interactive PROJECT
+    ;;     both pop the side rail: flag t, live owned `*org-air-rail*'
+    ;;     side window, NO inline rail text.  Trunk FAILS on the board
+    ;;     half (the alist seeded the board inline).
+    ;;   r49-3 per-view override SPLITS — board-inline override + shared
+    ;;     side-window: board renders the inline two-pane rail while a
+    ;;     fresh project still pops; the MIRRORED project-inline split
+    ;;     holds; shared flipped to inline with no overrides seeds BOTH
+    ;;     views inline.  Trunk FAILS (overrides unknown; a symbol-valued
+    ;;     shared knob breaks the alist-get seed).
+    ;;   r49-4 inline one-windowful — a synthetic 40-doc project (doc
+    ;;     pane TALLER than the pinned height-30 window; placement pinned
+    ;;     inline BOTH ways — R49-2 override AND legacy alist — so the
+    ;;     trunk comparison reaches the legend conjunct): the rail's
+    ;;     Actions header lands at line <= 30 (the FIRST windowful,
+    ;;     visible on open) with the calendar above it, and the divider
+    ;;     column is intact at ONE column on all 40 doc rows (the padded
+    ;;     blank rail cells keep the fence past the rail foot).  Trunk
+    ;;     FAILS at exactly `(<= 41 30)' — Actions pinned to the doc-h
+    ;;     foot, the user's report verbatim.
+    ;;   r49-5 LOCK batch placement-blind — a `noninteractive' render
+    ;;     with the shared default side-window is byte-identical to the
+    ;;     120-col golden and creates no side window (the byte-golden
+    ;;     freeze by construction; passes on both sides).
+    ;;   r49-6 the `|' toggle + R25-6 reconciler — from the popped R49-3
+    ;;     default: `|' to inline, `|' back out, then a NATIVE close +
+    ;;     `org-air-rail--reconcile-frame' falls back inline with the
+    ;;     flag cleared (placement consulted ONCE; the toggle/reconciler
+    ;;     ownership model untouched).
+    ;; airctl `status -Da' parity RE-VERIFIED on ~/Coding/github.com/
+    ;; withre/air (placement is a seed/window concern — tree shape,
+    ;; per-dir counts and the v0.1/ own R4 C14 X1 D2 + desc +1 +14 +9 +8
+    ;; roll-ups unchanged; org-air-r22-6-* + org-air-f5-* stay green).
+    ;; No .el SOURCE touched on the test track (impl landed R49-2/3/4 in
+    ;; ooxvoxlv/bc4fd92e).  Round-49 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

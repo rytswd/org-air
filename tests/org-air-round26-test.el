@@ -259,7 +259,13 @@ parity ON KEYS) and re-render; `(' runs the R26-4 flip command."
 
 (ert-deftest org-air-r26-5-placement-default-pops-project-rail ()
   "A fresh `org-air-project' pops its side rail WITHOUT `|' (the
-`org-air-rail-placement' project default); a fresh board stays inline."
+`org-air-rail-placement' project default — R26-5, preserved through the
+R49-2 shared resolver).  R49-3 re-bless: the fresh BOARD half moved with
+the confirmed consistent default — the board now pops its rail too
+\(asserted by org-air-r49-2-consistent-default-seeds-both); this test
+keeps the LEGACY alist shape pinned instead: a harness binding the old
+R26-5 per-view alist still gets its exact asymmetric behaviour (board
+inline, project popped) with zero migration."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-live-project
     ;; No `|' pressed: the placement seed popped the rail.
@@ -268,18 +274,20 @@ parity ON KEYS) and re-render; `(' runs the R26-4 flip command."
     (should (eq (org-air-rail--side-owner) (current-buffer)))
     ;; And the tree text carries NO inline rail.
     (should-not (org-air-r26--inline-rail-text-p (current-buffer))))
-  ;; Fresh BOARD: inline — no side window.
-  (org-air-test-with-fixtures
-   (save-window-excursion
-     (org-air-r26--kill-aux-buffers)
-     (let ((noninteractive nil))
-       (org-air-view))
-     (unwind-protect
-         (progn
-           (should-not (org-air-rail--popped-p
-                        (get-buffer org-air-view-buffer-name)))
-           (should-not (window-live-p (org-air-rail--side-window))))
-       (org-air-r26--kill-aux-buffers)))))
+  ;; LEGACY alist shape (the OLD R26-5 default, still honoured): a fresh
+  ;; board seeded under it stays inline — no side window.
+  (let ((org-air-rail-placement '((board . inline) (project . side-window))))
+    (org-air-test-with-fixtures
+     (save-window-excursion
+       (org-air-r26--kill-aux-buffers)
+       (let ((noninteractive nil))
+         (org-air-view))
+       (unwind-protect
+           (progn
+             (should-not (org-air-rail--popped-p
+                          (get-buffer org-air-view-buffer-name)))
+             (should-not (window-live-p (org-air-rail--side-window))))
+         (org-air-r26--kill-aux-buffers))))))
 
 (ert-deftest org-air-r26-5-reentry-keeps-session-no-double-rail ()
   "Re-running `org-air-project' on the live buffer keeps EVERY per-buffer

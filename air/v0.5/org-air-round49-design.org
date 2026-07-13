@@ -294,6 +294,33 @@ rewires (org-air-view.el ~6536, org-air-project.el ~1516) · the
   ZERO movement as predicted (make check green — every layout/project/
   entry/denote golden byte-identical; no fixture edited, no manifest
   entry needed).  R49-5 executing ERTs remain for the test seat.
+- 2026-07-13: R49-5 landed (test seat; fixtures/tests/gate only).
+  =make clean && make regen-mockups= re-verified ZERO byte churn (jj:
+  working copy unchanged — batch is placement-blind by construction and
+  the R49-4 foot change is inert at fixture sizes; NO fixture edited, NO
+  manifest entry).  airctl =status -Da= parity re-verified exact on the
+  real Air repo (tree/counts/roll-ups untouched by a placement round).
+  NEW executing ERTs in tests/org-air-round49-test.el —
+  =org-air-r49-1-resolver-table= (consistent side-window defaults through
+  the ONE resolver; override wins per view; nil inherits; legacy alist
+  honoured; override beats alist), =org-air-r49-2-consistent-default-
+  seeds-both= (fresh interactive board AND project both seed the popped
+  side rail from the =unset= sentinel), =org-air-r49-3-per-view-override-
+  splits= (both split directions + nil-inherit inline both views),
+  =org-air-r49-4-project-inline-legend-first-windowful= (40-doc pane >
+  height-30 window: Actions <= 30 with the calendar above, divider intact
+  on every doc row), =org-air-r49-5-batch-placement-blind= (lock:
+  byte-identical 120 golden, no side window) and =org-air-r49-6-toggle-
+  and-reconciler-still-work= (=|= round-trip + R25-6 native-close
+  reconcile).  r49-1/-2/-3/-4 VERIFIED failing on the pre-impl trunk
+  (r49-4 at exactly =(<= 41 30)= — Actions at the doc-h foot); r49-5/-6
+  pass both sides (locks).  Existing-test movement: =org-air-r26-5-
+  placement-default-pops-project-rail='s "fresh board stays inline" half
+  re-blessed honestly to pin the LEGACY alist back-compat surface (board
+  inline under the old R26-5 alist; the project/no-double-rail conjuncts
+  survive verbatim) — the new consistent default is pinned by r49-2.
+  Full gate GREEN: make clean && make check — 652 tests, 0 unexpected,
+  manifest EMPTY.
 
 * History
 - 2026-07-13: Created from the R49 report (rail-placement consistency +

@@ -1307,45 +1307,96 @@
     ;; assertion ERTs below re-bless there too (spec §R51-1/§R51-2 name
     ;; the r48 inversions; the rank-fn callers retarget to
     ;; `--state-sort-rank' or pin the new ordering):
-    (org-air-f5-project-view-byte-mockups
-     . "R51-2: project-view-tag.txt is the ONE mover (#ui reorders to
-Alpha/Zeta/Epsilon/fold — dropped-last rank sinks the draft below the
-live states); dir/state goldens verified byte-identical.  Test seat
-regen + re-bless.")
-    (org-air-r48-3-toggle-reveals-greyed-and-hides
-     . "R51-1 supersedes the R48-2 strike detail: the face-DEFINITION
-conjunct (`:strike-through t') INVERTS (assert nil/unspecified; the
-inherit-faded conjunct stays); R51-2 also retires the mid-list
-Zeta<Delta<Epsilon position (revealed Delta now ranks LAST, after Eta).")
-    (org-air-r48-4-collapse-dropped-nil-renders-inline-greyed
-     . "R51-2: knob-nil inline Delta no longer sits between Zeta and
-Epsilon — dropped ranks LAST in the group (after draft Epsilon AND
-unknown Eta).  The grey-face conjunct is unchanged and still true.")
-    (org-air-r16-d5-state-rank-is-within-group-primary
-     . "R51-2 redefines the within-group state order: ready → wip →
-complete → draft → unknown → dropped LAST (was the lifecycle
-draft-first `org-air-project-sections' order).  Expected order becomes
-Abe-ready, Zed-complete, Ben-draft, Yan-draft.")
-    (org-air-r16-d5-state-rank-unknown-last
-     . "R51-2 deleted `org-air-project--state-rank' (its only caller
-`--doc-compare' now ranks via `org-air-project--state-sort-rank');
-retarget the unknown-after-known assertion to the new fn — note dropped
-now ranks past unknown.")
-    (org-air-r20-5-state-display-order-matches-airctl
-     . "R51-2 deleted `org-air-project--state-display-rank' (its only
-caller `--state-first-lessp' now ranks via `--state-sort-rank').  The
-`--state-display-order' CONSTANT is untouched (counts-only, airctl
-letter parity); the rank conjuncts retarget — under the new rank
-dropped sorts AFTER draft, not before.")
-    (org-air-r20-5-fix-collect-excludes-overview-stateless-unknown
-     . "R51-2 deleted `org-air-project--state-display-rank': the
-unknown>draft rank conjunct retargets to `--state-sort-rank' (unknown
-still ranks after draft; dropped after unknown).  Every collect/count
-conjunct is unchanged and still true.")
-    (org-air-r25-3-display-order-minus-review
-     . "R51-2 deleted `org-air-project--state-display-rank': the
-ready<draft rank conjunct retargets to `--state-sort-rank'.  The
-`--state-display-order' equality conjunct is unchanged and still true.")
+    ;;
+    ;; =================================================================
+    ;; v0.5 ROUND-51 CLOSEOUT (impl tip vpwwokuw/7459d4d2 + test re-bless
+    ;; <this commit>).  ALL 8 grind entries CLOSED — the ONE moved byte
+    ;; golden regenerated from impl's render via the FROZEN-CLOCK
+    ;; renderer (make clean && make regen-mockups — the R48 lesson: clean
+    ;; first, or a stale .elc regen is a silent no-op; anti-tautology
+    ;; guards active; NO HANG, exit 0; jj diff --stat = ONLY
+    ;; tests/fixtures/project-view-tag.txt, 3 changed lines: #ui reorders
+    ;; Epsilon→Alpha→Zeta→fold to Alpha→Zeta→Epsilon→fold — the draft
+    ;; sinks below the live states, the fold row stays the group bottom;
+    ;; the dir/state project goldens + EVERY board/layout/entry-view/
+    ;; denote golden are byte-identical, confirming R51-1 is face-only
+    ;; and R51-3 is text-PROPERTIES-only) and the flagged assertion ERTs
+    ;; re-blessed HONESTLY to the design-blessed R51 contracts
+    ;; (air/v0.5/org-air-round51-design.org) — each asserts the NEW true
+    ;; order, none weakened:
+    ;;   org-air-f5-project-view-byte-mockups — PASSES on the regen'd tag
+    ;;     golden (no assertion edit); entry deleted.
+    ;;   org-air-r48-3-toggle-reveals-greyed-and-hides — the face-
+    ;;     DEFINITION conjunct INVERTED in place (R51-1 supersedes the
+    ;;     R48-2 strike detail: `:strike-through' asserted nil/
+    ;;     unspecified, NEVER t; the inherit-faded conjunct stays — grey
+    ;;     is retained, not dropped); the revealed-position conjunct
+    ;;     re-pinned to the R51-2 group BOTTOM (Delta below the draft
+    ;;     Epsilon AND the unknown Eta — was the mid-list
+    ;;     Zeta<Delta<Epsilon slot, which R51-2 retires: the revealed row
+    ;;     now renders exactly where the fold row sat).
+    ;;   org-air-r48-4-collapse-dropped-nil-renders-inline-greyed — the
+    ;;     knob-nil inline position re-pinned the same way (Delta LAST in
+    ;;     v0.2/: below Zeta, Epsilon AND Eta); the grey-face conjunct is
+    ;;     unchanged and still true.
+    ;;   org-air-r16-d5-state-rank-is-within-group-primary — the expected
+    ;;     order re-blessed to the R51-2 rank (ready → wip → complete →
+    ;;     draft → unknown → dropped LAST): Abe-ready, Zed-complete,
+    ;;     Ben-draft, Yan-draft (was the draft-first lifecycle order).
+    ;;   org-air-r16-d5-state-rank-unknown-last — retargeted from the
+    ;;     DELETED `org-air-project--state-rank' to `--state-sort-rank';
+    ;;     now also pins dropped PAST unknown (dead sorts after broken).
+    ;;   org-air-r20-5-state-display-order-matches-airctl — the
+    ;;     `--state-display-order' equality + no-review conjuncts stay
+    ;;     (the constant is counts-only now — the airctl `-Da' LETTER
+    ;;     parity contract, untouched); the rank conjuncts retargeted
+    ;;     from the DELETED `--state-display-rank' to `--state-sort-rank'
+    ;;     with dropped>draft — the old dropped<draft slot survives ONLY
+    ;;     in the letter order, per the R51-2 rank-source split.
+    ;;   org-air-r20-5-fix-collect-excludes-overview-stateless-unknown —
+    ;;     the unknown>draft rank conjunct retargeted to
+    ;;     `--state-sort-rank' + the new dropped>unknown pin; every
+    ;;     collect/count conjunct unchanged.
+    ;;   org-air-r25-3-display-order-minus-review — the ready<draft rank
+    ;;     conjunct retargeted to `--state-sort-rank'; the equality
+    ;;     conjunct unchanged.
+    ;; NEW R51 EXECUTING ERTs (tests/org-air-round51-test.el):
+    ;;   org-air-r51-1-dropped-faces-carry-no-strike — BOTH dropped faces
+    ;;     (`org-air-face-project-dropped' + the badge-only
+    ;;     `org-air-face-air-state-dropped'): `:strike-through' is nil/
+    ;;     unspecified AND each still inherits `org-air-face-faded';
+    ;;     executing seams — the knob-nil dir render still faces the
+    ;;     Delta title with the row face (R48-2 seam intact) and the
+    ;;     inspector State line faces its `Dropped' label with the badge
+    ;;     face.  Reverting R51-1 FAILS.
+    ;;   org-air-r51-2-dropped-sorts-after-last-draft — (a) #ui rows in
+    ;;     exact consecutive buffer order Alpha/Zeta/Epsilon/fold with
+    ;;     nothing after the fold inside the section; (b) dir grouping
+    ;;     EXPANDED via the toggle — Delta's position GREATER than the
+    ;;     draft Epsilon's and the unknown Eta's; (c) LOCK — collapsed
+    ;;     default: the fold row is its group's LAST row before the next
+    ;;     `org-air-section' heading in ALL THREE groupings.  Reverting
+    ;;     R51-2 FAILS (a)+(b).
+    ;;   org-air-r51-3-tab-ret-on-fold-rows-expand — REAL key dispatch
+    ;;     (`key-binding' → `call-interactively', so the knob-installed
+    ;;     map is what's asserted): BOARD TAB on the `…and N more' row
+    ;;     expands its bucket (joins `org-air-view--expanded-sections',
+    ;;     THAT more row gone while the OTHER bucket's survives, section
+    ;;     item rows +EXACTLY N, point on the first newly-revealed row's
+    ;;     title); fresh-render RET performs the SAME expansion and ONLY
+    ;;     that (no pane window, no *org-air-view* buffer); PROJECT lock
+    ;;     — TAB and RET dispatched on the v0.2 `… 1 dropped' fold row
+    ;;     still reveal the hidden doc (+1 visible, fold gone).
+    ;;     Reverting R51-3 FAILS the board half (TAB drifted to the next
+    ;;     header, RET ran the pane).
+    ;; airctl `status -Da' parity: preserved by construction — the R51-2
+    ;; rank-source split leaves `--state-display-order' (the letter-
+    ;; parity contract) untouched and every count surface reads the FULL
+    ;; doc list (org-air-r22-6-* / org-air-f5-* / org-air-r48-5 stay
+    ;; green; the R48 closeout letter pins `R4(+1) C14(+14) X1(+9)
+    ;; D2(+8)' hold).  No .el SOURCE touched on the test track (impl
+    ;; landed R51-1/R51-2/R51-3 in vpwwokuw).  Round-51 manifest is
+    ;; EMPTY; the tests stay as permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

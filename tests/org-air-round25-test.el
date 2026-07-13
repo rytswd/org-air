@@ -342,13 +342,16 @@ back-ptr intact."
   (should (member "work-in-progress" org-air-project-sections)))
 
 (ert-deftest org-air-r25-3-display-order-minus-review ()
-  "The directory/rollup display order drops `review' and the display-rank
-still orders ready BEFORE draft (R20-5 order preserved, minus review)."
+  "The directory/rollup display order drops `review' and the row rank
+still orders ready BEFORE draft.  R51-2 re-bless: `--state-display-rank'
+is DELETED (the constant is counts-only now); the rank conjunct
+retargets to `org-air-project--state-sort-rank' — the one row-rank
+source in both comparators."
   (skip-unless (locate-library "org-air"))
   (should (equal org-air-project--state-display-order
                  '("ready" "work-in-progress" "complete" "dropped" "draft")))
-  (should (< (org-air-project--state-display-rank "ready")
-             (org-air-project--state-display-rank "draft"))))
+  (should (< (org-air-project--state-sort-rank "ready")
+             (org-air-project--state-sort-rank "draft"))))
 
 (ert-deftest org-air-r25-3-summary-has-no-review-row ()
   "The rail Summary lists exactly the 5 real state titles and NO `Review'

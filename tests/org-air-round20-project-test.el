@@ -124,25 +124,31 @@ proving the nesting is driven by the actual files, not hard-coded."
       (should (= (cdr (assoc "draft" (plist-get v01 :desc-counts))) 1)))))
 
 (ert-deftest org-air-r20-5-state-display-order-matches-airctl ()
-  "`org-air-project--state-display-order' is the single airctl `-Da' state
-order driving BOTH the per-dir badges and the within-dir doc ordering, so
-the two can never drift: Ready · Work-In-Progress · Complete · Dropped ·
-Draft.  R25-3 re-bless: the phantom `review' state is gone (Air has no
-`review' state — 5 canonical states only)."
+  "`org-air-project--state-display-order' is the airctl `-Da' state order
+for the COUNT surfaces — the per-dir LETTER summaries: Ready ·
+Work-In-Progress · Complete · Dropped · Draft.  R25-3 re-bless: the
+phantom `review' state is gone (5 canonical states only).  R51-2
+re-bless: the constant is counts-only now — `--state-display-rank' (its
+only caller retargeted) is DELETED and doc ROWS rank via
+`org-air-project--state-sort-rank', under which dropped sorts AFTER
+draft (the group bottom), not before; the letter order above stays the
+airctl byte-parity contract, untouched."
   (skip-unless (locate-library "org-air"))
   (should (equal org-air-project--state-display-order
                  '("ready" "work-in-progress"
                    "complete" "dropped" "draft")))
   ;; R25-3: `review' is absent from the canonical order.
   (should-not (member "review" org-air-project--state-display-order))
-  ;; the rank function orders accordingly (ready precedes draft)
-  (should (< (org-air-project--state-display-rank "ready")
-             (org-air-project--state-display-rank "draft")))
-  (should (< (org-air-project--state-display-rank "complete")
-             (org-air-project--state-display-rank "draft")))
-  ;; dropped precedes draft (we normalise airctl's listing swap)
-  (should (< (org-air-project--state-display-rank "dropped")
-             (org-air-project--state-display-rank "draft"))))
+  ;; the R51-2 row-rank fn orders the live states ahead of draft…
+  (should (< (org-air-project--state-sort-rank "ready")
+             (org-air-project--state-sort-rank "draft")))
+  (should (< (org-air-project--state-sort-rank "complete")
+             (org-air-project--state-sort-rank "draft")))
+  ;; …and dropped AFTER draft (R51-2 inverted the old display-rank slot:
+  ;; rows sink dropped to the group bottom; only the LETTER summaries
+  ;; keep airctl's dropped-before-draft listing).
+  (should (> (org-air-project--state-sort-rank "dropped")
+             (org-air-project--state-sort-rank "draft"))))
 
 (ert-deftest org-air-r20-5-default-group-is-directory ()
   "R20-5: the SHIPPED default project grouping is `directory' — the nested
@@ -206,9 +212,13 @@ R20-5 fix divergence:
     (should eta)
     (should (equal (org-air-doc-state eta) "unknown"))
     (should-not (equal (org-air-doc-state eta) "draft"))
-    ;; unknown ranks LAST (after every named state incl. draft).
-    (should (> (org-air-project--state-display-rank "unknown")
-               (org-air-project--state-display-rank "draft")))
+    ;; unknown ranks after every LIVE state incl. draft (R51-2 re-bless:
+    ;; `--state-display-rank' is deleted; rows rank via
+    ;; `--state-sort-rank') — and only dropped sorts past the unknowns.
+    (should (> (org-air-project--state-sort-rank "unknown")
+               (org-air-project--state-sort-rank "draft")))
+    (should (> (org-air-project--state-sort-rank "dropped")
+               (org-air-project--state-sort-rank "unknown")))
     ;; the stateless body did NOT inflate Draft: still the two real drafts.
     (should (= (length (cdr (assoc "draft" by-state))) 2))
     (should (= (length (cdr (assoc "unknown" by-state))) 1))))

@@ -3,7 +3,8 @@
 ;;; Commentary:
 ;; Acceptance ERTs for v0.5 round-48 (air/v0.5/org-air-round48-design.org):
 ;; DROPPED docs in the org-air PROJECT view (a) GREY OUT — the row's title
-;; band takes the new dim+struck `org-air-face-project-dropped' via the
+;; band takes the new dim `org-air-face-project-dropped' (R51-1 removed
+;; the R48 strike detail; grey is the sole affordance) via the
 ;; `org-air-project--doc-row-face' selector (R48-2) — and (b) COLLAPSE BY
 ;; DEFAULT — hidden per group behind a `… N dropped — TAB to show' fold row
 ;; (`org-air-project-collapse-dropped', default t;
@@ -172,22 +173,27 @@ Trunk FAILS (no fold rows anywhere)."
 ;;;; =====================================================================
 
 (ert-deftest org-air-r48-3-toggle-reveals-greyed-and-hides ()
-  "R48-2/R48-3: TAB on the v0.2/ fold row reveals the dropped Delta row in
-its state-first position with `org-air-face-project-dropped' (dim +
-struck — asserted via the face DEFINITION, not pixels) on its title, point
-on the revealed row's title, the visible doc-row count up by EXACTLY the
-hidden count (anti-tautology), and NO residual fold row; TAB again from
+  "R48-2/R48-3: TAB on the v0.2/ fold row reveals the dropped Delta row at
+the group BOTTOM (R51-2) with `org-air-face-project-dropped' (dim — R51-1
+de-striked; asserted via the face DEFINITION, not pixels) on its title,
+point on the revealed row's title, the visible doc-row count up by EXACTLY
+the hidden count (anti-tautology), and NO residual fold row; TAB again from
 the revealed dropped row (rule 2) folds it back — point lands on the fold
 row and `org-air-project--expanded-dropped' round-trips to empty.
 Trunk FAILS (no command, no face)."
   (skip-unless (locate-library "org-air"))
   ;; The face definition: a DISTINCT face inheriting the dim
-  ;; `org-air-face-faded' and setting `:strike-through'.
+  ;; `org-air-face-faded'.  R51-1 SUPERSEDES the R48-2 strike detail
+  ;; (see air/v0.5/org-air-round51-design.org §R51-1): `:strike-through'
+  ;; is GONE — nil/unspecified, never t — because the whole-row face drew
+  ;; the strike clear across the inter-column fill as a full-width rule.
+  ;; The inherit-faded conjunct STAYS (grey is retained, not dropped).
   (should (facep 'org-air-face-project-dropped))
   (should-not (eq 'org-air-face-project-dropped
                   'org-air-face-air-state-dropped))
-  (should (eq t (face-attribute 'org-air-face-project-dropped
-                                :strike-through nil)))
+  (should (memq (face-attribute 'org-air-face-project-dropped
+                                :strike-through nil)
+                '(nil unspecified)))
   (let ((inh (face-attribute 'org-air-face-project-dropped :inherit nil)))
     (should (memq 'org-air-face-faded (if (listp inh) inh (list inh)))))
   (org-air-r48--with-project 'directory
@@ -204,13 +210,17 @@ Trunk FAILS (no command, no face)."
         (should (= 1 (length dropped)))
         (should (= (1+ before) (length (org-air-r48--doc-positions))))
         (should-not (org-air-r48--fold-keys))
-        ;; state-first position: Zeta (wip) above Delta, Epsilon (draft)
-        ;; below — the exact pre-R48 mid-list slot.
+        ;; R51-2 position: the revealed dropped row ranks LAST in its
+        ;; group — below the draft Epsilon AND the unknown Eta (it
+        ;; renders exactly where the fold row sat, so TAB is spatially
+        ;; stable; the R48-era mid-list jump above the drafts is retired).
         (let ((text (buffer-string)))
           (should (< (string-match "Zeta work in progress" text)
                      (string-match "Delta UI exploration" text)))
-          (should (< (string-match "Delta UI exploration" text)
-                     (string-match "Epsilon plan" text))))
+          (should (< (string-match "Epsilon plan" text)
+                     (string-match "Delta UI exploration" text)))
+          (should (< (string-match "Eta notes" text)
+                     (string-match "Delta UI exploration" text))))
         ;; the revealed title band carries the GREY face (R48-2).
         (should (eq 'org-air-face-project-dropped
                     (org-air-r48--title-face-at (car dropped))))
@@ -234,10 +244,10 @@ Trunk FAILS (no command, no face)."
 
 (ert-deftest org-air-r48-4-collapse-dropped-nil-renders-inline-greyed ()
   "R48-2/R48-3: `org-air-project-collapse-dropped' nil — NO fold row in ANY
-grouping; the dropped Delta row renders inline in TODAY's byte position
-\(dir tree: state-first, between Zeta and Epsilon in v0.2/) AND its title
-band carries the dim `org-air-face-project-dropped' — proving R48-2 is
-INDEPENDENT of the fold.  Trunk FAILS on the face conjunct."
+grouping; the dropped Delta row renders inline at the R51-2 group BOTTOM
+\(dir tree: below the draft Epsilon AND the unknown Eta in v0.2/) AND its
+title band carries the dim `org-air-face-project-dropped' — proving R48-2
+is INDEPENDENT of the fold.  Trunk FAILS on the face conjunct."
   (skip-unless (locate-library "org-air"))
   (let ((org-air-project-collapse-dropped nil))
     (dolist (group '(directory state tag))
@@ -255,14 +265,17 @@ INDEPENDENT of the fold.  Trunk FAILS on the face conjunct."
             ;; …GREYED (the R48-2 face rides the knob-nil inline mode too).
             (should (eq 'org-air-face-project-dropped
                         (org-air-r48--title-face-at (car dropped)))))
-          ;; directory tree: TODAY's byte position — state-first order puts
-          ;; DROP between WIP Zeta and DRAFT Epsilon in v0.2/.
+          ;; directory tree: the R51-2 group BOTTOM — the inline DROP row
+          ;; sinks below the WIP Zeta, the DRAFT Epsilon AND the unknown
+          ;; Eta in v0.2/ (dropped ranks past every other state).
           (when (eq group 'directory)
             (let ((text (buffer-string)))
               (should (< (string-match "Zeta work in progress" text)
                          (string-match "Delta UI exploration" text)))
-              (should (< (string-match "Delta UI exploration" text)
-                         (string-match "Epsilon plan" text))))))))))
+              (should (< (string-match "Epsilon plan" text)
+                         (string-match "Delta UI exploration" text)))
+              (should (< (string-match "Eta notes" text)
+                         (string-match "Delta UI exploration" text))))))))))
 
 ;;;; =====================================================================
 ;;;; r48-5 — counts and summaries NEVER move while folded (lock-style)

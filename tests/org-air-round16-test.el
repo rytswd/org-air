@@ -417,28 +417,40 @@ shows the per-heading indirect buffer, not `*org-air-view*'."
 
 (ert-deftest org-air-r16-d5-state-rank-is-within-group-primary ()
   "Within a mixed group, rows run by state-rank first, then the sort key.
-Reversing direction flips only the secondary key, not the state order."
+Reversing direction flips only the secondary key, not the state order.
+R51-2 re-bless: the within-group primary is `org-air-project--state-sort-rank'
+\(ready → work-in-progress → complete → draft → unknown → dropped LAST) —
+no longer the draft-first lifecycle `org-air-project-sections' order."
   (let* ((docs (list (org-air-r16--doc "Zed-complete" "complete" nil)
                      (org-air-r16--doc "Abe-ready" "ready" nil)
                      (org-air-r16--doc "Yan-draft" "draft" nil)
                      (org-air-r16--doc "Ben-draft" "draft" nil))))
-    ;; name ascending: draft(Ben,Yan) -> ready(Abe) -> complete(Zed).
+    ;; name ascending: ready(Abe) -> complete(Zed) -> draft(Ben,Yan).
     (let ((org-air-project--sort-key 'name)
           (org-air-project--sort-direction 'ascending))
       (should (equal (mapcar #'org-air-doc-name
                              (org-air-project--sort-section-docs docs))
-                     '("Ben-draft" "Yan-draft" "Abe-ready" "Zed-complete"))))
+                     '("Abe-ready" "Zed-complete" "Ben-draft" "Yan-draft"))))
     ;; name descending: state order unchanged; only the draft pair flips.
     (let ((org-air-project--sort-key 'name)
           (org-air-project--sort-direction 'descending))
       (should (equal (mapcar #'org-air-doc-name
                              (org-air-project--sort-section-docs docs))
-                     '("Yan-draft" "Ben-draft" "Abe-ready" "Zed-complete"))))))
+                     '("Abe-ready" "Zed-complete" "Yan-draft" "Ben-draft"))))))
 
 (ert-deftest org-air-r16-d5-state-rank-unknown-last ()
-  "An unknown state ranks after every known state."
-  (should (> (org-air-project--state-rank "mystery")
-             (org-air-project--state-rank "complete"))))
+  "An unknown state ranks after every known LIVE state.
+R51-2 re-bless: `org-air-project--state-rank' is DELETED — both
+comparators rank via `org-air-project--state-sort-rank', under which the
+unknown tail sits past the live states and DROPPED ranks past even the
+unknown tail (dead sorts after broken)."
+  (should (> (org-air-project--state-sort-rank "mystery")
+             (org-air-project--state-sort-rank "complete")))
+  (should (> (org-air-project--state-sort-rank "mystery")
+             (org-air-project--state-sort-rank "draft")))
+  ;; R51-2: dropped is the absolute LAST rank — past unknown.
+  (should (> (org-air-project--state-sort-rank "dropped")
+             (org-air-project--state-sort-rank "mystery"))))
 
 (provide 'org-air-round16-test)
 ;;; org-air-round16-test.el ends here

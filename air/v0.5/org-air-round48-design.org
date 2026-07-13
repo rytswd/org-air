@@ -352,3 +352,9 @@ the fold-row branch in =org-air-project-open= (RET/mouse-1).
 * History
 - 2026-07-13: Created from the R48 dropped-docs report (grey out + collapse
   by default). State: ready.
+- 2026-07-14: R51-1 SUPERSEDES the strike-through detail: both dropped
+  faces lose =:strike-through= (the whole-row `font-lock-face' drew the
+  strike across the title→date flex fill as a full-width rule); grey is
+  now the sole dropped affordance.  R51-2 supersedes the "state-first
+  mid-list position" of expanded dropped rows: dropped now ranks LAST
+  within its group.  See air/v0.5/org-air-round51-design.org.

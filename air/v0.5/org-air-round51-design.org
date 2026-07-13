@@ -1,0 +1,323 @@
+#+title: org-air Round 51 — Dropped UX follow-up: de-strike everywhere, sort dropped LAST, fold rows answer TAB/RET
+#+state: ready
+#+tags: project-view dropped strike-through sort fold board tab ux
+
+* Summary
+
+Follow-up to R48 (dropped docs: grey + collapse) from user feedback with a
+screenshot:
+
+- *R51-1* — the strike-through must GO.  The dropped row face applies
+  =:strike-through= as the row =font-lock-face= over the WHOLE row extent —
+  including the inter-column flex FILL between the title and the date
+  column — so the strike renders as an ugly full-width horizontal RULE
+  through the row.  R48's grey already distinguishes dropped; remove
+  =:strike-through= ENTIRELY (row face AND badge face AND the inspector's
+  struck =Dropped= label).  Grey becomes the SOLE dropped affordance.
+- *R51-2* — dropped docs sort to the group BOTTOM.  Today they rank 4th of
+  5 (=org-air-project--state-display-order=), sitting ABOVE the draft rows
+  mid-group.  Define the explicit within-group ordering — ready →
+  work-in-progress → complete → draft → (unknown) → DROPPED LAST — and
+  apply it in BOTH comparators, so the ordering holds collapsed (fold row
+  at the group bottom) and expanded (revealed rows at the bottom).
+- *R51-3* — the fold/'more' row itself answers TAB (and RET).  The board's
+  =…and N more — press TAB on the title to expand= row literally teaches
+  TAB, yet TAB there is provably a no-op-plus-drift (probed: point moves to
+  the NEXT section header, =org-air-view--expanded-sections= unchanged) —
+  only the section title responds.  Make the row an actionable toggle
+  target.  The project's =… N dropped — TAB to show= row ALREADY dispatches
+  (R48-3 rule 1 + the =org-air-project-open= fold branch — probe-verified);
+  it gets a lock ERT, not code.
+
+org-ql stays the only query path — this round is faces (R51-1), sort
+comparators (R51-2) and render/interaction (R51-3); nothing touches
+querying.  Byte-golden movement is exactly ONE fixture
+(=tests/fixtures/project-view-tag.txt=, the =#ui= reorder) — enumerated in
+§Golden impact.
+
+* R51-1 — Drop the strike-through completely
+
+** Root cause of the full-width rule (investigated)
+
+=org-air-view--insert-row= applies the caller's =:face= as =font-lock-face=
+over the ENTIRE row extent (org-air-view.el ~3155: "keeps the FULL row
+extent so click/RET resolution … are untouched") — title, the flex pad
+between title and the meta cluster, and the trailing pad.
+=:strike-through= is a face attribute drawn across every glyph of the run
+*including spaces*, so on a dropped row the strike line runs from the
+title's last character clear across the fill to the date column — the
+horizontal RULE in the user's screenshot.  The face is the bug, not the
+row primitive: any whole-row face with =:strike-through= draws this rule
+by construction.
+
+** The change: remove =:strike-through= from BOTH dropped faces
+
+org-air-faces.el:
+
+- =org-air-face-project-dropped= (~793): =((t :inherit org-air-face-faded
+  :strike-through t))= → =((t :inherit org-air-face-faded))=.  The row
+  treatment is now grey ONLY.
+- =org-air-face-air-state-dropped= (~785, the badge-only face): same
+  removal → =((t :inherit org-air-face-faded))=.  This face colours every
+  OTHER dropped surface, and de-striking it fixes them all at once:
+  - the TTY =DROP= token / =[X]= state cell (=--state-token= /
+    =--state-cell=);
+  - the GUI pill (=--state-svg-badge= derives only the COLOUR from the
+    face foreground — strike never rendered there; no visual change);
+  - the per-dir rollup letter =X= in =--dir-count-summary= (struck today);
+  - the =Dropped= state-section heading icon;
+  - the INSPECTOR's =State= line — =org-air-project--inspector-doc-fields=
+    (~1469) faces the label via =org-air-project--state-face= → this face,
+    so the struck =Dropped= label the round calls out de-strikes here, by
+    the same one-face fix.
+
+Audit (grep-verified): these two face specs are the ONLY
+=:strike-through= applications in the codebase reachable from a dropped
+doc.  =org-air-face-done= carries no strike (faded only); the round-33
+attribute-iteration test merely ENUMERATES the attr; nothing else sets it.
+
+** Prose/docstring sweep (same commit as the face change)
+
+The "dim + struck" language must not outlive the strike:
+
+- both face docstrings (faces file) — "faded + struck through" → "faded";
+  keep the badge-face/row-face cross-links and the customise-independently
+  rationale verbatim;
+- =org-air-project--doc-row-face= docstring (~798) and the R48-2 comment
+  at =--insert-doc-row= (~1110): "dims + strikes the title band" → "dims
+  the title band".
+
+** Test churn this round OWNS
+
+=tests/org-air-round48-test.el= r48-3 asserts the face DEFINITION carries
+=:strike-through t= (~185-190).  That conjunct INVERTS (assert the
+attribute is nil/unspecified) with a comment pointing here — R51-1
+supersedes the R48-2 strike detail; the inherit-faded conjunct stays (grey
+is retained, not dropped).  The R48 design doc gets a History bullet
+noting the supersession (this commit).
+
+* R51-2 — Dropped items sort to the group bottom
+
+** The canonical within-group state ordering (this round defines it)
+
+ready → work-in-progress → complete → draft → (unknown states) →
+*dropped LAST*.
+
+Dropped ranks below draft AND below unknown/non-canonical states — "below
+every other state".  Rationale for unknown-before-dropped: an unknown
+state is a metadata bug on a LIVE doc (fix the header); dropped is
+deliberately dead — dead sorts after broken.
+
+** Why a NEW rank source (and not reordering the existing constants)
+
+- =org-air-project--state-display-order= (=ready wip complete dropped
+  draft=) also drives the =--dir-count-summary= LETTER order, whose byte
+  parity with =airctl status -Da= (=R4(+1) C14(+14) X1(+9) D2(+8)= ↔
+  =🎯 ✅ 🗑️ 📝=) was re-verified and pinned at the R48 closeout.
+  Reordering it would break that header contract.  It stays UNTOUCHED and
+  becomes counts-only; its R20-5 docstring ("drives BOTH … so the two can
+  never drift") is rewritten: the split is now INTENTIONAL — letter order
+  is the airctl parity contract, row order is the R51-2 UX ordering;
+  cross-link the new constant.
+- =org-air-project-sections= (=draft ready wip complete dropped=) is the
+  user-owned STATE-grouping section order and the current
+  =--doc-compare= rank source — reordering the defcustom would move
+  users' section layouts.  It stays untouched too.
+
+New, in org-air-project.el (sort block):
+
+- =defconst org-air-project--state-sort-order= —
+  ='("ready" "work-in-progress" "complete" "draft")= — the R51-2 row
+  ordering for the CANONICAL live states.
+- =org-air-project--state-sort-rank (state)= — the ONE rank fn both
+  comparators call: ="dropped"= → 5 (absolute last, PAST unknown); a
+  member of =--state-sort-order= → its position (0–3); anything else
+  (unknown/non-canonical) → 4 (one shared rank; ordering among distinct
+  unknown states stays the existing state-string tiebreak).
+
+** Wiring (both comparators; the two orders can no longer disagree)
+
+- =org-air-project--state-first-lessp= (~646, the DIR tree own-docs
+  primary): =--state-display-rank= → =--state-sort-rank=.
+  =--state-display-rank= loses its only caller and is DELETED.
+- =org-air-project--doc-compare= (~1190, the state/tag SECTION
+  comparator): =--state-rank= → =--state-sort-rank=; the both-unknown
+  string-order clause compares against the new shared unknown rank (4).
+  =--state-rank= loses its only caller and is DELETED.
+- State grouping SECTION order: unchanged (=--sections-by-state= reads
+  =org-air-project-sections= directly).  The =Dropped= section already
+  sits last of the canonical lifecycle; hoisting it below the
+  dynamically-appended unknown-state sections would let a typo-state
+  outrank a real lifecycle bucket — explicitly OUT of scope, noted.
+
+** Collapsed AND expanded (the round's must-hold)
+
+- *Collapsed* (default knob): already correct by R48-3 construction — the
+  fold row renders as the LAST own-doc slot (dir tree, before child dirs,
+  corner math) / appended AFTER the section's visible rows (tag) / the
+  whole-section body (state).  R51-2 locks this with an ERT conjunct; no
+  code.
+- *Expanded* (and knob-nil, and filter-revealed): the revealed dropped
+  rows now RANK last, so they render exactly where the fold row sat —
+  TAB expand/collapse becomes spatially STABLE (today the revealed row
+  JUMPS mid-list above the drafts, a reflow the R48 spec tolerated and
+  this round retires).
+
+** Order movement at the fixture (ground truth, pre-computed)
+
+- dir =v0.2/= visible own docs (fold active): Zeta (wip) → Epsilon
+  (draft) → Eta (unknown) → fold row — IDENTICAL under old and new ranks
+  (dropped is partitioned out), so =project-view-dir.txt= does NOT move.
+  Expanded (not golden-pinned): Delta now lands AFTER Eta, was after
+  Zeta.
+- tag =#ui=: Epsilon (draft) → Alpha (ready) → Zeta (wip) → fold row
+  becomes Alpha → Zeta → Epsilon → fold row (draft sinks below the live
+  states; the old draft-FIRST order was an accident of reusing the
+  lifecycle defcustom as a display rank).  =project-view-tag.txt= MOVES —
+  the only golden churn this round.  =#context= (two drafts), =#core=
+  (R/W/C already in canonical order), =#notes= (one unknown): unmoved.
+- state sections: within-section state is constant — unmoved.
+
+* R51-3 — TAB/RET on the fold row itself expands
+
+** Investigated baseline (probed in batch, this round's evidence)
+
+- BOARD =…and N more — press TAB on the title to expand= row
+  (=org-air-view--insert-section= ~3420): the row carries NO text
+  property at all (faded label + margin only).  TAB there runs
+  =org-air-toggle-section= → =org-air-view--line-section= finds no
+  =org-air-section= on the line → falls through to
+  =org-air-next-section=: point DRIFTS to the next section header (probe:
+  line 16 → 18) and =org-air-view--expanded-sections= stays nil.  RET
+  there is =org-air-view-pane-return= (the pane verb) — not the fold.
+  The row teaches a key that does nothing where it is read.  BUG.
+- PROJECT =… N dropped — TAB to show= row: WORKS on trunk.  The row
+  carries =org-air-dropped-fold= over its full extent;
+  =org-air-project-toggle-dropped= (TAB, rule 1) toggles and
+  =org-air-project-open= (RET/mouse-1) has the R48-3 fold branch.  Probe:
+  TAB binding at the fold row resolves to the toggle, expansion key set,
+  visible docs 6 → 7.  NO code change; a lock ERT keeps it true.
+
+** Fix (board only)
+
+- =org-air-view--insert-section=: propertize the more row with
+  =org-air-more-row BUCKET= (the section's bucket symbol, whole row —
+  the dispatch handle, board twin of =org-air-dropped-fold=) and
+  =mouse-face 'org-air-face-cursor= over the label text (the row is
+  text-only, so the R47 no-mouse-face-over-images invariant is trivially
+  safe).  NO =org-air-item= — n/p item motion and the inspector keep
+  skipping the row by construction.  The label TEXT does not change
+  ("press TAB on the title to expand" stays byte-frozen — the affordance
+  catches up to the copy; every board golden stays byte-identical).
+- =org-air-toggle-section= precedence (after the loading guard):
+  1. on a section HEADER: toggle — unchanged;
+  2. NEW: on a more row (=org-air-view--row-property 'org-air-more-row=
+     → BUCKET): EXPAND that bucket (the row exists only while collapsed,
+     so this branch never collapses), through the EXISTING render seam
+     (=--render-section= for board-only/side-window orientations, else
+     the full render — the same fork the header branch takes).  Point:
+     remember the first HIDDEN item (index =org-air-view--section-limit=
+     of the bucket's displayed-order list) BEFORE the render, then land
+     on its row title after (the revealed rows replace the more row, so
+     point stays put visually); fallback to the section header via
+     =org-air-view--find-property 'org-air-section= (never worse than
+     today).
+  3. anywhere else: =org-air-next-section= safe motion — unchanged.
+- =org-air-view-pane-return= (RET and =<mouse-1>= — same command, ~6419):
+  a more-row branch BEFORE the pane logic — when
+  =org-air-view--row-property 'org-air-more-row= is non-nil, dispatch to
+  =org-air-toggle-section= and do ONLY that (nothing opens, no pane) —
+  the exact shape of the R48-3 fold branch in =org-air-project-open=.
+
+** Keybindings / evil (no new keys)
+
+TAB (=org-air-toggle-section=), RET/mouse-1 (=org-air-view-pane-return=)
+are ALREADY installer-owned via =org-air--register-default-keys= —
+honouring =org-air-use-default-keybindings= — and evil-proof via the
+U2/R27-4 overriding-map registration (=org-air-view--setup-evil=, with
+the R29-2 deferred-evil replay).  R51-3 changes COMMAND BODIES only, so
+knob-off users (their own bindings to the same commands) and evil users
+inherit the fix identically.  Board =?= help copy ("TAB toggle section
+fold") stays true and unedited.
+
+* Golden impact (intended re-bless; test seat executes)
+
+- =tests/fixtures/project-view-tag.txt= — the ONLY mover: =#ui= reorders
+  to Alpha → Zeta → Epsilon → fold row (R51-2).
+- =project-view-dir.txt= / =project-view-state.txt=: byte-identical
+  (pre-computed above — the fold already sat last; R51-1 is face-only).
+- ALL board/layout/entry-view/denote mockups: byte-identical (R51-3 adds
+  text PROPERTIES only; the more-row label is byte-frozen).
+- =make clean && make regen-mockups= (the R48 closeout lesson: clean
+  first, or stale .elc regen is a silent no-op), diff must show exactly
+  the =#ui= lines.
+
+* ERTs (=tests/org-air-round51-test.el=; revert-FAILS; org-ql only)
+
+Executing renders over the round-20 =air-project= fixture (project) and
+the =org-air-viewport-test-with-dashboard= harness at width 100 (board —
+which renders =…and 2 more= rows; probe-verified).  Trunk-failing tests
+register in =tests/org-air-known-failures.el= as R51 grind fences (=make
+check= stays binary-green).
+
+- =org-air-r51-1-dropped-faces-carry-no-strike= — BOTH
+  =org-air-face-project-dropped= AND =org-air-face-air-state-dropped=:
+  =face-attribute :strike-through= is NOT =t=, AND each still inherits
+  =org-air-face-faded= (grey survives as the sole affordance).
+  Executing conjuncts: knob-nil dir render — the Delta title still
+  carries =font-lock-face 'org-air-face-project-dropped= (the R48-2 seam
+  is intact); the inspector =State= line for Delta faces its =Dropped=
+  label with =org-air-face-air-state-dropped= (the de-striked face).
+  *Trunk FAILS* (both faces set =:strike-through t=).  Companion edit:
+  r48-3's strike conjunct inverts in place (§R51-1).
+- =org-air-r51-2-dropped-sorts-after-last-draft= — (a) tag grouping:
+  =#ui= visible rows in buffer order are exactly Alpha, Zeta, Epsilon,
+  then the fold row (positions strictly increasing).  *Trunk FAILS*
+  (Epsilon renders first).  (b) dir grouping: expand the =v0.2= fold via
+  =org-air-project-toggle-dropped= — the Delta row's position is GREATER
+  than Epsilon's (draft) and Eta's (unknown): dropped after the last
+  draft AND after every other state.  *Trunk FAILS* (Delta lands directly
+  after Zeta).  (c) lock conjunct: collapsed default — the fold row is
+  the group's LAST row before the next group in all three groupings.
+- =org-air-r51-3-tab-ret-on-fold-rows-expand= — BOARD (trunk-fails):
+  point on the =…and N more= row; dispatch the REAL key
+  (=(key-binding (kbd "TAB"))= → =call-interactively=, so the knob-
+  installed map is what's asserted): the bucket joins
+  =org-air-view--expanded-sections=, the more row is GONE, the section's
+  visible item rows grow by exactly N (anti-tautology), point sits on the
+  first newly-revealed row's title; fresh render, RET binding on the more
+  row → the same expansion (no pane opens).  *Trunk FAILS* (TAB drifts to
+  the next header with no expansion; RET runs the pane).  PROJECT (lock,
+  passes on trunk, guards the affordance both sides): TAB and RET
+  bindings on the =v0.2= fold row expand it (visible docs +1).
+
+Named implementation surface (the test seat drives exactly these):
+=org-air-face-project-dropped= / =org-air-face-air-state-dropped= (specs
+lose =:strike-through=) · =org-air-project--state-sort-order= (defconst)
+· =org-air-project--state-sort-rank= · the rank swaps in
+=--state-first-lessp= + =--doc-compare= (and the deletions of
+=--state-display-rank= / =--state-rank=) · the =org-air-more-row= prop in
+=org-air-view--insert-section= · the more-row branches in
+=org-air-toggle-section= + =org-air-view-pane-return=.
+
+* Notes
+
+- org-ql remains the only query path; no querying is touched anywhere in
+  this round.
+- R51-1 is deliberately TOTAL: no per-surface strike survivor (row, fill,
+  badge, rollup letter, section icon, inspector label) — grey is the one
+  dropped affordance, everywhere.
+- R51-2's counts contract is inherited from R48 unmoved: dir letter
+  rollups, section counts, the rail Summary, the state summary line and
+  airctl =status -Da= parity all read the FULL doc list — sorting cannot
+  move a count, and the letter ORDER stays the airctl parity order by
+  construction (§R51-2 rank-source split).
+- Future (out of scope, noted): shortening the board more-row copy to
+  match the project's terser =TAB to show= (byte churn across every
+  board golden for words alone — do it in a round that already moves
+  them); a =g x= bulk expand-all verb if per-group TAB proves tedious.
+
+* History
+- 2026-07-14: Created from the R51 user report (strike rule screenshot +
+  dropped mid-group + dead TAB on the board more row).  Baselines probed
+  in batch (board TAB drift, project fold dispatch OK).  State: ready.

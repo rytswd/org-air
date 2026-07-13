@@ -1,0 +1,278 @@
+#+title: org-air Round 49 — Consistent rail placement (shared default + per-view knobs) + the inline-rail bottom-legend fix
+#+state: ready
+#+tags: rail placement side-window inline defcustom consistency ux project-view board
+
+* Summary
+
+Two related user asks about the context rail:
+
+- (A) *CONSISTENCY + CONFIG* — the board (=org-air=) and the project view
+  (=org-air-project=) default to DIFFERENT rail placements (R26-5:
+  board=inline, project=side-window). The user wants them CONSISTENT by
+  default AND each separately configurable.
+- (B) *INLINE (non-rail-window) UX* — with many items/docs the inline rail's
+  Actions legend only appears at the very BOTTOM (scroll all the way down to
+  see it), and any scrolling pushes the calendar/summary off-screen. This is
+  exactly why the user suspects the side window is the better home.
+
+This round specs: R49-1 pins today's placement machinery (investigated),
+R49-2 the clean config scheme — =org-air-rail-placement= becomes the ONE
+shared default (a symbol) with per-view overrides
+=org-air-board-rail-placement= / =org-air-project-rail-placement= (nil =
+inherit), both views resolving through ONE resolver — R49-3 the consistent
+default (*RECOMMENDED: =side-window= for both — pending orchestrator/user
+confirm*, rationale below), and R49-4 the inline-rail improvement (the
+project rail stops inflating its Actions foot to the full doc-list height;
+one windowful, board parity). org-ql stays the only query path — nothing
+here touches querying; this round is placement seeding, defcustoms and rail
+composition only.
+
+Byte-golden note: batch renders NEVER consult placement (the R26-5
+=noninteractive= gate normalises the =unset= sentinel to nil), so the
+placement-default change is expected to move ZERO byte goldens. R49-4's
+=max(doc-h, window)= → =window= foot change only differs when the doc pane
+is TALLER than the render height, which the project fixtures are not — the
+three =project-view-{dir,state,tag}.txt= fixtures are expected byte-identical
+too. Contingency: if the batch natural height proves otherwise, re-bless is
+scoped to those three fixtures only (=make regen-mockups=, test seat); the
+board/layout mockups must NOT move.
+
+* R49-1 — Current placement machinery (investigated; the baseline)
+
+- *The knob*: =org-air-rail-placement= (org-air-view.el ~444) is an ALIST
+  =((board . inline) (project . side-window))= — the asymmetry is BY DESIGN
+  (R26-5 landed the then-ask "project pops its rail, board stays inline" as
+  the default). Consulted ONCE per buffer: when a view first renders with
+  =org-air-view--rail-popped-out= still ='unset=, it seeds t (side-window)
+  or nil (inline); thereafter the =|= toggle and the R25-6 reconciler own
+  the flag through the single =org-air-rail--popped-p= predicate.
+- *Two seed sites, two shapes*:
+  - BOARD — org-air-view.el ~6536 inside =org-air-view--render=: pops when
+    =org-air-rail-style= is ='side-window= (documented legacy force) OR
+    (interactive only) =(alist-get 'board org-air-rail-placement)= is
+    ='side-window=.
+  - PROJECT — org-air-project.el ~1516 inside =org-air-project--render=:
+    (interactive only) =(alist-get 'project org-air-rail-placement)=.
+  Both are gated =(not noninteractive)= so batch renders keep =unset= → nil
+  and every byte golden is placement-blind.
+- *A third grammar*: the R30-4 doc-session/outline rail has its OWN symbol
+  defcustom =org-air-outline-rail-placement= (default ='side-window=,
+  org-air-view.el ~4918) — "mirrors" the alist but shares nothing with it.
+- *The inconsistency*, concretely: three placement surfaces, two grammars
+  (alist vs symbol), no single "the default placement" knob, and the two
+  main views ship OPPOSITE defaults. Changing "everything side-window"
+  today means editing an alist literal — undiscoverable.
+
+*The (B) mechanics — why the inline legend/calendar misbehave.* The inline
+rail is BUFFER TEXT: =org-air-view--compose-columns= zips the rail lines
+beside the content lines into ONE buffer, so the rail scrolls WITH the
+content by construction. Then the two views size the rail differently:
+
+- BOARD (=org-air-view--insert-rail-1=): the Actions foot targets
+  =(- (org-air-view--render-height) 3 footer)= — ONE windowful. Calendar at
+  the rail top, Actions at the window bottom of the FIRST windowful. With
+  many items the item pane grows past the window; ANY scroll moves the
+  calendar/summary off-screen, and past the first windowful the rail column
+  is simply blank.
+- PROJECT (=org-air-project--two-pane-body=): =:rail-target-height= is
+  =(max doc-h (- (org-air-view--render-height) 3))= — the inspector's
+  reserved region INFLATES to the full doc-pane height so the divider spans
+  the body. Consequence: with many docs the Actions legend is pinned to the
+  BOTTOM of the ENTIRE doc list — the user must scroll all the way down to
+  ever see it — and the calendar/filter/summary scroll off the top the
+  moment they move down the list. This is the user's report verbatim.
+
+Root cause: an in-buffer rail cannot keep both its top blocks (calendar)
+and its foot (Actions) on-screen across scroll without rewriting buffer
+text at scroll time. The side-window rail has neither problem: it is a
+separate window (never scrolls with the board) and the R26-3 =:rail-clamp=
+lets the inspector region shrink to nothing so the Actions foot always
+fits the window height.
+
+* R49-2 — Config scheme: ONE shared default + per-view overrides
+
+** Defcustoms
+
+- =org-air-rail-placement= *changes type*: from the R26-5 alist to a SYMBOL
+  — the SHARED default placement for every org-air view. =:type '(choice
+  (const side-window) (const inline))=. Default per R49-3 (recommended
+  ='side-window=). Docstring documents the LEGACY alist shape as still
+  honoured (below) so existing =custom-set-variables= and test harness
+  bindings keep working — same variable, no rename, no obsolete warning.
+- =org-air-board-rail-placement= — new, =:type '(choice (const :tag
+  "Inherit `org-air-rail-placement'" nil) (const inline) (const
+  side-window))=, default nil.
+- =org-air-project-rail-placement= — new (org-air-project.el), same type,
+  default nil.
+- =org-air-outline-rail-placement= — ALIGNED: :type gains the nil-inherit
+  choice; default flips ='side-window= → nil. Effective behaviour is
+  unchanged under the recommended shared default; a user who sets the
+  shared default to =inline= now gets a consistent doc session too.
+
+** ONE resolver — both views resolve placement the SAME way
+
+#+begin_src elisp
+(defun org-air-rail--placement (view)
+  "Resolve VIEW's (`board' / `project' / `outline') initial rail placement.
+Per-view override first, else the shared `org-air-rail-placement'.
+The R26-5 alist shape of the shared knob is still honoured (legacy)."
+  (or (pcase view
+        ('board org-air-board-rail-placement)
+        ('project org-air-project-rail-placement)
+        ('outline org-air-outline-rail-placement))
+      (let ((base org-air-rail-placement))
+        (if (consp base) (alist-get view base) base))
+      'side-window))
+#+end_src
+
+- The =consp= branch is the whole back-compat story: a user (or the R24/R25
+  test harnesses, which let-bind =org-air-rail-placement '((board . inline)
+  (project . inline))=) holding the OLD alist keeps their exact per-view
+  behaviour with zero migration.
+- BOTH seed sites route through it identically:
+  - board: =(or (eq org-air-rail-style 'side-window) (and (not
+    noninteractive) (eq (org-air-rail--placement 'board) 'side-window)))= —
+    the =org-air-rail-style= legacy force is board-only and KEPT (documented
+    back-compat, unchanged semantics).
+  - project: =(and (not noninteractive) (eq (org-air-rail--placement
+    'project) 'side-window))=.
+  The =noninteractive= gates are untouched — batch renders stay
+  placement-blind (byte goldens frozen by construction).
+- The R30-4 outline/doc-session placement read goes through the same
+  resolver with ='outline= (its own override slot is the existing
+  defcustom, now nil-inherit).
+- Everything downstream is UNCHANGED: the seed still writes the per-buffer
+  =org-air-view--rail-popped-out= flag once; the =|= toggle, the R25-6
+  reconciler, =org-air-rail--popped-p=, the side-window primitives and the
+  responsive board-only teardown are untouched.
+
+* R49-3 — The consistent DEFAULT: =side-window= (RECOMMENDED, pending confirm)
+
+Status: *RECOMMENDED, pending orchestrator/user confirm — NOT locked.* The
+R49-2 defcustoms land regardless of which default is confirmed; only the
+default value of =org-air-rail-placement= is at stake.
+
+Options considered:
+
+1. *=side-window= for BOTH — RECOMMENDED.*
+   - Directly fixes the user's (B) report: the rail is a fixed side window
+     — it never scrolls with the board/doc list, the calendar/summary are
+     ALWAYS visible, and the R26-3 =:rail-clamp t= path already shrinks the
+     inspector region so the Actions legend always fits the window height.
+     No scroll issue can exist by construction.
+   - Smallest behavioural delta: the project ALREADY defaults to
+     side-window (R26-5's explicit user ask, preserved); only the board's
+     default flips. The user is already living in the side-window project
+     default and prefers it.
+   - All the machinery is mature: R25-6 single-owner reconciler, user-close
+     respected (never re-created behind the user's back), =|= toggles back
+     inline any time, responsive teardown below =org-air-rail-min-width=,
+     R27-2 host-width settling. Nothing new to build.
+2. *Inline for both + a sticky/pinned rail region — REJECTED.* Emacs has no
+   per-column sticky region: the rail rows are line-interleaved with board
+   rows by =--compose-columns=, so "pinning" them means rewriting buffer
+   text from =window-scroll-functions= / =post-command-hook= — precisely
+   the forceful-render anti-pattern R16 removed — or abusing
+   =header-line-format= (one line; cannot host a calendar grid + summary +
+   legend). High complexity, fights redisplay, breaks isearch/point.
+3. *Inline for both (plain) — REJECTED.* Consistent, but adopts the broken
+   (B) UX for the project view and regresses R26-5's explicit ask.
+
+If the confirm comes back "inline": the shared default becomes ='inline=,
+R49-4 (below) becomes the primary mitigation, and the R49-5 tests flip
+their default-expectation conjuncts — everything else in this spec stands.
+
+* R49-4 — Inline rail UX improvement (whichever default is confirmed)
+
+Inline remains one =|= away (and one defcustom away), so its worst
+behaviour is fixed rather than abandoned:
+
+- *Project: stop inflating the rail to the doc-pane height.*
+  =org-air-project--two-pane-body= passes =:rail-target-height (max 1 (-
+  (org-air-view--render-height) 3))= — the WINDOW height, exactly the board
+  rail's rule — instead of =max(doc-h, …)=. The divider still spans the
+  full doc-pane height: =--compose-columns= already pads the shorter rail
+  pane with blank rail-width cells and the fill-row is unchanged. Result:
+  Calendar / Filter / Summary / Inspector / Actions all land inside the
+  FIRST windowful — the legend is visible on open with NO scrolling, for
+  any number of docs. The R26-3 fit rule (inspector region gives way, then
+  drops, before Actions) already handles short windows.
+- *Board: already one-windowful* (=--insert-rail-1= targets render-height)
+  — no change.
+- *Explicit non-goal*: the scroll-away residue (scrolling an inline buffer
+  moves the rail text off-screen) is INHERENT to in-buffer composition and
+  is not chased with scroll-time hacks (R49-3 option 2's rationale). The
+  placement docstrings say so and point at ='side-window=.
+
+* R49-5 — Executing ERT (tests/org-air-round49-test.el; revert-FAILS)
+
+Real renders over the existing fixtures (R20/R26 helpers); trunk-failing
+tests fenced in =tests/org-air-known-failures.el= until the impl lands.
+
+- =org-air-r49-1-resolver-table= — pure resolver: defaults →
+  =(org-air-rail--placement 'board)= = =(… 'project)= (CONSISTENT);
+  override wins (=org-air-board-rail-placement 'inline= + shared
+  ='side-window= → board =inline=, project =side-window=; and mirrored);
+  LEGACY alist bound to the shared knob → alist wins per view. *Trunk
+  FAILS* (no resolver, no per-view defcustoms).
+- =org-air-r49-2-consistent-default-seeds-both= — fresh interactive board:
+  rail POPPED (=org-air-rail--popped-p=, live =*org-air-rail*= side window,
+  no inline rail text); fresh project: same. (Conjuncts follow the
+  CONFIRMED default; written for the recommended =side-window=.) *Trunk
+  FAILS* on the board half (board seeds inline today).
+- =org-air-r49-3-per-view-override-splits= — =org-air-board-rail-placement
+  'inline=, shared ='side-window=: board renders inline two-pane, a fresh
+  project still pops; the reverse split holds too. *Trunk FAILS.*
+- =org-air-r49-4-project-inline-legend-first-windowful= — placement pinned
+  inline, a tall doc fixture (doc-h > =org-air-view-height=): the =Actions=
+  rule's line number is <= the render height (legend on the first
+  windowful), the divider column is present on EVERY body row (fill
+  intact), and the calendar header is above it. *Trunk FAILS* (Actions sits
+  at the doc-h foot).
+- =org-air-r49-5-batch-placement-blind= — lock-style (passes on BOTH
+  sides): a =noninteractive= render with the shared default =side-window=
+  produces a byte-identical board golden and never creates a side window —
+  the placement change is invisible to batch by construction.
+- *Existing-test movement (test seat)*:
+  =org-air-r26-5-placement-default-pops-project-rail= pins the OLD
+  asymmetric default — its "fresh board stays inline" half moves with the
+  confirmed default (retuned honestly: the project conjunct and the R26-5
+  no-double-rail re-entry conjuncts survive verbatim). Audit the ~33
+  interactive =(noninteractive nil)= renders across ~10 test files: the
+  R24/R25 harnesses keep working through the legacy-alist branch; any other
+  test assuming an implicit inline board pins
+  =org-air-board-rail-placement 'inline= explicitly.
+
+Named implementation surface (the test seat drives exactly these):
+=org-air-rail-placement= (retyped symbol, legacy alist honoured) ·
+=org-air-board-rail-placement= · =org-air-project-rail-placement=
+(defcustoms, nil-inherit) · =org-air-outline-rail-placement= (nil-inherit
+alignment) · =org-air-rail--placement= (resolver) · the two seed-site
+rewires (org-air-view.el ~6536, org-air-project.el ~1516) · the
+=:rail-target-height= change in =org-air-project--two-pane-body=.
+
+* Notes
+
+- org-ql remains the only query path; this round touches placement seeding,
+  defcustoms and rail composition — zero query-path changes.
+- The =unset=-sentinel / toggle / reconciler ownership model (R16/R25-6/
+  R26-5) is deliberately untouched: placement is still consulted exactly
+  ONCE per buffer, interactively only.
+- =org-air-rail-style= stays as the documented board-only legacy force
+  (='side-window= wins over everything for the board); candidates for a
+  future deprecation round, not this one.
+- Default choice is *RECOMMENDED (=side-window=), pending orchestrator/user
+  confirm* — the spec is structured so an "inline" verdict flips one
+  default value + the r49-2 conjuncts and nothing else.
+- Byte goldens: expected ZERO movement (batch placement-blind; the R49-4
+  =max= change is inert at fixture sizes). Contingency re-bless scoped to
+  the three project fixtures only.
+
+* Implementation History
+- (pending)
+
+* History
+- 2026-07-13: Created from the R49 report (rail-placement consistency +
+  per-view config; inline rail's bottom-pinned legend / scroll-away
+  calendar). Recommendation: consistent =side-window= default, pending
+  confirm. State: ready.

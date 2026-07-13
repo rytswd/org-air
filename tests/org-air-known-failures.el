@@ -1280,6 +1280,72 @@
     ;; No .el SOURCE touched on the test track (impl landed R50-1/R50-2
     ;; in ptrqsmxv).  Round-50 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
+    ;; =================================================================
+    ;; v0.5 ROUND-51 impl grind (air/v0.5/org-air-round51-design.org).
+    ;; R51-1 DE-STRIKE dropped everywhere: BOTH dropped faces
+    ;; (`org-air-face-project-dropped' row face + the badge-only
+    ;; `org-air-face-air-state-dropped') lose `:strike-through' — applied
+    ;; over the whole row extent the strike drew a full-width RULE
+    ;; through the inter-column fill; grey (`org-air-face-faded' inherit)
+    ;; is now the SOLE dropped affordance.  R51-2 dropped sorts to the
+    ;; group BOTTOM: the new `org-air-project--state-sort-rank' (ready →
+    ;; work-in-progress → complete → draft → unknown → DROPPED last) is
+    ;; the ONE rank source in BOTH comparators (`--state-first-lessp' +
+    ;; `--doc-compare'); the single-caller rank fns
+    ;; `--state-display-rank' / `--state-rank' are DELETED
+    ;; (`--state-display-order' stays untouched, counts-only — the airctl
+    ;; `-Da' letter-parity contract).  R51-3 (byte-invisible: text
+    ;; PROPERTIES only) makes the board `…and N more' row an actionable
+    ;; TAB/RET target — no golden moves for it.  Byte-golden movement is
+    ;; exactly ONE fixture: project-view-tag.txt (#ui reorders Epsilon→
+    ;; Alpha→Zeta→fold to Alpha→Zeta→Epsilon→fold; the draft sinks below
+    ;; the live states).  Verified on the impl tip: dir/state project
+    ;; goldens + EVERY board/layout/entry-view/denote golden are
+    ;; byte-identical (the f5 byte test fails at the TAG grouping only).
+    ;; Intended re-bless via `make clean && make regen-mockups' on the
+    ;; TEST seat (fixtures NOT edited on the impl track); the legacy
+    ;; assertion ERTs below re-bless there too (spec §R51-1/§R51-2 name
+    ;; the r48 inversions; the rank-fn callers retarget to
+    ;; `--state-sort-rank' or pin the new ordering):
+    (org-air-f5-project-view-byte-mockups
+     . "R51-2: project-view-tag.txt is the ONE mover (#ui reorders to
+Alpha/Zeta/Epsilon/fold — dropped-last rank sinks the draft below the
+live states); dir/state goldens verified byte-identical.  Test seat
+regen + re-bless.")
+    (org-air-r48-3-toggle-reveals-greyed-and-hides
+     . "R51-1 supersedes the R48-2 strike detail: the face-DEFINITION
+conjunct (`:strike-through t') INVERTS (assert nil/unspecified; the
+inherit-faded conjunct stays); R51-2 also retires the mid-list
+Zeta<Delta<Epsilon position (revealed Delta now ranks LAST, after Eta).")
+    (org-air-r48-4-collapse-dropped-nil-renders-inline-greyed
+     . "R51-2: knob-nil inline Delta no longer sits between Zeta and
+Epsilon — dropped ranks LAST in the group (after draft Epsilon AND
+unknown Eta).  The grey-face conjunct is unchanged and still true.")
+    (org-air-r16-d5-state-rank-is-within-group-primary
+     . "R51-2 redefines the within-group state order: ready → wip →
+complete → draft → unknown → dropped LAST (was the lifecycle
+draft-first `org-air-project-sections' order).  Expected order becomes
+Abe-ready, Zed-complete, Ben-draft, Yan-draft.")
+    (org-air-r16-d5-state-rank-unknown-last
+     . "R51-2 deleted `org-air-project--state-rank' (its only caller
+`--doc-compare' now ranks via `org-air-project--state-sort-rank');
+retarget the unknown-after-known assertion to the new fn — note dropped
+now ranks past unknown.")
+    (org-air-r20-5-state-display-order-matches-airctl
+     . "R51-2 deleted `org-air-project--state-display-rank' (its only
+caller `--state-first-lessp' now ranks via `--state-sort-rank').  The
+`--state-display-order' CONSTANT is untouched (counts-only, airctl
+letter parity); the rank conjuncts retarget — under the new rank
+dropped sorts AFTER draft, not before.")
+    (org-air-r20-5-fix-collect-excludes-overview-stateless-unknown
+     . "R51-2 deleted `org-air-project--state-display-rank': the
+unknown>draft rank conjunct retargets to `--state-sort-rank' (unknown
+still ranks after draft; dropped after unknown).  Every collect/count
+conjunct is unchanged and still true.")
+    (org-air-r25-3-display-order-minus-review
+     . "R51-2 deleted `org-air-project--state-display-rank': the
+ready<draft rank conjunct retargets to `--state-sort-rank'.  The
+`--state-display-order' equality conjunct is unchanged and still true.")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

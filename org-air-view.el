@@ -3418,11 +3418,24 @@ so the board byte goldens are byte-identical by default."
             (dolist (item visible)
               (org-air-view--insert-item item bucket))
             (when (> count (length visible))
-              (insert (org-air-view--item-margin)
-                      (propertize (format "%sand %d more — press TAB on the title to expand\n"
-                                          (org-air-view--glyph 'more)
-                                          (- count (length visible)))
-                                  'face 'org-air-face-faded))))
+              ;; R51-3: the fold row is itself an actionable toggle target.
+              ;; It carries `org-air-more-row' BUCKET over its FULL extent
+              ;; (the dispatch handle — the board twin of the project's
+              ;; `org-air-dropped-fold') and `mouse-face' over the text-only
+              ;; label, so TAB/RET/mouse-1 ON the row expand the section
+              ;; instead of drifting.  NO `org-air-item' — n/p item motion
+              ;; and the inspector keep skipping the row by construction.
+              ;; The label TEXT is byte-frozen (every board golden holds).
+              (let ((start (point)))
+                (insert (org-air-view--item-margin)
+                        (propertize (format "%sand %d more — press TAB on the title to expand"
+                                            (org-air-view--glyph 'more)
+                                            (- count (length visible)))
+                                    'face 'org-air-face-faded
+                                    'mouse-face 'org-air-face-cursor)
+                        (propertize "\n" 'face 'org-air-face-faded))
+                (add-text-properties start (point)
+                                     (list 'org-air-more-row bucket)))))
         (insert (org-air-view--item-margin)
                 (propertize (org-air-view--empty-message empty)
                             'face 'org-air-face-empty)
@@ -6423,13 +6436,19 @@ board; a second RET (RET while the pane is already open) selects the pane
 window for reading/scrolling.  With `org-air-view-pane-follow' (default t)
 the pane then tracks point as you move.  `q' / `other-window' return to the
 board.  Visiting the file in the other window is `S-RET'
-\(`org-air-visit-item') or, on a TTY that cannot send S-RET, `O'."
+\(`org-air-visit-item') or, on a TTY that cannot send S-RET, `O'.
+R51-3: on the `…and N more' fold row RET (and <mouse-1> — this same
+command) dispatches to `org-air-toggle-section' and does ONLY that —
+nothing opens, no pane (the exact shape of the R48-3 fold branch in
+`org-air-project-open')."
   (interactive)
-  ;; Focus only when the pane is ALREADY live: the first RET opens (no
-  ;; focus), the second RET (pane now live) focuses.  `org-air-view-pane'
-  ;; honours the dynamic `org-air-view-pane-focus' binding.
-  (let ((org-air-view-pane-focus (org-air-view-pane--window-live-p)))
-    (org-air-view-pane)))
+  (if (org-air-view--row-property 'org-air-more-row)
+      (org-air-toggle-section)
+    ;; Focus only when the pane is ALREADY live: the first RET opens (no
+    ;; focus), the second RET (pane now live) focuses.  `org-air-view-pane'
+    ;; honours the dynamic `org-air-view-pane-focus' binding.
+    (let ((org-air-view-pane-focus (org-air-view-pane--window-live-p)))
+      (org-air-view-pane))))
 
 (defun org-air-view-pane-close ()
   "Close the bottom `*org-air-view*' source pane (R16 D-P3).  Key `V'."
@@ -7928,14 +7947,19 @@ only its first column."
 (defun org-air-toggle-section ()
   "Toggle expand/collapse of the section HEADER at point (T2/B1).
 On a section header, toggle its full vs capped preview and KEEP POINT ON
-THE HEADER so it can be re-collapsed immediately.  On any non-header line
-TAB is safe — it moves to the next section header and never toggles or
-hangs."
+THE HEADER so it can be re-collapsed immediately.  R51-3: on the
+`…and N more' fold row itself, EXPAND that section — the row literally
+teaches TAB, so TAB there must act, not drift; point lands on the first
+newly-revealed row (the rows replace the fold row, so point stays put
+visually).  On any other line TAB is safe — it moves to the next section
+header and never toggles or hangs."
   (interactive)
   (org-air-view--loading-guard)
-  (let ((bucket (org-air-view--line-section)))
-    (if (not bucket)
-        (org-air-next-section)
+  (let* ((bucket (org-air-view--line-section))
+         (more (and (not bucket)
+                    (org-air-view--row-property 'org-air-more-row))))
+    (cond
+     (bucket
       (setq org-air-view--expanded-sections
             (if (memq bucket org-air-view--expanded-sections)
                 (delq bucket org-air-view--expanded-sections)
@@ -7954,7 +7978,32 @@ hangs."
           (goto-char pos)
           ;; A section header has no title mark, so this falls back to
           ;; first-visible (R21-2) — point stays on the header.
-          (org-air-view--goto-row-title))))))
+          (org-air-view--goto-row-title))))
+     (more
+      ;; R51-3: EXPAND the fold row's bucket (the row exists only while
+      ;; collapsed, so this branch never collapses).  Remember the first
+      ;; HIDDEN item — index `org-air-view--section-limit' of the bucket's
+      ;; displayed-order list — BEFORE the render so point can land on its
+      ;; revealed row after (never worse than the section header).
+      (let* ((sorted (org-air-view--sort-items
+                      (org-air-view--items-for-bucket
+                       more (or org-air-view--items '()))
+                      more))
+             (first-hidden (nth (org-air-view--section-limit more) sorted)))
+        (cl-pushnew more org-air-view--expanded-sections)
+        ;; The SAME render seam the header branch takes (R18 D-P1b).
+        (if (memq org-air-view--orientation '(board-only side-window))
+            (org-air-view--render-section more)
+          (org-air-view--render (or org-air-view--items (org-air-query-items))
+                                org-air-view--tag-filter))
+        (let ((pos (or (and first-hidden
+                            (org-air-view--find-property 'org-air-item
+                                                         first-hidden))
+                       (org-air-view--find-property 'org-air-section more))))
+          (when pos
+            (goto-char pos)
+            (org-air-view--goto-row-title)))))
+     (t (org-air-next-section)))))
 
 (defun org-air-next-section ()
   "Move point to the next section heading."

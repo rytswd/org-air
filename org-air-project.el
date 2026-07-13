@@ -116,12 +116,14 @@ so they never shadow the shared board keys s / d / t."
 
 (defconst org-air-project--state-display-order
   '("ready" "work-in-progress" "complete" "dropped" "draft")
-  "Canonical state order for the directory tree (R20-5).
-Matches `airctl status -Da'.
-Drives BOTH the per-dir count badges (Ready · Work-In-Progress · Complete ·
-Dropped · Draft, only those present) AND the state-first ordering of a
-directory's own docs, so the two can never drift.  R25-3 dropped the
-phantom `review' state (Air has no such state).")
+  "Canonical airctl `-Da' state order for the COUNT surfaces (R20-5).
+Drives the per-dir letter-count summaries (`--dir-count-summary') ONLY —
+the LETTER order is the `airctl status -Da' byte-parity contract
+\(`R4(+1) C14(+14) X1(+9) D2(+8)', re-verified and pinned at the R48
+closeout).  R51-2 split the doc ROW ordering OUT deliberately: rows rank
+via `org-air-project--state-sort-rank' (dropped LAST) — the two orders
+serve different contracts and may differ.  R25-3 dropped the phantom
+`review' state (Air has no such state).")
 
 (defcustom org-air-project-sort-key 'name
   "INITIAL sort key for the Air project view (R16 D-P4).
@@ -634,26 +636,47 @@ Buckets with zero docs are omitted; any state not listed is appended."
   (let ((dir (file-name-directory (or (org-air-doc-relpath doc) ""))))
     (and dir (split-string (directory-file-name dir) "/" t))))
 
-(defun org-air-project--state-display-rank (state)
-  "Return STATE's rank in `org-air-project--state-display-order' (unknown last)."
-  (or (seq-position org-air-project--state-display-order state #'equal)
-      (length org-air-project--state-display-order)))
+(defconst org-air-project--state-sort-order
+  '("ready" "work-in-progress" "complete" "draft")
+  "The R51-2 within-group ROW ordering for the canonical LIVE states.
+Dropped is deliberately NOT a member: `org-air-project--state-sort-rank'
+pins it to the absolute LAST rank (past unknown) — ready →
+work-in-progress → complete → draft → (unknown) → dropped.  Distinct
+from `org-air-project--state-display-order' (the airctl `-Da' LETTER
+order for the count summaries — a different contract).")
+
+(defun org-air-project--state-sort-rank (state)
+  "Return STATE's within-group row rank (R51-2) — dropped LAST.
+The ONE rank source BOTH comparators (`org-air-project--state-first-lessp'
+and `org-air-project--doc-compare') call, so the collapsed fold row and
+the expanded/revealed dropped rows share one bottom-of-group ordering:
+a member of `org-air-project--state-sort-order' gets its position (0–3);
+\"dropped\" ranks 5 — absolutely last, PAST unknown (an unknown state is
+a metadata bug on a LIVE doc; dropped is deliberately dead — dead sorts
+after broken); anything else (unknown/non-canonical) shares rank 4
+\(ordering among distinct unknown states stays the state-string tiebreak
+in `org-air-project--doc-compare')."
+  (cond
+   ((equal state "dropped") (1+ (length org-air-project--state-sort-order)))
+   ((seq-position org-air-project--state-sort-order state #'equal))
+   (t (length org-air-project--state-sort-order))))
 
 (defun org-air-project--state-first-lessp (a b)
   "Non-nil when doc A precedes B state-first, then by the ACTIVE key (R26-7).
-State-display-rank stays PRIMARY (the airctl status -Da shape); the within-state
-order delegates to `org-air-project--doc-compare-key' — the active `o'/`O'
-sort — instead of the old fixed name tiebreak (which starved the sort key
-in the DEFAULT directory grouping).  Byte-stable at the default: key
-`name' ascending is `string-lessp' on names + the name/relpath tiebreak,
-exactly the old order."
-  (let ((ra (org-air-project--state-display-rank (org-air-doc-state a)))
-        (rb (org-air-project--state-display-rank (org-air-doc-state b))))
+The R51-2 `org-air-project--state-sort-rank' is PRIMARY (ready →
+work-in-progress → complete → draft → unknown → dropped LAST); the
+within-state order delegates to `org-air-project--doc-compare-key' — the
+active `o'/`O' sort — instead of the old fixed name tiebreak (which
+starved the sort key in the DEFAULT directory grouping).  Byte-stable at
+the default: key `name' ascending is `string-lessp' on names + the
+name/relpath tiebreak."
+  (let ((ra (org-air-project--state-sort-rank (org-air-doc-state a)))
+        (rb (org-air-project--state-sort-rank (org-air-doc-state b))))
     (if (/= ra rb) (< ra rb)
       (org-air-project--doc-compare-key a b))))
 
 (defun org-air-project--sort-own-docs (docs)
-  "Return DOCS state-first (display order), then by the active key (R26-7)."
+  "Return DOCS state-first (R51-2 sort rank), then by the active key (R26-7)."
   (sort (copy-sequence docs) #'org-air-project--state-first-lessp))
 
 (defun org-air-project--count-by-state (docs)
@@ -797,8 +820,8 @@ State as a quiet faded LETTER (not the coloured badge), own count, faded
 
 (defun org-air-project--doc-row-face (state)
   "Return the row face for a doc in STATE (R48-2).
-`org-air-face-project-dropped' (dim + struck) for \"dropped\", else the
-plain `org-air-face-title' — the one selector `--insert-doc-row' passes
+`org-air-face-project-dropped' (dim; R51-1 de-striked) for \"dropped\",
+else the plain `org-air-face-title' — the one selector `--insert-doc-row' passes
 as the row's `font-lock-face', so a dropped row's title band visibly
 recedes wherever it renders (pre-faced cells keep their own `face')."
   (if (equal state "dropped")
@@ -1110,8 +1133,9 @@ margin + state cell, byte-identical to today."
                   'org-air-marker (org-air-doc-file doc)
                   'mouse-face 'org-air-face-cursor)
      ;; R48-2: one selector, one seam — a dropped row's `font-lock-face'
-     ;; dims + strikes the title band; every other state keeps the plain
-     ;; title face (byte-invisible; pre-faced cells outrank it).
+     ;; dims the title band (R51-1: grey only, no strike); every other
+     ;; state keeps the plain title face (byte-invisible; pre-faced cells
+     ;; outrank it).
      :face (org-air-project--doc-row-face state))))
 
 ;;;; ---------------------------------------------------------------------
@@ -1148,16 +1172,6 @@ Non-nil only in a doc FILE buffer opened by `org-air-project-open'; it
 makes the doc buffer count as a rail HOST for the R25-6 sweep
 \(`org-air-rail--host-buffer-p') and is the `back' target.")
 
-(defun org-air-project--state-rank (state)
-  "Return the canonical rank of STATE (R16 D-P5).
-Uses `org-air-project-sections' (Draft/Ready/WIP/Complete/Dropped) as
-the single source of truth for state order: a known state gets its index;
-any unknown state shares one rank just past the known ones (so it sorts
-AFTER them).  Unknown states are then ordered among themselves by their
-state string in `org-air-project--doc-compare', not by this integer."
-  (or (seq-position org-air-project-sections state #'equal)
-      (length org-air-project-sections)))
-
 (defun org-air-project--sort-key-active ()
   "Return the active sort key (R22-3: the SHARED sort state wins).
 The project now drives `o'/`O' through `org-air-view--sort-key' (the shared
@@ -1189,20 +1203,22 @@ Name ascending, then relpath ascending."
 
 (defun org-air-project--doc-compare (a b)
   "Strict total order over docs A and B (R16 D-P4/D-P5).
-1. state-rank ascending (D-P5 — within-group state primary; constant within
-   a state group so the key drives order there);
+1. `org-air-project--state-sort-rank' ascending (R51-2 — within-group
+   state primary, DROPPED last; constant within a state group so the key
+   drives order there);
 2. the active sort key in the active direction (a nil date sorts LAST in
    BOTH directions — the partition rule);
 3. tiebreak: name then relpath ascending (byte-stable equal keys)."
   (let* ((sa (org-air-doc-state a))
          (sb (org-air-doc-state b))
-         (ra (org-air-project--state-rank sa))
-         (rb (org-air-project--state-rank sb))
-         (unknown (length org-air-project-sections)))
+         (ra (org-air-project--state-sort-rank sa))
+         (rb (org-air-project--state-sort-rank sb))
+         (unknown (length org-air-project--state-sort-order)))
     (cond
      ((/= ra rb) (< ra rb))
-     ;; Both UNKNOWN (same tail rank) but different states -> order by the
-     ;; state string (matches the docstring; byte-stable).
+     ;; Both UNKNOWN (the shared rank 4) but different states -> order by
+     ;; the state string (matches the docstring; byte-stable).  Dropped
+     ;; docs never land here (their rank 5 is a single state).
      ((and (= ra unknown) (not (equal sa sb)))
       (string-lessp (or sa "") (or sb "")))
      (t (org-air-project--doc-compare-key a b)))))

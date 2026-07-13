@@ -783,24 +783,27 @@ The 5th Air state (between Ready and Complete)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-dropped
-  '((t :inherit org-air-face-faded :strike-through t))
-  "Air doc state badge: Dropped (🗑) — faded + struck through.
+  '((t :inherit org-air-face-faded))
+  "Air doc state badge: Dropped (🗑) — faded.
+R51-1 removed the `:strike-through' (a whole-row/whole-cell strike drew
+a rule across the fill); grey is the SOLE dropped affordance.
 Badge-ONLY: this face colours the DROP chip/token cell; the dropped
 row's title band takes `org-air-face-project-dropped' (R48-2), so the
 two can be customised independently."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-project-dropped
-  '((t :inherit org-air-face-faded :strike-through t))
+  '((t :inherit org-air-face-faded))
   "Face for a DROPPED doc's row in the Air project view (R48-2).
 Applied as the row `font-lock-face' by `org-air-project--doc-row-face'
 wherever a dropped row is visible (expanded fold, the
 `org-air-project-collapse-dropped' nil inline mode, filter-revealed
-rows), so the title + flex pad visibly RECEDE — dim + struck.  A
+rows), so the title + flex pad visibly RECEDE — dim (R51-1 removed the
+`:strike-through': applied over the full row extent it drew a rule
+clear across the inter-column fill; grey is the sole affordance).  A
 DISTINCT face from the badge-only `org-air-face-air-state-dropped'
 \(even though the default spec matches): customise THIS face to change
-the row treatment (e.g. drop the strikethrough, keep the dim) without
-touching the DROP chip."
+the row treatment without touching the DROP chip."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-tree

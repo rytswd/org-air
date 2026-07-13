@@ -1,0 +1,292 @@
+#+title: org-air Round 50 — Legend key truth (=g r= refresh, prefix-mislabel audit) + a proper =*org-air-help*= buffer
+#+state: ready
+#+tags: legend keybindings help-buffer where-is prefix-map ux board project doc-session
+
+* Summary
+
+Two related UX fixes about key discovery:
+
+- (A) *R50-1 LEGEND KEY MISLABEL* — the board rail's Actions legend shows
+  =g refresh=, but on the board =g= is an evil-style *PREFIX* map
+  (=org-air-g-prefix-map=): refresh is really the SEQUENCE =g r=. The
+  legend teaches a key that, pressed alone, does nothing but wait for a
+  second key. Fix the legend to the TRUE sequence (=g r=) and AUDIT every
+  legend cell (board + rail + project + doc-session leaders) for the same
+  prefix-mislabel class.
+- (B) *R50-2 =?= HELP → PROPER BUFFER* — =?= currently calls
+  =org-air-help= which =message='s ONE cramped echo-area line. Replace it
+  with a dedicated, formatted, scrollable =*org-air-help*= buffer
+  (mu4e/magit style): grouped keybindings derived from the ACTUAL live
+  keymaps (=where-is=), context-aware (board / project / doc-session),
+  =q= to quit back.
+
+org-ql stays the only query path — this round touches legend rendering,
+prose markers and a new help view only; ZERO query-path changes.
+
+Byte-golden note: the board Actions legend line MOVES by construction
+(=g= → =g r= widens the first verb column by 2). Intended re-bless via
+=make regen-mockups=, scoped to the 20 board-legend fixtures (below); the
+three =project-view-*.txt= fixtures must NOT move (the project's =g= is a
+DIRECT refresh binding — its legend is already true).
+
+* R50-1 — Legend key mislabel: investigation, fix, audit
+
+** The true bindings (investigated, batch-verified)
+
+- *Board* (=org-air-view-mode-map=, installer-owned R35-1 specs): ="g"= is
+  bound to the *PREFIX* =org-air-g-prefix-map= (B4, org-air-view.el ~1111)
+  — an evil-style g-prefix: =g r= → =org-air-refresh=, =g g= →
+  =org-air-goto-top=, =g R= → =org-air-refresh-all=, =g RET= →
+  =org-air-visit-item=, =g o= → =org-air-visit-item-stay=.
+  =(lookup-key org-air-view-mode-map (kbd "g"))= is a keymap;
+  =(where-is-internal #'org-air-refresh org-air-view-mode-map t)= →
+  ="g r"=. The legend cell (=org-air-view--insert-actions-default=,
+  org-air-view.el ~3826) hardcodes the STRING ="g" "refresh"= → *MISLABEL*.
+- *Project* (=org-air-project-mode-map=): ="g"= is bound DIRECTLY to
+  =org-air-project-refresh= — the project legend's =g refresh= cell
+  (=org-air-project--actions-table=) is *TRUE*. No change.
+- *Doc-session / outline rails*: every cell already derives its key text
+  from the LIVE binding via =org-air-view--legend-key= (the R30-2
+  =where-is= seam) — *TRUE by construction*. No change.
+- History note: R8/B4 blessed =gr refresh=, D5f deliberately re-blessed it
+  to the "primary key" =g refresh= (see
+  =org-air-b4-rail-hint-shows-g-prefix= in tests/org-air-bugs-test.el).
+  R50 rules that D5f display choice a LIE: a legend key must be the real
+  key-to-action sequence, never a bare prefix.
+
+** Full audit — every legend/hint surface
+
+| Surface (function, file~line)                                             | Cell / text                 | True binding                          | Verdict                          |
+|---------------------------------------------------------------------------+-----------------------------+---------------------------------------+----------------------------------|
+| Board rail Actions (=org-air-view--insert-actions-default=, view ~3826)   | =g refresh=                 | =g= is a prefix; refresh is =g r=     | *MISLABEL → =g r refresh=*       |
+| Board rail Actions, same block                                            | =c capture= =/ filter= =s source= =TAB expand= / =S reset= =? help= | all direct | TRUE, keep                       |
+| Board footer band (=org-air-view--insert-footer=, view ~3430; default OFF) | =[g]refresh=                | =g r=                                 | *MISLABEL → =[g r] refresh=*     |
+| Board header count slot (view ~2186)                                      | =refresh failed (g retries)= | retry is =g r=                        | *MISLABEL → =(g r retries)=*     |
+| Refresh-failed echo messages (view ~7204/~7400/~7517)                     | =… (g retries)=             | =g r=                                 | *MISLABEL → =(g r retries)=*     |
+| Echo-area help, board branch (=org-air-help=, view ~8280)                 | =… g refresh …=             | =g r=                                 | Superseded by R50-2 (buffer)     |
+| Project Actions table (=org-air-project--actions-table=, project ~1370)   | =g refresh=                 | =g= → =org-air-project-refresh= DIRECT | TRUE, keep (+ new prefix guard)  |
+| Project Actions table, other cells                                        | =RET open= =( flip= =o sort= =s/d/t group= =| rail= =? help= =q quit= | all direct | TRUE, keep                       |
+| Doc-session rail Actions (=org-air-project--insert-doc-actions=, ~1991)   | =back= / =rail= cells       | derived via =where-is= (R28-3/R30-2)  | TRUE by construction             |
+| Outline rail Actions (=org-air-outline--insert-actions=, view ~5012)      | =RET jump= =| rail=         | derived via =where-is= (R30-4)        | TRUE by construction             |
+| Inbox walk prompt (=org-air-process-inbox=, view ~8167)                   | =[g]refresh=                | its OWN =read-char= dispatcher; =?g= IS refresh there | TRUE, keep      |
+| Echo help, project branch                                                 | =g refresh=                 | direct                                | TRUE; superseded by R50-2 anyway |
+
+Only the BOARD surfaces lie, and all of them lie the same way: a
+hardcoded key STRING that predates the B4 prefixization.
+
+** The fix — derive the board legend like the doc legend (no more strings)
+
+=org-air-view--insert-actions-default= stops hardcoding key texts. Every
+cell's key derives from the LIVE binding through the ONE existing seam,
+=org-air-view--legend-key= (COMMAND, BUFFER, FALLBACK), resolved in the
+*BOARD* buffer (=(get-buffer org-air-view-buffer-name)= — the buffer where
+these keys actually fire; the legend may render in the rail side window,
+whose own map does not carry the board verbs):
+
+- =c= → =org-air-capture= (fallback ="c"=), =/= → =org-air-filter=
+  (="/"=), =s= → =org-air-scope= (="s"=), refresh → =org-air-refresh=
+  (fallback ="g r"= — the true sequence even when the buffer is dead),
+  =TAB= → =org-air-toggle-section= (="TAB"=), =S= → =org-air-scope-clear=
+  (="S"=), =?= → =org-air-help= (="?"=).
+- Column widths =c1=/=c2= are computed from the DERIVED cell strings
+  (=string-width=), not from hardcoded lengths — ="g r"= widens column 1
+  by 2 and the layout follows automatically at every rail tier
+  (wide/mid/narrow gap rules unchanged).
+- Consequence: the legend now respects =org-air-use-default-keybindings=
+  (knob off → =where-is= finds nothing; fallbacks keep the legend
+  readable, same behaviour class as the doc legend today), a user
+  =define-key= rebinding, =org-air-leader-key= moves, and evil (the R29-2
+  overriding-map makes =where-is= in the board buffer return the same
+  sequences evil actually dispatches). Under the default setup the ONLY
+  visible change is =g refresh= → =g r refresh=.
+
+Prose-marker fixes (same mislabel, same round): the header failed marker
+and the three echo messages become =refresh failed (g r retries)= /
+="org-air: refresh failed: %s (g r retries)"=. The off-by-default footer
+band string becomes =[g r] refresh= (bracket-key idiom kept for the other
+cells). Docstring mentions of "=g= mid-refresh"/"=g= retries" in
+org-air-view.el are tidied to =g r= (comment-only, no behaviour).
+
+Guard so this class never returns: the project legend-truth ERT
+(=org-air-r26-3-legend-truth-table-driven=) gains a conjunct — every table
+key must resolve via =key-binding= to a COMMAND and *NOT* to a keymap
+(=(not (keymapp …))=); the new board test asserts the same over the board
+legend's derived keys. A future prefixization of any legend key fails the
+gate instead of silently mislabelling.
+
+* R50-2 — =?= help → a proper =*org-air-help*= buffer
+
+** Behaviour
+
+=org-air-help= (SAME command symbol — every existing =?= binding and test
+hook keeps working) stops =message='ing and instead pops a dedicated
+=*org-air-help*= buffer, mu4e/magit style:
+
+- *Context-aware*: the command captures the ORIGIN buffer and picks the
+  group set by context — =org-air-view-mode= → board;
+  =org-air-project-mode= → project; =org-air-doc-session-mode= (minor, in
+  the editable doc file buffer) → doc-session; anything else falls back to
+  the board set (matches today's echo fallback). The header line names it:
+  =org-air help — board / project / doc session=.
+- *Formatted + scrollable*: a normal read-only buffer in a new
+  =org-air-help-mode= (derived from =special-mode=), grouped sections with
+  the rail header idiom (=org-air-view--rail-header= face family), one
+  binding per row: KEY (keycap face =org-air-face-rail-key=, right-padded
+  to the widest key in the section) + description (=org-air-face-faded=).
+  Blank line between groups; the buffer scrolls like any other (SPC/DEL
+  from =special-mode=, evil motions under evil).
+- *Derived from the ACTUAL keymaps*: each row's key text comes from
+  =org-air-view--legend-key= (COMMAND, ORIGIN-BUFFER) — =where-is= against
+  the origin buffer's LIVE active maps. Prefix sequences render naturally
+  (=g r=, =g R=, =z f=, =C-c C-a |=); an evil rebinding, a custom
+  =org-air-leader-key=, or a user =define-key= all show what is REALLY
+  bound. A command with NO live key (e.g. knob off, or a user unbind)
+  renders a faded =M-x command-name= cell instead of a lie — help stays
+  honest AND useful.
+- *=q= to quit back*: =org-air-help-mode= inherits =special-mode='s =q= →
+  =quit-window= (a PARENT binding, so it works even with
+  =org-air-use-default-keybindings= nil — the knob only clears
+  installer-owned keys). The buffer is displayed via =pop-to-buffer= so
+  =quit-window= restores the origin window/buffer.
+- *Gating*: the =?= keys are ALREADY installer-owned
+  (=org-air-view-mode-map= ~1431, =org-air-project-mode-map= ~2301) —
+  knob off removes them, =M-x org-air-help= still works. NEW: the
+  doc-session leader map (=org-air-doc-leader-map=) gains ="?"= →
+  =org-air-help= (installer-owned, so knob-gated), making help reachable
+  from the EDITABLE doc org buffer as =C-c C-a ?= (bare =?= must keep
+  self-inserting there — R20-3a rule).
+
+** Content — the group tables are THE source (data, not prose)
+
+Three data tables (=org-air-help--board-groups= /
+=--project-groups= / =--doc-groups=), each a list of
+=(GROUP-TITLE . ((COMMAND . DESCRIPTION) …))=. Key text is NEVER stored —
+always derived at render time. Groups per the ask (navigation, triage,
+filter/sort, rail, refresh, session):
+
+- *Board*: Navigation (=org-air-next-item= / =-prev-item=,
+  =org-air-toggle-section=, =M-TAB= / =backtab= section hops,
+  =org-air-goto-top= (=g g=), =org-air-goto-bottom=, =org-air-peek-item=,
+  =org-air-visit-item= + =-stay=, calendar =<= / =>= / =.=) · Triage
+  (capture, refile, deadline, tag, todo-cycle, archive, done, kill, undo,
+  mark, =org-air-process-inbox=) · Filter & sort (=org-air-filter=,
+  =-filter-clear=, =-filter-toggle-match=, =org-air-view-sort-cycle= /
+  =-reverse=) · Source & scope (=org-air-scope=, =org-air-scope-clear=) ·
+  Columns (=z f= / =z d= / =z t= toggles) · Rail (=org-air-rail-toggle=,
+  the leader forms) · Refresh (=org-air-refresh= → =g r=,
+  =org-air-refresh-all= → =g R=) · Session (=org-air-project=,
+  =org-air-quit=, =org-air-help=).
+- *Project*: Navigation (=org-air-project-next= / =-prev=,
+  =org-air-project-open=, =-visit=, =-toggle-dropped=) · Display
+  (=-toggle-filenames=, group by state/dir/tag, sort cycle/reverse) ·
+  Filter (=org-air-project-filter=, clear, combinator) · Rail
+  (=org-air-rail-toggle=) · Refresh (=org-air-project-refresh= → =g=) ·
+  Session (=org-air-project-quit=, =org-air-help=).
+- *Doc-session*: Session (=org-air-project-back= → =C-c C-q= + the leader
+  =q=) · Navigation (leader =n= / =p= outline motions — the R39-4
+  repeatable wrappers) · Rail (leader =|=) · Help (leader =?=).
+
+The old one-line echo text is DELETED (both branches). The two existing
+tests that capture the =message= (round26 ~1018, triage ~192, both
+asserting "r refile" is documented) are retuned to read the
+=*org-air-help*= buffer text — the refile discovery guarantee survives,
+relocated.
+
+* R50-3 — Executing ERT (tests/org-air-round50-test.el; revert-FAILS)
+
+Real renders over the existing fixtures/harnesses; trunk-failing tests
+fenced in =tests/org-air-known-failures.el= until the impl lands.
+
+- =org-air-r50-1-board-legend-shows-g-r= — interactive board render (rail
+  text): matches ="g r refresh"= and does NOT match =\_<g refresh= (nor
+  the round-8 =gr refresh=). *Trunk FAILS* (legend hardcodes =g=).
+  Reverting the legend fix re-fails it.
+- =org-air-r50-1-legend-keys-are-commands-not-prefixes= — every key the
+  BOARD legend displays resolves via =key-binding= in the board buffer to
+  a =commandp= object, and =(not (keymapp …))=; the project
+  legend-truth test gains the same conjunct over its table (lock on the
+  project side, *trunk FAILS* on the board side at exactly the =g= cell).
+- =org-air-r50-1-legend-follows-rebinding= — with =org-air-refresh=
+  temporarily rebound (e.g. =F5= added, =g r= removed, in a let-scoped map
+  edit), a re-render shows the NEW key text in the refresh cell. *Trunk
+  FAILS* (hardcoded string cannot follow).
+- =org-air-r50-1-failed-marker-says-g-r= — drive the refresh machine to
+  ='failed= (R26-8 harness): header contains =refresh failed (g r
+  retries)=, not =(g retries)=. *Trunk FAILS.*
+- =org-air-r50-2-help-opens-buffer-from-board= — dispatch =(key-binding
+  (kbd "?"))= in a live board: the command is =org-air-help=, a LIVE
+  =*org-air-help*= buffer exists and is displayed in a window (not
+  echo-area-only), and its text contains =g r= on the refresh row plus
+  =refile= (the relocated discovery guarantee). *Trunk FAILS* (echo only,
+  no buffer).
+- =org-air-r50-2-help-context-aware= — from a live project buffer, help
+  lists the project verbs (=open=, =flip=, =group=, refresh at bare =g=);
+  from a doc session, help lists =C-c C-q= back and the =C-c C-a= leader
+  forms; with =org-air-leader-key= customized (e.g. ="C-c C-z"=) the doc
+  help shows the NEW leader prefix. *Trunk FAILS.*
+- =org-air-r50-2-help-q-quits-back= — =q= in =*org-air-help*= runs
+  =quit-window= and restores the origin buffer's window. *Trunk FAILS*
+  (no buffer to quit).
+- =org-air-r50-2-help-knob-gated= — =org-air-use-default-keybindings= nil:
+  =?= is NOT bound in the board/project maps and the doc leader is absent,
+  yet =M-x org-air-help= still produces the buffer (with =M-x …= cells
+  where keys are unbound). *Trunk FAILS* on the buffer conjunct.
+
+*Existing-test movement (test seat, all honest re-tunes)*:
+- =org-air-b4-rail-hint-shows-g-prefix= (tests/org-air-bugs-test.el ~44):
+  the D5f byte-pin =g refresh= is RE-REVERSED to pin =g r refresh= —
+  docstring updated with the R8→D5f→R50 history so the flip-flop is
+  documented, not silent.
+- =org-air-r26-8= failed-marker test (round26 ~1225): =(g retries)= →
+  =(g r retries)=.
+- round26 ~1018 + triage ~192 echo-capture help tests: retuned to read
+  the =*org-air-help*= buffer (assertion content unchanged: refile is
+  documented).
+- =org-air-r26-3-legend-truth-table-driven=: gains the not-a-prefix
+  conjunct; table itself unchanged.
+- *Byte goldens (intended re-bless, =make regen-mockups=)*: the 20
+  board-legend fixtures move (=layout-mockup-{96,100,104,110,120,160}=
+  =×{-,x24,x50}= = 18, =layout-mockup-empty-120x50.txt=,
+  =denote-origin-120.txt=) — the Actions row widens =g= → =g r=. The
+  narrow mockups (70/80/90) and =denote-origin-80.txt= carry no rail
+  legend and must NOT move; the three =project-view-*.txt= keep their
+  TRUE =g refresh= byte-identical. Any project fixture movement is a
+  regression, not a re-bless.
+
+Named implementation surface (the test seat drives exactly these):
+=org-air-view--insert-actions-default= (derived cells, computed widths) ·
+=org-air-view--legend-key= (reused, unchanged) · the failed-marker string
+(view ~2186) + 3 echo messages · the footer band string ·
+=org-air-help= (rewrite) · =org-air-help-mode= (new, special-mode child) ·
+=org-air-help--board-groups= / =--project-groups= / =--doc-groups= (new
+data tables) · =org-air-doc-leader-map= ="?"= registration (installer-
+owned) · the r26-3 prefix guard.
+
+* Notes
+
+- org-ql remains the only query path; this round is legend rendering,
+  message strings and a new read-only help view.
+- The board keymap itself is UNTOUCHED: =g= stays the B4 prefix, =g r=
+  stays refresh — R50-1 is display truth only. Nothing moves for muscle
+  memory.
+- The project's bare-=g= refresh vs the board's =g r= is a real (pre-
+  existing) inconsistency between the two maps; R50 makes it VISIBLE
+  (both legends now true) but does not re-bind either side — a future
+  round may unify, with the legends now following automatically.
+- The inbox walk prompt keeps =[g]refresh=: its =read-char= dispatcher
+  really does refresh on bare =g= — true, therefore untouched.
+- =*org-air-help*= reuses the existing face family (rail-key/faded/rail
+  header) — no new faces, no theme surface growth.
+- Byte goldens: 20 fixtures re-blessed (list above), project fixtures
+  frozen; known-failures manifest carries the trunk-failing R50 tests
+  until the impl lands, then must return to EMPTY.
+
+* Implementation History
+- (pending)
+
+* History
+- 2026-07-13: Created from the R50 report (legend prefix-mislabel =g
+  refresh= → =g r=; echo-area =?= help → proper =*org-air-help*= buffer).
+  Bindings audit batch-verified (board =g= is a prefix keymap, =where-is=
+  → =g r=; project =g= is direct; doc/outline legends already derive).
+  State: ready.

@@ -128,6 +128,43 @@ The philosophy:
 
 ~org-air-files~ accepts any mix of files and directories; directories are scanned recursively for ~.org~ (and ~.org.gpg~) files.
 
+* 🧪 Try it with demo data
+
+Don't want to point org-air at your real notes yet?  The repo ships a generator
+that writes ~570 realistic entries across 50 ~.org~ files, with dates *relative to
+today* (spread evenly across the current month ±2 months) so the dashboard and
+calendar look alive.  It is deterministic (seeded) and pure-stdlib Python — re-run
+any time to refresh the relativity.
+
+With Nix (a flake app — no clone or Python setup needed):
+
+#+begin_src shell
+# into the default /tmp/org-air
+nix run "github:rytswd/org-air#gen-demo"
+# …or a directory of your choice
+nix run "github:rytswd/org-air#gen-demo" -- ~/org-air-demo
+
+# from a local checkout, `.#gen-demo` (or just `.`) works too:
+nix run .#gen-demo -- /tmp/org-air
+#+end_src
+
+Or run the script directly (needs only ~python3~):
+
+#+begin_src shell
+python3 examples/demo/generate-large.py /tmp/org-air
+#+end_src
+
+Then point org-air at it and open the dashboard:
+
+#+begin_src emacs-lisp
+(setq org-air-files '("/tmp/org-air/")
+      org-air-inbox-file "/tmp/org-air/inbox.org")
+(org-air)
+#+end_src
+
+The repo's ~flake.nix~ also exposes a devshell (~python3~ + ~emacs~ + ~make~); with
+[[https://direnv.net/][direnv]], ~direnv allow~ in the checkout loads it automatically (see ~.envrc~).
+
 * ⚙️ Configuration
 
 org-air is useful out of the box; everything here is optional. These are the knobs most users actually tune — run ~M-x customize-group RET org-air RET~ for the full ~60.

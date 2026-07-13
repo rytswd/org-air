@@ -269,7 +269,31 @@ rewires (org-air-view.el ~6536, org-air-project.el ~1516) · the
   the three project fixtures only.
 
 * Implementation History
-- (pending)
+- 2026-07-13: R49-2/R49-3/R49-4 landed (impl seat, product code only).
+  R49-2: =org-air-rail-placement= retyped alist → SYMBOL (the one shared
+  default; legacy alist shape still honoured via the resolver's =consp=
+  branch — the R24/R25 harness let-binds keep working unchanged); new
+  per-view overrides =org-air-board-rail-placement= (org-air-view.el) and
+  =org-air-project-rail-placement= (org-air-project.el), both nil-inherit;
+  =org-air-outline-rail-placement= aligned (nil-inherit choice, default
+  ='side-window= → nil); ONE resolver =org-air-rail--placement= added and
+  BOTH seed sites rewired through it (board org-air-view.el
+  ~=org-air-view--render=, keeping the =org-air-rail-style= legacy force;
+  project org-air-project.el ~=org-air-project--render=); the R30-4
+  outline-mode seed also resolves through it with ='outline=.  The
+  =noninteractive= gates are untouched — batch stays placement-blind.
+  R49-3: the CONFIRMED consistent default = ='side-window= for BOTH views
+  (the board's old inline default flips; the project keeps R26-5's).
+  R49-4: =org-air-project--two-pane-body= passes =:rail-target-height
+  (max 1 (- (org-air-view--render-height) 3))= — ONE windowful, the
+  board rail's exact rule — instead of =max(doc-h, …)=; verified with a
+  synthetic 100-row doc pane at height 40: Actions lands at row 35 (first
+  windowful) and the divider column is intact on every one of the 100
+  body rows (=--compose-columns= pads the shorter rail pane).  The `|'
+  toggle + R25-6 reconciler are untouched (suites green).  Byte goldens:
+  ZERO movement as predicted (make check green — every layout/project/
+  entry/denote golden byte-identical; no fixture edited, no manifest
+  entry needed).  R49-5 executing ERTs remain for the test seat.
 
 * History
 - 2026-07-13: Created from the R49 report (rail-placement consistency +

@@ -62,6 +62,15 @@ Integer pins an exact composition width (the batch/test seam, mirroring
   :type '(choice (const :tag "Live window" nil) integer)
   :group 'org-air)
 
+(defcustom org-air-project-rail-placement nil
+  "PROJECT override for `org-air-rail-placement' (R49-2).
+nil (the default) inherits the shared `org-air-rail-placement'; `inline'
+or `side-window' pins the project view regardless of the shared default.
+Resolved through `org-air-rail--placement'."
+  :type '(choice (const :tag "Inherit `org-air-rail-placement'" nil)
+                 (const inline) (const side-window))
+  :group 'org-air)
+
 (defcustom org-air-project-show-inspector t
   "When non-nil, the project view hosts a mid-rail inspector (R14 D-P1.B).
 Mirrors `org-air-show-inspector' for the board: above
@@ -1399,22 +1408,28 @@ open / flip / filter, sort / group / rail, refresh / help / quit."
   "Return (BODY-LINES . FILL-ROW) composing the LEFT pane | project-rail.
 LEFT-FN is a one-arg closure that inserts the left pane content at a given
 width (state/tag sections OR the R20-5 directory tree); the RIGHT rail is
-the project rail (Summary + Inspector) for DOCS.  The rail is sized to the
-doc-pane height so the divider runs the full body and the layout is
-deterministic."
+the project rail (Summary + Inspector) for DOCS.  R49-4: the rail is
+sized to ONE windowful (the board rail's rule) so the Actions legend
+lands on the first windowful; `--compose-columns' pads the shorter rail
+pane so the divider still runs the full doc-pane height and the layout
+stays deterministic."
   (let* ((rail-width (org-air-view--rail-width width))
          (divider (org-air-view--divider))
          (item-width (max 20 (- width rail-width (string-width divider))))
          (doc-lines (org-air-view--render-lines
                      item-width
                      (lambda () (funcall left-fn item-width))))
-         (doc-h (max 1 (length doc-lines)))
          ;; R20-5(b): render the SHARED board rail, sized (via the
-         ;; descriptor's :rail-target-height) to MAX(doc pane, window body)
-         ;; so the inspector fills the rail in a real (tall) window while
-         ;; the divider still spans a long doc list (doc-h > the window).
+         ;; descriptor's :rail-target-height) to the WINDOW body — R49-4:
+         ;; ONE windowful, exactly the board rail's rule (`--insert-rail-1'
+         ;; targets render-height), instead of the old MAX(doc pane,
+         ;; window).  With a long doc list the Actions legend now lands
+         ;; inside the FIRST windowful (visible on open, no scrolling)
+         ;; instead of being pinned to the doc-h foot; the divider still
+         ;; spans the full doc-pane height because `--compose-columns' pads
+         ;; the shorter rail pane with blank rail-width cells.
          ;; `org-air-show-inspector' follows the project's own toggle.
-         (target-h (max doc-h (max 1 (- (org-air-view--render-height) 3))))
+         (target-h (max 1 (- (org-air-view--render-height) 3)))
          (rail-lines
           (let ((org-air-view--rail-descriptor
                  (plist-put (copy-sequence org-air-view--rail-descriptor)
@@ -1502,9 +1517,11 @@ spine prefix, CONTENT-W the wrap width, NOW the render clock."
 Two-line doc blocks in state-bucket sections; two-pane (docs + a Summary/
 Inspector rail) above `org-air-rail-min-width', board-only below it."
   ;; R26-5: seed the per-buffer rail placement ONCE (the `unset' sentinel)
-  ;; from `org-air-rail-placement' — the project defaults to the popped
-  ;; side-window rail, no `|' required.  Interactive only: batch never
-  ;; touches the sentinel (the `unset'-is-not-popped normalisation lives in
+  ;; — R49-2: through the ONE shared resolver `org-air-rail--placement'
+  ;; (per-view override `org-air-project-rail-placement', else the shared
+  ;; `org-air-rail-placement'; R49-3 default: the popped side-window rail,
+  ;; no `|' required).  Interactive only: batch never touches the sentinel
+  ;; (the `unset'-is-not-popped normalisation lives in
   ;; `org-air-rail--popped-p'), so byte goldens and legacy sentinel
   ;; assertions are untouched.  Thereafter the toggle + reconciler own the
   ;; flag.  R27-2: seeded BEFORE the width resolution below, so the FIRST
@@ -1513,8 +1530,7 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
   (when (and (not noninteractive)
              (eq org-air-view--rail-popped-out 'unset))
     (setq-local org-air-view--rail-popped-out
-                (eq (alist-get 'project org-air-rail-placement)
-                    'side-window)))
+                (eq (org-air-rail--placement 'project) 'side-window)))
   (let* ((inhibit-read-only t)
          ;; R27-1 S3: latch the reconciler for the FULL render extent (the
          ;; board binds the same latch) so a nested reconcile timer can

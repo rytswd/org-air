@@ -441,18 +441,60 @@ still wins (the window is deleted while narrow)."
                  (const :tag "Side window (popped out initially)" side-window))
   :group 'org-air)
 
-(defcustom org-air-rail-placement
-  '((board . inline) (project . side-window))
-  "Default context-rail placement per view (R26-5).
+(defcustom org-air-rail-placement 'side-window
+  "The ONE shared default context-rail placement for every view (R49-2/3).
+A symbol: `side-window' (the default) opens each view with its rail
+ALREADY popped out into the dedicated `*org-air-rail*' side window;
+`inline' composes the rail as buffer text beside the content.  Per-view
+overrides win when non-nil: `org-air-board-rail-placement',
+`org-air-project-rail-placement' and `org-air-outline-rail-placement'
+\(nil = inherit this shared default) — every view resolves through the
+ONE `org-air-rail--placement' resolver.
 Consulted ONCE per buffer: when a view first renders with the popped flag
 still `unset', it seeds t (side-window) or nil (inline).  Thereafter the
 `|' toggle and the R25-6 reconciler own the flag.  `org-air-rail-style'
 set to `side-window' still forces the BOARD entry (back-compat).  Batch
-\(`noninteractive') renders never consult this alist — they normalise the
-sentinel to nil exactly as before, keeping every byte golden untouched."
-  :type '(alist :key-type (choice (const board) (const project))
-                :value-type (choice (const inline) (const side-window)))
+\(`noninteractive') renders never consult placement — they normalise the
+sentinel to nil exactly as before, keeping every byte golden untouched.
+LEGACY (R26-5): the old per-view alist shape
+`\\='((board . inline) (project . side-window))' is still honoured — a
+`consp' value resolves per view via `alist-get', so existing
+`custom-set-variables' (and harness let-binds) keep their exact per-view
+behaviour with zero migration.
+Note on `inline': the inline rail is buffer text composed beside the
+content, so scrolling moves it off-screen with the rows — inherent to
+in-buffer composition (R49-3); `side-window' keeps the calendar and the
+Actions legend always visible."
+  :type '(choice (const :tag "Side window (popped out initially)" side-window)
+                 (const :tag "Inline (single buffer)" inline))
   :group 'org-air)
+
+(defcustom org-air-board-rail-placement nil
+  "BOARD override for `org-air-rail-placement' (R49-2).
+nil (the default) inherits the shared `org-air-rail-placement'; `inline'
+or `side-window' pins the board regardless of the shared default."
+  :type '(choice (const :tag "Inherit `org-air-rail-placement'" nil)
+                 (const inline) (const side-window))
+  :group 'org-air)
+
+(defvar org-air-project-rail-placement)  ; defcustom in org-air-project.el
+
+(defun org-air-rail--placement (view)
+  "Resolve VIEW's (`board' / `project' / `outline') initial rail placement.
+R49-2: per-view override first (`org-air-board-rail-placement' /
+`org-air-project-rail-placement' / `org-air-outline-rail-placement'),
+else the shared `org-air-rail-placement'.  The R26-5 alist shape of the
+shared knob is still honoured (legacy): a `consp' value resolves per view
+via `alist-get'.  Falls back to `side-window' (the R49-3 default) when
+nothing names VIEW."
+  (or (pcase view
+        ('board org-air-board-rail-placement)
+        ('project (and (boundp 'org-air-project-rail-placement)
+                       org-air-project-rail-placement))
+        ('outline org-air-outline-rail-placement))
+      (let ((base org-air-rail-placement))
+        (if (consp base) (alist-get view base) base))
+      'side-window))
 
 (defcustom org-air-divider-pixels 3
   "Pixel width of the `side-window' rail divider on GUI frames (R15 D-P2).
@@ -4915,12 +4957,13 @@ change.  Wrapped in `condition-case': on ANY error the overlay is deleted
                                'evaporate t)))))))
     (error (org-air-rail--outline-highlight-clear))))
 
-(defcustom org-air-outline-rail-placement 'side-window
-  "Where `org-air-outline-mode' hosts its outline rail (R30-4).
-Mirrors `org-air-rail-placement' so the generic mode honours the same
-placement grammar; `side-window' (the default) pops the rail into a
-native side window."
-  :type '(choice (const :tag "side window" side-window)
+(defcustom org-air-outline-rail-placement nil
+  "Where `org-air-outline-mode' hosts its outline rail (R30-4/R49-2).
+OUTLINE override for `org-air-rail-placement': nil (the default) inherits
+the shared knob; `side-window' pops the rail into a native side window
+regardless of it.  Resolved through `org-air-rail--placement'."
+  :type '(choice (const :tag "Inherit `org-air-rail-placement'" nil)
+                 (const :tag "side window" side-window)
                  (const :tag "inline" inline))
   :group 'org-air)
 
@@ -5067,8 +5110,13 @@ scaffold.  Off by default; a no-op outside `org-mode'."
           (setq org-air-outline-mode nil)
         (setq-local org-air-view--rail-descriptor
                     (org-air-outline--rail-descriptor (current-buffer)))
-        (setq-local org-air-view--rail-popped-out t)
-        (org-air-outline--rail-show (current-buffer))
+        ;; R49-2: the outline placement resolves through the SAME shared
+        ;; resolver as the board/project (override slot:
+        ;; `org-air-outline-rail-placement', nil = inherit).
+        (setq-local org-air-view--rail-popped-out
+                    (eq (org-air-rail--placement 'outline) 'side-window))
+        (when (org-air-rail--popped-p)
+          (org-air-outline--rail-show (current-buffer)))
         (unless noninteractive
           (add-hook 'post-command-hook
                     #'org-air-outline--post-command nil t)))
@@ -6533,14 +6581,15 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     ;; R16 D-P1: seed the per-board popout flag from the INITIAL preference
     ;; on first render only (`unset' sentinel); thereafter the toggle /
     ;; reconciler own it.  The renderer never consults `org-air-rail-style'
-    ;; for dispatch again.  R26-5: the per-view `org-air-rail-placement'
-    ;; alist seeds too (interactive only; batch keeps `unset' -> nil, or
-    ;; the explicit `org-air-rail-style' back-compat force).
+    ;; for dispatch again.  R26-5/R49-2: the placement seeds too, through
+    ;; the ONE shared resolver `org-air-rail--placement' (interactive
+    ;; only; batch keeps `unset' -> nil, or the explicit
+    ;; `org-air-rail-style' back-compat force).
     (when (eq org-air-view--rail-popped-out 'unset)
       (setq-local org-air-view--rail-popped-out
                   (or (eq org-air-rail-style 'side-window)
                       (and (not noninteractive)
-                           (eq (alist-get 'board org-air-rail-placement)
+                           (eq (org-air-rail--placement 'board)
                                'side-window)))))
     ;; R13 D-P3: below `org-air-rail-min-width' drop the rail entirely
     ;; (board-only); else the existing two-pane vs stacked decision.

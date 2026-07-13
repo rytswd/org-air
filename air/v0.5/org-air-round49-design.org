@@ -1,5 +1,5 @@
 #+title: org-air Round 49 — Consistent rail placement (shared default + per-view knobs) + the inline-rail bottom-legend fix
-#+state: ready
+#+state: complete
 #+tags: rail placement side-window inline defcustom consistency ux project-view board
 
 * Summary
@@ -327,3 +327,4 @@ rewires (org-air-view.el ~6536, org-air-project.el ~1516) · the
   per-view config; inline rail's bottom-pinned legend / scroll-away
   calendar). Recommendation: consistent =side-window= default, pending
   confirm. State: ready.
+- 2026-07-13: State: ready → complete.

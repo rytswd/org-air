@@ -2093,7 +2093,11 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   ;; n/p repeats until any other key).
   "n" #'org-air--repeat-next
   "p" #'org-air--repeat-prev
-  "q" #'org-air-project-back)
+  "q" #'org-air-project-back
+  ;; R50-2: help reachable from the EDITABLE doc org buffer as the leader
+  ;; form (`C-c C-a ?') — bare `?' keeps self-inserting there (R20-3a
+  ;; rule).  Installer-owned, so knob-gated like every default key.
+  "?" #'org-air-help)
 
 ;; R30-2/R35-1: install the leader on the doc-session map (nav/back/rail).
 (org-air--register-default-leader 'org-air-doc-session-mode-map

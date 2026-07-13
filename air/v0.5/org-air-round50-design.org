@@ -282,7 +282,34 @@ owned) · the r26-3 prefix guard.
   until the impl lands, then must return to EMPTY.
 
 * Implementation History
-- (pending)
+- 2026-07-13: R50-1 + R50-2 landed (impl track).
+  - R50-1: =org-air-view--insert-actions-default= now DERIVES every
+    cell's key from the LIVE binding in the BOARD buffer via
+    =org-air-view--legend-key= (fallbacks =c / \/ / s / g r / TAB / S /
+    ?=); column widths computed from the derived strings
+    (=string-width=), so under defaults the only visible change is
+    =g refresh= → =g r refresh=.  The header failed marker + the three
+    echo messages read =(g r retries)=; the off-by-default footer band
+    reads =[g r] refresh=; docstring mentions tidied.  Keymaps
+    UNTOUCHED (=g= stays the B4 prefix).  Project/doc/outline legends
+    unchanged (already true).
+  - R50-2: =org-air-help= (same command symbol) now pops a grouped,
+    formatted, scrollable =*org-air-help*= buffer in the new
+    =org-air-help-mode= (=special-mode= child; =q= → =quit-window= via
+    the PARENT, knob-proof; shown via =pop-to-buffer=).  Context-aware
+    (board/project/doc-session) off the ORIGIN buffer; rows derive key
+    text from the origin's ACTUAL keymaps via
+    =org-air-view--legend-key=; unbound commands render faded
+    =M-x command-name= cells.  Data tables
+    =org-air-help--board/--project/--doc-groups= are the source; the
+    echo-area one-liner is DELETED.  =org-air-doc-leader-map= gains
+    ="?"= → =org-air-help= (installer-owned, knob-gated; bare =?= keeps
+    self-inserting in the doc buffer).
+  - Test seat handoff: the 10 trunk-moving tests are manifested in
+    tests/org-air-known-failures.el (20 board-legend byte goldens to
+    re-bless via =make regen-mockups=; 4 assertion re-tunes).  Fixtures
+    NOT edited on the impl track; project goldens byte-identical.
+    =make clean && make check= GREEN (0 unexpected, lint 0 new).
 
 * History
 - 2026-07-13: Created from the R50 report (legend prefix-mislabel =g

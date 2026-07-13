@@ -1192,6 +1192,64 @@
     ;; No .el SOURCE touched on the test track (impl landed R49-2/3/4 in
     ;; ooxvoxlv/bc4fd92e).  Round-49 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
+    ;; =================================================================
+    ;; v0.5 ROUND-50 impl grind (air/v0.5/org-air-round50-design.org).
+    ;; R50-1 LEGEND KEY TRUTH: the board Actions legend stops hardcoding
+    ;; key strings — every cell derives from the LIVE binding in the BOARD
+    ;; buffer via `org-air-view--legend-key' (where-is), so the refresh
+    ;; cell shows the TRUE sequence `g r' (`g' alone is the B4 prefix
+    ;; map), and column widths follow the derived strings (`g r' widens
+    ;; column 1 by 2).  The failed-marker/echo strings become `(g r
+    ;; retries)'; the off-by-default footer band becomes `[g r] refresh'.
+    ;; R50-2: `?' help is a proper grouped/scrollable `*org-air-help*'
+    ;; buffer (org-air-help-mode, special-mode child; keys derived from
+    ;; the origin buffer's ACTUAL keymaps; q quits back) — the one-line
+    ;; echo-area `message' is DELETED.  The keymaps themselves are
+    ;; UNTOUCHED (`g' stays the prefix, `g r' stays refresh).
+    ;; Byte goldens: the 20 board-legend fixtures (layout-mockup-
+    ;; {96,100,104,110,120,160} × {-,x24,x50} + empty-120x50 +
+    ;; denote-origin-120) move by construction — the Actions row widens
+    ;; `g' -> `g r'.  Intended re-bless via `make regen-mockups' on the
+    ;; TEST seat (fixtures NOT edited on the impl track); the narrow
+    ;; mockups (70/80/90) + denote-origin-80 carry no rail legend and are
+    ;; byte-identical, and the three project-view-*.txt goldens are
+    ;; byte-identical (the project's bare `g' IS a direct refresh — its
+    ;; legend was already true; any project fixture movement is a
+    ;; regression, not a re-bless).
+    (org-air-layout-mockup-120
+     . "R50-1: board legend `g refresh' -> `g r refresh' widens column 1;
+120-col golden moves; test seat re-blesses via make regen-mockups")
+    (org-air-layout-mockup-160
+     . "R50-1: board legend `g refresh' -> `g r refresh' widens column 1;
+160-col golden moves; test seat re-blesses via make regen-mockups")
+    (org-air-layout-mockup-heights
+     . "R50-1: the x24/x50 goldens at widths 96..160 + empty-120x50 carry
+the board Actions legend; `g r' re-bless pending on the test seat")
+    (org-air-layout-mockup-thresholds
+     . "R50-1: the 96/100/104/110 goldens carry the board Actions legend
+(90 is stacked, no rail); `g r' re-bless pending on the test seat")
+    (org-air-r17-denote-origin-byte-mockup
+     . "R50-1: denote-origin-120 carries the board Actions legend (80 does
+not); `g r' re-bless pending on the test seat")
+    (org-air-r49-5-batch-placement-blind
+     . "R50-1: compares the 120-col golden byte-for-byte; moves with the
+legend re-bless (the placement conjuncts themselves still hold)")
+    (org-air-b4-rail-hint-shows-g-prefix
+     . "R50-1 re-reverses the D5f display choice: the legend must show the
+real key-to-action sequence `g r refresh', never the bare prefix `g'.
+Test seat re-blesses the byte-pin (R8 `gr' -> D5f `g' -> R50 `g r',
+history documented, not silent)")
+    (org-air-r26-8-failure-honest-and-g-retries
+     . "R50-1: the failed header marker is `refresh failed (g r retries)'
+now (retry really is g THEN r); test seat retunes the pinned string")
+    (org-air-r26-6-refile-still-works
+     . "R50-2: `?' help no longer `message's — it renders the
+*org-air-help* buffer.  Test seat retunes the echo capture to read the
+buffer text (refile stays documented, relocated)")
+    (org-air-triage-dated-inbox-row-carries-file-hint
+     . "R50-2: `?' help no longer `message's — it renders the
+*org-air-help* buffer.  Test seat retunes the echo capture to read the
+buffer text (refile stays documented, relocated)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

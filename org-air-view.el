@@ -790,13 +790,13 @@ slice ≈60-70ms — under perception — while the board stays interactive."
 (defvar-local org-air-view--refresh-token 0
   "Monotonic refresh token (R26-8).
 Every scheduled slice carries the token current at schedule time; a
-callback whose token is stale self-cancels, so `g' mid-refresh (which
+callback whose token is stale self-cancels, so `g r' mid-refresh (which
 bumps the token) makes every pending slice a no-op — timers can never
 interleave two refreshes or touch a superseded scan.")
 (defvar-local org-air-view--refresh-state nil
   "R26-8 refresh machine state: nil (fresh/idle), `refreshing', `failed'.
 Drives the header count-slot marker (`stale · refreshing…' / `stale ·
-refresh failed (g retries)'); only ever non-nil when the machine is
+refresh failed (g r retries)'); only ever non-nil when the machine is
 driven (interactively, or by an ERT calling the slice runner), so batch
 renders never show it.")
 (defvar-local org-air-view--refresh-queue nil
@@ -2183,7 +2183,9 @@ optional segments (after filter, scope and count)."
                            (org-air-view--sep) "refreshing…"))
                   ((eq org-air-view--refresh-state 'failed)
                    (concat (org-air-view--sep) "stale"
-                           (org-air-view--sep) "refresh failed (g retries)"))
+                           ;; R50-1: the retry key is the TRUE sequence
+                           ;; `g r' (`g' alone is the B4 prefix map).
+                           (org-air-view--sep) "refresh failed (g r retries)"))
                   (t (concat (org-air-view--sep)
                              (format "%d items"
                                      (length (org-air-view--visible-items items))))))
@@ -3432,9 +3434,12 @@ so the board byte goldens are byte-identical by default."
     (insert (propertize
              (org-air-view--pad-to
               (concat (org-air-view--margin)
+                      ;; R50-1: refresh is the SEQUENCE `g r' (`g' alone
+                      ;; is the B4 prefix map) — the band must not teach a
+                      ;; bare prefix.  Bracket-key idiom kept elsewhere.
                       (if (<= (org-air-view--render-width) 80)
-                          "[c]apture [g]refresh [/]filter [\\]clear [s]cope [TAB]next RET visit [?]help"
-                        "[c]apture  [g]refresh  [/]filter  [\\]clear  [s]cope  [TAB]next  RET visit  [?]help"))
+                          "[c]apture [g r] refresh [/]filter [\\]clear [s]cope [TAB]next RET visit [?]help"
+                        "[c]apture  [g r] refresh  [/]filter  [\\]clear  [s]cope  [TAB]next  RET visit  [?]help"))
               (org-air-view--render-width))
              'face 'org-air-face-faded)
             "\n")))
@@ -3823,36 +3828,64 @@ descriptor's :actions-fn; the board path runs when the descriptor is nil."
     (org-air-view--insert-actions-default width)))
 
 (defun org-air-view--insert-actions-default (width)
-  "Insert the BOARD Actions block fitted to rail content WIDTH."
+  "Insert the BOARD Actions block fitted to rail content WIDTH.
+R50-1: every cell's KEY text is DERIVED from the LIVE binding in the
+BOARD buffer through the one shared seam `org-air-view--legend-key'
+\(`where-is' in the buffer where these keys actually fire — the legend may
+render in the rail side window, whose own map does not carry the board
+verbs), never a hardcoded string.  The refresh cell therefore shows the
+TRUE sequence `g r' (`g' alone is the B4 prefix map — pressed alone it
+only waits for a second key), and the legend follows
+`org-air-use-default-keybindings' (knob off -> the fallbacks keep the
+legend readable), a user `define-key' rebinding, an `org-air-leader-key'
+move, and evil (the R29-2 overriding map makes `where-is' return the
+sequences evil actually dispatches).  Column widths are computed from the
+DERIVED cell strings, so the layout follows automatically at every rail
+tier (wide/mid/narrow gap rules unchanged)."
   (org-air-view--rail-header "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
+         (board (get-buffer org-air-view-buffer-name))
+         (key (lambda (command fallback)
+                (org-air-view--legend-key command board fallback)))
          ;; Round-9 Q1: when a scope is active the second row's middle verb
          ;; surfaces the scope reset (the literal "S reset" cue the design
          ;; and grind ask for) right where the user acts.
-         (mid2 (if org-air-view--scope '("S" . "reset") '("TAB" . "expand")))
-         ;; Column field widths = the widest "KEY DESC" cell in each column.
-         (c1 (max (+ 2 (length "capture")) (+ 2 (length "refresh"))))
-         (c2 (max (+ 2 (length "filter"))
-                  (+ (length (car mid2)) 1 (length (cdr mid2)))))
+         (mid2 (if org-air-view--scope
+                   (cons (funcall key #'org-air-scope-clear "S") "reset")
+                 (cons (funcall key #'org-air-toggle-section "TAB")
+                       "expand")))
+         ;; R22-4: `source' (was `scope') — the dataset selector.
+         (row1 (list (cons (funcall key #'org-air-capture "c") "capture")
+                     (cons (funcall key #'org-air-filter "/") "filter")
+                     (cons (funcall key #'org-air-scope "s") "source")))
+         ;; The `g r' fallback is the TRUE sequence even when the board
+         ;; buffer is dead — a legend key must never be a bare prefix.
+         (row2 (list (cons (funcall key #'org-air-refresh "g r") "refresh")
+                     mid2
+                     (cons (funcall key #'org-air-help "?") "help")))
+         ;; Column field widths = the widest DERIVED "KEY DESC" cell in
+         ;; each column (`string-width', not hardcoded lengths).
+         (cellw (lambda (cell)
+                  (+ (string-width (car cell)) 1 (string-width (cdr cell)))))
+         (c1 (max (funcall cellw (nth 0 row1)) (funcall cellw (nth 0 row2))))
+         (c2 (max (funcall cellw (nth 1 row1)) (funcall cellw (nth 1 row2))))
          ;; D5f: a 4-space column gap at the wide tier; tighten to 1 at the
          ;; mid/narrow tiers so the three verbs still fit (elide only at the
          ;; very narrow rail, as the spec allows).
          (gap (if (>= width 38) "    " " ")))
-    (insert (org-air-view--pad-to
-             (concat inset
-                     (org-air-view--verb-cell "c" "capture" c1) gap
-                     (org-air-view--verb-cell "/" "filter" c2) gap
-                     ;; R22-4: `source' (was `scope') — the dataset selector.
-                     (org-air-view--verb-cell "s" "source" 0))
-             width)
-            "\n")
-    (insert (org-air-view--pad-to
-             (concat inset
-                     (org-air-view--verb-cell "g" "refresh" c1) gap
-                     (org-air-view--verb-cell (car mid2) (cdr mid2) c2) gap
-                     (org-air-view--verb-cell "?" "help" 0))
-             width)
-            "\n")))
+    (dolist (row (list row1 row2))
+      (insert (org-air-view--pad-to
+               (concat inset
+                       (org-air-view--verb-cell
+                        (car (nth 0 row)) (cdr (nth 0 row)) c1)
+                       gap
+                       (org-air-view--verb-cell
+                        (car (nth 1 row)) (cdr (nth 1 row)) c2)
+                       gap
+                       (org-air-view--verb-cell
+                        (car (nth 2 row)) (cdr (nth 2 row)) 0))
+               width)
+              "\n"))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P7 — item inspector (lower-rail metadata for the line at point)
@@ -7201,7 +7234,7 @@ left at `refreshing'."
                  org-air-view--refresh-acc nil
                  org-air-view--loading nil)
            (org-air-view--refresh-repaint)
-           (message "org-air: refresh failed: %s (g retries)"
+           (message "org-air: refresh failed: %s (g r retries)"
                     (org-air-view--short-error err))))))))
 
 (defun org-air-view--refresh-disarm ()
@@ -7397,7 +7430,7 @@ marker/progress is visible from the first paint."
                org-air-view--refresh-acc nil
                org-air-view--loading nil)
          (org-air-view--refresh-repaint)
-         (message "org-air: refresh failed: %s (g retries)"
+         (message "org-air: refresh failed: %s (g r retries)"
                   (org-air-view--short-error err)))))
      ;; Bulk/cold: retain unchanged items, PACE only the changed subset.
      (t
@@ -7475,7 +7508,7 @@ a loop, so the whole machine is testable synchronously with zero timers.
 Robustness rules made law: a stale TOKEN (or dead BUFFER, or a machine no
 longer refreshing) is a silent no-op; slices accumulate privately and
 NEVER touch windows; a slice error keeps the painted board, flips to
-FAILED (header: `refresh failed (g retries)') and always clears
+FAILED (header: `refresh failed (g r retries)') and always clears
 `org-air-view--loading' so the buffer can never wedge."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
@@ -7514,7 +7547,7 @@ FAILED (header: `refresh failed (g retries)') and always clears
                  org-air-view--refresh-acc nil
                  org-air-view--loading nil)
            (org-air-view--refresh-repaint)   ; same board + honest header
-           (message "org-air: refresh failed: %s (g retries)"
+           (message "org-air: refresh failed: %s (g r retries)"
                     (org-air-view--short-error err))))))))
 
 (defun org-air-view--refresh-stale-item-guard (item)
@@ -8277,14 +8310,211 @@ board (R6); only then does a press quit org-air itself — rail teardown +
   (interactive)
   (org-air-peek-item))
 
+(defconst org-air-help-buffer-name "*org-air-help*"
+  "Name of the org-air help buffer (R50-2).")
+
+(define-derived-mode org-air-help-mode special-mode "Org-Air-Help"
+  "Major mode for the `*org-air-help*' buffer (R50-2).
+A normal read-only, scrollable buffer (SPC/DEL page via the
+`special-mode' parent; evil motions apply under evil).  `q' quits back to
+the origin window via the PARENT `special-mode' binding (`quit-window'),
+so it works even with `org-air-use-default-keybindings' nil — the knob
+only clears installer-owned keys, and org-air installs none here."
+  (setq-local truncate-lines nil)
+  (setq-local line-spacing org-air-line-spacing))
+
+(defconst org-air-help--board-groups
+  '(("Navigation"
+     (org-air-next-item . "next item")
+     (org-air-prev-item . "previous item")
+     (org-air-toggle-section . "toggle section fold")
+     (org-air-next-section . "next section")
+     (org-air-prev-section . "previous section")
+     (org-air-goto-top . "top of board")
+     (org-air-goto-bottom . "bottom of board")
+     (org-air-peek-item . "peek at item (keep focus)")
+     (org-air-visit-item . "visit item")
+     (org-air-visit-item-stay . "visit item, stay on board")
+     (org-air-calendar-prev . "calendar: previous month")
+     (org-air-calendar-next . "calendar: next month")
+     (org-air-calendar-today . "calendar: today"))
+    ("Triage"
+     (org-air-capture . "capture")
+     (org-air-refile-item . "refile item")
+     (org-air-item-deadline . "set deadline")
+     (org-air-set-tag . "set tag")
+     (org-air-item-cycle-todo . "cycle todo state")
+     (org-air-item-archive . "archive item")
+     (org-air-item-done . "mark done")
+     (org-air-item-kill . "kill item")
+     (org-air-triage-undo . "undo last triage action")
+     (org-air-toggle-mark . "mark/unmark item")
+     (org-air-process-inbox . "process inbox (guided walk)"))
+    ("Filter & sort"
+     (org-air-filter . "filter by tags (live)")
+     (org-air-filter-clear . "clear filter")
+     (org-air-filter-toggle-match . "toggle AND/OR combinator")
+     (org-air-view-sort-cycle . "cycle sort key")
+     (org-air-view-sort-reverse . "reverse sort"))
+    ("Source & scope"
+     (org-air-scope . "source lens (file/group/all)")
+     (org-air-scope-clear . "clear source lens"))
+    ("Columns"
+     (org-air-toggle-origin . "toggle origin (filename) column")
+     (org-air-toggle-dates . "toggle dates column")
+     (org-air-toggle-tags . "toggle tags column"))
+    ("Rail"
+     (org-air-rail-toggle . "pop rail out/in")
+     (org-air-rail-return . "focus the rail"))
+    ("Refresh"
+     (org-air-refresh . "refresh")
+     (org-air-refresh-all . "refresh all (drop caches)"))
+    ("Session"
+     (org-air-project . "project tree")
+     (org-air-quit . "quit")
+     (org-air-help . "this help")))
+  "BOARD help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).
+Key text is NEVER stored here — it is derived at render time from the
+ACTUAL live keymaps of the origin buffer, so the help can never lie.")
+
+(defconst org-air-help--project-groups
+  '(("Navigation"
+     (org-air-project-next . "next doc")
+     (org-air-project-prev . "previous doc")
+     (org-air-project-open . "open doc (same window)")
+     (org-air-project-visit . "visit doc (other window)")
+     (org-air-project-toggle-dropped . "reveal/fold dropped docs"))
+    ("Display"
+     (org-air-project-toggle-filenames . "flip filename/title")
+     (org-air-project-group-by-state . "group by state")
+     (org-air-project-group-by-directory . "group by directory")
+     (org-air-project-group-by-tag . "group by tag")
+     (org-air-view-sort-cycle . "cycle sort key")
+     (org-air-view-sort-reverse . "reverse sort"))
+    ("Filter"
+     (org-air-project-filter . "filter by doc tags (live)")
+     (org-air-filter-clear . "clear filter")
+     (org-air-filter-toggle-match . "toggle AND/OR combinator"))
+    ("Rail"
+     (org-air-rail-toggle . "pop rail out/in"))
+    ("Refresh"
+     (org-air-project-refresh . "refresh"))
+    ("Session"
+     (org-air-project-quit . "quit")
+     (org-air-help . "this help")))
+  "PROJECT help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).")
+
+(defconst org-air-help--doc-groups
+  '(("Session"
+     (org-air-project-back . "back to the project tree"))
+    ("Navigation"
+     (org-air--repeat-next . "next heading (repeatable)")
+     (org-air--repeat-prev . "previous heading (repeatable)"))
+    ("Rail"
+     (org-air-rail-toggle . "pop rail out/in"))
+    ("Help"
+     (org-air-help . "this help")))
+  "DOC-SESSION help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).
+The doc file buffer is EDITABLE, so these derive to the
+`org-air-leader-key' leader forms plus the direct back-verb binding.")
+
+(defun org-air-help--context (buffer)
+  "Return the help context symbol for BUFFER (R50-2).
+`board' / `project' / `doc-session'; anything else falls back to `board'
+\(matching the old echo-area fallback)."
+  (with-current-buffer buffer
+    (cond
+     ((derived-mode-p 'org-air-project-mode) 'project)
+     ((derived-mode-p 'org-air-view-mode) 'board)
+     ((and (boundp 'org-air-doc-session-mode) org-air-doc-session-mode)
+      'doc-session)
+     (t 'board))))
+
+(defun org-air-help--groups (context)
+  "Return the group table for help CONTEXT (R50-2)."
+  (pcase context
+    ('project org-air-help--project-groups)
+    ('doc-session org-air-help--doc-groups)
+    (_ org-air-help--board-groups)))
+
+(defun org-air-help--context-title (context)
+  "Return the human name of help CONTEXT for the title line (R50-2)."
+  (pcase context
+    ('project "project")
+    ('doc-session "doc session")
+    (_ "board")))
+
+(defun org-air-help--insert-header (label)
+  "Insert a help section header for LABEL, rail-header idiom (R50-2).
+The rail's prefix-marker + `org-air-face-rail-header' face family — no
+new faces, no theme surface growth."
+  (insert (propertize (org-air-layout-glyph 'rail-marker)
+                      'face 'org-air-face-rail-marker)
+          " "
+          (propertize label 'face 'org-air-face-rail-header)
+          "\n"))
+
+(defun org-air-help--rows (cells origin)
+  "Resolve CELLS ((COMMAND . DESC) …) against ORIGIN's live maps (R50-2).
+Returns ((KEY-TEXT LIVE-P . DESC) …): KEY-TEXT via
+`org-air-view--legend-key' (`where-is' in ORIGIN, so prefix and leader
+sequences render naturally, and an evil rebinding, a custom
+`org-air-leader-key' or a user `define-key' all show what is REALLY
+bound).  A command with NO live key (knob off, user unbind)
+yields a faded `M-x command-name' cell instead of a lie."
+  (mapcar (lambda (cell)
+            (let ((key (org-air-view--legend-key (car cell) origin)))
+              (if key
+                  (cons key (cons t (cdr cell)))
+                (cons (concat "M-x " (symbol-name (car cell)))
+                      (cons nil (cdr cell))))))
+          cells))
+
 (defun org-air-help ()
-  "Show org-air key bindings (R26-3: project-aware)."
+  "Show org-air key bindings in the `*org-air-help*' buffer (R50-2).
+A dedicated, formatted, scrollable help view (mu4e/magit style) that
+replaces the old one-line echo-area message: grouped sections, one
+binding per row, KEY derived from the ACTUAL active keymaps of the
+origin buffer (`where-is'), so it is correct under evil, a custom
+`org-air-leader-key', and `org-air-use-default-keybindings' both ways.
+Context-aware: board / project / doc-session pick their own group set.
+Displayed via `pop-to-buffer'; `q' (`quit-window', the `special-mode'
+parent binding) restores the origin window."
   (interactive)
-  ;; R19-4d: name the two roles distinctly — Filter is the LIVE tag
-  ;; narrowing (multi-tag, AND/OR), Scope is the structural LENS.
-  (if (derived-mode-p 'org-air-project-mode)
-      (message "org-air project: RET open (same window), S-RET visit other window, TAB dropped (fold/reveal), ( flip filename↔title, o/O sort cycle/reverse, s/d/t group state/dir/tag, / filter · \\ clear · M-/ AND↔OR, | rail, v peek pane, g refresh, q quit")
-    (message "org-air: n/p items, TAB sections, RET visit, c capture, r refile, / filter (tags, live) · \\ clear · M-/ AND↔OR, s scope (lens: file/group/all) · S clear, z columns (z f origin/z d dates/z t tags), g refresh, q quit")))
+  (let* ((origin (current-buffer))
+         (context (org-air-help--context origin))
+         (groups (org-air-help--groups context))
+         (buffer (get-buffer-create org-air-help-buffer-name))
+         (title (format "org-air help — %s"
+                        (org-air-help--context-title context))))
+    (with-current-buffer buffer
+      (org-air-help-mode)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (setq-local header-line-format
+                    (list (propertize (concat " " title)
+                                      'face 'org-air-face-rail-header)))
+        (org-air-help--insert-header title)
+        (dolist (group groups)
+          (insert "\n")
+          (org-air-help--insert-header (car group))
+          (let* ((rows (org-air-help--rows (cdr group) origin))
+                 ;; KEY right-padded to the widest key in the SECTION.
+                 (keyw (apply #'max (mapcar (lambda (r)
+                                              (string-width (car r)))
+                                            rows))))
+            (pcase-dolist (`(,key ,live . ,desc) rows)
+              (insert "  "
+                      (propertize key 'face (if live
+                                                'org-air-face-rail-key
+                                              'org-air-face-faded))
+                      (make-string (- keyw (string-width key)) ?\s)
+                      "  "
+                      (propertize desc 'face 'org-air-face-faded)
+                      "\n"))))
+        (goto-char (point-min))))
+    (pop-to-buffer buffer)
+    buffer))
 
 ;;;###autoload
 (defun org-air-visit-item (&optional item display)

@@ -1,5 +1,5 @@
 #+title: org-air Round 50 — Legend key truth (=g r= refresh, prefix-mislabel audit) + a proper =*org-air-help*= buffer
-#+state: ready
+#+state: complete
 #+tags: legend keybindings help-buffer where-is prefix-map ux board project doc-session
 
 * Summary
@@ -282,6 +282,29 @@ owned) · the r26-3 prefix guard.
   until the impl lands, then must return to EMPTY.
 
 * Implementation History
+- 2026-07-13: R50 CLOSEOUT (test track).  The 20 board-legend byte
+  goldens re-blessed via =make clean && make regen-mockups= (frozen
+  clock, guards active; jj diff = EXACTLY the predicted 20 fixtures,
+  2 Actions legend lines each: =g refresh= → =g r refresh= + derived
+  column-1 widening; narrow 70/80/90 + denote-origin-80 and the three
+  =project-view-*.txt= byte-identical).  Flagged ERTs re-blessed
+  HONESTLY: =org-air-b4-rail-hint-shows-g-prefix= re-reversed to pin
+  =g r refresh= (R8 =gr= → D5f =g= → R50 =g r= history documented);
+  =org-air-r26-8-failure-honest-and-g-retries= pins =(g r retries)= and
+  asserts =(g retries)= ABSENT; =org-air-r26-6-refile-still-works= +
+  =org-air-triage-dated-inbox-row-carries-file-hint= read the rendered
+  =*org-air-help*= buffer (refile discovery relocated, not weakened);
+  =org-air-r26-3-legend-truth-table-driven= gains the not-a-prefix
+  conjunct.  NEW tests/org-air-round50-test.el (7 ERTs): legend shows
+  =g r= / all 6 derived cells command-not-prefix (bare =g= IS a prefix
+  in the same buffer) / legend follows an F5 rebinding / =?= pops the
+  displayed =*org-air-help*= buffer with =g r refresh= + =r refile=
+  rows / context-aware (project bare =g=, doc-session =C-c C-q= +
+  leader forms + customized =C-c C-z= leader) / =q= quits back / knob
+  nil keeps M-x help with honest =M-x …= cells.  All 7 + the 4 retunes
+  verified FAIL on the pre-impl trunk (revert-fails).  =make clean &&
+  make check= GREEN: 659 tests, 0 unexpected, manifest EMPTY.  State:
+  complete.
 - 2026-07-13: R50-1 + R50-2 landed (impl track).
   - R50-1: =org-air-view--insert-actions-default= now DERIVES every
     cell's key from the LIVE binding in the BOARD buffer via

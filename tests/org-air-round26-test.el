@@ -151,7 +151,10 @@ Actions lands below the fold of a short side window (line 25 of 24)."
 (ert-deftest org-air-r26-3-legend-truth-table-driven ()
   "Every key named in the Actions legend table resolves via `key-binding'
 to a real command in the project buffer — the legend can never drift from
-the map again (table-driven off `org-air-project--actions-table')."
+the map again (table-driven off `org-air-project--actions-table').
+R50-1 conjunct: the resolved binding must be a COMMAND and NOT a keymap —
+a future prefixization of any legend key (the board's `g refresh'
+mislabel class) fails this gate instead of silently mislabelling."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-live-project
     (dolist (row org-air-project--actions-table)
@@ -162,7 +165,9 @@ the map again (table-driven off `org-air-project--actions-table')."
           (dolist (k keys)
             (let ((cmd (key-binding (kbd k))))
               (should cmd)
-              (should (commandp cmd)))))))
+              (should (commandp cmd))
+              ;; R50-1: a legend key must never be a bare prefix map.
+              (should-not (keymapp cmd)))))))
     ;; And the legend text itself is the table's (popped rail render).
     (org-air-r26--pop-rail)
     (with-current-buffer org-air-rail-buffer-name
@@ -1005,19 +1010,30 @@ FAILS on trunk (the hint pushed that one row's tags 12 cols right)."
 
 (ert-deftest org-air-r26-6-refile-still-works ()
   "`r' still resolves to `org-air-refile-item' on the board, and the `?'
-help — the single teaching surface now — says `r refile'."
+help — the R50-2 `*org-air-help*' BUFFER now, not an echo-area line —
+documents the refile verb.  The R26-6 discovery guarantee survives,
+relocated: the old one-line `message' is deleted, so the assertion reads
+the rendered help buffer (key derived via `where-is' from the live board
+map, so the row really is `r  refile…')."
   (skip-unless (locate-library "org-air"))
   (should (eq (lookup-key org-air-view-mode-map (kbd "r"))
               'org-air-refile-item))
-  ;; the board help message documents it.
-  (let (msg)
-    (cl-letf (((symbol-function 'message)
-               (lambda (fmt &rest args)
-                 (setq msg (apply #'format fmt args)))))
-      (with-temp-buffer
-        (org-air-help)))
-    (should msg)
-    (should (string-match-p "r refile" msg))))
+  ;; the board help BUFFER documents it (R50-2).
+  (save-window-excursion
+    (unwind-protect
+        (with-temp-buffer
+          (org-air-view-mode)          ; a board-context origin buffer
+          (org-air-help)
+          (let ((help (get-buffer org-air-help-buffer-name)))
+            (should help)
+            (with-current-buffer help
+              (let ((text (substring-no-properties (buffer-string))))
+                ;; the refile row: derived key `r' + the refile verb.
+                (should (string-match-p "^  r +refile" text))
+                ;; …and the true refresh sequence rides along (R50-1).
+                (should (string-match-p "^  g r +refresh" text))))))
+      (when (get-buffer org-air-help-buffer-name)
+        (kill-buffer org-air-help-buffer-name)))))
 
 ;;;; =====================================================================
 ;;;; R26-8 — cache-first async (deterministic: the slice runner is driven
@@ -1198,8 +1214,9 @@ usable (motion runs); the completed swap lands point back on an item row."
 
 (ert-deftest org-air-r26-8-failure-honest-and-g-retries ()
   "A slice that signals keeps the painted board byte-intact, flips the
-header to `refresh failed (g retries)', and `g' restarts the machine and
-completes."
+header to `refresh failed (g r retries)' — the TRUE retry sequence,
+R50-1: `g' alone is the B4 prefix map — and `g r' (`org-air-refresh')
+restarts the machine and completes."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-cache-env
     (with-current-buffer (org-air-r26--cache-board)
@@ -1222,13 +1239,15 @@ completes."
                                            org-air-view--refresh-token))
         (should (eq org-air-view--refresh-state 'failed))
         (let ((text (substring-no-properties (buffer-string))))
-          (should (string-match-p "refresh failed (g retries)" text))
+          ;; R50-1: the marker names the TRUE sequence, never the prefix.
+          (should (string-match-p "refresh failed (g r retries)" text))
+          (should-not (string-match-p "(g retries)" text))
           (should (equal (substring-no-properties
                           (buffer-string)
                           (save-excursion (goto-char (point-min))
                                           (line-end-position)))
                          body-before)))
-        ;; g retries: the interactive branch restarts the machine…
+        ;; g r retries: the interactive branch restarts the machine…
         (let ((noninteractive nil))
           (org-air-refresh))
         (should (eq org-air-view--refresh-state 'refreshing))

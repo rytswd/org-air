@@ -41,17 +41,24 @@ refresh+reset; `G' = bottom of pane (vim/evil g-prefix)."
   (should (keymapp (lookup-key org-air-view-mode-map (kbd "g")))))
 
 (ert-deftest org-air-b4-rail-hint-shows-g-prefix ()
-  "D5f [byte] REVERSAL of the round-8 B4 rail-hint string: the D5 Actions
-block shows the PRIMARY key `g refresh' (not the round-8 `gr refresh').
-The keymap is unchanged — `g' is still the prefix and `g r' refreshes
-(see the g-prefix keymap tests); D5f only changes the rail's DISPLAYED
-verb to the primary key.  Flagged to design as an intended D5
-consequence (previously-blessed `gr refresh' -> `g refresh')."
+  "R50-1 [byte] RE-REVERSAL of the D5f rail-hint display choice.
+History, documented so the flip-flop is never silent: R8/B4 blessed the
+squeezed `gr refresh'; D5f deliberately re-blessed the \"primary key\"
+`g refresh'; R50-1 rules THAT display choice a lie — a legend key must
+be the real key-to-action SEQUENCE, never a bare prefix (`g' pressed
+alone only waits for a second key).  The Actions legend now DERIVES the
+cell from the live binding (`org-air-view--legend-key'), so the refresh
+cell reads `g r refresh'.  The keymap itself is unchanged — `g' is
+still the B4 prefix and `g r' refreshes (see the g-prefix keymap
+tests); only the DISPLAYED verb moved."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
       (let ((text (buffer-string)))
-        (should (string-match-p "g refresh" text))
+        (should (string-match-p "g r refresh" text))
+        ;; neither older generation of the cell survives: the D5f bare
+        ;; prefix `g refresh' nor the round-8 squeezed `gr refresh'.
+        (should-not (string-match-p "\\_<g refresh" text))
         (should-not (string-match-p "gr refresh" text))))))
 
 ;;;; B1 — TAB never hangs; header-only toggle keeps point on the header.

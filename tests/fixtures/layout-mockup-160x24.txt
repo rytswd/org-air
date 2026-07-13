@@ -28,6 +28,6 @@
       TODO ■ Fix production outage runbook                                    OVERDUE 5d      #projects   #work  …  │ ▌ Inspector
       TODO ■ Prep client presentation                                         Tomorrow        #work   #client       │
                                                                                                                     │ ▌ Actions
-  ○ Stale 2                                                                                                         │    c capture    / filter      s source
-      TODO   Dust off old archive project                                     ∙ 225d quiet    #projects   #archive  │    g refresh    TAB expand    ? help
+  ○ Stale 2                                                                                                         │    c capture      / filter      s source
+      TODO   Dust off old archive project                                     ∙ 225d quiet    #projects   #archive  │    g r refresh    TAB expand    ? help
       TODO   Learn lute                                                       ∙ 273d quiet    #someday   #hobby     │

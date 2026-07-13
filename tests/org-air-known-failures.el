@@ -1216,40 +1216,70 @@
     ;; byte-identical (the project's bare `g' IS a direct refresh — its
     ;; legend was already true; any project fixture movement is a
     ;; regression, not a re-bless).
-    (org-air-layout-mockup-120
-     . "R50-1: board legend `g refresh' -> `g r refresh' widens column 1;
-120-col golden moves; test seat re-blesses via make regen-mockups")
-    (org-air-layout-mockup-160
-     . "R50-1: board legend `g refresh' -> `g r refresh' widens column 1;
-160-col golden moves; test seat re-blesses via make regen-mockups")
-    (org-air-layout-mockup-heights
-     . "R50-1: the x24/x50 goldens at widths 96..160 + empty-120x50 carry
-the board Actions legend; `g r' re-bless pending on the test seat")
-    (org-air-layout-mockup-thresholds
-     . "R50-1: the 96/100/104/110 goldens carry the board Actions legend
-(90 is stacked, no rail); `g r' re-bless pending on the test seat")
-    (org-air-r17-denote-origin-byte-mockup
-     . "R50-1: denote-origin-120 carries the board Actions legend (80 does
-not); `g r' re-bless pending on the test seat")
-    (org-air-r49-5-batch-placement-blind
-     . "R50-1: compares the 120-col golden byte-for-byte; moves with the
-legend re-bless (the placement conjuncts themselves still hold)")
-    (org-air-b4-rail-hint-shows-g-prefix
-     . "R50-1 re-reverses the D5f display choice: the legend must show the
-real key-to-action sequence `g r refresh', never the bare prefix `g'.
-Test seat re-blesses the byte-pin (R8 `gr' -> D5f `g' -> R50 `g r',
-history documented, not silent)")
-    (org-air-r26-8-failure-honest-and-g-retries
-     . "R50-1: the failed header marker is `refresh failed (g r retries)'
-now (retry really is g THEN r); test seat retunes the pinned string")
-    (org-air-r26-6-refile-still-works
-     . "R50-2: `?' help no longer `message's — it renders the
-*org-air-help* buffer.  Test seat retunes the echo capture to read the
-buffer text (refile stays documented, relocated)")
-    (org-air-triage-dated-inbox-row-carries-file-hint
-     . "R50-2: `?' help no longer `message's — it renders the
-*org-air-help* buffer.  Test seat retunes the echo capture to read the
-buffer text (refile stays documented, relocated)")
+    ;;
+    ;; =================================================================
+    ;; v0.5 ROUND-50 CLOSEOUT (impl tip ptrqsmxv/2c8d6741 + test re-bless
+    ;; <this commit>).  ALL 10 grind entries CLOSED — the 20 moved
+    ;; board-legend byte goldens regenerated from impl's render via the
+    ;; FROZEN-CLOCK renderer (make clean && make regen-mockups, anti-
+    ;; tautology guards active; verified NO HANG, exit 0; jj diff --stat
+    ;; = EXACTLY the 20 predicted fixtures: layout-mockup-
+    ;; {96,100,104,110,120,160} × {-,x24,x50} + empty-120x50 +
+    ;; denote-origin-120, the 2 Actions legend lines each — `g refresh'
+    ;; -> `g r refresh' with the derived column-1 field widening; the
+    ;; narrow 70/80/90 mockups + denote-origin-80 carry no rail legend
+    ;; and are byte-identical, and the three project-view-*.txt goldens
+    ;; are byte-identical, the project's bare `g' being a DIRECT refresh
+    ;; — its legend was already true).  The flagged assertion ERTs
+    ;; re-blessed HONESTLY to the design-blessed R50 contracts
+    ;; (air/v0.5/org-air-round50-design.org) — each asserts the NEW true
+    ;; behaviour, none weakened:
+    ;;   org-air-b4-rail-hint-shows-g-prefix — the byte-pin RE-REVERSED
+    ;;     to `g r refresh' with the R8 `gr' -> D5f `g' -> R50 `g r'
+    ;;     history documented in the docstring (never silent); asserts
+    ;;     BOTH older cell generations absent.
+    ;;   org-air-r26-8-failure-honest-and-g-retries — the failed header
+    ;;     marker pins `refresh failed (g r retries)' AND the old
+    ;;     `(g retries)' ABSENT; the byte-intact-body / retry /
+    ;;     completion machine conjuncts carry over verbatim.
+    ;;   org-air-r26-6-refile-still-works + org-air-triage-dated-inbox-
+    ;;     row-carries-file-hint — the echo `message' captures retuned
+    ;;     to read the rendered *org-air-help* BUFFER (the one-liner is
+    ;;     deleted); the refile discovery guarantee survives, relocated
+    ;;     (the `^  r +refile' row, key derived from the live board map).
+    ;;   org-air-r26-3-legend-truth-table-driven — gains the R50-1
+    ;;     not-a-prefix conjunct (every legend key's `key-binding' must
+    ;;     be a command and NOT `keymapp'); the table itself unchanged.
+    ;; NEW R50 EXECUTING ERTs (tests/org-air-round50-test.el; reverting
+    ;; the derived legend / the help buffer FAILS each):
+    ;;   r50-1-board-legend-shows-g-r — live render shows `g r refresh',
+    ;;     neither `\_<g refresh' nor `gr refresh' anywhere;
+    ;;   r50-1-legend-keys-are-commands-not-prefixes — all 6 parsed
+    ;;     board legend cells resolve via `key-binding' to commands,
+    ;;     none `keymapp', none the bare `g' — while bare `g' IS a
+    ;;     prefix map in the same buffer (the mislabel class is real
+    ;;     and would be caught);
+    ;;   r50-1-legend-follows-rebinding — `g r' removed + F5 added ->
+    ;;     a re-render shows `<f5> refresh' (a hardcoded string cannot
+    ;;     follow);
+    ;;   r50-2-help-opens-buffer-from-board — `?' dispatch pops a LIVE
+    ;;     displayed *org-air-help* buffer (org-air-help-mode <
+    ;;     special-mode, read-only) with `g r refresh' + `r refile'
+    ;;     rows — NOT an echo-area line;
+    ;;   r50-2-help-context-aware — project help lists open/flip/group
+    ;;     + refresh at the DIRECT bare `g' (never `g r'); doc-session
+    ;;     help lists the `C-c C-q' back verb + the `C-c C-a' leader
+    ;;     forms, and a customized leader (`C-c C-z') shows the NEW
+    ;;     prefix (rows derive from the live maps);
+    ;;   r50-2-help-q-quits-back — `q' = `quit-window' (the special-mode
+    ;;     PARENT binding), origin window restored;
+    ;;   r50-2-help-knob-gated — knob nil: `?' gone from the board /
+    ;;     project / doc-leader maps, yet M-x org-air-help still renders
+    ;;     the buffer with honest `M-x command-name' cells and a working
+    ;;     parent `q'.
+    ;; No .el SOURCE touched on the test track (impl landed R50-1/R50-2
+    ;; in ptrqsmxv).  Round-50 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

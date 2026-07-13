@@ -165,7 +165,9 @@ never by a row-less phantom.  Data-variation board, GUI glyphs."
 NO row hint any more — the `· r to file' nudge is retired (user: wasteful
 + cryptic; it also broke the row's V6 tag/origin alignment).  The date
 cell is the date label + optional repeat marker ONLY; `r' stays bound to
-the refile verb and `?' help (`r refile') is the single teaching surface."
+the refile verb and `?' help — the R50-2 `*org-air-help*' BUFFER now, not
+an echo-area `message' — is the single teaching surface (the refile
+discovery guarantee relocated into the buffer text)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-alt-dashboard 160
     (let ((found nil))
@@ -185,12 +187,20 @@ the refile verb and `?' help (`r refile') is the single teaching surface."
       ;; discovery lives on the key + help, not the row.
       (should (eq (lookup-key org-air-view-mode-map (kbd "r"))
                   'org-air-refile-item))
-      (let (help)
-        (cl-letf (((symbol-function 'message)
-                   (lambda (fmt &rest args)
-                     (setq help (apply #'format fmt args)))))
-          (org-air-help))
-        (should (string-match-p "r refile" (or help "")))))))
+      ;; R50-2: `?' renders the *org-air-help* buffer (echo line deleted);
+      ;; the refile row is there, key derived from the live board map.
+      (save-window-excursion
+        (unwind-protect
+            (progn
+              (org-air-help)             ; origin = this board buffer
+              (let ((help (get-buffer org-air-help-buffer-name)))
+                (should help)
+                (should (string-match-p
+                         "^  r +refile"
+                         (with-current-buffer help
+                           (substring-no-properties (buffer-string)))))))
+          (when (get-buffer org-air-help-buffer-name)
+            (kill-buffer org-air-help-buffer-name)))))))
 
 ;;;; Consistency invariant (ruling xsqrnoyn): calendar <-> buckets <-> total.
 

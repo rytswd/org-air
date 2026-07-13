@@ -28,5 +28,5 @@
                                                                                       │ ▌ Inspector
                                                                                       │
                                                                                       │ ▌ Actions
-                                                                                      │    c capture / filter   s source
-                                                                                      │    g refresh TAB expand ? help
+                                                                                      │    c capture   / filter   s sou…
+                                                                                      │    g r refresh TAB expand ? help

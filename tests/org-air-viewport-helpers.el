@@ -387,8 +387,13 @@ section headings carry."
      :scheduled "2026-06-22 Mon" :tags ("social"))
     (:file "beta.org" :todo "TODO" :title "Sharpen kitchen knives"
      :deadline "2026-06-11 Thu" :tags ("kitchen"))
+    ;; R54-2: a plain dateless heading with the `:note:' tag types
+    ;; KNOWLEDGE (tag override + the everything-else default) and leaves
+    ;; the GTD board — no bucket row, so :sectionless; it still counts
+    ;; in the loaded/total ground truth and still renders no calendar
+    ;; mark (no dates).
     (:file "beta.org" :title "Reference clipping without dates"
-     :tags ("note"))
+     :tags ("note") :sectionless t)
     (:file "inbox-alt.org" :todo "TODO" :title "Sort the seed packets")
     (:file "inbox-alt.org" :title "Half-formed thought to triage")
     ;; DATED INBOX item — the dual-membership surface (screenshot-3

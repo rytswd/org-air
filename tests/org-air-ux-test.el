@@ -257,14 +257,28 @@ returns from the single-day view to the board, else quits the window."
       (should (memq 'upcoming buckets))
       (should-not (memq 'attention buckets)))))
 
-(ert-deftest org-air-ux-bare-inactive-timestamp-is-activity ()
-  "Bare [inactive] timestamps in the body count as recent activity."
+(ert-deftest org-air-ux-bare-timestamp-stale-signal-is-active-only ()
+  "Bare ACTIVE <ts> stamps are a stale signal; inactive [ts] never are.
+R54-1 retarget of the old \"bare [inactive] timestamps count as
+activity\" contract: an inactive stamp is archival metadata (a CREATED
+drawer, a logbook line), never a task signal — so \"Learn lute\"
+([2025-09-15], nine months quiet) is NOT stale any more, while an
+equally old bare ACTIVE <ts> on a task still is."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
-    ;; [2026-06-13] — two days before the frozen now — is recent.
+    ;; Dateless inbox TODO with a recent [ts]: not stale (and inactive
+    ;; stamps could not make it stale-eligible anyway).
     (should-not (memq 'stale (org-air-ux-test--classify "Triage me later")))
-    ;; [2025-09-15] — nine months before — is stale.
-    (should (memq 'stale (org-air-ux-test--classify "Learn lute")))))
+    ;; [2025-09-15] — nine months before — is INACTIVE: never stale now.
+    (should-not (memq 'stale (org-air-ux-test--classify "Learn lute")))
+    ;; The same age as an ACTIVE <ts> on a scratch task IS stale.
+    (let ((scratch (expand-file-name
+                    "someday.org" (file-name-directory org-air-inbox-file))))
+      (with-temp-buffer
+        (insert "\n* TODO Practice lute for real                     :hobby:\n"
+                "Session logged <2025-09-15 Mon>, an active stamp.\n")
+        (append-to-file (point-min) (point-max) scratch)))
+    (should (memq 'stale (org-air-ux-test--classify "Practice lute for real")))))
 
 (ert-deftest org-air-ux-done-items-have-no-buckets ()
   "DONE items classify into no bucket at all."

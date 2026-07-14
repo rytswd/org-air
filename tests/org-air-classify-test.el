@@ -35,7 +35,8 @@
     (let ((buckets (org-air-classify-test--buckets "Prepare standup notes")))
       (should (listp buckets))
       (dolist (b buckets)
-        (should (memq b '(upcoming stale attention high-priority inbox)))))))
+        (should (memq b '(upcoming stale attention high-priority inbox
+                          notes knowledge journal)))))))
 
 (ert-deftest org-air-classify-upcoming ()
   "An item scheduled for tomorrow is upcoming."
@@ -77,13 +78,39 @@
                        "Low priority cleanup")))))
 
 (ert-deftest org-air-classify-stale ()
-  "Items whose last activity is months old are stale."
+  "DATED items whose last activity is months old are stale (R54-1 retune).
+Staleness is gated on an actionable date now (scheduled / deadline /
+active <ts>), so the two old dateless cases — \"Dust off old archive
+project\" and \"Learn lute\", which carry ONLY inactive [ts] stamps —
+are no longer stale-ELIGIBLE (spec semantics table: inactive-[ts]-only
+=> never Stale).  The positive cases live on DATED scratch items
+appended to the fixture copy: a SCHEDULED two months past and a bare
+active <ts> three months past, both quiet beyond `org-air-stale-days'."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
+    ;; Append the dated-but-quiet items to the SCRATCH copy (the
+    ;; canonical corpus deliberately renders Stale 0 after R54-1).
+    (let ((scratch (expand-file-name
+                    "someday.org" (file-name-directory org-air-inbox-file))))
+      (with-temp-buffer
+        (insert "\n* TODO Revive the archived migration plan       :archive:\n"
+                "SCHEDULED: <2026-04-16 Thu>\n"
+                "Scheduled two months before the frozen now, untouched since.\n"
+                "\n* TODO Lapsed lute practice log                   :hobby:\n"
+                "Last session <2026-03-15 Sun> — an ACTIVE stamp, months quiet.\n")
+        (append-to-file (point-min) (point-max) scratch)))
+    ;; Dated + quiet => stale (the clock is unchanged for dated items).
     (should (memq 'stale
                   (org-air-classify-test--buckets
-                   "Dust off old archive project")))
-    (should (memq 'stale (org-air-classify-test--buckets "Learn lute")))))
+                   "Revive the archived migration plan")))
+    (should (memq 'stale
+                  (org-air-classify-test--buckets
+                   "Lapsed lute practice log")))
+    ;; R54-1 inversion: inactive-[ts]-only items are NEVER stale now.
+    (should-not (memq 'stale
+                      (org-air-classify-test--buckets
+                       "Dust off old archive project")))
+    (should-not (memq 'stale (org-air-classify-test--buckets "Learn lute")))))
 
 (ert-deftest org-air-classify-not-stale-when-active ()
   "An item scheduled in the near future is not stale."

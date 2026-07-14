@@ -69,15 +69,18 @@ also reported as today."
         (should (equal today '(15)))))))
 
 (ert-deftest org-air-data-variation-titles-render ()
-  "Every alt-board title renders; origins are the real generated files.
+  "Every SECTIONED alt-board title renders; origins are the generated files.
 F2's per-title branches are dead for unknown data — the general path
-must carry any board, and no canonical-fixture origin may appear."
+must carry any board, and no canonical-fixture origin may appear.
+R54-2: \"Reference clipping without dates\" (:note: tag, no dates) types
+KNOWLEDGE and leaves the board, so it is :sectionless now — excluded
+from the sweep (it still counts in the summary total ground truth)."
   (skip-unless (locate-library "org-air"))
   ;; Lift section truncation so every item row is visible.  Render WIDE
   ;; (160): R15 D-P1's reserved keyword cell shifts keyword-less titles
-  ;; right to the common left edge, so the longest keyword-less title
-  ;; ("Reference clipping without dates") truncates at the old W120 — the
-  ;; assertion is "every title renders", so render wide enough to show it.
+  ;; right to the common left edge, so long keyword-less titles truncate
+  ;; at the old W120 — the assertion is "every title renders", so render
+  ;; wide enough to show them.
   (let ((org-air-section-max 100)
         (org-air-show-origin t)) ; R30-3: this ERT pins the real generated-file origins
    (org-air-viewport-test-as-gui

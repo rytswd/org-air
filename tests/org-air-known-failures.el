@@ -1571,43 +1571,60 @@
     ;;   the lost rows.  Verified against the live renderer: the diff is
     ;;   EXACTLY those sections (banner/inbox/upcoming/high-priority
     ;;   contents otherwise identical modulo column reflow).
-    (org-air-classify-stale
-     . "R54-1: 'Dust off'/'Learn lute' carry ONLY inactive [ts] — not
-stale-eligible any more (spec semantics table: inactive-[ts]-only =>
-never Stale).  Test seat retunes the stale cases to DATED items
-(SCHEDULED/active <ts> in the past).")
-    (org-air-ux-bare-inactive-timestamp-is-activity
-     . "R54-1: the 'nine months quiet [ts] => stale' half asserts the
-OLD inactive-counts-as-eligible behaviour; inactive stamps are archival
-metadata, never a task signal now.  Retarget to an active <ts>.")
-    (org-air-data-variation-titles-render
-     . "R54-2: alt-board 'Reference clipping without dates' (plain
-heading, :note: tag) types knowledge and leaves the board; the
-every-title-renders sweep needs the knowledge row exempted or the item
-retyped (xsqrnoyn no-date attention ERTs retarget to TODO items).")
-    (org-air-layout-mockup-80
-     . "R54 golden churn: Stale 2 -> 0, attention 8 -> 7 (see flag
-above); re-bless via make regen-mockups.")
-    (org-air-layout-mockup-120
-     . "R54 golden churn: Stale 2 -> 0, attention 8 -> 7; re-bless via
-make regen-mockups.")
-    (org-air-layout-mockup-160
-     . "R54 golden churn: Stale 2 -> 0, attention 8 -> 7; re-bless via
-make regen-mockups.")
-    (org-air-layout-mockup-heights
-     . "R54 golden churn (x24/x50 tiers): Stale 2 -> 0, attention 8 -> 7;
-re-bless via make regen-mockups.")
-    (org-air-layout-mockup-thresholds
-     . "R54 golden churn (all width tiers): Stale 2 -> 0, attention
-8 -> 7; re-bless via make regen-mockups.")
-    (org-air-r13-board-only-byte-mockup
-     . "R54 golden churn (board-only golden): Stale 2 -> 0, attention
-8 -> 7; re-bless via make regen-mockups.")
-    (org-air-r49-5-batch-placement-blind
-     . "R54 golden churn: asserts the 120-col board golden byte-match,
-which moves with the Stale/attention rows; green again once the mockups
-are re-blessed.")
+    ;;
+    ;; 2026-07-15: ROUND-54 part 1 CLOSEOUT (test re-bless <this
+    ;; commit>).  ALL 10 grind entries CLOSED — the 25 board goldens
+    ;; regenerated from impl's render via the FROZEN-CLOCK renderer
+    ;; (make clean FIRST — the R48/R51/R53 stale-.elc lesson bit again:
+    ;; the first regen ran pre-R54 bytecode and moved NOTHING — then
+    ;; make regen-mockups, anti-tautology guards active; verified NO
+    ;; HANG, exit 0).  AUDIT: jj diff = ONLY the 25 layout-mockup-*
+    ;; goldens; the delta is EXACTLY the flagged R54 semantics — Stale
+    ;; 2 -> 0 ("Dust off old archive project" + "Learn lute", inactive-
+    ;; [ts]-only, now render as dateless-TODO `no date' Attention rows;
+    ;; the Stale section shows its empty message), Needs attention
+    ;; 8 -> 7 ("Reference notes without a todo state" types knowledge
+    ;; via the :note: tag and is ABSENT from every golden), the date
+    ;; column narrows 2 cols (the widest `∙ Nd quiet' cells left) and
+    ;; the folds/summary counts follow (23 loaded/total unchanged —
+    ;; knowledge items stay counted, just not board-sectioned).  The
+    ;; project / entry-view / denote-origin / empty goldens are
+    ;; byte-identical.  org-air-r49-5-batch-placement-blind +
+    ;; org-air-r13-board-only-byte-mockup + the 5 mockup suites went
+    ;; green on the regen alone.  The 3 assertion ERTs re-blessed to the
+    ;; R54 contracts on the test track:
+    ;;   org-air-classify-stale — retuned to DATED items (a SCHEDULED
+    ;;     two months past + a bare active <ts> three months past,
+    ;;     appended to the SCRATCH fixture copy — the canonical corpus
+    ;;     deliberately renders Stale 0 now) + the R54-1 inversion
+    ;;     (inactive-[ts]-only fixtures never stale).
+    ;;   org-air-ux-bare-inactive-timestamp-is-activity — retargeted +
+    ;;     RENAMED org-air-ux-bare-timestamp-stale-signal-is-active-only:
+    ;;     inactive stamps are archival metadata ("Learn lute" NOT
+    ;;     stale); an equally old ACTIVE <ts> on a scratch task IS.
+    ;;   org-air-data-variation-titles-render — the alt-board knowledge
+    ;;     row (:note: tag) marked :sectionless (off the board per
+    ;;     R54-2; still in the summary-total ground truth, which stays
+    ;;     green at 8).
+    ;; NEW R54 executing ERTs (tests/org-air-round54-test.el, all
+    ;; batch, revert-of-each-fails): r54-1a dateless prose never Stale
+    ;; (legacy 'task knob isolates the GATE), r54-1b dateless TODO =>
+    ;; Attention only, r54-1c scheduled/deadline/active-<ts> quiet =>
+    ;; Stale + fresh-dated guard, r54-1d inactive CREATED drawer =>
+    ;; never Stale (active-ts nil, subtree-ts filled — the probes stay
+    ;; distinct), r54-1e eligibility is the FIRST conjunct (ineligible
+    ;; items never consult `--last-activity'; the clock still answers
+    ;; mtime — unchanged), r54-1f `--marker-active-ts' live fallback
+    ;; (active answers, inactive nil, cons markers nil — data-pure),
+    ;; r54-2g type derivation table, r54-2h board shows TASKS only +
+    ;; inbox bypass, r54-2i property/keyword/tag overrides both
+    ;; directions + invalid-value fall-through, r54-2j denote READ
+    ;; fallbacks (slug/__tags/ID->:created) with (featurep 'denote)
+    ;; asserted nil.  No .el SOURCE touched (impl landed R54-1/R54-2 in
+    ;; uyrtyuqnlvlo).  Round-54 part 1 manifest is EMPTY; the tests
+    ;; stay as permanent regression guards.
     ;; =================================================================
+    ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

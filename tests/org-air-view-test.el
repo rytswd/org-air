@@ -69,7 +69,7 @@ running on any wall-clock day buckets items identically."
       ;; One representative per bucket.
       (should (string-match-p "Prepare standup notes" text))      ; upcoming
       (should (string-match-p "Fix production outage runbook" text)) ; attention
-      (should (string-match-p "Dust off old archive project" text)) ; stale
+      (should (string-match-p "Dust off old archive project" text)) ; attention (dateless; R54-1: never stale)
       (should (string-match-p "Ship quarterly report" text)))))   ; high-prio
 
 (ert-deftest org-air-view-item-lines-have-faces ()

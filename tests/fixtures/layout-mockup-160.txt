@@ -6,28 +6,27 @@
              Call plumber                                                                     #inbox                │             1   2   3   4   5   6
       TODO   Triage me later                                                                  #inbox                │         7   8●  9  10◆ 11  12◆ 13
                                                                                                                     │        14  15◆ 16◆ 17◆ 18● 19◆ 20●
-  ▲ Needs attention 8                                                                                               │        21  22  23  24  25  26  27
-      TODO   Chase missing invoice                                            OVERDUE 7d      #projects   #admin    │        28  29  30
-      TODO ■ Fix production outage runbook                                    OVERDUE 5d      #projects   #work  …  │
-      TODO   Book dentist appointment                                         OVERDUE 3d      #personal   #health   │        ◆ due    ● sched    ∙ created
-      TODO   Dust off old archive project                                     no date         #projects   #archive  │
-      TODO   Untracked idea with no dates                                     no date         #projects   #someday  │ ▌ Filter
-             Reference notes without a todo state                             no date         #projects   #note     │    none
-      …and 2 more — press TAB on the title to expand                                                                │ ▌ Source
+  ▲ Needs attention 7                                                                                               │        21  22  23  24  25  26  27
+      TODO   Chase missing invoice                                              OVERDUE 7d    #projects   #admin    │        28  29  30
+      TODO ■ Fix production outage runbook                                      OVERDUE 5d    #projects   #work  …  │
+      TODO   Book dentist appointment                                           OVERDUE 3d    #personal   #health   │        ◆ due    ● sched    ∙ created
+      TODO   Dust off old archive project                                       no date       #projects   #archive  │
+      TODO   Untracked idea with no dates                                       no date       #projects   #someday  │ ▌ Filter
+      TODO   Learn lute                                                         no date       #someday   #hobby     │    none
+      …and 1 more — press TAB on the title to expand                                                                │ ▌ Source
                                                                                                                     │    all items ∙ 23 loaded
   ◆ Upcoming 8                                                                                                      │
-      TODO   Renew library card                                               Today           #personal   #admin    │ ▌ Summary
-      TODO   Water the garden                                                 Today           #projects   #home     │      3   Inbox
-      TODO ■ Prep client presentation                                         Tomorrow        #work   #client       │      8   Needs attention
-      TODO   Prepare standup notes                                            Tomorrow        #projects   #work     │      8   Upcoming
-      TODO   Email finance about budget                                       Tomorrow        #work                 │      3   High priority
-      …and 3 more — press TAB on the title to expand                                                                │      2   Stale
+      TODO   Renew library card                                                 Today         #personal   #admin    │ ▌ Summary
+      TODO   Water the garden                                                   Today         #projects   #home     │      3   Inbox
+      TODO ■ Prep client presentation                                           Tomorrow      #work   #client       │      7   Needs attention
+      TODO   Prepare standup notes                                              Tomorrow      #projects   #work     │      8   Upcoming
+      TODO   Email finance about budget                                         Tomorrow      #work                 │      3   High priority
+      …and 3 more — press TAB on the title to expand                                                                │      0   Stale
                                                                                                                     │    ────
   ★ High priority 3                                                                                                 │     23   total
-      TODO ■ Ship quarterly report                                            Wed             #projects   #work  …  │
-      TODO ■ Fix production outage runbook                                    OVERDUE 5d      #projects   #work  …  │ ▌ Inspector
-      TODO ■ Prep client presentation                                         Tomorrow        #work   #client       │
+      TODO ■ Ship quarterly report                                              Wed           #projects   #work  …  │
+      TODO ■ Fix production outage runbook                                      OVERDUE 5d    #projects   #work  …  │ ▌ Inspector
+      TODO ■ Prep client presentation                                           Tomorrow      #work   #client       │
                                                                                                                     │ ▌ Actions
-  ○ Stale 2                                                                                                         │    c capture      / filter      s source
-      TODO   Dust off old archive project                                     ∙ 225d quiet    #projects   #archive  │    g r refresh    TAB expand    ? help
-      TODO   Learn lute                                                       ∙ 273d quiet    #someday   #hobby     │
+  ○ Stale 0                                                                                                         │    c capture      / filter      s source
+      Nothing has gone stale.                                                                                       │    g r refresh    TAB expand    ? help

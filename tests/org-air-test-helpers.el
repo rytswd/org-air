@@ -13,8 +13,11 @@
 ;;                 "Email finance about budget"     SCHEDULED 2026-06-16
 ;;   overdue       "Fix production outage runbook"  DEADLINE  2026-06-10
 ;;                 "Book dentist appointment"       DEADLINE  2026-06-12
-;;   stale         "Dust off old archive project"   last activity 2025-11-02
-;;                 "Learn lute"                     last activity 2025-09-15
+;;   dateless      "Dust off old archive project"   created [2025-11-02]
+;;                 "Learn lute"                     created [2025-09-15]
+;;                 (R54-1: inactive-[ts]-only, so NEVER stale now — the
+;;                 corpus renders Stale 0; stale tests append their own
+;;                 dated scratch items)
 ;;   no schedule   "Untracked idea with no dates"
 ;;   high priority "Ship quarterly report" / "Fix production outage
 ;;                 runbook" / "Prep client presentation"  ([#A])

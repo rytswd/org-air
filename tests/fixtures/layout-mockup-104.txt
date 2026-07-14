@@ -2,32 +2,31 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 3                                                               │ ▌ June 2026              ‹ ›
-             Quick note about org-ai…                  #inbox             │     Su Mo Tu We Th Fr Sa
-             Call plumber                              #inbox             │         1  2  3  4  5  6
-      TODO   Triage me later                           #inbox             │      7  8● 9 10◆11 12◆13
+             Quick note about org-ai…                #inbox               │     Su Mo Tu We Th Fr Sa
+             Call plumber                            #inbox               │         1  2  3  4  5  6
+      TODO   Triage me later                         #inbox               │      7  8● 9 10◆11 12◆13
                                                                           │     14 15◆16◆17◆18●19◆20●
-  ▲ Needs attention 8                                                     │     21 22 23 24 25 26 27
-      TODO   Chase missing invoice     OVERDUE 7d      #projects   #admi… │     28 29 30
-      TODO ■ Fix production outage r…  OVERDUE 5d      #projects   #work… │
-      TODO   Book dentist appointment  OVERDUE 3d      #personal   #heal… │     ◆ due    ● sched
-      TODO   Dust off old archive pr…  no date         #projects   #arch… │
-      TODO   Untracked idea with no …  no date         #projects   #some… │ ▌ Filter
-             Reference notes without…  no date         #projects   #note  │  none
-      …and 2 more — press TAB on the title to expand                      │ ▌ Source
+  ▲ Needs attention 7                                                     │     21 22 23 24 25 26 27
+      TODO   Chase missing invoice     OVERDUE 7d    #projects   #admin   │     28 29 30
+      TODO ■ Fix production outage r…  OVERDUE 5d    #projects   #work  … │
+      TODO   Book dentist appointment  OVERDUE 3d    #personal   #health  │     ◆ due    ● sched
+      TODO   Dust off old archive pr…  no date       #projects   #archiv… │
+      TODO   Untracked idea with no …  no date       #projects   #someda… │ ▌ Filter
+      TODO   Learn lute                no date       #someday   #hobby    │  none
+      …and 1 more — press TAB on the title to expand                      │ ▌ Source
                                                                           │  all items ∙ 23 loaded
   ◆ Upcoming 8                                                            │
-      TODO   Renew library card        Today           #personal   #admi… │ ▌ Summary
-      TODO   Water the garden          Today           #projects   #home  │    3   Inbox
-      TODO ■ Prep client presentation  Tomorrow        #work   #client    │    8   Needs attention
-      TODO   Prepare standup notes     Tomorrow        #projects   #work  │    8   Upcoming
-      TODO   Email finance about bud…  Tomorrow        #work              │    3   High priority
-      …and 3 more — press TAB on the title to expand                      │    2   Stale
+      TODO   Renew library card        Today         #personal   #admin   │ ▌ Summary
+      TODO   Water the garden          Today         #projects   #home    │    3   Inbox
+      TODO ■ Prep client presentation  Tomorrow      #work   #client      │    7   Needs attention
+      TODO   Prepare standup notes     Tomorrow      #projects   #work    │    8   Upcoming
+      TODO   Email finance about bud…  Tomorrow      #work                │    3   High priority
+      …and 3 more — press TAB on the title to expand                      │    0   Stale
                                                                           │  ────
   ★ High priority 3                                                       │   23   total
-      TODO ■ Ship quarterly report     Wed             #projects   #work… │
-      TODO ■ Fix production outage r…  OVERDUE 5d      #projects   #work… │ ▌ Inspector
-      TODO ■ Prep client presentation  Tomorrow        #work   #client    │
+      TODO ■ Ship quarterly report     Wed           #projects   #work  … │
+      TODO ■ Fix production outage r…  OVERDUE 5d    #projects   #work  … │ ▌ Inspector
+      TODO ■ Prep client presentation  Tomorrow      #work   #client      │
                                                                           │ ▌ Actions
-  ○ Stale 2                                                               │  c capture   / filter   s s…
-      TODO   Dust off old archive pr…  ∙ 225d quiet    #projects   #arch… │  g r refresh TAB expand ? h…
-      TODO   Learn lute                ∙ 273d quiet    #someday   #hobby  │
+  ○ Stale 0                                                               │  c capture   / filter   s s…
+      Nothing has gone stale.                                             │  g r refresh TAB expand ? h…

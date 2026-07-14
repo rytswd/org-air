@@ -1696,6 +1696,74 @@
     ;; expected-fail entries — the R54-3 ERT seams (r54-3a..3f, r54-2e
     ;; link graph, r54-3d ledger, r54-x cache) are the test seat's to
     ;; write against this impl.
+    ;;
+    ;; =================================================================
+    ;; 2026-07-15: ROUND-54 part 2 CLOSEOUT (impl tip rszwspyuorst/
+    ;; 61bca936 + test seat <this commit>).  The impl's churn flag above
+    ;; is CLOSED — the R54-3 surface is byte-invisible on every
+    ;; committed golden and self-blessing:
+    ;;   • `make clean && make regen-mockups' (FROZEN-CLOCK renderer,
+    ;;     anti-tautology guards active; NO HANG, exit 0) verified ZERO
+    ;;     fixture churn — jj diff = 0 files changed.  The board Notes
+    ;;     count-row's RET doorway and the `N' key are text-property /
+    ;;     keymap concerns (`buffer-substring-no-properties' captures
+    ;;     never see them), no committed golden renders a Notes section
+    ;;     (re-verified: no fixture .txt contains "Notes"), and the
+    ;;     board rail Actions legend table is UNCHANGED (`N' surfaces
+    ;;     in the R50-2 help groups, not in a byte golden).  No legacy
+    ;;     assertion pinned the pre-R54-3 shape — nothing re-blessed.
+    ;; NEW R54-3 EXECUTING ERTs (tests/org-air-round54c-test.el, all
+    ;; batch/headless through the REAL entry point + real key dispatch;
+    ;; ALL 7 verified REVERT-FAIL against the pre-impl trunk
+    ;; zyytqtyzoqlp in a scratch workspace):
+    ;;   r54c-3a knowledge-only scope — headed AND headingless
+    ;;     knowledge files render one row per FILE while task/journal
+    ;;     files stay OFF the surface despite sitting in the same
+    ;;     file-meta table (anti-tautology); RET opens the note at its
+    ;;     top (the (FILE . POS 1) cons path).
+    ;;   r54c-3b default sort dustiest-first — the shared R22-3 spec
+    ;;     seeds (age . ascending) and rows render strict oldest-mtime
+    ;;     first; corpus mtimes deliberately NOT in name order.
+    ;;   r54c-3c visit ledger — DEFAULT nil: the revisit RET open
+    ;;     records NOTHING, age stays pure mtime (D2); knob t: the same
+    ;;     RET (and the board `org-air-visit-item' path) records + age
+    ;;     shifts to max(mtime, visit) with the visited note re-sorting
+    ;;     to the bottom while the mtime stays old; the ledger
+    ;;     roundtrips through the cache `:visits' with ZERO rescans
+    ;;     (spy on `org-air-query-items') and is BOUNDED — the
+    ;;     write-time prune drops a vanished file's entry and the
+    ;;     hydrated ledger never exceeds the enumerated file count.
+    ;;   r54c-3d orphans over the link graph — denote:/id:/file: links
+    ;;     each resolve to FILES (https: noise never enters), the
+    ;;     `:links-in' inversion counts exactly, `m'-cycled ORPHANS
+    ;;     shows the disconnected notes ONLY under the default rule,
+    ;;     and 'no-outbound/'either follow the knob.
+    ;;   r54c-3e spaced rotation — exactly K=5 rows, NO fold row,
+    ;;     stable across re-renders on a pinned day, rotating on day+1,
+    ;;     covering the 15-note scope exactly once over the 3-day
+    ;;     partition (frozen `current-time').
+    ;;   r54c-3f entry points, knob-gated — real dispatch on a live
+    ;;     rendered board: RET on the Notes section HEADING runs
+    ;;     `org-air-revisit' and never the pane, RET on an ITEM row
+    ;;     keeps the pane and never Revisit (counter stubs pin BOTH
+    ;;     directions of the F4 doorway); `N' resolves + dispatches
+    ;;     from the board AND the project maps; with the R35-1 knob
+    ;;     nil every one of those keys is gone.
+    ;;   r54c-3g data-pure + bounded — a 300-entry SYNTHETIC file-meta
+    ;;     table (paths that do NOT exist) renders exactly the 200-row
+    ;;     page + the `…and 100 more' fold row, TAB extends ONE page,
+    ;;     and the whole build + paging runs `find-file-noselect' /
+    ;;     `find-file' ZERO times with the visible buffer list grown by
+    ;;     nothing but the revisit buffer.
+    ;; OBSERVATION flagged (no gate impact, mirrors the open F4 count
+    ;; question): an inbox file with NO task headings types 'knowledge
+    ;; at the FILE level (`--file-ntype' has no inbox special case), so
+    ;; an empty inbox would surface as a Revisit row; the corpora here
+    ;; give the inbox a TODO capture (the realistic shape).  One
+    ;; predicate in `org-air-revisit--scope-entries' if design rules it
+    ;; out.  No .el SOURCE touched on the test track (impl landed R54-3
+    ;; in rszwspyuorst).  Round-54 part 2 manifest is EMPTY; the tests
+    ;; stay as permanent regression guards.
     ;; =================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )

@@ -41,6 +41,8 @@
 (require 'org-air-query)
 (require 'org-air-view)
 
+(defvar org-air-inbox-file)
+
 ;;;; ---------------------------------------------------------------------
 ;;;; Knobs
 ;;;; ---------------------------------------------------------------------
@@ -141,11 +143,21 @@ Toggled by `z c' (the columns-prefix convention).")
   "Return the revisit-scope entries (FILE . META), file-name ordered.
 The scope is every file-meta entry whose `:ntype' is in
 `org-air-revisit-types' — ONE row per FILE (the denote unit), never per
-heading.  File-name order is the deterministic base the sorts and the
-SPACED rotation build on."
+heading — EXCEPT `org-air-inbox-file': the inbox is a triage queue with
+its own surface (the Inbox bucket + capture flow), not an evergreen, so
+excluding it is view policy at the scope seat (`:ntype' stays
+content-derived), mirroring the board's Notes bucket.  The comparison
+rides the MEMOISED `org-air-classify--truename' — a hash lookup per
+entry, never a `file-truename' walk.  File-name order is the
+deterministic base the sorts and the SPACED rotation build on."
   (let (out)
     (maphash (lambda (file meta)
-               (when (memq (plist-get meta :ntype) org-air-revisit-types)
+               (when (and (memq (plist-get meta :ntype) org-air-revisit-types)
+                          (not (and (boundp 'org-air-inbox-file)
+                                    org-air-inbox-file
+                                    (equal (org-air-classify--truename file)
+                                           (org-air-classify--truename
+                                            org-air-inbox-file)))))
                  (push (cons file meta) out)))
              org-air-query--file-meta)
     (sort out (lambda (a b) (string-lessp (car a) (car b))))))

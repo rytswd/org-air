@@ -7242,9 +7242,12 @@ per-file `:file-meta' table.  R54-3 (still v4, the declared one-bump
 shape): the file-meta plists gained the link-graph keys
 \(:ids/:links-raw/:links-out/:links-in) and the cache the `:visits'
 ledger — both were declared part of the v4 shape when R54 part 1
-landed, so a part-1 v4 cache still hydrates cleanly (empty ledger;
-link-unknown metas re-fill on the next scan).  A v3 cache is simply a
-cold miss — skeleton + paced rescan, never a hang.")
+landed, so a part-1 v4 cache still hydrates cleanly: empty ledger, and
+link-less metas are SKIPPED by `org-air-query-file-meta-hydrate' (they
+would read as false all-orphans and get re-persisted by a warm cache
+write), so the file-meta table starts empty and re-fills via the paced
+scan.  A v3 cache is simply a cold miss — skeleton + paced rescan,
+never a hang.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.

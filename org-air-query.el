@@ -539,9 +539,15 @@ data-pure with no resolution pass."
     (nreverse out)))
 
 (defun org-air-query-file-meta-hydrate (alist)
-  "Hydrate the file-meta table (and denote index) from cache ALIST (R54-2)."
+  "Hydrate the file-meta table (and denote index) from cache ALIST (R54-2).
+R54-3: metas lacking the link shape (`:links-out') are skipped — a
+part-1 v4 cache would otherwise hydrate link-less metas that read as
+ALL-orphans and, worse, get re-persisted by the next warm cache write.
+Skipping them hydrates an empty file-meta table instead: Revisit's
+ensure-data paces a fill (correct, never-hang); the board is untouched
+since items hydrate separately."
   (pcase-dolist (`(,file . ,meta) alist)
-    (when (and (stringp file) (listp meta))
+    (when (and (stringp file) (listp meta) (plist-member meta :links-out))
       (puthash file meta org-air-query--file-meta)
       (org-air-query--index-denote-id file))))
 
@@ -585,10 +591,13 @@ never persist."
     (nreverse out)))
 
 (defun org-air-query-visits-hydrate (alist)
-  "Hydrate the visit ledger from cache ALIST (R54-3)."
+  "Hydrate the visit ledger from cache ALIST (R54-3).
+An in-session visit newer than the cached epoch wins (`max') — a cache
+read must never clobber a fresher visit with a staler one."
   (pcase-dolist (`(,file . ,time) alist)
     (when (and (stringp file) (numberp time))
-      (puthash file time org-air-query--visits))))
+      (puthash file (max time (or (gethash file org-air-query--visits) 0.0))
+               org-air-query--visits))))
 
 (defun org-air-query--denote-resolve (id)
   "Resolve denote identifier ID to a configured file, or nil (R54-2).

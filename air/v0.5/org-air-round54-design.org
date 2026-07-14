@@ -1,0 +1,665 @@
+#+title: org-air Round 54 — Staleness only for dated items, the note-type model (task/knowledge/journal), and the Revisit view
+#+state: ready
+#+tags: staleness classify note-types knowledge denote journal revisit evergreen board
+
+* Summary
+
+A real user runs org-air over a LARGE MIXED corpus: knowledge notes (kept
+with denote today — =.org= files with ID-filenames, =#+title= and
+=#+filetags=) and tasks (plain org files with TODO keywords and
+scheduled/deadline dates), all under the same =org-air-files= roots.
+Three linked asks this round — a fix, a model, and a view:
+
+- *R54-1 (MUST-SHIP)* — 'Stale' currently fires by quiet-time alone
+  (=org-air-stale-days= against a clock that bottoms out at file mtime),
+  so every dateless knowledge note goes Stale after 21 quiet days and
+  floods the board.  Fix: an item is Stale-ELIGIBLE only when it carries
+  an actionable DATE (scheduled / deadline / active timestamp); no date ⇒
+  not a task ⇒ never Stale.  Ships independently of the rest.
+- *R54-2* — a NOTE-TYPE model: every item derives a type from CONTENT
+  (org-ql scan signals, no manual tagging required) — =task= (TODO
+  keyword or scheduled/deadline; USER-RULED via crosstalk), =knowledge=
+  (everything else — prose+links+tags, no actionable marker), with
+  =journal= (date-titled/daily heuristic) a FLAVOUR of note, never
+  required — plus an OPTIONAL override tag/keyword for when the heuristic
+  guesses wrong.  The GTD board shows TASKS (with R54-1 staleness);
+  KNOWLEDGE stays OUT of the board.  Includes the denote-compat analysis
+  and a clear recommendation.
+- *R54-3* — a 'Revisit' (evergreen notes) view: ONE view surfacing
+  KNOWLEDGE notes by attention-age, dustiest (oldest last-modified) on
+  top by default, with two in-view TOGGLE modes (USER-RULED): ORPHANS
+  (notes nothing links to / that link nowhere) and SPACED (a small
+  deterministic daily handful — notes-garden grazing).  Bounded and paged
+  at 5000+ files, data-pure render (zero per-row file opens), respecting
+  every R53 never-hang law.
+
+SPEC ONLY: no =.el= or test edits in this change.  org-ql stays the only
+query engine throughout — R54 adds scan-time SIGNALS inside the existing
+single R53 work-buffer pass and pure classification over them; it never
+adds a second query path.  Base assumption: R53 impl + test
+(=krklystwqlmo=) and the R53fix =subtree-ts= slot / cache v3
+(=lsyqxnwrsptn=) are in; line references below are against that tip.
+
+* Investigation
+
+** R54-1 root cause — the stale clock cannot say "no"
+
+=org-air-classify--heading-buckets= (org-air-classify.el ~180-186):
+
+#+begin_example
+(when-let* ((activity (org-air-classify--last-activity item)))
+  (when (>= (org-air-classify--days-between activity now) org-air-stale-days)
+    (push 'stale buckets)))
+#+end_example
+
+Stale is pure quiet-time: ANY activity value ≥ =org-air-stale-days= old
+qualifies.  =org-air-classify--last-activity= (~128) answers from the R53
+=activity= slot, whose scan-time chain (=org-air-query--item-at-point=,
+org-air-query.el ~207) is closed ‖ scheduled ‖ deadline ‖ first subtree
+timestamp ‖ *file mtime*.  The chain never returns nil for a scanned item
+— a dateless prose note ALWAYS lands on the mtime fallback, so every
+knowledge note untouched for 21 days classifies Stale.  At a 5000-note
+corpus that is the whole KB, i.e. the reported flood.
+
+Two aggravations found while probing:
+
+1. The subtree probe matches =org-ts-regexp-both= — an INACTIVE stamp
+   (=[2024-05-01]= in a =:CREATED:= drawer, a logbook line, denote-style
+   date notes) counts as "activity" too, so even non-mtime items go Stale
+   off archival metadata that was never a task signal.
+2. The same dateless notes ALSO flood 'Needs attention' via the no-date
+   attention default (the xsqrnoyn ruling: =(and (null scheduled) (null
+   deadline) (not inbox-p))= ⇒ attention).  That is board-membership, not
+   staleness — R54-2's fix.  R54-1 keeps its must-ship scope to the Stale
+   gate so it can land alone.
+
+The bug predates R53 (the old =--last-activity= chain had the same mtime
+fallback); R53's never-hang work merely let a 5000-note corpus actually
+finish scanning and show it.
+
+** R54-2 — today's model knows shape, not meaning
+
+- =org-air-item-kind= (R53) distinguishes ='heading= from ='file=
+  (headingless note file-items → the 'notes bucket).  A HEADED knowledge
+  note — most denote notes with sections — produces ordinary heading
+  items that get the full task treatment: attention by default, Stale by
+  mtime, refile/TODO verbs offered.  Shape ≠ meaning.
+- Denote-awareness already exists but display-only (F1):
+  =org-air-view--denote-id-regexp= / =--denote-title= (org-air-view.el
+  ~1798) de-machine the origin column; =--org-file-title= reads =#+title=
+  with a bounded 4 KB =insert-file-contents= PER ROW when
+  =org-air-origin-style= is ='title-from-org= — a per-row file read that
+  survived R53 because it is opt-in/non-default.  R54-2's file-meta table
+  retires it.
+- Tag plumbing is already sufficient for overrides: the scan work buffer
+  runs =org-set-regexps-and-options=, and =org-get-tags= (LOCAL nil)
+  inherits =#+filetags= via =org-file-tags= under the default
+  =org-use-tag-inheritance= — a file-level override tag reaches every
+  heading item with zero new mechanics.
+
+** R54-3 — nothing surfaces dusty knowledge
+
+The board's Notes section (R53 P3) is recency-FIRST (most recent
+=activity=, preview 50) — the exact opposite of "resurface what I have
+not touched"; and it only holds HEADINGLESS files.  Stale cannot serve as
+the resurfacing surface because R54-1 removes dateless notes from Stale
+by design.  The struct's only neglect signal is mtime (the =activity=
+fallback); "last visited" exists nowhere — file atime is untrustworthy
+(relatime mounts), so a visit signal must be org-air's own ledger.
+
+** Denote compatibility analysis
+
+What denote leaves on disk (all conventions, no runtime needed to READ):
+
+| Artifact        | Form                                                    |
+|-----------------+---------------------------------------------------------|
+| File name       | =YYYYMMDDTHHMMSS[==sig]--title-slug[__tag_tag].org=     |
+| Identifier      | the leading =YYYYMMDDTHHMMSS= (also =#+identifier:=)    |
+| Front matter    | =#+title:=, =#+date:=, =#+filetags:= (colon-separated)  |
+| Links           | =denote:ID= org link type, resolved by filename search  |
+| Journal         | (denote-journal) keyword tag =journal=, date-form titles |
+
+What org-air needs in order to read denote IDs/tags — almost nothing new:
+
+1. *ID / created date*: one anchored regexp on the file NAME (promote the
+   view's F1 =org-air-view--denote-id-regexp= into the query layer,
+   loosened to not require the =--= so date-only journal names match) →
+   parse =YYYYMMDDTHHMMSS= with =encode-time= → file-meta =:created=.
+2. *Tags*: =#+filetags= is already parsed for file-items (R53 P3) and
+   inherited onto heading items by Org itself; the filename =__tag= field
+   is only a FALLBACK for files missing front matter (denote keeps the
+   two in sync, so this is rare).
+3. *Title*: =#+title= already parsed for file-items; the file-meta table
+   (R54-2) generalises it to every file, replacing the per-row F1 read.
+
+Can org-id replace denote's stable-link role?  Functionally yes for NEW
+links — =id:= links even work at heading granularity, which denote's
+file-granular IDs cannot.  But: (a) the user's EXISTING =denote:ID= links
+break in a denote-less Emacs (the link type is registered by denote);
+(b) org-id resolution leans on the =org-id-locations= DB, which needs
+(re)building and can go stale at 5000 files, whereas denote's ID lives in
+the filename and survives moves with no DB; (c) heading-level IDs mean
+=:PROPERTIES:= drawers accreting into calm prose notes.  org-air can
+close (a) cheaply: register a read-only =denote:= follower ONLY when one
+is not already registered (=org-link-get-parameter=), resolving ID → file
+against the already-enumerated file list / file-meta index (an O(1) hash
+hit, ~20 lines, no denote require).
+
+*Recommendation* (asked plainly: can org-air subsume denote for this
+user?): org-air SHOULD subsume denote's *reading and surfacing* role —
+the R54-2 scan reads IDs/titles/tags from pure file conventions, the
+board and Revisit view replace dired-based browsing, and the =denote:=
+shim keeps every existing link alive with denote uninstalled.  org-air
+should NOT try to subsume denote's *authoring* role: creating notes with
+correct ID-filenames + front matter, renaming with filename↔front-matter
+sync, link insertion with completion, and the backlinks buffer are
+denote's real value and out of org-air's calm-viewer scope.  Gained by
+dropping denote: one fewer package, no behaviour change in org-air.
+Lost: the authoring verbs above.  So: keep denote OPTIONAL and
+recommended for authoring; org-air must depend only on the on-disk
+conventions and function fully (types, revisit, links-shim) without
+denote loaded.  Nothing in R54 calls a =denote-*= function.
+
+* User decisions (crosstalk) — RECEIVED and folded
+
+Both rulings landed via crosstalk during design and are folded throughout
+(the affected clauses are marked USER-RULED):
+
+- *D1 task-signal (RULED)*: a note is a TASK iff it has a TODO keyword OR
+  a scheduled/deadline — nothing else; everything else is a KNOWLEDGE
+  note.  Fully AUTOMATIC, zero manual tagging required.  An OPTIONAL
+  override (=:task:= / =:note:= tag, =#+type:= keyword, =ORG_AIR_TYPE=
+  property) exists for when the heuristic guesses wrong.  JOURNAL stays a
+  sub-heuristic (date-titled/daily) — a FLAVOUR of note, never required.
+  Accepted consequences: a bare active =<ts>= does not type a task, so a
+  knowledge note carrying a future =<date>= does not appear in Upcoming
+  or on the calendar rail (it is not board material); R54-1's Stale
+  ELIGIBILITY still honours active timestamps, which is observable only
+  on typed tasks.
+- *D2 revisit-surfacing (RULED)*: ONE view; DEFAULT sort = oldest
+  last-modified first (dustiest on top).  Two TOGGLE modes inside the
+  same view, cycled on a key: *ORPHANS* (notes nothing links to / that
+  link nowhere) and *SPACED* (a small rotating handful per day — the
+  notes-garden graze).  Both are sort/filter modes of the single Revisit
+  view, bounded/paged and data-pure per R53.  The ruling names
+  LAST-MODIFIED as the default signal, so the draft's visit ledger
+  demotes to an OPT-IN knob (=org-air-revisit-visit-ledger=, default
+  nil): age is pure mtime out of the box; flipping the knob folds
+  org-air-recorded visits into the age with no other change.
+
+* Proposal
+
+** R54-1 — Stale only for dated items (MUST-SHIP, lands alone)
+
+New scan-time signal + a pure eligibility gate; the stale CLOCK is
+untouched so every dated item classifies byte-identically to today.
+
+- New =org-air-item= slot =active-ts=: epoch float of the first ACTIVE
+  timestamp (=org-ts-regexp=, i.e. =<…>= only — planning lines included,
+  inactive =[…]= excluded) in the subtree, probed in the
+  already-positioned scan buffer next to the existing =subtree-ts= probe
+  (same bounded subtree walk, one more =re-search-forward=).  Distinct
+  from =subtree-ts= (regexp-both), which the day view's Logged/created
+  group needs and which must keep matching inactive stamps.
+- New pure predicate in org-air-classify.el:
+
+  #+begin_example
+  (defun org-air-classify--stale-eligible-p (item)
+    "Non-nil when ITEM carries an actionable date (R54-1).
+  Scheduled, deadline, or an active timestamp in the subtree; a live-marker
+  item built outside the scan probes its buffer with `org-ts-regexp'
+  (bounded, mirroring --marker-timestamp-time).  No date => not a task =>
+  never Stale."
+    (or (org-air-item-scheduled item)
+        (org-air-item-deadline item)
+        (org-air-item-active-ts item)
+        (org-air-classify--marker-active-ts item)))
+  #+end_example
+
+  and the gate becomes the FIRST conjunct of the stale clause in
+  =--heading-buckets=; =--last-activity= (the clock) is unchanged, so
+  "dated but quiet" still measures from the same chain it does today.
+  =kind 'file= items already route to 'notes before any bucket logic
+  (R53) and stay Stale-free by construction.
+- =org-air-classify--marker-active-ts= is the live-marker fallback for
+  items built outside the scan (capture buffers, unit tests): the
+  =--marker-timestamp-time= walk with =org-ts-regexp= instead of
+  =org-ts-regexp-both=; cons markers return nil (data-pure render law —
+  scanned items always answer from the slot).
+- Cache: struct gains a slot ⇒ =org-air-view--cache-version= 3 → 4 (one
+  bump shared with R54-2; if R54-1 ships alone it takes the bump with it).
+
+Semantics before/after (=org-air-stale-days= 21):
+
+| Item                                            | Today                | After R54-1        |
+|-------------------------------------------------+----------------------+--------------------|
+| Prose heading, no dates, mtime 60 d old         | Stale (+ attention)  | never Stale        |
+| TODO, no dates, quiet 60 d                      | Stale + attention    | attention only     |
+| SCHEDULED 60 d ago                              | Stale + attention    | Stale + attention  |
+| Active =<ts>= 60 d ago in body, no planning     | Stale                | Stale (eligible)   |
+| Only inactive =[ts]= 60 d ago (CREATED drawer)  | Stale                | never Stale        |
+| SCHEDULED yesterday                             | not Stale            | not Stale          |
+| DONE anything                                   | no buckets           | no buckets         |
+
+A dateless TODO surfacing via Attention (never Stale) is the intended
+reading of "no date ⇒ not stale-able": Attention is where "this needs a
+decision/date" lives.  Confirmed by the crosstalk task-signal ruling
+(fork F6, resolved).
+
+** R54-2 — the note-type model (task / journal / knowledge)
+
+*** Type derivation (content-derived, zero manual tagging required)
+
+New =org-air-item= slot =ntype= ∈ ='task= | ='journal= | ='knowledge=,
+computed at scan time inside the same single org-ql pass
+(=org-air-query--note-type=, called from =--item-at-point= with the
+per-FILE signals computed once per file, not per heading).  Precedence:
+
+All overrides are OPTIONAL (USER-RULED: the default needs zero user
+effort; overrides exist for when the heuristic guesses wrong):
+
+1. *Explicit heading override*: property =ORG_AIR_TYPE: task|note|journal=
+   (=note= and =knowledge= are synonyms; =org-entry-get= with
+   inheritance, so a parent heading can type its subtree).  Invalid
+   values are ignored (fall through), never an error.
+2. *Explicit file override*: file keyword =#+type:= (the user-suggested
+   spelling) or the namespaced =#+org_air_type:= (authoritative when both
+   are present); case-insensitive, read once per file, same value
+   vocabulary as the property.
+3. *Override tags*: =org-air-note-type-tag-alist= (defcustom, default
+   =(("task" . task) ("note" . knowledge) ("journal" . journal))=)
+   matched against the item's tags — which already include inherited
+   =#+filetags=, so a =:note:= tag on a heading, or denote-journal's
+   =journal= filetag, types with zero mechanics.  Users who tag with
+   =kb= / =evergreen= add one alist entry.
+4. *TASK signal* (USER-RULED): a TODO keyword (done or not — a DONE task
+   is a task) OR =scheduled= OR =deadline=.  Nothing else — a bare active
+   =<ts>= in the body is a note fact, not a task (it still grants R54-1
+   Stale ELIGIBILITY, observable only on typed tasks).
+5. *JOURNAL sub-heuristic* — a FLAVOUR of note (USER-RULED), never
+   required: the board treats =journal= exactly like =knowledge= (off the
+   board); only Revisit scoping distinguishes them (fork F3).  Detection
+   (file-level, computed once per file): file name base is date-shaped
+   (=2026-07-15=, =20260715=, or a denote ID-only name), OR a path
+   component matches =org-air-journal-directory-regexp= (defcustom,
+   default =journal|diary|daily=), OR =#+title= is date-shaped (ISO or
+   the denote-journal long form "Tuesday 15 July 2026").  Heading-level:
+   a heading whose title is purely date-shaped in a journal-typed file
+   stays =journal=.
+6. *KNOWLEDGE*: everything else (USER-RULED: "everything else is a
+   KNOWLEDGE note").  Prose, links and tags need no positive detection —
+   the ABSENCE of an actionable marker is the knowledge signal, which is
+   what makes the model zero-config on a denote corpus.
+
+Escape hatch for step 6: =org-air-plain-heading-type= (defcustom, default
+='knowledge= per the ruling; legacy value ='task= restores today's "every
+dateless heading is board material") — the flood fix rides on the
+default; the knob is only for GTD purists whose bare section headings
+must stay in Attention.
+
+='file= items (R53 headingless notes) get =ntype= from the same file-level
+signals (steps 2/3/5, else knowledge).
+
+*** Board membership
+
+=org-air-classify-item= grows one routing layer (pure, slot-only):
+
+#+begin_example
+kind 'file            -> (notes)                     ; R53, unchanged
+inbox-dweller         -> heading-buckets             ; capture bypass
+ntype 'journal        -> (journal)                   ; no board section
+ntype 'knowledge      -> (knowledge)                 ; no board section
+ntype 'task           -> heading-buckets             ; + R54-1 stale gate
+#+end_example
+
+- *Inbox bypass*: an item in =org-air-inbox-file= (or tagged =inbox=)
+  classifies through the task buckets regardless of type signals — a
+  schedule-less capture is an unfiled task-to-be, and the xsqrnoyn inbox
+  semantics must not change (the memoised truename test moves up into
+  =classify-item=).
+- 'knowledge / 'journal are REAL buckets with NO board section descriptor
+  — invisible on the GTD board, countable by the Revisit view and the
+  rail.  The Stale/Attention floods both end here; R54-1 alone already
+  ends the Stale flood even if R54-2 waits.
+- The board's visible totals (mode-line count, rail Summary) follow the
+  section descriptors automatically and therefore stop counting
+  knowledge headings; the Notes section fork (F4) decides the one row
+  that still advertises the knowledge corpus.
+
+*** The file-meta table (per-file signals, cache v4)
+
+The scan already reads every file once; R54-2 records the file-level
+facts it currently throws away, in =org-air-query--file-meta= (hash,
+FILE → plist), rebuilt per scan alongside items and persisted in the
+cache as =:file-meta=:
+
+| Key       | Value                                                        |
+|-----------+--------------------------------------------------------------|
+| =:title=  | =#+title= (bounded head-of-buffer regexp), else denote slug, else nil |
+| =:tags=   | =#+filetags=, else filename =__tags= fallback                |
+| =:ntype=  | the FILE's type: override → journal → task iff every heading item is =task= (and ≥1) → else knowledge |
+| =:mtime=  | epoch float (the stat the scan already pays)                 |
+| =:created== denote filename ID or =#+date=, parsed to epoch float, else nil |
+| =:ids=    | =:ID:= property values found in the file (=id:= link resolution) |
+| =:links-out= | resolved note-to-note outbound links (the link graph below)  |
+| =:links-in=  | inbound count, derived by one pure in-memory inversion pass  |
+
+*Link graph* (feeds the ORPHANS mode, USER-RULED): while the file is in
+the work buffer the scan runs ONE bounded =org-link-bracket-re= pass
+collecting note-to-note links only — =denote:ID=, =id:UUID=, and =file:=
+links landing on =.org= files — plus the file's own =:ID:= property
+values into =:ids=.  Resolution is a finish-time PURE pass over the
+in-memory table (denote IDs via the filename-ID index, =id:= via the
+collected =:ids=, =file:= normalised against the enumerated set);
+=https:= and other non-note links are ignored (a web-linked note can
+still be an orphan in the garden sense).  An unresolvable note link
+counts as outbound intent but creates no inbound.  =:links-in= is the
+inversion, computed once per scan finish — never at render time, never a
+file open.
+
+The "every heading task ⇒ task file" rule keeps pure GTD files out of
+Revisit while a KB note containing one TODO stays a knowledge FILE (in
+Revisit) whose TODO still surfaces on the board — the mixed-corpus
+contract.  Flagged as fork F7 in case the user prefers a
+"any-knowledge-heading" or "majority" rule; it is one predicate.
+
+Consumers: the Revisit view (rows + the ORPHANS link graph), the board
+Notes section count (fork F4), the F1 origin ='title-from-org= style
+(per-row 4 KB file read → file-meta lookup, closing the last render-time
+file access), and the =denote:= link shim (ID → file index derived from
+=:created= IDs).
+
+Cache: =org-air-view--cache-version= 3 → 4 (=active-ts= + =ntype= slots,
+=:file-meta=, =:visits=); a v3 cache is simply a cold miss (R53 law:
+version mismatch ⇒ skeleton + paced rescan, never a hang).
+
+*** Denote compat deliverables (all optional-denote)
+
+- =org-air-query--denote-id-regexp= (promoted F1 regexp) + ID→epoch parse.
+- =__tags= filename fallback parse (only when =#+filetags= absent).
+- =denote:= link follower registered iff none exists; resolves via the
+  file-meta ID index; no completion, no insertion (authoring stays
+  denote's).
+- Zero =require 'denote= anywhere; every ERT runs denote-less.
+
+** R54-3 — the Revisit (evergreen notes) view
+
+*** Entry points and relation to the two views + rail
+
+- =M-x org-air-revisit= (autoload), buffer =*org-air revisit*=,
+  =org-air-revisit-mode= derived from =special-mode= with
+  =org-air-view-core-map= as keymap parent (RET/pane, o/O sort, =|= rail,
+  j/k — the shared verbs stay muscle-memory compatible).
+- Key =N= (free on both maps) from the board AND the project view;
+  =P= / =N= become the symmetric view-switch pair (board ⇄ project ⇄
+  revisit); =q= returns to the previous view per the existing quit
+  convention.  Registered via =org-air--register-default-keys= so the
+  R35-1 no-default-keys knob covers it.
+- The board's Notes section header answers RET with =org-air-revisit=
+  (fork F4) — the count row becomes the doorway to the full surface.
+- Rail: the revisit buffer reuses the standard rail descriptor with a
+  =:summary-fn= showing age-band counts (>1y / >90d / >21d / fresh) and
+  the standard Actions block (keys via =where-is=, R30-2).  Placement
+  inherits the R49 =org-air-rail-placement= defaults untouched.
+
+*** Rows, columns, sort
+
+Data source: =:file-meta= entries whose =:ntype= ∈
+=org-air-revisit-types= (defcustom, default ='(knowledge)= — journals are
+timestamped logs, not evergreens; fork F3 adds ='journal= with one
+customize).  One row per FILE (the denote unit), never per heading.
+
+Row grammar (the calm one-line V6 row, existing renderers):
+
+#+begin_example
+  Title-or-slug…                dusty 2y 4m   #emacs #zettel   ▤ notes/
+#+end_example
+
+- *Title*: file-meta =:title= → denote slug → leaf name; truncated by the
+  existing pixel-lock title band.
+- *Age chip*: attention-age = now − =:mtime= (the USER-RULED default
+  signal; the opt-in ledger folds in last-visit, D2) — rendered
+  =dusty Ny Nm= / =dusty Nd= via the existing relative-date vocabulary,
+  right-aligned where the board puts its date column.
+- *Tags*: the existing pill renderer over =:tags=.
+- *Origin*: parent directory (the =▤= origin column, F1 styles honoured).
+- Optional =z c= column toggle adds *Created* (denote ID / =#+date=) via
+  the existing columns prefix machinery.
+
+Sort: DEFAULT = oldest last-modified first, dustiest on top (USER-RULED);
+=o= cycles age → created → title, =O= reverses (the shared view-core sort
+verbs, so no new bindings).  All keys are precomputed floats/strings in
+file-meta — sorting 10k entries is milliseconds-class (R53 sized top-K
+selection over precomputed floats at 4k as milliseconds).
+
+*** Surfacing modes — ALL / ORPHANS / SPACED (one view, USER-RULED)
+
+The ruling asks for ONE view with two toggle modes beside the default
+listing; =m= cycles ALL → ORPHANS → SPACED (free in the revisit map; the
+header names the mode: =Revisit · orphans · 214 notes=).  Each mode is a
+pure sort/filter over file-meta — same buffer, same renderer, same
+paging, zero per-row file opens.
+
+- *ALL* (default): every revisit-scope note, dustiest first (above).
+- *ORPHANS*: the subset with no note-links either way — =:links-in= 0
+  AND =:links-out= nil (default rule ='disconnected=;
+  =org-air-revisit-orphan-rule= also offers ='no-inbound= /
+  ='no-outbound= / ='either= since the ruling's phrasing "nothing links
+  to / link nowhere" can be read as a union — fork F8).  Same dustiest
+  sort, same paging; the orphan test is two slot reads per row.
+- *SPACED*: the daily notes-garden graze — exactly
+  =org-air-revisit-daily-count= (defcustom, default 5) notes chosen by a
+  DETERMINISTIC rotation: order the scope by a stable key (file name),
+  take the K-wide window starting at =(mod (* day K) N)= where day is
+  =time-to-days= of NOW — the same handful all day, a fresh handful
+  tomorrow, full corpus coverage every ⌈N/K⌉ days, zero state on disk.
+  The handful renders dustiest-first — exactly K rows, the most bounded
+  surface in org-air.  With the opt-in ledger on, a note visited TODAY
+  keeps its slot but gains a subtle done-tick (the rotation stays
+  deterministic; fork F9 covers K and skip-visited-instead).
+
+*** Bounded / paged at 5000+ (the R53 laws, restated as hard rules)
+
+- Render exactly =min(total, org-air-revisit-page-limit)= rows
+  (defcustom, default 200), then the standard =… and N more= fold row;
+  TAB/RET on it (R51-3 contract) extends by ONE more page and re-renders
+  — the full 5000 rows appear only after deliberate repeated asks, and
+  each render stays O(shown).
+- =/= filters in memory over title/tags/origin (the per-mode filter
+  convention), resetting paging; =\\= clears.
+- The surfacing modes inherit the same clamps: ORPHANS pages identically;
+  SPACED is K rows by construction; =m= re-renders O(shown).
+- DATA-PURE RENDER LAW: every cell above comes from file-meta / ledger
+  slots; the ERT seam asserts =(buffer-list)= is unchanged by a full
+  render — zero per-row file opens, ever.  RET on a row is the single
+  user-initiated open (the existing =(FILE . POS)= visit path, POS 1).
+- Cold open with no cache: the skeleton + paced-scan machinery is SHARED
+  with the board (same refresh state machine, same budgeted slices, same
+  watchdog law); revisit paints its page progressively from file-meta as
+  slices land.  Warm open: cache read + one bounded render — the R53
+  warm-board envelope (~0.7 s at 5006 files) applies unchanged, the page
+  render being strictly smaller than the board's 15.9k-item render
+  measured at 0.51 s.
+- =g= refresh delegates to the shared machine; never a synchronous scan.
+
+*** The visit ledger (opt-in after the D2 ruling)
+
+- Cache gains =:visits= (alist FILE → epoch float, hash-hydrated).  One
+  recorder =org-air--note-visited (file)= called from the existing
+  org-air open paths (=org-air-visit-item=, the pane RET return, revisit
+  RET).  No global hooks — org-air never instruments buffers it does not
+  own.
+- Pruned to the enumerated file set at cache write; size ≤ file count.
+- =org-air-revisit-visit-ledger= DEFAULT nil (the ruling names
+  LAST-MODIFIED as the default signal): the ledger is never written and
+  age is pure mtime.  Setting it t folds org-air-recorded visits into the
+  age (and lights the SPACED done-tick); the view renders identically
+  either way.  A global =find-file= hook remains rejected — org-air does
+  not instrument the user's whole Emacs.
+
+* UX forks — resolved and open
+
+Resolved this round by the crosstalk rulings:
+
+| #  | Fork                                       | Ruling                                                        |
+|----+--------------------------------------------+---------------------------------------------------------------|
+| F1 | Task-signal                                | TODO keyword OR scheduled/deadline, nothing else; fully automatic; overrides optional |
+| F2 | Revisit attention-age / surfacing          | Oldest last-modified first by default; ORPHANS + SPACED toggle modes; visit ledger demoted to opt-in |
+| F5 | Plain dateless non-TODO headings           | ='knowledge= — "everything else is a KNOWLEDGE note" (legacy knob kept) |
+| F6 | Dateless TODO: Attention-only, never Stale | Implied by F1 + the R54-1 ask; treated as confirmed           |
+
+Still OPEN — defaults chosen, each one knob/predicate; flag to the user:
+
+| #  | Fork                                                        | Provisional default              |
+|----+-------------------------------------------------------------+----------------------------------|
+| F3 | Journals in Revisit scope?                                  | Out (=org-air-revisit-types '(knowledge)=) |
+| F4 | Board Notes section: keep count row as Revisit doorway (count = revisit-scope files) vs hide entirely | Keep, RET → revisit |
+| F7 | Mixed-file rule for the FILE's type                         | task iff ALL headings task; else knowledge |
+| F8 | ORPHANS rule — "nothing links to / link nowhere": intersection or union? | ='disconnected= (no note-links either way) |
+| F9 | SPACED: handful size; skip notes already visited today (ledger on)? | K=5; keep the slot, show a done-tick |
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+1. *r54-1a dateless never Stale* (MUST-SHIP): scanned prose heading, no
+   planning, no active ts, activity forced 60 d old (mtime path) →
+   buckets contain NO ='stale=.  Reverting the eligibility gate fails
+   (today it IS stale).
+2. *r54-1b dated-but-quiet IS Stale*: SCHEDULED 60 d ago → ='stale=
+   present (and =attention=).  Guards against over-gating; locks the
+   clock's byte-identity for dated items.
+3. *r54-1c active vs inactive*: body =<ts>= 60 d old → Stale; the SAME
+   item with only =[ts]= → not Stale.  Reverting the =active-ts= probe to
+   =org-ts-regexp-both= (or to =subtree-ts=) fails the second half.
+4. *r54-1d fresh dated not Stale*: SCHEDULED yesterday → no ='stale=.
+5. *r54-2a type table*: TODO-only → task; scheduled-only → task;
+   prose+links+tags → knowledge; =2026-07-15.org= / =journal/= dir /
+   date-shaped =#+title= → journal; =ORG_AIR_TYPE= property beats
+   heuristics BOTH directions (note-forced TODO, task-forced prose);
+   =#+type: note= (and the namespaced =#+org_air_type:=) types every
+   heading in the file; =:note:= and =journal= tags via the alist.
+   Denote-less: the fixture uses raw denote-convention filenames with
+   =(featurep 'denote)= asserted nil.
+6. *r54-2b knowledge is off the board*: dateless prose heading → buckets
+   = =(knowledge)= — no =attention=, no =stale=.  Reverting the routing
+   layer fails (today: attention).  Companion: dateless TODO STAYS
+   =attention= (the xsqrnoyn seam retargeted to a task-typed item).
+7. *r54-2c inbox bypass*: schedule-less prose capture in the inbox file →
+   =inbox= bucket exactly (not =knowledge=) — capture flows unchanged.
+8. *r54-2d file-meta*: scan a corpus → =:title=/=:tags=/=:mtime= populated
+   for headed AND headingless files; denote ID parses to =:created=;
+   mixed file (1 TODO + prose headings) is =:ntype knowledge= while a
+   pure-TODO file is =:ntype task= (F7 lock).
+9. *r54-3a revisit rows + order*: 10 knowledge files with staggered
+   mtimes → rows oldest-first; a task file and a journal file absent;
+   RET on a row opens the file (cons-marker path).
+10. *r54-3b bounded paging*: 300 knowledge files, page-limit 200 → 200
+    rows + =… and 100 more= fold row answering TAB/RET (extends one
+    page).  Reverting the page clamp fails.
+11. *r54-3c render purity*: full revisit render over cache-hydrated
+    file-meta → =(buffer-list)= unchanged (zero file opens).  Reverting
+    any cell to a file read fails.
+12. *r54-3d ledger (opt-in)*: with the knob t, a visit via the org-air
+    path → =:visits= entry and attention-age uses max(mtime, visit); at
+    the DEFAULT nil → no entry, pure mtime age; prune drops entries for
+    files no longer enumerated.
+13. *r54-2e link graph*: a fixture web of =denote:ID=, =id:UUID= and
+    =file:= links (plus =https:= noise) → =:links-out= resolves exactly
+    the three note-link kinds to FILES (=https:= ignored), =:ids=
+    captured, the =:links-in= inversion counts correct; the resolution
+    pass opens zero files.  Reverting scan-time extraction (or resolving
+    at render time) fails.
+14. *r54-3e orphans*: a linked pair is absent from ORPHANS; a fully
+    disconnected note is present; inbound-only / outbound-only notes
+    follow =org-air-revisit-orphan-rule= (default ='disconnected= ⇒
+    absent).  Reverting the mode filter fails.
+15. *r54-3f spaced rotation*: with =now= pinned, repeated renders show
+    the SAME =org-air-revisit-daily-count= rows; advancing a day rotates
+    the window; over ⌈N/K⌉ pinned days every scope note appears exactly
+    once; exactly K rows render (boundedness).  Reverting determinism (or
+    the K clamp) fails.
+16. *r54-x cache v4*: a v3 cache file → clean cold miss (no error, no
+    hang — the machine goes skeleton + paced rescan); v4 roundtrips
+    =active-ts=/=ntype=/=:file-meta=/=:visits=.
+17. *Perf smoke* (order-of-magnitude, à la org-air-perf-test.el): scan
+    with typing over the 500-file corpus stays within the R53 smoke
+    bound; revisit render at 5k synthetic file-meta entries < 1 s batch.
+
+* Byte-golden / fixture impact
+
+- *R54-1*: no golden churn expected — fixture mtimes are fresh at test
+  time, so committed goldens show =Stale 0= (verified in e.g.
+  =denote-origin-80.txt=).  Stale ERTs that manufacture old activity via
+  the mtime/dateless path must be retuned to dated items (test-seat
+  audit: =org-air-classify-test.el= stale cases; any using SCHEDULED
+  already pass unchanged).
+- *R54-2*: board goldens containing PLAIN dateless headings in Needs
+  attention will lose those rows — re-bless; the xsqrnoyn no-date
+  attention ERTs retarget to TODO items plus the new inverse seam
+  (r54-2b).  Inbox goldens unchanged (bypass).  Rail Summary counts
+  follow sections automatically.
+- *R54-3*: new goldens only (revisit 80/120-col mockups, folded + paged
+  states).
+- *Cache v4*: any test pinning cache version literals re-pins; runtime
+  users pay one cold rescan (paced, non-blocking, per R53).
+
+* Design details / seams
+
+- org-air-query.el: =active-ts= + =ntype= slots; the active-ts probe next
+  to the =subtree-ts= probe; =org-air-query--note-type= + per-file signal
+  computation in =--scan-work-buffer= / =--scan-live-buffer= (computed
+  once per FILE, threaded to the per-heading action via a scan-scoped
+  defvar like =org-air-query--scan-mtime=); =org-air-query--file-meta= +
+  population; the bounded link/ID extraction pass + the finish-time
+  link-graph inversion; denote ID regexp/parse; =__tags= fallback; the
+  =denote:= link shim.
+- org-air-classify.el: =--stale-eligible-p= + gate (R54-1);
+  =--marker-active-ts=; the =ntype= routing layer + inbox bypass in
+  =org-air-classify-item=; buckets ='knowledge= / ='journal=.
+- org-air-view.el: cache v4 (slots, =:file-meta=, =:visits=); Notes
+  section F4 wiring (count from revisit scope, RET on header); =N= key
+  registration (board map); F1 ='title-from-org= reads file-meta; rail
+  revisit descriptor.
+- NEW org-air-revisit.el: mode, renderer (page clamp + fold row), the =m=
+  surfacing-mode cycle (ALL/ORPHANS/SPACED) with the orphan filter and
+  the deterministic spaced rotation, sort cycle keys via view-core,
+  filter, ledger recorder call, rail descriptor.  Kept out of the
+  8.7k-line view file per the module split convention.
+- org-air-project.el: =N= key registration.
+- Defcustoms (all =:group 'org-air=): =org-air-note-type-tag-alist=,
+  =org-air-journal-directory-regexp=, =org-air-plain-heading-type=,
+  =org-air-revisit-types=, =org-air-revisit-page-limit=,
+  =org-air-revisit-visit-ledger=, =org-air-revisit-daily-count=,
+  =org-air-revisit-orphan-rule=.
+- Suggested land order: R54-1 (must-ship, smallest diff, own ERTs) →
+  R54-2 (model + cache v4) → R54-3 (view).  R54-1 must not wait for the
+  other two.
+
+* Sizing and budgets (grounded in R53 measurements, not new claims)
+
+- Scan cost added: one bounded regex probe per heading (active-ts), two
+  head-of-buffer regexes + one filename parse per FILE, and one
+  whole-buffer =org-link-bracket-re= pass per file (the link graph) — the
+  same shape as the R53 probes already inside the measured 3.41 s /
+  5006-file scan; the link-graph inversion is one in-memory pass at scan
+  finish.  Budget: scan stays within the R53 perf-smoke bounds.
+- Cache growth: ~5k file-meta plists + =:visits= — small against the
+  measured 3.1 MB / 15.9k-item cache; write stays finish-only.
+- Revisit render: O(page) = 200 rows from precomputed slots; strictly
+  cheaper than the measured 0.51 s 15.9k-item board render.  Sort keys
+  precomputed floats (R53 sized top-K at 4k as milliseconds).
+- Nothing new runs on the input path; all R53 pacing/watchdog laws are
+  inherited, not modified.
+
+* Implementation History
+
+- 2026-07-15: R54 design (this doc) — stale eligibility gated on
+  actionable dates (must-ship), content-derived note-type model with
+  denote-optional compat + subsumption recommendation, bounded Revisit
+  view spec; D1/D2 crosstalk decisions requested, provisional defaults
+  marked, fold-in notes written.
+- 2026-07-15: crosstalk rulings RECEIVED and folded — task-signal = TODO
+  ∨ scheduled/deadline (automatic; overrides optional; journal = note
+  flavour); Revisit = ONE view, dustiest-first default + ORPHANS/SPACED
+  toggle modes on =m= (link graph + deterministic daily rotation specced
+  data-pure/bounded); visit ledger demoted to opt-in (default mtime).
+  F1/F2/F5/F6 resolved; F3/F4/F7/F8/F9 remain flagged.

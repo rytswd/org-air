@@ -1,0 +1,258 @@
+#+title: org-air Round 52 — Project view: group-header count rollup sits NEXT TO the folder name (left-anchored, not right-justified)
+#+state: ready
+#+tags: project-view directory-tree group-header rollup alignment ux
+
+* Summary
+
+User report (PROJECT view, =M-x org-air-project=, directory grouping): each
+folder/group header row shows the per-group state rollup — =R4(+1)
+C14(+14) X1(+9) D2(+8)= (ready/complete/wip/dropped letter counts with
+faded =(+N)= descendant totals) — but it renders RIGHT-JUSTIFIED at the far
+right edge of the doc pane (on a wide frame / side-window rail placement
+that is out by the DATE column, ~col 145), visually detached from the
+=v0.1/= folder name it summarizes.  The user wants the summary CLOSE TO the
+folder name: immediately after the group name on the left.
+
+- *R52-1* — move the dir-header rollup from right-justified to
+  LEFT-ANCHORED, a two-space gap after the =dir/= name:
+  =v0.1/  R4(+1) C14(+14) X1(+9) D2(+8)=.  Same tokens, same faces, same
+  =(+N)= semantics, same letter order (the airctl =status -Da= parity
+  contract) — ONLY the position changes.  One expression in ONE function
+  (=org-air-project--insert-dir-node=) plus its prose.
+
+org-ql stays the only query path — this round is header COMPOSITION only;
+nothing touches querying, sorting, counting or data collection.
+Byte-golden movement is exactly ONE fixture, =tests/fixtures/
+project-view-dir.txt=, exactly its THREE group-header lines — pre-computed
+byte-for-byte in §Golden impact (probe-verified by an in-memory patch
+render on trunk).
+
+THIS ROUND IS SPEC-ONLY: R51 is editing org-air-project.el concurrently
+(de-strike dropped, dropped sorts last, fold-row TAB).  R52 impl runs
+AFTER R51 lands — see §R51 concurrency for the exact expected base drift
+(none of it overlaps this change).
+
+* R52-1 — Investigation: where the rollup is justified to the RHS
+
+The ONE render site is =org-air-project--insert-dir-node=
+(org-air-project.el ~894).  Per directory node it builds:
+
+- =left=  — the guide (top dir: margin + accent marker; child dir: margin
+  + faded ancestor rails + tee/corner connector) followed by the =dir/=
+  name in =org-air-face-section=;
+- =summary= — =org-air-project--dir-count-summary= (~772): the quiet
+  letter-count rollup (=R4(+1) C14(+14) …=), state letter in the state
+  face, own count in =org-air-face-count=, faded =(+M)= descendant
+  rollup, display order =org-air-project--state-display-order=;
+- =header= (~933) — the detachment happens HERE:
+
+  : (header (if (string-empty-p summary)
+  :             left
+  :           (org-air-view--justify left summary width)))
+
+=org-air-view--justify= pads LEFT out to =width - (string-width summary)=
+and flushes the summary to the pane's right edge.  WIDTH is the doc-pane
+content width, so the detachment scales with the frame: at the fixture
+width 100 (inline rail) the summary lands ~col 69; with the rail popped
+to a side window (R49-2) the pane composes at the full host width and the
+rollup floats out by the doc rows' date column (the user's ~col 145) —
+maximally far from the name it describes.  R22-6 chose this deliberately
+("sibling dir headers line up vertically"); R52 rules that columnar
+alignment loses to ADJACENCY: at real widths the rollup reads as a stray
+cell of the neighbouring doc rows' meta cluster, not as the header's own
+annotation.
+
+The state/tag SECTION headings are NOT affected and need no change: their
+count badge already sits immediately after the title
+(=org-air-project--insert-section-heading= — marker + icon + title + " " +
+count).  Only the directory tree ever right-justified its rollup.
+
+* R52-1 — The change (one expression + prose)
+
+In =org-air-project--insert-dir-node=, replace the justify branch with
+LEFT-anchored composition — the name, a two-space gap, the summary —
+clamped to WIDTH with the shared =more= ellipsis (the exact clamp idiom of
+the R48-3 fold row):
+
+: (header (if (string-empty-p summary)
+:             left
+:           (let ((h (concat left "  " summary)))
+:             (if (> (string-width h) width)
+:                 (truncate-string-to-width h width nil nil
+:                                           (org-air-view--glyph 'more))
+:               h))))
+
+Decisions, pinned:
+
+- *Gap = two literal spaces.*  One space would read as another token in
+  the letter-count run (=v0.1/ R4(+1)= scans as one cluster); two is the
+  view's established cluster gap (the meta-cluster =gap 2= in
+  =--fit-meta-widths=, the header-line pad).  Not a defcustom — the R22-6
+  summary itself is not knob-controlled either.
+- *No pad to WIDTH.*  The header now ENDS after the summary (plus =\n=).
+  Downstream is indifferent: the =org-air-section= text property spans
+  start..point regardless of line length, and in the two-pane composition
+  =org-air-view--compose-columns= re-pads every doc-pane line to
+  item-width via =--pad-to= — so the divider column and the rail are
+  byte-untouched (verified in the probe render: only in-pane spaces
+  move).
+- *Overflow clamp, not overflow.*  A long =dir/= name (or a deep child's
+  rails + name) plus the summary can exceed WIDTH; the clamp truncates at
+  WIDTH with the =more= glyph exactly like
+  =org-air-project--insert-dropped-fold-row= clamps its label — the
+  header can never spill past the pane / push the divider.  Degenerate
+  reading is name-first (the summary tail clips), which is correct: the
+  NAME is the identity, the rollup the annotation.  Under the old justify
+  the same degenerate case clipped the summary's right end too
+  (=--pad-to='s truncate), so nothing regresses.
+- *Nested subgroups for free.*  =left= already carries the child's
+  ancestor rails + connector at its own indent, so a child header reads
+  =+- air-context/  D1= — the summary adjacent to ITS name at ITS depth.
+  No depth-conditional logic.
+- *Root-docs node unchanged in kind.*  The rootless =·= node (empty
+  :path) composes the same way: =·  D2= when it has counts.
+- *Empty summary branch unchanged* — a (hypothetical) all-unknown dir
+  keeps the bare =left= header.
+- *The rollup builder is UNTOUCHED.*  =org-air-project--dir-count-summary=
+  keeps its tokens, faces, =(+N)= semantics and letter ORDER
+  (=--state-display-order= — the airctl =status -Da= parity contract
+  R22-6 pinned and R51-2 explicitly preserves as the counts-only order).
+  Numeric parity ERTs (r22-6-dir-count-summary-matches-airctl,
+  r26-2-rollup-letters-unchanged) stay green by construction.
+
+** Prose/docstring sweep (same commit)
+
+The "right" language must not outlive the position:
+
+- =org-air-project--insert-dir-node= docstring (~902-903): "the =dir/=
+  name on the LEFT, the quiet right-aligned letter-count summary
+  (=R4(+1) C14(+14) ...=) on the RIGHT" → "the =dir/= name followed — a
+  two-space gap — by its quiet letter-count summary (=R4(+1) C14(+14)
+  ...=), left-anchored so the rollup reads as the name's own annotation
+  (R52-1; clamped to WIDTH with the =more= ellipsis)".
+- The ~927 inline comment "Quiet, right-aligned count summary (the badge
+  wall is gone)." → "Quiet count summary, LEFT-anchored just after the
+  name (R52-1; was right-justified R22-6)."
+
+* R51 concurrency (impl base expectations — verified against the R51 spec)
+
+R52 impl lands on a base where R51 has already touched
+org-air-project.el/org-air-faces.el.  Expected drift, none of it
+overlapping the ~927-933 header expression:
+
+- dropped faces DE-STRUCK (R51-1, face specs only) — the rollup's =X=
+  letter keeps its face NAME (=org-air-face-air-state-dropped=) and its
+  BYTE; dir-header bytes unmoved.
+- dropped sorts LAST via the new =--state-sort-rank= (R51-2) —
+  =--state-display-order= (the summary's letter order) is explicitly
+  UNTOUCHED by R51; =--state-display-rank= may be DELETED (its only
+  caller re-pointed) — R52 does not reference it.
+- R51's golden churn is =project-view-tag.txt= only; R51 pre-computed
+  =project-view-dir.txt= as NOT moving.  So §Golden impact below (probed
+  on pre-R51 trunk) remains byte-valid on the post-R51 base.  If the
+  landed R51 diverges from its spec here, re-probe before blessing.
+
+* Golden impact (intended re-bless; test seat executes)
+
+=tests/fixtures/project-view-dir.txt= — the ONLY mover, EXACTLY its three
+group-header lines (probe-verified: in-memory patched render vs fixture,
+width 100; state/tag fixtures 0 lines differ; all board / entry-view /
+denote / layout goldens untouched — this round never touches their
+renderers):
+
+: line 3 OLD [  | v0.1/                                                 R1 C1 D(+1) | …]
+:        NEW [  | v0.1/  R1 C1 D(+1)                                                | …]
+: line 6 OLD [  +- air-context/                                                  D1 | …]
+:        NEW [  +- air-context/  D1                                                 | …]
+: line 9 OLD [  | v0.2/                                                    W1 X1 D1 | …]
+:        NEW [  | v0.2/  W1 X1 D1                                                   | …]
+
+(=…= = the untouched divider + rail cells; the doc-pane pad before the
+divider is re-emitted by =--compose-columns=, so the divider column is
+byte-identical.)  Regen via =make clean && make regen-mockups= (the R48
+closeout lesson: clean first, or stale .elc regen is a silent no-op);
+diff must show exactly these three lines, plus whatever
+=project-view-tag.txt= churn R51 already blessed.
+
+* Test churn this round OWNS
+
+- =org-air-r22-6-count-summaries-right-aligned=
+  (tests/org-air-round22-test.el ~688) pins the OLD contract: headers
+  justified to exactly W, summary flush right, different-length summaries
+  → different start columns.  It INVERTS in place (rename to
+  =…-left-anchored= or keep the name with a supersession comment pointing
+  here — R52-1 supersedes the R22-6 alignment rationale): headers are NO
+  LONGER W wide (right-trimmed width < W), each header ENDS with its
+  summary, and the summary starts exactly TWO columns after its name.
+- =org-air-f5-project-view-byte-mockups= — red until the test seat
+  re-blesses the dir fixture (§Golden impact); grind-fence via the
+  known-failures manifest until then.
+- Probe-verified NO other test moves: the full project suites
+  (project/round20/22/23/24/25/26/48) ran under the in-memory patch —
+  the only unexpected failures were the two above (plus two round-26
+  failures that pre-exist on trunk in isolated runs, unrelated).
+  r22-6-one-header-per-directory, r22-6-nesting-indents-deepen (name
+  columns unchanged), r48-1's =| v0\.2/ .*X1= header match and the R24-2
+  rail/gutter fences all survive by construction.
+
+* ERTs (=tests/org-air-round52-test.el=; revert-FAILS; org-ql only)
+
+Executing renders over the round-20 =air-project= fixture
+(=org-air-project-test--render-lines= at width 100) plus direct
+=org-air-project--insert-directory-tree= temp-buffer renders (the R22-6
+harness shape, frozen path/mtime).  Trunk-failing tests register in
+=tests/org-air-known-failures.el= as R52 grind fences (=make check= stays
+binary-green).
+
+- =org-air-r52-1-group-header-summary-adjacent= — dir grouping, width
+  100: the three header lines carry the EXACT adjacent forms
+  =| v0.1/  R1 C1 D(+1)=, =+- air-context/  D1= (the NESTED child: summary
+  adjacent to its own name at its own indent), =| v0.2/  W1 X1 D1= —
+  i.e. the rollup begins exactly TWO columns after the name's =/=.
+  Anti-revert conjunct: on each header the gap between name-end and
+  summary-start is exactly 2 (trunk: ~40-50 pad spaces — FAILS).
+- =org-air-r52-1-summary-column-is-width-invariant= — direct tree render
+  of the SAME fixture docs at w 80 AND w 120: every header line,
+  right-trimmed, is byte-IDENTICAL across the two widths (the summary no
+  longer tracks the right edge — the user's wide-frame detachment is
+  structurally impossible), and each right-trimmed header ENDS with its
+  summary at width < w.  *Trunk FAILS* (justify pads headers to exactly
+  w; the summary column moves with w).
+- =org-air-r52-1-long-name-header-clamps= — synthetic node (the
+  R24/R25 synthetic-tree idiom) whose guide + name + gap + summary
+  exceeds a small w: the emitted header's =string-width= is exactly w and
+  it ends with the =more= glyph (never overflows the pane / moves the
+  divider).  Lock conjunct (new-behavior fence; also passes trunk via
+  justify's own truncation — asserted so the clamp can never be dropped
+  when the justify call goes).
+- Lock conjunct (passes trunk, anti-scope-creep):
+  =org-air-project--dir-count-summary= over the R22-6 airctl vector still
+  yields exactly =R4(+1) C14(+14) X1(+9) D2(+8)= — tokens, order and
+  =(+N)= semantics did NOT move with the position.
+
+Named implementation surface (the test seat drives exactly these): the
+header expression in =org-air-project--insert-dir-node= (~933, justify →
+left-anchored concat + clamp) · its docstring/comment sweep (~902/~927) ·
+the r22-6 inversion · the =project-view-dir.txt= re-bless.
+
+* Notes
+
+- org-ql remains the only query path; no querying is touched.
+- Alternative considered and REJECTED: keep right-justification but cap
+  the justify width (e.g. min(width, name+40)) — still detached at the
+  cap, sibling right edges become ragged anyway, and it invents a second
+  width constant; adjacency is the actual ask.
+- Deliberate UX supersession, stated: sibling dir headers no longer share
+  a vertical summary column (the R22-6 rationale).  Different-length
+  names at the same depth put summaries at different columns — that is
+  the point: the rollup belongs to the NAME, not to a table column.
+- Future (out of scope, noted): an =(=N docs)= grand-total chip after the
+  rollup; a knob to hide rollups entirely on sub-minimum widths.
+
+* History
+- 2026-07-14: Created from the R52 user report (rollup detached at the
+  RHS/date column on wide frames).  Trunk render + in-memory patch
+  probed in batch: exact OLD/NEW header bytes pinned, breakage set
+  enumerated (byte fixture + r22-6 right-aligned test only).  SPEC ONLY —
+  no .el/tests touched (R51 edits the project view concurrently).
+  State: ready.

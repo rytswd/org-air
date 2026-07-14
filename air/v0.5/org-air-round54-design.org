@@ -1,5 +1,5 @@
 #+title: org-air Round 54 — Staleness only for dated items, the note-type model (task/knowledge/journal), and the Revisit view
-#+state: ready
+#+state: complete
 #+tags: staleness classify note-types knowledge denote journal revisit evergreen board
 
 * Summary
@@ -715,3 +715,6 @@ Still OPEN — defaults chosen, each one knob/predicate; flag to the user:
   tests/org-air-known-failures.el (new revisit goldens are the test
   seat's to bless).  make clean && make check GREEN (681 tests,
   0 unexpected).
+
+* History
+- 2026-07-15: State: ready → complete.

@@ -4612,13 +4612,19 @@ vertically, calendar first — always on-screen."
   (format-time-string "%Y-%m-%d" time))
 
 (defun org-air-view--day-groups (items day)
-  "Return ((LABEL . ITEMS)...) grouping ITEMS by relation to DAY (R6)."
+  "Return ((LABEL . ITEMS)...) grouping ITEMS by relation to DAY (R6).
+R53fix B1: the Logged/created key is the live-marker subtree probe when
+the item still carries a live marker, else the scan-time `subtree-ts'
+slot — a (FILE . POS) cons item answers data-pure.  NEVER the `activity'
+slot: its mtime fallback would wrongly file every undated heading of a
+today-touched file under Logged/created."
   (let ((key (org-air-view--day-key day))
         (deadline nil) (scheduled nil) (created nil))
     (dolist (item (org-air-view--visible-items items))
       (let ((d (org-air-view--timestamp-time (org-air-item-deadline item)))
             (s (org-air-view--timestamp-time (org-air-item-scheduled item)))
-            (a (org-air-view--marker-timestamp-time item)))
+            (a (or (org-air-view--marker-timestamp-time item)
+                   (org-air-item-subtree-ts item))))
         (cond
          ((and d (equal (org-air-view--day-key d) key)) (push item deadline))
          ((and s (equal (org-air-view--day-key s) key)) (push item scheduled))
@@ -7185,11 +7191,13 @@ interrupt, but the guard is cheap and harmless."
 ;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
-(defconst org-air-view--cache-version 2
+(defconst org-air-view--cache-version 3
   "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
 v2 (R53): `org-air-item' gained the scan-time slots
 \(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
-a cache-hit board renders data-pure, never opening a file.")
+a cache-hit board renders data-pure, never opening a file.
+v3 (R53fix): the struct gained `subtree-ts' (day view's Logged/created
+key); a v2 cache would hydrate records of the wrong shape.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.

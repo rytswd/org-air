@@ -76,6 +76,10 @@ so painting a cache-hydrated board never opens a file."
   kind          ; 'heading | 'file (P3 headingless note file-item)
   donep         ; non-nil when todo ∈ the file's own `org-done-keywords'
   activity      ; epoch float: closed‖scheduled‖deadline‖first subtree ts‖mtime
+  subtree-ts    ; epoch float of the first timestamp in the subtree BODY,
+                ; or nil (R53fix B1: the day view's Logged/created key —
+                ; distinct from `activity', whose mtime fallback must
+                ; never fill that group)
   body-deadline) ; epoch float of the first subtree DEADLINE: when the
                  ; heading itself has none (the calendar's origin check)
 
@@ -199,6 +203,7 @@ retained by scanning; live positions resolve on demand)."
      :group (org-air-query--group file)
      :kind 'heading
      :donep (and todo (member todo org-done-keywords) t)
+     :subtree-ts subtree-ts
      :activity (or (org-air-query--time-float closed)
                    (org-air-query--time-float scheduled)
                    (org-air-query--time-float deadline)
@@ -345,9 +350,14 @@ fallback), tags from `#+filetags', group = parent directory name, marker
 Unsaved edits are respected; every item's marker/file slot is rewritten to
 FILE so the (FILE . POS) contract and the mtime bookkeeping stay coherent
 even when the buffer's own name differs (a symlinked visit)."
-  (let ((items (copy-sequence
-                (org-ql-select buffer (or query '(heading))
-                  :action #'org-air-query--item-at-point))))
+  (let* (;; R53fix M2: same echo hygiene as the work-buffer path — a live
+         ;; headingless buffer must not re-spam org-ql's "No headings in
+         ;; buffer" message on every refresh.
+         (inhibit-message t)
+         (message-log-max nil)
+         (items (copy-sequence
+                 (org-ql-select buffer (or query '(heading))
+                   :action #'org-air-query--item-at-point))))
     (dolist (item items)
       (setf (org-air-item-file item) file)
       (let ((m (org-air-item-marker item)))

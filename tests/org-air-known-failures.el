@@ -1476,6 +1476,24 @@
     ;; on the test track (impl landed R53 P1–P5 in mmxnzrpm).  Round-53
     ;; manifest is EMPTY; the tests stay as permanent regression guards.
     ;; =================================================================
+    ;; 2026-07-15 — ROUND-53 FIX (Fable review B1 + M2), impl track.
+    ;; STRUCT/CACHE CHURN FLAG for the test seat:
+    ;;   • `org-air-item' gained the `subtree-ts' slot (epoch float of the
+    ;;     first body timestamp, populated at scan time).  Any golden that
+    ;;     prints/reads raw item records reshapes.
+    ;;   • `org-air-view--cache-version' bumped 2 -> 3 (v2 caches discard;
+    ;;     old-shape records must never hydrate).
+    ;;   • B1: `org-air-view--day-groups' Logged/created now reads the
+    ;;     live-marker probe FIRST, falling back to `subtree-ts' — never
+    ;;     bare `activity' (its mtime fallback would wrongly fill the
+    ;;     group).  ERT seam: a cons-marker item with a body ts of today
+    ;;     lands in a NON-empty Logged/created group; test seat adds the
+    ;;     revert-fails ERT.
+    ;;   • M2: `org-air-query--scan-live-buffer' binds `inhibit-message'
+    ;;     (echo hygiene parity with the work-buffer path).
+    ;; No golden fixture churn observed (`make check' green untouched).
+    ;; Round-53fix manifest is EMPTY.
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

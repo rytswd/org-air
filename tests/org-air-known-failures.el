@@ -1765,6 +1765,52 @@
     ;; in rszwspyuorst).  Round-54 part 2 manifest is EMPTY; the tests
     ;; stay as permanent regression guards.
     ;; =================================================================
+    ;; 2026-07-15: ROUND-54c FIX CLOSEOUT (review BLOCK -> impl fix
+    ;; psnwkpxmlunq + test seat <this commit>).  The review's three
+    ;; findings landed on the impl track; the test seat closed the
+    ;; hole its own fixtures had hidden:
+    ;;   • BLOCKER 1 (inbox in Revisit) CLOSED: the part-2 OBSERVATION
+    ;;     above is RESOLVED the excluding way — the inbox is a triage
+    ;;     queue, not an evergreen; `org-air-revisit--scope-entries'
+    ;;     now drops `org-air-inbox-file' (view policy at the scope
+    ;;     seat, memoised-truename compare; `:ntype' stays
+    ;;     content-derived).  Test seat: the 3a fixture inbox retuned
+    ;;     from pure-TODO (which excluded it for the WRONG reason —
+    ;;     `:ntype' task — hiding the hole) to PROSE captures + an
+    ;;     anti-tautology assert that it types 'knowledge yet stays
+    ;;     absent; 3f now asserts the EMPTY inbox is not a rendered
+    ;;     row (it silently WAS one pre-fix); NEW ERT r54c-3h drives
+    ;;     both shapes — a PROSE (#+title + taskless captures) inbox
+    ;;     AND an empty `#+title: inbox' file each type 'knowledge in
+    ;;     file-meta yet are ABSENT from `--scope-entries' and the
+    ;;     rendered rows.  Reverting the predicate fails 3a + 3f + 3h
+    ;;     (verified on this tree).
+    ;;   • MAJOR 1 (part-1 v4 cache => false all-orphans) CLOSED: the
+    ;;     part-2 impl-track note above ("ORPHANS can over-report on
+    ;;     that one warm open until the next scan re-fills them") is
+    ;;     STALE as written — `org-air-query-file-meta-hydrate' now
+    ;;     SKIPS metas lacking `:links-out', so a part-1 cache hydrates
+    ;;     an EMPTY table (never link-less metas that read all-orphan
+    ;;     and got re-persisted by the next warm write); Revisit
+    ;;     re-fills via the pacer (interactive) / inline scan (batch).
+    ;;     NEW ERT r54c-3i forges a REAL part-1-shaped v4 cache with
+    ;;     the real writer (link keys stripped from the live table
+    ;;     first, dirty flag cleared), proves hydrate fills ZERO
+    ;;     entries, and the reopened Revisit's ORPHANS shows only the
+    ;;     true island — never the linked hub/spoke pair.  Reverting
+    ;;     the `plist-member' guard fails it (verified).
+    ;;   • NIT (visits-hydrate clobber) CLOSED: hydrate takes
+    ;;     max(existing, cached); r54c-3i also asserts an in-session
+    ;;     visit survives an OLDER cached epoch while fresh entries
+    ;;     and NEWER cached epochs still land.  Reverting the max
+    ;;     fails it (verified).
+    ;; GOLDEN/FIXTURE CHURN: NONE — `make clean && make regen-mockups'
+    ;; re-verified zero fixture diff (the predicate/hydrate seams are
+    ;; invisible to every committed golden).  No .el SOURCE touched on
+    ;; the test track (impl landed the fix in psnwkpxmlunq).  Round-54c
+    ;; manifest is EMPTY; the tests stay as permanent regression
+    ;; guards.
+    ;; =================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

@@ -54,6 +54,19 @@
 ;;            build + paging opens NO file (`find-file-noselect' /
 ;;            `find-file' spies = 0) and grows the buffer list by
 ;;            nothing but the revisit buffer itself.
+;;   R54c-3h  the INBOX is a triage queue, never a Revisit row (the
+;;            R54c review blocker): a PROSE (taskless) inbox and an
+;;            EMPTY `#+title: inbox' file both type `knowledge' at the
+;;            file level (asserted — the anti-tautology half) yet are
+;;            ABSENT from `org-air-revisit--scope-entries' and the
+;;            rendered rows.  Reverting the scope predicate fails.
+;;   R54c-3i  a PART-1-shaped v4 cache (file-metas lacking the link
+;;            keys, written by the REAL cache writer) hydrates ZERO
+;;            metas — the reopened Revisit re-scans real metas and
+;;            ORPHANS never reports the linked pair (the false
+;;            all-orphans regression); and `org-air-query-visits-
+;;            hydrate' takes max — an older cached epoch never
+;;            clobbers a newer in-session visit.
 
 ;;; Code:
 
@@ -190,16 +203,20 @@ Returns the command that ran, so callers can pin the binding too."
 Both the headingless (#+title) and the headed prose knowledge files
 render — one row per FILE — while the task file and the journal file
 are ABSENT although both sit in the same file-meta table (typed away by
-the R54-2 model, the anti-tautology half).  RET on a row is the single
-user-initiated open: the file, point at its top (the cons-marker path).
-Reverting the `:ntype' scope filter fails."
+the R54-2 model, the anti-tautology half).  The inbox is PROSE captures
+\(taskless — the R54c review edge): it types `knowledge' like any
+evergreen yet stays absent, excluded by the scope predicate alone.  RET
+on a row is the single user-initiated open: the file, point at its top
+\(the cons-marker path).  Reverting the `:ntype' scope filter — or the
+inbox predicate — fails."
   (skip-unless (locate-library "org-air"))
   (org-air-r54c--with-corpus
       '(("notes/alpha.org" . "#+title: Alpha evergreen\n\nProse only.\n")
         ("notes/bravo.org" . "* Bravo pruning wisdom :garden:\nProse.\n")
         ("tasks.org" . "* TODO Real board task\nSCHEDULED: <2026-06-16 Tue>\n")
         ("2026-06-14.org" . "* Journal entry\nDear diary.\n")
-        ("inbox.org" . "#+title: inbox\n\n* TODO Half-formed capture\n"))
+        ("inbox.org" .
+         "#+title: inbox\n\n* a half-formed thought\nProse capture.\n"))
     (org-air-r54c--in-revisit
       (should (derived-mode-p 'org-air-revisit-mode))
       (let ((files (org-air-r54c--row-files)))
@@ -219,6 +236,12 @@ Reverting the `:ntype' scope filter fails."
                               (org-air-r54c--file "2026-06-14.org"))
                              :ntype)
                   'journal))
+      ;; The PROSE inbox types knowledge like any evergreen — ONLY the
+      ;; scope predicate (view policy, R54c) keeps the triage queue out.
+      (should (eq (plist-get (org-air-query-file-meta
+                              (org-air-r54c--file "inbox.org"))
+                             :ntype)
+                  'knowledge))
       ;; The title cell reads file-meta (#+title), never the file.
       (should (string-match-p "Alpha evergreen"
                               (substring-no-properties (buffer-string))))
@@ -571,7 +594,11 @@ from the maps (the R35-1 gate)."
               (with-current-buffer buf
                 (should (derived-mode-p 'org-air-revisit-mode))
                 (should (member (org-air-r54c--file "note.org")
-                                (org-air-r54c--row-files)))))
+                                (org-air-r54c--row-files)))
+                ;; The EMPTY inbox types knowledge yet is NOT a row —
+                ;; the R54c scope predicate (the review's flagged edge).
+                (should-not (member (org-air-r54c--file "inbox.org")
+                                    (org-air-r54c--row-files)))))
             ;; `N' — the symmetric switch — from the BOARD...
             (should (eq (key-binding (kbd "N")) 'org-air-revisit))
             ;; ...and from the PROJECT map, dispatched for real.
@@ -666,6 +693,142 @@ read fails."
     (when (get-buffer org-air-revisit-buffer-name)
       (let ((kill-buffer-query-functions nil))
         (kill-buffer org-air-revisit-buffer-name)))))
+
+;;;; -------------------------------------------------------------------
+;;;; R54c-3h — the inbox is a triage queue, never a Revisit row
+;;;; -------------------------------------------------------------------
+
+(defun org-air-r54c--assert-inbox-absent ()
+  "Assert the corpus inbox types `knowledge' yet never reaches Revisit.
+The anti-tautology half first: the inbox IS in file-meta, typed
+`knowledge' by the content-derived F7 rule (no inbox case there), so
+only the scope predicate — view policy — can be what excludes it.  Then
+the seam both ways: `org-air-revisit--scope-entries' and the rendered
+rows hold exactly the one evergreen note, never the inbox."
+  (org-air-r54c--in-revisit
+    (should (eq (plist-get (org-air-query-file-meta
+                            (org-air-r54c--file "inbox.org"))
+                           :ntype)
+                'knowledge))
+    (should (equal (mapcar #'car (org-air-revisit--scope-entries))
+                   (list (org-air-r54c--file "note.org"))))
+    (should (equal (org-air-r54c--row-files)
+                   (list (org-air-r54c--file "note.org"))))))
+
+(ert-deftest org-air-r54c-3h-inbox-absent-from-revisit ()
+  "The inbox never surfaces in Revisit although it types knowledge (R54c).
+The review-blocked edge: a PROSE (taskless) inbox — `#+title' plus
+captures that are not yet tasks — and an EMPTY `#+title: inbox' file
+both type `knowledge' at the FILE level (F7 has no inbox case;
+asserted), yet BOTH are absent from `org-air-revisit--scope-entries'
+AND from the rendered rows: the inbox is a triage queue with its own
+surface (the Inbox bucket + capture flow), excluded as view policy at
+the scope seat.  Reverting the scope predicate (the inbox reappears as
+an evergreen row) fails both halves."
+  (skip-unless (locate-library "org-air"))
+  ;; A PROSE inbox: #+title + captures, no task heading anywhere.
+  (org-air-r54c--with-corpus
+      '(("note.org" . "#+title: Quiet garden note\n\nProse.\n")
+        ("inbox.org" .
+         "#+title: inbox\n\n* a half-formed thought\nnot yet a task\n"))
+    (org-air-r54c--assert-inbox-absent))
+  ;; An EMPTY inbox: nothing but the #+title line.
+  (org-air-r54c--with-corpus
+      '(("note.org" . "#+title: Quiet garden note\n\nProse.\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (org-air-r54c--assert-inbox-absent)))
+
+;;;; -------------------------------------------------------------------
+;;;; R54c-3i — part-1 v4 cache hydrate guard + the visits-hydrate max
+;;;; -------------------------------------------------------------------
+
+(defun org-air-r54c--strip-link-shape (meta)
+  "Return a copy of META lacking the R54-3 link keys — the part-1 shape."
+  (let (out)
+    (while meta
+      (let ((key (pop meta)) (val (pop meta)))
+        (unless (memq key '(:ids :links-raw :links-out :links-in))
+          (setq out (nconc out (list key val))))))
+    out))
+
+(ert-deftest org-air-r54c-3i-part1-cache-hydrate-guard-and-visit-max ()
+  "A part-1 v4 cache hydrates NO metas; visits-hydrate takes max (R54c).
+The review's MAJOR: a v4 cache written by part-1 code carries file-metas
+WITHOUT the link keys — hydrated as-is they read as false ALL-orphans
+and get re-persisted by the next warm write.  Forge exactly that cache
+with the REAL writer (link keys stripped from the live table first),
+then prove the guard: `org-air-query-file-meta-hydrate' fills ZERO
+entries from it, so the reopened Revisit re-scans REAL metas (batch:
+inline) and ORPHANS shows only the true island — never the linked
+hub/spoke pair.  Then the ledger nit: `org-air-query-visits-hydrate'
+takes max — an OLDER cached epoch never clobbers a newer in-session
+visit, while fresh entries and NEWER cached epochs still land.
+Reverting the `:links-out' hydrate guard (or the max) fails."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r54c--with-corpus
+      '(("hub.org" . "* Hub idea\nSee [[file:spoke.org][spoke]].\n")
+        ("spoke.org" . "#+title: Spoke idea\n\nProse.\n")
+        ("island.org" . "#+title: Island idea\n\nProse.\n")
+        ("inbox.org" . "#+title: inbox\n\n* TODO Capture\n"))
+    (let* ((hub (org-air-r54c--file "hub.org"))
+           (spoke (org-air-r54c--file "spoke.org"))
+           (island (org-air-r54c--file "island.org"))
+           (items (org-air-query-items))
+           (files (org-air-query-files)))
+      (org-air-query-link-graph-ensure)
+      ;; Sanity: the live scan resolved the pair (hub → spoke).
+      (should (member spoke
+                      (plist-get (org-air-query-file-meta hub)
+                                 :links-out)))
+      ;; Forge the part-1 shape IN the live table, then persist it with
+      ;; the REAL writer — byte-for-byte what a part-1 binary's cache
+      ;; write produced (its serialiser had no link keys to prune).
+      (maphash (lambda (file meta)
+                 (puthash file (org-air-r54c--strip-link-shape meta)
+                          org-air-query--file-meta))
+               org-air-query--file-meta)
+      (setq org-air-query--link-graph-dirty nil)
+      (org-air-view--cache-write items (org-air-view--mtimes-snapshot
+                                        files))
+      ;; Anti-tautology: the cache on disk REALLY carries part-1 metas
+      ;; — one per file, none with the `:links-out' shape.
+      (let ((metas (plist-get (org-air-view--cache-read) :file-meta)))
+        (should (= (length metas) (length files)))
+        (dolist (entry metas)
+          (should-not (plist-member (cdr entry) :links-out))))
+      ;; THE GUARD: hydrating that cache fills NOTHING — the table
+      ;; starts empty instead of link-less.
+      (org-air-r54c--reset-tables)
+      (org-air-query-file-meta-hydrate
+       (plist-get (org-air-view--cache-read) :file-meta))
+      (should (zerop (hash-table-count org-air-query--file-meta)))
+      ;; …so the reopened Revisit re-fills REAL metas and ORPHANS never
+      ;; reports the linked pair (the false all-orphans regression).
+      (org-air-r54c--in-revisit
+        (should (member spoke
+                        (plist-get (org-air-query-file-meta hub)
+                                   :links-out)))
+        (should (eq (org-air-r54c--dispatch "m")
+                    'org-air-revisit-cycle-surface))
+        (should (eq org-air-revisit--surface 'orphans))
+        (let ((rows (org-air-r54c--row-files)))
+          (should (member island rows))
+          (should-not (member hub rows))
+          (should-not (member spoke rows))))
+      ;; VISITS-HYDRATE takes max: an in-session visit survives an
+      ;; older cached epoch; fresh entries and newer epochs still land.
+      (let ((org-air-revisit-visit-ledger t))
+        (org-air--note-visited hub)
+        (let ((recorded (org-air-query-note-visit hub)))
+          (should (floatp recorded))
+          (org-air-query-visits-hydrate
+           (list (cons hub (- recorded 3600.0)) (cons island 123.0)))
+          (should (= (org-air-query-note-visit hub) recorded))
+          (should (= (org-air-query-note-visit island) 123.0))
+          (org-air-query-visits-hydrate
+           (list (cons hub (+ recorded 3600.0))))
+          (should (= (org-air-query-note-visit hub)
+                     (+ recorded 3600.0))))))))
 
 (provide 'org-air-round54c-test)
 ;;; org-air-round54c-test.el ends here

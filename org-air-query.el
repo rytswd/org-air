@@ -285,8 +285,29 @@ TITLE."
 (defvar org-air-query--scan-file-signals nil
   "The scanned file's per-FILE type signals, bound per file by the scan.
 A plist (:override TYPE :journal FLAG :title TITLE :tags TAGS :created
-FLOAT) computed ONCE per file by `org-air-query--file-signals' — not per
-heading — and threaded to `org-air-query--note-type' (R54-2).")
+FLOAT :ids IDS :links LINKS) computed ONCE per file by
+`org-air-query--file-signals' — not per heading — and threaded to
+`org-air-query--note-type' (R54-2; :ids/:links feed the R54-3 link
+graph).")
+
+(defun org-air-query--note-link (target)
+  "Normalise raw bracket-link TARGET to a note-link string, or nil (R54-3).
+Only the three note-link kinds survive: `denote:ID', `id:UUID' and
+`file:' links landing on `.org' files (explicit `file:' prefix, or a
+bare untyped bracket target naming an .org file — Org's own file-link
+fallback); `https:' and every other link type returns nil (a web-linked
+note can still be an orphan in the garden sense).  A `::search' suffix
+is tolerated and stripped."
+  (let ((target (car (split-string (or target "") "::"))))
+    (cond
+     ((string-prefix-p "denote:" target) target)
+     ((string-prefix-p "id:" target) target)
+     ((string-prefix-p "file:" target)
+      (and (string-match-p "\\.org\\'" target) target))
+     ((and (not (string-match-p "\\`[[:alpha:]][[:alnum:]+.-]*:" target))
+           (string-match-p "\\.org\\'" target))
+      (concat "file:" target))
+     (t nil))))
 
 (defun org-air-query--file-signals (file)
   "Compute FILE's per-file type signals in the current scan buffer (R54-2).
@@ -329,12 +350,34 @@ plist documented on `org-air-query--scan-file-signals'."
                      (float-time
                       (org-timestamp-to-time
                        (org-timestamp-from-string
-                        (match-string-no-properties 1))))))))))
+                        (match-string-no-properties 1)))))))))
+          ;; R54-3 link graph: ONE bounded whole-buffer pass while the
+          ;; file is already in the work buffer — `:ID:' property values
+          ;; (the id: link resolution targets) and the note-to-note
+          ;; outbound links.  Scan-TIME extraction only; resolution is a
+          ;; finish-time PURE pass over the in-memory table
+          ;; (`org-air-query--link-graph-finish') — never at render time,
+          ;; never a file open.
+          (ids (save-excursion
+                 (let (acc)
+                   (while (re-search-forward
+                           "^[ \t]*:ID:[ \t]+\\([^ \t\n]+\\)" nil t)
+                     (push (match-string-no-properties 1) acc))
+                   (nreverse acc))))
+          (links (save-excursion
+                   (let (acc)
+                     (while (re-search-forward org-link-bracket-re nil t)
+                       (when-let* ((link (org-air-query--note-link
+                                          (match-string-no-properties 1))))
+                         (push link acc)))
+                     (nreverse acc)))))
      (list :override override
            :journal (and (org-air-query--journal-file-p file title) t)
            :title title
            :tags tags
-           :created created))))
+           :created created
+           :ids ids
+           :links links))))
 
 (defun org-air-query--note-type (todo scheduled deadline tags)
   "Derive the note type for the heading at point (R54-2, USER-RULED).
@@ -373,10 +416,20 @@ stays a knowledge FILE) → else `knowledge'."
 Keys: `:title' (`#+title', else the denote slug, else nil — `:org-title'
 holds the raw `#+title' alone so display fallbacks stay exact), `:tags'
 \(`#+filetags', else the filename `__tags' fallback), `:ntype' (the
-FILE's type, F7 rule), `:mtime' and `:created' (epoch floats).  Updated
-per scanned file; persisted in the cache as `:file-meta' and hydrated
-back on cache load, so a warm board answers file-level questions with
-ZERO file opens.")
+FILE's type, F7 rule), `:mtime' and `:created' (epoch floats).  R54-3
+link-graph keys: `:ids' (the file's `:ID:' property values), `:links-raw'
+\(scan-time outbound note links, unresolved), `:links-out' (the resolved
+outbound list — FILE paths where resolvable, the raw link string where
+not: unresolvable intent counts outbound but creates no inbound) and
+`:links-in' (the inbound count, one pure inversion pass at scan finish).
+Updated per scanned file; persisted in the cache as `:file-meta' and
+hydrated back on cache load, so a warm board answers file-level
+questions with ZERO file opens.")
+
+(defvar org-air-query--link-graph-dirty nil
+  "Non-nil when file-meta gained scan entries since the last resolution.
+Set by `org-air-query--file-meta-record'; cleared by the pure
+`org-air-query--link-graph-finish' pass (R54-3).")
 
 (defvar org-air-query--denote-id-index (make-hash-table :test #'equal)
   "Index denote ID → FILE for the read-only `denote:' link shim (R54-2).
@@ -407,13 +460,78 @@ re-derived from the cache's `:file-meta' keys on hydration.")
                                               (file-attribute-modification-time
                                                (file-attributes file))))))
                           (float-time mtime))
-                 :created (plist-get signals :created))
-           org-air-query--file-meta))
+                 :created (plist-get signals :created)
+                 ;; R54-3: the raw link-graph facts; resolution is the
+                 ;; finish-time pure pass (`--link-graph-finish').
+                 :ids (plist-get signals :ids)
+                 :links-raw (plist-get signals :links))
+           org-air-query--file-meta)
+  (setq org-air-query--link-graph-dirty t))
+
+(defun org-air-query--link-graph-finish ()
+  "Resolve the note-link graph over the in-memory file-meta table (R54-3).
+A PURE pass — zero file opens: builds the denote-ID / `:ID:' / normalised
+path indexes from the table itself, resolves every file's `:links-raw'
+into `:links-out' (resolved targets become FILE paths; an unresolvable
+note link keeps its raw string — outbound intent with no inbound edge;
+self-links are dropped) and computes `:links-in' by one in-memory
+inversion.  Never called at render time per row — the Revisit view runs
+it at most once per dirty table (`org-air-query-link-graph-ensure')."
+  (let ((ids (make-hash-table :test #'equal))
+        (paths (make-hash-table :test #'equal))
+        (inbound (make-hash-table :test #'equal)))
+    (maphash (lambda (file meta)
+               (puthash (expand-file-name file) file paths)
+               (dolist (id (plist-get meta :ids))
+                 (puthash id file ids))
+               (org-air-query--index-denote-id file))
+             org-air-query--file-meta)
+    (maphash
+     (lambda (file meta)
+       (let (out)
+         (dolist (raw (plist-get meta :links-raw))
+           (let* ((resolved
+                   (cond
+                    ((string-prefix-p "denote:" raw)
+                     (gethash (substring raw (length "denote:"))
+                              org-air-query--denote-id-index))
+                    ((string-prefix-p "id:" raw)
+                     (gethash (substring raw (length "id:")) ids))
+                    ((string-prefix-p "file:" raw)
+                     (let ((path (substring raw (length "file:"))))
+                       (gethash (expand-file-name
+                                 path (file-name-directory file))
+                                paths)))))
+                  (target (or resolved raw)))
+             (unless (or (equal target file) (member target out))
+               (push target out)
+               (when resolved
+                 (cl-incf (gethash resolved inbound 0))))))
+         (puthash file (plist-put meta :links-out (nreverse out))
+                  org-air-query--file-meta)))
+     org-air-query--file-meta)
+    (maphash (lambda (file meta)
+               (puthash file
+                        (plist-put meta :links-in (gethash file inbound 0))
+                        org-air-query--file-meta))
+             org-air-query--file-meta))
+  (setq org-air-query--link-graph-dirty nil))
+
+(defun org-air-query-link-graph-ensure ()
+  "Run the link-graph resolution iff the table gained scans (R54-3).
+Idempotent and cheap (one in-memory pass over the file-meta table);
+safe to call before any consumer read (the Revisit ORPHANS mode, the
+cache serialisation)."
+  (when org-air-query--link-graph-dirty
+    (org-air-query--link-graph-finish)))
 
 (defun org-air-query-file-meta-alist (files)
   "Return the file-meta entries for FILES as a printable alist (R54-2).
 The cache serialisation form: pruned to FILES, so vanished files never
-persist."
+persist.  R54-3: the link graph is resolved first, so the persisted
+entries carry `:links-out'/`:links-in' and a warm ORPHANS render is
+data-pure with no resolution pass."
+  (org-air-query-link-graph-ensure)
   (let (out)
     (dolist (file files)
       (when-let* ((meta (gethash file org-air-query--file-meta)))
@@ -426,6 +544,51 @@ persist."
     (when (and (stringp file) (listp meta))
       (puthash file meta org-air-query--file-meta)
       (org-air-query--index-denote-id file))))
+
+;;;; ---------------------------------------------------------------------
+;;;; R54-3 — the bounded VISIT LEDGER (opt-in after the D2 ruling).
+;;;; org-air records opens IT initiates (board S-RET / g RET, the pane
+;;;; RET, revisit RET) — NEVER a global `find-file' hook: org-air does
+;;;; not instrument buffers it does not own.
+;;;; ---------------------------------------------------------------------
+
+(defvar org-air-query--visits (make-hash-table :test #'equal)
+  "The visit ledger: FILE → epoch float of the last org-air open (R54-3).
+Written only when `org-air-revisit-visit-ledger' is non-nil (the D2
+ruling demoted the ledger to OPT-IN; age is pure mtime by default).
+Persisted in the cache as `:visits' (alist) and hydrated back; BOUNDED:
+pruned to the enumerated file set at cache write, so its size can never
+exceed the configured file count.")
+
+(defun org-air--note-visited (file)
+  "Record an org-air-initiated open of FILE in the visit ledger (R54-3).
+A no-op unless `org-air-revisit-visit-ledger' is non-nil (USER-RULED D2:
+last-modified is the default attention-age signal; the ledger is the
+opt-in refinement).  Called only from org-air's OWN open paths."
+  (when (and (bound-and-true-p org-air-revisit-visit-ledger)
+             (stringp file) (not (string-empty-p file)))
+    (puthash file (float-time) org-air-query--visits)))
+
+(defun org-air-query-note-visit (file)
+  "Return the ledger epoch float of FILE's last org-air open, or nil."
+  (gethash file org-air-query--visits))
+
+(defun org-air-query-visits-alist (files)
+  "Return the visit ledger pruned to FILES as a printable alist (R54-3).
+The cache serialisation form — the prune IS the bound: entries for files
+no longer enumerated are dropped here and, since this feeds the write,
+never persist."
+  (let (out)
+    (dolist (file files)
+      (when-let* ((time (gethash file org-air-query--visits)))
+        (push (cons file time) out)))
+    (nreverse out)))
+
+(defun org-air-query-visits-hydrate (alist)
+  "Hydrate the visit ledger from cache ALIST (R54-3)."
+  (pcase-dolist (`(,file . ,time) alist)
+    (when (and (stringp file) (numberp time))
+      (puthash file time org-air-query--visits))))
 
 (defun org-air-query--denote-resolve (id)
   "Resolve denote identifier ID to a configured file, or nil (R54-2).

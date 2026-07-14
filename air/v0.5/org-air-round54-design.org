@@ -681,3 +681,37 @@ Still OPEN — defaults chosen, each one knob/predicate; flag to the user:
   inactive-ts stale ERTs flagged in tests/org-air-known-failures.el for
   the test-seat re-bless; NO fixture edited.  make check GREEN
   (0 unexpected).
+- 2026-07-15: R54 part 2 IMPLEMENTED (impl track) — R54-3 Revisit view,
+  NEW org-air-revisit.el.  ONE view (=*org-air revisit*=,
+  =org-air-revisit-mode= child of the view-core map) over the file-meta
+  revisit scope (=org-air-revisit-types= '(knowledge), F3), one row per
+  FILE, dustiest-first default with o/O age/created/title via the
+  shared sort core; =m= cycles ALL → ORPHANS (rule F8 'disconnected
+  over the new link graph) → SPACED (deterministic =(mod (* day K) N)=
+  window, K=5, F9 done-tick); bounded paging (200/page + fold row
+  extending ONE page), =/= filter, =z c= created column; standard rail
+  (age-band Summary >1y/>90d/>21d/fresh + Actions), placement/popout/
+  reconciler shared with the board.  Link graph landed in the query
+  layer: scan-time =:ids=/=:links-raw= extraction (one bounded
+  =org-link-bracket-re= pass; denote:/id:/file:-to-.org only), PURE
+  finish-time resolution + =:links-in= inversion
+  (=org-air-query-link-graph-ensure=, run at cache-write and before an
+  ORPHANS read — never per row).  Visit ledger landed OPT-IN per D2
+  (=org-air-revisit-visit-ledger= nil): =org-air--note-visited= on the
+  org-air open paths only (board S-RET/g RET, pane RET, revisit
+  RET/S-RET), cache-persisted as =:visits= and pruned to the snapshot
+  (bounded); age = pure mtime by default, max(mtime, visit) with the
+  knob on.  Cache stays v4 (the declared one-bump shape; a part-1 v4
+  cache hydrates cleanly, link keys self-heal on the next scan).
+  ENTRY POINTS: =N= on the board AND project maps (P/N the symmetric
+  switch pair) + the board Notes section heading answers RET with
+  =org-air-revisit= (F4 doorway; the count-semantics half of F4 stays
+  at the bucket count, flagged open) — all installer-owned (R35-1
+  knob), evil via the shared setup.  Cold path: cache hydrate, else a
+  token-guarded paced wall-clock fill (budgeted slices, progressive
+  repaint) — never a synchronous scan interactively; batch scans
+  inline.  DATA-PURE render verified ((buffer-list) unchanged by a
+  full render).  No fixture edited; churn flagged in
+  tests/org-air-known-failures.el (new revisit goldens are the test
+  seat's to bless).  make clean && make check GREEN (681 tests,
+  0 unexpected).

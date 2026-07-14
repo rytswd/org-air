@@ -37,6 +37,7 @@
 (require 'org-air-classify)
 (require 'org-air-view)
 (require 'org-air-project)
+(require 'org-air-revisit)
 
 ;;;###autoload
 (defun org-air ()

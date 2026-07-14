@@ -30,6 +30,10 @@
 (require 'org-air-view)
 (require 'org-air-calendar)
 
+;; R54-3: the Revisit view (org-air-revisit.el) loads after this file;
+;; the `N' key names its entry point, resolved at press time.
+(declare-function org-air-revisit "org-air-revisit" ())
+
 ;;;; ---------------------------------------------------------------------
 ;;;; Configuration (F5a)
 ;;;; ---------------------------------------------------------------------
@@ -2321,6 +2325,9 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "?" #'org-air-help
   "/" #'org-air-project-filter
   "g" #'org-air-project-refresh
+  ;; R54-3: the symmetric view-switch pair — `N' opens the Revisit view
+  ;; (board `P' -> project, board/project `N' -> revisit).
+  "N" #'org-air-revisit
   "q" #'org-air-project-quit)
 
 (defvar org-air-project-leader-map

@@ -1624,6 +1624,79 @@
     ;; uyrtyuqnlvlo).  Round-54 part 1 manifest is EMPTY; the tests
     ;; stay as permanent regression guards.
     ;; =================================================================
+    ;; 2026-07-15 — ROUND-54 part 2 (R54-3 REVISIT view), impl track
+    ;; (air/v0.5/org-air-round54-design.org §R54-3).
+    ;; NEW MODULE org-air-revisit.el: `org-air-revisit' (buffer
+    ;; "*org-air revisit*", `org-air-revisit-mode', keymap parent
+    ;; `org-air-view-core-map').  ONE view over the R54-2 file-meta
+    ;; scope (`org-air-revisit-types', default '(knowledge) — fork F3),
+    ;; ONE row per FILE, DEFAULT sort age-ascending = dustiest first
+    ;; (D2); `o'/`O' cycle age/created/title via the shared R22-3 core;
+    ;; `m' cycles ALL -> ORPHANS -> SPACED; `/' filter, `z c' created
+    ;; column, standard rail (age-band Summary >1y/>90d/>21d/fresh +
+    ;; Actions), bounded paging (`org-air-revisit-page-limit' 200 + the
+    ;; `…and N more — TAB for another page' fold row extending ONE
+    ;; page).  DATA-PURE render law holds: every cell reads file-meta /
+    ;; ledger slots; (buffer-list) is unchanged by a full render.
+    ;; STRUCT/CACHE CHURN FLAG for the test seat:
+    ;;   • `org-air-view--cache-version' stays 4 — the part-1 manifest
+    ;;     declared the link-graph keys + `:visits' part of the v4
+    ;;     shape, landing with this change.  file-meta plists gained
+    ;;     :ids / :links-raw / :links-out / :links-in (scan-time
+    ;;     extraction in `org-air-query--file-signals'; finish-time PURE
+    ;;     resolution + inversion in `--link-graph-finish', run at most
+    ;;     once per dirty table via `org-air-query-link-graph-ensure' —
+    ;;     called from the cache serialisation and the ORPHANS render,
+    ;;     never per row).  The cache gained `:visits' (the bounded
+    ;;     ledger, pruned to the snapshot files at write).  A cache
+    ;;     written by part-1 code (also "v4") still hydrates cleanly:
+    ;;     empty ledger; its metas lack link keys, so ORPHANS can
+    ;;     over-report on that one warm open until the next scan
+    ;;     re-fills them (self-healing, documented on the version
+    ;;     docstring).  The r54-x cache seam's "v4 roundtrips
+    ;;     active-ts/ntype/:file-meta/:visits" holds as written.
+    ;;   • VISIT LEDGER (D2: opt-in, `org-air-revisit-visit-ledger'
+    ;;     default nil): `org-air--note-visited' records org-air's OWN
+    ;;     open paths ONLY — `org-air-visit-item' (S-RET/g RET), the
+    ;;     board pane RET (`org-air-view-pane-return'), revisit
+    ;;     RET/S-RET; a no-op at the default; NEVER a global find-file
+    ;;     hook.  With the knob on, age = max(mtime, visit) and SPACED
+    ;;     shows the visited-today tick (new `visited' glyph "✓"/"v"
+    ;;     in the org-air-glyphs table — no golden renders it).
+    ;;   • SPACED: deterministic K-window `(mod (* day K) N)' over the
+    ;;     file-name-ordered scope, K = `org-air-revisit-daily-count'
+    ;;     (5, fork F9); exactly K rows, zero disk state.  ORPHANS:
+    ;;     `org-air-revisit-orphan-rule' default 'disconnected (F8).
+    ;;   • ENTRY POINTS: `N' registered on BOTH the board and project
+    ;;     maps (-> `org-air-revisit'; `P'/`N' the symmetric switch
+    ;;     pair), AND the board's Notes section HEADING answers RET
+    ;;     with `org-air-revisit' (F4 doorway — `org-air-view-pane-
+    ;;     return' notes-heading branch; item rows keep the pane; TAB
+    ;;     still expands the preview in place).  The F4 count question
+    ;;     (bucket count vs revisit-scope count) stays at the bucket
+    ;;     count — flagged OPEN, one predicate if ruled the other way.
+    ;;     All keys installer-owned (R35-1 knob covers install/clear;
+    ;;     org-air-revisit.el re-runs the installer once at load since
+    ;;     it loads after the project.el seed); evil via the shared
+    ;;     `org-air-view--setup-evil'.
+    ;;   • COLD PATH: warm = table already filled; cache = hydrate
+    ;;     :file-meta + :visits (no scan); cold-interactive = a paced
+    ;;     wall-clock fill (`org-air-refresh-slice-budget' slices at
+    ;;     `org-air-view--refresh-wallclock-pace', token-guarded,
+    ;;     progressive repaint per `org-air-cold-paint-interval',
+    ;;     killed with the buffer) — NEVER a synchronous scan
+    ;;     interactively; batch (`noninteractive') scans inline for
+    ;;     deterministic ERT/regen.  `g' rides the same pacer.
+    ;; GOLDEN/FIXTURE CHURN: NONE expected — no committed golden
+    ;; renders a Notes section (verified: no fixture .txt contains
+    ;; "Notes"), the board/project goldens are byte-identical under
+    ;; make check (0 unexpected), and the R54-3 goldens are NEW
+    ;; (revisit 80/120-col mockups, folded + paged states) for the test
+    ;; seat to bless via the regen tool.  NO fixture edited here; no
+    ;; expected-fail entries — the R54-3 ERT seams (r54-3a..3f, r54-2e
+    ;; link graph, r54-3d ledger, r54-x cache) are the test seat's to
+    ;; write against this impl.
+    ;; =================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

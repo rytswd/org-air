@@ -39,6 +39,12 @@
 (defvar org-air-files)
 (defvar org-air-inbox-file)
 
+;; R54-3: the Revisit view lives in org-air-revisit.el (module split);
+;; this file only NAMES its entry points (the `N' key, the Notes-heading
+;; RET doorway, the shared dispatchers), all fboundp-guarded at runtime.
+(declare-function org-air-revisit "org-air-revisit" ())
+(declare-function org-air-revisit--render-current "org-air-revisit" ())
+
 (defcustom org-air-margin 2
   "Left margin for org-air content lines."
   :type 'integer
@@ -1502,6 +1508,8 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   ">" #'org-air-calendar-next
   "." #'org-air-calendar-today
   "z" '(:prefix . org-air-columns-prefix-map)
+  ;; R54-3: the symmetric view-switch pair — `P' project, `N' revisit.
+  "N" #'org-air-revisit
   "?" #'org-air-help
   "q" #'org-air-quit)
 
@@ -5720,10 +5728,14 @@ count (R16 D-P1)."
   "Re-render the current org-air buffer, dispatching on mode (R22-5).
 The shared rail-toggle uses this so it never hard-codes the board renderer:
 the board re-renders via `org-air-view--render-current'; the project via
-`org-air-project--render-current'."
+`org-air-project--render-current'; the revisit view via
+`org-air-revisit--render-current' (R54-3)."
   (cond
    ((derived-mode-p 'org-air-view-mode) (org-air-view--render-current))
    ((derived-mode-p 'org-air-project-mode) (org-air-project--render-current))
+   ((and (derived-mode-p 'org-air-revisit-mode)
+         (fboundp 'org-air-revisit--render-current))
+    (org-air-revisit--render-current))
    ;; R26-5: a doc-session buffer "refreshes" by re-showing/hiding its
    ;; DOC-context side rail per the popped flag (the buffer text is the
    ;; user's file — never re-rendered by org-air).
@@ -5740,7 +5752,8 @@ always wins — closing the side window with any native command falls back to
 inline via the reconciler.  The refresh is dispatched per-mode via
 `org-air-view--refresh-current' so the toggle never forks."
   (interactive)
-  (unless (or (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
+  (unless (or (derived-mode-p 'org-air-view-mode 'org-air-project-mode
+                              'org-air-revisit-mode)
               ;; R26-5: the toggle also works from a doc-session buffer
               ;; (its side rail is the DOC context).
               (bound-and-true-p org-air-project--session-tree))
@@ -5826,7 +5839,8 @@ suspension/re-pop sweep treats the doc half of a project session exactly
 like a board<->project switch."
   (and (buffer-live-p buf)
        (or (with-current-buffer buf
-             (derived-mode-p 'org-air-view-mode 'org-air-project-mode))
+             (derived-mode-p 'org-air-view-mode 'org-air-project-mode
+                             'org-air-revisit-mode))
            (and (local-variable-p 'org-air-project--session-tree buf)
                 (buffer-local-value 'org-air-project--session-tree buf)
                 t))))
@@ -6572,15 +6586,31 @@ board.  Visiting the file in the other window is `S-RET'
 R51-3: on the `…and N more' fold row RET (and <mouse-1> — this same
 command) dispatches to `org-air-toggle-section' and does ONLY that —
 nothing opens, no pane (the exact shape of the R48-3 fold branch in
-`org-air-project-open')."
+`org-air-project-open').
+R54-3 (fork F4): on the NOTES section heading — the count row that
+advertises the knowledge corpus — RET opens the Revisit view instead:
+the count row is the doorway to the full resurfacing surface (TAB still
+expands the bounded preview in place)."
   (interactive)
-  (if (org-air-view--row-property 'org-air-more-row)
-      (org-air-toggle-section)
+  (cond
+   ((org-air-view--row-property 'org-air-more-row)
+    (org-air-toggle-section))
+   ;; R54-3 F4: the Notes section HEADING (never an item row — those
+   ;; carry `org-air-item' and keep the pane) answers RET with Revisit.
+   ((and (eq (org-air-view--line-section) 'notes)
+         (not (org-air-view--row-property 'org-air-item))
+         (fboundp 'org-air-revisit))
+    (org-air-revisit))
+   (t
+    ;; R54-3: an org-air-initiated open — feed the opt-in visit ledger
+    ;; (a no-op at the default; never a global hook).
+    (when-let* ((item (org-air-view--row-property 'org-air-item)))
+      (org-air--note-visited (org-air-item-file item)))
     ;; Focus only when the pane is ALREADY live: the first RET opens (no
     ;; focus), the second RET (pane now live) focuses.  `org-air-view-pane'
     ;; honours the dynamic `org-air-view-pane-focus' binding.
     (let ((org-air-view-pane-focus (org-air-view-pane--window-live-p)))
-      (org-air-view-pane))))
+      (org-air-view-pane)))))
 
 (defun org-air-view-pane-close ()
   "Close the bottom `*org-air-view*' source pane (R16 D-P3).  Key `V'."
@@ -7208,8 +7238,13 @@ v3 (R53fix): the struct gained `subtree-ts' (day view's Logged/created
 key); a v2 cache would hydrate records of the wrong shape.
 v4 (R54): the struct gained `active-ts' (the R54-1 stale-eligibility
 signal) and `ntype' (the R54-2 note type), and the cache carries the
-per-file `:file-meta' table.  A v3 cache is simply a cold miss —
-skeleton + paced rescan, never a hang.")
+per-file `:file-meta' table.  R54-3 (still v4, the declared one-bump
+shape): the file-meta plists gained the link-graph keys
+\(:ids/:links-raw/:links-out/:links-in) and the cache the `:visits'
+ledger — both were declared part of the v4 shape when R54 part 1
+landed, so a part-1 v4 cache still hydrates cleanly (empty ledger;
+link-unknown metas re-fill on the next scan).  A v3 cache is simply a
+cold miss — skeleton + paced rescan, never a hang.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.
@@ -7252,6 +7287,10 @@ never a failure source)."
                   ;; snapshot's files so vanished files never linger.
                   :file-meta (org-air-query-file-meta-alist
                               (mapcar #'car mtimes))
+                  ;; R54-3: the bounded visit ledger — the prune to the
+                  ;; snapshot's files IS the bound (size <= file count).
+                  :visits (org-air-query-visits-alist
+                           (mapcar #'car mtimes))
                   :items (mapcar #'org-air-view--item-serialise items)))
            nil tmp nil 'silent))
         (rename-file tmp file t)))))
@@ -7329,6 +7368,8 @@ FIRST post-cache `g r' is already mtime-incremental (R42-1)."
       ;; file-level questions (F1 `title-from-org', the denote: shim's ID
       ;; index) with zero file opens.
       (org-air-query-file-meta-hydrate (plist-get data :file-meta))
+      ;; R54-3: rehydrate the opt-in visit ledger alongside it.
+      (org-air-query-visits-hydrate (plist-get data :visits))
       (cons (plist-get data :items)
             (org-air-view--changed-files files mtimes)))))
 
@@ -8072,10 +8113,15 @@ The shared filter commands (`org-air-filter-clear',
 `org-air-filter-toggle-match') re-render through this so they work in BOTH
 the board and the project view without a hard dependency on
 org-air-project (resolved by `fboundp')."
-  (if (and (derived-mode-p 'org-air-project-mode)
-           (fboundp 'org-air-project-refresh))
-      (org-air-project-refresh)
-    (org-air-view--render-current)))
+  (cond
+   ((and (derived-mode-p 'org-air-project-mode)
+         (fboundp 'org-air-project-refresh))
+    (org-air-project-refresh))
+   ;; R54-3: the revisit view re-renders in place (data untouched).
+   ((and (derived-mode-p 'org-air-revisit-mode)
+         (fboundp 'org-air-revisit--render-current))
+    (org-air-revisit--render-current))
+   (t (org-air-view--render-current))))
 
 (defun org-air-filter (tags)
   "Filter dashboard to TAGS, a comma-separated or list value.
@@ -8699,6 +8745,7 @@ only clears installer-owned keys, and org-air installs none here."
      (org-air-refresh-all . "refresh all (drop caches)"))
     ("Session"
      (org-air-project . "project tree")
+     (org-air-revisit . "revisit dusty notes")
      (org-air-quit . "quit")
      (org-air-help . "this help")))
   "BOARD help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).
@@ -8728,6 +8775,7 @@ ACTUAL live keymaps of the origin buffer, so the help can never lie.")
     ("Refresh"
      (org-air-project-refresh . "refresh"))
     ("Session"
+     (org-air-revisit . "revisit dusty notes")
      (org-air-project-quit . "quit")
      (org-air-help . "this help")))
   "PROJECT help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).")
@@ -8753,6 +8801,7 @@ The doc file buffer is EDITABLE, so these derive to the
   (with-current-buffer buffer
     (cond
      ((derived-mode-p 'org-air-project-mode) 'project)
+     ((derived-mode-p 'org-air-revisit-mode) 'revisit)
      ((derived-mode-p 'org-air-view-mode) 'board)
      ((and (boundp 'org-air-doc-session-mode) org-air-doc-session-mode)
       'doc-session)
@@ -8763,12 +8812,17 @@ The doc file buffer is EDITABLE, so these derive to the
   (pcase context
     ('project org-air-help--project-groups)
     ('doc-session org-air-help--doc-groups)
+    ;; R54-3: the revisit groups live in org-air-revisit.el (module split).
+    ('revisit (if (boundp 'org-air-revisit--help-groups)
+                  (symbol-value 'org-air-revisit--help-groups)
+                org-air-help--board-groups))
     (_ org-air-help--board-groups)))
 
 (defun org-air-help--context-title (context)
   "Return the human name of help CONTEXT for the title line (R50-2)."
   (pcase context
     ('project "project")
+    ('revisit "revisit")
     ('doc-session "doc session")
     (_ "board")))
 
@@ -8853,6 +8907,8 @@ controls window choice and defaults to `org-air-visit-display'."
   (let ((item (or item (get-text-property (point) 'org-air-item))))
     (unless item
       (user-error "No org-air item at point"))
+    ;; R54-3: an org-air-initiated open — feed the opt-in visit ledger.
+    (org-air--note-visited (org-air-item-file item))
     ;; R18 D-P4: RET owns the pane now (`org-air-view-pane-return'); the old
     ;; opt-in `org-air-view-pane-on-return' RET-also-opens-pane behaviour is
     ;; obsolete and no longer consulted here.

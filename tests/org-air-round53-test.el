@@ -48,6 +48,15 @@
 ;;         MANY files even with the obsoleted `org-air-refresh-files-per-
 ;;         slice' bound to 1 (the fixed count is dead — time governs).
 ;;
+;;   R53fix-B1 DAY-VIEW LOGGED/CREATED (review B1) — a (FILE . POS)
+;;         cons-marker scanned item whose subtree BODY carries a <today>
+;;         active timestamp lands in the day view's `Logged / created'
+;;         group via the scan-time `subtree-ts' slot; the live-marker
+;;         probe answers NIL for a cons item (the pre-fix key), so
+;;         reverting B1 empties the group = FAILS; an undated sibling in
+;;         the same today-touched file stays OUT (`activity''s mtime
+;;         fallback must never fill the group).
+;;
 ;; Perf probes stay OUT of the gate per the round instructions: every
 ;; corpus here is tiny/bounded (<= ~20 files); the order-of-magnitude
 ;; smoke lives in tests/org-air-perf-test.el.
@@ -685,6 +694,68 @@ one file and leave the queue non-empty)."
         (should-not org-air-view--refresh-state)
         (should (null org-air-view--refresh-queue))
         (should (= (length org-air-view--items) 6))))))
+
+;;;; -------------------------------------------------------------------
+;;;; R53fix B1 — Logged/created reads `subtree-ts' (revert-fails)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r53fix-b1-day-groups-read-subtree-ts ()
+  "A (FILE . POS) cons-marker scanned item whose subtree BODY carries a
+<today> active timestamp lands in the day view's `Logged / created'
+group — NON-empty — keyed by the scan-time `subtree-ts' slot.  The
+revert proof runs in-process: `org-air-view--marker-timestamp-time' (the
+pre-fix SOLE grouping key) answers NIL for the cons-marker item, so
+reverting B1 (grouping on the live-marker probe only) leaves the group
+EMPTY and this test FAILS.  Two fences ride along: `subtree-ts' is
+populated AT SCAN TIME (numeric, keyed to today), and an undated sibling
+in the same today-touched file — whose `activity' IS today via the mtime
+fallback — stays OUT of Logged/created (an `activity'-keyed \"fix\"
+would wrongly file every undated heading of a today-touched file there)."
+  (skip-unless (locate-library "org-air"))
+  (let ((today-ts (format-time-string "<%Y-%m-%d %a 10:00>" (current-time))))
+    (org-air-r53--with-corpus
+        `(("log.org" . ,(concat "* TODO Logged today :log:\n"
+                                "Prose before the stamp.\n"
+                                today-ts "\n"
+                                "* TODO Undated sibling :log:\n"
+                                "No timestamp anywhere in this subtree.\n"))
+          ("inbox.org" . "#+title: inbox\n"))
+      (let* ((items (org-air-query-items))
+             (logged (org-air-test-find-item "Logged today" items))
+             (undated (org-air-test-find-item "Undated sibling" items))
+             (today-key (org-air-view--day-key (current-time))))
+        (should logged)
+        (should undated)
+        ;; the scan yields the durable (FILE . POS) cons, NOT a live
+        ;; marker — the exact shape the pre-fix probe-only key loses.
+        (let ((m (org-air-item-marker logged)))
+          (should (consp m))
+          (should (stringp (car m)))
+          (should (integerp (cdr m))))
+        ;; `subtree-ts' populated AT SCAN TIME with the body stamp…
+        (should (numberp (org-air-item-subtree-ts logged)))
+        (should (equal (org-air-view--day-key (org-air-item-subtree-ts logged))
+                       today-key))
+        ;; …and honestly nil where the subtree carries no timestamp.
+        (should-not (org-air-item-subtree-ts undated))
+        ;; the sibling's `activity' IS today (the mtime fallback of the
+        ;; just-written file) — the value that must never key the group.
+        (should (numberp (org-air-item-activity undated)))
+        (should (equal (org-air-view--day-key (org-air-item-activity undated))
+                       today-key))
+        ;; in-process revert proof: the live-marker probe (the pre-fix
+        ;; sole key) answers NIL on the cons-marker item.
+        (should-not (org-air-view--marker-timestamp-time logged))
+        ;; the seam itself: Logged/created NON-empty, holding exactly the
+        ;; body-stamped item; the undated sibling stays out; nothing
+        ;; leaked into Deadline/Scheduled.
+        (let* ((groups (org-air-view--day-groups items (current-time)))
+               (created (cdr (assoc "Logged / created" groups))))
+          (should created)
+          (should (memq logged created))
+          (should-not (memq undated created))
+          (should-not (memq logged (cdr (assoc "Deadline" groups))))
+          (should-not (memq logged (cdr (assoc "Scheduled" groups)))))))))
 
 (provide 'org-air-round53-test)
 ;;; org-air-round53-test.el ends here

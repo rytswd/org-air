@@ -1494,6 +1494,40 @@
     ;; No golden fixture churn observed (`make check' green untouched).
     ;; Round-53fix manifest is EMPTY.
     ;; =================================================================
+    ;; v0.5 ROUND-53 FIX CLOSEOUT (impl tip lsyqxnwrsptn + test seat
+    ;; <this commit>).  The impl's STRUCT/CACHE CHURN FLAG above is
+    ;; CLOSED — the churn is byte-invisible and self-blessing:
+    ;;   • `subtree-ts' slot / cache v3: NO golden prints or reads raw
+    ;;     `org-air-item' records (swept fixtures + tests: no `#s(', no
+    ;;     positional record construction), and the r26-8 cache ERTs
+    ;;     read `org-air-view--cache-version' as a VARIABLE, so the
+    ;;     2 -> 3 bump follows automatically (the version-mismatch
+    ;;     cold-path conjunct pins -99, not 2).  `make clean && make
+    ;;     regen-mockups' (FROZEN-CLOCK renderer, guards active; NO
+    ;;     HANG, exit 0) verified ZERO fixture churn — jj diff = the
+    ;;     new ERT only; every board/layout/project/entry-view/denote
+    ;;     golden is byte-identical.  No assertion re-blessed — none
+    ;;     pinned the v2 shape.
+    ;; NEW R53fix EXECUTING ERT (tests/org-air-round53-test.el):
+    ;;   org-air-r53fix-b1-day-groups-read-subtree-ts — a (FILE . POS)
+    ;;     cons-marker scanned item whose subtree BODY carries a <today>
+    ;;     active timestamp lands in a NON-empty `Logged / created'
+    ;;     day-view group keyed by the scan-time `subtree-ts' slot
+    ;;     (asserted populated + day-keyed to today at scan time); the
+    ;;     in-process revert proof pins `--marker-timestamp-time' = NIL
+    ;;     on the cons item, and the undated sibling fence pins that
+    ;;     `activity''s mtime fallback (= today on the just-written
+    ;;     file) NEVER fills the group.  Verified REVERT-FAILS by
+    ;;     re-running against the pre-fix `--day-groups' body (probe-only
+    ;;     key): the group empties and the ERT fails.  M2 (live-buffer
+    ;;     `inhibit-message' echo hygiene) is already fenced by the
+    ;;     r53-1 no-echo-spam conjunct on the scan path.  The R48/R51
+    ;;     lesson re-learned: `make clean' FIRST — a stale pre-fix .elc
+    ;;     shadowed the new accessor (`void-function
+    ;;     org-air-item-subtree-ts') until cleaned.
+    ;; Round-53fix manifest is EMPTY; the test stays as a permanent
+    ;; regression guard.
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

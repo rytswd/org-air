@@ -632,8 +632,9 @@ the top) — so RET opens a pane showing the DOC, not an item subtree."
          (when (buffer-live-p (car bp)) (kill-buffer (car bp))))))))
 
 ;;;; =====================================================================
-;;;; R22-6 — project by-directory grouping: ONE header/dir, quiet aligned
-;;;; letter-counts (airctl status -Da parity), real nesting indent.
+;;;; R22-6 — project by-directory grouping: ONE header/dir, quiet
+;;;; letter-counts (airctl status -Da parity; LEFT-anchored next to the
+;;;; name since R52-1), real nesting indent.
 ;;;; =====================================================================
 
 (defun org-air-r22-6--dir-lines ()
@@ -685,12 +686,20 @@ gone, so each version dir's `| v0.N/' header line appears EXACTLY ONCE
                            (string-match-p "\\[[RWCXD]\\] [A-Z][a-z]+ ([0-9]" l))
                          lines))))
 
-(ert-deftest org-air-r22-6-count-summaries-right-aligned ()
-  "R22-6: the per-dir letter-count summaries are RIGHT-aligned to one fixed
-column, so sibling dir headers line up vertically.  Rendered without the
-rail (justified to a fixed width W), the v0.1/ and v0.2/ headers are both
-exactly W wide and END with their summary (flush right) — the summaries have
-DIFFERENT lengths yet share the same right edge."
+(ert-deftest org-air-r22-6-count-summaries-left-anchored ()
+  "R22-6 rollup coverage, INVERTED in place by R52-1 (renamed from
+`org-air-r22-6-count-summaries-right-aligned'; never silent): the per-dir
+letter-count summary is LEFT-ANCHORED, exactly TWO columns after its
+`dir/' name, so the rollup reads as the name's own annotation — no longer
+RIGHT-justified to the pane width, where on wide frames it floated out by
+the date column, visually detached from the name it summarizes
+\(air/v0.5/org-air-round52-design.org supersedes the R22-6 rationale that
+sibling headers share a vertical summary column).  Rendered without the
+rail at width W: the v0.1/ and v0.2/ headers are NO LONGER W wide
+\(right-trimmed width < W), each header ENDS with its summary, and the
+summary starts exactly TWO columns after the name's `/'.  The same-length
+names now put both summaries at the SAME start column while their right
+edges DIFFER — the exact inversion of the old flush-right proof."
   (skip-unless (locate-library "org-air"))
   (let* ((w 80)
          (docs (org-air-project--collect-docs org-air-project-test-root))
@@ -702,23 +711,32 @@ DIFFERENT lengths yet share the same right edge."
                      (mapcar #'substring-no-properties
                              (split-string (buffer-string) "\n"))))))
          (pick (lambda (rx) (cl-find-if (lambda (l) (string-match-p rx l)) lines)))
-         (h1 (funcall pick "| v0\\.1/"))
-         (h2 (funcall pick "| v0\\.2/"))
+         (h1 (string-trim-right (or (funcall pick "| v0\\.1/") "")))
+         (h2 (string-trim-right (or (funcall pick "| v0\\.2/") "")))
          (sum-start (lambda (l)
-                      (and (string-match "  +\\([RWCXDUV][0-9].*[0-9)]\\) *$" l)
-                           (match-beginning 1)))))
-    (should h1) (should h2)
-    ;; both headers justified to the SAME total width (right edge at W).
-    (should (= (length h1) w))
-    (should (= (length h2) w))
-    ;; the summary flushes to the right edge (line ends in a non-space).
+                      (and (string-match "  \\([RWCXDUV][0-9(].*[0-9)]\\)$" l)
+                           (match-beginning 1))))
+         (name-end (lambda (l rx) (and (string-match rx l) (match-end 0)))))
+    (should-not (string-empty-p h1))
+    (should-not (string-empty-p h2))
+    ;; headers are NO LONGER justified to W: they END after the summary.
+    (should (< (length h1) w))
+    (should (< (length h2) w))
+    ;; each header ENDS with its summary (right-trimmed tail is the rollup).
     (should (string-match-p "[0-9)]\\'" h1))
     (should (string-match-p "[0-9)]\\'" h2))
-    ;; DIFFERENT-length summaries -> different START columns, same right edge
-    ;; (proves real right-justification, not a coincidental shared column).
-    (let ((s1 (funcall sum-start h1)) (s2 (funcall sum-start h2)))
-      (should s1) (should s2)
-      (should-not (= s1 s2)))))
+    ;; the summary starts exactly TWO columns after the name's `/'.
+    (let ((s1 (funcall sum-start h1)) (s2 (funcall sum-start h2))
+          (n1 (funcall name-end h1 "v0\\.1/"))
+          (n2 (funcall name-end h2 "v0\\.2/")))
+      (should s1) (should s2) (should n1) (should n2)
+      (should (= s1 (+ n1 2)))
+      (should (= s2 (+ n2 2)))
+      ;; SAME-length names -> SAME summary start column, while the
+      ;; DIFFERENT-length summaries give DIFFERENT right edges — the exact
+      ;; inversion of the superseded flush-right proof.
+      (should (= s1 s2))
+      (should-not (= (length h1) (length h2))))))
 
 (ert-deftest org-air-r22-6-nesting-indents-deepen ()
   "R22-6/R23-3 re-bless: real tree nesting — a CHILD dir header's NAME sits

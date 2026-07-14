@@ -1830,14 +1830,65 @@
     ;; TEST seat (fixtures NOT edited on the impl track; clean FIRST —
     ;; the R48/R51/R53/R54 stale-.elc lesson).  The test seat also owns
     ;; the r22-6 inversion + the new R52 ERTs (spec §Test churn / §ERTs).
-    (org-air-f5-project-view-byte-mockups
-     . "R52-1: project-view-dir.txt's 3 dir-header lines move to the
-left-anchored rollup (spec §Golden impact); test seat re-blesses via
-make clean && make regen-mockups — do NOT hand-edit the fixture")
-    (org-air-r22-6-count-summaries-right-aligned
-     . "R52-1 supersedes the R22-6 right-alignment rationale: headers are
-no longer justified to W — the summary starts exactly TWO columns after
-the name.  Test seat inverts in place per spec §Test churn")
+    ;;
+    ;; =================================================================
+    ;; v0.5 ROUND-52 CLOSEOUT (impl tip xxyrllwq/52da2c01 + test re-bless
+    ;; <this commit>).  BOTH grind entries CLOSED — the ONE moved byte
+    ;; golden regenerated from impl's render via the FROZEN-CLOCK
+    ;; renderer (make clean FIRST — the R48/R51/R53/R54 stale-.elc
+    ;; lesson — then make regen-mockups, anti-tautology guards active;
+    ;; NO HANG, exit 0).  AUDIT: jj diff = ONLY tests/fixtures/
+    ;; project-view-dir.txt, EXACTLY its three group-header lines,
+    ;; byte-matching spec §Golden impact's pinned NEW forms —
+    ;; `| v0.1/  R1 C1 D(+1)', `+- air-context/  D1' (the nested child
+    ;; adjacent to its OWN name at its OWN indent), `| v0.2/  W1 X1 D1';
+    ;; the divider column + rail cells are byte-identical (the doc-pane
+    ;; pad is re-emitted by `--compose-columns'), and the state/tag
+    ;; project goldens + every board/layout/entry-view/denote golden are
+    ;; byte-identical.  The flagged assertion ERTs re-blessed HONESTLY
+    ;; to the design-blessed R52 contract
+    ;; (air/v0.5/org-air-round52-design.org) — asserts the NEW true
+    ;; behaviour, none weakened:
+    ;;   org-air-f5-project-view-byte-mockups — PASSES on the regen'd
+    ;;     dir golden (no assertion edit); entry deleted.
+    ;;   org-air-r22-6-count-summaries-right-aligned — INVERTED in place
+    ;;     + RENAMED org-air-r22-6-count-summaries-left-anchored (never
+    ;;     silent; R52-1 supersedes the R22-6 shared-vertical-column
+    ;;     rationale — adjacency wins): headers are NO LONGER justified
+    ;;     to W (right-trimmed width < W), each header ENDS with its
+    ;;     summary, the summary starts exactly TWO columns after the
+    ;;     name's `/', and the same-length names share a START column
+    ;;     while the right edges DIFFER — the exact inversion of the
+    ;;     old flush-right proof.  Coverage retargeted, not deleted.
+    ;; NEW R52 EXECUTING ERTs (tests/org-air-round52-test.el; the
+    ;; adjacency + width-invariance pair verified REVERT-FAILS — both
+    ;; red against the pre-impl right-justify by construction):
+    ;;   org-air-r52-1-group-header-summary-adjacent — dir grouping at
+    ;;     width 100 carries the EXACT adjacent forms (all three
+    ;;     headers, incl. the NESTED `+- air-context/  D1' at its own
+    ;;     indent); anti-revert conjunct: the name→summary gap is
+    ;;     exactly 2 on every header (trunk: ~40-50 pad spaces).
+    ;;   org-air-r52-1-summary-column-is-width-invariant — direct tree
+    ;;     renders at w 80 AND w 120: right-trimmed header lines
+    ;;     byte-IDENTICAL across widths (the summary no longer tracks
+    ;;     the right edge — the user's wide-frame detachment is
+    ;;     structurally impossible), each ending with its summary at
+    ;;     width < w.  Trunk FAILS (justify pads to exactly w).
+    ;;   org-air-r52-1-long-name-header-clamps — LOCK: a synthetic
+    ;;     overflowing node emits a header of string-width exactly W
+    ;;     ending with the shared `more' glyph (the clamp can never be
+    ;;     dropped now that the justify call — whose own truncation
+    ;;     provided it — is gone).
+    ;;   org-air-r52-1-rollup-tokens-unchanged — LOCK, anti-scope-creep:
+    ;;     `--dir-count-summary' over the R22-6 airctl vector still
+    ;;     yields exactly `R4(+1) C14(+14) X1(+9) D2(+8)' — tokens,
+    ;;     letter ORDER (`--state-display-order', the airctl `status
+    ;;     -Da' parity contract) and `(+N)' semantics did NOT move with
+    ;;     the position.
+    ;; No .el SOURCE touched on the test track (impl landed R52-1 in
+    ;; xxyrllwq).  Round-52 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
+    ;; =================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

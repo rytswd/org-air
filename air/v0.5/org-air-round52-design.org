@@ -1,5 +1,5 @@
 #+title: org-air Round 52 — Project view: group-header count rollup sits NEXT TO the folder name (left-anchored, not right-justified)
-#+state: ready
+#+state: complete
 #+tags: project-view directory-tree group-header rollup alignment ux
 
 * Summary
@@ -256,3 +256,4 @@ the r22-6 inversion · the =project-view-dir.txt= re-bless.
   enumerated (byte fixture + r22-6 right-aligned test only).  SPEC ONLY —
   no .el/tests touched (R51 edits the project view concurrently).
   State: ready.
+- 2026-07-15: State: ready → complete.

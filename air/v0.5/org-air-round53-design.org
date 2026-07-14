@@ -1,0 +1,451 @@
+#+title: org-air Round 53 — Never-hang at 5000 files: work-buffer scan, data-pure render, never-error, bounded note file-items
+#+state: ready
+#+tags: performance robustness scan cache refile headingless file-items never-error
+
+* Summary
+
+A real user pointed =org-air-files= at a large personal notes dir and Emacs
+HUNG COMPLETELY, while headingless files (=#+title= + prose, no =*=)
+"errored out repeatedly" (=org-ql: No headings in buffer=).  org-air
+reported 1700+ files for that dir; per the user, the design target is now
+*at least 5000 files with headroom to ~10k*, and the priorities are ranked:
+
+1. *Never hang* (non-negotiable): open + stay responsive at 5000+ files;
+   cold open paints a skeleton and is interactive immediately; warm open is
+   near-instant.  NO synchronous full scan anywhere, ever.
+2. *Never error* on headingless/odd files: per-file catch, skip, log once.
+3. *Listing everything is secondary* (usability > completeness): surfacing
+   headingless note-blobs as file-level items is a BOUNDED, non-blocking
+   enhancement — cap/lazy is fine; it must never reintroduce a hang.
+
+This round was measured end to end on a 5006-file synthetic corpus
+(/tmp/org-air-r53/corpus: 4100 headingless journal/note blobs, 750 headed
+GTD files, 150 empty/near-empty, plus huge/binary/gpg/unreadable/symlink
+edge files — batch Emacs, this machine).  Headline numbers:
+
+| Operation (5006 files, 15.9k items)      |   BEFORE | AFTER (prototyped) |
+|------------------------------------------+----------+--------------------|
+| Cold full scan (what the user's open ran) |  271.8 s | 3.41 s (paced bg)  |
+| …buffers leaked / RSS growth             | 5004 / +368 MB | 6 / +88 MB   |
+| First paint of a cache-HIT (warm) board  |  186.6 s | 0.51 s             |
+| …buffers opened by that render           |     4905 | 1                  |
+| Cold open → interactive (input live)     | ~8 s then 4.5 min freeze | <0.1 s |
+| Warm open → full board                   |   ~3 min | ~0.7 s             |
+| Warm refresh, nothing changed            |    0.9 s | 0.26 s             |
+| Refile picker data (targets + labels)    |    3.7 s | 0.06 s             |
+| Refile Tags…/Category… vocab             | full rescan (≈271 s cold) | 0.005 s |
+| One bad file (gpg/unreadable/symlink)    | aborts WHOLE scan → 0 items, retry loops | skipped, logged once |
+| Headingless note file                    | invisible + echo spam | one openable file-item (bounded) |
+
+Hard bar met: cold open is interactive in <0.1 s (skeleton 2 ms +
+enumeration 44 ms), first real rows land ≈1 s, the full board streams in
+over ~10 s of paced background work (C-g abortable throughout); warm open
+reaches the FULL board in ~0.7 s; a no-change warm refresh proves itself in
+~0.26 s.  org-ql stays the only query path — the round changes what
+BUFFERS org-air hands to =org-ql-select=, never the query engine.
+
+SPEC ONLY: R51/R52 touch the views concurrently; nothing here edits
+=.el=/tests.  All prototype harnesses live in =/tmp/org-air-r53/=.
+
+* Root cause of the hang (measured, not guessed)
+
+** Reproduction corpus
+
+=/tmp/org-air-r53/gen-corpus.sh= generates 5007 files (~4.8 MB):
+=journal/YYYY/MM/*.org= (3400 headingless =#+title= blobs, ⅓ with
+=#+filetags=), =notes/= (700 headingless), =projects/= (750 headed,
+TODO/NEXT/WAIT/DONE + SCHEDULED/DEADLINE), =scratch/= (150 empty /
+whitespace-only / title-only), =edge/= (2 MB headingless blob, 5000-heading
+file, 200 KB binary garbage named =.org=, garbage =.org.gpg=, chmod-000
+file, symlink to a real note, dangling symlink).
+
+** Finding 1 — the scan is O(n²) in open buffers; the query itself is free
+
+=org-ql-select= (org-ql.el ~389) turns each FILE into a buffer via
+=(or (find-buffer-visiting it) (find-file-noselect it) …)= and org-air
+never closes them, so every scanned file permanently grows the buffer
+list.  Tranche measurement (500 files each) shows per-file cost growing
+linearly with open buffers — i.e. the whole scan is O(n²):
+
+| open org buffers | per-file cost |
+|------------------+---------------|
+|              500 |       5.2 ms |
+|             1500 |      14.0 ms |
+|             2000 |      32.6 ms |
+|             2500 |      46.6 ms |
+|             3000 |      62.1 ms |
+
+ELP at n≈2200 buffers names the money (300 fresh files, 11.4 s total in
+=find-file-noselect=, 38 ms/file):
+
+- =find-buffer-visiting= — *8.84 s / 600 calls = 14.7 ms per call*, called
+  twice per file (org-ql's lookup + inside the open path).  It walks the
+  whole buffer list.
+- =uniquify-rationalize-file-buffer-names= — *4.35 s / 300 = 14.5 ms* per
+  new buffer (another full-buffer-list walk).
+- =org-mode= init + =set-auto-mode= + =after-find-file= ≈ 6.6 ms/file.
+- the actual org-ql query, =org-ql--select-cached=: *0.006 s / 300 =
+  0.02 ms per file* — noise.
+
+Full cold scan of 5003 scannable files: *271.8 s*, 5004 leaked org
+buffers, RSS +368 MB.  The dominant cost is org-ql's file→buffer
+provisioning (buffer-list walks + per-file org-mode init + permanent
+buffer retention), NOT querying.
+
+** Finding 2 — the interactive freeze is the R42-2 watchdog
+
+Cold interactive open at this scale: =org-air-view= → cold branch →
+=org-air-view--refresh-start t= queues all 5006 files on the R34-3 idle
+pacer at =org-air-refresh-files-per-slice= = 3 files / 0.05 s slice.  8 s
+later the R42-2 watchdog (=org-air-view--refresh-watchdog-timeout= 8.0)
+fires with ~480 of 5006 files done, and
+=org-air-view--refresh-watchdog-fire= (org-air-view.el ~7209) "force
+completes" by running =org-air-query-items-in-files= over the remaining
+*4526 files synchronously on the main thread* — i.e. the measured
+271.8-second class of freeze, mid-session, uninterruptible.  The safety
+backstop designed for a small tree IS the hang at 5000 files.
+
+** Finding 3 — the WARM (cache-hit) path is just as hung: render re-opens every file
+
+Even with a valid persisted cache, the first full paint at 15.9k items
+took *186.6 s and opened 4905 buffers* — because render-time helpers call
+=find-file-noselect= PER ITEM for any cache-hydrated =(FILE . POS)= item:
+
+- =org-air-classify--item-source= (org-air-classify.el ~42): cons marker →
+  =find-file-noselect=.  Reached per item via =--done-keywords= (which can
+  open the file a SECOND way, ~57), =--marker-timestamp-time= (~84) and
+  =--last-activity= (~112).
+- =org-air-view--marker-timestamp-time= (org-air-view.el ~1747) — the
+  view's date-label twin, same per-item open.
+- =org-air-calendar--item-deadline= (org-air-calendar.el ~83) — its own
+  inline =find-file-noselect=, executed for every item WITHOUT a deadline
+  by =org-air-calendar--marked-days= — on a journal corpus that is nearly
+  every item.
+
+Undated, headingless notes — exactly the user's corpus — are the worst
+case: =--last-activity= falls through every slot to the subtree probe.
+
+** Finding 4 — "errors out repeatedly" is real signals aborting whole scans
+
+The echoed =org-ql: No headings in buffer: <title>= (org-ql.el ~546) is a
+benign per-file =message= — echo-area spam ×4100 here, annoying but not
+fatal.  The REAL errors (probed):
+
+- *unreadable file* (chmod 000): org-ql's =display-warning= RETURNS A
+  STRING which stays in its buffers list; the next =(buffer-name it)= /
+  =with-current-buffer= dies with =wrong-type-argument bufferp= — the
+  WHOLE =org-ql-select= call over all files in that batch aborts.
+- *garbage/undecryptable =.org.gpg=*: epa signals a =file-error= out of
+  =find-file-noselect= — whole call aborts.  Measured: the full-scan run
+  returned *0 items* because =edge/= sorts first.
+- *dangling symlink*: same =bufferp= abort as unreadable.
+
+On the interactive path the slice/watchdog =condition-case= catches these,
+flips the machine to =failed= ("g r retries"), the user retries, the same
+file signals again — the reported repeated-error loop.  One bad file =
+a permanently empty board.
+
+** Finding 5 — refile is its own mini-hang
+
+- "⌂ Move to file…": =org-air-inbox--target-files= re-enumerates (0.72 s)
+  and =org-air-inbox--file-candidates= disambiguates basenames with
+  =seq-count= per file — O(n²), *3.01 s* at 5006 files, before the prompt
+  even shows.
+- "Tags…"/"Category…" (org-air-inbox.el ~165/179): =(org-air-query-items)=
+  — a FULL synchronous rescan at menu time (271 s class when cold).
+- Enumeration itself: =org-air-query-files= costs 0.647 s
+  (=file-truename= per file + O(n²) =delete-dups=); the R42
+  =--changed-files= diff costs 0.275 s (O(n²) =assoc=).
+
+* Proposal
+
+Five pillars, in priority order.  P1/P2 are the non-negotiables; P3 is the
+bounded enhancement; P4/P5 close the remaining seams.
+
+** P1 — the work-buffer scan: org-ql over buffers org-air manages
+
+New data-layer core in org-air-query.el, =org-air-query--scan-file (file)=
+→ list of items (possibly nil), NEVER signals:
+
+1. If a LIVE user buffer visits FILE (=get-file-buffer=, the cheap C
+   lookup — not =find-buffer-visiting=): pass THAT buffer to
+   =org-ql-select= (unsaved edits respected), then rewrite each item's
+   marker slot to =(FILE . POS)=.
+2. Else scan in ONE reused work buffer =*org-air scan*= (a normal-named
+   buffer: org-ql drops space-prefixed ones), created once per session:
+   =delay-mode-hooks= + =org-mode= once, =org-element-cache-persistent=
+   nil buffer-locally (element cache stays ON — measured 0.37 s vs 4.04 s
+   on the 5000-heading file; persistence off keeps org-persist out of the
+   shared buffer).  Per file:
+   =erase-buffer= → =insert-file-contents= → =setq buffer-file-name FILE=
+   (so =org-air-query--item-at-point='s =(buffer-file-name)= and Org's
+   file-relative logic behave) → =org-set-regexps-and-options= (the file's
+   own =#+TODO:= wins, R21-3 default vocabulary otherwise — semantics
+   unchanged) → =org-ql-select= on the buffer with the same
+   =#'org-air-query--item-at-point= action → =unwind-protect= clears
+   =buffer-file-name= and modified flag.  Bindings for the whole per-file
+   body: =buffer-undo-list t=, =create-lockfiles nil=, =inhibit-message t=
+   + =message-log-max nil= (kills the per-file "No headings" spam; the
+   scan reports ONE summary line itself).
+3. Every item produced by 1–2 carries =(FILE . POS)= in the marker slot —
+   already first-class everywhere since R26-8 (=org-air-view--item-pos=,
+   =--item-serialise=, refile's =cdr-safe= goto, stale-item-guard), so
+   source buffers are simply NEVER retained by scanning.
+
+=org-air-query-items= / =org-air-query-items-in-files= become loops over
+=--scan-file= (order: file order × buffer order — identical to today, so
+the batch byte-goldens reproduce).  org-ql remains the only query engine;
+org-air only changed the BUFFERS-OR-FILES it hands over.
+
+Measured effect: 5006 files in *3.41 s* total CPU, FLAT per-file cost
+(p50 0.31 ms, p95 1.26 ms, p99 1.56 ms, max 447 ms = the 5000-heading
+file), 6 buffers total, RSS +88 MB (the 15.9k in-memory items), zero echo
+spam.  80× the old wall time, and O(n) instead of O(n²).
+
+Known, accepted semantic difference (document in the docstring): file-local
+variable blocks are not processed in the work buffer (=#+…= keywords ARE,
+via =org-set-regexps-and-options=); a file whose parsing genuinely depends
+on local variables scans like any other Org file without them.
+
+** P1b — never-error law (per file, in the data layer)
+
+=--scan-file= wraps its whole body in =condition-case=; ANY signal
+(=file-error=, epa decryption, permission, encoding, org parse) → that
+file contributes 0 items and one entry in a per-scan skip log
+=(FILE . REASON)=; the scan continues.  Policy table applied BEFORE
+opening:
+
+| Case                          | Behaviour                                        |
+|-------------------------------+--------------------------------------------------|
+| =.org.gpg=, no live buffer    | skip + log =encrypted= (background NEVER decrypts or prompts); a live already-decrypted buffer scans normally via rule 1 |
+| size > =org-air-max-file-size= (new defcustom, default 4 MB) | skip + log =too-large= |
+| unreadable / vanished / dangling symlink | skip + log the =file-error=          |
+| binary garbage named =.org=   | scans to 0 headings; NUL byte in first 1 KB suppresses the P3 file-item, so junk never becomes a row |
+| empty / whitespace-only       | 0 items, no file-item, no log                    |
+
+The finish summary reports once: =org-air: scanned 5003 files (15,893
+items), skipped 3 — M-x org-air-scan-report=; the report command lists the
+skip log.  Nothing in the machine (=--refresh-run-slice=,
+=--refresh-start= sync branch, =--refresh-watchdog-fire=) can now see a
+per-file signal at all, so =failed= is reserved for machine-level bugs —
+the retry-loop failure mode is designed out at the source.
+
+** P1c — pacing: time-budgeted slices, a watchdog that can't hang, C-g always
+
+- *Budgeted slices*: =org-air-view--refresh-run-slice= consumes queued
+  files until =org-air-refresh-slice-budget= (new internal constant,
+  0.018 s ≈ one frame) is exceeded, minimum 1 file
+  (=org-air-refresh-files-per-slice= is superseded/obsoleted).  Measured
+  model: 142 slices (~35 files each) at the existing 0.05 s idle pace →
+  full 5006-file fill in *~10.5 s* of idle, input latency bounded by one
+  slice (≤ ~20 ms typical; the rare pathological file caps at its own
+  scan time, 447 ms worst here, once, then mtime-cached).
+- *Abortable*: the per-slice loop runs under =while-no-input=; pending
+  input aborts BETWEEN files and the unconsumed remainder (including the
+  in-progress file — per-file work buffer state makes retry free) stays
+  queued for the next idle.  =quit= propagates out of the timer function
+  untouched: queue intact, machine still =refreshing=, pacer re-fires.
+  After =org-air-scan-abort-retries= (3) aborts of the SAME file it is
+  skip-logged =slow= — no livelock, board stays usable.
+- *Watchdog never syncs thousands*: =--refresh-watchdog-fire= only
+  force-finishes synchronously when the remaining queue is provably small
+  (≤ =org-air-view--refresh-sync-budget= files, an ~est. ≤ 250 ms at the
+  measured p95).  Otherwise it means "Emacs isn't going idle": switch the
+  SAME budgeted slice driver to a repeating wall-clock =run-with-timer=
+  (0.2 s period — ~10% duty cycle, progress independent of idleness),
+  re-arm the watchdog, keep the honest header progress =scanning… N/M=.
+  The state still can never strand at =refreshing= — it now converges by
+  pacing, not by freezing.
+- *Progressive cold paint*: the cold path repaints from the accumulator at
+  most once per =org-air-cold-paint-interval= (1.0 s), point preserved via
+  the existing save/restore-position; the =--loading= guard drops at the
+  FIRST progressive paint (verbs go live; still-queued files stay guarded
+  by =--refresh-stale-item-guard=).  Warm incremental refreshes keep the
+  R26-8 single-swap rule unchanged.  Timeline measured/modelled: skeleton
+  2 ms → enumeration 44 ms → input live <0.1 s → first rows ≈1 s (~500
+  files' items) → full board ~10 s, streaming.
+
+** P1d — enumeration, diff and cache sized for 5000+
+
+- =org-air-query-files=: hash-table dedupe + =file-truename= ONLY for
+  actual symlinks (=file-symlink-p= pre-check).  Measured 0.647 s →
+  *0.044 s*.  Symlink dedupe behaviour preserved (corpus link resolved).
+- =org-air-view--changed-files=: hash the snapshot, single pass.  Measured
+  0.275 s → *0.051 s*.  (Snapshot stays an alist on disk; hashed in
+  memory.)
+- Persistent cache (=org-air-cache-file=) is now LOAD-BEARING, not an
+  optimisation: same single =.eld=, atomic temp+rename, =:version= bumped
+  1→2 (struct gains slots, below), =:key= config guard unchanged,
+  =:mtimes= (5k entries) + =:items= (serialised, markers already cons).
+  Measured at 15.9k items: write 0.101 s (at finish only, off the input
+  path), read 0.026 s, 3.1 MB.  Invalidation: version/key mismatch =
+  no-cache cold path; per-file mtime divergence = rescan ONLY those files
+  (R42 short-circuit, unchanged in spirit).  Warm open total
+  (read + enumerate + hash diff) measured *0.208 s*; + the P2 render
+  0.51 s ⇒ *~0.7 s to a full warm board*, near-instant no-change refresh
+  (0.26 s, no org-ql call at all).
+
+** P2 — render NEVER opens a file (data-pure classify)
+
+Rule of the round: after the scan, everything the board needs lives in
+the item struct.  =org-air-item= gains scan-time slots (cache v2):
+
+- =kind= — ='heading= | ='file= (P3).
+- =donep= — todo ∈ the file's own =org-done-keywords= as known in the scan
+  buffer.  Retires =--done-keywords='s per-item file access.
+- =activity= — epoch float: closed ‖ scheduled ‖ deadline ‖ first
+  timestamp in the subtree body ‖ file mtime (the scan already stats the
+  file for the mtime snapshot).  Retires =--last-activity='s and both
+  =--marker-timestamp-time= twins' per-item opens; sort keys become
+  precomputed floats.
+- =body-deadline= — epoch float of the first =DEADLINE:= in the subtree
+  when the heading itself has none; retires
+  =org-air-calendar--item-deadline='s inline =find-file-noselect=.
+
+The two subtree regex probes run inside the already-positioned work
+buffer during =--item-at-point= (bounded by subtree end; included in the
+measured 3.41 s scan).  =org-air-classify--item-source= keeps its live
+=markerp= branch and returns nil for cons markers (callers use slots);
+=--inbox-file-p= compares against a per-render memoised inbox truename.
+
+Measured with all opens stubbed to the slot semantics: first full render
+of 15.9k items *0.513 s*, re-render 0.282 s, exactly *1* buffer touched
+(vs 186.6 s / 4905).  Classify stays memoised per item generation
+(=--classify-cache=), so progressive cold paints pay only new items.
+
+** P3 — headingless notes: file-items, bounded (usability > completeness)
+
+Synthesis (user decision 1): when =--scan-file= yields 0 heading items and
+the file is a REAL note — has =#+title=, or any non-blank content without
+the NUL guard tripping — emit ONE synthetic item: =kind 'file=, title =
+=#+title= (fallback: file name base), tags = =#+filetags=, group = parent
+directory name, marker = =(FILE . 1)=.  RET opens the file at the top
+(the existing cons-marker open path, org-air-view.el ~6095).  The inbox
+file never yields one (its emptiness is chrome, not content).  Measured:
+4,152 file-items synthesised from this corpus within the same 3.41 s scan.
+
+Placement (user decision 3 — the 2000-row-wall question):
+
+- File-items NEVER enter the task buckets: =org-air-classify-item= checks
+  =kind= first and routes ='file= to a dedicated ='notes= bucket, so the
+  GTD board stays a GTD board.
+- The board shows ONE collapsed section at the bottom: =≣ Notes · 4152= —
+  a single count row.  TAB expands to the =org-air-notes-preview-limit=
+  (default 50) most-recent by =activity=, each row title + folder + date
+  pill, ending with the standard fold row =… and 4102 more=.  Cost is
+  O(preview), one row until asked; expansion is a top-K selection over
+  precomputed floats (milliseconds at 4k).
+- Refile: headingless files are already structurally valid targets —
+  =org-air-inbox--read-heading= finds no headings → nil → append at file
+  end (= under the =#+title= content), which R53 promotes from accident to
+  contract ("refile to file top") with an ERT lock.
+
+UX fork, called out: (A) the folded count-row section on the board
+[PROPOSED default — visibility was the explicit ask, and it costs one row]
+vs (B) no board presence at all (=org-air-show-notes-section= nil, one
+defcustom away).  A full folder-grouped notes BROWSER (library view à la
+the project view's directory grouping, lazy per-folder expansion) is the
+natural follow-up round and is explicitly OUT of R53 — the preview section
++ refile targets already make notes visible, openable and organisable
+without any unbounded render.
+
+** P4 — refile at 5000 files stays snappy
+
+- Targets come from the last enumerated file list already held by the
+  board (mtime baseline keys / cache =:mtimes=) — no re-walk; cold
+  fallback is one 0.044 s enumeration.  Headingless files are included by
+  construction (they are files, not headings).
+- =org-air-inbox--file-candidates=: count basenames in ONE hash pass, then
+  label.  Measured 3.013 s → *0.013 s*.
+- "Tags…"/"Category…" vocabularies read the IN-MEMORY board items (or
+  cache items) — never a fresh =org-air-query-items= at menu time.
+  Measured 0.005 s.  =org-air-inbox--read-heading= still opens exactly ONE
+  file (the chosen target) via =find-file-noselect= — single, user-initiated,
+  correct.
+- Bar: the refile menu (and the ⌂ picker) opens in <100 ms at 5006 files.
+
+** P5 — robustness sweep (locked by the policy table)
+
+.org.gpg (never decrypt/prompt in background; live decrypted buffer scans
+fine), unreadable, vanished-mid-scan, dangling symlink, symlinked
+duplicate (deduped at enumeration), binary garbage, 0-byte, 2 MB prose
+blob (scans: it is just text), 5000-heading file (0.37 s with element
+cache; one long slice, then mtime-cached; =while-no-input= keeps input
+first), and =org-air-max-file-size= as the generic monster valve.  None of
+these can abort a scan, wedge the machine, or emit more than one log line.
+
+* Design details / seams
+
+- org-air-query.el: =--scan-file=, the work-buffer lifecycle
+  (=org-air-query--work-buffer=, killed on session teardown), the skip log
+  (=org-air-query--skip-log=, buffer-local to the scan owner or a plain
+  defvar cleared per scan), file-item synthesis, new struct slots.
+- org-air-view.el: budgeted slice runner, watchdog fallback pacer,
+  progressive cold paint + guard drop, hash =--changed-files=, cache v2,
+  notes section (bucket ='notes=, fold row), scan summary in the header.
+- org-air-classify.el / org-air-calendar.el: slot-reading rewrites of the
+  five per-item open sites (Finding 3 list is exhaustive — verified by the
+  1-buffer render measurement).
+- org-air-inbox.el: hash candidates, in-memory vocab, refile-to-file-top
+  contract.
+- Byte-golden impact: NONE expected.  The batch path stays synchronous and
+  item extraction is unchanged (same org-ql action); small fixtures are
+  heading-bearing so no Notes section appears; the inbox exclusion keeps
+  capture fixtures clean.  If an implementation-round fixture proves to
+  contain a title-only headless file, its golden gains one Notes row and
+  is re-blessed explicitly then.
+
+* ERT seams (batch, no GUI; each reverts-fails)
+
+1. *Headingless = one file-item, zero noise*: scan a =#+title=+prose file →
+   exactly one item, =kind 'file=, title from =#+title= (and filename
+   fallback case), =(FILE . 1)= marker; no error signalled, nothing in
+   =*Messages*= (reverting P1's =inhibit-message= or P1b's catch fails).
+2. *Bad-file isolation* (probe-locked — all three SIGNAL today): scan of
+   [good, chmod-000] / [good, garbage.gpg] / [good, dangling-symlink]
+   returns good's items + one skip-log entry each, never signals.
+3. *No-buffer-retention scan*: 500-file synthetic corpus through the slice
+   runner loop → item count exact, =(buffer-list)= grows by ≤1 (the work
+   buffer) — reverting to =find-file-noselect= provisioning fails.
+4. *Watchdog never syncs big queues*: machine =refreshing= with a large
+   stub queue; fire the watchdog → NOT drained synchronously; wall-clock
+   pacer armed; state still =refreshing=; queue drains via slices.
+5. *Budgeted slice*: queue with per-file stub costs → one slice consumes
+   multiple cheap files but stops past budget; a monster file alone in a
+   slice; =while-no-input= abort re-queues (input-pending simulation).
+6. *Render purity*: render 1000 cache-hydrated cons-marker items →
+   =(buffer-list)= unchanged (reverting any of the five P2 sites fails);
+   buckets from =donep=/=activity= slots byte-match the live-marker board
+   on the small golden corpus.
+7. *Refile*: target list includes a headingless file; refile onto it lands
+   at file end under =#+title= content; Tags…/Category… vocab builds with
+   an advice counter proving zero =org-ql-select= calls.
+8. *Warm start*: cache hit + no mtime change → zero org-ql calls (advice
+   counter), full board in one render; one touched file → exactly that
+   file rescanned.
+9. *Notes section bounded*: 200 synthetic note files → board shows the
+   single count row; expanded shows =org-air-notes-preview-limit= rows +
+   fold row; task buckets contain zero =kind 'file= items.
+10. *Perf smoke* (generous, order-of-magnitude, à la
+    tests/org-air-perf-test.el): 500-file corpus full scan < 5 s;
+    15k-item render < 5 s in batch.
+
+* Measured summary (the numbers the design is sized by)
+
+BEFORE, 5006 files: cold scan 271.8 s (O(n²): =find-buffer-visiting=
+14.7 ms ×2/file + uniquify 14.5 ms/file at n≈2200; query itself
+0.02 ms/file), watchdog syncs 4526 files at t=8 s = the user's hang; warm
+first paint 186.6 s (per-item =find-file-noselect= at render); one bad
+file aborts scans to 0 items repeatedly; refile 3.7 s + full rescans.
+
+AFTER (prototyped, same corpus): scan 3.41 s flat (p50 0.31 ms/file, max
+447 ms), 6 buffers, cache 3.1 MB (write 0.101 s / read 0.026 s), warm open
+0.208 s + 0.513 s render, no-change refresh 0.26 s, skeleton 2 ms, fill
+~10.5 s paced (~35 files/slice @ 18 ms), refile data 0.06 s, 15,893 items
+= 11,741 headings + 4,152 note file-items, 3 files skipped-and-logged.
+
+* Implementation History
+
+- 2026-07-14: R53 design (this doc) — measured root causes on a 5006-file
+  corpus; work-buffer scan, never-error law, budgeted pacing + non-syncing
+  watchdog, data-pure render, bounded note file-items, refile fixes.

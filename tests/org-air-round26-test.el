@@ -1188,7 +1188,13 @@ usable (motion runs); the completed swap lands point back on an item row."
     (write-region "* TODO Interleave probe\n" nil org-air-inbox-file 'append)
     (set-file-times org-air-inbox-file (time-add (current-time) 5))
     (let ((cache (org-air-view--cache-load))
-          (org-air-refresh-files-per-slice 1))   ; force >1 slice
+          ;; R53 P1c (re-bless): slices are TIME-budgeted — the obsoleted
+          ;; `org-air-refresh-files-per-slice' no longer forces >1 slice (one
+          ;; budgeted slice drains a small fast queue).  A ZERO budget is the
+          ;; design's own seam: the slice loop consumes files only while
+          ;; under budget with a minimum of ONE file, so budget 0 = exactly
+          ;; one file per slice — the mid-refresh window this test needs.
+          (org-air-refresh-slice-budget 0))      ; min-1-file slices
       (with-current-buffer (org-air-r26--cache-board)
         (setq org-air-view--items (car cache)
               org-air-view--cache-stale-files (cdr cache))
@@ -1308,9 +1314,15 @@ when one exists — the gate's byte path is the exact synchronous scan."
         (should (= reads 0))
         (with-current-buffer org-air-view-buffer-name
           (should org-air-view--items)
-          ;; live markers, not cache cons — the sync scan ran.
-          (should (markerp (org-air-item-marker
-                            (car org-air-view--items)))))))))
+          ;; R53 P1 (re-bless, spec §P1 rule 3): the sync scan too now
+          ;; yields the durable (FILE . POS) cons — the work-buffer scan
+          ;; retains no source buffer, so "live marker" no longer proves
+          ;; "scanned live".  The zero-reads counter above IS the purity
+          ;; fence; here we pin the scan's new marker shape.
+          (let ((m (org-air-item-marker (car org-air-view--items))))
+            (should (consp m))
+            (should (stringp (car m)))
+            (should (integerp (cdr m)))))))))
 
 (ert-deftest org-air-r26-8-token-cancels-stale-slice ()
   "`g' mid-refresh bumps the token: a late slice callback carrying the OLD
@@ -1318,7 +1330,11 @@ token is a silent no-op (the restarted queue is untouched)."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-cache-env
     (with-current-buffer (org-air-r26--cache-board)
-      (let ((org-air-refresh-files-per-slice 1))
+      ;; R53 P1c (re-bless): time-budgeted slices — budget 0 pins each
+      ;; slice to its one-file minimum (the obsoleted files-per-slice
+      ;; count no longer forces >1 slice), keeping a slice in flight
+      ;; under the OLD token when the restart bumps it.
+      (let ((org-air-refresh-slice-budget 0))
         (org-air-view--refresh-start)
         (let ((old-token org-air-view--refresh-token))
           ;; one slice under the old token…

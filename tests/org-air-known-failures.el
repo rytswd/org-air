@@ -1417,36 +1417,65 @@
     ;; Byte goldens: ZERO churn verified (all viewport/layout byte tests
     ;; green on the impl tip).  The legacy assertion ERTs pinning the
     ;; superseded contracts re-bless on the TEST seat:
-    (org-air-query-item-accessors
-      . "R53 P1: scanned items now carry the durable (FILE . POS) cons in\
- the marker slot (source buffers are never retained); the live `markerp'\
- assertion pins the pre-R53 contract — re-bless to the cons shape\
- (spec §P1 rule 3).")
-     (org-air-r26-8-batch-purity-never-reads-cache
-      . "R53 P1: the batch-purity conjuncts (zero cache reads, sync scan)\
- still hold; only the trailing `markerp' live-marker assertion pins the\
- pre-R53 marker contract — re-bless to (FILE . POS) (spec §P1 rule 3).")
-     (org-air-r26-8-interleaving-single-swap
-      . "R53 P1c: slices are TIME-budgeted — binding the obsoleted\
- `org-air-refresh-files-per-slice' to 1 no longer forces >1 slice (one\
- budgeted slice drains a small fast queue and finishes); re-bless the\
- mid-refresh conjuncts onto a stub-cost queue or the budget seam\
- (spec §P1c, ERT seam 5).")
-     (org-air-r26-8-token-cancels-stale-slice
-      . "R53 P1c: same budget supersession — the first slice completes the\
- whole small queue, so the `still refreshing after one slice' premise\
- pins the pre-R53 fixed-slice contract (spec §P1c, ERT seam 5).")
-     (org-air-r42-watchdog-force-completes-strand
-      . "R53 P1c: the watchdog must NEVER drain a queue above the sync\
- budget synchronously (the old force-complete WAS the 5000-file hang);\
- with the test's sync-budget 0 the state legitimately stays `refreshing'\
- and converges by pacing — re-bless to the not-drained + pacer-armed\
- contract (spec §P1c, ERT seam 4).")
-     (org-air-r42-watchdog-fails-honestly
-      . "R53 P1c: the sync force-completion this test errors out of only\
- runs for provably small queues now; above the budget the watchdog paces\
- instead of scanning, so the stubbed scan error is never reached —\
- re-bless onto the small-remainder sync branch (spec §P1c, ERT seam 4).")
+    ;;
+    ;; =================================================================
+    ;; v0.5 ROUND-53 CLOSEOUT (impl tip mmxnzrpm/ca547182 + test re-bless
+    ;; <this commit>).  ALL 6 grind entries CLOSED — byte goldens
+    ;; byte-IDENTICAL (make clean && make regen-mockups verified ZERO
+    ;; churn: jj diff = 0 files changed — the batch path stays the exact
+    ;; synchronous scan and the small heading-bearing fixtures grow no
+    ;; Notes section), so the re-bless is assertion-only.  Each flagged
+    ;; ERT re-blessed HONESTLY to the design-blessed R53 contracts
+    ;; (air/v0.5/org-air-round53-design.org) — each asserts the NEW true
+    ;; behaviour, none weakened:
+    ;;   org-air-query-item-accessors — the `markerp' assertion re-blessed
+    ;;     to the durable (FILE . POS) cons (spec §P1 rule 3): car = the
+    ;;     item's source file (suffix-pinned), cdr = a position >= 1.  The
+    ;;     work-buffer scan retains NO source buffer, so a scanned item
+    ;;     can never carry a live marker into a scan-opened buffer.
+    ;;   org-air-r26-8-batch-purity-never-reads-cache — the batch-purity
+    ;;     conjuncts (zero cache reads, sync scan in the call) carry over
+    ;;     VERBATIM (the zero-reads counter IS the purity fence); only the
+    ;;     trailing `live markers, not cache cons' assertion re-blessed to
+    ;;     the (FILE . POS) cons the sync scan now yields too.
+    ;;   org-air-r26-8-interleaving-single-swap +
+    ;;   org-air-r26-8-token-cancels-stale-slice — slices are
+    ;;     TIME-budgeted (`org-air-refresh-slice-budget';
+    ;;     `org-air-refresh-files-per-slice' obsoleted — binding it to 1
+    ;;     no longer forces >1 slice).  Re-blessed onto the design's own
+    ;;     budget seam: budget 0 = the slice loop's ONE-file minimum per
+    ;;     slice, which reopens the mid-refresh window both tests need;
+    ;;     every mid-refresh conjunct (no repaint between slices, board
+    ;;     usable, single swap on completion; stale-token slice a no-op on
+    ;;     queue AND accumulator) carries over verbatim.
+    ;;   org-air-r42-watchdog-force-completes-strand — re-blessed to the
+    ;;     R53 not-drained + pacer-armed contract (spec §P1c, ERT seam 4):
+    ;;     above the sync budget the watchdog fire runs ZERO scans (org-ql
+    ;;     entry-point counter), leaves the queue intact and the state
+    ;;     `refreshing'; interactively (noninteractive bound nil) it
+    ;;     re-arms the SAME slice driver on the repeating WALL-CLOCK pacer
+    ;;     (`timer--repeat-delay' == `org-air-view--refresh-wallclock-
+    ;;     pace') + a fresh watchdog; the queue then CONVERGES BY PACING
+    ;;     (slices drain to the terminal single-swap).  The old
+    ;;     unconditional sync force-complete WAS the measured 4.5-minute
+    ;;     hang at 5000 files.
+    ;;   org-air-r42-watchdog-fails-honestly — re-blessed onto the
+    ;;     small-remainder sync branch: above the budget the stubbed
+    ;;     erroring scan is NEVER reached (state stays `refreshing', queue
+    ;;     intact); with the budget raised to the queue length the sync
+    ;;     branch runs, the scan signals, and the state lands HONESTLY at
+    ;;     `failed' — never stuck at `refreshing'.
+    ;; NEW R53 EXECUTING ERTs (tests/org-air-round53-test.el, all
+    ;; batch/headless per the spec's ERT seams; revert of each FAILS):
+    ;; never-error law (seams 1/2), work-buffer no-retention (seam 3),
+    ;; data-pure render (seam 6), bounded file-items + Notes section
+    ;; (seams 1/9), refile-to-file-top + cache-enumerated targets/vocab
+    ;; (seam 7), budgeted pacing + non-syncing watchdog + abort (seams
+    ;; 4/5).  The perf probes stay OUT of the gate (tiny fixture corpora
+    ;; only; no 5000-file scan in `make check').  No .el SOURCE touched
+    ;; on the test track (impl landed R53 P1–P5 in mmxnzrpm).  Round-53
+    ;; manifest is EMPTY; the tests stay as permanent regression guards.
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -288,38 +288,84 @@ refresh would leave a <=budget change `refreshing with a non-empty queue."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r42-watchdog-force-completes-strand ()
-  "A stranded paced refresh (queue never drained) is force-completed by the
-wall-clock watchdog: `refreshing resolves to nil, items swapped in.
-Revert-fails: a no-op watchdog leaves the state stuck at `refreshing."
+  "R53 P1c (re-bless, spec §P1c / ERT seam 4): the watchdog NEVER drains a
+queue ABOVE the sync budget synchronously — that force-complete WAS the
+measured 4.5-minute mid-session freeze at 5000 files.  Above budget it
+switches the SAME budgeted slice driver to a repeating wall-clock pacer
+\(progress independent of idleness) and re-arms itself; the state
+legitimately STAYS `refreshing' and converges by pacing, never by
+freezing.  A provably SMALL remainder (<= the budget) still
+force-completes synchronously, so the R42-2 no-strand guarantee
+survives.  Revert-fails: the old unconditional sync drain scans the
+over-budget queue inside the fire (the counter > 0)."
   (skip-unless (locate-library "org-air"))
   (org-air-r42--with-warm-board
-    (let ((org-air-view--refresh-sync-budget 0)
+    (let ((org-air-view--refresh-sync-budget 0)   ; queue(1) > budget(0)
           (changed-file (car (org-air-query-files))))
       (org-air-r42--touch changed-file)
       (org-air-view--refresh-start)
       (should (eq org-air-view--refresh-state 'refreshing))
-      ;; do NOT drain the queue; fire the watchdog by hand (batch has no
-      ;; timers).  It must resolve the strand to a terminal state.
-      (org-air-view--refresh-watchdog-fire (current-buffer)
-                                           org-air-view--refresh-token)
-      (should-not (eq org-air-view--refresh-state 'refreshing))
-      (should-not org-air-view--refresh-state)   ; finished, not merely !refreshing
-      (should org-air-view--items))))
+      (let ((queue-before org-air-view--refresh-queue))
+        (should queue-before)
+        ;; (1) over-budget fire: NOT drained synchronously — zero scans
+        ;; run inside the fire, the queue is untouched, the state stays
+        ;; `refreshing' (it converges by pacing, below).
+        (org-air-r42--counting
+          (org-air-view--refresh-watchdog-fire (current-buffer)
+                                               org-air-view--refresh-token)
+          (should (= org-air-r42--ql-calls 0)))
+        (should (eq org-air-view--refresh-state 'refreshing))
+        (should (equal org-air-view--refresh-queue queue-before))
+        ;; (2) the fallback driver: outside batch the fire re-arms the SAME
+        ;; slice runner on a repeating WALL-CLOCK pacer (not idle-gated) +
+        ;; a fresh watchdog behind it.  Timers never fire in batch — assert
+        ;; the arming, then disarm for determinism.
+        (let ((noninteractive nil))
+          (org-air-view--refresh-watchdog-fire (current-buffer)
+                                               org-air-view--refresh-token))
+        (should (timerp org-air-view--refresh-timer))
+        (should (equal (timer--repeat-delay org-air-view--refresh-timer)
+                       org-air-view--refresh-wallclock-pace))
+        (should (timerp org-air-view--refresh-watchdog))
+        (org-air-view--refresh-disarm)
+        (should (eq org-air-view--refresh-state 'refreshing))
+        ;; (3) convergence by PACING: the budgeted slices drain the queue
+        ;; to the terminal single-swap — `refreshing' still never strands.
+        (let ((token org-air-view--refresh-token) (n 30))
+          (while (and (> n 0) (eq org-air-view--refresh-state 'refreshing))
+            (org-air-view--refresh-run-slice (current-buffer) token)
+            (cl-decf n)))
+        (should-not org-air-view--refresh-state)
+        (should org-air-view--items)))))
 
 (ert-deftest org-air-r42-watchdog-fails-honestly ()
-  "If the force-completion scan itself errors, the watchdog leaves the
-state at `failed (an honest terminal state) — NEVER stuck at `refreshing."
+  "R53 P1c (re-bless, spec §P1c / ERT seam 4): the watchdog's synchronous
+force-completion only runs for a PROVABLY SMALL remainder (<= the sync
+budget).  Above the budget an erroring scan is never even reached — the
+watchdog paces instead of scanning.  On the small-remainder sync branch a
+scan error lands at `failed' (an honest terminal state) — NEVER stuck at
+`refreshing'."
   (skip-unless (locate-library "org-air"))
   (org-air-r42--with-warm-board
-    (let ((org-air-view--refresh-sync-budget 0)
+    (let ((org-air-view--refresh-sync-budget 0)   ; route to the paced path
           (changed-file (car (org-air-query-files))))
       (org-air-r42--touch changed-file)
       (org-air-view--refresh-start)
       (should (eq org-air-view--refresh-state 'refreshing))
       (cl-letf (((symbol-function 'org-air-query-items-in-files)
                  (lambda (&rest _) (error "disk on fire"))))
+        ;; over budget: the erroring scan is NEVER reached — the watchdog
+        ;; paces, so the state stays `refreshing' with the queue intact.
         (org-air-view--refresh-watchdog-fire (current-buffer)
-                                             org-air-view--refresh-token))
+                                             org-air-view--refresh-token)
+        (should (eq org-air-view--refresh-state 'refreshing))
+        (should org-air-view--refresh-queue)
+        ;; small remainder (queue(1) <= budget): the sync branch runs, the
+        ;; scan signals, the state lands HONESTLY at `failed'.
+        (let ((org-air-view--refresh-sync-budget
+               (length org-air-view--refresh-queue)))
+          (org-air-view--refresh-watchdog-fire (current-buffer)
+                                               org-air-view--refresh-token)))
       (should (eq org-air-view--refresh-state 'failed))
       (should-not (eq org-air-view--refresh-state 'refreshing)))))
 

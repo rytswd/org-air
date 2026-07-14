@@ -41,7 +41,11 @@
       (should (org-air-test-find-item "Learn lute" items)))))
 
 (ert-deftest org-air-query-item-accessors ()
-  "Accessors return sensible values for a known fixture item."
+  "Accessors return sensible values for a known fixture item.
+R53 P1 (re-bless, spec §P1 rule 3): the marker slot is the durable
+\(FILE . POS) cons — the work-buffer scan retains NO source buffer, so a
+scanned item can never carry a live marker into a buffer the scan opened
+\(pre-R53 this slot was a live `markerp' into a leaked org-ql buffer)."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     (let* ((items (org-air-query-items))
@@ -54,7 +58,14 @@
       (should (equal "TODO" (org-air-item-todo item)))
       (should (org-air-item-scheduled item))
       (should-not (org-air-item-deadline item))
-      (should (markerp (org-air-item-marker item)))
+      ;; R53 P1: the durable (FILE . POS) cons — never a live marker into
+      ;; a scan-opened buffer (source buffers are not retained by scanning).
+      (let ((m (org-air-item-marker item)))
+        (should (consp m))
+        (should (stringp (car m)))
+        (should (string-suffix-p "projects.org" (car m)))
+        (should (integerp (cdr m)))
+        (should (>= (cdr m) 1)))
       ;; Group must be callable without error (value is impl-defined).
       (org-air-item-group item))))
 

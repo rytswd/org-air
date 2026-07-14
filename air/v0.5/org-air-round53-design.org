@@ -1,5 +1,5 @@
 #+title: org-air Round 53 — Never-hang at 5000 files: work-buffer scan, data-pure render, never-error, bounded note file-items
-#+state: ready
+#+state: complete
 #+tags: performance robustness scan cache refile headingless file-items never-error
 
 * Summary
@@ -477,3 +477,6 @@ AFTER (prototyped, same corpus): scan 3.41 s flat (p50 0.31 ms/file, max
   goldens ZERO churn; 6 legacy assertion ERTs pinning superseded
   contracts (live markers, fixed slice size, watchdog sync drain) flagged
   in tests/org-air-known-failures.el for the test-seat re-bless.
+
+* History
+- 2026-07-15: State: ready → complete.

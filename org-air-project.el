@@ -925,9 +925,10 @@ top dir (depth 0) keeps the accent `org-air-project--marker' (the quiet
 section bullet, blank-line separated, never railed); a child dir is led by
 a faded `org-air-face-air-tree' guide — the accumulated ancestor RAILS
 string followed by a `box-tee-left'/`box-bottom-left' + `box-horizontal'
-connector (LASTP picks the corner).  Then the `dir/' name on the LEFT, the
-quiet right-aligned letter-count summary (`R4(+1) C14(+14) ...') on the
-RIGHT, the dir's OWN docs (state-first, indented one level DEEPER than the
+connector (LASTP picks the corner).  Then the `dir/' name followed — a
+two-space gap — by its quiet letter-count summary (`R4(+1) C14(+14) ...'),
+left-anchored so the rollup reads as the name's own annotation (R52-1;
+clamped to WIDTH with the `more' ellipsis), the dir's OWN docs (state-first, indented one level DEEPER than the
 header — unchanged), then recursion into the name-sorted children, each
 extending RAILS by a `box-vertical' cell when THIS node has a following
 sibling.  Glyphs route through `org-air-layout-glyph' so a TTY/batch frame
@@ -951,13 +952,18 @@ gets the ascii `|  ' / `+- ' fallback."
                            'face 'org-air-face-air-tree))))
          (start (point))
          (left (concat guide (propertize name 'face 'org-air-face-section)))
-         ;; Quiet, right-aligned count summary (the badge wall is gone).
+         ;; Quiet count summary, LEFT-anchored just after the name (R52-1;
+         ;; was right-justified R22-6).
          (summary (org-air-project--dir-count-summary
                    (plist-get node :direct-counts)
                    (plist-get node :desc-counts)))
          (header (if (string-empty-p summary)
                      left
-                   (org-air-view--justify left summary width)))
+                   (let ((h (concat left "  " summary)))
+                     (if (> (string-width h) width)
+                         (truncate-string-to-width h width nil nil
+                                                   (org-air-view--glyph 'more))
+                       h))))
          ;; Children of a TOP dir get no rail (top dirs aren't railed);
          ;; deeper nodes extend the rail with a `box-vertical' cell only when
          ;; THIS node has a following sibling, else 3 blanks.

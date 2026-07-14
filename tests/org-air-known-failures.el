@@ -1811,6 +1811,33 @@
     ;; manifest is EMPTY; the tests stay as permanent regression
     ;; guards.
     ;; =================================================================
+    ;; v0.5 ROUND-52 impl grind (air/v0.5/org-air-round52-design.org).
+    ;; R52-1 PROJECT dir-header rollup moves from RIGHT-JUSTIFIED (the
+    ;; R22-6 `org-air-view--justify' to the pane width — detached out by
+    ;; the date column on wide frames) to LEFT-ANCHORED: the `dir/' name,
+    ;; a two-space gap, then the same summary (`v0.1/  R1 C1 D(+1)'),
+    ;; clamped to WIDTH with the shared `more' ellipsis (the R48-3
+    ;; fold-row clamp idiom).  Tokens/faces/(+N)/letter ORDER untouched
+    ;; (`--dir-count-summary' + `--state-display-order' — the airctl
+    ;; `status -Da' parity contract); nested child headers keep the
+    ;; rollup adjacent to their OWN name at their indent for free (LEFT
+    ;; already carries rails + connector).  ONE expression in
+    ;; `org-air-project--insert-dir-node' + docstring/comment sweep.
+    ;; Byte-golden movement is exactly ONE fixture,
+    ;; tests/fixtures/project-view-dir.txt, exactly its THREE
+    ;; group-header lines (spec §Golden impact pins OLD/NEW bytes).
+    ;; Intended re-bless via `make clean && make regen-mockups' on the
+    ;; TEST seat (fixtures NOT edited on the impl track; clean FIRST —
+    ;; the R48/R51/R53/R54 stale-.elc lesson).  The test seat also owns
+    ;; the r22-6 inversion + the new R52 ERTs (spec §Test churn / §ERTs).
+    (org-air-f5-project-view-byte-mockups
+     . "R52-1: project-view-dir.txt's 3 dir-header lines move to the
+left-anchored rollup (spec §Golden impact); test seat re-blesses via
+make clean && make regen-mockups — do NOT hand-edit the fixture")
+    (org-air-r22-6-count-summaries-right-aligned
+     . "R52-1 supersedes the R22-6 right-alignment rationale: headers are
+no longer justified to W — the summary starts exactly TWO columns after
+the name.  Test seat inverts in place per spec §Test churn")
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

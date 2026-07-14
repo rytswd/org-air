@@ -663,3 +663,21 @@ Still OPEN — defaults chosen, each one knob/predicate; flag to the user:
   toggle modes on =m= (link graph + deterministic daily rotation specced
   data-pure/bounded); visit ledger demoted to opt-in (default mtime).
   F1/F2/F5/F6 resolved; F3/F4/F7/F8/F9 remain flagged.
+- 2026-07-15: R54 part 1 IMPLEMENTED (impl track) — R54-1 + R54-2 only;
+  R54-3 Revisit view HELD for a follow-on.  R54-1: `active-ts' slot
+  (org-ts-regexp probe beside subtree-ts), `--stale-eligible-p' +
+  `--marker-active-ts', gate = first conjunct of the stale clause (clock
+  unchanged — dated items byte-identical).  R54-2: `ntype' slot via
+  `org-air-query--note-type' (property/keyword/tag overrides → task =
+  TODO ∨ scheduled/deadline → journal heuristic →
+  `org-air-plain-heading-type'), per-file signals computed once per file,
+  classify routing (inbox bypass; knowledge/journal buckets with NO board
+  section), file-meta table (:title/:tags/:ntype/:mtime/:created;
+  link-graph keys + :visits deferred to R54-3), cache v3→4 with
+  :file-meta persist/hydrate, F1 title-from-org answers from file-meta,
+  denote READ compat (query-layer ID regexp, __tags/slug fallbacks,
+  read-only `denote:' follower shim, zero denote-* calls).  Golden churn
+  (Stale 2→0, attention 8→7 on the fixture corpus) + the two
+  inactive-ts stale ERTs flagged in tests/org-air-known-failures.el for
+  the test-seat re-bless; NO fixture edited.  make check GREEN
+  (0 unexpected).

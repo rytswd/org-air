@@ -43,6 +43,38 @@ only fills the gap.  Defaults mirror the keys of
   :type '(plist :key-type symbol :value-type (repeat string))
   :group 'org-air)
 
+(defcustom org-air-note-type-tag-alist
+  '(("task" . task) ("note" . knowledge) ("journal" . journal))
+  "Tags that OVERRIDE the derived note type (R54-2, optional).
+Alist of TAG (string, matched case-insensitively) to TYPE (`task',
+`knowledge' — `note' accepted as a synonym — or `journal').  Matched
+against an item's tags, which already include inherited `#+filetags', so
+a `:note:' file tag (or denote-journal's `journal' keyword) types every
+heading with zero mechanics.  Users who tag with `kb'/`evergreen' add one
+entry.  Purely an escape hatch: the content-derived model needs no
+tagging at all."
+  :type '(alist :key-type string :value-type symbol)
+  :group 'org-air)
+
+(defcustom org-air-journal-directory-regexp
+  "\\`\\(?:journal\\|diary\\|daily\\)\\'"
+  "Regexp a PATH COMPONENT must match for a file to type `journal' (R54-2).
+One of the journal sub-heuristic's three signals (with a date-shaped file
+name and a date-shaped `#+title'); matched case-insensitively against
+each directory component of the scanned file's path."
+  :type 'regexp
+  :group 'org-air)
+
+(defcustom org-air-plain-heading-type 'knowledge
+  "Type derived for a plain heading with no task signal (R54-2 step 6).
+The USER-RULED default `knowledge' keeps dateless prose off the GTD board
+\(everything else is a KNOWLEDGE note).  The legacy value `task'
+restores the pre-R54 behaviour where every dateless heading was board
+material (Needs attention by default) — for GTD purists whose bare
+section headings must stay tasks."
+  :type '(choice (const knowledge) (const task))
+  :group 'org-air)
+
 (defcustom org-air-max-file-size (* 4 1024 1024)
   "Largest file (bytes) the background scan will read; nil = no limit (R53).
 A file over the limit is skipped with a `too-large' entry in the scan
@@ -80,8 +112,16 @@ so painting a cache-hydrated board never opens a file."
                 ; or nil (R53fix B1: the day view's Logged/created key —
                 ; distinct from `activity', whose mtime fallback must
                 ; never fill that group)
-  body-deadline) ; epoch float of the first subtree DEADLINE: when the
-                 ; heading itself has none (the calendar's origin check)
+  body-deadline ; epoch float of the first subtree DEADLINE: when the
+                ; heading itself has none (the calendar's origin check)
+  ;; R54 scan-time slots (cache v4):
+  active-ts     ; epoch float of the first ACTIVE <ts> in the subtree
+                ; (`org-ts-regexp': planning lines in, inactive [..] out)
+                ; — the R54-1 stale-eligibility signal, distinct from
+                ; `subtree-ts' (regexp-both, the day view's key)
+  ntype)        ; 'task | 'journal | 'knowledge — the R54-2 content-
+                ; derived note type; nil on items built outside the scan
+                ; (treated as task by the classify routing)
 
 (defun org-air-query--org-file-p (file)
   "Return non-nil when FILE is an Org file."
@@ -136,6 +176,288 @@ Lets `org-air-query--item-at-point' seed the `activity' slot's mtime
 fallback from the stat the scan already paid, instead of a per-item
 re-stat.")
 
+;;;; ---------------------------------------------------------------------
+;;;; R54-2 — the content-derived note-type model + denote READ compat.
+;;;; org-air reads denote's ON-DISK conventions only (ID file names,
+;;;; `#+title'/`#+filetags' front matter, `denote:' links); it NEVER calls
+;;;; a denote-* function and works with denote absent.
+;;;; ---------------------------------------------------------------------
+
+(defconst org-air-query--denote-id-regexp
+  "\\`\\([0-9]\\{8\\}T[0-9]\\{6\\}\\)"
+  "Anchored regexp capturing the denote identifier of a file NAME (R54-2).
+The view's F1 regexp promoted into the query layer, loosened to not
+require the `--' separator so a date-only journal name
+\(`20260715T000000.org') matches too.")
+
+(defun org-air-query--denote-file-id (file)
+  "Return FILE's denote identifier (\"YYYYMMDDTHHMMSS\"), or nil (R54-2)."
+  (let ((base (file-name-nondirectory (or file ""))))
+    (when (string-match org-air-query--denote-id-regexp base)
+      (match-string 1 base))))
+
+(defun org-air-query--denote-id-time (id)
+  "Parse denote identifier ID to an epoch float, or nil (R54-2)."
+  (when (and (stringp id) (string-match-p "\\`[0-9]\\{8\\}T[0-9]\\{6\\}\\'" id))
+    (ignore-errors
+      (float-time
+       (encode-time (string-to-number (substring id 13 15))
+                    (string-to-number (substring id 11 13))
+                    (string-to-number (substring id 9 11))
+                    (string-to-number (substring id 6 8))
+                    (string-to-number (substring id 4 6))
+                    (string-to-number (substring id 0 4)))))))
+
+(defun org-air-query--denote-slug (file)
+  "Return FILE's raw denote title slug (hyphens kept), or nil (R54-2).
+Data-layer twin of the view's F1 de-slug: the part between the `--'
+separator and any `__tag' signature."
+  (let ((base (file-name-nondirectory (or file ""))))
+    (when (string-match (concat org-air-query--denote-id-regexp "--") base)
+      (let* ((rest (file-name-sans-extension (substring base (match-end 0))))
+             (slug (if (string-match "__" rest)
+                       (substring rest 0 (match-beginning 0))
+                     rest)))
+        (unless (string-empty-p slug) slug)))))
+
+(defun org-air-query--denote-filename-tags (file)
+  "Return the `__tag_tag' keywords of FILE's denote name, or nil (R54-2).
+Only the FALLBACK for files missing `#+filetags' front matter (denote
+keeps the two in sync, so this is rare)."
+  (let ((base (file-name-sans-extension
+               (file-name-nondirectory (or file "")))))
+    (when (and (string-match-p org-air-query--denote-id-regexp base)
+               (string-match "__" base))
+      (split-string (substring base (match-end 0)) "_" t))))
+
+(defun org-air-query--parse-type (value)
+  "Normalise VALUE (a string or symbol) to a note type symbol, or nil.
+`note' and `knowledge' are synonyms; invalid values are IGNORED (fall
+through the R54-2 precedence chain), never an error."
+  (let ((sym (cond ((symbolp value) value)
+                   ((stringp value) (intern (downcase (string-trim value))))
+                   (t nil))))
+    (pcase sym
+      ('task 'task)
+      ((or 'note 'knowledge) 'knowledge)
+      ('journal 'journal)
+      (_ nil))))
+
+(defun org-air-query--tag-type (tags)
+  "Return the type a tag in TAGS overrides to, or nil (R54-2 step 3).
+First match in `org-air-note-type-tag-alist' wins (case-insensitive)."
+  (cl-some (lambda (tag)
+             (org-air-query--parse-type
+              (cdr (assoc-string tag org-air-note-type-tag-alist t))))
+           tags))
+
+(defun org-air-query--date-shaped-name-p (base)
+  "Non-nil when file name BASE is date-shaped (R54-2 journal heuristic).
+ISO (`2026-07-15'), compact (`20260715'), or a denote ID-only name."
+  (or (string-match-p "\\`[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\'" base)
+      (string-match-p "\\`[0-9]\\{8\\}\\'" base)
+      (string-match-p "\\`[0-9]\\{8\\}T[0-9]\\{6\\}\\'" base)))
+
+(defun org-air-query--date-shaped-title-p (title)
+  "Non-nil when TITLE is date-shaped (R54-2 journal heuristic).
+ISO (`2026-07-15') or the denote-journal long form (`Tuesday 15 July
+2026')."
+  (and (stringp title)
+       (let ((case-fold-search t))
+         (or (string-match-p "\\`[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\'" title)
+             (string-match-p
+              "\\`[[:alpha:]]+day,?[ \t]+[0-9]\\{1,2\\}[ \t]+[[:alpha:]]+[ \t]+[0-9]\\{4\\}\\'"
+              title)))))
+
+(defun org-air-query--journal-file-p (file title)
+  "Return non-nil when FILE (with `#+title' TITLE) is a journal (R54-2).
+File-level, computed once per file: a date-shaped file name, a path
+component matching `org-air-journal-directory-regexp', or a date-shaped
+TITLE."
+  (let ((case-fold-search t))
+    (or (org-air-query--date-shaped-name-p (file-name-base (or file "")))
+        (cl-some (lambda (component)
+                   (string-match-p org-air-journal-directory-regexp component))
+                 (split-string (or (file-name-directory (or file "")) "")
+                               "/" t))
+        (org-air-query--date-shaped-title-p title))))
+
+(defvar org-air-query--scan-file-signals nil
+  "The scanned file's per-FILE type signals, bound per file by the scan.
+A plist (:override TYPE :journal FLAG :title TITLE :tags TAGS :created
+FLOAT) computed ONCE per file by `org-air-query--file-signals' — not per
+heading — and threaded to `org-air-query--note-type' (R54-2).")
+
+(defun org-air-query--file-signals (file)
+  "Compute FILE's per-file type signals in the current scan buffer (R54-2).
+Bounded head-of-buffer regexps only (first 4KB): the `#+org_air_type:' /
+`#+type:' keyword override (the namespaced spelling authoritative when
+both are present), `#+title', `#+filetags', the journal heuristic and
+the created date (denote filename ID, else `#+date:').  Returns the
+plist documented on `org-air-query--scan-file-signals'."
+  (org-with-wide-buffer
+   (goto-char (point-min))
+   (let* ((case-fold-search t)
+          (bound (min (point-max) 4096))
+          (title (save-excursion
+                   (when (re-search-forward
+                          "^#\\+title:[ \t]*\\(.+?\\)[ \t]*$" bound t)
+                     (match-string-no-properties 1))))
+          (tags (save-excursion
+                  (when (re-search-forward
+                         "^#\\+filetags:[ \t]*\\(.+?\\)[ \t]*$" bound t)
+                    (split-string (match-string-no-properties 1)
+                                  "[: \t]+" t))))
+          (override
+           (or (save-excursion
+                 (when (re-search-forward
+                        "^#\\+org_air_type:[ \t]*\\([^ \t\n]+\\)" bound t)
+                   (org-air-query--parse-type
+                    (match-string-no-properties 1))))
+               (save-excursion
+                 (when (re-search-forward
+                        "^#\\+type:[ \t]*\\([^ \t\n]+\\)" bound t)
+                   (org-air-query--parse-type
+                    (match-string-no-properties 1))))))
+          (created
+           (or (org-air-query--denote-id-time
+                (org-air-query--denote-file-id file))
+               (save-excursion
+                 (when (re-search-forward
+                        "^#\\+date:[ \t]*\\(.+?\\)[ \t]*$" bound t)
+                   (ignore-errors
+                     (float-time
+                      (org-timestamp-to-time
+                       (org-timestamp-from-string
+                        (match-string-no-properties 1))))))))))
+     (list :override override
+           :journal (and (org-air-query--journal-file-p file title) t)
+           :title title
+           :tags tags
+           :created created))))
+
+(defun org-air-query--note-type (todo scheduled deadline tags)
+  "Derive the note type for the heading at point (R54-2, USER-RULED).
+Precedence: the inherited `ORG_AIR_TYPE' property, the file keyword
+override, an override tag (`org-air-note-type-tag-alist'), the TASK
+signal (a TODO keyword — done or not — OR scheduled OR deadline;
+nothing else — a bare active <ts> is a note fact, not a task), the
+journal file heuristic, else `org-air-plain-heading-type'.  TODO,
+SCHEDULED, DEADLINE and TAGS are the already-parsed heading signals."
+  (or (org-air-query--parse-type
+       (org-entry-get (point) "ORG_AIR_TYPE" t))
+      (plist-get org-air-query--scan-file-signals :override)
+      (org-air-query--tag-type tags)
+      (and (or todo scheduled deadline) 'task)
+      (and (plist-get org-air-query--scan-file-signals :journal) 'journal)
+      org-air-plain-heading-type))
+
+(defun org-air-query--file-ntype (signals items)
+  "Return the FILE-level type from SIGNALS and its heading ITEMS (R54-2).
+Override → tag override → journal → `task' iff EVERY heading item is a
+task (and there is at least one — the F7 mixed-file rule: a pure GTD
+file stays off the note surfaces while a KB note containing one TODO
+stays a knowledge FILE) → else `knowledge'."
+  (or (plist-get signals :override)
+      (org-air-query--tag-type (plist-get signals :tags))
+      (and (plist-get signals :journal) 'journal)
+      (and items
+           (cl-every (lambda (item)
+                       (eq (org-air-item-ntype item) 'task))
+                     items)
+           'task)
+      'knowledge))
+
+(defvar org-air-query--file-meta (make-hash-table :test #'equal)
+  "The per-file fact table: FILE → plist (R54-2, cache v4).
+Keys: `:title' (`#+title', else the denote slug, else nil — `:org-title'
+holds the raw `#+title' alone so display fallbacks stay exact), `:tags'
+\(`#+filetags', else the filename `__tags' fallback), `:ntype' (the
+FILE's type, F7 rule), `:mtime' and `:created' (epoch floats).  Updated
+per scanned file; persisted in the cache as `:file-meta' and hydrated
+back on cache load, so a warm board answers file-level questions with
+ZERO file opens.")
+
+(defvar org-air-query--denote-id-index (make-hash-table :test #'equal)
+  "Index denote ID → FILE for the read-only `denote:' link shim (R54-2).
+Pure filename derivation, populated as the scan enumerates files and
+re-derived from the cache's `:file-meta' keys on hydration.")
+
+(defun org-air-query-file-meta (file)
+  "Return the recorded per-file plist for FILE, or nil (R54-2)."
+  (gethash file org-air-query--file-meta))
+
+(defun org-air-query--index-denote-id (file)
+  "Record FILE under its denote identifier, when it carries one (R54-2)."
+  (when-let* ((id (org-air-query--denote-file-id file)))
+    (puthash id file org-air-query--denote-id-index)))
+
+(defun org-air-query--file-meta-record (file signals items)
+  "Record FILE's per-file facts from SIGNALS and its heading ITEMS (R54-2)."
+  (puthash file
+           (list :title (or (plist-get signals :title)
+                            (org-air-query--denote-slug file))
+                 :org-title (plist-get signals :title)
+                 :tags (or (plist-get signals :tags)
+                           (org-air-query--denote-filename-tags file))
+                 :ntype (org-air-query--file-ntype signals items)
+                 :mtime (when-let* ((mtime
+                                     (or org-air-query--scan-mtime
+                                         (and (file-exists-p file)
+                                              (file-attribute-modification-time
+                                               (file-attributes file))))))
+                          (float-time mtime))
+                 :created (plist-get signals :created))
+           org-air-query--file-meta))
+
+(defun org-air-query-file-meta-alist (files)
+  "Return the file-meta entries for FILES as a printable alist (R54-2).
+The cache serialisation form: pruned to FILES, so vanished files never
+persist."
+  (let (out)
+    (dolist (file files)
+      (when-let* ((meta (gethash file org-air-query--file-meta)))
+        (push (cons file meta) out)))
+    (nreverse out)))
+
+(defun org-air-query-file-meta-hydrate (alist)
+  "Hydrate the file-meta table (and denote index) from cache ALIST (R54-2)."
+  (pcase-dolist (`(,file . ,meta) alist)
+    (when (and (stringp file) (listp meta))
+      (puthash file meta org-air-query--file-meta)
+      (org-air-query--index-denote-id file))))
+
+(defun org-air-query--denote-resolve (id)
+  "Resolve denote identifier ID to a configured file, or nil (R54-2).
+An O(1) hit on the scan's ID index, else one bounded pass over the
+enumerated file list (a cold Emacs following a link before any scan)."
+  (or (gethash id org-air-query--denote-id-index)
+      (cl-find-if (lambda (file)
+                    (string-prefix-p id (file-name-nondirectory file)))
+                  (ignore-errors (org-air-query-files)))))
+
+(defun org-air-query--denote-follow (link &optional _prefix)
+  "Follow a `denote:' LINK read-only against `org-air-files' (R54-2).
+Resolves the ID by filename convention (no denote required, no DB); a
+`::search' suffix is tolerated but ignored.  Authoring (creation,
+renaming, completion) stays denote's — this shim only keeps existing
+links alive in a denote-less Emacs."
+  (let* ((id (car (split-string (or link "") "::")))
+         (file (org-air-query--denote-resolve id)))
+    (if file
+        (find-file file)
+      (user-error "No note with denote ID %s under `org-air-files'" id))))
+
+(defun org-air-query-register-denote-link ()
+  "Register the read-only `denote:' follower IFF none exists (R54-2).
+When denote (or anything else) already claims the link type, org-air
+leaves it alone — never a `denote-*' call, works with denote absent."
+  (unless (org-link-get-parameter "denote" :follow)
+    (org-link-set-parameters "denote"
+                             :follow #'org-air-query--denote-follow)))
+
+(org-air-query-register-denote-link)
+
 (defun org-air-query--item-at-point ()
   "Build an `org-air-item' for the heading at point.
 R53 P2: also records the scan-time slots (`kind'/`donep'/`activity'/
@@ -150,10 +472,12 @@ retained by scanning; live positions resolve on demand)."
          ;; org heading faces into the calm one-line row (V6 pixel-lock).
          (title (substring-no-properties (org-get-heading t t t t)))
          (todo (org-get-todo-state))
+         (tags (org-get-tags nil nil))
          (scheduled (org-air-query--timestamp "SCHEDULED"))
          (deadline (org-air-query--timestamp "DEADLINE"))
          (closed (org-air-query--timestamp "CLOSED"))
          (subtree-ts nil)
+         (active-ts nil)
          (body-deadline nil))
     ;; R53 P2: the two bounded subtree probes, run HERE in the already-
     ;; positioned scan buffer (they used to be per-item render-time file
@@ -164,6 +488,19 @@ retained by scanning; live positions resolve on demand)."
         (save-excursion
           (when (re-search-forward org-ts-regexp-both end t)
             (setq subtree-ts
+                  (ignore-errors
+                    (float-time
+                     (org-timestamp-to-time
+                      (org-timestamp-from-string
+                       (match-string-no-properties 0))))))))
+        ;; R54-1: the ACTIVE-only twin probe (`org-ts-regexp': planning
+        ;; lines included, inactive [..] excluded) — the stale-eligibility
+        ;; signal.  Distinct from `subtree-ts' (regexp-both), which the
+        ;; day view's Logged/created group needs and which must keep
+        ;; matching inactive stamps.
+        (save-excursion
+          (when (re-search-forward org-ts-regexp end t)
+            (setq active-ts
                   (ignore-errors
                     (float-time
                      (org-timestamp-to-time
@@ -181,7 +518,7 @@ retained by scanning; live positions resolve on demand)."
                                  (match-string-no-properties 1))))))))))))
     (org-air-item-create
      :title title
-     :tags (org-get-tags nil nil)
+     :tags tags
      :file file
      ;; R53 P1: (FILE . POS), first-class everywhere since R26-8 — the
      ;; scan retains NO buffer.  A file-less buffer (a test temp buffer)
@@ -215,7 +552,12 @@ retained by scanning; live positions resolve on demand)."
                                          (file-attribute-modification-time
                                           (file-attributes file))))))
                      (float-time mtime)))
-     :body-deadline body-deadline)))
+     :body-deadline body-deadline
+     :active-ts active-ts
+     ;; R54-2: the content-derived note type, computed here in the scan
+     ;; buffer over signals already in hand (the per-FILE signals are
+     ;; computed once per file, not per heading).
+     :ntype (org-air-query--note-type todo scheduled deadline tags))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R53 P1/P1b — the never-error work-buffer scan.
@@ -343,7 +685,14 @@ fallback), tags from `#+filetags', group = parent directory name, marker
                                            (file-attribute-modification-time
                                             (file-attributes file))))))
                        (float-time mtime))
-           :body-deadline nil)))))))
+           :body-deadline nil
+           :active-ts nil
+           ;; R54-2: 'file items type from the FILE-level signals alone
+           ;; (keyword/tag override → journal → knowledge); they route to
+           ;; the 'notes bucket regardless, so this feeds the note
+           ;; surfaces, not the board.
+           :ntype (org-air-query--file-ntype
+                   org-air-query--scan-file-signals nil))))))))
 
 (defun org-air-query--scan-live-buffer (buffer file query)
   "Scan the live user BUFFER visiting FILE with org-ql QUERY (R53 P1 rule 1).
@@ -355,6 +704,10 @@ even when the buffer's own name differs (a symlinked visit)."
          ;; buffer" message on every refresh.
          (inhibit-message t)
          (message-log-max nil)
+         ;; R54-2: the per-FILE type signals, computed ONCE per file.
+         (org-air-query--scan-file-signals
+          (with-current-buffer buffer
+            (org-air-query--file-signals file)))
          (items (copy-sequence
                  (org-ql-select buffer (or query '(heading))
                    :action #'org-air-query--item-at-point))))
@@ -365,6 +718,8 @@ even when the buffer's own name differs (a symlinked visit)."
               (cons file (cond ((consp m) (or (cdr m) 1))
                                ((markerp m) (or (marker-position m) 1))
                                (t 1))))))
+    (org-air-query--file-meta-record file org-air-query--scan-file-signals
+                                     items)
     (or items
         (with-current-buffer buffer
           (org-air-query--file-item file)))))
@@ -396,10 +751,17 @@ variables scans like the same Org file without them."
             (insert-file-contents file)
             (setq buffer-file-name file)
             (org-set-regexps-and-options)
-            (let ((items (copy-sequence
-                          (org-ql-select (current-buffer)
-                            (or query '(heading))
-                            :action #'org-air-query--item-at-point))))
+            ;; R54-2: the per-FILE type signals, computed ONCE per file
+            ;; and threaded to the per-heading action via the scan-scoped
+            ;; binding (like `org-air-query--scan-mtime').
+            (let* ((org-air-query--scan-file-signals
+                    (org-air-query--file-signals file))
+                   (items (copy-sequence
+                           (org-ql-select (current-buffer)
+                             (or query '(heading))
+                             :action #'org-air-query--item-at-point))))
+              (org-air-query--file-meta-record
+               file org-air-query--scan-file-signals items)
               (or items (org-air-query--file-item file))))
         (setq buffer-file-name nil)
         (set-buffer-modified-p nil)))))
@@ -418,6 +780,7 @@ signal inside the body degrades to 0 items + one skip-log entry — a bad
 file can never abort the whole scan (the P1b never-error law).  QUERY is
 the optional org-ql query (default: all headings).  A `quit' is NOT
 swallowed: aborting always works."
+  (org-air-query--index-denote-id file)
   (condition-case err
       (let ((live (get-file-buffer file)))
         (cond

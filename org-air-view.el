@@ -1899,15 +1899,23 @@ Denote-style name."
             slug))))))
 
 (defun org-air-view--org-file-title (file)
-  "Return the \"#+title:\" keyword of FILE, or nil (F1, `title-from-org')."
-  (when (and file (file-readable-p file))
-    (ignore-errors
-      (with-temp-buffer
-        (insert-file-contents file nil 0 4096)
-        (goto-char (point-min))
-        (when (re-search-forward "^#\\+title:[ \t]*\\(.+?\\)[ \t]*$" nil t)
-          (let ((title (match-string-no-properties 1)))
-            (unless (string-empty-p title) title)))))))
+  "Return the \"#+title:\" keyword of FILE, or nil (F1, `title-from-org').
+R54-2: answered from the scan's file-meta table when FILE has an entry
+\(`:org-title', the raw `#+title' alone — nil there means the scan SAW no
+title, so no read happens and the denote de-slug fallback takes over);
+the bounded 4KB read survives only for files the scan has not met."
+  (let ((meta (org-air-query-file-meta file)))
+    (if meta
+        (let ((title (plist-get meta :org-title)))
+          (and title (not (string-empty-p title)) title))
+      (when (and file (file-readable-p file))
+        (ignore-errors
+          (with-temp-buffer
+            (insert-file-contents file nil 0 4096)
+            (goto-char (point-min))
+            (when (re-search-forward "^#\\+title:[ \t]*\\(.+?\\)[ \t]*$" nil t)
+              (let ((title (match-string-no-properties 1)))
+                (unless (string-empty-p title) title)))))))))
 
 (defun org-air-view--origin (item)
   "Return origin breadcrumb for ITEM, honouring `org-air-origin-style' (F1)."
@@ -7191,13 +7199,17 @@ interrupt, but the guard is cheap and harmless."
 ;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
-(defconst org-air-view--cache-version 3
+(defconst org-air-view--cache-version 4
   "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
 v2 (R53): `org-air-item' gained the scan-time slots
 \(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
 a cache-hit board renders data-pure, never opening a file.
 v3 (R53fix): the struct gained `subtree-ts' (day view's Logged/created
-key); a v2 cache would hydrate records of the wrong shape.")
+key); a v2 cache would hydrate records of the wrong shape.
+v4 (R54): the struct gained `active-ts' (the R54-1 stale-eligibility
+signal) and `ntype' (the R54-2 note type), and the cache carries the
+per-file `:file-meta' table.  A v3 cache is simply a cold miss —
+skeleton + paced rescan, never a hang.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.
@@ -7236,6 +7248,10 @@ never a failure source)."
             (list :version org-air-view--cache-version
                   :key (list org-air-files org-air-inbox-file)
                   :mtimes mtimes
+                  ;; R54-2: persist the per-file fact table, pruned to the
+                  ;; snapshot's files so vanished files never linger.
+                  :file-meta (org-air-query-file-meta-alist
+                              (mapcar #'car mtimes))
                   :items (mapcar #'org-air-view--item-serialise items)))
            nil tmp nil 'silent))
         (rename-file tmp file t)))))
@@ -7309,6 +7325,10 @@ FIRST post-cache `g r' is already mtime-incremental (R42-1)."
     (let* ((files (org-air-query-files))
            (mtimes (plist-get data :mtimes)))
       (setq org-air-view--items-mtimes mtimes)
+      ;; R54-2: rehydrate the per-file fact table so a warm board answers
+      ;; file-level questions (F1 `title-from-org', the denote: shim's ID
+      ;; index) with zero file opens.
+      (org-air-query-file-meta-hydrate (plist-get data :file-meta))
       (cons (plist-get data :items)
             (org-air-view--changed-files files mtimes)))))
 

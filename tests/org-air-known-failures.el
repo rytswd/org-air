@@ -1528,6 +1528,86 @@
     ;; Round-53fix manifest is EMPTY; the test stays as a permanent
     ;; regression guard.
     ;; =================================================================
+    ;; 2026-07-15 — ROUND-54 part 1 (R54-1 + R54-2; R54-3 Revisit view
+    ;; HELD for a follow-on), impl track
+    ;; (air/v0.5/org-air-round54-design.org).
+    ;; STRUCT/CACHE CHURN FLAG for the test seat:
+    ;;   • `org-air-item' gained `active-ts' (epoch float of the first
+    ;;     ACTIVE <ts> in the subtree via `org-ts-regexp'; planning lines
+    ;;     in, inactive [..] out — the R54-1 stale-eligibility signal)
+    ;;     and `ntype' ('task | 'journal | 'knowledge — the R54-2
+    ;;     content-derived note type; nil = built outside the scan =
+    ;;     task treatment).
+    ;;   • `org-air-view--cache-version' bumped 3 -> 4 (one bump for both
+    ;;     slots + the new `:file-meta' cache key); a v3 cache is a clean
+    ;;     cold miss.  The per-file fact table
+    ;;     (`org-air-query--file-meta': :title/:org-title/:tags/:ntype/
+    ;;     :mtime/:created) is persisted as `:file-meta' and hydrated on
+    ;;     cache load; the R54-3 link-graph keys (:ids/:links-out/
+    ;;     :links-in) and the `:visits' ledger land WITH the Revisit view.
+    ;;   • R54-1 stale gate: `org-air-classify--stale-eligible-p'
+    ;;     (scheduled ‖ deadline ‖ active-ts ‖ the live-marker
+    ;;     `--marker-active-ts' fallback) is the FIRST conjunct of the
+    ;;     stale clause; the stale CLOCK (`--last-activity') unchanged.
+    ;;   • R54-2 routing in `org-air-classify-item': kind 'file -> notes;
+    ;;     inbox-dweller -> task buckets (bypass, xsqrnoyn semantics
+    ;;     unchanged); ntype 'journal/'knowledge -> own bucket with NO
+    ;;     board section; 'task/nil -> task buckets + R54-1 gate.
+    ;;   • Denote READ compat: `org-air-query--denote-id-regexp' (query
+    ;;     layer, `--' not required), filename `__tags' fallback, denote
+    ;;     slug title fallback, and the read-only `denote:' follower shim
+    ;;     (registered iff no other owner; resolves via the scan's ID
+    ;;     index).  No `denote-*' call anywhere.
+    ;;   • F1 'title-from-org now answers from file-meta when an entry
+    ;;     exists (the per-row 4KB read survives only for unscanned
+    ;;     files).
+    ;; GOLDEN/FIXTURE CHURN (spec §Byte-golden; impl does NOT regen —
+    ;; the test seat re-blesses via `make regen-mockups' + audit):
+    ;;   the fixture corpus's two inactive-[ts]-only items ("Dust off
+    ;;   old archive project", "Learn lute") leave Stale (2 -> 0) per the
+    ;;   R54-1 semantics table, and the plain dateless "Reference notes
+    ;;   without a todo state" (:note: tag) leaves Needs attention
+    ;;   (8 -> 7) per R54-2 — the fold/date-column geometry reflows with
+    ;;   the lost rows.  Verified against the live renderer: the diff is
+    ;;   EXACTLY those sections (banner/inbox/upcoming/high-priority
+    ;;   contents otherwise identical modulo column reflow).
+    (org-air-classify-stale
+     . "R54-1: 'Dust off'/'Learn lute' carry ONLY inactive [ts] — not
+stale-eligible any more (spec semantics table: inactive-[ts]-only =>
+never Stale).  Test seat retunes the stale cases to DATED items
+(SCHEDULED/active <ts> in the past).")
+    (org-air-ux-bare-inactive-timestamp-is-activity
+     . "R54-1: the 'nine months quiet [ts] => stale' half asserts the
+OLD inactive-counts-as-eligible behaviour; inactive stamps are archival
+metadata, never a task signal now.  Retarget to an active <ts>.")
+    (org-air-data-variation-titles-render
+     . "R54-2: alt-board 'Reference clipping without dates' (plain
+heading, :note: tag) types knowledge and leaves the board; the
+every-title-renders sweep needs the knowledge row exempted or the item
+retyped (xsqrnoyn no-date attention ERTs retarget to TODO items).")
+    (org-air-layout-mockup-80
+     . "R54 golden churn: Stale 2 -> 0, attention 8 -> 7 (see flag
+above); re-bless via make regen-mockups.")
+    (org-air-layout-mockup-120
+     . "R54 golden churn: Stale 2 -> 0, attention 8 -> 7; re-bless via
+make regen-mockups.")
+    (org-air-layout-mockup-160
+     . "R54 golden churn: Stale 2 -> 0, attention 8 -> 7; re-bless via
+make regen-mockups.")
+    (org-air-layout-mockup-heights
+     . "R54 golden churn (x24/x50 tiers): Stale 2 -> 0, attention 8 -> 7;
+re-bless via make regen-mockups.")
+    (org-air-layout-mockup-thresholds
+     . "R54 golden churn (all width tiers): Stale 2 -> 0, attention
+8 -> 7; re-bless via make regen-mockups.")
+    (org-air-r13-board-only-byte-mockup
+     . "R54 golden churn (board-only golden): Stale 2 -> 0, attention
+8 -> 7; re-bless via make regen-mockups.")
+    (org-air-r49-5-batch-placement-blind
+     . "R54 golden churn: asserts the 120-col board golden byte-match,
+which moves with the Stale/attention rows; green again once the mockups
+are re-blessed.")
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

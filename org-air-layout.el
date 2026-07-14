@@ -38,6 +38,7 @@
     (upcoming . ("◆" . ">"))
     (high-priority . ("★" . "*"))
     (stale . ("○" . "~"))
+    (notes . ("≣" . "="))
     (calendar-item . ("●" . "o"))
     (today . ("■" . "#"))
     (clear . ("✕" . "x"))

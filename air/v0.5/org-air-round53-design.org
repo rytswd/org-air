@@ -449,3 +449,31 @@ AFTER (prototyped, same corpus): scan 3.41 s flat (p50 0.31 ms/file, max
 - 2026-07-14: R53 design (this doc) — measured root causes on a 5006-file
   corpus; work-buffer scan, never-error law, budgeted pacing + non-syncing
   watchdog, data-pure render, bounded note file-items, refile fixes.
+- 2026-07-14: R53 impl landed (P1–P5).  org-air-query.el: work-buffer scan
+  (=--scan-file= / =--scan-work-buffer= / =--scan-live-buffer=, one reused
+  =*org-air scan*= buffer, element cache on / persistence off), per-file
+  never-error law + policy table (=encrypted=/=too-large=/=unreadable=,
+  NUL guard), skip log + =org-air-scan-report=, hash enumeration with
+  symlink-only truename, struct cache-v2 slots (kind/donep/activity/
+  body-deadline), P3 file-item synthesis (=#+title=/filename fallback,
+  =#+filetags=, inbox excluded).  org-air-view.el: time-budgeted
+  =while-no-input= slices (=org-air-refresh-slice-budget=;
+  files-per-slice obsoleted), abort-retry =slow= skip, progressive cold
+  paint (=org-air-cold-paint-interval=, loading guard drops at first
+  paint), watchdog never syncs big queues (wall-clock pacer fallback),
+  hash =--changed-files=, cache :version 2, one-line finish summary,
+  bounded Notes section (='notes= bucket, collapsed count row, preview
+  limit + fold row).  classify/calendar/date-label/created rewired to the
+  scan-time slots (render never opens a file; inspector CREATED hydrates
+  its ONE file with NOWARN).  org-air-inbox.el: refile targets from the
+  board's enumeration, one-hash-pass candidates, in-memory Tags…/
+  Category… vocab, refile-to-file-top contract documented.  Verified on
+  an 816-file synthetic corpus (batch): enumerate 6ms, full scan 0.76s
+  flat with 2 buffers grown and 4 skips logged (gpg/chmod-000/huge/
+  dangling — zero aborts), 600 file-items synthesised, cold paced fill
+  0.9s over 24 budgeted slices with the watchdog refusing the 815-file
+  sync drain, warm cache read+diff 16ms + render 41ms with ZERO buffers
+  opened by render, refile picker data 1.6ms.  =make check= GREEN; byte
+  goldens ZERO churn; 6 legacy assertion ERTs pinning superseded
+  contracts (live markers, fixed slice size, watchdog sync drain) flagged
+  in tests/org-air-known-failures.el for the test-seat re-bless.

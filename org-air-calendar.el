@@ -71,38 +71,44 @@ the available rail WIDTH.  Floors at 0 when WIDTH <= row-width (narrow rail
   "Return sortable key for MONTH DAY YEAR."
   (format "%04d-%02d-%02d" year month day))
 
+(defun org-air-calendar--time-key (time)
+  "Return date key for the Emacs TIME value (epoch floats included)."
+  (when time
+    (let ((decoded (ignore-errors (decode-time time))))
+      (when decoded
+        (org-air-calendar--date-key (decoded-time-month decoded)
+                                    (decoded-time-day decoded)
+                                    (decoded-time-year decoded))))))
+
 (defun org-air-calendar--timestamp-key (timestamp)
   "Return date key for Org TIMESTAMP."
   (when-let* ((time (ignore-errors (org-timestamp-to-time timestamp))))
-    (let ((decoded (decode-time time)))
-      (org-air-calendar--date-key (decoded-time-month decoded)
-                                  (decoded-time-day decoded)
-                                  (decoded-time-year decoded)))))
+    (org-air-calendar--time-key time)))
 
-(defun org-air-calendar--item-deadline (item)
-  "Return ITEM deadline, checking the origin when needed.
-R26-8: the origin check resolves a live marker OR a cache-hydrated
-\(FILE . POS) cons (one background `find-file-noselect' per file, shared
-buffer); a stale position degrades to nil, never a crash."
-  (or (org-air-item-deadline item)
-      (when-let* ((marker (org-air-item-marker item))
-                  (src (cond ((and (markerp marker) (marker-buffer marker))
-                              (cons (marker-buffer marker)
-                                    (marker-position marker)))
-                             ((and (consp marker) (stringp (car marker))
-                                   (ignore-errors
-                                     (file-readable-p (car marker))))
-                              (cons (find-file-noselect (car marker))
-                                    (or (cdr marker) 1))))))
-        (with-current-buffer (car src)
-          (ignore-errors
-            (save-excursion
-              (goto-char (cdr src))
-              (org-back-to-heading t)
-              (let ((end (save-excursion (org-end-of-subtree t t))))
-                (when (re-search-forward org-deadline-time-regexp end t)
-                  (org-timestamp-from-string
-                   (format "<%s>" (match-string-no-properties 1)))))))))))
+(defun org-air-calendar--item-deadline-time (item)
+  "Return ITEM's effective deadline as an Emacs time value, or nil.
+R53 P2: the heading's own deadline first, else the scan-time
+`body-deadline' slot (an epoch float — the first `DEADLINE:' in the
+subtree, recorded by the scan so the calendar NEVER opens a file: the
+old per-item `find-file-noselect' here ran for every item WITHOUT a
+deadline — nearly every item on a journal corpus).  A live-marker item
+built outside the scan keeps the original bounded subtree probe."
+  (or (when-let* ((ts (org-air-item-deadline item)))
+        (ignore-errors (org-timestamp-to-time ts)))
+      (org-air-item-body-deadline item)
+      (let ((marker (org-air-item-marker item)))
+        (when (and (markerp marker) (marker-buffer marker))
+          (with-current-buffer (marker-buffer marker)
+            (ignore-errors
+              (save-excursion
+                (goto-char (marker-position marker))
+                (org-back-to-heading t)
+                (let ((end (save-excursion (org-end-of-subtree t t))))
+                  (when (re-search-forward org-deadline-time-regexp end t)
+                    (org-timestamp-to-time
+                     (org-timestamp-from-string
+                      (format "<%s>"
+                              (match-string-no-properties 1)))))))))))))
 
 (defun org-air-calendar--marked-days (items)
   "Return hash of date key -> strongest mark kind for ITEMS (T3b).
@@ -110,8 +116,8 @@ Kinds are `deadline' or `scheduled'; precedence is deadline > scheduled
 so a day carrying both reads as a deadline."
   (let ((table (make-hash-table :test #'equal)))
     (dolist (item items table)
-      (when-let* ((ts (org-air-calendar--item-deadline item))
-                  (key (org-air-calendar--timestamp-key ts)))
+      (when-let* ((time (org-air-calendar--item-deadline-time item))
+                  (key (org-air-calendar--time-key time)))
         (puthash key 'deadline table))
       (when-let* ((ts (org-air-item-scheduled item))
                   (key (org-air-calendar--timestamp-key ts)))

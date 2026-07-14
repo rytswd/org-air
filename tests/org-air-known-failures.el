@@ -1397,6 +1397,56 @@
     ;; D2(+8)' hold).  No .el SOURCE touched on the test track (impl
     ;; landed R51-1/R51-2/R51-3 in vpwwokuw).  Round-51 manifest is
     ;; EMPTY; the tests stay as permanent regression guards.
+    ;; =================================================================
+    ;; v0.5 ROUND-53 impl grind (air/v0.5/org-air-round53-design.org).
+    ;; NEVER-HANG AT 5000+ FILES.  P1 work-buffer scan: the data layer
+    ;; scans every file in ONE reused org-mode work buffer (org-ql stays
+    ;; the only query engine; org-air changed the BUFFERS it hands over),
+    ;; so every `org-air-item' marker slot is now the durable (FILE . POS)
+    ;; cons — first-class everywhere since R26-8 — and NO source buffer is
+    ;; ever retained by scanning.  P1b never-error law: a signalling file
+    ;; (gpg/unreadable/binary/vanished/too-large) contributes 0 items + one
+    ;; skip-log entry, never an abort.  P1c: slices are TIME-budgeted
+    ;; (`org-air-refresh-slice-budget'; `org-air-refresh-files-per-slice'
+    ;; obsoleted), run under `while-no-input', and the R42-2 watchdog NEVER
+    ;; drains a queue bigger than the sync budget synchronously (that
+    ;; force-complete WAS the measured 4.5-minute hang) — it re-arms the
+    ;; same budgeted driver on a repeating wall-clock timer instead.
+    ;; P1d/P2: cache v2 (version bump), struct gains scan-time slots
+    ;; (kind/donep/activity/body-deadline) so classify/render is data-pure.
+    ;; Byte goldens: ZERO churn verified (all viewport/layout byte tests
+    ;; green on the impl tip).  The legacy assertion ERTs pinning the
+    ;; superseded contracts re-bless on the TEST seat:
+    (org-air-query-item-accessors
+      . "R53 P1: scanned items now carry the durable (FILE . POS) cons in\
+ the marker slot (source buffers are never retained); the live `markerp'\
+ assertion pins the pre-R53 contract — re-bless to the cons shape\
+ (spec §P1 rule 3).")
+     (org-air-r26-8-batch-purity-never-reads-cache
+      . "R53 P1: the batch-purity conjuncts (zero cache reads, sync scan)\
+ still hold; only the trailing `markerp' live-marker assertion pins the\
+ pre-R53 marker contract — re-bless to (FILE . POS) (spec §P1 rule 3).")
+     (org-air-r26-8-interleaving-single-swap
+      . "R53 P1c: slices are TIME-budgeted — binding the obsoleted\
+ `org-air-refresh-files-per-slice' to 1 no longer forces >1 slice (one\
+ budgeted slice drains a small fast queue and finishes); re-bless the\
+ mid-refresh conjuncts onto a stub-cost queue or the budget seam\
+ (spec §P1c, ERT seam 5).")
+     (org-air-r26-8-token-cancels-stale-slice
+      . "R53 P1c: same budget supersession — the first slice completes the\
+ whole small queue, so the `still refreshing after one slice' premise\
+ pins the pre-R53 fixed-slice contract (spec §P1c, ERT seam 5).")
+     (org-air-r42-watchdog-force-completes-strand
+      . "R53 P1c: the watchdog must NEVER drain a queue above the sync\
+ budget synchronously (the old force-complete WAS the 5000-file hang);\
+ with the test's sync-budget 0 the state legitimately stays `refreshing'\
+ and converges by pacing — re-bless to the not-drained + pacer-armed\
+ contract (spec §P1c, ERT seam 4).")
+     (org-air-r42-watchdog-fails-honestly
+      . "R53 P1c: the sync force-completion this test errors out of only\
+ runs for provably small queues now; above the budget the watchdog paces\
+ instead of scanning, so the stubbed scan error is never reached —\
+ re-bless onto the small-remainder sync branch (spec §P1c, ERT seam 4).")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

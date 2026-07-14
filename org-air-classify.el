@@ -41,33 +41,36 @@
 
 (defun org-air-classify--item-source (item)
   "Return (BUFFER . POS) for ITEM's marker slot, or nil.
-R26-8: a cache-hydrated (FILE . POS) cons marker slot visits FILE in the
-background (each file at most once — `find-file-noselect' reuses the live
-buffer), so a cache-painted board classifies byte-identically to a
-live-scan one."
+R53 P2: only a LIVE marker resolves — a cache-hydrated (FILE . POS) cons
+returns nil, because everything classify/render needs now lives in the
+item's scan-time slots (`donep'/`activity'/`body-deadline').  RENDER
+NEVER OPENS A FILE: the old cons branch was a per-item
+`find-file-noselect' — the measured 186s warm first paint at 15.9k
+items."
   (let ((m (org-air-item-marker item)))
-    (cond ((and (markerp m) (marker-buffer m))
-           (cons (marker-buffer m) (marker-position m)))
-          ((and (consp m) (stringp (car m))
-                (ignore-errors (file-readable-p (car m))))
-           (cons (find-file-noselect (car m)) (or (cdr m) 1))))))
+    (when (and (markerp m) (marker-buffer m))
+      (cons (marker-buffer m) (marker-position m)))))
 
 (defun org-air-classify--done-keywords (item)
-  "Return done TODO keywords applicable to ITEM."
+  "Return done TODO keywords applicable to ITEM WITHOUT opening a file.
+R53 P2: the scan records `donep' at scan time, so this is only the
+fallback vocabulary for items built OUTSIDE the scan (a live capture
+buffer): the live marker's buffer keywords, else the global default."
   (or (when-let* ((src (org-air-classify--item-source item)))
         (with-current-buffer (car src)
-          (or org-done-keywords (default-value 'org-done-keywords))))
-      (when-let* ((file (org-air-item-file item))
-                  ((file-exists-p file)))
-        (with-current-buffer (find-file-noselect file)
           (or org-done-keywords (default-value 'org-done-keywords))))
       (default-value 'org-done-keywords)
       '("DONE")))
 
 (defun org-air-classify--done-p (item)
-  "Return non-nil if ITEM has a done TODO state."
-  (when-let* ((todo (org-air-item-todo item)))
-    (member todo (org-air-classify--done-keywords item))))
+  "Return non-nil if ITEM has a done TODO state.
+R53 P2: data-pure — the scan-time `donep' slot (todo ∈ the file's own
+`org-done-keywords' as known in the scan buffer) answers without any file
+access; items built outside the scan fall back to
+`org-air-classify--done-keywords' (live buffer or global default)."
+  (or (org-air-item-donep item)
+      (when-let* ((todo (org-air-item-todo item)))
+        (member todo (org-air-classify--done-keywords item)))))
 
 (defun org-air-classify--future-or-today-p (timestamp now)
   "Return non-nil when TIMESTAMP is within the upcoming window from NOW."
@@ -99,17 +102,38 @@ the caller's file-mtime fallback takes over instead of a crash."
                    (org-timestamp-from-string
                     (match-string-no-properties 0))))))))))))
 
+(defvar org-air-classify--truename-cache (make-hash-table :test #'equal)
+  "Memo FILE -> truename for the inbox-membership test (R53 P2).
+Bounded by the configured file count; avoids a `file-truename' component
+walk per item at 15k items.")
+
+(defun org-air-classify--truename (file)
+  "Return FILE's memoised truename (R53 P2)."
+  (or (gethash file org-air-classify--truename-cache)
+      (puthash file
+               (or (ignore-errors (file-truename (expand-file-name file)))
+                   (expand-file-name file))
+               org-air-classify--truename-cache)))
+
 (defun org-air-classify--inbox-file-p (item)
-  "Return non-nil when ITEM lives in `org-air-inbox-file'."
+  "Return non-nil when ITEM lives in `org-air-inbox-file'.
+R53 P2: both truenames are memoised (`org-air-classify--truename-cache'),
+so the per-item cost is a hash lookup, not a filesystem walk."
   (and (boundp 'org-air-inbox-file)
        org-air-inbox-file
        (org-air-item-file item)
-       (equal (file-truename (expand-file-name (org-air-item-file item)))
-              (file-truename (expand-file-name org-air-inbox-file)))))
+       (equal (org-air-classify--truename (org-air-item-file item))
+              (org-air-classify--truename org-air-inbox-file))))
 
 (defun org-air-classify--last-activity (item)
-  "Return the best available activity time for ITEM."
-  (or (org-air-classify--time (org-air-item-closed item))
+  "Return the best available activity time for ITEM.
+R53 P2: the scan-time `activity' slot (an epoch float: closed ‖ scheduled
+‖ deadline ‖ first subtree timestamp ‖ file mtime) answers directly for
+every scanned item — no file access.  The old chain survives only as the
+fallback for items built outside the scan (live-marker probes still
+work; a cons marker degrades to the file-mtime fallback)."
+  (or (org-air-item-activity item)
+      (org-air-classify--time (org-air-item-closed item))
       (org-air-classify--time (org-air-item-scheduled item))
       (org-air-classify--time (org-air-item-deadline item))
       (org-air-classify--marker-timestamp-time item)
@@ -121,7 +145,16 @@ the caller's file-mtime fallback takes over instead of a crash."
 (defun org-air-classify-item (item &optional now)
   "Return bucket symbols for ITEM relative to NOW.
 
-Buckets are `upcoming', `stale', `attention', `high-priority', and `inbox'."
+Buckets are `upcoming', `stale', `attention', `high-priority', and `inbox'.
+R53 P3: a `kind' `file' item (a headingless note synthesised by the scan)
+routes to the dedicated `notes' bucket FIRST and never enters the task
+buckets — the GTD board stays a GTD board."
+  (if (eq (org-air-item-kind item) 'file)
+      (list 'notes)
+    (org-air-classify--heading-buckets item now)))
+
+(defun org-air-classify--heading-buckets (item now)
+  "Return the task-bucket symbols for a heading ITEM relative to NOW."
   (let* ((now (or now (current-time)))
          (buckets nil)
          (scheduled (org-air-item-scheduled item))

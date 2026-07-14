@@ -20,6 +20,36 @@
 (require 'org-air-query)
 
 (defvar org-air-inbox-file)
+(defvar org-air-view-buffer-name)
+(defvar org-air-view--items)
+(defvar org-air-view--items-mtimes)
+
+(declare-function org-air-view--cache-read "org-air-view")
+
+(defun org-air-inbox--board-buffer ()
+  "Return the live board buffer, or nil (R53 P4)."
+  (and (boundp 'org-air-view-buffer-name)
+       (get-buffer org-air-view-buffer-name)))
+
+(defun org-air-inbox--board-files ()
+  "Return the board's last-enumerated file list, or nil (R53 P4).
+The refile pickers must never re-walk 5000 files at menu time: the board
+already holds the enumeration as its mtime baseline
+\(`org-air-view--items-mtimes', hydrated from the persisted cache's
+`:mtimes' on a warm start)."
+  (when-let* ((board (org-air-inbox--board-buffer)))
+    (mapcar #'car (buffer-local-value 'org-air-view--items-mtimes board))))
+
+(defun org-air-inbox--board-items ()
+  "Return the in-memory board items, else the persisted cache's (R53 P4).
+NEVER a fresh `org-air-query-items' — the Tags…/Category… vocabularies
+used to trigger a FULL synchronous rescan at menu time (the 271s class
+when cold).  nil when neither the board nor the cache has items; the
+completion then simply offers no pre-seeded vocabulary."
+  (or (when-let* ((board (org-air-inbox--board-buffer)))
+        (buffer-local-value 'org-air-view--items board))
+      (when (fboundp 'org-air-view--cache-read)
+        (plist-get (ignore-errors (org-air-view--cache-read)) :items))))
 
 (defun org-air-inbox--ensure-file ()
   "Ensure `org-air-inbox-file' exists and return it."
@@ -51,7 +81,11 @@
     file))
 
 (defun org-air-inbox--target-position (file heading)
-  "Return insertion point for FILE under optional HEADING."
+  "Return insertion point for FILE under optional HEADING.
+R53 P3 contract (\"refile to file top\"): with HEADING nil — which is
+what `org-air-inbox--read-heading' yields for a HEADINGLESS note file —
+the insertion point is the file end, i.e. directly under the `#+title'
+content, so headingless notes are structurally valid refile targets."
   (with-current-buffer (find-file-noselect file)
     (org-with-wide-buffer
      (goto-char (point-min))
@@ -119,18 +153,24 @@ Uses `org-air-query-files' (which RECURSES configured directories), so a
 `⌂' candidate is always an actual file — the move bug was that
 `org-air-files' may hold DIRECTORIES that never match a basename.  Falls
 back to ITEM's own file when nothing is configured."
-  (or (ignore-errors (org-air-query-files))
+  (or (org-air-inbox--board-files)
+      (ignore-errors (org-air-query-files))
       (list (org-air-item-file item))))
 
 (defun org-air-inbox--file-candidates (files)
   "Return `⌂ <name>' refile candidates for FILES, disambiguating clashes (R19-2).
 When two files share a basename, the candidate shows a parent-dir/name tail
-so each `⌂' entry maps to exactly one file."
-  (let ((bases (mapcar #'file-name-nondirectory files)))
+so each `⌂' entry maps to exactly one file.  R53 P4: basenames are counted
+in ONE hash pass (the old per-file `seq-count' was O(n²) — measured 3.0s
+at 5006 files, now 0.013s), so the picker opens in <100ms."
+  (let ((counts (make-hash-table :test #'equal)))
+    (dolist (file files)
+      (let ((base (file-name-nondirectory file)))
+        (puthash base (1+ (gethash base counts 0)) counts)))
     (mapcar (lambda (file)
               (let ((base (file-name-nondirectory file)))
                 (concat "⌂ "
-                        (if (> (seq-count (lambda (b) (equal b base)) bases) 1)
+                        (if (> (gethash base counts 0) 1)
                             (concat (file-name-nondirectory
                                      (directory-file-name
                                       (file-name-directory file)))
@@ -159,10 +199,12 @@ first-class entry rather than a needle in a candidate haystack."
   "Read a REPLACEMENT tag list for ITEM, pre-filled with its current tags (R19-2).
 Uses `completing-read-multiple' over the tag vocabulary seeded with the
 item's existing tags (joined by `,') so the user SEES the full set and can
-add OR remove; the returned list replaces the tags."
+add OR remove; the returned list replaces the tags.  R53 P4: the
+vocabulary reads the IN-MEMORY board items (or the persisted cache) —
+never a fresh scan at menu time."
   (let ((current (org-air-item-tags item))
         (vocab (delete-dups (seq-mapcat #'org-air-item-tags
-                                        (ignore-errors (org-air-query-items))))))
+                                        (org-air-inbox--board-items)))))
     (completing-read-multiple
      "Tags: " vocab nil nil
      (when current (mapconcat #'identity current ",")))))
@@ -173,10 +215,12 @@ Uses `completing-read-multiple' seeded with the item's current category (its
 `org-air-item-group') over the group vocabulary so a single pick is the
 common case (add/remove from there).  Multiple
 picks are allowed: the caller makes the FIRST the `:CATEGORY:' and adds any
-extras as tags, so nothing the user typed is lost."
+extras as tags, so nothing the user typed is lost.  R53 P4: the vocabulary
+reads the IN-MEMORY board items (or the persisted cache) — never a fresh
+scan at menu time."
   (let ((current (org-air-item-group item))
         (vocab (delete-dups (delq nil (mapcar #'org-air-item-group
-                                              (ignore-errors (org-air-query-items)))))))
+                                              (org-air-inbox--board-items))))))
     (completing-read-multiple
      "Category: " vocab nil nil
      (when (and current (not (string-empty-p current))) current))))

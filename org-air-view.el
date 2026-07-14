@@ -782,8 +782,52 @@ golden are byte-identical to the synchronous path."
 
 (defcustom org-air-refresh-files-per-slice 3
   "Files scanned per idle-timer refresh slice (R26-8).
-Measured ≈21ms/file on a real Air tree, so the default 3 keeps each
-slice ≈60-70ms — under perception — while the board stays interactive."
+OBSOLETE (R53 P1c): slices are now TIME-budgeted
+\(`org-air-refresh-slice-budget') so a slice of cheap warm files consumes
+many files per tick while a pathological file alone caps a slice — a
+fixed file count was either too slow at 5000 files or too janky on slow
+ones.  Kept only so existing configuration does not error; unused."
+  :type 'integer
+  :group 'org-air)
+(make-obsolete-variable 'org-air-refresh-files-per-slice
+                        'org-air-refresh-slice-budget "0.5 (R53)")
+
+(defconst org-air-refresh-slice-budget 0.018
+  "Wall-clock seconds one refresh slice may consume (R53 P1c).
+≈ one frame: the budgeted slice keeps consuming queued files until the
+budget is exceeded (minimum 1 file), so input latency is bounded by one
+slice while a 5000-file cold fill still streams in over ~10s of idle.
+An internal constant, never a defcustom.")
+
+(defcustom org-air-cold-paint-interval 1.0
+  "Seconds between progressive repaints of a still-loading cold board (R53).
+The cold (no-cache) load paints real rows from the scan accumulator at
+most this often — first rows ≈1s in, streaming to the full board — while
+warm incremental refreshes keep the R26-8 single-swap rule."
+  :type 'number
+  :group 'org-air)
+
+(defcustom org-air-scan-abort-retries 3
+  "Input-aborts of the SAME file before the scan skips it as `slow' (R53).
+A pathological file that keeps getting interrupted by typing is skip-
+logged (see `org-air-scan-report') instead of livelocking the refresh."
+  :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-show-notes-section t
+  "When non-nil, show the bounded Notes section for headingless files (R53 P3).
+Headingless note files (a `#+title' + prose, no `*' headings) surface as
+ONE collapsed count row at the bottom of the board; TAB expands the
+`org-air-notes-preview-limit' most recent.  Nil removes the section from
+the board entirely (the notes stay refile targets either way)."
+  :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-notes-preview-limit 50
+  "Rows the expanded Notes section shows (R53 P3).
+The most recent notes by scan-time activity; the remainder stays behind
+the standard `…and N more' fold row so the section can never reintroduce
+an unbounded render at 5000 files."
   :type 'integer
   :group 'org-air)
 
@@ -814,6 +858,19 @@ files, then consumed by `org-air-view--refresh-finish' to build the new
 mtime baseline from SCAN-TIME data (never a finish-time re-stat, which
 would stamp a fresh mtime over items read from an older revision — the
 B1 coherence hole).")
+(defvar-local org-air-view--refresh-last-paint nil
+  "Float time of the last progressive cold repaint, or nil (R53 P1c).
+Bounds the cold path's streaming repaints to one per
+`org-air-cold-paint-interval'.")
+(defvar-local org-air-view--refresh-abort-file nil
+  "Cons (FILE . COUNT) tracking input-aborts of the queue head (R53 P1c).
+After `org-air-scan-abort-retries' aborts of the SAME file it is
+skip-logged `slow' and dropped from the queue — no livelock.")
+(defvar-local org-air-view--refresh-progressive nil
+  "Non-nil once the cold load progressively painted real rows (R53 P1c).
+Lets `org-air-view--refresh-stale-item-guard' unblock items whose file
+was ALREADY scanned this refresh (their painted positions are scan-fresh)
+while still-queued files stay guarded.")
 (defvar-local org-air-view--refresh-timer nil
   "The single repeating idle pacing timer of the in-flight refresh, or nil (R34-3).")
 (defvar-local org-air-view--refresh-watchdog nil
@@ -938,6 +995,23 @@ of whether the wrapping pane margin is added later (D6).")
     (high-priority "High priority" "No #A items.")
     (stale "Stale" "Nothing has gone stale."))
   "Section descriptors in display order.")
+
+(defconst org-air-view--notes-descriptor
+  '(notes "Notes" "No notes.")
+  "The bounded Notes section descriptor (R53 P3).
+Rendered ONLY when headingless note file-items exist (see
+`org-air-view--section-descriptors'), so a notes-free board — every
+existing golden — renders exactly the pre-R53 sections.")
+
+(defun org-air-view--section-descriptors (items)
+  "Return the section descriptors to render for ITEMS (R53 P3).
+The fixed task sections, plus the single collapsed Notes section at the
+bottom when any visible item is a `kind' `file' note and
+`org-air-show-notes-section' is on."
+  (if (and org-air-show-notes-section
+           (org-air-view--items-for-bucket 'notes items))
+      (append org-air-view--sections (list org-air-view--notes-descriptor))
+    org-air-view--sections))
 
 ;;;; =====================================================================
 ;;;; R35-1 — one switch to opt out of EVERY default keybinding.
@@ -1746,11 +1820,10 @@ stacked and two-pane layouts."
 
 (defun org-air-view--marker-timestamp-time (item)
   "Return first timestamp in ITEM subtree, if any.
-R26-8: resolves a live marker OR a cache-hydrated (FILE . POS) cons via
-`org-air-classify--item-source' (one background file visit, shared
-buffer), so a cache-painted board's stale labels are byte-identical to a
-live scan's; a stale position mid-refresh degrades to nil (file-mtime
-fallback), never a crash."
+R53 P2: resolves LIVE markers only (`org-air-classify--item-source'
+returns nil for a (FILE . POS) cons — render never opens a file); scanned
+items answer from the `activity' slot at the call sites instead.  A stale
+position degrades to nil, never a crash."
   (when-let* ((src (org-air-classify--item-source item)))
     (with-current-buffer (car src)
       (ignore-errors
@@ -1779,8 +1852,17 @@ fallback), never a crash."
      (deadline (cons (org-air-view--human-date deadline now) 'org-air-face-deadline))
      (scheduled (cons (org-air-view--human-date scheduled now) 'org-air-face-scheduled))
      ((eq bucket 'attention) (cons "no date" 'org-air-face-date))
+     ((eq bucket 'notes)
+      ;; R53 P3: a note row's date pill is its scan-time activity.
+      (when-let* ((activity (org-air-item-activity item)))
+        (cons (org-air-view--human-date activity now) 'org-air-face-date)))
      ((eq bucket 'stale)
-      (when-let* ((activity (or (org-air-view--marker-timestamp-time item)
+      ;; R53 P2: the scan-time `activity' slot answers data-pure (it IS
+      ;; the first-subtree-timestamp ‖ mtime value in this branch — the
+      ;; dated cond arms above already caught scheduled/deadline); the
+      ;; probe/mtime chain survives only for items built outside the scan.
+      (when-let* ((activity (or (org-air-item-activity item)
+                                (org-air-view--marker-timestamp-time item)
                                 (when-let* ((file (org-air-item-file item))
                                             ((file-exists-p file)))
                                   (file-attribute-modification-time
@@ -1985,21 +2067,38 @@ whole call so every item classifies against a single instant."
   (pcase bucket
     ('attention 6)
     ('upcoming 5)
+    ('notes org-air-notes-preview-limit)
     (_ org-air-section-max)))
+
+(defun org-air-view--notes-by-recency (notes)
+  "Return NOTES sorted most-recent-first by scan-time activity (R53 P3).
+A top-K selection over precomputed floats — milliseconds at 4k notes."
+  (sort (copy-sequence notes)
+        (lambda (a b)
+          (> (float-time (or (org-air-item-activity a) 0))
+             (float-time (or (org-air-item-activity b) 0))))))
 
 (defun org-air-view--displayed-for-bucket-1 (bucket items)
   "Compute (no memo) the BUCKET rows of ITEMS a section renders (R20-6).
 Mirrors `org-air-view--insert-section': the bucket members (date-sorted for
 attention/upcoming), capped to `org-air-view--section-limit' unless the
-section is expanded."
-  (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
-         ;; R22-3: order WITHIN the bucket by the active sort key/direction.
-         ;; The default key `date' reproduces the historical order exactly
-         ;; (attention/upcoming date-sorted, the rest query order).
-         (bucket-items (org-air-view--sort-items bucket-items bucket)))
-    (if (memq bucket org-air-view--expanded-sections)
-        bucket-items
-      (seq-take bucket-items (org-air-view--section-limit bucket)))))
+section is expanded.  R53 P3: the Notes section is BOUNDED both ways —
+collapsed it renders NO rows (the heading is the single count row);
+expanded it renders only the `org-air-notes-preview-limit' most recent
+notes, so it can never reintroduce an unbounded render."
+  (if (eq bucket 'notes)
+      (when (memq 'notes org-air-view--expanded-sections)
+        (seq-take (org-air-view--notes-by-recency
+                   (org-air-view--items-for-bucket bucket items))
+                  (max 0 org-air-notes-preview-limit)))
+    (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
+           ;; R22-3: order WITHIN the bucket by the active sort key/direction.
+           ;; The default key `date' reproduces the historical order exactly
+           ;; (attention/upcoming date-sorted, the rest query order).
+           (bucket-items (org-air-view--sort-items bucket-items bucket)))
+      (if (memq bucket org-air-view--expanded-sections)
+          bucket-items
+        (seq-take bucket-items (org-air-view--section-limit bucket))))))
 
 (defun org-air-view--displayed-items-for-bucket (bucket items)
   "Return the BUCKET rows of ITEMS a section actually renders (R20-6).
@@ -2857,7 +2956,7 @@ first."
   ;; (the widths are recomputed every render, so the relock is automatic).
   (let ((dw (if org-air-show-dates org-air-date-column 0))
         (tw 0) (ow 0) (rep 0) (tw-todo 0))
-    (dolist (descriptor org-air-view--sections)
+    (dolist (descriptor (org-air-view--section-descriptors items))
       (let* ((bucket (car descriptor))
              (bucket-items (org-air-view--displayed-items-for-bucket bucket items)))
         (dolist (item bucket-items)
@@ -3417,7 +3516,12 @@ so the board byte goldens are byte-identical by default."
           (progn
             (dolist (item visible)
               (org-air-view--insert-item item bucket))
-            (when (> count (length visible))
+            (when (and (> count (length visible))
+                       ;; R53 P3: the COLLAPSED Notes section is the single
+                       ;; count row (its heading) — TAB there expands; the
+                       ;; fold row appears only past the expanded preview.
+                       (or (not (eq bucket 'notes))
+                           (memq 'notes org-air-view--expanded-sections)))
               ;; R51-3: the fold row is itself an actionable toggle target.
               ;; It carries `org-air-more-row' BUCKET over its FULL extent
               ;; (the dispatch handle — the board twin of the project's
@@ -4059,14 +4163,28 @@ appends the deadline mark."
 (defun org-air-view--item-created (item)
   "Return ITEM's CREATED property as an Emacs time, or nil (D-P7).
 R26-8: hydrates a cache-cold (FILE . POS) cons marker slot on demand, so
-the inspector reads the same CREATED for a cache-painted item."
-  (when-let* ((src (org-air-classify--item-source item)))
-    (ignore-errors
-      (with-current-buffer (car src)
-        (save-excursion
-          (goto-char (cdr src))
-          (when-let* ((v (org-entry-get (point) "CREATED")))
-            (org-air-view--timestamp-time (org-timestamp-from-string v))))))))
+the inspector reads the same CREATED for a cache-painted item.  R53: the
+hydration lives HERE (one file, for the single inspected item — bounded
+and user-driven), not in the per-item classify path, which is data-pure."
+  (let* ((m (org-air-item-marker item))
+         (src (cond ((and (markerp m) (marker-buffer m))
+                     (cons (marker-buffer m) (marker-position m)))
+                    ((and (consp m) (stringp (car m))
+                          (ignore-errors (file-readable-p (car m))))
+                     ;; NOWARN: a background probe must NEVER prompt
+                     ;; ("changed on disk; reread?" reads stdin in batch
+                     ;; and modals interactively); a stale live buffer's
+                     ;; CREATED is fine for the inspector.
+                     (cons (find-file-noselect (car m) t)
+                           (or (cdr m) 1))))))
+    (when src
+      (ignore-errors
+        (with-current-buffer (car src)
+          (save-excursion
+            (goto-char (cdr src))
+            (when-let* ((v (org-entry-get (point) "CREATED")))
+              (org-air-view--timestamp-time
+               (org-timestamp-from-string v)))))))))
 
 (defun org-air-view--inspector-bucket-name (bucket)
   "Return a compact display name for classify BUCKET (D-P7)."
@@ -4557,7 +4675,7 @@ now-redundant date."
   (let ((org-air-view--line-width width)
         (visible (org-air-view--visible-items items))
         (first t))
-    (dolist (descriptor org-air-view--sections)
+    (dolist (descriptor (org-air-view--section-descriptors items))
       (let ((start (point)))
         (org-air-view--insert-section descriptor items)
         (when (and first (= (char-after start) ?\n))
@@ -7067,8 +7185,11 @@ interrupt, but the guard is cheap and harmless."
 ;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
-(defconst org-air-view--cache-version 1
-  "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.")
+(defconst org-air-view--cache-version 2
+  "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
+v2 (R53): `org-air-item' gained the scan-time slots
+\(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
+a cache-hit board renders data-pure, never opening a file.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.
@@ -7150,16 +7271,22 @@ its stale rows must be dropped).  Pure: the shared staleness oracle for
 both the cache-first load (`org-air-view--cache-load') and the
 mtime-incremental refresh (`org-air-view--refresh-start').  nil when every
 mtime matches (FRESH: no scan at all)."
-  (let ((changed (seq-remove
-                  (lambda (f)
-                    (equal (cdr (assoc f snapshot))
-                           (file-attribute-modification-time
-                            (file-attributes f))))
-                  files)))
-    ;; a snapshot file that vanished also invalidates (its rows linger).
+  ;; R53 P1d: hash the snapshot and diff in ONE pass — the old per-file
+  ;; `assoc' + `member' was O(n²) (measured 0.275s -> 0.051s at 5006
+  ;; files).  The snapshot stays an alist on disk; hashed in memory only.
+  (let ((table (make-hash-table :test #'equal :size (length snapshot)))
+        (changed nil))
     (dolist (entry snapshot)
-      (unless (member (car entry) files)
-        (push (car entry) changed)))
+      (puthash (car entry) (cdr entry) table))
+    (dolist (f files)
+      (unless (equal (gethash f table 'org-air--missing)
+                     (file-attribute-modification-time
+                      (file-attributes f)))
+        (push f changed))
+      (remhash f table))
+    (setq changed (nreverse changed))
+    ;; a snapshot file that vanished also invalidates (its rows linger).
+    (maphash (lambda (k _v) (push k changed)) table)
     changed))
 
 (defun org-air-view--cache-load ()
@@ -7225,36 +7352,73 @@ resumable pace is constant."
     (cancel-timer org-air-view--refresh-watchdog))
   (setq org-air-view--refresh-watchdog nil))
 
+(defconst org-air-view--refresh-wallclock-pace 0.2
+  "Repeating wall-clock pacer period for the watchdog fallback (R53 P1c).
+~10% duty cycle at the `org-air-refresh-slice-budget' slice size, so a
+session where Emacs never goes idle still makes steady scan progress
+without ever blocking the frame.  An internal constant, never a
+defcustom.")
+
 (defun org-air-view--refresh-watchdog-fire (buffer token)
-  "Force a stranded paced refresh to completion (R42-2 safety backstop).
+  "Rescue a stranded paced refresh WITHOUT ever hanging (R42-2/R53 P1c).
 If BUFFER is still `refreshing' under TOKEN when the watchdog fires, the
-idle pacer failed to drain the queue; disarm it, scan any remaining files
-synchronously and finish (or fail honestly).  Token-guarded, so a
-superseded refresh's watchdog is a silent no-op.  The state can never be
-left at `refreshing'."
+idle pacer is not draining the queue (Emacs is not going idle).  A
+PROVABLY SMALL remainder (<= `org-air-view--refresh-sync-budget' files)
+is drained synchronously — well under a frame at the measured p95.  A
+LARGER queue is NEVER drained synchronously (the old force-complete WAS
+the user's minutes-long mid-session freeze at 5000 files): the SAME
+budgeted slice driver re-arms on a repeating wall-clock `run-with-timer'
+— progress independent of idleness — and the watchdog re-arms behind it.
+Token-guarded, so a superseded refresh's watchdog is a silent no-op.  The
+state still can never strand at `refreshing' — it now converges by
+pacing, not by freezing."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (when (and (eq token org-air-view--refresh-token)
                  (eq org-air-view--refresh-state 'refreshing))
-        (org-air-view--refresh-disarm)
-        (condition-case err
+        (if (> (length org-air-view--refresh-queue)
+               org-air-view--refresh-sync-budget)
             (progn
-              (when org-air-view--refresh-queue
-                (setq org-air-view--refresh-acc
-                      (nconc org-air-view--refresh-acc
-                             (copy-sequence
-                              (org-air-query-items-in-files
-                               org-air-view--refresh-queue)))
-                      org-air-view--refresh-queue nil))
-              (org-air-view--refresh-finish))
-          (error
-           (setq org-air-view--refresh-state 'failed
-                 org-air-view--refresh-queue nil
-                 org-air-view--refresh-acc nil
-                 org-air-view--loading nil)
-           (org-air-view--refresh-repaint)
-           (message "org-air: refresh failed: %s (g r retries)"
-                    (org-air-view--short-error err))))))))
+              (org-air-view--refresh-disarm)
+              ;; Mirror `org-air-view--refresh-arm': never arm real timers
+              ;; under `noninteractive' — the deterministic ERTs drive the
+              ;; slice runner directly; the state stays `refreshing' and
+              ;; converges by pacing either way.
+              (unless noninteractive
+                (setq org-air-view--refresh-timer
+                      (run-with-timer org-air-view--refresh-wallclock-pace
+                                      org-air-view--refresh-wallclock-pace
+                                      #'org-air-view--refresh-run-slice
+                                      buffer token))
+                (setq org-air-view--refresh-watchdog
+                      (run-with-timer org-air-view--refresh-watchdog-timeout
+                                      nil
+                                      #'org-air-view--refresh-watchdog-fire
+                                      buffer token))))
+          (org-air-view--refresh-disarm)
+          (condition-case err
+              (progn
+                (let ((remaining org-air-view--refresh-queue))
+                  (setq org-air-view--refresh-queue nil)
+                  (when remaining
+                    (dolist (f remaining)
+                      (push (cons f (file-attribute-modification-time
+                                     (file-attributes f)))
+                            org-air-view--refresh-mtimes))
+                    (setq org-air-view--refresh-acc
+                          (nconc org-air-view--refresh-acc
+                                 (copy-sequence
+                                  (org-air-query-items-in-files
+                                   remaining))))))
+                (org-air-view--refresh-finish))
+            (error
+             (setq org-air-view--refresh-state 'failed
+                   org-air-view--refresh-queue nil
+                   org-air-view--refresh-acc nil
+                   org-air-view--loading nil)
+             (org-air-view--refresh-repaint)
+             (message "org-air: refresh failed: %s (g r retries)"
+                      (org-air-view--short-error err)))))))))
 
 (defun org-air-view--refresh-disarm ()
   "Cancel the pacing + watchdog timers, if any (R34-3/R42-2).
@@ -7296,13 +7460,18 @@ Every pending slice callback carries the old token and self-cancels."
   (cl-incf org-air-view--refresh-token)
   (org-air-view--refresh-disarm)
   (setq org-air-view--refresh-queue nil
-        org-air-view--refresh-acc nil))
+        org-air-view--refresh-acc nil
+        org-air-view--refresh-abort-file nil
+        org-air-view--refresh-progressive nil))
 
 (defun org-air-view--refresh-teardown ()
   "Cancel the in-flight refresh outright (the board buffer is dying)."
   (org-air-view--refresh-cancel)
   (org-air-view--deferred-disarm)
-  (setq org-air-view--refresh-state nil))
+  (setq org-air-view--refresh-state nil)
+  ;; R53 P1: the session's scan work buffer goes with the board (it is
+  ;; recreated on demand, so an early teardown only costs one re-init).
+  (org-air-query-teardown))
 
 (defun org-air-view--deferred-disarm ()
   "Cancel the pending one-shot cache-first first-paint timer, if any (R45-2).
@@ -7417,7 +7586,8 @@ marker/progress is visible from the first paint."
       ;; round exists to kill.  Mirror the slice handler: error -> `failed'
       ;; + repaint.
       (condition-case err
-          (let* ((existing (seq-filter #'file-exists-p changed))
+          (let* ((_ (org-air-query-skip-log-reset))
+                 (existing (seq-filter #'file-exists-p changed))
                  (retained (seq-remove
                             (lambda (it)
                               (member (org-air-item-file it) changed))
@@ -7458,10 +7628,12 @@ marker/progress is visible from the first paint."
                        (lambda (it)
                          (member (org-air-item-file it) changed))
                        org-air-view--items)))
+        (org-air-query-skip-log-reset)
         (setq org-air-view--refresh-queue existing
               org-air-view--refresh-total (length existing)
               org-air-view--refresh-acc (copy-sequence retained)
               org-air-view--refresh-mtimes nil
+              org-air-view--refresh-last-paint (float-time)
               org-air-view--cache-stale-files changed
               org-air-view--refresh-state 'refreshing)
         ;; Every changed file may have vanished (existing empty) — finish
@@ -7499,6 +7671,8 @@ first so it cannot fire again after the chain is DONE (R34-3)."
   (let* ((items org-air-view--refresh-acc)
          (changed org-air-view--cache-stale-files)
          (scan-time org-air-view--refresh-mtimes)
+         (scanned (length scan-time))
+         (skipped (length org-air-query--skip-log))
          (mtimes (delq nil
                        (mapcar
                         (lambda (f)
@@ -7518,16 +7692,67 @@ first so it cannot fire again after the chain is DONE (R34-3)."
           org-air-view--cache-stale-files nil
           org-air-view--loading nil)
     (org-air-view--refresh-repaint)
+    ;; R53 P1b: ONE summary line per completed scan — never per-file echo
+    ;; spam; the details live behind M-x org-air-scan-report.
+    (unless (or noninteractive (zerop scanned))
+      (message "org-air: scanned %d file%s (%d item%s)%s"
+               scanned (if (= scanned 1) "" "s")
+               (length items) (if (= (length items) 1) "" "s")
+               (if (> skipped 0)
+                   (format ", skipped %d — M-x org-air-scan-report" skipped)
+                 "")))
     (org-air-view--cache-write items mtimes)))
 
+(defun org-air-view--refresh-note-abort ()
+  "Track input-aborts of the queue-head file; skip it after N (R53 P1c).
+`while-no-input' aborted before the head file's items were committed; a
+file that aborts `org-air-scan-abort-retries' consecutive slices is
+skip-logged `slow' and dropped WITHOUT entering the scan-time mtimes, so
+the next refresh's diff names it again (errors converge) while the board
+stays usable now — no livelock."
+  (let ((head (car org-air-view--refresh-queue)))
+    (when head
+      (if (equal head (car-safe org-air-view--refresh-abort-file))
+          (setcdr org-air-view--refresh-abort-file
+                  (1+ (cdr org-air-view--refresh-abort-file)))
+        (setq org-air-view--refresh-abort-file (cons head 1)))
+      (when (>= (cdr org-air-view--refresh-abort-file)
+                (max 1 org-air-scan-abort-retries))
+        (org-air-query--skip head 'slow)
+        (setq org-air-view--refresh-queue (cdr org-air-view--refresh-queue)
+              org-air-view--refresh-abort-file nil)))))
+
+(defun org-air-view--refresh-progressive-paint ()
+  "Repaint the still-loading COLD board from the accumulator (R53 P1c).
+Bounded to once per `org-air-cold-paint-interval'.  The FIRST progressive
+paint drops the `org-air-view--loading' guard — the verbs go live over
+real rows; items in still-queued files stay guarded by
+`org-air-view--refresh-stale-item-guard'.  Warm incremental refreshes
+never take this path, so the R26-8 single-swap rule holds there."
+  (setq org-air-view--refresh-last-paint (float-time)
+        org-air-view--refresh-progressive t
+        org-air-view--items (copy-sequence org-air-view--refresh-acc)
+        org-air-view--classify-cache nil
+        org-air-view--loading nil)
+  (org-air-view--refresh-repaint))
+
 (defun org-air-view--refresh-run-slice (buffer token)
-  "Scan ONE slice of BUFFER's pending refresh queue under TOKEN (R26-8).
-The named slice runner the idle timer schedules — ERTs call it directly in
-a loop, so the whole machine is testable synchronously with zero timers.
-Robustness rules made law: a stale TOKEN (or dead BUFFER, or a machine no
-longer refreshing) is a silent no-op; slices accumulate privately and
-NEVER touch windows; a slice error keeps the painted board, flips to
-FAILED (header: `refresh failed (g r retries)') and always clears
+  "Scan ONE budgeted slice of BUFFER's refresh queue under TOKEN (R53 P1c).
+The named slice runner the pacing timers schedule — ERTs call it directly
+in a loop, so the whole machine is testable synchronously with zero
+timers.  The slice consumes queued files until
+`org-air-refresh-slice-budget' is exceeded (minimum 1 file — the R26-8
+fixed `org-air-refresh-files-per-slice' count is superseded), each file
+through the never-signalling data layer.  The loop runs under
+`while-no-input': pending input aborts BETWEEN files and the unconsumed
+remainder (including the in-progress file — per-file work-buffer state
+makes retry free) stays queued for the next tick;
+`org-air-view--refresh-note-abort' skip-logs a file that keeps aborting.
+A `quit' propagates untouched: queue intact, machine still
+`refreshing', pacer re-fires.  A COLD load streams progressive paints
+\(interactive only); warm refreshes accumulate privately and swap ONCE.
+A machine-level error keeps the painted board, flips to FAILED (header:
+`refresh failed (g r retries)') and always clears
 `org-air-view--loading' so the buffer can never wedge."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
@@ -7537,28 +7762,48 @@ FAILED (header: `refresh failed (g r retries)') and always clears
         ;; touch the timer here (nil'ing it would drop the live handle),
         ;; and does NOT re-arm.  `refresh-finish'/failure/cancel disarm.
         (condition-case err
-            (let* ((slice (seq-take org-air-view--refresh-queue
-                                    (max 1 org-air-refresh-files-per-slice))))
-              ;; mtime captured per file AT SCAN TIME (the cache snapshot).
-              (dolist (f slice)
-                (push (cons f (file-attribute-modification-time
-                               (file-attributes f)))
-                      org-air-view--refresh-mtimes))
-              (setq org-air-view--refresh-acc
-                    ;; copy: org-ql may hand back a CACHED list object —
-                    ;; nconc'ing it would mutate the cache (and a repeat
-                    ;; scan would then build a circular list).
-                    (nconc org-air-view--refresh-acc
-                           (copy-sequence
-                            (org-air-query-items-in-files slice)))
-                    org-air-view--refresh-queue
-                    (nthcdr (length slice) org-air-view--refresh-queue))
+            (let* ((budget org-air-refresh-slice-budget)
+                   (start (float-time))
+                   (scanned 0)
+                   (interrupted
+                    (while-no-input
+                      (while (and org-air-view--refresh-queue
+                                  (or (zerop scanned)
+                                      (< (- (float-time) start) budget)))
+                        (let* ((f (car org-air-view--refresh-queue))
+                               ;; mtime captured per file AT SCAN TIME
+                               ;; (the cache snapshot), BEFORE the read.
+                               (mtime (file-attribute-modification-time
+                                       (file-attributes f)))
+                               ;; copy: org-ql may hand back a CACHED list
+                               ;; object — nconc'ing it would mutate the
+                               ;; cache.  One-file calls keep the R26-8
+                               ;; query seam (and its ERT stubs) intact.
+                               (items (copy-sequence
+                                       (org-air-query-items-in-files
+                                        (list f)))))
+                          ;; commit ATOMICALLY per file — an abort mid-scan
+                          ;; leaves the file at the queue head, retry free.
+                          (push (cons f mtime) org-air-view--refresh-mtimes)
+                          (setq org-air-view--refresh-acc
+                                (nconc org-air-view--refresh-acc items)
+                                org-air-view--refresh-queue
+                                (cdr org-air-view--refresh-queue)
+                                scanned (1+ scanned))))
+                      nil)))
+              (when (eq interrupted t)
+                (org-air-view--refresh-note-abort))
               ;; R34-3: more to do -> nothing to schedule, the repeating
-              ;; pacer fires the next slice; the buffer text is NOT touched
-              ;; between slices (single-swap rule).  Done -> finish (which
+              ;; pacer fires the next slice.  Done -> finish (which
               ;; disarms the pacer).
-              (when (null org-air-view--refresh-queue)
-                (org-air-view--refresh-finish)))
+              (if (null org-air-view--refresh-queue)
+                  (org-air-view--refresh-finish)
+                (when (and (not noninteractive)
+                           org-air-view--loading
+                           (>= (- (float-time)
+                                  (or org-air-view--refresh-last-paint 0))
+                               org-air-cold-paint-interval))
+                  (org-air-view--refresh-progressive-paint))))
           (error
            (org-air-view--refresh-disarm)   ; stop the pacer on failure
            (setq org-air-view--refresh-state 'failed
@@ -7573,9 +7818,15 @@ FAILED (header: `refresh failed (g r retries)') and always clears
   "Soft-error on a triage verb for ITEM while its file is mid-refresh (R26-8).
 Only an item whose source file's mtime diverged from the cache snapshot is
 blocked (its cached position may be wrong); positions in unchanged files
-are valid by construction (mtime match), so triage there stays live."
+are valid by construction (mtime match), so triage there stays live.
+R53 P1c: after a progressive cold paint the painted rows come from the
+scan accumulator — a file ALREADY scanned this refresh carries fresh
+positions, so only still-queued files stay guarded."
   (when (and (eq org-air-view--refresh-state 'refreshing)
-             (member (org-air-item-file item) org-air-view--cache-stale-files))
+             (member (org-air-item-file item) org-air-view--cache-stale-files)
+             (not (and org-air-view--refresh-progressive
+                       (assoc (org-air-item-file item)
+                              org-air-view--refresh-mtimes))))
     (user-error "Still refreshing this file…")))
 
 ;;;###autoload

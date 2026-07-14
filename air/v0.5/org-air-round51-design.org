@@ -1,5 +1,5 @@
 #+title: org-air Round 51 — Dropped UX follow-up: de-strike everywhere, sort dropped LAST, fold rows answer TAB/RET
-#+state: ready
+#+state: complete
 #+tags: project-view dropped strike-through sort fold board tab ux
 
 * Summary
@@ -321,3 +321,4 @@ lose =:strike-through=) · =org-air-project--state-sort-order= (defconst)
 - 2026-07-14: Created from the R51 user report (strike rule screenshot +
   dropped mid-group + dead TAB on the board more row).  Baselines probed
   in batch (board TAB drift, project fold dispatch OK).  State: ready.
+- 2026-07-14: State: ready → complete.

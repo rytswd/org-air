@@ -35,11 +35,21 @@ The philosophy:
 
 * 📸 Screenshots
 
-# TODO: add screenshots. No image assets ship in this repository yet.
-# Drop board / project / rail captures under a docs/ directory and
-# reference them here (e.g. [[docs/dashboard.png]]).
+# Screenshots are hosted on GitHub's user-content CDN (not committed, to keep clones
+# lean). On publish: drag each PNG into a GitHub issue / PR / release, then replace the
+# caption lines below with the resulting https://github.com/user-attachments/assets/… URL.
 
-/Screenshots coming soon — the dashboard, the project viewer, and the context rail./
+- *The GTD dashboard* (~M-x org-air~) — semantic buckets (Inbox, Needs attention,
+  Upcoming, High priority, Stale), a month calendar with today highlighted, and the
+  context rail in a side window.
+- *The Air project viewer* (~M-x org-air-project~) — planning docs grouped by version /
+  directory / tag, each group headed by its state rollup, with a live inspector.
+- *The Revisit view* (~N~) — evergreen knowledge notes resurfaced dustiest-first, with
+  orphan and spaced (notes-garden) modes.
+- *A doc session* — ~RET~ a doc in the project viewer to edit it in place, with the rail
+  outline following point.
+- *Live filtering* — a ~#tag~ /and/ free-text filter narrowing the board, shown in the
+  header badge and the filter rail.
 
 * ✨ Features
 

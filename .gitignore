@@ -10,3 +10,7 @@
 # nix build result symlinks
 result
 result-*
+
+# README screenshots — hosted on GitHub's user-content CDN, not committed
+# (keeps clones lean). Local staging dir for captures before upload.
+/docs/images/

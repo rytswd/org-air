@@ -1,0 +1,292 @@
+#+title: org-air Round 55 — Calendar-day RET must open the day view in the MAIN board window (side-window rail routing regression)
+#+state: ready
+#+tags: calendar day-view rail side-window window-routing regression gui board focus
+
+* Summary
+
+GUI regression (user report): on the board, pressing =RET= on a CALENDAR
+DAY should focus the single-day view (R6 — Deadline / Scheduled / Logged
+for that day) in the MAIN board window.  Since R49-3 made =side-window=
+the DEFAULT rail placement, the calendar lives in the =*org-air-rail*=
+side window — and calendar =RET= now renders the day pane INTO that
+side window instead of the main pane.  The day view is unusable there
+(rail-width column, focus trapped in a dedicated side window, =q= means
+rail pop-in rather than day-exit).
+
+Root cause (investigated below): =org-air-view-day= is buffer/window
+NAIVE — it mutates the buffer-local day state and re-renders in
+=(current-buffer)=, which under the side-window rail is the RAIL buffer
+in the RAIL window, not the board.
+
+The fix (R55-1): the day-open becomes OWNER-ROUTED.  =org-air-view-day=
+reads the date at the invocation point FIRST, then resolves the OWNER
+board buffer (identity when already on the board; the rail's R25-6
+back-pointer =org-air-rail--board-buffer= when invoked from the rail),
+applies day state + re-renders =with-current-buffer= OWNER, and finally
+selects the owner's MAIN window.  The rail buffer/window are NEVER
+rendered into, reused, resized, or deleted by a day-open — side windows
+are dedicated and the single-writer law stands: the only writer of the
+rail buffer stays the rail render path (=org-air-rail--show= /
+=org-air-rail--render=).
+
+SPEC ONLY: no =.el= or test edits in this change.  org-ql stays the only
+query engine — the fix is pure window/buffer routing; it QUERIES NOTHING
+(and as a side-fix REMOVES trunk's spurious synchronous
+=org-air-query-items= re-scan that the rail-buffer render triggers).
+Byte-golden note: batch renders never pop the rail (the R26-5
+=noninteractive= gate), so batch always takes the identity tier — ZERO
+byte-golden/fixture movement is expected; no re-bless.
+
+* Investigation — how RET on a rail day cell goes wrong (trunk)
+
+** The dispatch chain
+
+- Day cells carry a TEXT-PROPERTY keymap: =org-air-calendar-insert-month=
+  (org-air-calendar.el ~304-310) propertizes each day number with
+  =org-air-day= (the cell's =encode-time= date) + ='keymap
+  org-air-calendar-day-keymap=.
+- =org-air-calendar-day-keymap= (org-air-calendar.el ~140) gets its keys
+  from the R35-1 installer (org-air-view.el ~1181-1188): =RET= /
+  =[mouse-1]= → =org-air-view-day=.
+- Under the R49-3 default placement (=side-window=), the calendar is
+  painted into the =*org-air-rail*= buffer by =org-air-rail--render= →
+  =org-air-view--insert-rail= (org-air-view.el ~5487 → ~4532), with the
+  day-cell properties intact.  A property keymap OUTRANKS the major-mode
+  map, so on a day cell it shadows =org-air-rail-mode-map='s own =RET=
+  (=org-air-rail-return=, ~5348) — by design: RET on a day should focus
+  that day.
+- So the command runs with =(current-buffer)= = =*org-air-rail*=
+  (=org-air-rail-mode=) and =(selected-window)= = the DEDICATED rail side
+  window.  Mouse-1 is identical (=down-mouse-1= → =mouse-drag-region=
+  selects the clicked window and sets point at the cell before the
+  property-keymap binding fires).
+
+** The naive body (org-air-view.el ~8631-8645)
+
+#+begin_example
+(defun org-air-view-day (&optional date)
+  (interactive)
+  (let ((day (or date
+                 (get-text-property (point) 'org-air-day)
+                 org-air-view--day
+                 (current-time))))
+    (setq org-air-view--day day
+          org-air-view--cal-month day)
+    (org-air-view--render-current)))
+#+end_example
+
+Reading the cell's =org-air-day= at point is CORRECT (the cell is in the
+rail buffer).  Everything after is wrong in the rail:
+
+1. *Day state lands in the WRONG buffer.*  =org-air-view--day= (~916)
+   and =org-air-view--cal-month= (~993) are =defvar-local=; the =setq=
+   sets the RAIL buffer's locals.  The board buffer never enters the day
+   view — =q= / =g= / =<= / =>= on the board can't see or exit it.
+2. *A spurious second scan.*  =org-air-view--render-current= (~7122)
+   runs in the rail buffer, whose =org-air-view--items= is nil (the rail
+   render only LET-binds the board's items during its own paint,
+   ~5457-5490) — so it falls back to a full SYNCHRONOUS
+   =org-air-query-items=, an unbudgeted re-scan on a keypress (against
+   the whole R53 never-hang discipline and the R27-1 S4 single-scanner
+   spirit).
+3. *The day pane is composed INTO the dedicated side window.*
+   =org-air-view--render= (~6745) does =erase-buffer= (read-only is
+   inhibited) and composes the full day view at the RAIL window's width
+   inside =*org-air-rail*= — the reported symptom.  Worse, its render
+   tail then seeds rail state IN the rail buffer (the ='unset= sentinel
+   consults placement → =side-window=) and calls =org-air-rail--show=
+   with BOARD-BUFFER = the rail buffer itself (~6918-6928) — a
+   self-owned rail whose back-pointer points at itself.
+4. *Focus is trapped.*  The user is left in the dedicated side window;
+   =q= there is =org-air-rail-quit= → pop-in (R16), NOT the R6 day-exit;
+   =<= / =>= aren't bound in the rail.  There is no in-band way back.
+
+** Why the other placements never hit it
+
+- =inline= / rail-off: the calendar is composed INTO the board buffer,
+  so =(current-buffer)= at dispatch IS the board — trunk behaviour is
+  correct there and must stay byte-identical (the identity tier below).
+- Batch: =noninteractive= keeps the popped flag nil (R26-5 seed gate),
+  the calendar is inline in the board buffer — batch never reaches the
+  bug, and the goldens can't move.
+- =<= / =>= / =t= month-day nav (=org-air-calendar-prev/next/today=)
+  are bound on the BOARD map only (the rail map has just =q=/=RET=/=|=,
+  R35-1 ~5327), so those verbs already run in the board buffer.
+
+* R55-1 — The fix: OWNER-ROUTED day-open (spec)
+
+** Contract (the law)
+
+=org-air-view-day= ALWAYS applies day state to, and re-renders, the
+OWNER BOARD buffer (an =org-air-view-mode= buffer), and always leaves
+focus in a MAIN window showing that buffer — a window with a nil
+='window-side= parameter and nil =window-dedicated-p= — REGARDLESS of
+which buffer/window the command was invoked from (rail side window, rail
+inline, board, =M-x=).  The =*org-air-rail*= buffer and its side window
+are NEVER rendered into, reused, resized or deleted by a day-open;
+window dedication is respected (never =switch-to-buffer= in the rail
+window, never =display-buffer= into a side window).  Single-writer law:
+the only writer of the rail buffer remains the rail render path.
+
+** Owner resolution (a tiny resolver, e.g. =org-air-view--day-owner=)
+
+Resolution order, first live hit wins:
+
+1. =(current-buffer)= when =(derived-mode-p 'org-air-view-mode)= — the
+   IDENTITY tier: board with inline rail / rail-off, the =<= / =>=
+   day-nav calls (which pass DATE explicitly), =M-x=.  Nothing changes
+   on this tier — trunk behaviour byte-preserved.
+2. else the rail back-pointer: buffer-local
+   =org-air-rail--board-buffer= when live AND in =org-air-view-mode= —
+   the R25-6 precedent, exactly how =org-air-rail-popin= (~5790) and
+   =org-air-rail-return= (~5348) already resolve the owner.  (The
+   back-pointer can name a PROJECT/REVISIT buffer when those own the
+   rail — their rails carry no calendar day cells, but defensively a
+   non-board owner falls through to tier 3.)
+3. else =(get-buffer org-air-view-buffer-name)= (=*org-air*=) when live.
+4. else =(user-error "No org-air board to focus")= — never render into
+   whatever buffer happens to be current.
+
+** The routed body (order matters)
+
+1. Read DATE at the INVOCATION point first —
+   =(get-text-property (point) 'org-air-day)= evaluated in the buffer
+   where =RET= / =mouse-1= fired (the rail's calendar cell or the inline
+   cell), before any buffer switch.  The DATE argument (day-nav) and the
+   =org-air-view--day= / today fallbacks must be read in the OWNER
+   buffer (they are owner state), so the fallback chain evaluates: prop
+   at invocation point → owner's current =org-air-view--day= → today.
+2. =with-current-buffer= OWNER: =setq org-air-view--day day,
+   org-air-view--cal-month day= then =org-air-view--render-current=.
+   This re-render uses the OWNER's cached =org-air-view--items= — NO
+   query (kills trunk defect 2); the owner's render tail already
+   re-shows the rail via =org-air-rail--show= (~6922), so the rail
+   calendar re-centres on the focused month exactly as R6 promises, and
+   the rail stays the rail (single writer, defect 3 gone).
+3. Window routing: when the selected window is NOT already showing
+   OWNER, hop: =w = (get-buffer-window OWNER (selected-frame))=; when
+   =(window-live-p w)= → =(select-window w)= (the =org-air-rail-return=
+   pattern).  By construction =w= can never be the rail side window —
+   that window shows the dedicated =*org-air-rail*= buffer, never OWNER.
+   When the selected window already shows OWNER (inline tier), no hop —
+   point/focus behaviour byte-identical to trunk.
+4. Edge — OWNER has no live window (a between-reconciles foreign-rail
+   state, or =M-x= from an unrelated window): =(display-buffer OWNER
+   '((display-buffer-reuse-window display-buffer-use-some-window)
+   (inhibit-same-window . t)))= then select the returned window.
+   =display-buffer-use-some-window= skips dedicated windows, so it can
+   never squat the rail; =inhibit-same-window= keeps it out of the
+   invoking (possibly rail) window.  Never =switch-to-buffer= here — in
+   a dedicated window that errors/undefines.
+
+** Placement / invocation matrix
+
+| Invoked from                          | Owner tier | Render target       | Focus after                     |
+|---------------------------------------+------------+---------------------+---------------------------------|
+| Rail SIDE WINDOW day cell (the bug)   | 2          | board buffer (main) | hops to main board window       |
+| Inline calendar cell (board buffer)   | 1          | board buffer        | unchanged (already main)        |
+| Board =<= / =>= day-nav (DATE arg)    | 1          | board buffer        | unchanged                       |
+| =M-x org-air-view-day= elsewhere      | 3          | =*org-air*= if live | display-buffer fallback (non-side) |
+| Batch / TTY-batch                     | 1          | board buffer        | no live windows — guards no-op  |
+| TTY interactive, side-window rail     | 2          | board buffer (main) | hops (TTY side windows are real) |
+
+** Return path (how the user gets back)
+
+With day state now in the BOARD buffer and focus in the MAIN window, the
+existing verbs work unchanged: =q= (R28-2 =org-air-quit= layer 2) and
+=g= return to the full board via =org-air-view-board=; =<= / =>= walk
+adjacent days.  =q= INSIDE the rail keeps meaning rail pop-in /
+doc-back (R16/R26-5) — untouched.  The rail side window survives the
+whole round-trip: never killed, never reused, still dedicated, still
+owned by the board.
+
+** Non-goals
+
+- No change to =org-air-calendar-prev/next/today= (already board-only).
+- No change to rail keymaps, placement resolution (R49-2), or the
+  reconciler (R25-6/R27-1).
+- No new defcustom — this is a correctness law, not a preference.
+
+* R55-2 — Executing ERT (tests/org-air-round55-test.el)
+
+Harness: the R27 live-window discipline — =noninteractive= bound nil so
+side windows REALLY exist on the 80x25 batch frame;
+=org-air-rail-min-width= / =org-air-item-pane-min= bound down so the
+rail engages at 80 cols; the rail popped via the R27 helper pattern;
+keys dispatched via =key-binding= AT POINT so the day-cell PROPERTY
+keymap resolves exactly as a real keypress (this is what makes the seam
+faithful headless).  Helper: select =(org-air-rail--side-window)=, find
+the first =org-air-day= property position in the rail buffer,
+=goto-char=, dispatch ="RET"=.
+
+- *E1 — rail RET routes to the MAIN board window (revert-FAILS).*
+  After the dispatch assert ALL of:
+  - the BOARD buffer's =org-air-view--day= equals the cell's date
+    (compare via =org-air-view--day-key=); the RAIL buffer's
+    =org-air-view--day= is nil;
+  - =(selected-window)= shows the BOARD buffer; its ='window-side=
+    parameter is nil; =(window-dedicated-p (selected-window))= is nil;
+    it is not =eq= to =(org-air-rail--side-window)=;
+  - the BOARD buffer text contains the R6 day header (the
+    =%A %-d %B %Y= rendering of the cell date); the RAIL buffer text
+    does NOT.
+  Trunk fails every clause (day state + day pane land in the rail,
+  selection stays in the dedicated side window) — reverting the fix
+  FAILS this test.
+- *E2 — the rail survives the day-open (LOCK, passes both sides where
+  noted).*  After E1's dispatch: the rail side window is still live,
+  still dedicated, still shows =*org-air-rail*=, width unchanged; the
+  rail buffer's back-pointer still names the BOARD (not itself — trunk
+  defect 3's self-owned rail makes the back-pointer clause revert-FAIL).
+- *E3 — inline identity (LOCK, passes both sides).*  Placement =inline=:
+  RET on an inline day cell in the board buffer sets the board's day
+  state, the selected window is unchanged, no =*org-air-rail*= side
+  window appears, and no synchronous re-query ran (assert via an
+  =org-air-query-items= call-count advice = 0).
+- *E4 — the return path.*  After E1, dispatch =q= in the (now selected)
+  board window: =org-air-view--day= nil, the full board re-rendered, the
+  rail side window STILL live and popped.
+- *E5 — no-board-window edge (defensive).*  Delete the board's window
+  leaving the rail; invoke =org-air-view-day= from the rail: the day
+  opens in a window with nil ='window-side= and nil dedication showing
+  the board.  Ship it; if the single-frame batch harness proves flaky
+  here, it may be quarantined to known-failures with a note — E1-E4 are
+  the gate.
+- *No-query guard (folded into E1/E3).*  Advice-count
+  =org-air-query-items= around the dispatch: 0 calls — the day-open
+  renders from the owner's cached items (trunk's rail path scores ≥1;
+  another revert-FAIL edge).
+
+GUI confirmation (ultimate gate, on a REAL graphical frame): open the
+board with the default =side-window= rail; =RET= (and mouse-1) on a
+calendar day → the day pane fills the MAIN board window, focus is in the
+main window, the rail is intact and re-centred on the focused month;
+=q= returns to the full board; the rail never flickers into board
+content.
+
+* Notes
+
+- Severity: HIGH — the default configuration (R49-3 =side-window=)
+  breaks a core R6 interaction and traps focus with no in-band recovery.
+- org-ql-only reaffirmed: the fix adds NO query path; it deletes an
+  accidental synchronous re-scan on a keypress.
+- Single-writer rail law made explicit by this round: only
+  =org-air-rail--render= / =org-air-rail--show= may write the rail
+  buffer; interactive verbs must route through the owner.
+- Expected golden/fixture movement: NONE (batch never pops the rail;
+  the identity tier is byte-preserved).  If any board golden moves the
+  impl is wrong, not the fixture.
+
+* Implementation History
+
+- 2026-07-15: R55 design (this doc) — investigated the rail-RET
+  misroute (day state/render/focus land in the dedicated side window;
+  spurious sync re-query), specced the owner-routed day-open
+  (owner resolver, routed body, window hop, dedication rules) + the
+  revert-fails ERT seam (E1-E5).  Not yet implemented.
+
+* History
+
+- 2026-07-15: Created from the R55 GUI report (calendar RET renders the
+  day pane into the side-window rail since the R49-3 default).  State:
+  ready.

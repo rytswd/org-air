@@ -8627,20 +8627,101 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
     ;; R18 D-P1b: side-window redraws only the rail buffer (see -prev).
     (org-air-view--render-calendar)))
 
+(defun org-air-view--day-owner ()
+  "Resolve the OWNER board buffer for a day-open (R55-1).
+Resolution order, first live hit wins: the current buffer when it is an
+`org-air-view-mode' board (the IDENTITY tier — inline calendar, day-nav,
+batch); else the rail's R25-6 back-pointer `org-air-rail--board-buffer'
+when live AND a board (a PROJECT/REVISIT owner falls through — their
+rails carry no day cells); else the `*org-air*' buffer when live.
+Signals `user-error' otherwise — a day-open NEVER renders into whatever
+buffer happens to be current."
+  (or (and (derived-mode-p 'org-air-view-mode) (current-buffer))
+      (let ((owner org-air-rail--board-buffer))
+        (and (buffer-live-p owner)
+             (with-current-buffer owner
+               (derived-mode-p 'org-air-view-mode))
+             owner))
+      (let ((board (get-buffer org-air-view-buffer-name)))
+        (and (buffer-live-p board) board))
+      (user-error "No org-air board to focus")))
+
+(defun org-air-view--day-owner-window (owner)
+  "Return a live MAIN window showing OWNER on the selected frame, or nil.
+MAIN means nil `window-side' parameter and nil dedication — by
+construction never the dedicated `*org-air-rail*' side window (R55-1)."
+  (catch 'hit
+    (dolist (w (get-buffer-window-list owner nil (selected-frame)))
+      (when (and (window-live-p w)
+                 (not (window-parameter w 'window-side))
+                 (not (window-dedicated-p w)))
+        (throw 'hit w)))
+    nil))
+
+(defun org-air-view--day-focus-owner (owner)
+  "Leave focus in a MAIN window showing OWNER after a day-open (R55-1).
+When the selected window already shows OWNER (the inline/identity tier)
+this is a no-op — focus behaviour byte-identical to trunk.  Otherwise hop
+to OWNER's main window (the `org-air-rail-return' pattern); when OWNER
+has no live main window (a between-reconciles foreign-rail state, or
+`M-x' from an unrelated window), `display-buffer' it — never into the
+invoking (possibly rail) window, never into a dedicated side window, and
+never via `switch-to-buffer' (which errors in a dedicated window).
+Batch never routes (the R26-5 `noninteractive' gate: no live windows to
+speak of, and the goldens must not move)."
+  (unless (or noninteractive
+              (eq (window-buffer (selected-window)) owner))
+    (let ((win (org-air-view--day-owner-window owner)))
+      (if (window-live-p win)
+          (select-window win)
+        ;; `display-buffer-use-some-window' skips dedicated windows (it can
+        ;; never squat the rail); `inhibit-same-window' keeps it out of the
+        ;; invoking window.
+        (let ((shown (display-buffer
+                      owner
+                      '((display-buffer-reuse-window
+                         display-buffer-use-some-window)
+                        (inhibit-same-window . t)))))
+          (when (window-live-p shown)
+            (select-window shown)))))))
+
 ;;;###autoload
 (defun org-air-view-day (&optional date)
   "Focus the single-day view (R6) on DATE, the calendar day at point, or today.
 The item pane becomes that day's items grouped Deadline / Scheduled /
 Logged.  `q' or `g' returns to the full board; `<'/`>' move to the
-adjacent day; the rail calendar re-centres on the focused month."
+adjacent day; the rail calendar re-centres on the focused month.
+
+R55-1 (owner-routed): day state is applied to, and the re-render runs
+in, the OWNER board buffer — resolved by `org-air-view--day-owner', NOT
+`(current-buffer)' — and focus lands in a MAIN window showing it,
+regardless of where the command was invoked (rail side window, inline
+cell, board, `M-x').  Under the R49-3 default `side-window' placement
+the calendar's day cells live in the dedicated `*org-air-rail*' side
+window; the naive body rendered the day pane INTO that window and
+trapped focus there.  The rail buffer/window are NEVER rendered into,
+reused, resized or deleted by a day-open — the only writer of the rail
+buffer stays the rail render path (the single-writer law).  Rendering
+in the owner also uses the owner's cached `org-air-view--items', so a
+day-open queries NOTHING (trunk's rail-buffer render fell back to a
+synchronous `org-air-query-items' re-scan on a keypress)."
   (interactive)
-  (let ((day (or date
-                 (get-text-property (point) 'org-air-day)
-                 org-air-view--day
-                 (current-time))))
-    (setq org-air-view--day day
-          org-air-view--cal-month day)
-    (org-air-view--render-current)))
+  ;; Step 1: read the cell date AT THE INVOCATION POINT — the rail's (or
+  ;; inline) calendar cell — before any buffer switch.  The DATE argument
+  ;; (day-nav) wins outright; the `org-air-view--day'/today fallbacks are
+  ;; owner state and are read in the OWNER buffer below.
+  (let ((cell (get-text-property (point) 'org-air-day))
+        (owner (org-air-view--day-owner)))
+    ;; Step 2: day state + re-render in the OWNER.  The owner's render
+    ;; tail re-shows the rail via `org-air-rail--show' (the calendar
+    ;; re-centres on the focused month); the rail stays the rail.
+    (with-current-buffer owner
+      (let ((day (or date cell org-air-view--day (current-time))))
+        (setq org-air-view--day day
+              org-air-view--cal-month day)
+        (org-air-view--render-current)))
+    ;; Steps 3/4: window routing — hop to the owner's MAIN window.
+    (org-air-view--day-focus-owner owner)))
 
 (defun org-air-view-board ()
   "Leave the single-day view and return to the full board (R6)."

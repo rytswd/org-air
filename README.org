@@ -33,23 +33,33 @@ The philosophy:
 - *Planning-first.* Capture is one keystroke into a single inbox; processing (refile, schedule, tag) is a deliberate, separate step.
 - *Quiet by design.* Following nano's "1 + 6" model, colour is used to /mean/ something, sparingly. Overdue looks overdue; everything else stays calm.
 
-* 📸 Screenshots
+# Images are hosted on GitHub's user-content CDN (not committed, to keep clones lean).
 
-# Screenshots are hosted on GitHub's user-content CDN (not committed, to keep clones
-# lean). On publish: drag each PNG into a GitHub issue / PR / release, then replace the
-# caption lines below with the resulting https://github.com/user-attachments/assets/… URL.
+*The GTD dashboard* — ~M-x org-air~. Semantic buckets (Inbox, Needs attention,
+Upcoming, High priority, Stale), a month calendar with today highlighted, and the
+context rail in a side window.
 
-- *The GTD dashboard* (~M-x org-air~) — semantic buckets (Inbox, Needs attention,
-  Upcoming, High priority, Stale), a month calendar with today highlighted, and the
-  context rail in a side window.
-- *The Air project viewer* (~M-x org-air-project~) — planning docs grouped by version /
-  directory / tag, each group headed by its state rollup, with a live inspector.
-- *The Revisit view* (~N~) — evergreen knowledge notes resurfaced dustiest-first, with
-  orphan and spaced (notes-garden) modes.
-- *A doc session* — ~RET~ a doc in the project viewer to edit it in place, with the rail
-  outline following point.
-- *Live filtering* — a ~#tag~ /and/ free-text filter narrowing the board, shown in the
-  header badge and the filter rail.
+#+HTML: <img src="https://github.com/user-attachments/assets/ac4c64ca-94cd-49cf-81bd-b05cce818b27" alt="org-air GTD dashboard" width="900">
+
+*The Air project viewer* — ~M-x org-air-project~. Planning docs grouped by version /
+directory / tag, each group headed by its state rollup, with a live inspector.
+
+#+HTML: <img src="https://github.com/user-attachments/assets/76b6b5e8-3350-46eb-a931-639808780bea" alt="org-air project viewer" width="900">
+
+*Live filtering* — a ~#tag~ /and/ free-text filter narrowing the board, shown in the
+header badge and the filter rail (here ~#urgent AND #release~ over 11k+ items).
+
+#+HTML: <img src="https://github.com/user-attachments/assets/f513503f-d642-4125-abe5-ff927e981212" alt="org-air live filtering" width="900">
+
+*A doc session* — ~RET~ a doc in the project viewer to edit it in place, with the rail
+outline following point.
+
+#+HTML: <img src="https://github.com/user-attachments/assets/ff431000-bd0e-4d30-a0f1-29c2bbba8c94" alt="org-air doc session" width="900">
+
+*The Revisit view* — ~N~. Evergreen knowledge notes resurfaced dustiest-first, with
+orphan and spaced (notes-garden) modes — the reading half of a notes system.
+
+#+HTML: <img src="https://github.com/user-attachments/assets/345fe29b-2158-4eb9-bade-7e7fd657313f" alt="org-air Revisit view" width="900">
 
 * ✨ Features
 

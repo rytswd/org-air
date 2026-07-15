@@ -1,0 +1,499 @@
+#+title: org-air Round 56 — Inbox-first progressive paint, adaptive pacing, and a visible scan-progress indicator
+#+state: ready
+#+tags: performance progressive-render inbox refresh pacer progress-indicator scan cold-open
+
+* Summary
+
+Real user, live, at ~1700 real files: the board sat on =refreshing…= with
+NO content until the full scan finished — which took A FEW MINUTES.
+User diagnostics narrowed it decisively: NOT a hang (Emacs stayed
+responsive throughout — R53's pacing/watchdog never-hang laws are
+WORKING), nothing in =*Messages*= (no error, no pathological file, no GC
+spam).  It finished; it just painted nothing on the way and took minutes
+to get there.
+
+Reproduced and measured this round on a REALISTIC 1801-file corpus
+(=/tmp/org-air-r56/corpus=: 1100 headingless linked notes, 200 journal
+files, 450 headed GTD/project files, 50 big references, one inbox; 8779
+items; batch Emacs 30.2, this machine, harnesses in =/tmp/org-air-r56/=).
+The measured verdict, in the user's priority order:
+
+1. *No progressive paint — measured, two distinct gate defects.*  The
+   everyday CACHE-STALE open paints the empty chrome skeleton (never the
+   cached board it holds IN MEMORY) and produces *zero* progressive
+   paints — driving the real machine to completion: first content paint
+   = the finish paint, 100% of the fill spent on =stale · refreshing…=
+   over "Loading your board…" (the user's exact words).  The truly COLD
+   open produces *exactly one* progressive paint ever (measured
+   =progressive-paints=1=), because the paint gate requires
+   =org-air-view--loading= — which the first paint itself clears.  After
+   ~1s the cold board freezes at ~1% content until the final swap.
+2. *Minutes to complete — pacing arithmetic, not scan cost.*  The full
+   data-layer scan of all 1801 files costs *4.56s CPU* (mean 2.53ms/file,
+   p95 5.4ms; 6 GCs / 0.53s even at DEFAULT gc thresholds — the scan is
+   fine).  The machine spreads it: the "repeating" idle pacer fires ONCE
+   per continuous idle period (pty-probed: *1 fire in 3s of idleness*),
+   so a user who opens and waits gets ONE ~18ms slice in the first 8
+   seconds; the R42-2 watchdog then falls back to the 0.2s wall-clock
+   pacer = a ~9–12% duty cycle: 198 slices × 0.2s ≈ *48s* at this corpus
+   — and every input event aborts a slice (=while-no-input=), so a user
+   moving the cursor stretches that toward the reported minutes on a
+   heavier real corpus.
+3. *Progress is invisible at the exact moment it starts.*  The only
+   honest progress string (=loading N/M files=) is gated on the same
+   =--loading= flag — so the FIRST progressive paint downgrades the
+   header to a bare faded =stale · refreshing…= for the rest of the fill,
+   and on the cache-stale path the numbers never show at all.
+
+The fix is three pillars: *P1* a paint LAW — the board never shows chrome
+in place of content it already has: the cache-stale open paints the full
+cached board (deferred one idle tick, as R45-2's FRESH branch already
+does), and the cold fill streams REPEATED progressive paints on a bounded
+cadence with the INBOX scanned and painted first (queue priority
+ordering) — first meaningful content < 1s at 1801 files; *P2* an adaptive
+self-chaining wall-clock pacer (fast gaps while uninterrupted, backoff
+under input) that completes the same fill in ~8s instead of ~48–180s,
+plus an abort-accounting fix so key-repeat can no longer silently
+skip-drop files as =slow=; *P3* a prominent, salient-faced
+=scanning 240/1801…= header segment (+ live numbers on the skeleton) that
+updates through the fill and clears crisply at the swap.
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the only
+query engine; every R53 law (never-hang, never-error, data-pure render,
+mtime cache, budgeted slices, watchdog-never-syncs-big-queues) and the
+R54 model are preserved — this round changes WHEN the board paints and
+how fast the pacer walks, never what or how it scans.
+
+* Investigation (measured, not guessed)
+
+** Reproduction setup
+
+=/tmp/org-air-r56/gen-corpus.sh= builds 1801 files / 1.6MB — sized like a
+real personal corpus (R53's real-user dir was 4.8MB at 5006 files, same
+density class): =notes/= 1100 headingless =#+title=+=#+filetags= prose
+notes with denote:/id:/file: links, =journal/= 200 date-shaped
+headingless files, =projects/= 450 headed GTD files (8–25 headings,
+TODO/NEXT/DONE, SCHEDULED/DEADLINE, =:ID:= drawers), =big/= 50 large
+references, plus one =inbox.org= with 4 captures.  8779 items.
+Harnesses: =measure-scan.el= (pure data layer), =measure-machine.el=
+(drives the REAL refresh machine — =org-air-view--refresh-start= +
+=org-air-view--refresh-run-slice= in the sanctioned ERT-seam loop — with
+render stubbed to counters), =idle-probe.el= (pty-driven interactive
+Emacs via script(1)).
+
+** Finding 1 — the scan is NOT the problem: 4.56s CPU, flat, GC-clean
+
+Full cold =org-air-query-items= over all 1801 files (current tip,
+R54 file-meta/link-graph extraction included):
+
+| metric                          | measured             |
+|---------------------------------+----------------------|
+| total scan, back-to-back        | 4.56 s               |
+| per-file mean / p50 / p95 / p99 | 2.53 / 1.31 / 5.41 / 7.59 ms |
+| per-file max (big reference)    | 318.8 ms (once, then mtime-cached) |
+| GC at DEFAULT thresholds        | 6 collections, 0.52 s |
+
+R53's work-buffer scan holds up (its 5006-file corpus measured 0.31ms
+p50 on thinner files; the realistic link-bearing corpus is ~4–8× per
+file, still milliseconds).  "The cold first scan is pathologically slow"
+is REJECTED; everything below is about scheduling and painting.
+
+** Finding 2 — WHY nothing paints: two gate defects, both measured
+
+Driving the REAL machine to completion (slice loop, paints counted, all
+1801 files queued as changed):
+
+| path                              | progressive paints | first content paint |
+|-----------------------------------+--------------------+----------------------|
+| COLD open (=--loading= t)         | *1*                | 1.07 s (then frozen) |
+| CACHE-STALE open (=--loading= nil) | *0*               | = the finish paint   |
+
+*Defect 2a — the cache-stale branch never paints its own cache.*
+=org-air-view= (org-air-view.el ~7967-7999): the cache-hit branch stores
+the cached items in =org-air-view--items=, paints the chrome SKELETON
+(=org-air-view--render-loading=), and — when any file is stale — calls
+=org-air-view--refresh-start t= and stops.  The comment says "its
+finish-repaint IS the deferred full render": content is deliberately
+deferred TO THE END OF THE SCAN.  =--loading= stays nil on this path, so
+the slice runner's progressive-paint gate (Defect 2b) can never pass
+either.  Result: the full last-known board sits IN MEMORY while the user
+stares at "Loading your board…" + a faded =stale · refreshing…= header
+for the whole paced fill.  R26-8's contract ("a valid persisted cache
+paints the FULL last-known board instantly") was silently traded away
+when R45-2's skeleton-first deferral was wired into the STALE branch:
+the FRESH branch got the deferred one-shot full paint
+(=org-air-view--deferred-arm=), the STALE branch got nothing.
+
+*Defect 2b — the cold paint gate destroys itself after one use.*
+=org-air-view--refresh-run-slice= gates the stream:
+
+#+begin_example
+(when (and (not noninteractive)
+           org-air-view--loading            ; <- nil after the FIRST paint
+           (>= (- (float-time) last-paint) org-air-cold-paint-interval))
+  (org-air-view--refresh-progressive-paint))
+#+end_example
+
+and =org-air-view--refresh-progressive-paint= sets
+=org-air-view--loading nil= (correct: the verbs must go live at the first
+real rows).  R53 P1c specified "repaints from the accumulator at most
+once per =org-air-cold-paint-interval=" — a THROTTLE on a repeating
+stream — but the implementation reused the loading flag as the stream
+gate, so the throttle became a one-shot.  Measured: paints = exactly 1,
+at ~1s, showing whatever the first ~2 slices scanned (~1–2% of the
+corpus); the board then freezes until the final swap.
+
+*Corollary — the progress numbers die at the first paint.*  The banner
+(org-air-view.el ~2285-2298) shows =loading N/M files= only while
+=--loading= is non-nil; afterwards (and always on the stale path) the
+slot is the bare faded =stale · refreshing…=.  So the moment the fill
+becomes visible, its progress becomes invisible — the user's item (C) is
+the same defect wearing its display face.
+
+** Finding 3 — WHY it takes minutes: the pacer's duty cycle
+
+*3a — the idle pacer fires once per idle period.*  pty probe
+(=idle-probe.el= under =script -qec "emacs -nw -Q …"=, zero input):
+=run-with-idle-timer 0.05 t= fired *once in 3 seconds* of continuous
+idleness — exactly as (elisp) Idle Timers documents ("this timer will not
+run again as long as Emacs remains idle").  The R34-3 pacer comment
+("fires every 0.05s WHILE Emacs is idle") is wrong, and R53's "~10.5s of
+paced idle fill" model inherited the error.  A user who opens the board
+and WAITS gets exactly ONE budgeted slice (~7–13 files at this corpus's
+per-file cost) before the watchdog.  Ironically, a user who keeps
+TYPING gets one slice per idle gap — more progress than waiting.
+
+*3b — after the 8s watchdog: a 9–12% duty cycle.*  The R53 fallback is
+correct (it never syncs a big queue — never-hang holds, as the user
+confirmed) but conservative: 18ms budget per 0.2s period.  Measured need:
+198 slices (~23ms each back-to-back, 4.6s CPU total) → 198 × 0.2s ≈
+*40s* + the 8s idle-once prelude ≈ *48–60s* at THIS corpus with an
+untouched keyboard.  The user's real files are heavier per file (real
+prose, more links; 2–4× mean cost is typical of the R53→R56 corpus gap),
+and:
+
+*3c — every input event cancels a slice.*  The slice body runs under
+=while-no-input=: any keypress aborts it (correct for latency), the
+period is forfeited, and the queue head retries next tick.  A user
+"checking it's still alive" by moving the cursor — the reported behaviour
+— burns whole periods.  Sustained key-repeat (~30Hz) stalls the fill
+almost completely.  48s idle-case + heavier files + interaction ≈ the
+reported FEW MINUTES.  No further mystery: no error, no GC pathology, no
+pathological file — the state machine converges exactly as designed,
+just invisibly and slowly.
+
+*3d — the abort accounting can silently DROP files.*
+=org-air-view--refresh-note-abort= counts EVERY aborted slice against the
+queue-head file — including aborts that landed before the file's first
+byte was read.  Three consecutive aborted slices (0.6s of held-down
+arrow key at the wall-clock cadence) skip-logs the head file as =slow=
+and drops it from the fill.  Under key-repeat this dequeues-by-dropping
+one innocent file per 0.6s: items silently missing from the board (they
+converge only on the NEXT refresh via the mtime diff, since a skipped
+file never enters =--refresh-mtimes=).  A correctness wart of the same
+mechanism; fixed here (P2c).
+
+** Finding 4 — the inbox has no priority anywhere
+
+The queue is =org-air-query-files= order (directory-walk) filtered to
+changed files; =org-air-inbox-file= gets no special position, so cold
+time-to-inbox is unbounded (up to the last slice).  The inbox is exactly
+ONE small file, scannable in ~1–5ms and paintable immediately — the
+user's "start with inbox rendering at least" costs one queue reorder and
+one early paint.
+
+* User decisions (diagnostics) — folded
+
+- NOT a hang; Emacs responsive throughout → R53 pacing/watchdog laws are
+  working; this round does NOT touch the never-hang/convergence
+  machinery except to make it faster and more visible.
+- Completed in a FEW MINUTES at ~1700 files; nothing in =*Messages*= →
+  matches Finding 3 arithmetic; no error path involved.
+- Priorities: (1) progressive/inbox-first paint, (2) completion time,
+  (3) visible progress.  The proposal is ordered accordingly.
+
+* Proposal
+
+** P1 — the paint law: content the board holds is content the board shows
+
+New law (docstring'd on the machine): /at no point may the board display
+an empty skeleton while item content is available in-buffer — cached
+items from a previous session, or accumulated items from the running
+scan/.  Three concrete changes:
+
+*P1a — cache-stale open paints the full cached board first.*  The STALE
+arm of the cache branch in =org-air-view= adopts the FRESH arm's R45-2
+shape: skeleton → =redisplay= → deferred one-shot
+(=org-air-view--deferred-arm=) paints the FULL cached board off the
+launch critical path (pill rasterisation stays off the command body —
+the R45-2 rationale is about WHICH tick paints, never WHETHER) → the
+one-shot callback then calls =org-air-view--refresh-start t= to begin the
+paced changed-subset scan BEHIND the painted board.  Ordering note: the
+current code calls =--refresh-start= first, whose =--refresh-cancel=
+bumps the token and would kill a pending one-shot — the deferred callback
+therefore OWNS the refresh kickoff (paint, then start; the started
+refresh's own token supersedes cleanly).  Everything already-painted
+stays interactive; triage on a stale file stays guarded by the existing
+=--refresh-stale-item-guard=; the finish swap replaces content in one
+motion as today.  Warm-open contract restored: full last-known board
+within one idle tick (R53 measured ~0.5s render at 15.9k items; ~0.2–0.3s
+at this corpus), scan progress visible in the header behind it (P3).
+
+*P1b — the cold stream paints REPEATEDLY: decouple the throttle from the
+loading guard.*  The slice runner's paint gate becomes:
+
+- stream mode: =org-air-view--refresh-progressive= (the existing flag,
+  set at refresh-start time for a COLD/no-content fill, instead of first
+  being set by the first paint) — NOT =--loading=;
+- throttle: unchanged =org-air-cold-paint-interval= (1.0s) since the last
+  progressive paint, AND at least one new item accumulated since that
+  paint (a slice tail of empty/skipped files repaints nothing);
+- paint: as today — swap the accumulator copy in, invalidate the classify
+  cache, repaint with point preserved; the FIRST paint still clears
+  =--loading= (verbs go live) but the STREAM continues until
+  =--refresh-finish=, whose single final swap ends stream mode.
+- render-cost bound: the effective interval is
+  =(max org-air-cold-paint-interval (* 3 last-render-seconds))= — paint
+  overhead can never exceed ~⅓ of the fill even when the accumulated
+  board grows expensive to render (R53 measured 0.28s re-render at 15.9k
+  items).
+
+Warm incremental refreshes with a fully-painted board are UNCHANGED:
+single-swap (R26-8) — stream mode is only ever entered when the board has
+no previous full content to show (true cold open; a cache-stale open
+paints cache content via P1a and refreshes in single-swap mode).
+
+*P1c — inbox-first queue ordering + immediate first paint.*  New pure
+function =org-air-view--refresh-queue-order (files)= applied to the
+paced queue at =--refresh-start=:
+
+1. =org-air-inbox-file= (when it is in the enumerated set) — always
+   position 1;
+2. the remaining files by mtime DESCENDING (recently-edited files are
+   where today's tasks live, so Needs-attention/Upcoming fill early; the
+   mtimes were already paid by the enumeration diff — reuse, never
+   re-stat);
+3. ties/missing mtimes keep enumeration order (deterministic).
+
+And the first paint is NOT throttled: a cold stream paints immediately
+after the FIRST slice that produced any item (the inbox slice, by
+construction), then falls into the P1b cadence.  Modelled time to first
+meaningful content on a truly cold 1801-file open: skeleton ~2ms + first
+slice ≤ ~20ms + first paint ≤ ~0.1s ≈ *well under 1s* — the inbox (and
+the most recent files' buckets) are on screen and triageable while the
+tail streams.  Out of scope, noted: an inbox file OUTSIDE the configured
+=org-air-files= roots is not enumerated today and therefore still never
+scanned; changing enumeration semantics is not this round.
+
+** P2 — adaptive pacing: seconds, not minutes, while staying responsive
+
+*P2a — replace the idle pacer with a self-chaining adaptive wall-clock
+pacer.*  =--refresh-arm= arms a ONE-SHOT =run-with-timer= whose callback
+runs one budgeted slice (unchanged 18ms =org-air-refresh-slice-budget=,
+unchanged =while-no-input=) and then re-arms itself with an ADAPTIVE gap
+from the new pure function =org-air-view--refresh-next-gap (outcome)=:
+
+- slice completed uninterrupted → gap 0.01s (near-continuous drain,
+  ~64% duty at the measured 23ms slice+overhead — Emacs is idle anyway);
+- slice aborted by input → back off: 0.15s doubling to a 0.6s cap while
+  aborts continue; first uninterrupted slice resets to 0.01s.
+
+One-shot chaining is safe here where R34-3's one-shot chain was not:
+that bug was an IDLE timer whose absolute idle target grew per slice;
+a wall-clock one-shot has no idle target — and 3a shows the "repeating
+idle timer" never delivered idle-time pacing anyway (once per idle
+period).  Re-arm discipline unchanged: the callback re-arms ONLY under
+its own live token+state; =--refresh-disarm= (finish/failure/cancel)
+remains the single teardown; never armed under =noninteractive=.
+
+Modelled completion (measured slice arithmetic): 198 slices × (23ms +
+10ms gap) ≈ *6.5–8s* untouched-keyboard fill at 1801 files (vs 48–60s
+today), within ~1.7× the 4.56s CPU floor.  Under sustained typing the
+backoff converges to ≥ today's 0.2s cadence — never worse, input latency
+still bounded by one slice.
+
+*P2b — the watchdog demotes to a pure backstop.*  Unchanged timeout and
+unchanged never-sync-big-queues law; with P2a the pacer is already
+wall-clock so the watchdog's only remaining job is machine-level
+convergence insurance (a lost timer, a wedged token).  Its fallback arm
+becomes "re-arm the P2a chain if none is live" instead of the parallel
+0.2s repeating pacer.
+
+*P2c — abort accounting counts only STARTED scans.*  The slice loop
+notes whether the head file's scan had actually BEGUN when
+=while-no-input= aborted (a =started= flag set immediately before the
+=org-air-query-items-in-files= call, cleared on commit).  An abort
+BEFORE the head file started (input landed between files, or before the
+first) does not increment its counter — key-repeat can no longer drop
+innocent files as =slow=.  A file that genuinely aborts mid-scan
+=org-air-scan-abort-retries= (3) times still skip-logs =slow= — the
+anti-livelock stays.
+
+** P3 — the visible progress indicator
+
+*P3a — one salient header segment, one source of truth.*  Whenever the
+machine is =refreshing= AND has a queue, the banner count slot shows:
+
+: ⟳ scanning 240/1801…
+
+- numbers from the existing =--refresh-total= / =--refresh-queue= (the
+  =loading N/M= arithmetic, now independent of =--loading=; shown on the
+  skeleton, on the streaming cold board, AND on the painted cache-stale
+  board — one string everywhere, replacing both =loading N/M files= and
+  =stale · refreshing…=);
+- face: new =org-air-face-progress= (org-air-faces.el) — bold accent in
+  the header hierarchy, sibling of =org-air-face-header-date=, NOT the
+  faded chrome face (visibility was the ask);
+- shed order: while refreshing the progress segment sheds LAST (after
+  filter, scope, count, sort — a narrow window drops decoration before it
+  drops "it's working");
+- =failed= keeps its existing =refresh failed (g r retries)= text but
+  adopts the salient face.
+
+*P3b — the header ticks between paints.*  Progressive paints are ~1s
+apart and single-swap refreshes paint only at the end — so the slice
+runner additionally refreshes the BANNER LINE alone (bounded in-place
+rewrite of line 1; no body touch, no point movement) at most every 0.5s
+while refreshing.  The skeleton's centred body line joins in:
+"Loading your board… (scanning 240/1801)".  Cost: one =insert=-width
+line, microseconds; never runs in batch.
+
+*P3c — crisp clear.*  The finish swap repaints with the machine idle so
+the segment vanishes in the same motion the final content lands; the
+existing one-line =org-air: scanned N files (M items)…= summary remains
+the completion receipt.  No lingering "done!" chrome.
+
+** Non-goals
+
+- No enumeration-semantics change (inbox outside the roots stays
+  unscanned; noted in P1c).
+- No scan/data-layer changes at all (R53 work-buffer scan and R54
+  signals untouched); no second query path — org-ql only.
+- No new persistence: the cache shape stays v4.
+- Batch/byte-golden behaviour untouched (machine never runs in batch).
+
+* Design details / seams
+
+- org-air-view.el:
+  - =org-air-view= cache-STALE arm: deferred one-shot paints cached
+    board, then kicks =--refresh-start t= (P1a; the deferred callback
+    owns the kickoff so the token bump cannot orphan it).
+  - =--refresh-start=: sets =--refresh-progressive= for no-content fills;
+    applies =--refresh-queue-order= (P1c) to the paced queue.
+  - =--refresh-run-slice=: paint gate on =--refresh-progressive= + new
+    "new items since last paint" + render-cost-bounded interval (P1b);
+    immediate first paint after the first item-bearing slice (P1c);
+    =started= flag for =--refresh-note-abort= (P2c); banner tick (P3b).
+  - =--refresh-arm= / new =--refresh-next-gap=: adaptive self-chaining
+    one-shot wall-clock pacer (P2a); =--refresh-watchdog-fire= re-arms
+    the chain instead of the parallel repeating pacer (P2b).
+  - =--insert-banner=: unified =⟳ scanning N/M…= segment, salient face,
+    sheds last (P3a); =--render-loading= body line gains the numbers.
+- org-air-faces.el: =org-air-face-progress=.
+- org-air-classify.el / org-air-query.el / org-air-inbox.el: NO changes.
+- Obsoleted: the repeating-idle-pacer constant behaviour of
+  =--refresh-next-delay= (superseded by =--refresh-next-gap=; the
+  function stays as a documented alias so R34-3's ERTs re-bless
+  explicitly).
+- Byte-golden impact: NONE — every change is gated on the interactive
+  refresh machine (=noninteractive= guards unchanged); the banner emits
+  the new segment only when =refreshing=, which batch never is.
+
+* Sizing and budgets (measured this round, modelled where marked)
+
+| quantity                                            | before (measured) | after (target/model) |
+|-----------------------------------------------------+-------------------+----------------------|
+| first item content, truly COLD open, 1801 files     | 8.2 s (watchdog-bounded; then frozen at ~1%) | < 1 s (inbox slice + immediate paint) |
+| first item content, CACHE-STALE open                | = full fill (48 s–minutes) | ~0.3 s (cached board, one idle tick) |
+| progressive paints per cold fill                    | exactly 1         | every ≥1 s with new items, to finish |
+| untouched-keyboard completion, 1801 files           | ~48–60 s (+input aborts → minutes) | ~6.5–8 s (model: 198×(23ms+10ms)) |
+| completion under sustained typing                   | stalls + drops files as =slow= | ≥ today's cadence; zero false =slow= drops |
+| scan CPU floor (unchanged layer)                    | 4.56 s            | 4.56 s               |
+| progress visibility                                 | =loading N/M= until first paint, then none | =⟳ scanning N/M…= throughout, 0.5s ticks |
+| input latency during fill                           | ≤ 1 slice (18 ms budget) | unchanged            |
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+1. *Inbox paints before the full scan* (the round's headline): corpus
+   where the inbox file sorts LAST in enumeration; drive
+   =--refresh-start t= + ONE =--refresh-run-slice= (paint gates opened by
+   let-binding =noninteractive= nil, render stubbed) → the inbox file's
+   items are in =org-air-view--items= and a paint occurred, while the
+   queue is still >90% full.  Reverting P1c (ordering OR immediate first
+   paint) fails.
+2. *The stream repeats*: drive a 60-file cold fill with a stubbed clock
+   stepping 0.6s per slice → ≥3 progressive paints strictly increasing in
+   item count, =--loading= nil after the first, stream continues to the
+   finish swap.  Reverting P1b (the =--loading= gate) yields exactly 1
+   paint — fails.
+3. *Cache-stale open shows the cached board before the scan finishes*:
+   valid cache + one touched file; run the deferred one-shot directly
+   (the sanctioned R45-2 seam) → the first content render carries the
+   CACHED items while =--refresh-state= is =refreshing= with a non-empty
+   queue.  Reverting P1a (skeleton-until-finish) fails.
+4. *No-new-items slices don't paint*: accumulator unchanged across a
+   slice of empty files → no paint despite an elapsed interval (P1b's
+   second condition; reverting spams renders — fails by paint count).
+5. *Adaptive gap is pure and monotone*: =--refresh-next-gap= returns
+   0.01 after an uninterrupted slice; 0.15/0.3/0.6/0.6 across consecutive
+   aborts; 0.01 again after recovery.  Reverting P2a (constant 0.2 or
+   idle pacing) fails.
+6. *Abort accounting*: 3 aborts BEFORE the head file starts → NOT
+   skip-logged, still queued; 3 aborts mid-scan (stub raises the started
+   flag) → skip-logged =slow= exactly as today.  Reverting P2c fails the
+   first half; breaking anti-livelock fails the second.
+7. *Progress segment truth*: banner string contains =scanning 240/1801=
+   (and the skeleton body line its copy) while refreshing with that
+   queue state — on the loading skeleton AND on a painted board (i.e.
+   independent of =--loading=); absent the moment the machine is idle
+   (crisp clear).  Reverting P3a/P3c fails.
+8. *Never-hang regression locks stay green*: the R53 suite unchanged —
+   watchdog never syncs a big queue (its fallback now re-arms the P2a
+   chain: assert chain armed, state =refreshing=, nothing drained
+   synchronously), budgeted slice min-1-file, machine-error → =failed=
+   + cleared =--loading=.  Any P2 change that breaks these fails.
+9. *Single-swap law for warm refreshes*: a painted board + small changed
+   set through the paced path → exactly ONE content repaint (the finish
+   swap); stream mode never engages.  Reverting the P1b mode condition
+   fails.
+10. *Perf smoke* (generous, order-of-magnitude): 500-file corpus driven
+    back-to-back: first paint ≤ 1s of wall clock from start; full fill
+    ≤ 10s; ≥2 progressive paints.  Locks the round's headline numbers.
+
+* Measured summary (what the design is sized by)
+
+BEFORE at 1801 files / 8779 items: data-layer scan 4.56s CPU (mean
+2.53ms/file, p95 5.4ms, GC-clean at default thresholds) — but the
+machine: idle pacer fires once per idle period (pty-probed 1 fire/3s
+idle) → 1 slice before the 8s watchdog; wall-clock fallback 18ms/0.2s ≈
+9–12% duty → 198 slices ≈ 48–60s untouched, minutes with interaction and
+heavier files; COLD open paints once (~1s, ~1% content) then freezes —
+gate requires the =--loading= flag the paint itself clears; CACHE-STALE
+open paints NOTHING but the skeleton until the finish swap (0 progressive
+paints measured) while holding the full cached board in memory; progress
+numbers gated on the same flag die at the first paint; key-repeat
+skip-drops queue heads as =slow= after 3 pre-start aborts.
+
+AFTER (modelled on the same measurements): inbox-first queue + immediate
+first paint < 1s to real content; repeated throttled stream paints to the
+finish; cache-stale opens show the full cached board in one idle tick;
+adaptive 0.01s/backoff chain ≈ 6.5–8s untouched completion (1.7× the CPU
+floor); =⟳ scanning N/M…= salient and live throughout; zero false =slow=
+drops; every R53 never-hang/never-error law intact.
+
+* Implementation History
+
+- 2026-07-16: R56 design (this doc) — measured the stuck-refresh at a
+  realistic 1801-file corpus: NOT a hang and NOT scan cost (4.56s CPU),
+  but (a) zero/one-shot progressive paint gates (cache-stale path paints
+  skeleton-until-finish; cold path's paint gate consumes itself), (b) a
+  9–12% duty-cycle pacer behind a once-per-idle-period idle timer ≈
+  minutes to fill, (c) progress numbers gated on the flag the first
+  paint clears.  Specced: paint law + inbox-first streaming (P1),
+  adaptive self-chaining pacer + honest abort accounting (P2), salient
+  live =scanning N/M= indicator (P3).
+
+* History
+
+- 2026-07-16: Created. State: ready (design round; measurements in
+  /tmp/org-air-r56/).

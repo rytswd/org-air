@@ -205,6 +205,18 @@ filter/scope tokens stay faded.  The assembled header string width is
 unchanged — only the per-segment face differs, so fixtures hold."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-progress
+  '((t :inherit org-air-face-salient :weight bold))
+  "Face for the live scan-progress banner segment (R56 P3a).
+The `⟳ scanning N/M…' count-slot segment shown while the refresh machine
+fills the board — a BOLD accent in the header hierarchy (sibling of
+`org-air-face-header-date'), NOT the faded chrome face: the user's ask
+was visibility, and the old faded `stale · refreshing…' read as nothing
+happening while a multi-second paced scan was in fact converging.  Also
+carries the `refresh failed (g r retries)' notice so a terminal failure
+is at least as salient as the progress it replaces."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-modeline
   '((((class color) (min-colors 256) (background light))
      (:inherit org-air-face-inspector-label :background "#ECEAE4" :overline "#D8D4CC"))

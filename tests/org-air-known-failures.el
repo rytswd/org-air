@@ -1889,8 +1889,54 @@
     ;; xxyrllwq).  Round-52 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
     ;; =================================================================
-    ;; (test-symbol . "reason / spec reference")  — none right now.
-    )
+    ;; v0.5 ROUND-56 impl grind (air/v0.5/org-air-round56-design.org).
+    ;; R56 lands the measured stuck-refresh fixes: P1 inbox-first
+    ;; progressive STREAM paints + the cache-stale open painting its
+    ;; full cached board (deferred one-shot owns the paced kickoff); P2
+    ;; the adaptive self-chaining wall-clock pacer (one-shot
+    ;; `run-with-timer' chain, 0.01s fast gap / 0.15-0.6s abort backoff
+    ;; via `org-air-view--refresh-next-gap') replacing BOTH the
+    ;; once-per-idle-period "repeating" idle pacer and the 0.2s
+    ;; repeating wall-clock watchdog fallback, plus started-scans-only
+    ;; abort accounting (`org-air-view--refresh-scan-started'); P3 the
+    ;; salient `⟳ scanning N/M…' banner segment replacing both
+    ;; `loading N/M files' and `stale · refreshing…'.  Six legacy ERTs
+    ;; hardcode the superseded contracts and need TEST-track re-bless
+    ;; (no fixture/golden moved — every change is gated off batch; `make
+    ;; regen-mockups' churn is zero by construction):
+    (org-air-r26-8-stale-paint-marker-then-swap
+     . "R56 P3a: the mid-refresh banner is now the salient `⟳ scanning \
+N/M…' segment; the test asserts the retired faded `stale ∙ refreshing' \
+marker (spec §P3a: one string everywhere).")
+    (org-air-r34-3-arm-disarm-lifecycle
+      . "R56 P2a: the pacer is a one-shot wall-clock chain \
+(`run-with-timer' -> timer-list); the test asserts the retired repeating \
+idle timer's `timer-idle-list' membership.  The lifecycle law itself \
+(exactly one live pacing timer; disarm/cancel tear down) still holds \
+and should be re-asserted against timer-list.")
+    (org-air-r34-3-cold-end-to-end-reaches-done
+      . "R56 P3a: the skeleton banner's count slot now reads `scanning \
+0/N…' (independent of --loading); the test greps the retired `loading \
+0/N' string.  The end-to-end convergence assertions it also carries \
+still hold.")
+    (org-air-r34-3-warm-run-leaves-no-live-pacer
+      . "R56 P3a: same banner re-bless as r26-8-stale-paint — asserts \
+`stale ∙ refreshing' mid-refresh, retired for `⟳ scanning N/M…'.  The \
+no-live-pacer-after-done law still holds.")
+    (org-air-r42-watchdog-force-completes-strand
+      . "R56 P2b: the watchdog's over-budget fallback now re-arms the \
+adaptive ONE-SHOT chain (repeat-delay nil) instead of the parallel 0.2s \
+REPEATING wall-clock pacer; the test asserts `timer--repeat-delay' == \
+`org-air-view--refresh-wallclock-pace' (now obsolete).  The \
+never-sync-a-big-queue law it locks still holds (zero scans in the \
+fire, queue intact) — re-bless to assert a live chain timer instead.")
+    (org-air-r53-7-over-budget-paces-never-force-scans
+      . "R56 P2c: abort accounting counts only STARTED scans — the \
+test's part (4) drives 3 PRE-START aborts (pending input aborts \
+`while-no-input' before the head file's scan begins) and expects the \
+head skip-dropped `slow'; spec ERT seam 6 inverts exactly this (3 \
+pre-start aborts -> NOT skip-logged, still queued; 3 mid-scan aborts \
+with the started flag up -> skip-logged as today)."))
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 
 (defun org-air-test-apply-known-failures ()

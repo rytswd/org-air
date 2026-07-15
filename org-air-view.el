@@ -866,19 +866,64 @@ would stamp a fresh mtime over items read from an older revision — the
 B1 coherence hole).")
 (defvar-local org-air-view--refresh-last-paint nil
   "Float time of the last progressive cold repaint, or nil (R53 P1c).
-Bounds the cold path's streaming repaints to one per
-`org-air-cold-paint-interval'.")
+Bounds the cold path's streaming repaints to the effective
+`org-air-view--refresh-paint-interval'.  R56 P1c: nil while a STREAM
+fill has not painted yet, so the first item-bearing slice (the inbox
+slice, by queue construction) paints IMMEDIATELY — first meaningful
+content well under a second at a 1801-file corpus.")
 (defvar-local org-air-view--refresh-abort-file nil
   "Cons (FILE . COUNT) tracking input-aborts of the queue head (R53 P1c).
 After `org-air-scan-abort-retries' aborts of the SAME file it is
 skip-logged `slow' and dropped from the queue — no livelock.")
 (defvar-local org-air-view--refresh-progressive nil
-  "Non-nil once the cold load progressively painted real rows (R53 P1c).
-Lets `org-air-view--refresh-stale-item-guard' unblock items whose file
-was ALREADY scanned this refresh (their painted positions are scan-fresh)
+  "Non-nil while the fill runs in progressive STREAM mode (R56 P1b).
+Set by `org-air-view--refresh-start' when the board has NO previous full
+content to show (a true cold open) — never for a painted or cache-seeded
+board, which keeps the R26-8 single-swap rule.  Gates the REPEATED
+progressive paints in `org-air-view--refresh-run-slice': R53 P1c specced
+a throttled stream but implemented the gate on the self-clearing
+`org-air-view--loading' flag, so the first paint destroyed the stream
+\(measured: exactly 1 progressive paint per cold fill, then frozen at
+~1% content until the finish swap).  Also lets
+`org-air-view--refresh-stale-item-guard' unblock items whose file was
+ALREADY scanned this refresh (their painted positions are scan-fresh)
 while still-queued files stay guarded.")
+(defvar-local org-air-view--refresh-paint-items 0
+  "Accumulator item count at the last progressive stream paint (R56 P1b).
+A slice tail of empty/skipped files accumulates nothing new, so the
+stream repaints only when this count has actually grown — no vacuous
+re-renders of an unchanged board.")
+(defvar-local org-air-view--refresh-render-secs nil
+  "Seconds the last progressive stream repaint cost, or nil (R56 P1b).
+Floors the effective paint cadence at 3x this cost
+\(`org-air-view--refresh-paint-interval') so paint overhead can never
+exceed ~1/3 of the fill even as the accumulated board grows expensive to
+re-render (R53 measured 0.28s at 15.9k items).")
+(defvar-local org-air-view--refresh-gap nil
+  "The adaptive chain's LAST armed gap in seconds, or nil (R56 P2a).
+The backoff memory `org-air-view--refresh-next-gap' doubles from while
+input keeps aborting slices; reset by arm/cancel.")
+(defvar-local org-air-view--refresh-scan-started nil
+  "Non-nil while the queue-head file's scan has actually BEGUN (R56 P2c).
+Raised immediately before the `org-air-query-items-in-files' call,
+cleared on the per-file commit; `org-air-view--refresh-note-abort'
+counts an input-abort against the head ONLY when this is up, so aborts
+landing BETWEEN files (key-repeat — measured one innocent file dropped
+`slow' per 0.6s of held-down arrow key) can never skip-drop files whose
+scan never ran.")
+(defvar-local org-air-view--refresh-banner-tick-time nil
+  "Float time of the last in-place banner progress tick, or nil (R56 P3b).
+Bounds `org-air-view--refresh-banner-tick' to one line-1 rewrite per
+`org-air-view--refresh-banner-tick-interval'; nil at refresh start so
+the first tick lands immediately.")
 (defvar-local org-air-view--refresh-timer nil
-  "The single repeating idle pacing timer of the in-flight refresh, or nil (R34-3).")
+  "The adaptive chain's live one-shot wall-clock pacing timer, or nil (R56 P2a).
+Exactly one at a time: `org-air-view--refresh-chain-arm' cancels any
+pending one-shot before arming the next, and
+`org-air-view--refresh-disarm' (finish / failure / cancel) is the single
+teardown.  Supersedes R34-3's \"repeating\" idle pacer — a repeating idle
+timer fires ONCE per continuous idle period ((elisp) Idle Timers; R56
+pty-probed 1 fire in 3s of idleness), never \"every 0.05s while idle\".")
 (defvar-local org-air-view--refresh-watchdog nil
   "One-shot wall-clock safety timer for the paced refresh, or nil (R42-2).
 Armed with the idle pacer; if the machine is STILL `refreshing' under the
@@ -2242,6 +2287,21 @@ width is unchanged, so fixtures hold."
   :type 'boolean
   :group 'org-air)
 
+(defun org-air-view--refresh-progress-string ()
+  "Return the live scan-progress banner segment text (R56 P3a).
+`⟳ scanning N/M…' from the machine's own `org-air-view--refresh-total' /
+`org-air-view--refresh-queue' — the ONE honest progress source,
+independent of the self-clearing `org-air-view--loading' flag (whose
+gating killed the old `loading N/M files' numbers at the first
+progressive paint).  The glyph degrades by the S5b tier table."
+  (if (> org-air-view--refresh-total 0)
+      (format "%s scanning %d/%d…"
+              (org-air-view--glyph 'scanning)
+              (max 0 (- org-air-view--refresh-total
+                        (length org-air-view--refresh-queue)))
+              org-air-view--refresh-total)
+    (format "%s scanning…" (org-air-view--glyph 'scanning))))
+
 (defconst org-air-view--banner-indent 2
   "Columns of horizontal margin the banner reserves on EACH side.
 The left token bakes this many leading spaces (\"  org-air\"); the right
@@ -2276,36 +2336,44 @@ optional segments (after filter, scope and count)."
          ;; R20-1: during the brief synchronous fast-paint window the count
          ;; slot shows a static `loading…' cue instead of the item count.
          ;; `org-air-view--loading' is nil on every normal render, so this
-         ;; collapses to the unchanged item count (byte-identical).  R26-8:
-         ;; the same slot carries the honest refresh markers — COLD slice
-         ;; progress (`loading I/N files'), the CACHED-stale `stale ·
-         ;; refreshing…' cue, and the failure notice.  All display-only and
-         ;; transient; the machine never runs in batch, so no golden
-         ;; captures them.
+         ;; collapses to the unchanged item count (byte-identical).
+         ;; R56 P3a: while the machine is REFRESHING the slot is ONE
+         ;; prominent progress segment — `⟳ scanning N/M…', salient-faced,
+         ;; numbers from the machine's own queue/total — shown on the
+         ;; skeleton, the streaming cold board AND the painted cache-stale
+         ;; board alike (independent of `--loading'), replacing both the
+         ;; old `loading N/M files' (whose `--loading' gate killed it at
+         ;; the first progressive paint) and the faded `stale ·
+         ;; refreshing…'.  `failed' keeps its text, salient face.  All
+         ;; display-only and transient; the machine never runs in batch,
+         ;; so no golden captures them.
          (busy (or org-air-view--loading org-air-view--refresh-state))
-         (count (propertize
-                 (cond
-                  (org-air-view--loading
-                   (if (eq org-air-view--refresh-state 'refreshing)
-                       (concat (org-air-view--sep)
-                               (format "loading %d/%d files"
-                                       (max 0 (- org-air-view--refresh-total
-                                                 (length org-air-view--refresh-queue)))
-                                       org-air-view--refresh-total))
-                     (concat (org-air-view--sep) "loading…")))
-                  ((eq org-air-view--refresh-state 'refreshing)
-                   (concat (org-air-view--sep) "stale"
-                           (org-air-view--sep) "refreshing…"))
-                  ((eq org-air-view--refresh-state 'failed)
+         (refreshing (eq org-air-view--refresh-state 'refreshing))
+         (count (cond
+                 (refreshing
+                  (propertize
+                   (concat (org-air-view--sep)
+                           (org-air-view--refresh-progress-string))
+                   'face 'org-air-face-progress))
+                 (org-air-view--loading
+                  (propertize (concat (org-air-view--sep) "loading…")
+                              'face 'org-air-face-faded))
+                 ((eq org-air-view--refresh-state 'failed)
+                  (propertize
                    (concat (org-air-view--sep) "stale"
                            ;; R50-1: the retry key is the TRUE sequence
                            ;; `g r' (`g' alone is the B4 prefix map).
-                           (org-air-view--sep) "refresh failed (g r retries)"))
-                  (t (concat (org-air-view--sep)
+                           (org-air-view--sep)
+                           "refresh failed (g r retries)")
+                   'face 'org-air-face-progress))
+                 (t (propertize
+                     (concat (org-air-view--sep)
                              (format "%d items"
-                                     (length (org-air-view--visible-items items))))))
-                 'face (if (and (not busy) org-air-header-accent-count)
-                           'org-air-face-count 'org-air-face-faded)))
+                                     (length (org-air-view--visible-items
+                                              items))))
+                     'face (if (and (not busy) org-air-header-accent-count)
+                               'org-air-face-count
+                             'org-air-face-faded)))))
          ;; R18 D-P2.3: with >=2 active filter tags, join them with the
          ;; combinator word (AND/OR) so the mode reads inline; a single tag
          ;; shows no combinator (irrelevant).
@@ -2357,9 +2425,16 @@ optional segments (after filter, scope and count)."
                    ;; not be the first casualty of a narrow window.  With no
                    ;; active sort the segment is nil, so the order change is
                    ;; unobservable and the default goldens hold.
-                   (dolist (shed '(() (:filter) (:filter :scope)
-                                   (:filter :scope :count)
-                                   (:filter :scope :count :sort))
+                   ;; R56 P3a: while REFRESHING the progress segment (the
+                   ;; count slot) sheds LAST of all — a narrow window drops
+                   ;; decoration before it drops "it's working".
+                   (dolist (shed (if refreshing
+                                     '(() (:filter) (:filter :scope)
+                                       (:filter :scope :sort)
+                                       (:filter :scope :sort :count))
+                                   '(() (:filter) (:filter :scope)
+                                     (:filter :scope :count)
+                                     (:filter :scope :count :sort)))
                                  date)
                      (let ((s (funcall assemble shed)))
                        (when (<= (string-width s) budget)
@@ -7185,7 +7260,18 @@ within one paint, BEFORE the synchronous query runs."
                           (org-air-view--insert-rule)
                           (org-air-view--insert-footer)))
                      nil))
-           (msg (propertize "Loading your board…" 'face 'org-air-face-faded))
+           ;; R56 P3b: the skeleton's centred line carries the live scan
+           ;; numbers too, so even the pre-content chrome answers "is it
+           ;; doing anything?" honestly.
+           (msg (propertize
+                 (if (and (eq org-air-view--refresh-state 'refreshing)
+                          (> org-air-view--refresh-total 0))
+                     (format "Loading your board… (scanning %d/%d)"
+                             (max 0 (- org-air-view--refresh-total
+                                       (length org-air-view--refresh-queue)))
+                             org-air-view--refresh-total)
+                   "Loading your board…")
+                 'face 'org-air-face-faded))
            (pad (max 0 (/ (- width (string-width msg)) 2)))
            (centred (concat (make-string pad ?\s) msg))
            (body-content (list "" centred))
@@ -7328,6 +7414,15 @@ reparsing anything."
                      (file-attributes f))))
           files))
 
+(defvar org-air-view--changed-files-mtimes nil
+  "FILE -> mtime memo of the last `org-air-view--changed-files' run (R56 P1c).
+An alist.  The enumeration diff already stats every current file; this
+stash lets `org-air-view--refresh-queue-order' sort the paced queue by recency
+WITHOUT a second stat pass (reuse, never re-stat).  A memo of
+already-paid data only — never read as a staleness source (the scan-time
+mtimes in `org-air-view--refresh-mtimes' stay the one baseline
+authority).")
+
 (defun org-air-view--changed-files (files snapshot)
   "Return the FILES whose mtime diverged from SNAPSHOT (R42-1).
 SNAPSHOT is an alist FILE -> mtime from the last completed full scan.  A
@@ -7341,16 +7436,21 @@ mtime matches (FRESH: no scan at all)."
   ;; `assoc' + `member' was O(n²) (measured 0.275s -> 0.051s at 5006
   ;; files).  The snapshot stays an alist on disk; hashed in memory only.
   (let ((table (make-hash-table :test #'equal :size (length snapshot)))
-        (changed nil))
+        (changed nil)
+        (stats nil))
     (dolist (entry snapshot)
       (puthash (car entry) (cdr entry) table))
     (dolist (f files)
-      (unless (equal (gethash f table 'org-air--missing)
-                     (file-attribute-modification-time
-                      (file-attributes f)))
-        (push f changed))
+      (let ((mtime (file-attribute-modification-time
+                    (file-attributes f))))
+        ;; R56 P1c: stash the stat this diff already paid so the paced
+        ;; queue can order by recency with zero extra stats.
+        (push (cons f mtime) stats)
+        (unless (equal (gethash f table 'org-air--missing) mtime)
+          (push f changed)))
       (remhash f table))
-    (setq changed (nreverse changed))
+    (setq changed (nreverse changed)
+          org-air-view--changed-files-mtimes (nreverse stats))
     ;; a snapshot file that vanished also invalidates (its rows linger).
     (maphash (lambda (k _v) (push k changed)) table)
     changed))
@@ -7375,6 +7475,35 @@ FIRST post-cache `g r' is already mtime-incremental (R42-1)."
       (org-air-query-visits-hydrate (plist-get data :visits))
       (cons (plist-get data :items)
             (org-air-view--changed-files files mtimes)))))
+
+(defun org-air-view--refresh-queue-order (files &optional mtimes)
+  "Return FILES ordered for the paced fill: inbox FIRST, then mtime DESC (R56 P1c).
+Pure given its inputs.  `org-air-inbox-file' (when it is in FILES) always
+takes position 1, so the very first budgeted slice scans the user's
+captures and the first progressive paint is real, triageable content.
+The remaining files sort by MTIMES — an alist FILE -> mtime, defaulting
+to the `org-air-view--changed-files-mtimes' memo the enumeration diff
+already paid — newest first: recently-edited files are where today's
+tasks live, so Needs-attention/Upcoming fill early.  Ties and missing
+mtimes keep enumeration order (stable sort, epoch-0 fallback) —
+deterministic.  Never stats a file.  Out of scope (spec P1c): an inbox
+file OUTSIDE the configured roots is not enumerated and therefore not in
+FILES; enumeration semantics are unchanged this round."
+  (let* ((mtimes (or mtimes org-air-view--changed-files-mtimes))
+         (inbox (and org-air-inbox-file (expand-file-name org-air-inbox-file)))
+         (table (make-hash-table :test #'equal :size (length mtimes)))
+         (head nil)
+         (rest nil))
+    (dolist (e mtimes)
+      (puthash (car e) (if (cdr e) (float-time (cdr e)) 0.0) table))
+    (dolist (f files)
+      (if (and inbox (null head) (equal f inbox))
+          (setq head f)
+        (push f rest)))
+    (setq rest (sort (nreverse rest)
+                     (lambda (a b)
+                       (> (gethash a table 0.0) (gethash b table 0.0)))))
+    (if head (cons head rest) rest)))
 
 (defun org-air-view--refresh-repaint ()
   "Repaint the board from `org-air-view--items' as-is, preserving point.
@@ -7406,17 +7535,86 @@ indefinitely (the user's \"refreshing FOREVER\" failure).")
 
 (defun org-air-view--refresh-next-delay (idle-elapsed interrupted-p)
   "Return the bounded delay before the next refresh slice (R34-3).
-Always the bounded constant `org-air-view--refresh-pace'.  It must NOT
-grow with the slice index — that was the R34-3 defect: the old chain
-re-armed a one-shot idle timer from inside its own idle callback, pushing
-the ABSOLUTE idle target forward ~0.05s per slice (target ~= k*0.05), so a
-large tree, or any interaction that reset the idle clock, could never
-reach the ever-larger far-future target and the chain stranded
-\(\"loading N/M\" / \"stale ∙ refreshing\" stuck forever).  IDLE-ELAPSED and
-INTERRUPTED-P are accepted for the model but never push the delay up: a
-resumable pace is constant."
+OBSOLETE (R56 P2a): the pacer is now the adaptive self-chaining
+wall-clock chain of `org-air-view--refresh-next-gap' — kept as a
+documented alias of the bounded constant `org-air-view--refresh-pace' so
+R34-3's boundedness ERTs re-bless explicitly.  The R34-3 law it locked
+\(the delay must NOT grow with the slice index; the old chain pushed an
+ABSOLUTE idle target forward ~0.05s per slice, so any interaction
+stranded it at \"loading N/M\" forever) carries over: the R56 gap is
+bounded 0.01..0.6s both ways.  IDLE-ELAPSED and INTERRUPTED-P are
+accepted for the model but never push the delay up."
   (ignore idle-elapsed interrupted-p)
   org-air-view--refresh-pace)
+
+(defconst org-air-view--refresh-gap-fast 0.01
+  "Chain gap after an UNINTERRUPTED slice (R56 P2a).
+Near-continuous drain: an uninterrupted slice means Emacs is idle anyway,
+so the fill runs at ~2/3 duty cycle (measured ~23ms slice + this gap) and
+a cold 1801-file scan completes in ~6.5-8s — the old once-per-idle-period
+idle pacer + 0.2s wall-clock fallback (9-12%% duty) spread the same 4.6s
+of scan CPU over 48s-to-minutes.  An internal constant, never a
+defcustom.")
+
+(defconst org-air-view--refresh-gap-backoff 0.15
+  "First chain gap after an input-aborted slice (R56 P2a).
+Doubles per consecutive abort up to `org-air-view--refresh-gap-cap' so
+sustained typing costs at most one aborted slice attempt per cap period
+\(input latency stays bounded by one 18ms slice either way); the first
+uninterrupted slice resets to `org-air-view--refresh-gap-fast'.")
+
+(defconst org-air-view--refresh-gap-cap 0.6
+  "Ceiling for the chain's abort-backoff gap (R56 P2a).
+Bounded both ways: the chain can never slow past this, so convergence
+under sustained typing is never worse than the old 0.2s-period fallback's
+throughput floor — and never faster than input comfort allows.")
+
+(defun org-air-view--refresh-next-gap (outcome &optional last-gap)
+  "Return the adaptive wall-clock gap before the next chain slice (R56 P2a).
+Pure.  OUTCOME is `aborted' when the last slice was cut by input; any
+other value counts as uninterrupted.  Uninterrupted -> the fast
+near-continuous `org-air-view--refresh-gap-fast'; aborted -> back off
+from LAST-GAP (the previously armed gap, nil on the first slice):
+`org-air-view--refresh-gap-backoff' doubling to the
+`org-air-view--refresh-gap-cap' ceiling while aborts continue; the first
+uninterrupted slice resets to fast.  Monotone under consecutive aborts
+and bounded both ways, so the pacing can never strand.  One-shot
+chaining is safe here where R34-3's chain was not: that bug was an IDLE
+timer whose absolute idle target grew per slice; a wall-clock one-shot
+has no idle target (and the \"repeating\" idle timer never delivered
+idle pacing anyway — one fire per continuous idle period)."
+  (if (eq outcome 'aborted)
+      (min org-air-view--refresh-gap-cap
+           (max org-air-view--refresh-gap-backoff
+                (* 2 (or last-gap 0))))
+    org-air-view--refresh-gap-fast))
+
+(defun org-air-view--refresh-chain-live-p ()
+  "Non-nil when the adaptive chain's one-shot is armed and PENDING (R56 P2a).
+`timerp' alone is not liveness — a fired one-shot is still a timer
+struct; membership in `timer-list' is what proves a next slice is
+scheduled."
+  (and (timerp org-air-view--refresh-timer)
+       (memq org-air-view--refresh-timer timer-list)))
+
+(defun org-air-view--refresh-chain-arm (buffer token outcome)
+  "(Re-)arm the adaptive one-shot chain for BUFFER under TOKEN (R56 P2a).
+Cancels any pending chain one-shot first so exactly ONE live pacing
+timer exists, then schedules `org-air-view--refresh-run-slice' after the
+`org-air-view--refresh-next-gap' gap for OUTCOME (recording the gap as
+the next backoff base).  Never arms under `noninteractive' — the
+deterministic ERTs drive the slice runner directly.  Must be called with
+BUFFER current (all state is buffer-local)."
+  (unless noninteractive
+    (let ((gap (org-air-view--refresh-next-gap
+                outcome org-air-view--refresh-gap)))
+      (setq org-air-view--refresh-gap gap)
+      (when (timerp org-air-view--refresh-timer)
+        (cancel-timer org-air-view--refresh-timer))
+      (setq org-air-view--refresh-timer
+            (run-with-timer gap nil
+                            #'org-air-view--refresh-run-slice
+                            buffer token)))))
 
 (defun org-air-view--refresh-watchdog-disarm ()
   "Cancel the one-shot refresh safety timer, if any (R42-2)."
@@ -7425,48 +7623,46 @@ resumable pace is constant."
   (setq org-air-view--refresh-watchdog nil))
 
 (defconst org-air-view--refresh-wallclock-pace 0.2
-  "Repeating wall-clock pacer period for the watchdog fallback (R53 P1c).
-~10% duty cycle at the `org-air-refresh-slice-budget' slice size, so a
-session where Emacs never goes idle still makes steady scan progress
-without ever blocking the frame.  An internal constant, never a
-defcustom.")
+  "Repeating wall-clock pacer period for the OLD watchdog fallback (R53 P1c).
+OBSOLETE (R56 P2a): the 18ms-budget-per-0.2s fallback was a 9-12% duty
+cycle — 198 slices ≈ 48-60s at a measured 1801-file corpus, minutes with
+interaction — superseded by the adaptive chain
+\(`org-air-view--refresh-next-gap'), which the watchdog now re-arms
+instead.  Kept only as documentation of the superseded cadence; unused.")
 
 (defun org-air-view--refresh-watchdog-fire (buffer token)
-  "Rescue a stranded paced refresh WITHOUT ever hanging (R42-2/R53 P1c).
-If BUFFER is still `refreshing' under TOKEN when the watchdog fires, the
-idle pacer is not draining the queue (Emacs is not going idle).  A
-PROVABLY SMALL remainder (<= `org-air-view--refresh-sync-budget' files)
-is drained synchronously — well under a frame at the measured p95.  A
-LARGER queue is NEVER drained synchronously (the old force-complete WAS
-the user's minutes-long mid-session freeze at 5000 files): the SAME
-budgeted slice driver re-arms on a repeating wall-clock `run-with-timer'
-— progress independent of idleness — and the watchdog re-arms behind it.
-Token-guarded, so a superseded refresh's watchdog is a silent no-op.  The
-state still can never strand at `refreshing' — it now converges by
-pacing, not by freezing."
+  "Rescue a stranded paced refresh WITHOUT ever hanging (R42-2/R56 P2b).
+A PURE BACKSTOP: with the R56 P2a pacer already wall-clock (progress
+never depends on idleness), the watchdog's only remaining job is
+machine-level convergence insurance — a lost timer, a wedged token.  If
+BUFFER is still `refreshing' under TOKEN when it fires: a PROVABLY SMALL
+remainder (<= `org-air-view--refresh-sync-budget' files) is drained
+synchronously — well under a frame at the measured p95.  A LARGER queue
+is NEVER drained synchronously (the old force-complete WAS the user's
+minutes-long mid-session freeze at 5000 files — the R53 law stands): the
+adaptive P2a chain is re-armed IF none is live, and the watchdog re-arms
+behind it.  Token-guarded, so a superseded refresh's watchdog is a
+silent no-op.  The state still can never strand at `refreshing' — it
+converges by pacing, not by freezing."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (when (and (eq token org-air-view--refresh-token)
                  (eq org-air-view--refresh-state 'refreshing))
         (if (> (length org-air-view--refresh-queue)
                org-air-view--refresh-sync-budget)
-            (progn
-              (org-air-view--refresh-disarm)
-              ;; Mirror `org-air-view--refresh-arm': never arm real timers
-              ;; under `noninteractive' — the deterministic ERTs drive the
-              ;; slice runner directly; the state stays `refreshing' and
-              ;; converges by pacing either way.
-              (unless noninteractive
-                (setq org-air-view--refresh-timer
-                      (run-with-timer org-air-view--refresh-wallclock-pace
-                                      org-air-view--refresh-wallclock-pace
-                                      #'org-air-view--refresh-run-slice
-                                      buffer token))
-                (setq org-air-view--refresh-watchdog
-                      (run-with-timer org-air-view--refresh-watchdog-timeout
-                                      nil
-                                      #'org-air-view--refresh-watchdog-fire
-                                      buffer token))))
+            ;; Mirror `org-air-view--refresh-arm': never arm real timers
+            ;; under `noninteractive' — the deterministic ERTs drive the
+            ;; slice runner directly; the state stays `refreshing' and
+            ;; converges by pacing either way.
+            (unless noninteractive
+              (unless (org-air-view--refresh-chain-live-p)
+                (org-air-view--refresh-chain-arm buffer token 'completed))
+              (org-air-view--refresh-watchdog-disarm)
+              (setq org-air-view--refresh-watchdog
+                    (run-with-timer org-air-view--refresh-watchdog-timeout
+                                    nil
+                                    #'org-air-view--refresh-watchdog-fire
+                                    buffer token)))
           (org-air-view--refresh-disarm)
           (condition-case err
               (progn
@@ -7501,25 +7697,29 @@ Single teardown point for every timer the paced refresh arms."
   (org-air-view--refresh-watchdog-disarm))
 
 (defun org-air-view--refresh-arm (buffer token)
-  "Arm ONE repeating idle pacing timer for BUFFER's refresh under TOKEN (R34-3).
-A REPEATING `run-with-idle-timer' fires every `org-air-view--refresh-pace'
-WHILE Emacs is idle and — crucially — is re-scheduled by Emacs when idle
-RESUMES after any interruption, so a large tree loads across successive
-idle periods and mid-load interaction merely PAUSES (never strands) the
-chain.  The slice runner does NOT re-arm; the repeat does the pacing and
-`org-air-view--refresh-disarm' (from finish / failure / cancel) is the
-only teardown, so exactly one live pacing timer exists at a time.  Never
-arms under `noninteractive' — the deterministic ERTs call
-`org-air-view--refresh-run-slice' directly instead."
+  "Arm the adaptive self-chaining wall-clock pacer for BUFFER, TOKEN (R56 P2a).
+ONE one-shot `run-with-timer' whose callback — the budgeted slice runner
+itself — runs one `org-air-refresh-slice-budget' slice (unchanged;
+still `while-no-input', still C-g-abortable) and re-arms itself with the
+adaptive `org-air-view--refresh-next-gap' gap: near-continuous (0.01s)
+while uninterrupted, backing off 0.15..0.6s under input.  Wall-clock,
+not idle: the old \"repeating\" idle pacer fired ONCE per continuous
+idle period ((elisp) Idle Timers; R56 pty-probed 1 fire in 3s of
+idleness), so a user who opened the board and WAITED got one slice per
+watchdog period — the measured minutes-long fill.  Re-arm discipline:
+the callback re-arms ONLY under its own live token+state and only while
+a chain handle exists; `org-air-view--refresh-disarm' (from finish /
+failure / cancel) is the single teardown, so exactly one live pacing
+timer exists at a time.  The R42-2 watchdog arms behind it as a pure
+backstop (P2b).  Never arms under `noninteractive' — the deterministic
+ERTs call `org-air-view--refresh-run-slice' directly instead."
   (unless noninteractive
     (with-current-buffer buffer
-      (unless (timerp org-air-view--refresh-timer)
-        (setq org-air-view--refresh-timer
-              (run-with-idle-timer
-               (org-air-view--refresh-next-delay 0 nil) t
-               #'org-air-view--refresh-run-slice buffer token))
-        ;; R42-2: a wall-clock backstop the idle pacer can never outlive,
-        ;; so `refreshing' can never persist indefinitely if idle stalls.
+      (unless (org-air-view--refresh-chain-live-p)
+        (setq org-air-view--refresh-gap nil)
+        (org-air-view--refresh-chain-arm buffer token 'completed)
+        ;; R42-2: a wall-clock backstop behind the chain, so `refreshing'
+        ;; can never persist indefinitely even if the chain is lost.
         (org-air-view--refresh-watchdog-disarm)
         (setq org-air-view--refresh-watchdog
               (run-with-timer
@@ -7534,7 +7734,11 @@ Every pending slice callback carries the old token and self-cancels."
   (setq org-air-view--refresh-queue nil
         org-air-view--refresh-acc nil
         org-air-view--refresh-abort-file nil
-        org-air-view--refresh-progressive nil))
+        org-air-view--refresh-progressive nil
+        org-air-view--refresh-gap nil
+        org-air-view--refresh-scan-started nil
+        org-air-view--refresh-paint-items 0
+        org-air-view--refresh-render-secs nil))
 
 (defun org-air-view--refresh-teardown ()
   "Cancel the in-flight refresh outright (the board buffer is dying)."
@@ -7553,19 +7757,26 @@ never double-renders and a killed buffer's timer never strands."
     (cancel-timer org-air-view--deferred-timer))
   (setq org-air-view--deferred-timer nil))
 
-(defun org-air-view--deferred-arm (buffer token)
-  "Arm the one-shot idle first-paint for BUFFER under TOKEN (R45-2).
-Scheduled by the cache-HIT FRESH branch AFTER the pill-free skeleton is
+(defun org-air-view--deferred-arm (buffer token &optional stale)
+  "Arm the one-shot idle first-paint for BUFFER under TOKEN (R45-2/R56 P1a).
+Scheduled by BOTH cache-hit branches AFTER the pill-free skeleton is
 painted, so the cached full board (and its cold SVG pill rasterization)
-lands OFF the launch critical path.  Never arms under `noninteractive'
-\(the byte gate stays synchronous with no timer); the deterministic ERTs
-call `org-air-view--deferred-first-paint' directly instead."
+lands OFF the launch critical path.  With STALE non-nil the one-shot is
+`org-air-view--deferred-stale-paint' — it paints the FULL cached board
+and then OWNS the paced changed-subset kickoff (R56 P1a: a command-body
+`org-air-view--refresh-start' would bump the token via
+`--refresh-cancel' and orphan this very one-shot).  Never arms under
+`noninteractive' \(the byte gate stays synchronous with no timer); the
+deterministic ERTs call the one-shot functions directly instead."
   (unless noninteractive
     (with-current-buffer buffer
       (org-air-view--deferred-disarm)
       (setq org-air-view--deferred-timer
             (run-with-idle-timer
-             0 nil #'org-air-view--deferred-first-paint buffer token)))))
+             0 nil
+             (if stale #'org-air-view--deferred-stale-paint
+               #'org-air-view--deferred-first-paint)
+             buffer token)))))
 
 (defun org-air-view--deferred-first-paint (buffer token)
   "Render the cached full board off the launch critical path (R45-2).
@@ -7582,6 +7793,45 @@ to the single-message + empty-board discipline."
         (condition-case err
             (org-air-view--render org-air-view--items
                                   org-air-view--tag-filter)
+          (error
+           (setq org-air-view--items nil
+                 org-air-view--classify-cache nil
+                 org-air-view--loading nil)
+           (org-air-view--render nil org-air-view--tag-filter)
+           (message "org-air: load failed: %s"
+                    (org-air-view--short-error err))))))))
+
+(defun org-air-view--deferred-stale-paint (buffer token)
+  "Paint the FULL cached board, then kick the paced rescan (R56 P1a).
+The paint LAW made concrete for the cache-STALE open: the board never
+shows chrome in place of content it already holds — the full last-known
+board sat IN MEMORY while the old skeleton-until-finish arm made the
+user stare at \"Loading your board…\" for the whole paced fill (R56
+measured: ZERO progressive paints; first content = the finish paint,
+48s-to-minutes at 1801 files).  This one-shot (the STALE arm's R45-2
+deferred tick) renders the cached items AS-IS — no org-ql call — then
+OWNS the `org-air-view--refresh-start' kickoff: paint, then start (a
+command-body start would bump the token and orphan this callback; the
+started refresh's own token supersedes cleanly).  The banner then ticks
+to the live `scanning N/M' segment immediately.  Everything painted
+stays interactive; triage on a stale file stays guarded by
+`org-air-view--refresh-stale-item-guard'; the finish swap replaces
+content in one motion as today.  Robustness mirrors
+`org-air-view--deferred-first-paint': a stale TOKEN or dead BUFFER is a
+silent no-op; a render error falls back to the single-message +
+empty-board discipline."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (setq org-air-view--deferred-timer nil)
+      (when (eq token org-air-view--refresh-token)
+        (condition-case err
+            (progn
+              (org-air-view--render org-air-view--items
+                                    org-air-view--tag-filter)
+              (org-air-view--refresh-start t)
+              ;; surface the `⟳ scanning N/M…' segment without waiting
+              ;; for the first slice (tick time is nil = immediate).
+              (org-air-view--refresh-banner-tick))
           (error
            (setq org-air-view--items nil
                  org-air-view--classify-cache nil
@@ -7613,10 +7863,19 @@ stale via the token), stats the CURRENT file list and diffs it against the
 
 - A larger changed set (bulk edit) SEEDS the accumulator with the retained
   unchanged items (reused verbatim — their markers are valid by mtime
-  match) and queues ONLY the changed files, paced by the R34-3 idle
-  machine (with the R42-2 watchdog backstop); on finish the accumulator =
-  retained ∪ rescanned = the full set (ordering is irrelevant, the R20-6
-  partition regroups/sorts at render).
+  match) and queues ONLY the changed files — inbox first, then mtime
+  descending (R56 P1c, `org-air-view--refresh-queue-order') — paced by
+  the R56 P2a adaptive chain (with the R42-2 watchdog backstop); on
+  finish the accumulator = retained ∪ rescanned = the full set (ordering
+  is irrelevant, the R20-6 partition regroups/sorts at render).
+
+R56 P1 — the paint LAW: at no point may the board display an empty
+skeleton while item content is available in-buffer — cached items from a
+previous session (the cache-stale open paints them via
+`org-air-view--deferred-stale-paint' before this machine runs), or
+accumulated items from the running scan (a fill with NO previous content
+enters progressive STREAM mode here and paints repeatedly as slices
+land).
 
 The caller paints (board or skeleton) after this so the header
 marker/progress is visible from the first paint."
@@ -7701,11 +7960,25 @@ marker/progress is visible from the first paint."
                          (member (org-air-item-file it) changed))
                        org-air-view--items)))
         (org-air-query-skip-log-reset)
-        (setq org-air-view--refresh-queue existing
+        ;; R56 P1c: inbox first, then recency — the first budgeted slice
+        ;; scans the inbox, so the first progressive paint is real,
+        ;; triageable content (cold time-to-inbox was unbounded before:
+        ;; plain directory-walk order).
+        (setq org-air-view--refresh-queue
+              (org-air-view--refresh-queue-order existing)
               org-air-view--refresh-total (length existing)
               org-air-view--refresh-acc (copy-sequence retained)
               org-air-view--refresh-mtimes nil
-              org-air-view--refresh-last-paint (float-time)
+              ;; R56 P1b: STREAM mode only when there is NO previous full
+              ;; content to show (true cold open) — a painted or
+              ;; cache-seeded board keeps the R26-8 single-swap rule.  A
+              ;; nil last-paint lets the first item-bearing slice paint
+              ;; IMMEDIATELY (P1c), then the interval cadence takes over.
+              org-air-view--refresh-progressive (null org-air-view--items)
+              org-air-view--refresh-last-paint
+              (and org-air-view--items (float-time))
+              org-air-view--refresh-paint-items (length retained)
+              org-air-view--refresh-banner-tick-time nil
               org-air-view--cache-stale-files changed
               org-air-view--refresh-state 'refreshing)
         ;; Every changed file may have vanished (existing empty) — finish
@@ -7761,8 +8034,14 @@ first so it cannot fire again after the chain is DONE (R34-3)."
           org-air-view--refresh-queue nil
           org-air-view--refresh-total 0
           org-air-view--refresh-mtimes nil
+          org-air-view--refresh-progressive nil
+          org-air-view--refresh-paint-items 0
+          org-air-view--refresh-render-secs nil
           org-air-view--cache-stale-files nil
           org-air-view--loading nil)
+    ;; R56 P3c: this repaint runs with the machine already idle, so the
+    ;; `⟳ scanning N/M…' segment vanishes in the same motion the final
+    ;; content lands — a crisp clear, no lingering "done!" chrome.
     (org-air-view--refresh-repaint)
     ;; R53 P1b: ONE summary line per completed scan — never per-file echo
     ;; spam; the details live behind M-x org-air-scan-report.
@@ -7781,9 +8060,17 @@ first so it cannot fire again after the chain is DONE (R34-3)."
 file that aborts `org-air-scan-abort-retries' consecutive slices is
 skip-logged `slow' and dropped WITHOUT entering the scan-time mtimes, so
 the next refresh's diff names it again (errors converge) while the board
-stays usable now — no livelock."
+stays usable now — no livelock.
+R56 P2c: counts ONLY aborts that landed while the head file's scan had
+actually STARTED (`org-air-view--refresh-scan-started', raised right
+before the query call, cleared on commit).  An abort BEFORE the head
+started — input landed between files, or before the first — increments
+nothing: key-repeat can no longer silently skip-drop innocent queue
+heads as `slow' (measured: one dropped file per 0.6s of held-down arrow
+key at the old accounting).  A file that genuinely aborts mid-scan N
+times still skips — the anti-livelock stays."
   (let ((head (car org-air-view--refresh-queue)))
-    (when head
+    (when (and head org-air-view--refresh-scan-started)
       (if (equal head (car-safe org-air-view--refresh-abort-file))
           (setcdr org-air-view--refresh-abort-file
                   (1+ (cdr org-air-view--refresh-abort-file)))
@@ -7794,19 +8081,80 @@ stays usable now — no livelock."
         (setq org-air-view--refresh-queue (cdr org-air-view--refresh-queue)
               org-air-view--refresh-abort-file nil)))))
 
+(defun org-air-view--refresh-paint-interval ()
+  "Effective seconds between progressive stream paints (R56 P1b).
+`org-air-cold-paint-interval' floored by 3x the last progressive render
+cost (`org-air-view--refresh-render-secs'), so paint overhead can never
+exceed ~1/3 of the fill even when the accumulated board grows expensive
+to re-render."
+  (max org-air-cold-paint-interval
+       (* 3 (or org-air-view--refresh-render-secs 0))))
+
 (defun org-air-view--refresh-progressive-paint ()
-  "Repaint the still-loading COLD board from the accumulator (R53 P1c).
-Bounded to once per `org-air-cold-paint-interval'.  The FIRST progressive
+  "Repaint the still-filling COLD board from the accumulator (R53 P1c/R56 P1b).
+The STREAM paint: swaps a COPY of the accumulator in, invalidates the
+classify cache and repaints with point preserved.  The FIRST progressive
 paint drops the `org-air-view--loading' guard — the verbs go live over
-real rows; items in still-queued files stay guarded by
-`org-air-view--refresh-stale-item-guard'.  Warm incremental refreshes
-never take this path, so the R26-8 single-swap rule holds there."
+real rows (items in still-queued files stay guarded by
+`org-air-view--refresh-stale-item-guard') — and the stream then
+CONTINUES on the `org-air-view--refresh-paint-interval' cadence until
+`org-air-view--refresh-finish''s single final swap ends stream mode.
+R56 P1b decoupled the stream gate (`org-air-view--refresh-progressive',
+set at refresh start) from the loading flag this paint clears — the R53
+reuse made the throttle a one-shot: measured exactly ONE progressive
+paint per cold fill, frozen at ~1% content until the finish.  Warm
+incremental refreshes never take this path, so the R26-8 single-swap
+rule holds there.  Records its own render cost so paint overhead stays
+bounded."
   (setq org-air-view--refresh-last-paint (float-time)
-        org-air-view--refresh-progressive t
+        org-air-view--refresh-paint-items
+        (length org-air-view--refresh-acc)
         org-air-view--items (copy-sequence org-air-view--refresh-acc)
         org-air-view--classify-cache nil
         org-air-view--loading nil)
-  (org-air-view--refresh-repaint))
+  (let ((start (float-time)))
+    (org-air-view--refresh-repaint)
+    (setq org-air-view--refresh-render-secs (- (float-time) start))))
+
+(defconst org-air-view--refresh-banner-tick-interval 0.5
+  "Seconds between in-place banner progress rewrites while refreshing (R56 P3b).
+Progressive paints are ~1s apart and single-swap refreshes paint only at
+the end, so the slice runner ticks the BANNER LINE alone at this bound —
+the `⟳ scanning N/M…' numbers stay live between full paints.  An
+internal constant, never a defcustom.")
+
+(defun org-air-view--refresh-banner-tick ()
+  "Rewrite ONLY the banner line in place with fresh progress numbers (R56 P3b).
+Bounded: at most once per `org-air-view--refresh-banner-tick-interval',
+one line-1 rewrite (microseconds), no body touch, point preserved by
+`save-excursion'; only while the machine is `refreshing'; never in
+batch.  Works over the skeleton and the painted board alike — both
+compose the banner as buffer line 1."
+  (when (and (not noninteractive)
+             (eq org-air-view--refresh-state 'refreshing)
+             (>= (- (float-time)
+                    (or org-air-view--refresh-banner-tick-time 0))
+                 org-air-view--refresh-banner-tick-interval)
+             (> (buffer-size) 0))
+    (setq org-air-view--refresh-banner-tick-time (float-time))
+    (let* ((width (or org-air-view--rendered-width
+                      (org-air-view--render-width)))
+           (line (car (org-air-view--render-lines
+                       width
+                       (lambda ()
+                         (org-air-view--insert-banner
+                          org-air-view--items)))))
+           (inhibit-read-only t))
+      (when line
+        ;; Mirror the top-level line normalization: fixed-width configs
+        ;; keep the pad (already applied by `--render-lines'); live mode
+        ;; right-trims (`--finalize-buffer-lines' contract).
+        (unless (integerp org-air-view-width)
+          (setq line (string-trim-right line)))
+        (save-excursion
+          (goto-char (point-min))
+          (delete-region (point) (line-end-position))
+          (insert line))))))
 
 (defun org-air-view--refresh-run-slice (buffer token)
   "Scan ONE budgeted slice of BUFFER's refresh queue under TOKEN (R53 P1c).
@@ -7819,10 +8167,14 @@ through the never-signalling data layer.  The loop runs under
 `while-no-input': pending input aborts BETWEEN files and the unconsumed
 remainder (including the in-progress file — per-file work-buffer state
 makes retry free) stays queued for the next tick;
-`org-air-view--refresh-note-abort' skip-logs a file that keeps aborting.
+`org-air-view--refresh-note-abort' skip-logs a file that keeps aborting
+mid-scan (R56 P2c: aborts landing BETWEEN files count against nobody).
 A `quit' propagates untouched: queue intact, machine still
-`refreshing', pacer re-fires.  A COLD load streams progressive paints
-\(interactive only); warm refreshes accumulate privately and swap ONCE.
+`refreshing', pacer re-fires.  A COLD load streams REPEATED progressive
+paints (interactive only; R56 P1b) — the first item-bearing slice paints
+immediately (P1c: the inbox, by queue order), then on the bounded
+`org-air-view--refresh-paint-interval' cadence whenever new items
+accumulated — while warm refreshes accumulate privately and swap ONCE.
 A machine-level error keeps the painted board, flips to FAILED (header:
 `refresh failed (g r retries)') and always clears
 `org-air-view--loading' so the buffer can never wedge."
@@ -7830,9 +8182,10 @@ A machine-level error keeps the painted board, flips to FAILED (header:
     (with-current-buffer buffer
       (when (and (eq token org-air-view--refresh-token)
                  (eq org-air-view--refresh-state 'refreshing))
-        ;; R34-3: the repeating pacer re-fires itself; the slice does NOT
-        ;; touch the timer here (nil'ing it would drop the live handle),
-        ;; and does NOT re-arm.  `refresh-finish'/failure/cancel disarm.
+        ;; R56 P2a: the slice re-arms its own adaptive one-shot chain at
+        ;; the bottom (only under a live token+state, and only while a
+        ;; chain handle exists — direct ERT drives never spawn timers).
+        ;; `refresh-finish'/failure/cancel disarm.
         (condition-case err
             (let* ((budget org-air-refresh-slice-budget)
                    (start (float-time))
@@ -7851,9 +8204,14 @@ A machine-level error keeps the painted board, flips to FAILED (header:
                                ;; object — nconc'ing it would mutate the
                                ;; cache.  One-file calls keep the R26-8
                                ;; query seam (and its ERT stubs) intact.
-                               (items (copy-sequence
-                                       (org-air-query-items-in-files
-                                        (list f)))))
+                               ;; R56 P2c: raise the started flag ONLY
+                               ;; once the head file's scan is actually
+                               ;; entered; cleared on the commit below.
+                               (items (progn
+                                        (setq org-air-view--refresh-scan-started t)
+                                        (copy-sequence
+                                         (org-air-query-items-in-files
+                                          (list f))))))
                           ;; commit ATOMICALLY per file — an abort mid-scan
                           ;; leaves the file at the queue head, retry free.
                           (push (cons f mtime) org-air-view--refresh-mtimes)
@@ -7861,21 +8219,37 @@ A machine-level error keeps the painted board, flips to FAILED (header:
                                 (nconc org-air-view--refresh-acc items)
                                 org-air-view--refresh-queue
                                 (cdr org-air-view--refresh-queue)
-                                scanned (1+ scanned))))
+                                scanned (1+ scanned)
+                                org-air-view--refresh-scan-started nil)))
                       nil)))
               (when (eq interrupted t)
                 (org-air-view--refresh-note-abort))
-              ;; R34-3: more to do -> nothing to schedule, the repeating
-              ;; pacer fires the next slice.  Done -> finish (which
-              ;; disarms the pacer).
+              (setq org-air-view--refresh-scan-started nil)
+              ;; Done -> finish (which disarms the chain and swaps once).
               (if (null org-air-view--refresh-queue)
                   (org-air-view--refresh-finish)
+                ;; R56 P1b/P1c: the progressive STREAM — gated on stream
+                ;; mode (NOT the self-clearing `--loading' flag), at least
+                ;; one NEW item since the last paint, and either no paint
+                ;; yet (immediate first content) or the bounded cadence.
                 (when (and (not noninteractive)
-                           org-air-view--loading
-                           (>= (- (float-time)
-                                  (or org-air-view--refresh-last-paint 0))
-                               org-air-cold-paint-interval))
-                  (org-air-view--refresh-progressive-paint))))
+                           org-air-view--refresh-progressive
+                           (> (length org-air-view--refresh-acc)
+                              org-air-view--refresh-paint-items)
+                           (or (null org-air-view--refresh-last-paint)
+                               (>= (- (float-time)
+                                      org-air-view--refresh-last-paint)
+                                   (org-air-view--refresh-paint-interval))))
+                  (org-air-view--refresh-progressive-paint))
+                ;; R56 P3b: live numbers between paints (banner line only).
+                (org-air-view--refresh-banner-tick)
+                ;; R56 P2a: re-arm the adaptive chain — fast after a clean
+                ;; slice, backing off while input keeps aborting.
+                (when (and (not noninteractive)
+                           (timerp org-air-view--refresh-timer))
+                  (org-air-view--refresh-chain-arm
+                   buffer token
+                   (if (eq interrupted t) 'aborted 'completed)))))
           (error
            (org-air-view--refresh-disarm)   ; stop the pacer on failure
            (setq org-air-view--refresh-state 'failed
@@ -7980,20 +8354,26 @@ buffer can never wedge in a loading state."
           ;; motion, merely deferred one idle tick behind the skeleton.
           (org-air-view--render-loading)
           (redisplay t)
+          ;; Bump the token first (via cancel) so any earlier in-flight
+          ;; callback self-cancels before the one-shot below is armed.
+          (org-air-view--refresh-cancel)
           (if (cdr cache)
-              ;; STALE: the paced machine scans ONLY the changed subset (no
-              ;; re-scan of unchanged files); pass COLD so it never takes the
-              ;; synchronous fast-path repaint on the launch path — its
-              ;; finish-repaint IS the deferred full render, now correctly
-              ;; preceded by the visible skeleton (the `stale · refreshing…'
-              ;; header still shows once the board lands).
-              (org-air-view--refresh-start t)
+              ;; STALE: R56 P1a (the paint LAW — the board never shows
+              ;; chrome in place of content it already holds).  The
+              ;; deferred one-shot paints the FULL cached board one idle
+              ;; tick behind the skeleton (R26-8's warm-open contract
+              ;; restored; pill rasterization stays off the command body,
+              ;; the R45-2 rationale is about WHICH tick paints, never
+              ;; WHETHER) and then OWNS the paced changed-subset kickoff:
+              ;; calling `--refresh-start' here would bump the token again
+              ;; and orphan the very one-shot it precedes.  See
+              ;; `org-air-view--deferred-stale-paint'.
+              (org-air-view--deferred-arm (current-buffer)
+                                          org-air-view--refresh-token 'stale)
             ;; FRESH (no stale files): no scan at all.  Defer the cached
             ;; full-board render to a token-guarded one-shot idle callback
             ;; SEEDED with the cached items — NO org-ql call, the cache's
-            ;; no-scan benefit is fully preserved.  Bump the token first
-            ;; (via cancel) so any earlier in-flight callback self-cancels.
-            (org-air-view--refresh-cancel)
+            ;; no-scan benefit is fully preserved.
             (org-air-view--deferred-arm (current-buffer)
                                         org-air-view--refresh-token))
           t))

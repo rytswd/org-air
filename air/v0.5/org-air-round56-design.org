@@ -1,5 +1,5 @@
 #+title: org-air Round 56 — Inbox-first progressive paint, adaptive pacing, and a visible scan-progress indicator
-#+state: ready
+#+state: work-in-progress
 #+tags: performance progressive-render inbox refresh pacer progress-indicator scan cold-open
 
 * Summary
@@ -483,6 +483,40 @@ drops; every R53 never-hang/never-error law intact.
 
 * Implementation History
 
+- 2026-07-16: R56 impl landed (P1–P3, product code only).  org-air-view.el:
+  P1a the cache-STALE open's deferred one-shot
+  (=org-air-view--deferred-stale-paint=, armed via =--deferred-arm 'stale=)
+  paints the FULL cached board one idle tick behind the skeleton and OWNS
+  the =--refresh-start t= kickoff (token-orphan ordering per spec); P1b
+  stream mode (=--refresh-progressive=, set at refresh-start for
+  no-content fills) decouples the repeated progressive paints from the
+  self-clearing =--loading= flag, gated on new-items-since-last-paint +
+  the render-cost-bounded =--refresh-paint-interval= (max 1.0s, 3× last
+  render); P1c =--refresh-queue-order= (inbox first, then mtime DESC from
+  the =--changed-files= stat memo — zero re-stats) + immediate first paint
+  (nil =--refresh-last-paint=); P2a adaptive self-chaining one-shot
+  wall-clock pacer (=--refresh-next-gap=: 0.01s uninterrupted,
+  0.15→0.6s doubling abort backoff; =--refresh-chain-arm/-live-p=;
+  re-arm only under live token+state and an existing chain handle, so
+  direct ERT drives never spawn timers); P2b watchdog fallback re-arms
+  the chain (never syncs a big queue — R53 law intact); P2c
+  =--refresh-scan-started= flag — =--refresh-note-abort= counts only
+  STARTED scans; P3a =⟳ scanning N/M…= salient banner segment
+  (=org-air-face-progress= in org-air-faces.el, =scanning= glyph in
+  org-air-layout.el), sheds last while refreshing, failed keeps text +
+  salient face; P3b 0.5s in-place banner-line tick
+  (=--refresh-banner-tick=) + skeleton body-line numbers; P3c crisp clear
+  at the finish swap.  MEASURED on the 1801-file / 8779-item corpus
+  (batch, paint gates opened, render stubbed only for counting): first
+  content paint *0.262s* carrying the inbox (queue head = inbox.org),
+  *6* progressive paints through the fill, machine fill back-to-back
+  *4.49s* (≈ the 4.56s scan CPU floor), modeled wall @0.01s gaps
+  *≈6.4s* vs ≈46-60s for the old 0.2s pacer — spec targets met.  Byte
+  goldens: ZERO churn (all changes gated off batch/idle machine).  Six
+  legacy ERTs pin the superseded contracts (old banner strings, idle
+  pacer timer-idle-list, repeating watchdog fallback, pre-start abort
+  drops) — flagged in tests/org-air-known-failures.el for the test-track
+  re-bless; =make check= GREEN with the manifest applied.
 - 2026-07-16: R56 design (this doc) — measured the stuck-refresh at a
   realistic 1801-file corpus: NOT a hang and NOT scan cost (4.56s CPU),
   but (a) zero/one-shot progressive paint gates (cache-stale path paints

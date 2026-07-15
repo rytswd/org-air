@@ -284,6 +284,22 @@ content.
   spurious sync re-query), specced the owner-routed day-open
   (owner resolver, routed body, window hop, dedication rules) + the
   revert-fails ERT seam (E1-E5).  Not yet implemented.
+- 2026-07-15: R55-1 implemented (impl round, zvynzswm) —
+  `org-air-view--day-owner' / `--day-owner-window' / `--day-focus-owner'
+  + the routed `org-air-view-day' body in org-air-view.el (source-only).
+- 2026-07-15: R55-2 executing ERTs shipped
+  (tests/org-air-round55-test.el, 6 tests): E1 rail-RET routes to the
+  MAIN board window w/ folded no-query guard, E2 rail-survives
+  single-writer LOCK (back-pointer clause revert-fails), E3 inline +
+  E3b rail-off identity LOCKs, E4 `q' return path, E5 no-board-window
+  `display-buffer' fallback (the sole ordinary window of the
+  single-frame batch harness cannot be deleted, so E5 reuses it for an
+  unrelated buffer — the same owner-has-no-window state; deterministic,
+  NOT quarantined).  Revert-fails property CONFIRMED against genuine
+  trunk byte-code (a stale pre-R55 .elc run failed E1/E2/E4/E5 exactly,
+  E3/E3b passed both sides).  `make regen-mockups' = zero golden churn;
+  `make clean && make check' GREEN (700 tests, 0 unexpected, manifest
+  EMPTY).
 
 * History
 

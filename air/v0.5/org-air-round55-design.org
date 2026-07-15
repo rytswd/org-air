@@ -1,5 +1,5 @@
 #+title: org-air Round 55 — Calendar-day RET must open the day view in the MAIN board window (side-window rail routing regression)
-#+state: ready
+#+state: complete
 #+tags: calendar day-view rail side-window window-routing regression gui board focus
 
 * Summary
@@ -306,3 +306,4 @@ content.
 - 2026-07-15: Created from the R55 GUI report (calendar RET renders the
   day pane into the side-window rail since the R49-3 default).  State:
   ready.
+- 2026-07-15: State: ready → complete.

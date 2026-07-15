@@ -35,6 +35,17 @@
 ;;        `org-air-view--refresh-next-delay').  The R26-8 state machine bytes
 ;;        are untouched; these ERTs prove the anti-stall pacing (pure), the
 ;;        arm/disarm lifecycle, and a cold end-to-end run reaching DONE.
+;;
+;;        R56 RE-BLESS (air/v0.5/org-air-round56-design.org): the pacer is
+;;        now the adaptive self-chaining one-shot WALL-CLOCK chain (P2a) —
+;;        the "repeating" idle pacer fired once per continuous idle period
+;;        and is retired — so the lifecycle law re-asserts against
+;;        `timer-list' (one-shot, never `timer-idle-list'); the banner's
+;;        count slot is the salient `⟳ scanning N/M…' segment (P3a),
+;;        retiring both `loading N/M' and `stale ∙ refreshing'.  The LAWS
+;;        themselves (bounded delay, exactly one live pacing timer,
+;;        teardown on disarm/cancel, cold/warm runs reaching DONE with no
+;;        live pacer) carry over verbatim.
 
 ;;; Code:
 
@@ -305,11 +316,19 @@ unbounded; reverting to it fails this guard."
           (should (<= d pace)))))))
 
 (ert-deftest org-air-r34-3-arm-disarm-lifecycle ()
-  "Repeating-timer lifecycle: `refresh-arm' arms EXACTLY ONE live pacing
+  "Pacing-timer lifecycle: `refresh-arm' arms EXACTLY ONE live pacing
 timer (arming again does not add a second); `refresh-disarm' /
 `refresh-cancel' leave NO live pacing timer.  Driven with `noninteractive'
 bound nil (the arm is P0-guarded off under batch); every timer armed is
-cancelled so no idle timer leaks into other tests."
+cancelled so no timer leaks into other tests.
+Re-blessed R56 P2a (never silent): the pacer is now the adaptive
+self-chaining ONE-SHOT wall-clock chain (`run-with-timer' ->
+`timer-list'); the retired repeating IDLE pacer's `timer-idle-list'
+membership is asserted ABSENT, and the chain link is pinned one-shot
+\(`timer--repeat-delay' nil — neither the idle pacer nor the obsolete
+0.2s repeating wall-clock fallback).  The lifecycle LAW itself (exactly
+one live pacing timer; disarm/cancel tear down) carries over verbatim,
+re-asserted against `timer-list'."
   (skip-unless (locate-library "org-air"))
   (with-temp-buffer
     (org-air-view-mode)
@@ -317,34 +336,44 @@ cancelled so no idle timer leaks into other tests."
       (unwind-protect
           (progn
             (setq org-air-view--refresh-timer nil)
-            ;; arm exactly one live repeating pacing timer.
+            ;; arm exactly one live pacing timer: a WALL-CLOCK one-shot.
             (org-air-view--refresh-arm (current-buffer) org-air-view--refresh-token)
             (should (timerp org-air-view--refresh-timer))
-            (should (memq org-air-view--refresh-timer timer-idle-list))
+            (should (org-air-view--refresh-chain-live-p))
+            (should (memq org-air-view--refresh-timer timer-list))
+            ;; the retired shapes: never idle-gated, never repeating.
+            (should-not (memq org-air-view--refresh-timer timer-idle-list))
+            (should-not (timer--repeat-delay org-air-view--refresh-timer))
             (let ((first org-air-view--refresh-timer))
               ;; arming again must NOT create a second live timer.
               (org-air-view--refresh-arm (current-buffer) org-air-view--refresh-token)
               (should (eq org-air-view--refresh-timer first))
-              (should (= 1 (cl-count first timer-idle-list))))
-            ;; disarm tears it down cleanly.
+              (should (= 1 (cl-count first timer-list))))
+            ;; disarm tears it down cleanly (chain AND watchdog backstop).
             (org-air-view--refresh-disarm)
             (should-not (timerp org-air-view--refresh-timer))
+            (should-not (org-air-view--refresh-chain-live-p))
+            (should-not (timerp org-air-view--refresh-watchdog))
             ;; a token bump (`g' mid-refresh) + re-arm never leaves two.
             (org-air-view--refresh-arm (current-buffer) org-air-view--refresh-token)
             (org-air-view--refresh-cancel)   ; bumps token + disarms
             (should-not (timerp org-air-view--refresh-timer)))
-        ;; belt-and-braces cleanup.
-        (when (timerp org-air-view--refresh-timer)
-          (cancel-timer org-air-view--refresh-timer))
+        ;; belt-and-braces cleanup (chain + watchdog).
+        (org-air-view--refresh-disarm)
         (setq org-air-view--refresh-timer nil)))))
 
 (ert-deftest org-air-r34-3-cold-end-to-end-reaches-done ()
   "Cold dispatch (no cache), driven to completion with NO real timers: the
-skeleton paints `loading 0/N', then driving `org-air-view--refresh-run-slice'
-to completion performs the SINGLE swap — the board is populated,
-`org-air-view--loading' is cleared, `refresh-state' is nil, and no
-`loading' marker remains.  Regression fence over the reported \"stuck
-forever\" once the pacer lets the slices run."
+skeleton paints the live `scanning 0/N…' numbers, then driving
+`org-air-view--refresh-run-slice' to completion performs the SINGLE swap —
+the board is populated, `org-air-view--loading' is cleared,
+`refresh-state' is nil, and no progress marker remains.  Regression fence
+over the reported \"stuck forever\" once the pacer lets the slices run.
+Re-blessed R56 P3a (never silent): the skeleton banner's count slot now
+reads `⟳ scanning 0/N…' — independent of the self-clearing `--loading'
+flag — retiring the `loading 0/N' string this test used to grep; the
+retired string is asserted ABSENT.  The end-to-end convergence
+assertions carry over verbatim."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-cache-env
     ;; a genuinely COLD start: no cache file on disk.
@@ -358,7 +387,12 @@ forever\" once the pacer lets the slices run."
       (should (> org-air-view--refresh-total 0))
       (org-air-view--render-loading)
       (let ((skeleton (substring-no-properties (buffer-string))))
-        (should (string-match-p "loading 0/[0-9]+" skeleton)))
+        ;; R56 P3a/P3b: the salient segment carries the numbers on the
+        ;; skeleton (banner AND centred body line); the retired
+        ;; `loading 0/N' string is gone.
+        (should (string-match-p "scanning 0/[0-9]+…" skeleton))
+        (should (string-match-p "(scanning 0/[0-9]+)" skeleton))
+        (should-not (string-match-p "loading [0-9]+/[0-9]+" skeleton)))
       ;; no live pacing timer under batch (P0), but the chain still runs
       ;; when the slices are driven directly.
       (should-not (timerp org-air-view--refresh-timer))
@@ -371,15 +405,20 @@ forever\" once the pacer lets the slices run."
       (should org-air-view--items)
       (let ((text (substring-no-properties (buffer-string))))
         (should-not (string-match-p "loading [0-9]+/[0-9]+" text))
+        (should-not (string-match-p "scanning [0-9]+/[0-9]+" text))
         (should-not (string-match-p "stale \u2219 refreshing" text))
         ;; the real board is present (a known fixture title rendered).
         (should (string-match-p "items" text))))))
 
 (ert-deftest org-air-r34-3-warm-run-leaves-no-live-pacer ()
-  "Warm cache-first path: after the driven slices reach DONE the `stale ∙
-refreshing' marker is cleared (R26-8) AND no live pacing timer survives —
+  "Warm cache-first path: after the driven slices reach DONE the mid-refresh
+progress marker is cleared (R26-8) AND no live pacing timer survives —
 the finish/disarm teardown cannot leave the pacer running past the single
-swap (which would re-fire on the next idle)."
+swap (which would re-fire on the next chain gap).
+Re-blessed R56 P3a (never silent): the mid-refresh marker is the salient
+`⟳ scanning N/M…' segment, retiring the faded `stale ∙ refreshing' this
+test used to pin (asserted ABSENT both mid-refresh and at DONE).  The
+no-live-pacer-after-done law carries over verbatim."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-cache-env
     (with-current-buffer (org-air-r26--cache-board)
@@ -397,13 +436,17 @@ swap (which would re-fire on the next idle)."
               org-air-view--cache-stale-files (cdr cache))
         (org-air-view--refresh-start)
         (org-air-view--render org-air-view--items nil)
-        (should (string-match-p "stale \u2219 refreshing"
-                                (substring-no-properties (buffer-string))))
+        (let ((text (substring-no-properties (buffer-string))))
+          ;; R56 P3a: the salient progress segment mid-refresh; the
+          ;; retired faded marker is GONE.
+          (should (string-match-p "scanning [0-9]+/[0-9]+…" text))
+          (should-not (string-match-p "stale \u2219 refreshing" text)))
         (should-not (timerp org-air-view--refresh-timer))  ; P0: none in batch
         (org-air-r26--run-slices)
         (should-not org-air-view--refresh-state)
         (should-not (timerp org-air-view--refresh-timer))
         (let ((text (substring-no-properties (buffer-string))))
+          (should-not (string-match-p "scanning [0-9]+/[0-9]+" text))
           (should-not (string-match-p "stale \u2219 refreshing" text))
           (should (string-match-p "r34-3 warm probe" text)))))))
 

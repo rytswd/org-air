@@ -1121,9 +1121,17 @@ board, with every marker slot cons-hydrated (FILE . POS)."
 
 (ert-deftest org-air-r26-8-stale-paint-marker-then-swap ()
   "Cache present + one file touched: the first paint equals the CACHED
-board (no new item) with the `stale ∙ refreshing' marker; driving the
+board (no new item) with the mid-refresh banner segment; driving the
 slices to completion repaints ONCE with the new item and CLEARS the
-marker."
+marker.
+Re-blessed R56 P3a (never silent): the mid-refresh count slot is now the
+ONE salient `⟳ scanning N/M…' progress segment — numbers from the
+machine's own queue/total, shown on the skeleton, the streaming cold
+board AND the painted cache-stale board alike — replacing BOTH the old
+`loading N/M files' and the faded `stale ∙ refreshing' marker this test
+used to pin (one string everywhere).  The retired marker is asserted
+ABSENT; the paint-cached-first / single-swap / crisp-clear conjuncts
+carry over verbatim."
   (skip-unless (locate-library "org-air"))
   (org-air-r26--with-cache-env
     (with-current-buffer (org-air-r26--cache-board)
@@ -1145,13 +1153,19 @@ marker."
         (org-air-view--refresh-start)
         (org-air-view--render org-air-view--items nil)
         (let ((text (substring-no-properties (buffer-string))))
-          (should (string-match-p "stale ∙ refreshing" text))
+          ;; R56 P3a: the salient progress segment, live from this very
+          ;; first paint — the retired faded marker is GONE.
+          (should (string-match-p "scanning [0-9]+/[0-9]+…" text))
+          (should-not (string-match-p "stale ∙ refreshing" text))
+          (should-not (string-match-p "loading [0-9]+/[0-9]+" text))
           (should-not (string-match-p "Cache stale probe" text)))
-        ;; slices to completion: single swap, marker cleared.
+        ;; slices to completion: single swap, segment cleared crisply
+        ;; in the same motion the final content lands (P3c).
         (org-air-r26--run-slices)
         (should-not org-air-view--refresh-state)
         (let ((text (substring-no-properties (buffer-string))))
           (should (string-match-p "Cache stale probe" text))
+          (should-not (string-match-p "scanning [0-9]+/[0-9]+" text))
           (should-not (string-match-p "stale ∙ refreshing" text)))))))
 
 (ert-deftest org-air-r26-8-mtime-fast-path-no-scan ()

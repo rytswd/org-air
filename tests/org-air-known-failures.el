@@ -1903,40 +1903,120 @@
     ;; `loading N/M files' and `stale · refreshing…'.  Six legacy ERTs
     ;; hardcode the superseded contracts and need TEST-track re-bless
     ;; (no fixture/golden moved — every change is gated off batch; `make
-    ;; regen-mockups' churn is zero by construction):
-    (org-air-r26-8-stale-paint-marker-then-swap
-     . "R56 P3a: the mid-refresh banner is now the salient `⟳ scanning \
-N/M…' segment; the test asserts the retired faded `stale ∙ refreshing' \
-marker (spec §P3a: one string everywhere).")
-    (org-air-r34-3-arm-disarm-lifecycle
-      . "R56 P2a: the pacer is a one-shot wall-clock chain \
-(`run-with-timer' -> timer-list); the test asserts the retired repeating \
-idle timer's `timer-idle-list' membership.  The lifecycle law itself \
-(exactly one live pacing timer; disarm/cancel tear down) still holds \
-and should be re-asserted against timer-list.")
-    (org-air-r34-3-cold-end-to-end-reaches-done
-      . "R56 P3a: the skeleton banner's count slot now reads `scanning \
-0/N…' (independent of --loading); the test greps the retired `loading \
-0/N' string.  The end-to-end convergence assertions it also carries \
-still hold.")
-    (org-air-r34-3-warm-run-leaves-no-live-pacer
-      . "R56 P3a: same banner re-bless as r26-8-stale-paint — asserts \
-`stale ∙ refreshing' mid-refresh, retired for `⟳ scanning N/M…'.  The \
-no-live-pacer-after-done law still holds.")
-    (org-air-r42-watchdog-force-completes-strand
-      . "R56 P2b: the watchdog's over-budget fallback now re-arms the \
-adaptive ONE-SHOT chain (repeat-delay nil) instead of the parallel 0.2s \
-REPEATING wall-clock pacer; the test asserts `timer--repeat-delay' == \
-`org-air-view--refresh-wallclock-pace' (now obsolete).  The \
-never-sync-a-big-queue law it locks still holds (zero scans in the \
-fire, queue intact) — re-bless to assert a live chain timer instead.")
-    (org-air-r53-7-over-budget-paces-never-force-scans
-      . "R56 P2c: abort accounting counts only STARTED scans — the \
-test's part (4) drives 3 PRE-START aborts (pending input aborts \
-`while-no-input' before the head file's scan begins) and expects the \
-head skip-dropped `slow'; spec ERT seam 6 inverts exactly this (3 \
-pre-start aborts -> NOT skip-logged, still queued; 3 mid-scan aborts \
-with the started flag up -> skip-logged as today)."))
+    ;; regen-mockups' churn is zero by construction).
+    ;;
+    ;; =================================================================
+    ;; v0.5 ROUND-56 CLOSEOUT (impl tip tvlvvlmm/8afc5347 + test re-bless
+    ;; <this commit>).  ALL 6 grind entries CLOSED — byte goldens
+    ;; byte-IDENTICAL as flagged (make clean && make regen-mockups,
+    ;; FROZEN-CLOCK renderer, anti-tautology guards active; NO HANG,
+    ;; exit 0; jj diff = ONLY test .el files, ZERO fixture churn — every
+    ;; R56 change is gated off the batch/idle machine), so the re-bless
+    ;; is assertion-only.  Each flagged ERT re-blessed HONESTLY to the
+    ;; design-blessed R56 contracts
+    ;; (air/v0.5/org-air-round56-design.org) — each asserts the NEW true
+    ;; behaviour, none weakened; ALL 6 verified REVERT-FAIL against the
+    ;; pre-impl trunk mmttlvtu in a scratch workspace:
+    ;;   org-air-r26-8-stale-paint-marker-then-swap — the mid-refresh
+    ;;     banner re-pinned to the salient `⟳ scanning N/M…' segment
+    ;;     (P3a: ONE string everywhere) with the retired faded `stale ∙
+    ;;     refreshing' AND the retired `loading N/M' asserted ABSENT;
+    ;;     the paint-cached-first / single-swap / crisp-clear (P3c)
+    ;;     conjuncts carry over verbatim.
+    ;;   org-air-r34-3-arm-disarm-lifecycle — the lifecycle law (exactly
+    ;;     one live pacing timer; disarm/cancel tear down) re-asserted
+    ;;     against `timer-list': the chain link is a WALL-CLOCK one-shot
+    ;;     (never `timer-idle-list', `timer--repeat-delay' nil — neither
+    ;;     the retired repeating idle pacer nor the obsolete 0.2s
+    ;;     repeating fallback), re-arm is single (same timer object,
+    ;;     count 1), and disarm now also proves the watchdog backstop
+    ;;     down.
+    ;;   org-air-r34-3-cold-end-to-end-reaches-done — the skeleton greps
+    ;;     `scanning 0/N…' in the banner AND the centred body line's
+    ;;     `(scanning 0/N)' copy (P3a/P3b, independent of `--loading'),
+    ;;     with the retired `loading 0/N' pinned ABSENT; at DONE the
+    ;;     clear-check covers the scanning segment too.  Every
+    ;;     end-to-end convergence conjunct carries over verbatim.
+    ;;   org-air-r34-3-warm-run-leaves-no-live-pacer — same banner
+    ;;     re-bless (salient segment mid-refresh, retired marker ABSENT
+    ;;     both mid-refresh and at DONE); the no-live-pacer-after-done
+    ;;     law carries over verbatim.
+    ;;   org-air-r42-watchdog-force-completes-strand — part (2)
+    ;;     re-blessed to the P2b fallback: the fire re-arms the adaptive
+    ;;     ONE-SHOT chain (`--refresh-chain-live-p', live `timer-list'
+    ;;     entry, repeat-delay nil, never idle-gated) + a fresh watchdog
+    ;;     — the `timer--repeat-delay' == `--refresh-wallclock-pace'
+    ;;     assertion retired with the parallel repeating pacer.  The
+    ;;     never-sync-a-big-queue law (zero scans in the fire, queue
+    ;;     intact, convergence by pacing) carries over verbatim.
+    ;;   org-air-r53-7-over-budget-paces-never-force-scans — part (4)
+    ;;     re-blessed to P2c started-scans-only accounting (spec ERT
+    ;;     seam 6, BOTH halves): (4a) a FULL retry-budget of PRE-START
+    ;;     aborts (pending input before the head's scan begins —
+    ;;     `while-no-input' aborts on its opening `input-pending-p')
+    ;;     skip-logs NOTHING and the head stays queued; (4b) the same
+    ;;     budget of MID-SCAN aborts (the started flag raised as the
+    ;;     slice loop does right before its query call) still
+    ;;     skip-logs `slow' and drops — the anti-livelock stays.  Parts
+    ;;     (1)-(3)/(5) (zero sync scans, watchdog paces, C-g abort,
+    ;;     convergence) carry over verbatim.
+    ;; NEW R56 EXECUTING ERTs (tests/org-air-round56-test.el, all
+    ;; batch/headless through the spec's named seams; paint gates opened
+    ;; by let-binding `noninteractive' nil around the direct slice
+    ;; drives only — no real timer ever fires; R56-1..6 verified
+    ;; REVERT-FAIL against the pre-impl trunk mmttlvtu):
+    ;;   r56-1-inbox-paints-before-full-scan — P1c both halves: the pure
+    ;;     `--refresh-queue-order' table (inbox position 1, rest mtime
+    ;;     DESC, stable ties/missing-mtimes) + the executing seam: inbox
+    ;;     sorts LAST in enumeration AND carries the OLDEST mtime
+    ;;     (anti-tautology — only the inbox rule can head it), yet ONE
+    ;;     budgeted slice + the immediate un-throttled first paint put
+    ;;     the inbox capture in `--items' AND on the rendered board
+    ;;     while the queue is >90% full and the machine live.
+    ;;   r56-2-cold-stream-paints-repeatedly — P1b (seams 2/4): stubbed
+    ;;     clock stepping 0.6s/slice -> >=3 progressive paints STRICTLY
+    ;;     increasing in item count (empty-file slices paint nothing —
+    ;;     the new-items condition), `--loading' nil after the first,
+    ;;     stream mode set AT refresh-start and ended by the finish
+    ;;     swap.  The retired self-clearing `--loading' gate yields
+    ;;     exactly 1 paint — fails.
+    ;;   r56-3-cache-stale-paints-cached-board-first — P1a (seam 3): the
+    ;;     STALE deferred one-shot (driven directly, the sanctioned
+    ;;     R45-2 seam) renders the FULL cached board with ZERO scans in
+    ;;     the call, then OWNS the paced kickoff — cached content on
+    ;;     screen while `refreshing' with a non-empty queue, stream mode
+    ;;     OFF (single-swap behind the painted board); the P3b banner
+    ;;     tick rewrites line 1 in place with `scanning N/M'.
+    ;;   r56-4-adaptive-pacer-gap-and-convergence — P2a (seam 5): pure
+    ;;     gap table (0.01 uninterrupted; 0.15/0.3/0.6/0.6 doubling
+    ;;     abort backoff; 0.01 recovery; bounded both ways over a
+    ;;     500-step mixed chain — the R34-3 anti-strand law); the chain
+    ;;     armer records the gap and keeps EXACTLY ONE pending one-shot
+    ;;     across transitions; the 198-slice wall-clock model beats the
+    ;;     retired 0.2s duty-cycle by >5x; a real 30-file queue
+    ;;     converges in <= one slice per file (never indefinite).
+    ;;   r56-5-progress-segment-truth — P3a/P3b/P3c (seam 7): skeleton
+    ;;     carries `scanning 0/6…' (banner + body-line copy), N grows
+    ;;     1/6 -> 2/6 from the machine's own numbers, the segment shows
+    ;;     on a PAINTED board with `--loading' NIL wearing the salient
+    ;;     `org-air-face-progress', clears crisply at the finish swap
+    ;;     (plain `N items' returns); retired strings never render.
+    ;;   r56-6-never-hang-abort-and-watchdog — P2b (seam 8): pending
+    ;;     input aborts a slice with queue/acc/state untouched; the
+    ;;     watchdog fire on a >budget queue runs ZERO scans (never a
+    ;;     main-thread force-scan) and interactively re-arms the
+    ;;     ONE-SHOT chain + fresh watchdog; convergence by pacing.
+    ;;   r56-7-warm-refresh-stays-single-swap — seam 9 LOCK (not a
+    ;;     revert-fence: pre-R56 warm refreshes never streamed either):
+    ;;     a painted board + all-files-touched paced refresh with the
+    ;;     paint gates OPEN performs ZERO progressive paints and exactly
+    ;;     ONE content repaint (the finish swap); `--refresh-progressive'
+    ;;     stays nil — P1b's stream mode can never leak into warm
+    ;;     refreshes.
+    ;; No .el SOURCE touched on the test track (impl landed R56 P1-P3 in
+    ;; tvlvvlmm).  Round-56 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
+    )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 
 (defun org-air-test-apply-known-failures ()

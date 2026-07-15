@@ -288,16 +288,18 @@ refresh would leave a <=budget change `refreshing with a non-empty queue."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r42-watchdog-force-completes-strand ()
-  "R53 P1c (re-bless, spec §P1c / ERT seam 4): the watchdog NEVER drains a
-queue ABOVE the sync budget synchronously — that force-complete WAS the
-measured 4.5-minute mid-session freeze at 5000 files.  Above budget it
-switches the SAME budgeted slice driver to a repeating wall-clock pacer
-\(progress independent of idleness) and re-arms itself; the state
-legitimately STAYS `refreshing' and converges by pacing, never by
-freezing.  A provably SMALL remainder (<= the budget) still
-force-completes synchronously, so the R42-2 no-strand guarantee
+  "R53 P1c / R56 P2b (re-bless, spec §P2b / ERT seam 8): the watchdog NEVER
+drains a queue ABOVE the sync budget synchronously — that force-complete
+WAS the measured 4.5-minute mid-session freeze at 5000 files.  Above
+budget it re-arms the R56 P2a adaptive ONE-SHOT wall-clock chain (a live
+`timer-list' entry, `timer--repeat-delay' nil — the parallel 0.2s
+REPEATING wall-clock fallback pacer is retired) and re-arms itself
+behind it; the state legitimately STAYS `refreshing' and converges by
+pacing, never by freezing.  A provably SMALL remainder (<= the budget)
+still force-completes synchronously, so the R42-2 no-strand guarantee
 survives.  Revert-fails: the old unconditional sync drain scans the
-over-budget queue inside the fire (the counter > 0)."
+over-budget queue inside the fire (the counter > 0); the retired
+fallback armed a REPEATING timer (repeat-delay non-nil)."
   (skip-unless (locate-library "org-air"))
   (org-air-r42--with-warm-board
     (let ((org-air-view--refresh-sync-budget 0)   ; queue(1) > budget(0)
@@ -316,16 +318,20 @@ over-budget queue inside the fire (the counter > 0)."
           (should (= org-air-r42--ql-calls 0)))
         (should (eq org-air-view--refresh-state 'refreshing))
         (should (equal org-air-view--refresh-queue queue-before))
-        ;; (2) the fallback driver: outside batch the fire re-arms the SAME
-        ;; slice runner on a repeating WALL-CLOCK pacer (not idle-gated) +
-        ;; a fresh watchdog behind it.  Timers never fire in batch — assert
-        ;; the arming, then disarm for determinism.
+        ;; (2) the fallback driver: outside batch the fire re-arms the R56
+        ;; P2a adaptive ONE-SHOT chain (a live pending `timer-list' entry
+        ;; scheduling the SAME slice runner; wall-clock, not idle-gated;
+        ;; NOT the retired 0.2s repeating pacer) + a fresh watchdog behind
+        ;; it.  Timers never fire in batch — assert the arming, then
+        ;; disarm for determinism.
         (let ((noninteractive nil))
           (org-air-view--refresh-watchdog-fire (current-buffer)
                                                org-air-view--refresh-token))
         (should (timerp org-air-view--refresh-timer))
-        (should (equal (timer--repeat-delay org-air-view--refresh-timer)
-                       org-air-view--refresh-wallclock-pace))
+        (should (org-air-view--refresh-chain-live-p))
+        (should (memq org-air-view--refresh-timer timer-list))
+        (should-not (memq org-air-view--refresh-timer timer-idle-list))
+        (should-not (timer--repeat-delay org-air-view--refresh-timer))
         (should (timerp org-air-view--refresh-watchdog))
         (org-air-view--refresh-disarm)
         (should (eq org-air-view--refresh-state 'refreshing))

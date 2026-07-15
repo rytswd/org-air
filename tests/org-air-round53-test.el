@@ -41,8 +41,10 @@
 ;;         set paces (state `refreshing', ZERO synchronous scans at
 ;;         start); the watchdog NEVER force-scans that queue on the main
 ;;         thread; pending input aborts a slice with the queue intact
-;;         (C-g abortable) and a file that keeps aborting is skip-logged
-;;         `slow' (no livelock); the queue then CONVERGES by slices.
+;;         (C-g abortable) and a file that keeps aborting MID-SCAN is
+;;         skip-logged `slow' (no livelock; R56 P2c re-bless: pre-start
+;;         aborts count against nobody); the queue then CONVERGES by
+;;         slices.
 ;;   R53-8 BUDGETED SLICES (P1c, seam 5) — one budget-0 slice consumes
 ;;         exactly its ONE-file minimum; a generous-budget slice consumes
 ;;         MANY files even with the obsoleted `org-air-refresh-files-per-
@@ -601,9 +603,16 @@ synchronous scans (the 271.8s-class cold scan can never run on the main
 thread).  Firing the watchdog on that queue runs ZERO scans and leaves
 the queue intact (it paces, never force-completes — the old sync drain
 WAS the user's 4.5-minute freeze).  Pending input ABORTS a slice with
-the queue/accumulator untouched (C-g abortability); a file that keeps
-aborting is skip-logged `slow' and dropped (no livelock); the queue then
-CONVERGES by budgeted slices to the terminal single-swap."
+the queue/accumulator untouched (C-g abortability); the queue then
+CONVERGES by budgeted slices to the terminal single-swap.
+Re-blessed R56 P2c (never silent, spec ERT seam 6): abort accounting
+now counts only STARTED scans — a full retry-budget of PRE-START aborts
+\(input pending before the head file's scan begins, the key-repeat
+shape) skip-logs NOTHING and drops nothing: the head stays queued, so
+key-repeat can no longer silently drop innocent files as `slow'.  A file
+that genuinely keeps aborting MID-SCAN (the started flag up, as the
+slice loop raises it right before the query call) is still skip-logged
+`slow' and dropped — the anti-livelock stays."
   (skip-unless (locate-library "org-air"))
   (let ((specs (list '("inbox.org" . "* TODO Inbox capture :inbox:\n"))))
     (dotimes (i 20)
@@ -629,21 +638,38 @@ CONVERGES by budgeted slices to the terminal single-swap."
             (should (= org-air-r53--scan-calls 0)))
           (should (eq org-air-view--refresh-state 'refreshing))
           (should (equal org-air-view--refresh-queue queue-before)))
-        ;; (3) C-g abortability: pending input aborts the slice BETWEEN
-        ;; files — queue, accumulator and state all untouched.
+        ;; (3) C-g abortability: pending input aborts the slice BEFORE the
+        ;; head file's scan begins — queue, accumulator and state all
+        ;; untouched.
         (let ((head (car org-air-view--refresh-queue))
-              (acc-before org-air-view--refresh-acc)
-              (unread-command-events (list ?g)))
-          (org-air-view--refresh-run-slice (current-buffer)
-                                           org-air-view--refresh-token)
+              (acc-before org-air-view--refresh-acc))
+          (let ((unread-command-events (list ?g)))
+            (org-air-view--refresh-run-slice (current-buffer)
+                                             org-air-view--refresh-token))
           (should (eq org-air-view--refresh-state 'refreshing))
           (should (= (length org-air-view--refresh-queue) 21))
           (should (eq org-air-view--refresh-acc acc-before))
-          ;; (4) no livelock: `org-air-scan-abort-retries' aborts of the
-          ;; SAME head file skip-log it `slow' and drop it from the queue.
-          (dotimes (_ (1- org-air-scan-abort-retries))
-            (org-air-view--refresh-run-slice (current-buffer)
-                                             org-air-view--refresh-token))
+          ;; (4a) R56 P2c: a FULL retry-budget of further PRE-START aborts
+          ;; (input pending before the head's scan starts — `while-no-input'
+          ;; aborts on its opening `input-pending-p') counts against NOBODY:
+          ;; the head is NOT skip-logged and stays queued.  Reverting P2c
+          ;; (count every abort against the head) drops it here.
+          (dotimes (_ org-air-scan-abort-retries)
+            (let ((unread-command-events (list ?g)))
+              (org-air-view--refresh-run-slice (current-buffer)
+                                               org-air-view--refresh-token)))
+          (should (= (length org-air-view--refresh-queue) 21))
+          (should (equal head (car org-air-view--refresh-queue)))
+          (should-not (org-air-r53--skip-reason head))
+          ;; (4b) no livelock: `org-air-scan-abort-retries' MID-SCAN aborts
+          ;; of the SAME head file (the started flag raised, exactly as the
+          ;; slice loop does right before its query call) still skip-log it
+          ;; `slow' and drop it from the queue.
+          (dotimes (_ org-air-scan-abort-retries)
+            (setq org-air-view--refresh-scan-started t)
+            (let ((unread-command-events (list ?g)))
+              (org-air-view--refresh-run-slice (current-buffer)
+                                               org-air-view--refresh-token)))
           (should (= (length org-air-view--refresh-queue) 20))
           (should (eq (org-air-r53--skip-reason head) 'slow))
           (should-not (member head org-air-view--refresh-queue)))

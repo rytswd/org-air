@@ -34,6 +34,18 @@
 ;;         screen while the machine is `refreshing' with a non-empty
 ;;         queue; the P3b banner tick surfaces `scanning N/M' on that
 ;;         painted board.  Reverting P1a (skeleton-until-finish) fails.
+;;   R56-3b DISPATCHER STALE-ARM FENCE (P1a wiring; R56fix Blocker 1) —
+;;         R56-3 drives the one-shot DIRECTLY, so it cannot fence the
+;;         dispatcher WIRING.  This fence drives the REAL `org-air-view'
+;;         command through the R45-2 interactive scaffolding (stubbed
+;;         `run-with-idle-timer' capture) over a STALE cache: the
+;;         captured one-shot IS `org-air-view--deferred-stale-paint',
+;;         the command body NEVER enters `refreshing' (no pre-R56
+;;         command-body `--refresh-start' kickoff, no chain timer), and
+;;         the hand-fired one-shot renders the cached board BEFORE the
+;;         machine goes live.  Reverting ONLY the dispatcher's STALE arm
+;;         to the command-body kickoff (skeleton-until-finish — the
+;;         user's minutes-long defect) fails.
 ;;   R56-4 ADAPTIVE PACER (P2a, seam 5) — `--refresh-next-gap' is pure
 ;;         and monotone (0.01 uninterrupted; 0.15/0.3/0.6/0.6 across
 ;;         consecutive aborts; 0.01 on recovery; bounded both ways); the
@@ -43,6 +55,17 @@
 ;;         queue CONVERGES in a bounded number of slices (never
 ;;         indefinite).  Reverting P2a (constant 0.2s / idle pacing)
 ;;         fails.
+;;   R56-4b SLICE-RUNNER RE-ARM FENCE (P2a wiring; R56fix Blocker 2) —
+;;         R56-4 part (3) proves the chain armer in ISOLATION; this
+;;         fence proves the slice runner CALLS it.  Under a seeded DUMMY
+;;         chain handle with the interactive gate open and
+;;         `--refresh-chain-arm' spied (spy only — no real arm): a clean
+;;         slice with a non-empty queue re-arms with `completed', an
+;;         input-aborted slice with `aborted', and the FINAL
+;;         queue-emptying slice does NOT re-arm (the finish disarms the
+;;         handle).  DELETING the run-slice re-arm hunk (interactive
+;;         fills degrade to ~1 slice per 8s watchdog period ≈ tens of
+;;         minutes at ~1800 files) fails.
 ;;   R56-5 PROGRESS SEGMENT TRUTH (P3a/P3b/P3c, seam 7) — the skeleton
 ;;         carries `scanning 0/N…' (banner AND centred body line), the
 ;;         numbers GROW as slices land, the segment shows on a PAINTED
@@ -66,7 +89,11 @@
 ;;
 ;; REVERT-FAIL verified against the pre-impl trunk (mmttlvtu) in a
 ;; scratch workspace: R56-1..6 all fail there (R56-7 passes by design —
-;; the lock above), as do the six re-blessed legacy ERTs.
+;; the lock above), as do the six re-blessed legacy ERTs.  The R56fix
+;; fences verified against PARTIAL reverts of the impl tip in a scratch
+;; sandbox (the two holes the R56 review blocked on): reverting only the
+;; dispatcher's STALE arm to the command-body kickoff fails R56-3b;
+;; deleting only the run-slice re-arm hunk fails R56-4b.
 ;;
 ;; Perf probes stay OUT of the gate (tiny corpora only; no large scan in
 ;; `make check') — the wall-clock claims are locked as pure arithmetic
@@ -82,6 +109,7 @@
 (require 'org-air-test-helpers)
 (require 'org-air-viewport-helpers)      ; frozen-clock render env
 (require 'org-air-round26-test)          ; cache env helpers
+(require 'org-air-round45-test)          ; interactive-drive scaffolding
 (require 'org-air-round53-test)          ; corpus/board/counting helpers
 
 (when (locate-library "org-air")
@@ -299,6 +327,81 @@ kickoff) fails."
           (should-not (string-match-p "scanning [0-9]+/[0-9]+" text)))))))
 
 ;;;; -------------------------------------------------------------------
+;;;; R56-3b — the dispatcher's STALE arm owns the deferred paint (P1a)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r56-3b-dispatcher-stale-arm-defers-paint ()
+  "The REAL `org-air-view' STALE arm defers to the stale one-shot (P1a).
+R56-3 drives `org-air-view--deferred-stale-paint' DIRECTLY, so it alone
+cannot fence the dispatcher WIRING: reverting only the STALE arm back to
+the pre-R56 command-body `(org-air-view--refresh-start t)' kickoff
+\(skeleton-until-finish — the user's measured minutes-long \"Loading
+your board…\") would pass it and ship the defect green.  This fence
+drives the command itself through the R45-2 interactive scaffolding
+\(stubbed `run-with-idle-timer' capture; no real timer fires) over a
+valid STALE cache and pins the wiring: (a) the captured one-shot IS
+`org-air-view--deferred-stale-paint'; (b) the command body never enters
+`refreshing' — no command-body kickoff, no chain timer; (c) fired by
+hand, the one-shot renders the cached board with the machine still idle
+and only THEN starts the paced rescan (render-BEFORE-refreshing order),
+leaving a live queue + armed chain behind the painted board.  Reverting
+the dispatcher's STALE arm fails (a) and (b)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r26--with-cache-env
+    ;; prime a valid cache, then make it STALE: fresh session + a touched
+    ;; inbox (new capture + a decisive mtime bump) — the R56-3 recipe.
+    (with-current-buffer (org-air-r26--cache-board)
+      (org-air-r26--scan-and-cache))
+    (kill-buffer org-air-view-buffer-name)
+    (org-air-r26--kill-file-buffers org-air-test--dir)
+    (write-region "* TODO Dispatcher stale probe\n" nil
+                  org-air-inbox-file 'append)
+    (set-file-times org-air-inbox-file (time-add (current-time) 5))
+    (org-air-r45--driving-interactive
+      (org-air-view)
+      ;; the STALE branch really ran: cached items seeded, stale files on
+      ;; record, the skeleton the ONLY paint on the launch path.
+      (with-current-buffer org-air-view-buffer-name
+        (should org-air-view--items)
+        (should org-air-view--cache-stale-files)
+        ;; (b) the command body did NOT enter `refreshing' — the paced
+        ;; kickoff belongs to the one-shot, never the command body (the
+        ;; pre-R56 arm entered it right here, skeleton-until-finish).
+        (should-not org-air-view--refresh-state)
+        (should-not org-air-view--refresh-queue)
+        (should-not (timerp org-air-view--refresh-timer)))
+      (should (equal org-air-r45--calls '(loading)))
+      ;; (a) the captured one-shot IS the stale paint fn.
+      (ert-info ((format "idle=%S" org-air-r45--idle))
+        (should org-air-r45--idle)
+        (should (eq (car org-air-r45--idle)
+                    'org-air-view--deferred-stale-paint)))
+      ;; (c) fire it by hand, recording the machine state AT the full
+      ;; render: the cached board paints BEFORE the machine goes live.
+      (let ((render-state 'never-rendered))
+        (cl-letf (((symbol-function 'org-air-view--render)
+                   (lambda (&rest _)
+                     (setq render-state org-air-view--refresh-state)
+                     (push 'render org-air-r45--calls))))
+          (org-air-r45--fire-one-shot))
+        ;; rendered (never-rendered is non-nil), machine idle at render.
+        (should-not render-state))
+      (should (equal (reverse org-air-r45--calls) '(loading render)))
+      ;; …and only THEN the paced kickoff: live machine, non-empty queue,
+      ;; adaptive chain + watchdog armed behind the painted board.
+      (with-current-buffer org-air-view-buffer-name
+        (should (eq org-air-view--refresh-state 'refreshing))
+        (should org-air-view--refresh-queue)
+        (should-not org-air-view--refresh-progressive)
+        (should (org-air-view--refresh-chain-live-p))
+        (should (timerp org-air-view--refresh-watchdog))
+        ;; drive to the finish: converges, every timer down.
+        (org-air-r26--run-slices)
+        (should-not org-air-view--refresh-state)
+        (should-not (timerp org-air-view--refresh-timer))
+        (should-not (timerp org-air-view--refresh-watchdog))))))
+
+;;;; -------------------------------------------------------------------
 ;;;; R56-4 — the adaptive self-chaining pacer (P2a)
 ;;;; -------------------------------------------------------------------
 
@@ -384,6 +487,77 @@ Reverting P2a (constant 0.2s cadence or idle pacing) fails."
           (should-not org-air-view--refresh-state)
           (should (<= slices 30)))
         (should (= (length org-air-view--items) 30))))))
+
+;;;; -------------------------------------------------------------------
+;;;; R56-4b — the slice runner ITSELF re-arms the chain (P2a wiring)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r56-4b-slice-runner-rearms-the-chain ()
+  "The slice runner re-arms the adaptive chain with the slice's outcome.
+R56-4 part (3) proves `org-air-view--refresh-chain-arm' in ISOLATION;
+nothing there proves the run-slice bottom CALLS it — deleting the re-arm
+hunk leaves every direct-drive ERT green (the gate reads the chain
+HANDLE, nil in every handle-less direct drive) while an interactive fill
+degrades to ~1 slice per 8s watchdog period ≈ tens of minutes at the
+measured 1801-file corpus: the exact defect this round kills.  Fence:
+under a seeded DUMMY chain handle (interactively a handle always exists
+while `refreshing') with the interactive gate open and the armer spied
+\(spy ONLY — no real arm, no timer spawned): a clean slice with a
+non-empty queue re-arms with `completed'; an input-aborted slice re-arms
+with `aborted' (the backoff outcome); the FINAL queue-emptying slice
+does NOT re-arm — the finish disarms the handle instead.  DELETING the
+run-slice re-arm hunk fails."
+  (skip-unless (locate-library "org-air"))
+  (let ((specs (list '("inbox.org" . "* TODO Inbox capture :inbox:\n"))))
+    (dotimes (i 3)
+      (push (cons (format "f%02d.org" i) (format "* TODO Item %02d\n" i))
+            specs))
+    (org-air-r53--with-corpus specs
+      (org-air-r53--with-board
+        (setq org-air-view--items nil
+              org-air-view--items-mtimes nil)
+        (org-air-view--refresh-start t)     ; real batch start: no timer
+        (should (eq org-air-view--refresh-state 'refreshing))
+        (should (= org-air-view--refresh-total 4))
+        (should-not org-air-view--refresh-timer)   ; why the seed below
+        (let ((arms nil)
+              (token org-air-view--refresh-token))
+          (unwind-protect
+              (cl-letf (((symbol-function 'org-air-view--refresh-chain-arm)
+                         (lambda (_buffer _token outcome)
+                           (push outcome arms))))   ; spy — never arms
+                (let ((noninteractive nil)          ; the re-arm gate…
+                      (org-air-refresh-slice-budget 0)) ; one file/slice
+                  ;; …needs a live chain HANDLE: seed a dummy one-shot.
+                  (setq org-air-view--refresh-timer
+                        (run-with-timer 1000 nil #'ignore))
+                  ;; (1) a clean slice, queue still non-empty -> 'completed.
+                  (org-air-view--refresh-run-slice (current-buffer) token)
+                  (should (eq org-air-view--refresh-state 'refreshing))
+                  (should (equal arms '(completed)))
+                  ;; (2) an input-aborted slice -> 'aborted (backoff).
+                  (let ((unread-command-events (list ?g)))
+                    (org-air-view--refresh-run-slice (current-buffer)
+                                                     token))
+                  (should (eq org-air-view--refresh-state 'refreshing))
+                  (should (equal arms '(aborted completed)))
+                  ;; recovery slices keep the chain 'completed…
+                  (org-air-view--refresh-run-slice (current-buffer) token)
+                  (org-air-view--refresh-run-slice (current-buffer) token)
+                  (should (equal arms '(completed completed
+                                        aborted completed)))
+                  (should (= (length org-air-view--refresh-queue) 1))
+                  ;; (3) …and the FINAL queue-emptying slice does NOT
+                  ;; re-arm: the finish disarms the dummy handle instead.
+                  (org-air-view--refresh-run-slice (current-buffer) token)
+                  (should-not org-air-view--refresh-state)
+                  (should (equal arms '(completed completed
+                                        aborted completed)))
+                  (should-not org-air-view--refresh-timer)
+                  (should (= (length org-air-view--items) 4))))
+            (when (timerp org-air-view--refresh-timer)
+              (cancel-timer org-air-view--refresh-timer)
+              (setq org-air-view--refresh-timer nil))))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; R56-5 — the visible progress segment (P3a/P3b/P3c)

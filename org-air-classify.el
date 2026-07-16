@@ -55,12 +55,16 @@ items."
   "Return done TODO keywords applicable to ITEM WITHOUT opening a file.
 R53 P2: the scan records `donep' at scan time, so this is only the
 fallback vocabulary for items built OUTSIDE the scan (a live capture
-buffer): the live marker's buffer keywords, else the global default."
+buffer): the live marker's buffer keywords (a real buffer still knows
+best), else the MERGED scan vocabulary's done set
+\(`org-air-query-merged-done-keywords', R57-1: the user's global done
+keywords — CLOSED, DROPPED — plus org-air's supplement, replacing the
+pre-R57 hard-wired (\"DONE\"))."
   (or (when-let* ((src (org-air-classify--item-source item)))
         (with-current-buffer (car src)
           (or org-done-keywords (default-value 'org-done-keywords))))
       (default-value 'org-done-keywords)
-      '("DONE")))
+      (org-air-query-merged-done-keywords)))
 
 (defun org-air-classify--done-p (item)
   "Return non-nil if ITEM has a done TODO state.
@@ -212,7 +216,14 @@ treatment."
          (scheduled (org-air-item-scheduled item))
          (deadline (org-air-item-deadline item))
          (inbox-p (org-air-classify--inbox-dweller-p item)))
-    (unless (org-air-classify--done-p item)
+    (unless (or (org-air-classify--done-p item)
+                ;; R57-1 audit #5: an ARCHIVED heading (`org-archive-tag',
+                ;; already inherited into `tags' per the user's
+                ;; tag-inheritance settings, so whole ARCHIVE trees drop
+                ;; with default Org config) is history, never board
+                ;; material — mirrors `org-agenda-skip-archived-trees''s
+                ;; default.
+                (member org-archive-tag (org-air-item-tags item)))
       (when (or (org-air-classify--future-or-today-p scheduled now)
                 (org-air-classify--future-or-today-p deadline now))
         (push 'upcoming buckets))

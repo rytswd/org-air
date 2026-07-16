@@ -32,14 +32,21 @@
 (defvar org-air-inbox-file)
 
 (defcustom org-air-todo-keywords
-  '(:not-done ("TODO" "NEXT" "STARTED" "WAIT" "WAITING" "HOLD" "BLOCKED")
-    :done     ("DONE" "CANCELLED" "CANCELED" "KILL"))
-  "TODO keyword vocabulary org-air recognises when a file declares none.
-The active (:not-done) and :done keyword sets org-air falls back to so a
-heading like `* NEXT Foo' is parsed as a NEXT task even in a file without
-a `#+TODO:' line.  A file's OWN `#+TODO:'/`#+SEQ_TODO:' always wins; this
-only fills the gap.  Defaults mirror the keys of
-`org-air-todo-keyword-faces' plus the standard done keywords (R21-3)."
+  '(:not-done ("TODO" "NEXT" "STARTED" "READY" "WIP"
+               "WAIT" "WAITING" "HOLD" "BLOCKED")
+    :done     ("DONE" "COMP" "CANCELLED" "CANCELED" "KILL" "DROP"))
+  "TODO keyword vocabulary org-air SUPPLEMENTS the user's with (R57-1).
+The :not-done and :done keyword sets merged AFTER the user's own global
+`org-todo-keywords' (deduplicated at bare-name level, see
+`org-air-query--scan-todo-keywords') so a heading like `* NEXT Foo' is
+parsed as a NEXT task even in a file without a `#+TODO:' line.  Only
+ever a supplement, never a replacement: the user's global is the base,
+and a file's OWN `#+TODO:'/`#+SEQ_TODO:' always wins — this fills the
+gap for files declaring none.  R57-2 adds the Air-aligned keywords READY
+and WIP (:not-done) plus COMP and DROP (:done), mirroring Air document
+states draft/ready/work-in-progress/complete/dropped.  Defaults mirror
+the keys of `org-air-todo-keyword-faces' plus the standard done
+keywords."
   :type '(plist :key-type symbol :value-type (repeat string))
   :group 'org-air)
 
@@ -83,18 +90,79 @@ monster-file valve of the never-hang contract."
   :type '(choice (const :tag "No limit" nil) integer)
   :group 'org-air)
 
+(defun org-air-query--todo-keyword-name (kw)
+  "Return KW's bare keyword name, exactly as Org itself splits it.
+Org's `org-set-regexps-and-options' splitter: the name is everything
+before an optional trailing \"(...)\" fast-access/logging spec —
+\"DONE(d!)\" => \"DONE\", \"DROPPED(x@)\" => \"DROPPED\", \"CLOSED\" =>
+\"CLOSED\"."
+  (if (string-match "^\\(.*?\\)\\(?:(\\([^!@/]\\)?.*?)\\)?$" kw)
+      (match-string 1 kw)
+    kw))
+
 (defun org-air-query--scan-todo-keywords ()
-  "Return an `org-todo-keywords' value merging org-air's vocabulary (R21-3).
-One sequence: the :not-done keywords, then `|', then the :done keywords.
-Let-bound around the org-ql scan so a file WITHOUT its own `#+TODO:'
-inherits org-air's NEXT/WAIT/... vocabulary (otherwise the keyword is
-swallowed into the title), while a file WITH a `#+TODO:'/`#+SEQ_TODO:'
-line still parses with its own (Org's per-file keywords win over the
-default)."
-  `((sequence
-     ,@(plist-get org-air-todo-keywords :not-done)
-     "|"
-     ,@(plist-get org-air-todo-keywords :done))))
+  "The USER's global `org-todo-keywords' + org-air's supplement (R57-1).
+BASE: `default-value' of `org-todo-keywords', kept VERBATIM — same
+interpretation symbols, same keyword spellings (fast-access keys and
+`!'/`@' logging specs intact), same order and `|' placement; a legacy
+flat string list normalises to one sequence under
+`org-todo-interpretation'.  SUPPLEMENT: ONE appended (sequence ...)
+holding only the `org-air-todo-keywords' entries NOT already declared
+anywhere in the base at bare-name level
+\(`org-air-query--todo-keyword-name', case-sensitive `member' — exactly
+as Org treats keywords), with an ALWAYS-explicit \"|\" so the done set
+can never silently corrupt when the :done extras dedup away.  When both
+extra sets are empty after dedup the user's value returns unchanged.
+Let-bound around the work-buffer scan: this is the DEFAULT binding
+`org-set-regexps-and-options' consults when a file declares no `#+TODO:'
+of its own — a file's own declaration still wins, byte-identically to
+before.  Never signals: a nil or malformed global degrades to Org's own
+default base."
+  (let* ((user (default-value 'org-todo-keywords))
+         ;; Org's backward-compat rule: a legacy flat string list is one
+         ;; sequence under `org-todo-interpretation'.
+         (base (cond ((and (consp user) (stringp (car user)))
+                      (list (cons org-todo-interpretation user)))
+                     ((and (consp user) (cl-every #'consp user)) user)
+                     (t nil)))
+         ;; Org's own default — the never-signal floor for a nil or
+         ;; malformed global.
+         (base (or base '((sequence "TODO" "DONE"))))
+         (declared (cl-loop for seq in base
+                            append (cl-loop for kw in (cdr seq)
+                                            unless (equal kw "|")
+                                            collect (org-air-query--todo-keyword-name kw))))
+         (extra (lambda (kws)
+                  (cl-remove-if (lambda (kw)
+                                  (member (org-air-query--todo-keyword-name kw)
+                                          declared))
+                                kws)))
+         (extra-not-done (funcall extra (plist-get org-air-todo-keywords :not-done)))
+         (extra-done (funcall extra (plist-get org-air-todo-keywords :done)))
+         ;; Cross-plist dedup: a keyword in both halves supplements once,
+         ;; on the :not-done side.
+         (extra-done (cl-set-difference extra-done extra-not-done
+                                        :test #'equal)))
+    (if (or extra-not-done extra-done)
+        (append base
+                (list (append '(sequence) extra-not-done '("|") extra-done)))
+      base)))
+
+(defun org-air-query-merged-done-keywords ()
+  "Return the bare DONE keyword names of the merged scan vocabulary (R57-1).
+Derives the done set from `org-air-query--scan-todo-keywords' exactly as
+Org does per sequence — the keywords after the \"|\" separator; when a
+sequence declares no separator, its LAST keyword — at bare-name level
+\(`org-air-query--todo-keyword-name').  Pure list data over the merged
+vocabulary: the final fallback done set for items built OUTSIDE the scan
+\(see `org-air-classify--done-keywords'), replacing the pre-R57
+hard-wired (\"DONE\")."
+  (cl-loop for seq in (org-air-query--scan-todo-keywords)
+           append (let* ((kws (cdr seq))
+                         (done (or (cdr (member "|" kws)) (last kws))))
+                    (cl-loop for kw in done
+                             unless (equal kw "|")
+                             collect (org-air-query--todo-keyword-name kw)))))
 
 (cl-defstruct (org-air-item
                (:constructor org-air-item-create)
@@ -903,7 +971,9 @@ single `org-mode' work buffer; the
 variable `buffer-file-name' is set for the file's extent (so Org's
 file-relative logic behaves) and always cleared again;
 `org-set-regexps-and-options' makes the file's own
-`#+TODO:' win, with the R21-3 default vocabulary otherwise.  Known,
+`#+TODO:' win, with the R57-1 MERGED default vocabulary otherwise (the
+user's global `org-todo-keywords' as the base + org-air's supplement —
+never a replacement; see `org-air-query--scan-todo-keywords').  Known,
 accepted difference: file-local variable BLOCKS are not processed here
 \(`#+…' keywords ARE); a file whose parsing genuinely depends on local
 variables scans like the same Org file without them."

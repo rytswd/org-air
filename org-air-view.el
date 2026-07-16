@@ -709,16 +709,21 @@ always shows the keyword/token text either way (`NEXT', `[R]')."
   '(("TODO" . org-air-face-todo)
     ("NEXT" . org-air-face-todo-next)
     ("STARTED" . org-air-face-todo-next)
+    ("READY" . org-air-face-todo-next)
+    ("WIP" . org-air-face-todo-next)
     ("WAIT" . org-air-face-todo-wait)
     ("WAITING" . org-air-face-todo-wait)
     ("HOLD" . org-air-face-todo-wait)
     ("BLOCKED" . org-air-face-todo-wait)
     ("DONE" . org-air-face-done)
+    ("COMP" . org-air-face-done)
     ("CANCELLED" . org-air-face-done)
     ("CANCELED" . org-air-face-done)
-    ("KILL" . org-air-face-done))
+    ("KILL" . org-air-face-done)
+    ("DROP" . org-air-face-done))
   "Map TODO keyword strings to faces for coloured rendering (T1a).
-Unknown keywords fall back to `org-air-face-todo'."
+Unknown keywords fall back to `org-air-face-todo' — or, when the item is
+DONE, to `org-air-face-done' (R57-1; see `org-air-view--todo-face')."
   :type '(alist :key-type string :value-type face)
   :group 'org-air)
 
@@ -732,6 +737,19 @@ to `any', where either tag matches.  The predicate honours both modes."
 
 (defvar-local org-air-view--items nil)
 (defvar-local org-air-view--items-key nil)
+
+(defun org-air-view--cache-key ()
+  "Return the ONE coherence key board items and caches are valid under.
+R57-1: the file set + inbox + the MERGED scan vocabulary
+\(`org-air-query--scan-todo-keywords').  `todo'/`title'/`donep' are
+persisted cache slots parsed UNDER a vocabulary, so a vocabulary change
+\(the user edits their global `org-todo-keywords', or org-air's
+supplement changes) must invalidate items exactly like a file-set
+change — the key IS the detector, both in memory
+\(`org-air-view--items-key') and in the persistent cache's `:key'.
+Plain printable list data: serialises as-is, compares with `equal'."
+  (list org-air-files org-air-inbox-file
+        (org-air-query--scan-todo-keywords)))
 (defvar-local org-air-view--items-mtimes nil
   "Alist FILE -> mtime of the last COMPLETED full scan (R42-1).
 The in-memory baseline `org-air-view--refresh-start' diffs against so a
@@ -2501,10 +2519,18 @@ ATTENTIONP means the count should use the attention badge face."
     (when org-air-section-rule
       (org-air-view--insert-rule))))
 
-(defun org-air-view--todo-face (keyword)
-  "Return the face for TODO KEYWORD (T1a), defaulting to `org-air-face-todo'."
+(defun org-air-view--todo-face (keyword &optional donep)
+  "Return the face for TODO KEYWORD (T1a), DONEP for the done fallback.
+A KEYWORD absent from `org-air-todo-keyword-faces' falls back to
+`org-air-face-done' when DONEP is non-nil, else `org-air-face-todo'
+\(R57-1: a user's custom DONE keyword — CLOSED, DROPPED — must never
+wear an active-looking badge where done items render).  Ruling: the
+user's `org-todo-keyword-faces' is deliberately NOT imported — the board
+is a rendered view with its own calm, design-locked palette (V6
+pixel-lock); org-air respects the user's faces where the user owns the
+buffer and keeps its own chrome coherent."
   (or (cdr (assoc keyword org-air-todo-keyword-faces))
-      'org-air-face-todo))
+      (if donep 'org-air-face-done 'org-air-face-todo)))
 
 (defun org-air-view--priority-face (char)
   "Return the boxed-pill face for priority CHAR (T1b; R22-1 covers D/E)."
@@ -3129,7 +3155,7 @@ the byte/TTY layer always keeps the keyword text."
     (let ((color (face-foreground face nil t)))
       (org-air-view--svg-pillify text face :border-color color))))
 
-(defun org-air-view--todo-cell (todo width)
+(defun org-air-view--todo-cell (todo width &optional donep)
   "Return a fixed-width reserved TODO-keyword cell (R15 D-P1).
 WIDTH is the board-wide widest keyword (`org-air-view--meta-todo-w').
 When WIDTH is 0 no rendered item has a keyword, so return an empty
@@ -3138,14 +3164,16 @@ WIDTH blanks when absent), left-justified and padded to WIDTH, plus a
 single trailing space separator -- so every row contributes WIDTH+1
 columns here and all titles share one left edge.  R21-4: when TODO is
 present, overlay the shared svg keyword badge on the (unchanged) padded
-keyword text -- a `display' overlay, so the byte/TTY layer is identical."
+keyword text -- a `display' overlay, so the byte/TTY layer is identical.
+R57-1: DONEP is the item's done flag, threaded to
+`org-air-view--todo-face' so an unknown done keyword renders faded."
   (if (<= width 0)
       ""
     (concat (org-air-view--pad-to
              (if todo
                  (org-air-view--svg-keyword-badge
-                  (propertize todo 'face (org-air-view--todo-face todo))
-                  (org-air-view--todo-face todo))
+                  (propertize todo 'face (org-air-view--todo-face todo donep))
+                  (org-air-view--todo-face todo donep))
                "")
              width)
             " ")))
@@ -3388,7 +3416,8 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
          (todo-w (or org-air-view--meta-todo-w
                      (string-width (or todo ""))))
          (prefix (concat (org-air-view--item-margin)
-                         (org-air-view--todo-cell todo todo-w)
+                         (org-air-view--todo-cell todo todo-w
+                                                  (org-air-item-donep item))
                          ;; R13 D-P2: `square style emits a FIXED 2-col slot
                          ;; on EVERY row (square or blank) so titles align;
                          ;; `badge/`text keep the conditional `[#A]' token.
@@ -4322,7 +4351,8 @@ fields function while the core stays content-agnostic."
            (parts (delq nil
                         (list (when todo
                                 (propertize todo 'face
-                                            (org-air-view--todo-face todo)))
+                                            (org-air-view--todo-face
+                                             todo (org-air-item-donep item))))
                               (when prio
                                 (org-air-view--priority-token prio))))))
       (when parts (push (concat inset (string-join parts "  ")) lines)))
@@ -6853,7 +6883,7 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
          ;; every consumer reads ONE pass instead of re-deriving O(N).
          (_ (progn
               (setq org-air-view--items items
-                    org-air-view--items-key (list org-air-files org-air-inbox-file)
+                    org-air-view--items-key (org-air-view--cache-key)
                     org-air-view--tag-filter tag-filter)
               (org-air-view--classify-cache-ensure)))
          (org-air-view--render-partition
@@ -7370,7 +7400,7 @@ never a failure source)."
           (write-region
            (prin1-to-string
             (list :version org-air-view--cache-version
-                  :key (list org-air-files org-air-inbox-file)
+                  :key (org-air-view--cache-key)
                   :mtimes mtimes
                   ;; R54-2: persist the per-file fact table, pruned to the
                   ;; snapshot's files so vanished files never linger.
@@ -7397,8 +7427,7 @@ are all silently \"no cache\" — the cold path."
                       (read (current-buffer)))))
           (and (listp data)
                (eql (plist-get data :version) org-air-view--cache-version)
-               (equal (plist-get data :key)
-                      (list org-air-files org-air-inbox-file))
+               (equal (plist-get data :key) (org-air-view--cache-key))
                (listp (plist-get data :items))
                data))
       (error nil))))
@@ -7932,7 +7961,7 @@ marker/progress is visible from the first paint."
                          (org-air-query-items-in-files existing)))
                  (merged (nconc retained fresh)))
             (setq org-air-view--items merged
-                  org-air-view--items-key (list org-air-files org-air-inbox-file)
+                  org-air-view--items-key (org-air-view--cache-key)
                   org-air-view--items-mtimes snapshot
                   org-air-view--classify-cache nil
                   org-air-view--refresh-acc nil
@@ -8026,7 +8055,7 @@ first so it cannot fire again after the chain is DONE (R34-3)."
                                    (assoc f org-air-view--items-mtimes))))
                         (org-air-query-files)))))
     (setq org-air-view--items items
-          org-air-view--items-key (list org-air-files org-air-inbox-file)
+          org-air-view--items-key (org-air-view--cache-key)
           org-air-view--items-mtimes mtimes
           org-air-view--classify-cache nil
           org-air-view--refresh-state nil
@@ -8302,7 +8331,7 @@ buffer can never wedge in a loading state."
                      (org-air-view-mode))
                    (and org-air-view--items
                         (equal org-air-view--items-key
-                               (list org-air-files org-air-inbox-file))))))
+                               (org-air-view--cache-key))))))
     ;; Display the buffer first so width derivation measures the window
     ;; that actually shows the dashboard (U1), in a full-width window so
     ;; the rail/calendar are never pushed off-screen (D4).
@@ -8341,8 +8370,7 @@ buffer can never wedge in a loading state."
        ;; modal remains on this path (`--loading' stays nil).
        ((when-let* ((cache (org-air-view--cache-load)))
           (setq org-air-view--items (car cache)
-                org-air-view--items-key (list org-air-files
-                                              org-air-inbox-file)
+                org-air-view--items-key (org-air-view--cache-key)
                 org-air-view--classify-cache nil
                 org-air-view--cache-stale-files (cdr cache))
           ;; R45-2: paint the pill-free chrome skeleton FIRST (instant, like

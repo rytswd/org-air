@@ -57,7 +57,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 * ✨ Features
 
-*Dashboard (~org-air~)*
+*Dashboard* (~org-air~)
 
 - Five semantic buckets: *Inbox* (~:inbox:~ capture queue), *Needs attention* (overdue, or active with no schedule/deadline), *Upcoming* (within ~org-air-upcoming-days~), *High priority* (~[#A]~ etc.), *Stale* (untouched for ~org-air-stale-days~).
 - A month *calendar* marking scheduled/deadline/created days, with today highlighted — navigate months without leaving the board.
@@ -69,12 +69,12 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 - *Staleness* flags only *dated* work that has gone quiet; dateless notes are never “stale”.
 - Toggleable *columns* — filename (origin), date/schedule, tags — that reflow and stay aligned.
 
-*Notes & Revisit (~N~)*
+*Notes & Revisit* (~N~)
 
 - A *Revisit* view resurfaces your evergreen knowledge notes *dustiest-first*, with *orphans* (nothing links to them) and *spaced* (a rotating notes-garden) modes.
 - *denote-friendly*: reads ID-filenames, ~#+title~ and ~#+filetags~ and follows ~denote:~ links — with no ~denote~ dependency (keep denote for authoring, or drop it entirely).
 
-*Project viewer (~org-air-project~)*
+*Project viewer* (~org-air-project~)
 
 - ~airctl status -Da~ *parity tree*: documents grouped by state (draft → ready → work-in-progress → complete → dropped), directory, or tag.
 - A side-rail *inspector* showing the doc's state, tags, path, and metadata.
@@ -83,7 +83,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 *Everywhere*
 
 - A *context rail* (calendar / summary / filters / inspector / outline) that pops in inline or out into a native side window.
-- *~org-air-outline-mode~* — the outline rail + current-heading highlight as a standalone opt-in minor mode for *any* Org buffer (no Air dependency).
+- ~org-air-outline-mode~ — the outline rail + current-heading highlight as a standalone opt-in minor mode for *any* Org buffer (no Air dependency).
 - *evil-awareness*: single-key bindings resolve in motion state; a ~C-c~ leader is state-agnostic. Soft dependency — nothing required.
 - *dimmer soft-integration*: org-air's own buffers auto-register as excluded.
 - *Scale*: a work-buffer scan, a persistent cache, and inbox-first progressive paint keep *thousands* of files responsive — the board opens fast and never hangs; a cold refresh streams in behind a ~scanning N/M~ progress indicator.

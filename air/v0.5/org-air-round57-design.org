@@ -1,0 +1,431 @@
+#+title: org-air Round 57 — Respect the user's org-todo-keywords: merge org-air's vocabulary as a supplement, never a replacement (+ Air-state keywords)
+#+state: ready
+#+tags: bug scan classify keywords robustness board
+
+* Summary
+
+REAL USER BUG, screenshot-confirmed: the background scan
+(=org-air-query--scan-file= → =org-air-query--scan-work-buffer=,
+org-air-query.el ~917) dynamically REBINDS =org-todo-keywords= to
+org-air's OWN fixed vocabulary (=org-air-query--scan-todo-keywords=),
+REPLACING the user's global.  The user's global is:
+
+#+begin_src emacs-lisp
+(setq org-todo-keywords
+      '((sequence "TODO(t)" "HOLD(h)" "|" "DONE(d!)" "DROPPED(x@)" "CLOSED")))
+#+end_src
+
+For every file WITHOUT a per-file =#+TODO:= line, org-air therefore does
+not recognise =CLOSED= / =DROPPED= as done keywords (nor the user's
+=HOLD= semantics): =org-get-todo-state= returns nil, so =* CLOSED Foo=
+keeps "CLOSED" in the TITLE, =donep= stays nil, and long-closed items are
+classified as ACTIVE — hundreds of them flood *Needs attention* as
+OVERDUE 1000+ days.  Files WITH a =#+TODO:= line already work, because
+=org-set-regexps-and-options= lets the file's own declaration win.
+
+Two work packages:
+
+- *R57-1 (CRITICAL)* — the scan uses the USER's global
+  =org-todo-keywords= (=default-value=) as the BASE and MERGES org-air's
+  extra vocabulary as a supplement, deduplicated, with the user's
+  fast-access keys and logging specs preserved verbatim.  =donep= is
+  computed against the file's real =org-done-keywords= as Org derives
+  them from the merged set, so =CLOSED= / =DROPPED= ⇒ =donep t= ⇒ off the
+  board (the flood fix).  Plus a defensive-respect AUDIT of every other
+  normal Org customisation the scan touches or ignores, with fixes.
+- *R57-2* — org-air's own default vocabulary gains the Air-aligned
+  keywords: =:not-done= += =READY= =WIP=; =:done= += =COMP= =DROP=
+  (mirroring Air document states draft / ready / work-in-progress /
+  complete / dropped), with matching entries in
+  =org-air-todo-keyword-faces=.
+
+The governing law this round establishes:
+
+#+begin_quote
+org-air READS the user's Org exactly as Org itself would.  org-air's
+vocabulary is only ever a SUPPLEMENT for files that declare none.  The
+scan may bind Org variables for HYGIENE (undo, lockfiles, echo spam) —
+never to substitute org-air's taste for the user's configuration.
+#+end_quote
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine; all R53 laws (never-hang, never-error, data-pure
+render, mtime cache, work-buffer scan), the R54 note-type model and the
+R56 progressive-paint/pacing machine are preserved — this round changes
+WHICH VOCABULARY the scan parses with, never how it scans or paints.
+
+* The bug — exact trace
+
+1. =org-air-query--scan-work-buffer= (org-air-query.el ~917) binds:
+   =(org-todo-keywords (org-air-query--scan-todo-keywords))= — today a
+   single fixed sequence built ONLY from =org-air-todo-keywords=
+   (=TODO NEXT STARTED WAIT WAITING HOLD BLOCKED | DONE CANCELLED
+   CANCELED KILL=).  A =let= on a special variable with no buffer-local
+   binding rebinds the DEFAULT binding, and Org's
+   =org-set-regexps-and-options= reads exactly
+   =(default-value 'org-todo-keywords)= when the buffer declares no
+   =#+TODO:= / =#+SEQ_TODO:= / =#+TYP_TODO:= — so the user's global is
+   fully shadowed for the whole scan.
+2. In a keyword-less file, the derived buffer-locals
+   (=org-todo-keywords-1=, =org-done-keywords=, =org-todo-regexp=) know
+   nothing of =CLOSED= / =DROPPED=.  =org-get-todo-state= ⇒ nil;
+   =org-get-heading= keeps the word in the title;
+   =:donep (and todo (member todo org-done-keywords) t)= ⇒ nil.
+3. =org-air-classify--heading-buckets= gates every task bucket on
+   =(unless (org-air-classify--done-p item) …)= — with =donep= nil and an
+   old =SCHEDULED= / =DEADLINE= (or none at all), the item lands in
+   =attention= (overdue or the no-date default).  Hundreds of
+   =* CLOSED …= headings from years of GTD history flood the board.
+4. The wrong parses are then PERSISTED: =todo=, =title= and =donep= are
+   cache slots (v4), and the mtime cache means unchanged files would keep
+   hydrating the wrong records even after the code fix — the fix must
+   also invalidate the cache (see [[*Cache and key invalidation]]).
+
+Why files WITH =#+TODO:= work today: =org-set-regexps-and-options=
+prefers in-buffer declarations over the default value, so the rebinding
+never mattered for them.  That behaviour is kept byte-identical.
+
+* R57-1 — Respect org-todo-keywords: the merge
+
+** The merged vocabulary (exact algorithm)
+
+=org-air-query--scan-todo-keywords= is redefined to return, in order:
+
+1. *Base* — the user's global: =(default-value 'org-todo-keywords)=,
+   normalised (below), with every sequence kept VERBATIM — same
+   interpretation symbol (=sequence= / =type=), same keyword spellings
+   including fast-access keys and logging specs (="TODO(t)"=,
+   ="DONE(d!)"=, ="DROPPED(x@)"= stay exactly as written), same order,
+   same =|= placement.
+2. *Supplement* — ONE appended =(sequence …)= holding only the org-air
+   keywords NOT already declared anywhere in the base:
+   =(sequence EXTRA-NOT-DONE… "|" EXTRA-DONE…)=.
+   The =|= is ALWAYS explicit: without it Org would treat the last
+   supplement keyword as done, silently corrupting the done set when the
+   =:done= extras dedup away.
+3. If BOTH extra sets are empty after dedup, the user's value is
+   returned unchanged (no empty supplement sequence is appended).
+
+Reference shape:
+
+#+begin_src emacs-lisp
+(defun org-air-query--todo-keyword-name (kw)
+  "Return KW's bare keyword name, exactly as Org itself splits it.
+Org's `org-set-regexps-and-options' splitter: the name is match 1 of
+\"^\\\\(.*?\\\\)\\\\(?:(\\\\([^!@/]\\\\)?.*?)\\\\)?$\" — \"DONE(d!)\" => \"DONE\",
+\"DROPPED(x@)\" => \"DROPPED\", \"CLOSED\" => \"CLOSED\"."
+  (if (string-match "^\\(.*?\\)\\(?:(\\([^!@/]\\)?.*?)\\)?$" kw)
+      (match-string 1 kw)
+    kw))
+
+(defun org-air-query--scan-todo-keywords ()
+  "The USER's global `org-todo-keywords' + org-air's supplement (R57-1).
+Never signals: a malformed global degrades to Org's own default base."
+  (let* ((user (default-value 'org-todo-keywords))
+         ;; Org's backward-compat rule: a legacy flat string list is one
+         ;; sequence under `org-todo-interpretation'.
+         (base (cond ((and (consp user) (stringp (car user)))
+                      (list (cons org-todo-interpretation user)))
+                     ((and (consp user) (cl-every #'consp user)) user)
+                     (t nil)))
+         ;; Org's own default — the never-signal floor for a nil or
+         ;; malformed global.
+         (base (or base '((sequence "TODO" "DONE"))))
+         (declared (cl-loop for seq in base
+                            append (cl-loop for kw in (cdr seq)
+                                            unless (equal kw "|")
+                                            collect (org-air-query--todo-keyword-name kw))))
+         (extra (lambda (kws)
+                  (cl-remove-if (lambda (kw)
+                                  (member (org-air-query--todo-keyword-name kw)
+                                          declared))
+                                kws)))
+         (extra-not-done (funcall extra (plist-get org-air-todo-keywords :not-done)))
+         (extra-done (funcall extra (plist-get org-air-todo-keywords :done)))
+         ;; Cross-plist dedup: a keyword in both halves supplements once,
+         ;; on the :not-done side.
+         (extra-done (cl-set-difference extra-done extra-not-done
+                                        :test #'equal)))
+    (if (or extra-not-done extra-done)
+        (append base
+                (list (append '(sequence) extra-not-done '("|") extra-done)))
+      base)))
+#+end_src
+
+Worked example (the reporting user):
+
+#+begin_example
+base:       ((sequence "TODO(t)" "HOLD(h)" "|" "DONE(d!)" "DROPPED(x@)" "CLOSED"))
+declared:   TODO HOLD DONE DROPPED CLOSED
+supplement: (sequence "NEXT" "STARTED" "READY" "WIP" "WAIT" "WAITING" "BLOCKED"
+             "|" "COMP" "CANCELLED" "CANCELED" "KILL" "DROP")
+#+end_example
+
+=org-set-regexps-and-options= then derives, per keyword-less file:
+=org-done-keywords= = ("DONE" "DROPPED" "CLOSED" "COMP" "CANCELLED"
+"CANCELED" "KILL" "DROP") — keys stripped by Org's own
+=org-remove-keyword-keys= — and =org-not-done-keywords= containing the
+user's =TODO= / =HOLD= plus org-air's extras.  =* CLOSED Foo= parses as
+todo ="CLOSED"=, title ="Foo"=, =donep t=; =* READY Bar= parses as a
+not-done task.
+
+** Dedup rules
+
+- Comparison is on BARE names (Org's splitter regexp above), so a user's
+  ="DONE(d!)"= dedups org-air's ="DONE"= — never a double declaration.
+- Case-SENSITIVE =member=, exactly as Org treats keywords.
+- All base sequences are consulted (multiple =sequence= entries and
+  =type= entries alike); the supplement adds nothing declared anywhere.
+- The supplement's own two halves are cross-deduplicated (defensive: a
+  keyword a user customised into both halves of
+  =org-air-todo-keywords= supplements once, as not-done).
+- The base itself is NEVER deduplicated, reordered or re-spelled — the
+  user's duplicates are the user's business; Org tolerates them and so
+  does the scan (read-as-Org-reads law).
+
+** Fast-key and logging preservation
+
+The base sequences pass through verbatim, so ="TODO(t)"= / ="DONE(d!)"=
+/ ="DROPPED(x@)"= keep their fast keys and =!= / =@= logging specs in
+the value Org parses.  The scan is read-only — fast selection and state
+logging never RUN there — but preservation matters because Org derives
+=org-todo-log-states= / =org-todo-key-alist= from the same strings and
+the value must remain truthful if ever consulted (and it keeps the merge
+idempotent and printable for the cache key).  Supplement keywords carry
+NO fast keys: Org's =org-assign-fast-keys= handles keyless keywords, and
+inventing keys could collide with the user's.
+
+** A file's own declaration still wins (unchanged)
+
+=org-set-regexps-and-options= prefers in-buffer =#+TODO:= /
+=#+SEQ_TODO:= / =#+TYP_TODO:= over the default value — the merged
+default is consulted ONLY when the file declares none.  Byte-identical
+behaviour to today for declared files: in a =#+TODO: OPEN | SHUT= file,
+=* NEXT B= stays title-swallowed (Org semantics: in-buffer keywords
+REPLACE the default, they do not merge) and =* SHUT C= is done.  The
+merge happens in the LET-BOUND DEFAULT, never by injecting keywords into
+the buffer.
+
+** The live-buffer path (rule 1) stays WYSIWYG — deliberate
+
+=org-air-query--scan-live-buffer= scans the user's own buffer with the
+user's own buffer-locals — already correct for this bug (a live buffer
+derives from the user's real global) and untouched.  Known, accepted
+asymmetry: a live keyword-less buffer does NOT see org-air's supplement,
+so =* READY Foo= parses as a plain heading there while the work-buffer
+scan of the same closed file parses a =READY= task.  Ruling: the live
+scan must show EXACTLY what the user sees in that buffer (Org itself
+neither fontifies nor cycles =READY= for them there), and org-air must
+never mutate a user buffer's todo locals to disagree with its owner.  A
+user who writes org-air/Air keywords in files they edit live declares
+them (global or =#+TODO:=) — and then both paths agree anyway.
+
+** donep correctness
+
+Unchanged formula, now over correct inputs:
+=:donep (and todo (member todo org-done-keywords) t)= reads the
+BUFFER-LOCAL =org-done-keywords= that =org-set-regexps-and-options=
+derived — from the file's own declaration when present, else from the
+merged default.  =CLOSED= / =DROPPED= ⇒ =donep t= ⇒
+=org-air-classify--done-p= t ⇒ excluded from every task bucket — the
+flood fix.  No classify changes needed for the core bug.
+
+** Cache and key invalidation
+
+=todo= / =title= / =donep= are persisted cache slots; the mtime cache
+would keep hydrating pre-fix (wrong) records for unchanged files
+forever.  Additionally, a user can CHANGE their global at any time, and
+cached parses made under the old vocabulary silently disagree with the
+new one.  Fix — one coherence key, one source of truth:
+
+- New helper (view layer): =org-air-view--cache-key ()= ⇒
+  =(list org-air-files org-air-inbox-file
+  (org-air-query--scan-todo-keywords))=.
+- Used at ALL existing key sites: the five inline
+  =(list org-air-files org-air-inbox-file)= assignments/comparisons of
+  =org-air-view--items-key= (org-air-view.el ~6856, ~7935, ~8029, ~8304,
+  ~8344) and the persistent cache's =:key= (write ~7372, read ~7399).
+- The merged vocabulary is plain printable list data — it serialises in
+  the cache =:key= as-is and compares with =equal=.
+- NO cache version bump: the item SHAPE is unchanged (v4 slots only);
+  the key length change alone makes every pre-R57 cache a one-time
+  mismatch ⇒ the documented cold path — skeleton + R56 paced rescan with
+  progressive paint, never a hang.  This one-time cold open is REQUIRED,
+  not collateral: the cached items are exactly the wrong parses the user
+  is staring at.
+- Mid-session vocabulary change: the next board entry/refresh sees the
+  in-memory =org-air-view--items-key= mismatch and takes the same cold
+  re-derive.  No new watcher machinery — the key IS the detector.
+
+** Classify's fallback done set (items built outside the scan)
+
+=org-air-classify--done-keywords= currently ends its chain with
+=(default-value 'org-done-keywords)= — a buffer-local variable whose
+default is virtually always nil — and then hard-wires ='("DONE")=.  A
+live capture buffer item with todo =CLOSED= is thus not-done even after
+R57-1.  Fix: new pure helper =org-air-query-merged-done-keywords ()= —
+derive the done set from =(org-air-query--scan-todo-keywords)= exactly
+as Org does per sequence (keywords after =|=; when a sequence has no
+=|=, its LAST keyword; bare names via the splitter) — and use it as the
+final fallback in place of the hard-wired ='("DONE")= (the live-marker
+buffer-local branch stays first: a real buffer still knows best).
+
+** Render: donep-aware keyword face fallback
+
+=org-air-view--todo-face= maps unknown keywords to =org-air-face-todo= —
+so the user's =CLOSED= / =DROPPED= (and any custom done keyword) would
+render as an ACTIVE-looking badge wherever done items appear (day view
+Logged, project pane).  Fix: thread the item's =donep= through
+=org-air-view--todo-cell= (and the ~4325 call site) into
+=(org-air-view--todo-face KEYWORD &optional DONEP)=; the fallback for a
+keyword absent from =org-air-todo-keyword-faces= becomes
+=org-air-face-done= when DONEP, else =org-air-face-todo= (unchanged).
+Deliberately NOT imported: the user's =org-todo-keyword-faces= — the
+board is a rendered view with its own calm, design-locked palette (V6
+pixel-lock); org-air respects the user's faces where they own the buffer
+and keeps its own chrome coherent.  Documented as a ruling in the
+docstring.
+
+* R57-1 audit — what the scan stomps or ignores (defensive respect)
+
+Principle applied: the scan may bind for hygiene, never for taste.
+Verdicts over every area the prompt lists plus everything the work
+buffer actually touches:
+
+| # | Area | Today | Verdict / action |
+|---+------+-------+------------------|
+| 1 | =org-todo-keywords= | STOMPED — replaced by org-air's fixed vocabulary | *FIX (R57-1 merge)* — the round's core |
+| 2 | =org-todo-keywords-1= / =org-done-keywords= / =org-not-done-keywords= (+ =org-todo-regexp= etc.) | derived buffer-locally per file by =org-set-regexps-and-options=; org-air never setqs the globals | CORRECT once the base is merged; =donep= reads the buffer-local done set — keep |
+| 3 | =org-todo-keyword-faces= (user's) | never touched; org-air renders its own palette; unknown DONE keywords render as active | *FIX* — donep-aware fallback ([[*Render: donep-aware keyword face fallback]]); user faces stay theirs, board palette stays design-locked |
+| 4 | Priorities — =org-priority-highest/-lowest/-default=, =#+PRIORITIES:= | =org-get-priority= runs inside the parsed buffer: file declaration wins, else the user's globals — nothing rebound | RESPECTED already.  Noted gap (deferred): classify's high-priority gate compares to the GLOBAL =org-priority-highest= at classify time, so a file-local =#+PRIORITIES= range diverging from the global can mis-gate; fixing needs a scan-time flag (cache slot) — out of scope this round, recorded here |
+| 5 | =org-archive-tag= / archived trees | archived headings become LIVE board items — the same flood class as this bug | *FIX* — =org-air-classify--heading-buckets= excludes an item whose =tags= contain =org-archive-tag= (tags already carry inherited tags per the user's inheritance settings, so whole ARCHIVE trees drop with default Org config).  Pure classify change, no cache shape change.  Mirrors =org-agenda-skip-archived-trees='s default |
+| 6 | =org-tag-alist= / =#+TAGS:= | completion/grouping metadata; not consulted, not rebound | RESPECTED by omission — no action |
+| 7 | =#+FILETAGS:= | inherited into every heading's tags via =org-set-regexps-and-options= + =org-get-tags= (honours =org-use-tag-inheritance=); separately re-read by the R54 file-signals regexp bounded to 4KB for NOTE META only | RESPECTED.  Documented accepted bound: a =#+filetags:= line beyond the first 4KB feeds headings but not the note-meta table |
+| 8 | =org-use-tag-inheritance= / =org-tags-exclude-from-inheritance= | not rebound; =org-get-tags nil nil= applies the user's rules | RESPECTED — no action |
+| 9 | =org-use-property-inheritance= | =org-entry-get= follows the user's rules; =ORG_AIR_TYPE= passes explicit inherit t (org-air's OWN property, its own contract) | RESPECTED / deliberate — docstring already says so |
+| 10 | =#+STARTUP:=, =org-odd-levels-only=, category (=#+CATEGORY:= / property) | processed by =org-set-regexps-and-options= per file; globals flow through unrebound | RESPECTED — no action |
+| 11 | =org-mode-hook= (work buffer runs =delay-mode-hooks=) | user hooks never run in the scan buffer | ACCEPTED difference, unchanged (R53 law: the scan is side-effect-free and fast); documented with file-local-variable blocks in the R53 note |
+| 12 | Hygiene binds: =buffer-undo-list=, =create-lockfiles=, =inhibit-message=, =message-log-max= | bound | KEEP — hygiene, no parse effect (the allowed category) |
+
+The audit's enduring output is the law in the Summary, plus regression
+fences (below) so a future round cannot quietly re-stomp.
+
+* R57-2 — Air-state keywords in org-air's default vocabulary
+
+New default (existing keywords all kept, order within halves shown):
+
+#+begin_src emacs-lisp
+(defcustom org-air-todo-keywords
+  '(:not-done ("TODO" "NEXT" "STARTED" "READY" "WIP"
+               "WAIT" "WAITING" "HOLD" "BLOCKED")
+    :done     ("DONE" "COMP" "CANCELLED" "CANCELED" "KILL" "DROP"))
+  …)
+#+end_src
+
+Alignment with Air document states:
+
+| Air state        | keyword | half      | face                   |
+|------------------+---------+-----------+------------------------|
+| draft            | =TODO=  | not-done  | =org-air-face-todo= (existing) |
+| ready            | =READY= | not-done  | =org-air-face-todo-next= |
+| work-in-progress | =WIP=   | not-done  | =org-air-face-todo-next= (like =STARTED=) |
+| complete         | =COMP=  | done      | =org-air-face-done=    |
+| dropped          | =DROP=  | done      | =org-air-face-done=    |
+
+=org-air-todo-keyword-faces= gains the four new entries above (=READY= /
+=WIP= hot like =NEXT= / =STARTED=; =COMP= / =DROP= faded done).  =TODO=
+stays the head of the supplement's not-done half (Org convention: the
+first keyword is the default entry state).
+
+Accepted tradeoff (same class as R21-3's =NEXT= / =KILL= precedent): in
+a keyword-less file, a heading starting with the exact uppercase word —
+=* DROP everything and read this= — parses as a keyword.  Match is
+exact-case, heading-start, word-bounded (Org's own =org-todo-regexp=
+discipline); users hit by a collision remove the keyword from
+=org-air-todo-keywords= or declare their own vocabulary, which R57-1 now
+actually respects.  Note R57-1 also shrinks this class: for the many
+users whose global already declares a rich vocabulary, their own
+keywords now win the bare-name dedup.
+
+* ERT seams (each reverts to RED)
+
+All batch-testable: a =let= on =org-todo-keywords= (no buffer-local
+binding exists in the work buffer) IS the default binding
+=org-set-regexps-and-options= consults, so tests bind the reporting
+user's exact global around =org-air-query--scan-file= on temp fixtures.
+USER-KWS below = =((sequence "TODO(t)" "HOLD(h)" "|" "DONE(d!)"
+"DROPPED(x@)" "CLOSED"))=.
+
+- T1 /the reported bug/: fixture WITHOUT =#+TODO:= containing
+  =* CLOSED Foo= (+ =SCHEDULED: <2023-01-01>=), USER-KWS bound ⇒ item
+  todo ="CLOSED"=, title ="Foo"= (keyword NOT in the title), =donep t=,
+  and =org-air-classify-item= yields NO task buckets (not on the board).
+  Reverting the R57-1 merge FAILS (todo nil, title ="CLOSED Foo"=,
+  =attention= bucket).
+- T2 /user done twin/: =* DROPPED Baz= same fixture ⇒ todo ="DROPPED"=,
+  =donep t=.  Revert ⇒ FAIL.
+- T3 /user not-done semantics/: =* HOLD Held= ⇒ todo ="HOLD"=,
+  =donep nil= (the USER put =HOLD= before the bar; org-air's own
+  vocabulary must not override placement).  Passes today by accident of
+  overlap — locked as a fence against future re-stomping.
+- T4 /supplement alive/: =* READY Bar= same keyword-less fixture ⇒ todo
+  ="READY"=, =donep nil=, =ntype= task.  Reverting R57-2 (keyword
+  removal) FAILS; reverting the merge FAILS (title swallow).
+- T5 /merge unit — dedup + preservation/:
+  =(org-air-query--scan-todo-keywords)= under USER-KWS: result's =car=
+  is USER-KWS's sequence =equal=-verbatim (keys =(t)= / =(d!)= / =(x@)=
+  intact); supplement contains no =TODO= / =HOLD= / =DONE= / =DROPPED= /
+  =CLOSED= at bare-name level; supplement contains an explicit ="|"=;
+  =READY= before it, =DROP= after it.
+- T6 /merge unit — shapes/: multiple sequences + =(type …)= base dedups
+  across all; legacy flat =("TODO" "DONE")= global normalises to one
+  interpreted sequence + supplement; nil and malformed (non-list) globals
+  degrade to Org's default base + full supplement, signalling nothing.
+- T7 /file wins/: fixture WITH =#+TODO: OPEN | SHUT= under USER-KWS ⇒
+  =* OPEN A= todo ="OPEN"=; =* SHUT C= =donep t=; =* NEXT B= todo nil,
+  title ="NEXT B"= (org-air's vocabulary NOT injected into declared
+  files).  Fences the merge implementation to the let-bound default —
+  an implementation that appends to in-buffer keywords FAILS here.
+- T8 /cache key/: a cache written under vocabulary A does not hydrate
+  under vocabulary B (=org-air-view--cache-read= ⇒ nil on the =:key=
+  mismatch); pre-R57 2-element =:key= data also misses.  Reverting the
+  key extension FAILS (stale hydration).
+- T9 /classify fallback/: an item built OUTSIDE the scan (no live
+  marker) with todo ="CLOSED"=, USER-KWS bound ⇒
+  =org-air-classify--done-p= t via =org-air-query-merged-done-keywords=.
+  Revert ⇒ FAIL (hard-wired ='("DONE")=).
+- T10 /donep-aware face/: =(org-air-view--todo-face "CLOSED" t)= ⇒
+  =org-air-face-done=; =("CLOSED" nil)= ⇒ =org-air-face-todo=;
+  ="READY"= ⇒ =org-air-face-todo-next=, ="COMP"= ⇒ =org-air-face-done=
+  (R57-2 face table).  Revert ⇒ FAIL.
+- T11 /archive audit fix/: heading tagged =:ARCHIVE:= (and a child under
+  it, default tag inheritance) ⇒ no task buckets; reverting the classify
+  exclusion FAILS.
+
+* Constraints
+
+- org-ql remains the ONLY query engine; the scan entry points and the
+  work-buffer/live-buffer split are untouched.
+- R53: never-hang, never-error (the merge function itself must never
+  signal — T6), data-pure render, mtime cache semantics; the one-time
+  cache miss is the documented cold path.
+- R54: note-type derivation consumes the (now correct) todo signal
+  unchanged — =* CLOSED Foo= is a TASK (done), not a knowledge note.
+- R56: the invalidation-triggered rescan rides the progressive-paint +
+  adaptive-pacing machine as-is; no scheduling changes here.
+
+* Out of scope
+
+- Importing the user's =org-todo-keyword-faces= into the board palette
+  (ruled out — design-locked chrome; documented).
+- Scan-time =#+PRIORITIES=-aware high-priority flag (audit #4, needs a
+  cache slot — recorded for a future round).
+- Any write-path (=org-todo= state cycling) behaviour — org-air's board
+  is read-only over Org data this round.
+
+* History
+
+- 2026-07-17: Round 57 design written from the screenshot-confirmed real
+  user report (CLOSED/DROPPED flood in Needs attention); merge
+  algorithm, defensive-respect audit, Air-keyword alignment and revert-
+  fenced ERT seams specified.  State: ready.

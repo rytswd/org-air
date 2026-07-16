@@ -1,5 +1,5 @@
 #+title: org-air Round 56 — Inbox-first progressive paint, adaptive pacing, and a visible scan-progress indicator
-#+state: work-in-progress
+#+state: complete
 #+tags: performance progressive-render inbox refresh pacer progress-indicator scan cold-open
 
 * Summary
@@ -531,3 +531,4 @@ drops; every R53 never-hang/never-error law intact.
 
 - 2026-07-16: Created. State: ready (design round; measurements in
   /tmp/org-air-r56/).
+- 2026-07-16: State: work-in-progress → complete.

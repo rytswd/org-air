@@ -3,14 +3,8 @@
 #+OPTIONS: toc:nil num:nil ^:nil
 
 #+html:<div align="center">
-#+html:<p>A modern, aesthetic GTD dashboard <b>and</b> Air project viewer for Emacs — built on <a href="https://github.com/alphapapa/org-ql">org-ql</a>, with no <code>org-agenda</code>.</p>
-#+html:<p>
-#+html:<img src="https://img.shields.io/badge/Emacs-29.1%2B-7F5AB6?style=flat-square&logo=gnuemacs&logoColor=white" alt="Emacs 29.1+">
-#+html:<img src="https://img.shields.io/badge/backend-org--ql-4E9A06?style=flat-square" alt="Built on org-ql">
-#+html:<img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square" alt="License GPL-3.0-or-later">
-#+html:<img src="https://img.shields.io/badge/version-0.1.0-lightgrey?style=flat-square" alt="Version 0.1.0">
-#+html:<a href="https://github.com/rytswd/org-air"><img src="https://img.shields.io/badge/Source-grey?style=flat-square&logo=github" alt="GitHub Source"></a>
-#+html:</p>
+#+html:<p>A powerful, aesthetic dashboard for your Org Mode notes and tasks — built on <a href="https://github.com/alphapapa/org-ql">org-ql</a>.</p>
+#+html:<p><img src="https://img.shields.io/badge/Emacs-29.1%2B-7F5AB6?style=flat-square&logo=gnuemacs&logoColor=white" alt="Emacs 29.1+">&nbsp;<img src="https://img.shields.io/badge/backend-org--ql-4E9A06?style=flat-square" alt="Built on org-ql">&nbsp;<img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square" alt="License GPL-3.0-or-later">&nbsp;<img src="https://img.shields.io/badge/version-0.1.0-lightgrey?style=flat-square" alt="Version 0.1.0">&nbsp;<a href="https://github.com/rytswd/org-air"><img src="https://img.shields.io/badge/Source-grey?style=flat-square&logo=github" alt="GitHub Source"></a></p>
 #+html:</div>
 
 -----
@@ -24,12 +18,12 @@ org-air is *two surfaces over your Org files*, sharing one visual language, one 
 | Surface              | Command               | What it is                                                                                                                                                                             |
 |----------------------+-----------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | *GTD dashboard*      | ~M-x org-air~         | A read-first board: capture → glance → process. Items grouped into Inbox / Needs attention / Upcoming / High priority / Stale, with a live calendar, filter, sort, and inbox workflow. |
-| *Air project viewer* | ~M-x org-air-project~ | A planning-doc tree for repositories managed with [[https://github.com/rytswd/air][Air]] — state-grouped documents (~airctl status -Da~ parity), a side-rail inspector, and an in-place doc session.                             |
+| *Air project viewer* | ~M-x org-air-project~ | A planning-doc tree for repositories managed with [[https://github.com/withre/air][Air]] — state-grouped documents (~airctl status -Da~ parity), a side-rail inspector, and an in-place doc session.                             |
 
 The philosophy:
 
 - *Org files are the source of truth.* org-air never owns your data; it is a view. There are no agenda buffers, no custom-command DSL, no global state.
-- *A replacement, not a reskin.* It is an independent view built on ~org-ql~, so it carries none of ~org-agenda~'s configuration surface or buffer machinery.
+- *Independent.* A purpose-built view over ~org-ql~ — no shared global state, no command DSL, nothing to configure before it is useful.
 - *Planning-first.* Capture is one keystroke into a single inbox; processing (refile, schedule, tag) is a deliberate, separate step.
 - *Quiet by design.* Following nano's "1 + 6" model, colour is used to /mean/ something, sparingly. Overdue looks overdue; everything else stays calm.
 
@@ -71,7 +65,14 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 - *Scope* the whole dataset to one tag, group, or file.
 - *Sort* within each bucket (date / priority / title / recency).
 - One-keystroke *capture* to the inbox, a guided *refile / process* flow, and an *inbox walk* that dispositions items one at a time.
+- *Note types*, derived from content: an item with a TODO keyword or a schedule/deadline is a *task* and fills the board; prose *knowledge* notes and date-titled *journal* entries stay off it. Your ~org-todo-keywords~ (custom states, fast keys, logging) are respected — org-air reads your Org exactly as Org does.
+- *Staleness* flags only *dated* work that has gone quiet; dateless notes are never “stale”.
 - Toggleable *columns* — filename (origin), date/schedule, tags — that reflow and stay aligned.
+
+*Notes & Revisit (~N~)*
+
+- A *Revisit* view resurfaces your evergreen knowledge notes *dustiest-first*, with *orphans* (nothing links to them) and *spaced* (a rotating notes-garden) modes.
+- *denote-friendly*: reads ID-filenames, ~#+title~ and ~#+filetags~ and follows ~denote:~ links — with no ~denote~ dependency (keep denote for authoring, or drop it entirely).
 
 *Project viewer (~org-air-project~)*
 
@@ -85,7 +86,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 - *~org-air-outline-mode~* — the outline rail + current-heading highlight as a standalone opt-in minor mode for *any* Org buffer (no Air dependency).
 - *evil-awareness*: single-key bindings resolve in motion state; a ~C-c~ leader is state-agnostic. Soft dependency — nothing required.
 - *dimmer soft-integration*: org-air's own buffers auto-register as excluded.
-- *Cache-first* load and chunked background refresh for large file sets.
+- *Scale*: a work-buffer scan, a persistent cache, and inbox-first progressive paint keep *thousands* of files responsive — the board opens fast and never hangs; a cold refresh streams in behind a ~scanning N/M~ progress indicator.
 
 * 🧰 Requirements
 
@@ -337,7 +338,7 @@ The capture → process loop is two steps:
 
 ** The Air project viewer — ~M-x org-air-project~
 
-For repositories planned with [[https://github.com/rytswd/air][Air]], the project viewer renders the planning docs as a state-grouped tree (parity with ~airctl status -Da~), sortable and filterable, with a side-rail inspector. ~RET~ opens a doc in a same-window *session*: you edit the real file, the rail shows a live outline that follows point, and ~C-c C-q~ returns you to the tree. org-air the package has no runtime dependency on Air or ~airctl~.
+For repositories planned with [[https://github.com/withre/air][Air]], the project viewer renders the planning docs as a state-grouped tree (parity with ~airctl status -Da~), sortable and filterable, with a side-rail inspector. ~RET~ opens a doc in a same-window *session*: you edit the real file, the rail shows a live outline that follows point, and ~C-c C-q~ returns you to the tree. org-air the package has no runtime dependency on Air or ~airctl~.
 
 * 🧵 ~org-air-outline-mode~
 

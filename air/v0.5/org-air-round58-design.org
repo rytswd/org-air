@@ -1,0 +1,450 @@
+#+title: org-air Round 58 — Emacs bookmark support for every org-air view (activities.el / bookmark-jump restorable buffers)
+#+state: ready
+#+tags: bookmarks session-restore integration board project revisit rail robustness
+
+* Summary
+
+REAL USER REPORT: activities.el
+(github.com/alphapapa/activities.el) cannot restore org-air buffers:
+
+#+begin_quote
+Activities was unable to get a buffer named: *org-air*.  It is likely
+that this buffer's major mode does not support the `bookmark' system, so
+it can't be restored properly.  Please ask the major mode's maintainer
+to add bookmark support.
+#+end_quote
+
+Correct diagnosis: activities.el (like burly.el, and plain
+=bookmark-set= / =bookmark-jump=) persists non-file buffers through
+Emacs's built-in bookmark system — a buffer is saveable iff its major
+mode provides a buffer-local =bookmark-make-record-function=, and
+restorable iff the produced record carries a =handler= that can rebuild
+the buffer from scratch.  No org-air mode provides either (verified:
+zero matches for "bookmark" in the tree), so every org-air view dies
+with the error above and =C-x r m= on the board signals "Buffer not
+visiting a file or directory".
+
+This round specs first-class bookmark support for EVERY org-air view
+buffer:
+
+| Buffer               | Mode                     | Record kind                              |
+|----------------------+--------------------------+------------------------------------------|
+| =*org-air*=          | =org-air-view-mode=      | full board record (incl. day view)       |
+| =*org-air-project*=  | =org-air-project-mode=   | full project record (root + session)     |
+| =*org-air revisit*=  | =org-air-revisit-mode=   | full revisit record (surface + sort)     |
+| =*org-air-rail*=     | =org-air-rail-mode=      | delegating record (host + rail)          |
+| =*org-air-view*=     | =org-air-entry-view-mode= | delegating record (host + entry ctx)    |
+| =*org-air-help*=     | =org-air-help-mode=      | trivial record (context)                 |
+| doc-session / outline org buffers | =org-mode= + minor modes | NO override — file-visiting, the built-in default record is already correct |
+
+Each record carries the VIEW-defining org-air state (view kind, scope,
+filter, sort, day, project root, revisit surface…) plus a durable
+=(FILE . POS)= item locator for point (the R53 marker-slot model — never
+a raw buffer position).  Each handler reconstructs the buffer through
+the EXISTING entry machinery with display suppressed (the bookmark
+caller owns display), reusing the R26-8/R56 cache-first paths — a
+bookmark jump NEVER runs a blocking full rescan.
+
+Free wins once this lands: =C-x r m= / =C-x r b= work in every org-air
+view; burly.el window/frame bookmarks work; activities.el suspend/resume
+round-trips a frame full of org-air buffers.
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine; all R53 laws (never-hang, never-error, data-pure
+render, mtime cache), the R54 note-type model, the R56 progressive
+paint/pacing machine and the R57 vocabulary/cache-key discipline are
+preserved untouched — this round adds a persistence adapter AROUND the
+entry points, never a new data path.
+
+* The Emacs bookmark contract (what org-air must implement)
+
+Ground truth from bookmark.el, restated as the rules this design obeys:
+
+1. *Record producer* — a mode sets buffer-local
+   =bookmark-make-record-function=; =bookmark-make-record= calls it and
+   expects =(NAME . ALIST)= or plain =ALIST= (NAME may be omitted; the
+   =defaults= alist entry supplies default-name candidates, best first).
+   Without the function, =bookmark-make-record-default= runs and ERRORS
+   in a non-file buffer — exactly today's failure.
+2. *Reserved keys* — =handler=, =defaults=, =position=, =filename=,
+   =location=, =annotation=, =front/rear-context-string= belong to
+   bookmark.el.  org-air's own state uses =org-air--prefixed= keys so no
+   future bookmark.el key can collide.  Views are not file-visiting, so
+   records carry =location= (what =bookmark-location= displays in the
+   bmenu list) instead of =filename=, and NO context strings (meaningless
+   over a rendered board).
+3. *Handler contract* — =bookmark-handle-bookmark= funcalls
+   =(handler RECORD)=; the handler must make the target buffer CURRENT
+   (=set-buffer=) with point placed, and must NOT display it —
+   =bookmark--jump-via= then hands =(current-buffer)= to the caller's
+   DISPLAY-FUNCTION.  This is precisely what activities.el relies on: it
+   jumps the record and places the resulting buffer into ITS restored
+   window layout.  A handler that =pop-to-buffer='s would fight that
+   layout — org-air's handlers never touch windows.
+4. *Handlers must be autoloadable* — activities restores at startup in a
+   fresh Emacs where org-air is installed but not yet loaded.  Every
+   =org-air-*-bookmark-jump= carries an =;;;###autoload= cookie, and each
+   gets =(put 'org-air-…-bookmark-jump 'bookmark-handler-type "org-air")=
+   so the bmenu type column reads honestly.
+5. *Printability* — =bookmark-save= writes the alist with =prin1= into
+   =bookmark-default-file=.  Every value in an org-air record is plain
+   readable data: strings, symbols, integers, proper lists.  NO markers,
+   buffers, hash tables, or Emacs time objects (times are stored as
+   integer epochs).  The ERT roundtrip seam (T6) fences this forever.
+
+* How activities.el actually uses this (the flow we must survive)
+
+Studied against activities.el's buffer machinery:
+
+- *Save*: for each buffer in the activity's frame it calls
+  =bookmark-make-record= IN that buffer — possibly repeatedly (activities
+  re-saves on timers and on suspend).  Therefore =make-record= must be
+  CHEAP (pure buffer-local reads, no scan, no file I/O) and must never
+  signal — including mid-refresh over the R56 skeleton, and in dependent
+  buffers like the rail.
+- *Restore*: fresh frame, none of the buffers exist.  For each saved
+  buffer it calls the bookmark handler, then places =(current-buffer)=
+  into the recreated window tree.  Consequences the design owns:
+  - the handler runs with NO org-air buffer alive and possibly NO org-air
+    loaded (autoload, rule 4);
+  - several org-air records may restore into ONE layout (board + rail +
+    entry pane), in ARBITRARY order — so the dependent-buffer handlers
+    ensure their host through the same idempotent entry guard the
+    commands use (=unless (derived-mode-p …)=), making restore
+    order-independent;
+  - the buffer is displayed only AFTER the handler returns, so first
+    render happens undisplayed: width falls back to the frame width
+    (=org-air-layout= already does this in batch) and the existing
+    R9/C1 resize-refresh hook re-fits the moment activities shows the
+    window.  No new geometry machinery.
+
+* Record schemas
+
+All records share the header fields; per-view fields follow.  Reference
+shapes (NAME omitted — =defaults= carries naming):
+
+** Shared header (every org-air record)
+
+#+begin_src emacs-lisp
+((handler  . org-air-view-bookmark-jump)      ; per-view fn, see below
+ (location . "org-air: board")                ; bmenu display string
+ (defaults . ("org-air: board · file inbox.org" "org-air: board"))
+ (org-air-version . 1)                        ; record schema version
+ (org-air-view . board)                       ; board|day|project|revisit|rail|entry|help
+ (org-air-context . KEY))                     ; `org-air-view--cache-key' at record
+                                              ; time — DIAGNOSTIC ONLY (see ruling)
+#+end_src
+
+Ruling on =org-air-context=: the handler ALWAYS opens under the user's
+LIVE configuration (=org-air-files= / inbox / vocabulary as they are at
+jump time) — a bookmark restores a VIEW, never an old configuration.
+The stored key exists purely so a future doctor/debug surface can say
+"this bookmark was made under a different file set"; the R57 key
+machinery already makes the data layer coherent either way.
+
+** Board (=*org-air*=, handler =org-air-view-bookmark-jump=)
+
+#+begin_src emacs-lisp
+((org-air-view    . board)          ; or `day'
+ (org-air-scope   . (:file "/…/inbox.org"))  ; `org-air-view--scope', printable as-is
+ (org-air-filter  . ("#work" "grant"))       ; `org-air-view--tag-filter' (string|list|nil)
+ (org-air-sort    . (date . ascending))      ; sort key + direction
+ (org-air-expanded . (attention today))      ; `org-air-view--expanded-sections'
+ (org-air-cal-month . 1784505600)            ; integer epoch, or absent
+ (org-air-day       . 1784505600)            ; integer epoch; present iff view = `day'
+ (org-air-item       . ("/…/proj.org" . 512)) ; the R53 durable (FILE . POS) locator
+ (org-air-item-title . "Ship the grant report")) ; drift fallback, see point strategy
+#+end_src
+
+- =org-air-day= / =org-air-cal-month= encode via
+  =(time-convert TIME 'integer)= and decode with =seconds-to-time= —
+  printable, timezone-honest enough for a day key.
+- =org-air-item= comes from the row at point: the =org-air-marker= text
+  property (R53: the marker slot IS a durable =(FILE . POS)= cons for
+  scanned items).  A live-capture item whose marker is a real marker
+  degrades to =(FILE . POS)= via =marker-position= at record time — a
+  marker must never enter the alist (rule 5).  Point on chrome (banner,
+  section heading, calendar) records NO item fields.
+- Deliberately NOT recorded: rail placement/pop state (window
+  arrangement is the restorer's domain; the R16/R24-5 reconciler adapts
+  after display), column toggles =org-air-show-origin/dates/tags=
+  (presentation follows the user's current customisation, not the
+  bookmark), and the items themselves (data comes from the cache/scan —
+  records stay tiny).
+
+** Project (=*org-air-project*=, handler =org-air-project-bookmark-jump=)
+
+#+begin_src emacs-lisp
+((org-air-view . project)
+ (org-air-root . "/home/u/proj")             ; `org-air-project--root'
+ (org-air-sort . (name . ascending))
+ (org-air-show-filenames . nil)              ; `org-air-project--show-filenames'
+ (org-air-expanded . ("v0.5"))               ; `org-air-project--expanded-dropped' keys
+ (org-air-item       . ("/home/u/proj/air/v0.5/foo.org" . 1)) ; doc at point
+ (org-air-item-title . "foo"))
+#+end_src
+
+The doc-SESSION half is NOT a project record: a doc buffer visits a real
+file, so its default bookmark record (file + position) is already
+correct and restores the text the user was reading.  Ruling: the session
+chrome (back-verb, tree stash, rail outline highlight) is live
+navigation state, not persistable state — a restored doc buffer is a
+plain org buffer; re-entering the session goes through the project tree
+as always.  Same ruling for =org-air-outline-mode= host buffers (opt-in
+minor mode on file buffers): default record, no override, mode not
+re-enabled by the bookmark (the user's hooks own that).
+
+** Revisit (=*org-air revisit*=, handler =org-air-revisit-bookmark-jump=)
+
+#+begin_src emacs-lisp
+((org-air-view    . revisit)
+ (org-air-surface . orphans)                 ; `org-air-revisit--surface'
+ (org-air-sort    . (age . ascending))
+ (org-air-show-created . nil)
+ (org-air-item       . ("/…/notes/denote-id.org" . 1)) ; note FILE (revisit unit = file)
+ (org-air-item-title . "Evergreen: spaced repetition"))
+#+end_src
+
+=org-air-revisit--pages= is deliberately reset to 1 on restore — "show
+more" is a within-session interaction, and a restored page depth over a
+changed corpus is meaningless.  Documented ruling.
+
+** Dependent buffers — rail and entry pane (delegating records)
+
+Activities saves EVERY buffer in the layout, so =*org-air-rail*= and the
+bottom =*org-air-view*= pane hit the same error today.  Their records
+delegate to the host:
+
+- =org-air-rail-mode= record: shared header with =org-air-view . rail=
+  plus =org-air-host . board|project|revisit= (from
+  =org-air-rail--board-buffer='s major mode at record time) and the
+  HOST's full field set (the rail builder calls the host buffer's own
+  =bookmark-make-record-function= through the back-pointer and embeds
+  its org-air fields).  Handler =org-air-rail-bookmark-jump=: restore
+  the host via ITS handler flow (no display), then create the rail
+  buffer in =org-air-rail-mode=, render it from the host
+  (=org-air-rail--render= seam, batch-safe per R15 D-P2), and
+  =set-buffer= the RAIL.  A dead/absent host field degrades to the
+  board.  Restore-order independence: if the host record restores later,
+  its idempotent entry finds the buffer already initialised — no double
+  init (the R26-5 guard is the whole mechanism).
+- =org-air-entry-view-mode= record: header + =org-air-entry-ctx . (FILE
+  . POS)= of the snapshot's source.  Handler: ensure the HOST board
+  (undisplayed), recreate the pane buffer, render the read-only snapshot
+  for =(FILE . POS)= (one bounded file read — the pane's normal render
+  path), =set-buffer= the pane.  Source file gone ⇒ the pane's existing
+  missing-source rendering, never a signal.
+- =org-air-help-mode= record: header + =org-air-help-context . SYM=
+  (=org-air-help--context= result at record time); handler re-renders
+  help for that context.  Trivial, included so no =*org-air-help*= in a
+  layout can ever raise the activities error.
+
+* Handler flow (the board as reference; project/revisit are isomorphic)
+
+#+begin_src emacs-lisp
+;;;###autoload
+(defun org-air-view-bookmark-jump (record)
+  "Handler for org-air board bookmarks (R58).
+Rebuilds `*org-air*' from RECORD without displaying it (the bookmark
+caller owns display — the activities.el contract) and without a blocking
+rescan (the R26-8/R56 cache-first machine).  Never signals: a malformed
+or future-versioned RECORD degrades to a plain board open."
+  (require 'org-air)
+  (let ((buffer (get-buffer-create org-air-view-buffer-name)))
+    (condition-case err
+        (with-current-buffer buffer
+          ;; R26-5 idempotent entry guard — identical to the command's.
+          (unless (derived-mode-p 'org-air-view-mode)
+            (org-air-view-mode))
+          ;; 1. Saved view state FIRST, so the very first paint (skeleton
+          ;;    aside) already composes the bookmarked view.
+          (org-air-view--bookmark-apply record)
+          ;; 2. Stash the point locator for the paint tail to consume.
+          (setq org-air-view--bookmark-locator
+                (org-air-view--bookmark-locator-of record))
+          ;; 3. The entry core, display suppressed (see refactor below).
+          (org-air-view--open-core buffer nil))
+      (error
+       (message "org-air: bookmark restore degraded: %s"
+                (org-air-view--short-error err))
+       (with-current-buffer buffer
+         (unless (derived-mode-p 'org-air-view-mode) (org-air-view-mode))
+         (ignore-errors (org-air-view--open-core buffer nil)))))
+    (set-buffer buffer)))          ; the handler contract: current, not shown
+(put 'org-air-view-bookmark-jump 'bookmark-handler-type "org-air")
+#+end_src
+
+** The entry-core refactor (shared, minimal)
+
+=org-air-view= today interleaves buffer prep, =pop-to-buffer=, and the
+three-branch data cond (WARM/batch sync → persisted-cache skeleton +
+deferred one-shot [+ paced stale kickoff] → COLD skeleton + paced
+machine).  R58 extracts the cond into =org-air-view--open-core (buffer
+display)= — the command becomes prep + =pop-to-buffer= +
+=(org-air-view--open-core buffer t)= (byte-identical behaviour, same
+order: display still precedes the cond so width derivation sees the
+window); the handler calls =(… buffer nil)=.  With DISPLAY nil the core
+additionally skips the cache-branch =(redisplay t)= (it exists to flush
+the VISIBLE skeleton; pointless and mildly wasteful undisplayed).  Same
+factoring for =org-air-project= (prep + render, trivial) and
+=org-air-revisit= (prep + =--ensure-data= + link-graph ensure + render —
+the cold fill stays the paced non-blocking machine it is).
+
+=org-air-view--bookmark-apply= is a pure setq-local translator: record
+fields → the buffer-locals listed in the schema, each field optional,
+unknown fields IGNORED (forward compatibility), missing fields leaving
+the mode defaults — so the bare header record restores a plain board
+(T6).  Version ≠ 1 reads best-effort through the same optional-field
+path (never a signal).
+
+** Never-hang / never-error compliance (branch by branch)
+
+- Interactive jump, cache file valid: skeleton + deferred one-shot paint
+  of the cached board (+ R56 paced changed-subset refresh iff stale) —
+  the EXACT R26-8/R45-2/R56 path, zero synchronous org-ql.
+- Interactive jump, cold (no cache): skeleton + the R56 paced machine.
+  A bookmark jump is never worse than the command's own cold open.
+- Buffer already live and warm (=--items= + R57 key match): apply state +
+  synchronous re-render of in-memory items — no scan.
+- =noninteractive=: the synchronous batch path, exactly like the
+  command — this is the deterministic ERT seam (no timers to pump).
+- =make-record= is pure buffer-local reads + one row text-property
+  lookup; safe mid-refresh (T9) and cheap enough for activities' timers.
+- Both directions obey the R53 never-error law: record production and
+  restoration degrade, log one truncated message, and never signal into
+  bookmark.el / activities (which would abort a whole-frame restore).
+
+* Point restoration strategy
+
+Raw positions in a rendered board are worthless (every refresh reflows);
+the record therefore stores the ITEM, not the point — =(FILE . POS)= (the
+R53 durable locator) plus the title.  New buffer-local
+=org-air-view--bookmark-locator= (and mode-prefixed twins in project/
+revisit), consumed at the END of each successful full paint
+(=org-air-view--render= tail — one choke point that covers the sync
+path, the deferred one-shot, the stale paint, every R56 progressive
+paint, and the machine's final swap):
+
+1. Row whose =org-air-marker= equals =(FILE . POS)= → land via
+   =org-air-view--goto-row-title= (the R21-2 title-column landing).
+2. Else row with the same FILE and the same title (POS drifted — the
+   file was edited since the bookmark).
+3. Else any row with the same title (the item was refiled).
+4. Else leave the slot ARMED if a refresh is still in flight (a
+   progressive paint may not contain the row yet); when the machine
+   reaches idle without a match — or on a match — clear the slot and, on
+   no-match, fall back to =org-air-view--goto-first-item=.  One-shot:
+   the slot never survives past refresh-idle, so later user renders are
+   untouched.
+
+Pure text-property scan over the rendered buffer; never opens a file,
+never signals (T8).  Project matches on the =org-air-doc= file; revisit
+on the row's =org-air-marker= FILE (the file IS the unit there).
+
+* Naming (=defaults=)
+
+=org-air-…--bookmark-name= builds the candidate list, most specific
+first, generic last — bookmark-set offers the head, the bmenu shows
+=location=:
+
+- board: ="org-air: board"=; day view ="org-air: day 2026-07-18"=;
+  scoped ="org-air: board · file inbox.org"= / =· #tag= / =· group G=.
+- project: ="org-air: project <root basename>"=.
+- revisit: ="org-air: revisit"= / ="org-air: revisit · orphans"=.
+- rail/pane/help: host name + =" · rail"= / =" · entry"= / ="org-air: help"=.
+
+* Code placement
+
+- Shared helpers (=--bookmark-apply=, locator find/consume, epoch
+  encode/decode, name builder core) live in org-air-view.el's shared
+  section — the same one-core-no-fork home as the shared sort/rail.
+- Each mode's =setq-local bookmark-make-record-function= line goes in its
+  own =define-derived-mode= body; each handler + its autoload cookie
+  lives in the mode's own file (board/rail/pane/help in org-air-view.el,
+  project in org-air-project.el, revisit in org-air-revisit.el) so the
+  autoload graph pulls exactly the file that owns the view.
+
+* ERT seams (batch/headless; each reverts to RED)
+
+All run =noninteractive= over temp-dir fixtures (the synchronous entry
+path — no timers to pump), with =bookmark.el= required and
+=bookmark-alist= let-bound to nil.
+
+- T1 /record shape, board/: open the board on a fixture, set a =:file=
+  scope + a filter + a non-default sort, point on a known item row;
+  =bookmark-make-record= ⇒ alist whose =handler= is
+  =org-air-view-bookmark-jump=, =org-air-view= = =board=, scope/filter/
+  sort fields =equal= the buffer-locals, =org-air-item= = that row's
+  =(FILE . POS)=.  Reverting the mode's =bookmark-make-record-function=
+  line FAILS (=bookmark-make-record-default= signals "Buffer not
+  visiting a file or directory" — today's exact breakage).
+- T2 /jump on a killed board/: kill =*org-air*=; funcall the handler on
+  T1's record ⇒ =current-buffer= is =*org-air*= in =org-air-view-mode=;
+  scope/filter/sort locals =equal= the saved ones; point row's
+  =org-air-marker= FILE matches.  Reverting the handler (or
+  =--bookmark-apply=) FAILS.
+- T3 /project twin/: record from a project buffer (root, sort,
+  filenames toggle, doc at point) → kill → jump ⇒
+  =org-air-project-mode=, =org-air-project--root= restored, point on
+  that doc's row.  Revert ⇒ FAIL.
+- T4 /revisit twin/: record carries =surface orphans= + sort; jump into
+  a fresh session restores surface + sort + note-row point; =--pages=
+  is 1.  Revert ⇒ FAIL.
+- T5 /day view/: record on a day board carries =org-air-day= as an
+  INTEGER; jump ⇒ =org-air-view--day= equal to its decode and the day
+  render active.  Revert ⇒ FAIL.
+- T6 /printability + degrade/: (a) T1–T5 records survive
+  =prin1-to-string= → =read= =equal= (no markers/buffers/times leak);
+  (b) the handler on a bare header record, and on =org-air-version=
+  999, opens a plain board and signals NOTHING.  Revert either ⇒ FAIL.
+- T7 /no-display contract/: capture the window configuration, funcall
+  the handler inside the unchanged frame ⇒ configuration compares equal
+  after (the handler touched no windows) while =current-buffer= is the
+  view — the activities layout-safety guarantee.  A handler that
+  =pop-to-buffer='s FAILS here.
+- T8 /locator drift/: delete the recorded item's file (or its heading)
+  before the jump ⇒ point lands via the title fallback, else on the
+  first item; no signal.  Reverting the fallback chain ⇒ FAIL.
+- T9 /mid-refresh record/: with refresh-state forced to ='refreshing=
+  and the stale-file list populated, =bookmark-make-record= still
+  returns a valid, fully-printable record (no in-flight state leaks
+  into the alist).  Revert ⇒ FAIL.
+- T10 /rail delegation/: record from a rail buffer whose host is the
+  board; kill both; jump ⇒ host board reconstructed (undisplayed) AND
+  =current-buffer= is =*org-air-rail*= in =org-air-rail-mode= with
+  rendered content.  Then jump the BOARD record too ⇒ no double init
+  (the R26-5 guard seam).  Revert ⇒ FAIL.
+- T11 /naming/: the =defaults= head reads ="org-air: day …"= on a day
+  record and ="org-air: board · file …"= under a file scope; =location=
+  present on every record.  Revert ⇒ FAIL.
+
+* Constraints
+
+- org-ql remains the only query engine; no new data paths — the
+  handlers re-enter the existing machinery with display suppressed.
+- R53: never-hang, never-error, data-pure render (the locator consume is
+  a text-property scan, zero file opens); R56: cold/stale jumps ride the
+  paced progressive-paint machine unchanged; R57: the live cache key
+  governs data coherence — the record's stored key is diagnostic only.
+- Byte goldens untouched: batch entries take the same synchronous path,
+  and no render output changes in this round.
+
+* Out of scope
+
+- desktop.el integration (=desktop-buffer-mode-handlers= — a separate,
+  non-bookmark mechanism; the bookmark records built here are the
+  natural payload for a future round).
+- Persisting rail placement / window layout in records (the restorer
+  owns windows; org-air's reconciler adapts post-display).
+- Cross-machine bookmark portability (records carry absolute paths,
+  exactly like Emacs's own file bookmarks — accepted).
+- Re-enabling doc-session / =org-air-outline-mode= chrome from a
+  restored file buffer (ruled: live navigation state, not persistable).
+
+* History
+
+- 2026-07-18: Round 58 design written from the real activities.el
+  failure report: bookmark record schemas for board/project/revisit +
+  delegating rail/entry/help records, autoloaded no-display handlers
+  over the cache-first entry cores, (FILE . POS) locator point
+  restoration, and revert-fenced ERT seams T1–T11.  State: ready.

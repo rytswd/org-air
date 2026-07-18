@@ -201,18 +201,18 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | ~org-air-show-tags~                 | ~t~                                          | Show the board tags column.                                               |
 | ~org-air-filter-match~              | ~all~                                        | Multi-tag filter combinator: ~all~ (AND) or ~any~ (OR).                   |
 | ~org-air-priority-show~             | ~(?A ?B ?C ?D ?E)~                           | Priority cookies rendered on rows.                                        |
-| ~org-air-sort-key~                  | ~date~                                       | Default within-bucket sort: ~date~/~priority~/~title~/~recency~.          |
-| ~org-air-visit-display~             | ~other-window~                               | How ~S-RET~ shows a source heading: ~other-window~/~same~/~side~/~frame~. |
+| ~org-air-sort-key~                  | ~date~                                       | Default within-bucket sort: ~date~ / ~priority~ / ~title~ / ~recency~.          |
+| ~org-air-visit-display~             | ~other-window~                               | How ~S-RET~ shows a source heading: ~other-window~ / ~same~ / ~side~ / ~frame~. |
 | ~org-air-modeline-style~            | ~default~                                    | ~default~ (keep yours) or ~calm~ (nano-style).                            |
 | ~org-air-tag-style~                 | ~pill~                                       | Tag chips: ~pill~ (svg) or ~text~.                                        |
-| ~org-air-priority-style~            | ~square~                                     | Priority cookie: ~square~/~badge~/~text~.                                 |
+| ~org-air-priority-style~            | ~square~                                     | Priority cookie: ~square~ / ~badge~ / ~text~.                                 |
 | ~org-air-leader-key~                | ~"C-c C-a"~                                  | Main-window action leader prefix.                                         |
 | ~org-air-use-default-keybindings~   | ~t~                                          | Install org-air's default keys; set ~nil~ to install NONE (maps still exist for your own binds). |
 | ~org-air-inspector-max-title-lines~ | ~nil~                                        | Cap on wrapped inspector title lines (~nil~ = wrap fully).                |
 | *Project*                           |                                              |                                                                           |
 | ~org-air-sources~                   | ~nil~                                        | Where the project viewer finds Air content.                               |
-| ~org-air-project-group~             | ~directory~                                  | Default grouping: ~state~/~directory~/~tag~.                              |
-| ~org-air-project-state-style~       | ~svg~                                        | State badge: ~svg~/~nerd~/~text~/~emoji~/~badge~.                         |
+| ~org-air-project-group~             | ~directory~                                  | Default grouping: ~state~ / ~directory~ / ~tag~.                              |
+| ~org-air-project-state-style~       | ~svg~                                        | State badge: ~svg~ / ~nerd~ / ~text~ / ~emoji~ / ~badge~.                         |
 | *Rail*                              |                                              |                                                                           |
 | ~org-air-rail-placement~            | ~((board . inline) (project . side-window))~ | Default rail placement per view.                                          |
 | ~org-air-outline-rail-placement~    | ~side-window~                                | Where ~org-air-outline-mode~ hosts its rail.                              |
@@ -224,7 +224,7 @@ All colour lives in ~org-air-faces.el~ — one default face plus six semantic ro
 
 ** Right-edge glyphs in a fringe-less GUI
 
-org-air sizes every line to the window's /usable/ columns, so with a zero right fringe nothing overflows the visible edge. A few header/legend glyphs (the ~·~ separator, ~…~, ~✕~, and the ~↑ ↓ → ↻~ arrows) are Unicode /East-Asian Ambiguous-width/ characters: Emacs measures them as one column (so the layout is exact), but some fonts /paint/ them two columns wide. If you run a fringe-less GUI and see a stray truncation glyph at the extreme right edge, that is a font/~char-width-table~ mismatch, not an org-air layout bug. The fix is a config one: either pick a font that renders those glyphs single-width, or tell Emacs to treat the ambiguous set as one column (e.g. keep the default ~east-asian-ambiguous~/~char-width-table~ mapping, or ~(set-language-environment "UTF-8")~). org-air's own width math already compensates for whatever ~char-width-table~ reports — it is purely the painted advance that can differ.
+org-air sizes every line to the window's /usable/ columns, so with a zero right fringe nothing overflows the visible edge. A few header/legend glyphs (the ~·~ separator, ~…~, ~✕~, and the ~↑ ↓ → ↻~ arrows) are Unicode /East-Asian Ambiguous-width/ characters: Emacs measures them as one column (so the layout is exact), but some fonts /paint/ them two columns wide. If you run a fringe-less GUI and see a stray truncation glyph at the extreme right edge, that is a font/~char-width-table~ mismatch, not an org-air layout bug. The fix is a config one: either pick a font that renders those glyphs single-width, or tell Emacs to treat the ambiguous set as one column (e.g. keep the default ~east-asian-ambiguous~ / ~char-width-table~ mapping, or ~(set-language-environment "UTF-8")~). org-air's own width math already compensates for whatever ~char-width-table~ reports — it is purely the painted advance that can differ.
 
 * ⌨️ Keybindings
 
@@ -332,7 +332,7 @@ A sticky header shows the date, a visible-item count, and any active filter or s
 The capture → process loop is two steps:
 
 1. ~c~ captures a titled note straight to ~org-air-inbox-file~, tagged ~:inbox:~. It appears in the Inbox on the next refresh.
-2. ~r~ on an inbox item opens one completion prompt offering ~@group~ (move), ~>today~/~>tomorrow~/~>week~/~>someday~ (schedule), ~#tag~, and ~⌂file~ — one choice does the move and refreshes the board.
+2. ~r~ on an inbox item opens one completion prompt offering ~@group~ (move), ~>today~ / ~>tomorrow~ / ~>week~ / ~>someday~ (schedule), ~#tag~, and ~⌂file~ — one choice does the move and refreshes the board.
 
 ~I~ walks the whole Inbox one item at a time with single-key dispositions.
 

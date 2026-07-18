@@ -4,7 +4,7 @@
 
 #+html:<div align="center">
 #+html:<p>A powerful, aesthetic dashboard for your Org Mode notes and tasks — built on <a href="https://github.com/alphapapa/org-ql">org-ql</a>.</p>
-#+html:<p><img src="https://img.shields.io/badge/Emacs-29.1%2B-7F5AB6?style=flat-square&logo=gnuemacs&logoColor=white" alt="Emacs 29.1+">&nbsp;<img src="https://img.shields.io/badge/backend-org--ql-4E9A06?style=flat-square" alt="Built on org-ql">&nbsp;<img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square" alt="License GPL-3.0-or-later">&nbsp;<img src="https://img.shields.io/badge/version-0.1.0-lightgrey?style=flat-square" alt="Version 0.1.0">&nbsp;<a href="#-built-with-ai"><img src="https://img.shields.io/badge/AI--assisted-extensively-8A2BE2?style=flat-square&logo=anthropic&logoColor=white" alt="AI-assisted, extensively"></a>&nbsp;<a href="https://github.com/rytswd/org-air"><img src="https://img.shields.io/badge/Source-grey?style=flat-square&logo=github" alt="GitHub Source"></a></p>
+#+html:<p><img src="https://img.shields.io/badge/Emacs-29.1%2B-7F5AB6?style=flat-square&logo=gnuemacs&logoColor=white" alt="Emacs 29.1+">&nbsp;<img src="https://img.shields.io/badge/backend-org--ql-4E9A06?style=flat-square" alt="Built on org-ql">&nbsp;<img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square" alt="License GPL-3.0-or-later">&nbsp;<img src="https://img.shields.io/badge/version-0.1.0-lightgrey?style=flat-square" alt="Version 0.1.0">&nbsp;<a href="#-built-with-ai"><img src="https://img.shields.io/badge/AI--assisted-extensively-8A2BE2?style=flat-square" alt="AI-assisted, extensively"></a>&nbsp;<a href="https://github.com/rytswd/org-air"><img src="https://img.shields.io/badge/Source-grey?style=flat-square&logo=github" alt="GitHub Source"></a></p>
 #+html:</div>
 
 -----
@@ -357,7 +357,7 @@ Enabling it in an ~org-mode~ buffer pops the org-air context rail showing that b
 
 * 🤖 Built with AI
 
-org-air was written with *extensive* AI assistance: the large majority of the code, tests, and documentation were produced by an AI coding agent (Anthropic's Claude, driven through an autonomous harness) under human direction, planning, and review. The design decisions, the acceptance bar, and every merge were human-owned; the typing, mostly not. If that matters to you — now you know.
+org-air was written with *extensive* AI assistance: the large majority of the code, tests, and documentation were produced by AI coding agents — a rotating cast of frontier models from several providers — driven through an autonomous harness under human direction, planning, and review. The design decisions, the acceptance bar, and every merge were human-owned; the typing, mostly not. If that matters to you — now you know.
 
 * 📄 License
 

@@ -38,7 +38,7 @@ context rail in a side window.
 *The Air project viewer* — ~M-x org-air-project~. Planning docs grouped by version /
 directory / tag, each group headed by its state rollup, with a live inspector.
 
-#+HTML: <img src="https://github.com/user-attachments/assets/76b6b5e8-3350-46eb-a931-639808780bea" alt="org-air project viewer" width="900">
+#+HTML: <img src="https://github.com/user-attachments/assets/d3a60739-6f44-4340-8cd3-84cf2f43f3d6" alt="org-air project viewer" width="900">
 
 *Live filtering* — a ~#tag~ /and/ free-text filter narrowing the board, shown in the
 header badge and the filter rail (here ~#urgent AND #release~ over 11k+ items).

@@ -9,9 +9,9 @@
 
 -----
 
-org-air answers one question well — /what deserves my attention right now?/ — and gets out of the way. It reads your Org files through ~org-ql~, classifies each heading into a handful of meaningful buckets, and renders them with a quiet, legible visual language inspired by [[https://github.com/rougier/nano-emacs][N Λ N O]] and mu4e.
-
 * 🌄 Overview
+
+org-air answers one question well — /what deserves my attention right now?/ — and gets out of the way. It reads your Org files through ~org-ql~, classifies each heading into a handful of meaningful buckets, and renders them with a quiet, legible visual language inspired by [[https://github.com/rougier/nano-emacs][N Λ N O]] and mu4e.
 
 org-air is *two surfaces over your Org files*, sharing one visual language, one keymap core, and one context rail:
 

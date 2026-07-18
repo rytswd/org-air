@@ -9,7 +9,7 @@
 
 -----
 
-* 🌄 Overview
+** 🌄 Overview
 
 org-air answers one question well — /what deserves my attention right now?/ — and gets out of the way. It reads your Org files through ~org-ql~, classifies each heading into a handful of meaningful buckets, and renders them with a quiet, legible visual language inspired by [[https://github.com/rougier/nano-emacs][N Λ N O]] and mu4e.
 
@@ -55,7 +55,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 #+HTML: <img src="https://github.com/user-attachments/assets/345fe29b-2158-4eb9-bade-7e7fd657313f" alt="org-air Revisit view" width="900">
 
-* ✨ Features
+** ✨ Features
 
 *Dashboard* (~org-air~)
 
@@ -88,7 +88,9 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 - *dimmer soft-integration*: org-air's own buffers auto-register as excluded.
 - *Scale*: a work-buffer scan, a persistent cache, and inbox-first progressive paint keep *thousands* of files responsive — the board opens fast and never hangs; a cold refresh streams in behind a ~scanning N/M~ progress indicator.
 
-* 🧰 Requirements
+** 🚀 Getting started
+
+*** Requirements
 
 | Dependency | Version | Required?                     |
 |------------+---------+-------------------------------|
@@ -100,11 +102,11 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 ~evil~ and ~dimmer~ are *soft* dependencies: if present, org-air integrates with them automatically; if absent, nothing changes and nothing is required.
 
-* 🚀 Installation
+*** Installation
 
 ~org-ql~ is on MELPA. Put org-air's ~.el~ files on your ~load-path~, then use the ~use-package~ block below (or a plain ~require~).
 
-** ~use-package~ (recommended)
+**** ~use-package~ (recommended)
 
 #+begin_src emacs-lisp
 (use-package org-air
@@ -134,7 +136,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 ;; evil and dimmer integrate automatically — no configuration needed.
 #+end_src
 
-** Plain ~require~
+**** Plain ~require~
 
 #+begin_src emacs-lisp
 (require 'org-ql)                       ; from MELPA
@@ -144,7 +146,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 ~org-air-files~ accepts any mix of files and directories; directories are scanned recursively for ~.org~ (and ~.org.gpg~) files.
 
-* 🧪 Try it with demo data
+*** Try it with demo data
 
 Don't want to point org-air at your real notes yet?  The repo ships a generator
 that writes ~570 realistic entries across 50 ~.org~ files, with dates *relative to
@@ -181,7 +183,7 @@ Then point org-air at it and open the dashboard:
 The repo's ~flake.nix~ also exposes a devshell (~python3~ + ~emacs~ + ~make~); with
 [[https://direnv.net/][direnv]], ~direnv allow~ in the checkout loads it automatically (see ~.envrc~).
 
-* ⚙️ Configuration
+** ⚙️ Configuration
 
 org-air is useful out of the box; everything here is optional. These are the knobs most users actually tune — run ~M-x customize-group RET org-air RET~ for the full ~60.
 
@@ -217,13 +219,15 @@ org-air is useful out of the box; everything here is optional. These are the kno
 
 All colour lives in ~org-air-faces.el~ — one default face plus six semantic roles (faded, subtle, salient, strong, popout, critical), each with explicit light /and/ dark specs and a TTY fallback. Retint everything by editing ~org-air-palette~.
 
-** Right-edge glyphs in a fringe-less GUI
+*** Right-edge glyphs in a fringe-less GUI
 
 org-air sizes every line to the window's /usable/ columns, so with a zero right fringe nothing overflows the visible edge. A few header/legend glyphs (the ~·~ separator, ~…~, ~✕~, and the ~↑ ↓ → ↻~ arrows) are Unicode /East-Asian Ambiguous-width/ characters: Emacs measures them as one column (so the layout is exact), but some fonts /paint/ them two columns wide. If you run a fringe-less GUI and see a stray truncation glyph at the extreme right edge, that is a font/~char-width-table~ mismatch, not an org-air layout bug. The fix is a config one: either pick a font that renders those glyphs single-width, or tell Emacs to treat the ambiguous set as one column (e.g. keep the default ~east-asian-ambiguous~ / ~char-width-table~ mapping, or ~(set-language-environment "UTF-8")~). org-air's own width math already compensates for whatever ~char-width-table~ reports — it is purely the painted advance that can differ.
 
-* ⌨️ Keybindings
+** 🗂️ Using org-air
 
-** Dashboard (~org-air~)
+*** Keybindings
+
+**** Dashboard (~org-air~)
 
 | Key                     | Action                                                                 |
 |-------------------------+------------------------------------------------------------------------|
@@ -257,7 +261,7 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~q~                     | Quit (progressively closes one surface per press)                      |
 | ~C-c C-a~               | Leader: ~\vert~ rail · ~o~ outline jump · ~s~ sort · ~/~ filter        |
 
-** Project viewer (~org-air-project~)
+**** Project viewer (~org-air-project~)
 
 | Key                   | Action                                                          |
 |-----------------------+-----------------------------------------------------------------|
@@ -274,7 +278,7 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~?~ / ~q~             | Help / quit                                                     |
 | ~C-c C-a~             | Leader: ~\vert~ rail · ~o~ outline jump · ~s~ sort · ~/~ filter |
 
-** Doc session (an open planning doc — editable Org buffer)
+**** Doc session (an open planning doc — editable Org buffer)
 
 | Key                       | Action                      |
 |---------------------------+-----------------------------|
@@ -285,7 +289,7 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 
 Because the doc buffer is fully editable (single keys self-insert), the main-window actions live under the ~C-c C-a~ leader. Legends show the context-correct key — the bare key where it works, the leader form where it doesn't.
 
-** Disabling the default keybindings
+**** Disabling the default keybindings
 
 The stock bindings are useful, but some users already have their own scheme. One boolean opts out of *every* org-air default key at once:
 
@@ -318,9 +322,9 @@ The org-air keymaps still *exist* and keep their ~special-mode~ parent, so ~q~ (
 
 The global entry-point keys you bind yourself (e.g. ~C-c a~ → ~org-air~) are *your* bindings, not defaults, so they are unaffected by this switch.
 
-* 🗂️ The two views
+*** The two views
 
-** The GTD dashboard — ~M-x org-air~
+**** The GTD dashboard — ~M-x org-air~
 
 A sticky header shows the date, a visible-item count, and any active filter or scope. Below it, items sit in five sections, each with an icon and a count badge (badges turn attention-coloured when a section demands it). Each row reads left to right: TODO state, priority cookie, title, a semantic date label, tag chips, and (optionally) an origin breadcrumb.
 
@@ -341,11 +345,11 @@ The capture → process loop is two steps:
 
 Anything tagged ~:inbox:~ in ~org-air-inbox-file~ feeds the board's Inbox and the triage flow — however you put it there.
 
-** The Air project viewer — ~M-x org-air-project~
+**** The Air project viewer — ~M-x org-air-project~
 
 For repositories planned with [[https://github.com/withre/air][Air]], the project viewer renders the planning docs as a state-grouped tree (parity with ~airctl status -Da~), sortable and filterable, with a side-rail inspector. ~RET~ opens a doc in a same-window *session*: you edit the real file, the rail shows a live outline that follows point, and ~C-c C-q~ returns you to the tree. org-air the package has no runtime dependency on Air or ~airctl~.
 
-* 🧵 ~org-air-outline-mode~
+*** ~org-air-outline-mode~
 
 The doc-session outline rail — a heading list plus a current-heading highlight that follows point — is also a *standalone, opt-in minor mode* usable in /any/ Org buffer:
 
@@ -355,11 +359,11 @@ M-x org-air-outline-mode
 
 Enabling it in an ~org-mode~ buffer pops the org-air context rail showing that buffer's headings (via the same rail machinery the doc session uses) and follows point with the current-heading highlight. It has *no dependency* on ~org-air-project~, org-ql, or airctl — a light, generic scaffold. It is off by default and a no-op outside ~org-mode~. Choose inline vs. side-window placement with ~org-air-outline-rail-placement~.
 
-* 🤖 Built with AI
+** 🤖 Built with AI
 
 org-air was written with *extensive* AI assistance: the large majority of the code, tests, and documentation were produced by AI coding agents — a rotating cast of frontier models from several providers — driven through an autonomous harness under human direction, planning, and review. The design decisions, the acceptance bar, and every merge were human-owned; the typing, mostly not. If that matters to you — now you know.
 
-* 📄 License
+** 📄 License
 
 *GPL-3.0-or-later* (~SPDX-License-Identifier: GPL-3.0-or-later~), per the headers in the source files. org-air is *not* part of GNU Emacs.
 

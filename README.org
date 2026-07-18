@@ -110,11 +110,6 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 (use-package org-air
   ;; org-ql (+ Org) is the only hard dependency.
   :commands (org-air org-air-project org-air-capture org-air-outline-mode)
-  :init
-  ;; Recommended global entry points.
-  (global-set-key (kbd "C-c a") #'org-air)          ; the GTD dashboard
-  (global-set-key (kbd "C-c A") #'org-air-project)  ; the Air project viewer
-  (global-set-key (kbd "C-c c") #'org-air-capture)  ; capture to the inbox
   :custom
   ;; Where to look — files and/or directories (scanned recursively for .org).
   (org-air-files '("~/org/"))

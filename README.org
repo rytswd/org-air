@@ -331,6 +331,16 @@ The capture → process loop is two steps:
 
 ~I~ walks the whole Inbox one item at a time with single-key dispositions.
 
+*~org-air-capture~ vs ~org-capture~.* ~c~ (~M-x org-air-capture~) is a deliberately small, zero-config front door: it appends a fixed ~* TODO … :inbox:~ entry with a ~CREATED~ stamp — exactly the shape the Inbox bucket and triage flow expect — so capture works the moment you install org-air, with no template to write and no capture buffer. It is *not* a replacement for ~org-capture~ and does nothing ~org-capture~ can't; if you already live in ~org-capture~, the equivalent template is:
+
+#+begin_src emacs-lisp
+(add-to-list 'org-capture-templates
+  '("i" "org-air inbox" entry (file org-air-inbox-file)
+    "* TODO %? :inbox:\n:PROPERTIES:\n:CREATED: %U\n:END:\n" :empty-lines 1))
+#+end_src
+
+Anything tagged ~:inbox:~ in ~org-air-inbox-file~ feeds the board's Inbox and the triage flow — however you put it there.
+
 ** The Air project viewer — ~M-x org-air-project~
 
 For repositories planned with [[https://github.com/withre/air][Air]], the project viewer renders the planning docs as a state-grouped tree (parity with ~airctl status -Da~), sortable and filterable, with a side-rail inspector. ~RET~ opens a doc in a same-window *session*: you edit the real file, the rail shows a live outline that follows point, and ~C-c C-q~ returns you to the tree. org-air the package has no runtime dependency on Air or ~airctl~.

@@ -42,6 +42,9 @@
 (require 'org-air-view)
 
 (defvar org-air-inbox-file)
+;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
+;; the mode sets it buffer-locally without requiring bookmark at load.
+(defvar bookmark-make-record-function)
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Knobs
@@ -126,6 +129,13 @@ Toggled by `z c' (the columns-prefix convention).")
 
 (defvar-local org-air-revisit--fill-last-paint nil
   "Float time of the last progressive cold-fill repaint, or nil.")
+
+(defvar-local org-air-revisit--bookmark-locator nil
+  "Armed point locator of an in-flight bookmark restore, or nil (R58).
+The revisit twin of `org-air-view--bookmark-locator': a plist
+\(:item (FILE . POS) :title TITLE) consumed at the render tail; stays
+armed across the paced cold-fill's progressive paints until the row
+appears or the fill goes idle (one-shot either way).")
 
 (defvar org-air-revisit--meta-date-w 0
   "Fixed age-chip column width for the current row pass (V6).")
@@ -651,12 +661,19 @@ side-window lifecycle and the foreign-rail sweep mirror the project view
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
     (goto-char (point-min))
     (org-air-revisit--goto-first-row)
+    ;; R58: an armed bookmark locator owns the landing; it stays armed
+    ;; while the paced cold fill is still running (the row may not be
+    ;; painted yet) and clears on match or fill-idle.
+    (org-air-revisit--bookmark-consume)
     (setq org-air-revisit--rendered-width width)
     (cond
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      (org-air-rail--hide (current-buffer))))
+      ;; R58: an undisplayed (bookmark-restored) revisit view must not
+      ;; delete the displayed layout's windows.
+      (unless (org-air-rail--undisplayed-host-p (current-buffer))
+        (org-air-rail--hide (current-buffer)))))
     (org-air-rail--evict-foreign-rail (current-buffer))))
 
 (defun org-air-revisit--render-current ()
@@ -991,6 +1008,11 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   (setq-local cursor-type 'box)
   (setq-local line-spacing org-air-line-spacing)
   (org-air-view--install-modeline)
+  ;; R58: the Revisit view is bookmarkable — a FULL record: surface, sort,
+  ;; created column, plus the note-at-point locator (the revisit unit is
+  ;; the FILE).  Restored by `org-air-revisit-bookmark-jump'.
+  (setq-local bookmark-make-record-function
+              #'org-air-revisit--bookmark-make-record)
   ;; Responsive re-render on resize (the round-9 C1 path).
   (setq-local org-air-layout-refresh-function
               #'org-air-revisit--resize-refresh)
@@ -1036,10 +1058,150 @@ board via the Notes count row (RET) or `N', and from the project via
       (unless (derived-mode-p 'org-air-revisit-mode)
         (org-air-revisit-mode)))
     (pop-to-buffer buffer)
-    (with-current-buffer buffer
-      (org-air-revisit--ensure-data)
-      (org-air-query-link-graph-ensure)
-      (org-air-revisit--render))))
+    (org-air-revisit--open-core buffer t)))
+
+(defun org-air-revisit--open-core (buffer _display)
+  "Run the Revisit entry's data+render body in BUFFER (R58 factoring).
+Prep + `org-air-revisit--ensure-data' (never-blocking: warm / cache
+hydrate / paced cold fill) + link-graph ensure + render — exactly the
+command's body; the command is prep + `pop-to-buffer' + this core.  The
+bookmark handler calls it with DISPLAY nil (undisplayed — the restorer
+owns the windows).  Ensures the mode idempotently (R26-5); never
+displays BUFFER."
+  (with-current-buffer buffer
+    (unless (derived-mode-p 'org-air-revisit-mode)
+      (org-air-revisit-mode))
+    (org-air-revisit--ensure-data)
+    (org-air-query-link-graph-ensure)
+    (org-air-revisit--render)))
+
+;;;; ---------------------------------------------------------------------
+;;;; R58 — Emacs bookmark support (see org-air-view.el's shared core).
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-revisit--bookmark-name ()
+  "Return the revisit record's `defaults' candidates (R58).
+Surface-qualified first (\"org-air: revisit · orphans\") when off the
+default `all', then the generic \"org-air: revisit\"."
+  (delete-dups
+   (delq nil
+         (list (and (memq org-air-revisit--surface '(orphans spaced))
+                    (format "org-air: revisit · %s"
+                            org-air-revisit--surface))
+               "org-air: revisit"))))
+
+(defun org-air-revisit--bookmark-make-record ()
+  "Return the Emacs bookmark record for the Revisit buffer (R58).
+A FULL record: surface + sort + the created-column toggle plus the
+note-at-point locator — (FILE . 1), the revisit unit IS the file.  Pure
+buffer-local reads; never signals (degrades to the bare header record).
+`org-air-revisit--pages' is deliberately NOT recorded: \"show more\" is
+a within-session interaction and a restored page depth over a changed
+corpus is meaningless (restore resets to 1 — the documented ruling)."
+  (condition-case nil
+      (append
+       (org-air-view--bookmark-header 'revisit
+                                      'org-air-revisit-bookmark-jump
+                                      "org-air: revisit"
+                                      (org-air-revisit--bookmark-name))
+       (list (cons 'org-air-surface org-air-revisit--surface)
+             (cons 'org-air-sort
+                   (cons (or org-air-view--sort-key 'age)
+                         (or org-air-view--sort-direction 'ascending)))
+             (cons 'org-air-show-created
+                   (and org-air-revisit--show-created t)))
+       (let ((entry (org-air-view--row-property 'org-air-revisit)))
+         (when (and (consp entry) (stringp (car entry)))
+           (append
+            (list (cons 'org-air-item (cons (car entry) 1)))
+            (let ((title (org-air-revisit--entry-title entry)))
+              (and (stringp title)
+                   (list (cons 'org-air-item-title
+                               (substring-no-properties title)))))))))
+    (error (org-air-view--bookmark-header 'revisit
+                                          'org-air-revisit-bookmark-jump
+                                          "org-air: revisit"
+                                          (list "org-air: revisit")))))
+
+(defun org-air-revisit--bookmark-apply (record)
+  "Apply RECORD's org-air fields to the current Revisit buffer (R58).
+The revisit twin of `org-air-view--bookmark-apply': every field
+optional, unknown fields ignored, malformed values dropped.  Always
+resets `org-air-revisit--pages' to 1 (the documented ruling)."
+  (let ((surface (cdr (assq 'org-air-surface record)))
+        (sort (cdr (assq 'org-air-sort record)))
+        (created (assq 'org-air-show-created record)))
+    (when (memq surface '(all orphans spaced))
+      (setq-local org-air-revisit--surface surface))
+    (when (and (consp sort)
+               (car sort) (symbolp (car sort))
+               (cdr sort) (symbolp (cdr sort)))
+      (setq-local org-air-view--sort-key (car sort)
+                  org-air-view--sort-direction (cdr sort)))
+    (when created
+      (setq-local org-air-revisit--show-created (and (cdr created) t)))
+    (setq-local org-air-revisit--pages 1)))
+
+(defun org-air-revisit--bookmark-consume ()
+  "Land point on the bookmarked note row; never signals (R58).
+Matches on the note FILE (the shared `org-air-marker' property carries
+it on revisit rows), then on the entry title.  With the paced cold fill
+still in flight a miss stays ARMED for the next progressive paint;
+otherwise the slot clears and the render's first-row landing stands."
+  (when org-air-revisit--bookmark-locator
+    (condition-case nil
+        (let* ((slot org-air-revisit--bookmark-locator)
+               (file (car-safe (plist-get slot :item)))
+               (title (plist-get slot :title))
+               (pos (or (and file (org-air-view--find-property
+                                   'org-air-marker file))
+                        (and title
+                             (org-air-view--bookmark-scan
+                              'org-air-revisit
+                              (lambda (entry)
+                                (equal (org-air-revisit--entry-title entry)
+                                       title)))))))
+          (cond
+           (pos
+            (setq org-air-revisit--bookmark-locator nil)
+            (goto-char pos)
+            (org-air-view--goto-row-title))
+           ;; Cold fill still running: the row may simply not be painted
+           ;; yet — stay armed for the next progressive paint.
+           ((or org-air-revisit--fill-queue
+                (timerp org-air-revisit--fill-timer)))
+           (t (setq org-air-revisit--bookmark-locator nil))))
+      (error (setq org-air-revisit--bookmark-locator nil)))))
+
+;;;###autoload
+(defun org-air-revisit-bookmark-jump (record)
+  "Handler for org-air Revisit bookmarks (R58).
+Rebuilds `*org-air revisit*' from RECORD without displaying it (the
+bookmark caller owns display) through the existing never-blocking data
+path (warm / cache hydrate / paced cold fill — the R53/R54 laws).  Never
+signals: a malformed RECORD degrades to a plain Revisit open."
+  (require 'org-air)
+  (let ((buffer (get-buffer-create org-air-revisit-buffer-name)))
+    (condition-case err
+        (with-current-buffer buffer
+          ;; R26-5 idempotent entry guard — identical to the command's.
+          (unless (derived-mode-p 'org-air-revisit-mode)
+            (org-air-revisit-mode))
+          (org-air-revisit--bookmark-apply record)
+          (setq org-air-revisit--bookmark-locator
+                (org-air-view--bookmark-locator-of record))
+          (org-air-revisit--open-core buffer nil))
+      (error
+       (message "org-air: bookmark restore degraded: %s"
+                (org-air-view--short-error err))
+       (with-current-buffer buffer
+         (unless (derived-mode-p 'org-air-revisit-mode)
+           (org-air-revisit-mode))
+         (ignore-errors (org-air-revisit--open-core buffer nil)))))
+    ;; The handler contract: make the target buffer CURRENT, never shown.
+    (set-buffer buffer)))
+;;;###autoload
+(put 'org-air-revisit-bookmark-jump 'bookmark-handler-type "org-air")
 
 ;; R35-1: this file loads AFTER the load-time seed at the bottom of
 ;; org-air-project.el, so the revisit key registrations above missed that

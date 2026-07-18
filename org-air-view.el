@@ -38,6 +38,10 @@
 
 (defvar org-air-files)
 (defvar org-air-inbox-file)
+;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
+;; the modes set it buffer-locally without requiring bookmark at load.
+(defvar bookmark-make-record-function)
+(defvar org-air-revisit-buffer-name)
 
 ;; R54-3: the Revisit view lives in org-air-revisit.el (module split);
 ;; this file only NAMES its entry points (the `N' key, the Notes-heading
@@ -960,6 +964,12 @@ under `noninteractive' (the byte gate stays synchronous with no timer).")
 While REFRESHING, triage verbs on an item from one of these soft-error
 \(\"Still refreshing this file…\"); positions in unchanged files are valid
 by construction (mtime match).")
+(defvar-local org-air-view--bookmark-locator nil
+  "Armed point locator of an in-flight bookmark restore, or nil (R58).
+A plist (:item (FILE . POS) :title TITLE) stashed by
+`org-air-view-bookmark-jump' and consumed at the tail of every
+successful full paint (`org-air-view--bookmark-consume').  One-shot: it
+never survives past refresh-idle, so later user renders are untouched.")
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
 (defvar-local org-air-view--rail-descriptor nil
@@ -1685,6 +1695,11 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   (unless org-air-view--sort-direction
     (setq-local org-air-view--sort-direction org-air-sort-direction))
   (setq-local buffer-read-only t)
+  ;; R58: the board is bookmarkable (activities.el / burly / `C-x r m') —
+  ;; a FULL record: view kind, scope, filter, sort, day, plus the durable
+  ;; (FILE . POS) row locator.  Restored by `org-air-view-bookmark-jump'.
+  (setq-local bookmark-make-record-function
+              #'org-air-view--bookmark-make-record)
   ;; T6: re-fit when the font/text size changes (text-scale alters how many
   ;; columns/rows fit), debounced through the same window-size path.
   (add-hook 'text-scale-mode-hook #'org-air-view--text-scale-refresh nil t)
@@ -5478,6 +5493,11 @@ reading/scrolling, and `q' pops the rail back inline on the board."
   (setq-local line-spacing org-air-line-spacing)
   (setq-local cursor-type nil)
   (setq-local buffer-read-only t)
+  ;; R58: the rail is a dependent buffer — its bookmark record DELEGATES
+  ;; to the host view (board/project/revisit) so an activities.el layout
+  ;; holding the rail restores it beside its host, order-independently.
+  (setq-local bookmark-make-record-function
+              #'org-air-rail--bookmark-make-record)
   ;; R27-4: the board's evil parity for the rail too — under evil, `q'/`RET'
   ;; /`|' were shadowed (evil-record-macro / evil-ret / evil-goto-column).
   ;; R35-1: gated on the knob (skipped with the defaults off).
@@ -5491,6 +5511,17 @@ reading/scrolling, and `q' pops the rail back inline on the board."
       (unless (derived-mode-p 'org-air-rail-mode)
         (org-air-rail-mode)))
     buf))
+
+(defun org-air-rail--undisplayed-host-p (buffer)
+  "Non-nil when host BUFFER renders windowless in an interactive session (R58).
+A bookmark/activities restore rebuilds views UNDISPLAYED — the restorer
+owns the window layout, so a render for a host no window shows must not
+create, resize or sweep side windows (the R9/C1 resize-refresh re-fits —
+and the rail lifecycle re-runs — the moment the restorer displays it).
+Inert in batch: `noninteractive' keeps every golden's rail lifecycle
+exactly as before."
+  (and (not noninteractive)
+       (not (get-buffer-window buffer t))))
 
 (defun org-air-rail--window-cols (&optional total-width)
   "Return the rail side-window column width (R15 D-P2 / R27-1 S1).
@@ -5713,7 +5744,10 @@ can move the goalposts.  WIDTH is the fallback when HOST-BUFFER has no
 live window (and the floor input: the result never drops below
 `org-air-item-pane-min').  Shared by the board and the project (one
 primitive, no fork); the batch width seams bypass this helper entirely."
-  (org-air-rail--ensure-window host-buffer width)
+  ;; R58: never ensure the side window for an undisplayed host (bookmark
+  ;; restore) — the measure below then falls back to WIDTH as always.
+  (unless (org-air-rail--undisplayed-host-p host-buffer)
+    (org-air-rail--ensure-window host-buffer width))
   (let ((win (get-buffer-window host-buffer)))
     (if (window-live-p win)
         (max org-air-item-pane-min (org-air-layout--usable-columns win))
@@ -5749,7 +5783,12 @@ of `org-air-rail--input-stamp' matches the previous paint the erase+
 re-insert is skipped (the output would be byte-identical), so the steady
 state is zero rail repaints and exactly one at the R26-8 swap."
   (let* ((cols (org-air-rail--window-cols (and org-air-view-width width)))
-         (win (org-air-rail--ensure-window board-buffer width)))
+         ;; R58: a host no window shows (a bookmark/activities restore
+         ;; rebuilding views undisplayed) must not create the side window
+         ;; — the restorer owns the layout.  Rail CONTENT still renders
+         ;; below, so the buffer is fresh when the restorer shows it.
+         (win (unless (org-air-rail--undisplayed-host-p board-buffer)
+                (org-air-rail--ensure-window board-buffer width))))
     ;; The render-width/-height seams (`org-air-view-width/-height', used
     ;; for deterministic batch goldens) drive the rail dimensions when set;
     ;; otherwise the live side window's body metrics do.  This keeps the
@@ -5991,7 +6030,10 @@ SELF is inline it drops a lingering foreign rail (the cross-view sweep)."
   (let* ((frame (selected-frame))
          (side  (org-air-rail--side-window frame))
          (owner (org-air-rail--side-owner frame)))
-    (when (and (window-live-p side) (not (eq owner self)))
+    (when (and (window-live-p side) (not (eq owner self))
+               ;; R58: an undisplayed self-render (a bookmark restore) has
+               ;; no layout claim — never sweep the displayed view's rail.
+               (not (org-air-rail--undisplayed-host-p self)))
       (when (buffer-live-p owner)
         (with-current-buffer owner
           (setq-local org-air-view--rail-suspended t)))
@@ -6213,6 +6255,37 @@ One at a time: replaced (old killed) on follow / re-open and killed on pane
 close.  Killing an indirect buffer never loses text — unsaved edits live in
 the base file buffer and stay savable.")
 
+(defvar-local org-air-view-pane--bookmark-ctx nil
+  "Printable (FILE POS TITLE HOST) of the snapshot this pane shows (R58).
+Local to the `*org-air-view*' snapshot buffer; written by the one
+snapshot writer (`org-air-view-pane--render-snapshot') so the pane's
+bookmark record producer is a pure buffer-local read.  Every element is
+plain readable data — never a marker or buffer.")
+
+(defun org-air-view-pane--bookmark-stash (ctx)
+  "Return the printable (FILE POS TITLE HOST) bookmark stash for CTX (R58).
+Called in the HOST buffer (the snapshot render's caller context) so HOST
+names the view that drove the pane.  A live marker degrades to its
+position at stash time (R58 rule 5: a marker must never enter a bookmark
+record); never signals — an odd CTX yields nil."
+  (condition-case nil
+      (let* ((m (plist-get ctx :marker))
+             (file (or (plist-get ctx :file)
+                       (cond ((stringp m) m)
+                             ((consp m) (car-safe m))
+                             ((and (markerp m) (marker-buffer m))
+                              (buffer-file-name (marker-buffer m))))))
+             (pos (cond ((consp m) (cdr m))
+                        ((markerp m) (marker-position m))))
+             (title (plist-get ctx :title)))
+        (list (and (stringp file) (substring-no-properties file))
+              (if (integerp pos) pos 1)
+              (and (stringp title) (substring-no-properties title))
+              (cond ((derived-mode-p 'org-air-project-mode) 'project)
+                    ((derived-mode-p 'org-air-revisit-mode) 'revisit)
+                    (t 'board))))
+    (error nil)))
+
 (defvar org-air-entry-view-mode-map
   (let ((map (make-sparse-keymap)))
     ;; PARENT stays at defvar time — always, even with the knob nil, so a
@@ -6241,6 +6314,10 @@ A read-only snapshot of the selected item's Org entry with Org font-lock,
   (org-air-view--install-modeline)
   (setq-local cursor-type t)
   (setq-local buffer-read-only t)
+  ;; R58: the snapshot pane delegates to its host + the entry's (FILE .
+  ;; POS) source, so a saved layout holding the pane restores cleanly.
+  (setq-local bookmark-make-record-function
+              #'org-air-view-pane--bookmark-make-record)
   ;; R27-4: evil parity for the read-only pane — under evil, `q' resolved
   ;; to evil-record-macro instead of closing the pane.
   ;; R35-1: gated on the knob (skipped with the defaults off).
@@ -6510,12 +6587,17 @@ The unchanged R16 path: a fontified COPY of the subtree, dead sources show
 a calm hint.  Used under `noninteractive', when `org-air-view-pane-editable'
 is nil, or when the source is unresolvable — so every fixture stays
 byte-identical (R19-3).  Returns the pane buffer."
-  (let ((buf (org-air-view-pane--buffer)))
+  (let ((buf (org-air-view-pane--buffer))
+        ;; R58: capture the printable bookmark stash HERE, in the caller's
+        ;; (host) buffer — the one writer of the snapshot — so the pane's
+        ;; record producer never re-derives sources.
+        (bm (org-air-view-pane--bookmark-stash ctx)))
     ;; The editable indirect (if any) is being replaced by the snapshot;
     ;; forget it (the caller kills the now-unshown buffer).
     (when (org-air-view--pane-host-p)
       (setq-local org-air-view--pane-indirect nil))
     (with-current-buffer buf
+      (setq-local org-air-view-pane--bookmark-ctx bm)
       (let ((inhibit-read-only t))
         (erase-buffer)
         (if (null src)
@@ -7016,6 +7098,11 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     (setq org-air-view--rendered-width width
           org-air-view--rendered-height height)
     (org-air-view--goto-first-item)
+    ;; R58: an armed bookmark locator owns the landing — one text-property
+    ;; scan over the rendered rows; stays armed only while the refresh
+    ;; machine is still filling (a progressive paint may not hold the row
+    ;; yet), so the inspector below syncs to the bookmarked item.
+    (org-air-view--bookmark-consume)
     ;; D-P7: locate the inspector band, set its markers, sync to the item
     ;; the cursor landed on (the live hook keeps it synced thereafter).
     (org-air-view--setup-inspector)
@@ -7026,7 +7113,10 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      (org-air-rail--hide (current-buffer))))
+      ;; R58: an undisplayed (bookmark-restored) board must not delete the
+      ;; displayed layout's windows.
+      (unless (org-air-rail--undisplayed-host-p (current-buffer))
+        (org-air-rail--hide (current-buffer)))))
     ;; R25-6: an INLINE (two-pane/stacked) self-render must also drop a
     ;; stale side rail owned by ANOTHER view (the cross-view sweep).  When
     ;; SELF is popped `--show' already re-owned the window, so this no-ops.
@@ -7242,10 +7332,16 @@ in-flight slice's org-ql predicate is reading)."
    ((eq org-air-view--refresh-state 'refreshing)
     (org-air-view--refresh-repaint))
    (t
-    (let ((token (org-air-view--save-position)))
+    ;; R58: with a bookmark locator armed the locator owns the landing —
+    ;; the saved point belongs to the pre-restore skeleton, so the
+    ;; save/restore pair is skipped and the render tail's
+    ;; `org-air-view--bookmark-consume' places point instead.
+    (let ((token (and (not org-air-view--bookmark-locator)
+                      (org-air-view--save-position))))
       (org-air-view--render (or org-air-view--items (org-air-query-items))
                             org-air-view--tag-filter)
-      (org-air-view--restore-position token)))))
+      (when token
+        (org-air-view--restore-position token))))))
 
 (defun org-air-view--resize-refresh ()
   "Re-render only when the displaying window's width or height changed.
@@ -7538,10 +7634,16 @@ FILES; enumeration semantics are unchanged this round."
   "Repaint the board from `org-air-view--items' as-is, preserving point.
 Unlike `org-air-view--render-current' this never falls back to a
 synchronous query when the items are nil (the cold/failed machine states
-must not re-block the frame)."
-  (let ((token (org-air-view--save-position)))
+must not re-block the frame).
+R58: with a bookmark locator armed the locator OWNS the landing (the
+saved point belongs to the pre-restore skeleton), so the save/restore
+pair is skipped — the render tail's `org-air-view--bookmark-consume'
+places point instead."
+  (let ((token (and (not org-air-view--bookmark-locator)
+                    (org-air-view--save-position))))
     (org-air-view--render org-air-view--items org-air-view--tag-filter)
-    (org-air-view--restore-position token)))
+    (when token
+      (org-air-view--restore-position token))))
 
 (defconst org-air-view--refresh-pace 0.05
   "Bounded idle interval (seconds) pacing the chunked refresh slices (R34-3).
@@ -8318,20 +8420,20 @@ single swap).  A re-open with the in-buffer item cache warm, or any
 `noninteractive' (batch) call, takes the EXACT synchronous path so every
 byte fixture is produced exactly as before and the gate never reads or
 writes the cache file.  Errors surface as a single truncated line; the
-buffer can never wedge in a loading state."
+buffer can never wedge in a loading state.
+R58: the three-branch data body lives in `org-air-view--open-core' (the
+bookmark handlers re-enter it with display suppressed); this command is
+prep + display + the core — byte-identical behaviour, same order
+\(display still precedes the cond so width derivation sees the window)."
   (interactive)
-  (let* ((buffer (get-buffer-create org-air-view-buffer-name))
-         (cached (with-current-buffer buffer
-                   ;; R26-5: IDEMPOTENT entry — re-running the mode on a
-                   ;; live buffer runs `kill-all-local-variables' and wipes
-                   ;; the whole session (rail placement, sort, filter...).
-                   ;; Initialise only when not already in the mode (the
-                   ;; same guard as the project entry; one discipline).
-                   (unless (derived-mode-p 'org-air-view-mode)
-                     (org-air-view-mode))
-                   (and org-air-view--items
-                        (equal org-air-view--items-key
-                               (org-air-view--cache-key))))))
+  (let ((buffer (get-buffer-create org-air-view-buffer-name)))
+    (with-current-buffer buffer
+      ;; R26-5: IDEMPOTENT entry — re-running the mode on a live buffer
+      ;; runs `kill-all-local-variables' and wipes the whole session (rail
+      ;; placement, sort, filter...).  Initialise only when not already in
+      ;; the mode (the same guard as the project entry; one discipline).
+      (unless (derived-mode-p 'org-air-view-mode)
+        (org-air-view-mode)))
     ;; Display the buffer first so width derivation measures the window
     ;; that actually shows the dashboard (U1), in a full-width window so
     ;; the rail/calendar are never pushed off-screen (D4).
@@ -8340,9 +8442,27 @@ buffer can never wedge in a loading state."
                        '((display-buffer-reuse-window
                           display-buffer-same-window
                           display-buffer-full-frame))))
-    (with-current-buffer buffer
-      ;; R45-2: an interactive (re)entry supersedes any pending one-shot
-      ;; first paint — the buffer is about to be (re)painted synchronously
+    (org-air-view--open-core buffer t)))
+
+(defun org-air-view--open-core (buffer display)
+  "Run the board's three-branch data entry for BUFFER (R58 factoring).
+The EXACT cond `org-air-view' always ran — WARM/batch synchronous render
+→ persisted-cache skeleton + deferred one-shot (+ paced stale kickoff) →
+COLD skeleton + the R56 paced machine.  DISPLAY non-nil is the command
+path (BUFFER was just displayed; the skeleton `redisplay' flushes the
+visible frame); nil is the bookmark-handler path, which skips ONLY those
+skeleton-flush `redisplay' calls (pointless and mildly wasteful
+undisplayed) — branch choice, token discipline and every render are
+identical.  Ensures the mode idempotently (R26-5) and never displays
+BUFFER itself."
+  (with-current-buffer buffer
+    (unless (derived-mode-p 'org-air-view-mode)
+      (org-air-view-mode))
+    (let ((cached (and org-air-view--items
+                       (equal org-air-view--items-key
+                              (org-air-view--cache-key)))))
+      ;; R45-2: a (re)entry supersedes any pending one-shot first paint —
+      ;; the buffer is about to be (re)painted synchronously
       ;; (WARM/cache-hit) or via a fresh skeleton (cold/stale), so a stale
       ;; one-shot must never fire and double-render.  Interactive only: the
       ;; batch gate never arms the timer, so there is nothing to disarm.
@@ -8381,7 +8501,9 @@ buffer can never wedge in a loading state."
           ;; the 2-10s blank-frozen open).  The board still appears in ONE
           ;; motion, merely deferred one idle tick behind the skeleton.
           (org-air-view--render-loading)
-          (redisplay t)
+          ;; R58: the `redisplay' exists to flush the VISIBLE skeleton —
+          ;; skipped on the undisplayed bookmark-handler path.
+          (when display (redisplay t))
           ;; Bump the token first (via cancel) so any earlier in-flight
           ;; callback self-cancels before the one-shot below is armed.
           (org-air-view--refresh-cancel)
@@ -8418,7 +8540,8 @@ buffer can never wedge in a loading state."
             (progn
               (org-air-view--refresh-start t) ; COLD: paced skeleton machine
               (org-air-view--render-loading)
-              (redisplay t))
+              ;; R58: skeleton flush — visible (command) path only.
+              (when display (redisplay t)))
           (error
            (setq org-air-view--items nil
                  org-air-view--classify-cache nil
@@ -9187,7 +9310,16 @@ the origin window via the PARENT `special-mode' binding (`quit-window'),
 so it works even with `org-air-use-default-keybindings' nil — the knob
 only clears installer-owned keys, and org-air installs none here."
   (setq-local truncate-lines nil)
-  (setq-local line-spacing org-air-line-spacing))
+  (setq-local line-spacing org-air-line-spacing)
+  ;; R58: a trivial record (context symbol only) so a `*org-air-help*'
+  ;; buffer in a saved layout can never raise the activities.el error.
+  (setq-local bookmark-make-record-function
+              #'org-air-help--bookmark-make-record))
+
+(defvar-local org-air-help--context-sym nil
+  "Help context symbol this `*org-air-help*' buffer was rendered for (R58).
+Set by `org-air-help--render' (after the mode call, which wipes locals);
+read by the bookmark record producer.")
 
 (defconst org-air-help--board-groups
   '(("Navigation"
@@ -9353,16 +9485,33 @@ origin buffer (`where-is'), so it is correct under evil, a custom
 `org-air-leader-key', and `org-air-use-default-keybindings' both ways.
 Context-aware: board / project / doc-session pick their own group set.
 Displayed via `pop-to-buffer'; `q' (`quit-window', the `special-mode'
-parent binding) restores the origin window."
+parent binding) restores the origin window.
+R58: the render body lives in `org-air-help--render' (the bookmark
+handler re-renders undisplayed); this command is the render + display."
   (interactive)
   (let* ((origin (current-buffer))
          (context (org-air-help--context origin))
-         (groups (org-air-help--groups context))
-         (buffer (get-buffer-create org-air-help-buffer-name))
-         (title (format "org-air help — %s"
-                        (org-air-help--context-title context))))
+         (buffer (get-buffer-create org-air-help-buffer-name)))
+    (org-air-help--render buffer context origin)
+    (pop-to-buffer buffer)
+    buffer))
+
+(defun org-air-help--render (buffer context origin)
+  "Render the CONTEXT help view into BUFFER, keys derived from ORIGIN (R58).
+The extracted render core of `org-air-help' (byte-identical output): the
+command wraps it with `pop-to-buffer'; the bookmark handler calls it
+directly and never displays (the restorer owns the windows).  ORIGIN is
+the buffer whose live keymaps resolve the KEY column; a dead or
+unrelated ORIGIN degrades to `M-x' cells, never an error.  Returns
+BUFFER."
+  (let ((groups (org-air-help--groups context))
+        (title (format "org-air help — %s"
+                       (org-air-help--context-title context))))
     (with-current-buffer buffer
       (org-air-help-mode)
+      ;; R58: remember the context for the bookmark record producer (the
+      ;; mode call above ran `kill-all-local-variables').
+      (setq-local org-air-help--context-sym context)
       (let ((inhibit-read-only t))
         (erase-buffer)
         (setq-local header-line-format
@@ -9387,7 +9536,6 @@ parent binding) restores the origin window."
                       (propertize desc 'face 'org-air-face-faded)
                       "\n"))))
         (goto-char (point-min))))
-    (pop-to-buffer buffer)
     buffer))
 
 ;;;###autoload
@@ -9512,6 +9660,480 @@ the current window.  Used when no captured configuration is available."
       (if (window-live-p win)
           (select-window win)
         (switch-to-buffer dashboard)))))
+
+;;;; ---------------------------------------------------------------------
+;;;; R58 — Emacs bookmark support (activities.el / burly / `C-x r m').
+;;;; ---------------------------------------------------------------------
+;;
+;; Every org-air view buffer provides a buffer-local
+;; `bookmark-make-record-function' and an autoloadable handler, so the
+;; bookmark-driven session restorers (activities.el, burly.el, plain
+;; `bookmark-jump') can save and rebuild the views.  Records carry the
+;; VIEW-defining state plus a durable (FILE . POS) locator for point (the
+;; R53 marker-slot model — never a raw buffer position) and ONLY
+;; printable values (`bookmark-save' writes the alist with `prin1').
+;; Handlers re-enter the EXISTING cache-first entry cores with display
+;; suppressed and NEVER touch windows: `bookmark--jump-via' hands
+;; `current-buffer' to the caller's DISPLAY-FUNCTION — activities.el
+;; places it into ITS restored layout, and a handler that popped windows
+;; would fight that layout.  org-air's own record keys are
+;; `org-air-'-prefixed so no future bookmark.el reserved key can collide.
+
+(declare-function org-air-project-bookmark-jump "org-air-project")
+(declare-function org-air-revisit-bookmark-jump "org-air-revisit")
+
+(defconst org-air-view--bookmark-version 1
+  "Schema version stamped into every org-air bookmark record (R58).
+Readers treat every field as optional (unknown fields ignored, missing
+fields defaulted), so a version mismatch reads best-effort — never a
+signal into bookmark.el / activities.el.")
+
+(defconst org-air-view--bookmark-header-keys
+  '(org-air-version org-air-view org-air-context)
+  "The per-record header trio every org-air bookmark record carries (R58).
+Stripped by `org-air-view--bookmark-host-fields' when a dependent
+buffer's record embeds its host's state fields (the rail delegation), so
+the embedding record keeps its OWN header.")
+
+(defun org-air-view--bookmark-epoch (time)
+  "Return TIME as a printable integer epoch, or nil (R58 rule 5).
+Times are stored as integer epochs (`time-convert') — an Emacs time
+object must never enter a bookmark record."
+  (and time (ignore-errors (time-convert time 'integer))))
+
+(defun org-air-view--bookmark-header (view handler location names)
+  "Return the shared org-air bookmark record header alist (R58).
+VIEW is the record's view symbol, HANDLER the jump function, LOCATION
+the string `bookmark-location' displays in the bmenu list (views are not
+file-visiting, so records carry `location' instead of `filename'), and
+NAMES the `defaults' name candidates, most specific first.
+`org-air-context' carries the live `org-air-view--cache-key' —
+DIAGNOSTIC ONLY: a jump always opens under the user's LIVE configuration
+\(a bookmark restores a VIEW, never an old configuration)."
+  (list (cons 'handler handler)
+        (cons 'location location)
+        (cons 'defaults names)
+        (cons 'org-air-version org-air-view--bookmark-version)
+        (cons 'org-air-view view)
+        (cons 'org-air-context (org-air-view--cache-key))))
+
+(defun org-air-view--bookmark-host-fields (record)
+  "Return RECORD's embeddable `org-air-…' state fields (R58 delegation).
+Drops bookmark.el's reserved keys (`handler', `defaults', `location'… —
+anything not `org-air-'-prefixed) and the header trio
+`org-air-view--bookmark-header-keys', leaving exactly the view-defining
+state a dependent buffer's record embeds from its host."
+  (seq-filter (lambda (cell)
+                (and (consp cell) (symbolp (car cell))
+                     (string-prefix-p "org-air-" (symbol-name (car cell)))
+                     (not (memq (car cell)
+                                org-air-view--bookmark-header-keys))))
+              (and (listp record) record)))
+
+(defun org-air-view--bookmark-scan (prop pred)
+  "Return the first position whose text PROP value satisfies PRED, or nil.
+A pure text-property scan over the rendered buffer (R58): never opens a
+file, bounded by the buffer size.  PRED is called only on non-nil
+values."
+  (let ((pos (point-min)) (found nil))
+    (while (and (not found) pos (< pos (point-max)))
+      (let ((val (get-text-property pos prop)))
+        (if (and val (funcall pred val))
+            (setq found pos)
+          (setq pos (next-single-property-change pos prop nil (point-max))))))
+    found))
+
+(defun org-air-view--bookmark-locator-of (record)
+  "Return the point-locator slot RECORD arms, or nil (R58).
+A plist (:item (FILE . POS) :title TITLE); either half may be absent —
+the consume chain falls through accordingly.  Malformed fields are
+dropped, never signalled on."
+  (let ((item (cdr (assq 'org-air-item record)))
+        (title (cdr (assq 'org-air-item-title record))))
+    (setq item (and (consp item) (stringp (car item))
+                    (cons (car item)
+                          (if (integerp (cdr item)) (cdr item) 1)))
+          title (and (stringp title) title))
+    (when (or item title)
+      (list :item item :title title))))
+
+;;; --- Board (`*org-air*') -----------------------------------------------
+
+(defun org-air-view--bookmark-name ()
+  "Return the board record's `defaults' candidates, most specific first (R58).
+Day view first (\"org-air: day 2026-07-18\"), then the scoped board
+\(\"org-air: board · file inbox.org\", · #tag, · group G), then the
+generic \"org-air: board\"."
+  (delete-dups
+   (delq nil
+         (list (and org-air-view--day
+                    (format "org-air: day %s"
+                            (format-time-string "%Y-%m-%d"
+                                                org-air-view--day)))
+               (pcase org-air-view--scope
+                 (`(:file ,file)
+                  (and (stringp file)
+                       (format "org-air: board · file %s"
+                               (file-name-nondirectory file))))
+                 (`(:tag ,tag) (format "org-air: board · #%s" tag))
+                 (`(:group ,group) (format "org-air: board · group %s" group))
+                 (_ nil))
+               "org-air: board"))))
+
+(defun org-air-view--bookmark-item-fields ()
+  "Return the (FILE . POS) locator fields for the row at point, or nil (R58).
+The R53 marker-slot model: a scanned item's marker slot IS a durable
+\(FILE . POS) cons; a live-capture item whose marker is a real marker
+degrades to (FILE . POS) via `marker-position' at record time — a marker
+must never enter the alist (rule 5).  Point on chrome (banner, section
+heading, calendar) records NO item fields."
+  (let ((item (org-air-view--row-property 'org-air-item)))
+    (when item
+      (let* ((file (org-air-item-file item))
+             (m (org-air-item-marker item))
+             (loc (cond ((and (consp m) (stringp (car m)))
+                         (cons (car m)
+                               (if (integerp (cdr m)) (cdr m) 1)))
+                        ((and (markerp m) (stringp file))
+                         (cons file (or (marker-position m) 1)))
+                        ((stringp file) (cons file 1))))
+             (title (org-air-item-title item)))
+        (append (and loc (list (cons 'org-air-item loc)))
+                (and (stringp title)
+                     (list (cons 'org-air-item-title
+                                 (substring-no-properties title)))))))))
+
+(defun org-air-view--bookmark-make-record ()
+  "Return the Emacs bookmark record for the current board buffer (R58).
+Pure buffer-local reads plus one row text-property lookup — cheap enough
+for activities.el's repeated timer saves, valid mid-refresh (no
+in-flight machine state leaks into the alist) and NEVER signals: any
+failure degrades to the bare header record, which restores a plain
+board.  Deliberately NOT recorded: rail placement/pop state (window
+arrangement is the restorer's domain), the column toggles (presentation
+follows the user's live customisation) and the items themselves (data
+comes from the cache/scan — records stay tiny)."
+  (condition-case nil
+      (append
+       (org-air-view--bookmark-header (if org-air-view--day 'day 'board)
+                                      'org-air-view-bookmark-jump
+                                      "org-air: board"
+                                      (org-air-view--bookmark-name))
+       (and (consp org-air-view--scope)
+            (list (cons 'org-air-scope org-air-view--scope)))
+       (and org-air-view--tag-filter
+            (list (cons 'org-air-filter org-air-view--tag-filter)))
+       (list (cons 'org-air-sort
+                   (cons (or org-air-view--sort-key org-air-sort-key)
+                         (or org-air-view--sort-direction
+                             org-air-sort-direction))))
+       (and org-air-view--expanded-sections
+            (list (cons 'org-air-expanded org-air-view--expanded-sections)))
+       (let ((month (org-air-view--bookmark-epoch org-air-view--cal-month)))
+         (and month (list (cons 'org-air-cal-month month))))
+       (let ((day (org-air-view--bookmark-epoch org-air-view--day)))
+         (and day (list (cons 'org-air-day day))))
+       (org-air-view--bookmark-item-fields))
+    (error (org-air-view--bookmark-header 'board
+                                          'org-air-view-bookmark-jump
+                                          "org-air: board"
+                                          (list "org-air: board")))))
+
+(defun org-air-view--bookmark-apply (record)
+  "Apply RECORD's org-air view fields to the current board buffer (R58).
+A pure `setq-local' translator: record fields → the view-defining
+buffer-locals.  Every field is optional, unknown fields are IGNORED
+\(forward compatibility) and a missing/malformed field lands on the mode
+default — so a bare header record (or an `org-air-version' ≠ 1 record,
+read best-effort through this same path) restores a plain board."
+  (let ((scope (cdr (assq 'org-air-scope record)))
+        (filter (cdr (assq 'org-air-filter record)))
+        (sort (cdr (assq 'org-air-sort record)))
+        (day (cdr (assq 'org-air-day record)))
+        (month (cdr (assq 'org-air-cal-month record)))
+        (expanded (cdr (assq 'org-air-expanded record))))
+    (setq-local org-air-view--scope (and (consp scope) scope)
+                org-air-view--tag-filter
+                (and (or (stringp filter) (consp filter)) filter)
+                org-air-view--expanded-sections
+                (and (listp expanded) expanded)
+                org-air-view--day
+                (and (integerp day) (seconds-to-time day))
+                org-air-view--cal-month
+                (and (integerp month) (seconds-to-time month)))
+    (when (and (consp sort)
+               (car sort) (symbolp (car sort))
+               (cdr sort) (symbolp (cdr sort)))
+      (setq-local org-air-view--sort-key (car sort)
+                  org-air-view--sort-direction (cdr sort)))))
+
+(defun org-air-view--bookmark-consume ()
+  "Land point per the armed bookmark locator; one-shot (R58).
+Called at the tail of every successful full paint (the one choke point:
+the sync path, the deferred one-shot, the stale paint, every R56
+progressive paint and the machine's final swap).  Drift chain: exact
+\(FILE . POS) marker row → same FILE + title (POS drifted) → same title
+\(refiled) → stay ARMED while a refresh is still in flight, else clear
+and leave the render's `org-air-view--goto-first-item' landing.  A pure
+text-property scan; never opens a file, never signals."
+  (when org-air-view--bookmark-locator
+    (condition-case nil
+        (let* ((slot org-air-view--bookmark-locator)
+               (loc (plist-get slot :item))
+               (title (plist-get slot :title))
+               (pos (or (and loc (org-air-view--find-property
+                                  'org-air-marker loc))
+                        (and loc title
+                             (org-air-view--bookmark-scan
+                              'org-air-item
+                              (lambda (it)
+                                (and (org-air-item-p it)
+                                     (equal (org-air-item-file it) (car loc))
+                                     (equal (org-air-item-title it) title)))))
+                        (and title
+                             (org-air-view--bookmark-scan
+                              'org-air-item
+                              (lambda (it)
+                                (and (org-air-item-p it)
+                                     (equal (org-air-item-title it)
+                                            title))))))))
+          (cond
+           (pos
+            (setq org-air-view--bookmark-locator nil)
+            (goto-char pos)
+            (org-air-view--goto-row-title))
+           ;; No row yet, machine still filling: stay armed for the next
+           ;; paint; the finish swap runs with the state already idle, so
+           ;; the slot can never survive past refresh-idle.
+           ((eq org-air-view--refresh-state 'refreshing))
+           (t
+            (setq org-air-view--bookmark-locator nil)
+            (org-air-view--goto-first-item))))
+      (error (setq org-air-view--bookmark-locator nil)))))
+
+;;;###autoload
+(defun org-air-view-bookmark-jump (record)
+  "Handler for org-air board bookmarks (R58).
+Rebuilds `*org-air*' from RECORD without displaying it (the bookmark
+caller owns display — the activities.el contract) and without a blocking
+rescan (the R26-8/R56 cache-first machine).  Never signals: a malformed
+or future-versioned RECORD degrades to a plain board open."
+  (require 'org-air)
+  (let ((buffer (get-buffer-create org-air-view-buffer-name)))
+    (condition-case err
+        (with-current-buffer buffer
+          ;; R26-5 idempotent entry guard — identical to the command's.
+          (unless (derived-mode-p 'org-air-view-mode)
+            (org-air-view-mode))
+          ;; 1. Saved view state FIRST, so the very first paint (skeleton
+          ;;    aside) already composes the bookmarked view.
+          (org-air-view--bookmark-apply record)
+          ;; 2. Stash the point locator for the paint tail to consume.
+          (setq org-air-view--bookmark-locator
+                (org-air-view--bookmark-locator-of record))
+          ;; 3. The entry core, display suppressed (R58 factoring).
+          (org-air-view--open-core buffer nil))
+      (error
+       (message "org-air: bookmark restore degraded: %s"
+                (org-air-view--short-error err))
+       (with-current-buffer buffer
+         (unless (derived-mode-p 'org-air-view-mode) (org-air-view-mode))
+         (ignore-errors (org-air-view--open-core buffer nil)))))
+    ;; The handler contract: make the target buffer CURRENT, never shown.
+    (set-buffer buffer)))
+;;;###autoload
+(put 'org-air-view-bookmark-jump 'bookmark-handler-type "org-air")
+
+;;; --- Rail (`*org-air-rail*', delegating) -------------------------------
+
+(defun org-air-rail--bookmark-make-record ()
+  "Return the DELEGATING bookmark record for the rail buffer (R58).
+Shared header with view `rail' plus `org-air-host' (which view owns the
+rail, from the back-pointer's major mode) and the HOST's full state
+field set — obtained by calling the host buffer's own
+`bookmark-make-record-function' through `org-air-rail--board-buffer' and
+embedding its `org-air-…' fields.  A dead/absent host degrades to a bare
+board-hosted rail record; never signals."
+  (condition-case nil
+      (let* ((host (and (buffer-live-p org-air-rail--board-buffer)
+                        org-air-rail--board-buffer))
+             (host-kind
+              (and host
+                   (with-current-buffer host
+                     (cond ((derived-mode-p 'org-air-project-mode) 'project)
+                           ((derived-mode-p 'org-air-revisit-mode) 'revisit)
+                           ((derived-mode-p 'org-air-view-mode) 'board)))))
+             (host-record
+              (and host-kind
+                   (with-current-buffer host
+                     (and (local-variable-p 'bookmark-make-record-function)
+                          (functionp bookmark-make-record-function)
+                          (funcall bookmark-make-record-function)))))
+             (host-name (or (car-safe (cdr (assq 'defaults host-record)))
+                            "org-air: board")))
+        (append
+         (org-air-view--bookmark-header 'rail 'org-air-rail-bookmark-jump
+                                        "org-air: rail"
+                                        (list (concat host-name " · rail")))
+         (list (cons 'org-air-host (or host-kind 'board)))
+         (org-air-view--bookmark-host-fields host-record)))
+    (error (append (org-air-view--bookmark-header
+                    'rail 'org-air-rail-bookmark-jump "org-air: rail"
+                    (list "org-air: board · rail"))
+                   (list (cons 'org-air-host 'board))))))
+
+;;;###autoload
+(defun org-air-rail-bookmark-jump (record)
+  "Handler for org-air rail bookmarks (R58, delegating).
+Restores the HOST view from the embedded fields in RECORD via the host's
+own handler flow (no display), then recreates `*org-air-rail*' and
+renders it from the host (`org-air-rail--render', batch-safe per R15
+D-P2), leaving the RAIL current.  Restore-order independent: if the
+host's own record restores later, its idempotent entry finds the buffer
+already initialised — no double init (the R26-5 guard).  Never touches
+windows; never signals."
+  (require 'org-air)
+  (condition-case err
+      (let* ((host-kind (let ((h (cdr (assq 'org-air-host record))))
+                          (if (memq h '(board project revisit)) h 'board)))
+             (handler (pcase host-kind
+                        ('project #'org-air-project-bookmark-jump)
+                        ('revisit #'org-air-revisit-bookmark-jump)
+                        (_ #'org-air-view-bookmark-jump))))
+        ;; The host's handler applies the embedded fields, arms the point
+        ;; locator and re-enters the cache-first core — and leaves the
+        ;; host current.
+        (funcall handler record)
+        (let ((host (current-buffer))
+              (rail (org-air-rail--get-buffer)))
+          (org-air-rail--render host
+                                (org-air-rail--window-cols org-air-view-width))
+          (set-buffer rail)))
+    (error
+     (message "org-air: bookmark restore degraded: %s"
+              (org-air-view--short-error err))
+     (set-buffer (org-air-rail--get-buffer)))))
+;;;###autoload
+(put 'org-air-rail-bookmark-jump 'bookmark-handler-type "org-air")
+
+;;; --- Entry pane (`*org-air-view*', delegating) -------------------------
+
+(defun org-air-view-pane--bookmark-make-record ()
+  "Return the DELEGATING bookmark record for the snapshot pane (R58).
+Shared header with view `entry', `org-air-host' and `org-air-entry-ctx'
+— the (FILE . POS) of the snapshot's source, from the printable stash
+the snapshot writer left (`org-air-view-pane--bookmark-ctx').  Never
+signals; a stash-less pane records a bare degrading header."
+  (condition-case nil
+      (let* ((ctx org-air-view-pane--bookmark-ctx)
+             (file (nth 0 ctx))
+             (pos (nth 1 ctx))
+             (title (nth 2 ctx))
+             (host (nth 3 ctx))
+             (host-name (pcase host
+                          ('project "org-air: project")
+                          ('revisit "org-air: revisit")
+                          (_ "org-air: board"))))
+        (append
+         (org-air-view--bookmark-header 'entry
+                                        'org-air-entry-view-bookmark-jump
+                                        "org-air: entry"
+                                        (list (concat host-name " · entry")))
+         (list (cons 'org-air-host
+                     (if (memq host '(board project revisit)) host 'board)))
+         (and (stringp file)
+              (list (cons 'org-air-entry-ctx
+                          (cons file (if (integerp pos) pos 1)))))
+         (and (stringp title)
+              (list (cons 'org-air-item-title title)))))
+    (error (append (org-air-view--bookmark-header
+                    'entry 'org-air-entry-view-bookmark-jump
+                    "org-air: entry" (list "org-air: board · entry"))
+                   (list (cons 'org-air-host 'board))))))
+
+;;;###autoload
+(defun org-air-entry-view-bookmark-jump (record)
+  "Handler for org-air entry-pane bookmarks (R58, delegating).
+Ensures the host board exists (undisplayed, through the same idempotent
+entry guard the commands use — a LIVE board is left untouched, so
+restore order never matters), recreates the pane buffer and renders the
+read-only snapshot for RECORD's (FILE . POS) source — one bounded file
+read, the pane's normal render path.  A vanished source shows the pane's
+existing missing-source rendering, never a signal.  Leaves the PANE
+current; never touches windows."
+  (require 'org-air)
+  (condition-case err
+      (let ((board (get-buffer org-air-view-buffer-name)))
+        (unless (and board
+                     (with-current-buffer board
+                       (derived-mode-p 'org-air-view-mode)))
+          (save-current-buffer
+            (org-air-view--open-core
+             (get-buffer-create org-air-view-buffer-name) nil)))
+        (let* ((src-loc (cdr (assq 'org-air-entry-ctx record)))
+               (file (and (consp src-loc) (stringp (car src-loc))
+                          (car src-loc)))
+               (pos (and (consp src-loc) (integerp (cdr src-loc))
+                         (cdr src-loc)))
+               (title (let ((tt (cdr (assq 'org-air-item-title record))))
+                        (and (stringp tt) tt)))
+               (ctx (append (and file (list :file file
+                                            :marker (cons file (or pos 1))))
+                            (and title (list :title title))))
+               (src (and file (org-air-view-pane--source-buffer-pos
+                               (plist-get ctx :marker))))
+               (pane (with-current-buffer
+                         (get-buffer org-air-view-buffer-name)
+                       (org-air-view-pane--render-snapshot ctx src))))
+          (set-buffer pane)
+          (goto-char (point-min))))
+    (error
+     (message "org-air: bookmark restore degraded: %s"
+              (org-air-view--short-error err))
+     (set-buffer (org-air-view-pane--buffer)))))
+;;;###autoload
+(put 'org-air-entry-view-bookmark-jump 'bookmark-handler-type "org-air")
+
+;;; --- Help (`*org-air-help*', trivial) ----------------------------------
+
+(defun org-air-help--bookmark-make-record ()
+  "Return the trivial bookmark record for the help buffer (R58).
+Header plus `org-air-help-context' (the `org-air-help--context' symbol
+this buffer was rendered for) — included so no `*org-air-help*' in a
+saved layout can ever raise the activities.el error."
+  (append
+   (org-air-view--bookmark-header 'help 'org-air-help-bookmark-jump
+                                  "org-air: help" (list "org-air: help"))
+   (list (cons 'org-air-help-context (or org-air-help--context-sym 'board)))))
+
+;;;###autoload
+(defun org-air-help-bookmark-jump (record)
+  "Handler for org-air help bookmarks (R58).
+Re-renders `*org-air-help*' for RECORD's stored context.  The keymap
+origin is the matching live view buffer when one exists (so the KEY
+column stays honest), else the help buffer itself (degrading to `M-x'
+cells).  Leaves the help buffer current; never touches windows; never
+signals."
+  (require 'org-air)
+  (let* ((context (let ((c (cdr (assq 'org-air-help-context record))))
+                    (if (memq c '(board project revisit doc-session))
+                        c 'board)))
+         (buffer (get-buffer-create org-air-help-buffer-name))
+         (origin (or (pcase context
+                       ('project (get-buffer "*org-air-project*"))
+                       ('revisit (and (boundp 'org-air-revisit-buffer-name)
+                                      (get-buffer
+                                       org-air-revisit-buffer-name)))
+                       (_ (get-buffer org-air-view-buffer-name)))
+                     buffer)))
+    (condition-case err
+        (org-air-help--render buffer context origin)
+      (error
+       (message "org-air: bookmark restore degraded: %s"
+                (org-air-view--short-error err))))
+    (set-buffer buffer)))
+;;;###autoload
+(put 'org-air-help-bookmark-jump 'bookmark-handler-type "org-air")
 
 (provide 'org-air-view)
 

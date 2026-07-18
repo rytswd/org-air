@@ -30,6 +30,10 @@
 (require 'org-air-view)
 (require 'org-air-calendar)
 
+;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
+;; the mode sets it buffer-locally without requiring bookmark at load.
+(defvar bookmark-make-record-function)
+
 ;; R54-3: the Revisit view (org-air-revisit.el) loads after this file;
 ;; the `N' key names its entry point, resolved at press time.
 (declare-function org-air-revisit "org-air-revisit" ())
@@ -1155,6 +1159,12 @@ margin + state cell, byte-identical to today."
 (defvar-local org-air-project--root nil
   "Air root rendered in this project-view buffer.")
 
+(defvar-local org-air-project--bookmark-locator nil
+  "Armed point locator of an in-flight bookmark restore, or nil (R58).
+The project twin of `org-air-view--bookmark-locator': a plist
+\(:item (FILE . POS) :title TITLE) consumed — one-shot — at the tail of
+the next `org-air-project--render'.")
+
 (defvar-local org-air-project--doc-count nil
   "Cached doc count for the calm status mode-line (R20-2); set per render.")
 
@@ -1684,6 +1694,10 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
     (goto-char (point-min))
     (org-air-project--next-doc)
+    ;; R58: an armed bookmark locator owns the landing (one text-property
+    ;; scan; one-shot — the project render is synchronous, so it never
+    ;; stays armed past this paint).
+    (org-air-project--bookmark-consume)
     (setq org-air-project--rendered-width width)
     ;; Locate + fill the inspector region (real buffer; buffer-locals set).
     (org-air-view--setup-inspector)
@@ -1695,7 +1709,10 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      (org-air-rail--hide (current-buffer))))
+      ;; R58: an undisplayed (bookmark-restored) project must not delete
+      ;; the displayed layout's windows.
+      (unless (org-air-rail--undisplayed-host-p (current-buffer))
+        (org-air-rail--hide (current-buffer)))))
     ;; R25-6: an INLINE (two-pane) self-render must also evict a stale side
     ;; rail owned by ANOTHER view (the cross-view sweep); when SELF is
     ;; popped `--show' already re-owned the window so this no-ops.
@@ -2363,6 +2380,11 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   (setq-local truncate-lines t)
   (setq-local cursor-type 'box)
   (setq-local line-spacing org-air-line-spacing)
+  ;; R58: the project tree is bookmarkable — a FULL record: root, sort,
+  ;; filename flip, expanded dropped folds, plus the doc-at-point locator.
+  ;; Restored by `org-air-project-bookmark-jump'.
+  (setq-local bookmark-make-record-function
+              #'org-air-project--bookmark-make-record)
   ;; R18 D-P5.1: the calm nano-style mode-line (status lives in the header).
   (org-air-view--install-modeline)
   ;; R14 D-P1.B: responsive re-render (two-pane <-> board-only) on resize,
@@ -2441,8 +2463,153 @@ With several configured projects, prompt for one (`org-air-projects' /
     ;; popped render composes at the width it will actually display at
     ;; (trunk composed at the pre-pop width and never re-measured).
     (pop-to-buffer buffer)
-    (with-current-buffer buffer
-      (org-air-project--render org-air-project--root))))
+    (org-air-project--open-core buffer t)))
+
+(defun org-air-project--open-core (buffer _display)
+  "Run the project entry's render body in BUFFER (R58 entry-core factoring).
+The command is prep + `pop-to-buffer' + this core (byte-identical
+behaviour); the bookmark handler calls it with DISPLAY nil — undisplayed,
+the restorer owns the windows (the render itself is display-agnostic, so
+the flag only documents the caller).  Ensures the mode idempotently
+\(R26-5); never displays BUFFER."
+  (with-current-buffer buffer
+    (unless (derived-mode-p 'org-air-project-mode)
+      (org-air-project-mode))
+    (org-air-project--render org-air-project--root)))
+
+;;;; ---------------------------------------------------------------------
+;;;; R58 — Emacs bookmark support (see org-air-view.el's shared core).
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-project--bookmark-name ()
+  "Return the project record's `defaults' candidates (R58).
+Most specific first: \"org-air: project <root basename>\", then the
+generic \"org-air: project\"."
+  (delete-dups
+   (delq nil
+         (list (and (stringp org-air-project--root)
+                    (format "org-air: project %s"
+                            (file-name-nondirectory
+                             (directory-file-name org-air-project--root))))
+               "org-air: project"))))
+
+(defun org-air-project--bookmark-make-record ()
+  "Return the Emacs bookmark record for the project tree buffer (R58).
+A FULL record: root + session-shaping state (sort, filename flip,
+expanded dropped folds) plus the doc-at-point (FILE . POS) locator.
+Pure buffer-local reads; never signals — a failure degrades to the bare
+header record.  The doc-SESSION half is deliberately NOT a project
+record: a doc buffer visits a real file, so its default bookmark record
+is already correct (see the R58 design ruling)."
+  (condition-case nil
+      (append
+       (org-air-view--bookmark-header 'project
+                                      'org-air-project-bookmark-jump
+                                      "org-air: project"
+                                      (org-air-project--bookmark-name))
+       (and (stringp org-air-project--root)
+            (list (cons 'org-air-root org-air-project--root)))
+       (list (cons 'org-air-sort
+                   (cons (org-air-project--sort-key-active)
+                         (org-air-project--sort-direction-active)))
+             (cons 'org-air-show-filenames
+                   (and org-air-project--show-filenames t)))
+       (and org-air-project--expanded-dropped
+            (list (cons 'org-air-expanded org-air-project--expanded-dropped)))
+       (let ((doc (org-air-view--row-property 'org-air-doc)))
+         (when doc
+           (append
+            (let ((file (org-air-doc-file doc)))
+              (and (stringp file)
+                   (list (cons 'org-air-item (cons file 1)))))
+            (let ((name (org-air-doc-name doc)))
+              (and (stringp name)
+                   (list (cons 'org-air-item-title
+                               (substring-no-properties name)))))))))
+    (error (org-air-view--bookmark-header 'project
+                                          'org-air-project-bookmark-jump
+                                          "org-air: project"
+                                          (list "org-air: project")))))
+
+(defun org-air-project--bookmark-apply (record)
+  "Apply RECORD's org-air fields to the current project buffer (R58).
+The project twin of `org-air-view--bookmark-apply': every field
+optional, unknown fields ignored, malformed values dropped."
+  (let ((root (cdr (assq 'org-air-root record)))
+        (sort (cdr (assq 'org-air-sort record)))
+        (flip (assq 'org-air-show-filenames record))
+        (expanded (cdr (assq 'org-air-expanded record))))
+    (when (stringp root)
+      (setq-local org-air-project--root (expand-file-name root)))
+    (when (and (consp sort)
+               (car sort) (symbolp (car sort))
+               (cdr sort) (symbolp (cdr sort)))
+      (setq-local org-air-view--sort-key (car sort)
+                  org-air-view--sort-direction (cdr sort)))
+    (when flip
+      (setq-local org-air-project--show-filenames (and (cdr flip) t)))
+    (setq-local org-air-project--expanded-dropped
+                (and (listp expanded) expanded))))
+
+(defun org-air-project--bookmark-consume ()
+  "Land point on the bookmarked doc row; one-shot, never signals (R58).
+Matches on the doc FILE (the shared `org-air-marker' property carries it
+on project rows), then on the doc name (the file moved); no match leaves
+the render's first-doc landing.  The project render is synchronous, so
+the slot always clears here."
+  (when org-air-project--bookmark-locator
+    (let ((slot org-air-project--bookmark-locator))
+      (setq org-air-project--bookmark-locator nil)
+      (condition-case nil
+          (let* ((file (car-safe (plist-get slot :item)))
+                 (title (plist-get slot :title))
+                 (pos (or (and file (org-air-view--find-property
+                                     'org-air-marker file))
+                          (and title
+                               (org-air-view--bookmark-scan
+                                'org-air-doc
+                                (lambda (doc)
+                                  (equal (org-air-doc-name doc) title)))))))
+            (when pos
+              (goto-char pos)
+              (org-air-view--goto-row-title)))
+        (error nil)))))
+
+;;;###autoload
+(defun org-air-project-bookmark-jump (record)
+  "Handler for org-air project bookmarks (R58).
+Rebuilds `*org-air-project*' from RECORD without displaying it (the
+bookmark caller owns display) via the existing render core.  Never
+signals: a malformed RECORD degrades to a plain project open over the
+first configured root."
+  (require 'org-air)
+  (let ((buffer (get-buffer-create "*org-air-project*")))
+    (condition-case err
+        (with-current-buffer buffer
+          ;; R26-5 idempotent entry guard — identical to the command's.
+          (unless (derived-mode-p 'org-air-project-mode)
+            (org-air-project-mode))
+          (org-air-project--bookmark-apply record)
+          ;; A record without a root (bare-header degrade) falls back to
+          ;; the configured projects, then to `default-directory'.
+          (unless org-air-project--root
+            (setq-local org-air-project--root
+                        (expand-file-name (or (car (org-air-project-roots))
+                                              default-directory))))
+          (setq org-air-project--bookmark-locator
+                (org-air-view--bookmark-locator-of record))
+          (org-air-project--open-core buffer nil))
+      (error
+       (message "org-air: bookmark restore degraded: %s"
+                (org-air-view--short-error err))
+       (with-current-buffer buffer
+         (unless (derived-mode-p 'org-air-project-mode)
+           (org-air-project-mode))
+         (ignore-errors (org-air-project--open-core buffer nil)))))
+    ;; The handler contract: make the target buffer CURRENT, never shown.
+    (set-buffer buffer)))
+;;;###autoload
+(put 'org-air-project-bookmark-jump 'bookmark-handler-type "org-air")
 
 ;; R35-1: LOAD-time seed — this is the last org-air source loaded, so every
 ;; keymap `defvar' and every `org-air--register-default-*' from both files

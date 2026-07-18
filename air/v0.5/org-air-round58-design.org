@@ -1,5 +1,5 @@
 #+title: org-air Round 58 — Emacs bookmark support for every org-air view (activities.el / bookmark-jump restorable buffers)
-#+state: ready
+#+state: complete
 #+tags: bookmarks session-restore integration board project revisit rail robustness
 
 * Summary
@@ -448,3 +448,4 @@ path — no timers to pump), with =bookmark.el= required and
   delegating rail/entry/help records, autoloaded no-display handlers
   over the cache-first entry cores, (FILE . POS) locator point
   restoration, and revert-fenced ERT seams T1–T11.  State: ready.
+- 2026-07-18: State: ready → complete.

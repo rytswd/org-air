@@ -190,7 +190,7 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | Variable                            | Default                                      | Meaning                                                                   |
 |-------------------------------------+----------------------------------------------+---------------------------------------------------------------------------|
 | ~org-air-files~                     | ~nil~                                        | Org files/directories to scan.                                            |
-| ~org-air-inbox-file~                | ~~/.emacs.d/org-air-inbox.org~               | Where ~c~ / ~org-air-capture~ stores items.                               |
+| ~org-air-inbox-file~                | =~/.emacs.d/org-air-inbox.org=               | Where ~c~ / ~org-air-capture~ stores items.                               |
 | ~org-air-upcoming-days~             | ~7~                                          | Horizon (days) for the Upcoming bucket.                                   |
 | ~org-air-stale-days~                | ~21~                                         | Quiet period before an item is Stale.                                     |
 | ~org-air-show-origin~               | ~nil~                                        | Show the board filename (origin) column.                                  |
@@ -335,7 +335,7 @@ The capture → process loop is two steps:
 
 ~I~ walks the whole Inbox one item at a time with single-key dispositions.
 
-*~org-air-capture~ vs ~org-capture~.* ~c~ (~M-x org-air-capture~) is a deliberately small, zero-config front door: it appends a fixed ~* TODO … :inbox:~ entry with a ~CREATED~ stamp — exactly the shape the Inbox bucket and triage flow expect — so capture works the moment you install org-air, with no template to write and no capture buffer. It is *not* a replacement for ~org-capture~ and does nothing ~org-capture~ can't; if you already live in ~org-capture~, the equivalent template is:
+*org-air-capture vs org-capture.* ~c~ (~M-x org-air-capture~) is a deliberately small, zero-config front door: it appends a fixed ~* TODO … :inbox:~ entry with a ~CREATED~ stamp — exactly the shape the Inbox bucket and triage flow expect — so capture works the moment you install org-air, with no template to write and no capture buffer. It is *not* a replacement for ~org-capture~ and does nothing ~org-capture~ can't; if you already live in ~org-capture~, the equivalent template is:
 
 #+begin_src emacs-lisp
 (add-to-list 'org-capture-templates

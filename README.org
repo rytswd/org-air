@@ -359,6 +359,18 @@ M-x org-air-outline-mode
 
 Enabling it in an ~org-mode~ buffer pops the org-air context rail showing that buffer's headings (via the same rail machinery the doc session uses) and follows point with the current-heading highlight. It has *no dependency* on ~org-air-project~, org-ql, or airctl — a light, generic scaffold. It is off by default and a no-op outside ~org-mode~. Choose inline vs. side-window placement with ~org-air-outline-rail-placement~.
 
+*** Bookmarks, activities & desktop restore
+
+The board, project viewer, and Revisit buffers support Emacs's ~bookmark~ system, so ~bookmark-set~ (~C-x r m~), ~bookmark-jump~, [[https://github.com/alphapapa/activities.el][activities.el]], burly, and ~desktop~ can save and rebuild them (view, scope, filter, sort, and point are captured; the handler reopens the view cache-first, no blocking rescan).
+
+Restore works out of the box when org-air is installed via a package manager (MELPA, ~package.el~, straight, elpaca) — its generated autoloads register the bookmark handlers so they resolve even before org-air has loaded. If you instead load org-air from ~load-path~ *and* defer it (e.g. use-package ~:commands~), a bookmark replayed at startup fires before org-air loads; register the three handler autoloads so they resolve (or ~(require 'org-air)~ eagerly):
+
+#+begin_src emacs-lisp
+(autoload 'org-air-view-bookmark-jump    "org-air-view")
+(autoload 'org-air-project-bookmark-jump "org-air-project")
+(autoload 'org-air-revisit-bookmark-jump "org-air-revisit")
+#+end_src
+
 ** 🤖 Built with AI
 
 org-air was written with *extensive* AI assistance: the large majority of the code, tests, and documentation were produced by AI coding agents — a rotating cast of frontier models from several providers — driven through an autonomous harness under human direction, planning, and review. The design decisions, the acceptance bar, and every merge were human-owned; the typing, mostly not. If that matters to you — now you know.

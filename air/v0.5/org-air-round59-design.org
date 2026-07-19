@@ -1,5 +1,5 @@
 #+title: org-air Round 59 — Container headings are structure, not items: skip pure grouping parents everywhere, including the Inbox
-#+state: ready
+#+state: complete
 #+tags: bug classify inbox board day-view note-types robustness
 
 * Summary
@@ -451,3 +451,4 @@ scan path; classify tests are pure struct-in/buckets-out.
   the inbox bypass, day-view + F7 application, explicit inbox leaf rule,
   =org-air-skip-container-headings= knob, cache v5 + key coherence, and
   revert-fenced ERT seams T1–T14.  State: ready.
+- 2026-07-19: State: ready → complete.

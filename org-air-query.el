@@ -82,6 +82,20 @@ section headings must stay tasks."
   :type '(choice (const knowledge) (const task))
   :group 'org-air)
 
+(defcustom org-air-skip-container-headings t
+  "When non-nil, pure CONTAINER headings never render as items (R59).
+A container is a heading that HAS child headings and carries NO
+actionable signal of its OWN: no TODO keyword (the R57 merged
+vocabulary decides what counts as one) and no own-body
+scheduled/deadline/active timestamp (the R54 date model, scoped to the
+heading's own text above its first child).  Such a heading is structure
+— its children represent the content — and is skipped on the board
+\(including the Inbox bucket), in the day view and in the R54 F7
+file-type vote.  Set to nil to restore the pre-R59 behaviour where a
+grouping heading in the inbox rendered as its own row."
+  :type 'boolean
+  :group 'org-air)
+
 (defcustom org-air-max-file-size (* 4 1024 1024)
   "Largest file (bytes) the background scan will read; nil = no limit (R53).
 A file over the limit is skipped with a `too-large' entry in the scan
@@ -187,9 +201,38 @@ so painting a cache-hydrated board never opens a file."
                 ; (`org-ts-regexp': planning lines in, inactive [..] out)
                 ; — the R54-1 stale-eligibility signal, distinct from
                 ; `subtree-ts' (regexp-both, the day view's key)
-  ntype)        ; 'task | 'journal | 'knowledge — the R54-2 content-
+  ntype         ; 'task | 'journal | 'knowledge — the R54-2 content-
                 ; derived note type; nil on items built outside the scan
                 ; (treated as task by the classify routing)
+  ;; R59 scan-time slots (cache v5):
+  childp        ; t when the subtree contains a child heading — half of
+                ; the container signal (`org-air-query-container-item-p');
+                ; nil on items built outside the scan (never containers)
+  own-active-ts) ; epoch float of the first ACTIVE <ts> in the heading's
+                ; OWN body (the region above its first child) — the
+                ; own-scoped twin of the deliberately SUBTREE-wide
+                ; `active-ts' (R54 stale eligibility): a child's date
+                ; belongs to the child's row and must not make the
+                ; parent test "dated".  For a leaf, ≡ `active-ts'.
+
+(defun org-air-query-container-item-p (item)
+  "Non-nil when ITEM is a pure CONTAINER heading (R59).
+Slot-only and knob-gated: `childp' set by the scan, no TODO keyword, no
+own scheduled/deadline (the heading's planning line), no own-body active
+timestamp (`own-active-ts' — deliberately NOT the subtree-wide
+`active-ts': a child's date belongs to the child's row), and not
+explicitly overridden to `task' (an `ORG_AIR_TYPE'/`#+type:'/tag
+override wins, same philosophy as every R54 override).  Items built
+outside the scan have nil slots and are never containers — the
+conservative default: when in doubt, render."
+  (and org-air-skip-container-headings
+       (eq (org-air-item-kind item) 'heading)
+       (org-air-item-childp item)
+       (null (org-air-item-todo item))
+       (null (org-air-item-scheduled item))
+       (null (org-air-item-deadline item))
+       (null (org-air-item-own-active-ts item))
+       (not (eq (org-air-item-ntype item) 'task))))
 
 (defun org-air-query--org-file-p (file)
   "Return non-nil when FILE is an Org file."
@@ -465,17 +508,25 @@ SCHEDULED, DEADLINE and TAGS are the already-parsed heading signals."
 
 (defun org-air-query--file-ntype (signals items)
   "Return the FILE-level type from SIGNALS and its heading ITEMS (R54-2).
-Override → tag override → journal → `task' iff EVERY heading item is a
-task (and there is at least one — the F7 mixed-file rule: a pure GTD
-file stays off the note surfaces while a KB note containing one TODO
-stays a knowledge FILE) → else `knowledge'."
+Override → tag override → journal → `task' iff EVERY NON-container
+heading item is a task (and there is at least one — the F7 mixed-file
+rule: a pure GTD file stays off the note surfaces while a KB note
+containing one TODO stays a knowledge FILE) → else `knowledge'.
+R59: containers ABSTAIN — they are structure, so a GTD file organised
+as `* Projects' / `** TODO …' still votes `task'; the abstention is
+knob-gated inside `org-air-query-container-item-p', so
+`org-air-skip-container-headings' nil restores the pre-R59 vote
+verbatim."
   (or (plist-get signals :override)
       (org-air-query--tag-type (plist-get signals :tags))
       (and (plist-get signals :journal) 'journal)
       (and items
-           (cl-every (lambda (item)
-                       (eq (org-air-item-ntype item) 'task))
-                     items)
+           (let ((voters (cl-remove-if #'org-air-query-container-item-p
+                                       items)))
+             (and voters
+                  (cl-every (lambda (item)
+                              (eq (org-air-item-ntype item) 'task))
+                            voters)))
            'task)
       'knowledge))
 
@@ -718,6 +769,8 @@ retained by scanning; live positions resolve on demand)."
          (closed (org-air-query--timestamp "CLOSED"))
          (subtree-ts nil)
          (active-ts nil)
+         (active-ts-pos nil)
+         (child-pos nil)
          (body-deadline nil))
     ;; R53 P2: the two bounded subtree probes, run HERE in the already-
     ;; positioned scan buffer (they used to be per-item render-time file
@@ -740,12 +793,22 @@ retained by scanning; live positions resolve on demand)."
         ;; matching inactive stamps.
         (save-excursion
           (when (re-search-forward org-ts-regexp end t)
+            (setq active-ts-pos (match-beginning 0))
             (setq active-ts
                   (ignore-errors
                     (float-time
                      (org-timestamp-to-time
                       (org-timestamp-from-string
                        (match-string-no-properties 0))))))))
+        ;; R59: the CHILD probe — with the subtree END already in hand,
+        ;; one bounded search from past the heading line; any
+        ;; `org-outline-regexp-bol' match is a descendant (the first is
+        ;; the heading's first child).  Same shape and cost class as the
+        ;; subtree-ts/active-ts probes beside it.
+        (save-excursion
+          (forward-line 1)
+          (when (re-search-forward org-outline-regexp-bol end t)
+            (setq child-pos (match-beginning 0))))
         (unless deadline
           (save-excursion
             (when (re-search-forward org-deadline-time-regexp end t)
@@ -797,7 +860,17 @@ retained by scanning; live positions resolve on demand)."
      ;; R54-2: the content-derived note type, computed here in the scan
      ;; buffer over signals already in hand (the per-FILE signals are
      ;; computed once per file, not per heading).
-     :ntype (org-air-query--note-type todo scheduled deadline tags))))
+     :ntype (org-air-query--note-type todo scheduled deadline tags)
+     ;; R59: the two container signals.  `own-active-ts' costs ZERO
+     ;; extra regex work: the active-ts probe finds the subtree's FIRST
+     ;; active match, and matches are ordered — the own body carries one
+     ;; iff that first match precedes the first child (for a leaf,
+     ;; own-active-ts ≡ active-ts).
+     :childp (and child-pos t)
+     :own-active-ts (and active-ts
+                         (or (null child-pos)
+                             (< active-ts-pos child-pos))
+                         active-ts))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R53 P1/P1b — the never-error work-buffer scan.
@@ -927,6 +1000,10 @@ fallback), tags from `#+filetags', group = parent directory name, marker
                        (float-time mtime))
            :body-deadline nil
            :active-ts nil
+           ;; R59: nil container signals — the predicate requires `kind'
+           ;; `heading' anyway, so a 'file item is never a container.
+           :childp nil
+           :own-active-ts nil
            ;; R54-2: 'file items type from the FILE-level signals alone
            ;; (keyword/tag override → journal → knowledge); they route to
            ;; the 'notes bucket regardless, so this feeds the note

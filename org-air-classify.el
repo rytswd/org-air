@@ -185,15 +185,31 @@ The memoised-truename inbox test, hoisted so the R54-2 routing layer in
   (or (org-air-classify--inbox-file-p item)
       (member "inbox" (mapcar #'downcase (org-air-item-tags item)))))
 
+(defun org-air-classify--container-p (item)
+  "Non-nil when ITEM is a pure CONTAINER heading (R59).
+A thin alias over `org-air-query-container-item-p' (layer symmetry with
+the other classify predicates).  Deliberately NO live-marker fallback
+probe (unlike `org-air-classify--marker-active-ts'): items built outside
+the scan carry nil signal slots and are never containers — the safe
+answer for an unknown is \"render it\"."
+  (org-air-query-container-item-p item))
+
 ;;;###autoload
 (defun org-air-classify-item (item &optional now)
   "Return bucket symbols for ITEM relative to NOW.
 
 Buckets are `upcoming', `stale', `attention', `high-priority', `inbox',
-plus the non-board `notes', `knowledge' and `journal'.
+plus the non-board `notes', `container', `knowledge' and `journal'.
 R53 P3: a `kind' `file' item (a headingless note synthesised by the scan)
 routes to the dedicated `notes' bucket FIRST and never enters the task
 buckets — the GTD board stays a GTD board.
+R59: a pure CONTAINER heading (has children, no TODO keyword, no own
+date — `org-air-classify--container-p') routes to the `container'
+bucket, which has NO board section — skipped as a row EVERYWHERE,
+including the Inbox.  The branch sits BEFORE the inbox bypass, which is
+exactly where the container used to leak in: only container PARENTS
+skip — a keyword-less dateless inbox LEAF (a bare captured note) still
+rides the bypass into the `inbox' bucket (a real triage unit).
 R54-2 routing layer (pure, slot-only): an inbox-dweller BYPASSES the type
 signals into the task buckets (a schedule-less capture is an unfiled
 task-to-be — the xsqrnoyn inbox semantics are unchanged); a `journal' /
@@ -203,6 +219,7 @@ A nil `ntype' (an item built outside the scan) keeps the full task
 treatment."
   (cond
    ((eq (org-air-item-kind item) 'file) (list 'notes))
+   ((org-air-classify--container-p item) (list 'container))
    ((org-air-classify--inbox-dweller-p item)
     (org-air-classify--heading-buckets item now))
    ((eq (org-air-item-ntype item) 'journal) (list 'journal))

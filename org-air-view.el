@@ -751,9 +751,15 @@ persisted cache slots parsed UNDER a vocabulary, so a vocabulary change
 supplement changes) must invalidate items exactly like a file-set
 change — the key IS the detector, both in memory
 \(`org-air-view--items-key') and in the persistent cache's `:key'.
+R59: `org-air-skip-container-headings' joins as the fourth element —
+the classify routing and the day-view skip evaluate the knob LIVE over
+persisted signal slots, but the F7 file-ntype vote is baked into
+file-meta `:ntype' at scan time, so a knob flip must take the same
+documented cold re-derive as a vocabulary change.
 Plain printable list data: serialises as-is, compares with `equal'."
   (list org-air-files org-air-inbox-file
-        (org-air-query--scan-todo-keywords)))
+        (org-air-query--scan-todo-keywords)
+        org-air-skip-container-headings))
 (defvar-local org-air-view--items-mtimes nil
   "Alist FILE -> mtime of the last COMPLETED full scan (R42-1).
 The in-memory baseline `org-air-view--refresh-start' diffs against so a
@@ -4753,18 +4759,28 @@ R53fix B1: the Logged/created key is the live-marker subtree probe when
 the item still carries a live marker, else the scan-time `subtree-ts'
 slot — a (FILE . POS) cons item answers data-pure.  NEVER the `activity'
 slot: its mtime fallback would wrongly file every undated heading of a
-today-touched file under Logged/created."
+today-touched file under Logged/created.
+R59: pure CONTAINER headings are skipped (`org-air-query-container-
+item-p') — the child that actually carries the stamp still files under
+Logged/created; the structural parent no longer duplicates it."
   (let ((key (org-air-view--day-key day))
         (deadline nil) (scheduled nil) (created nil))
     (dolist (item (org-air-view--visible-items items))
-      (let ((d (org-air-view--timestamp-time (org-air-item-deadline item)))
-            (s (org-air-view--timestamp-time (org-air-item-scheduled item)))
-            (a (or (org-air-view--marker-timestamp-time item)
-                   (org-air-item-subtree-ts item))))
-        (cond
-         ((and d (equal (org-air-view--day-key d) key)) (push item deadline))
-         ((and s (equal (org-air-view--day-key s) key)) (push item scheduled))
-         ((and a (equal (org-air-view--day-key a) key)) (push item created)))))
+      ;; R59: a pure CONTAINER heading is structure, not an item — it
+      ;; INHERITS its children's `:CREATED:' stamps through the
+      ;; subtree-wide `subtree-ts' probe and would duplicate the child
+      ;; under Logged/created.  One uniform filter (Deadline/Scheduled
+      ;; key on OWN planning slots a container by definition lacks, but
+      ;; the guard is uniform anyway); knob-gated inside the predicate.
+      (unless (org-air-query-container-item-p item)
+        (let ((d (org-air-view--timestamp-time (org-air-item-deadline item)))
+              (s (org-air-view--timestamp-time (org-air-item-scheduled item)))
+              (a (or (org-air-view--marker-timestamp-time item)
+                     (org-air-item-subtree-ts item))))
+          (cond
+           ((and d (equal (org-air-view--day-key d) key)) (push item deadline))
+           ((and s (equal (org-air-view--day-key s) key)) (push item scheduled))
+           ((and a (equal (org-air-view--day-key a) key)) (push item created))))))
     (list (cons "Deadline" (nreverse deadline))
           (cons "Scheduled" (nreverse scheduled))
           (cons "Logged / created" (nreverse created)))))
@@ -7441,7 +7457,7 @@ interrupt, but the guard is cheap and harmless."
 ;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
-(defconst org-air-view--cache-version 4
+(defconst org-air-view--cache-version 5
   "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
 v2 (R53): `org-air-item' gained the scan-time slots
 \(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
@@ -7459,7 +7475,12 @@ link-less metas are SKIPPED by `org-air-query-file-meta-hydrate' (they
 would read as false all-orphans and get re-persisted by a warm cache
 write), so the file-meta table starts empty and re-fills via the paced
 scan.  A v3 cache is simply a cold miss — skeleton + paced rescan,
-never a hang.")
+never a hang.
+v5 (R59): the struct gained the two container signal slots (`childp' +
+`own-active-ts') backing `org-air-query-container-item-p'; a v4 cache
+would hydrate records of the wrong shape, so it is a clean one-time
+cold miss — skeleton + the R56 paced rescan, never a hang (the
+documented version-mismatch path).")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.

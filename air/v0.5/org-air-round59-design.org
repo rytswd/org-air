@@ -1,0 +1,453 @@
+#+title: org-air Round 59 — Container headings are structure, not items: skip pure grouping parents everywhere, including the Inbox
+#+state: ready
+#+tags: bug classify inbox board day-view note-types robustness
+
+* Summary
+
+REAL USER REPORT, screenshot-confirmed: the user's =Inbox.org= groups
+captured items under a plain CONTAINER heading —
+
+#+begin_example
+#+title: Inbox
+* New                          <- no TODO keyword; :PROPERTIES: drawer + a description
+** TODO Set up syncthing :inbox:
+** TODO Set up n8n :inbox:
+...
+#+end_example
+
+org-air renders =New= as its OWN row in the Inbox bucket (no TODO
+badge).  =New= is STRUCTURE, not a task: its TODO children are the real
+items, and the parent row is pure visual noise on a triage surface.
+
+The rule this round establishes:
+
+#+begin_quote
+A heading that only GROUPS other headings is not an item.  A heading is
+a CONTAINER when it HAS child headings AND carries NO actionable signal
+of its OWN — no TODO keyword (per the R57 merged vocabulary) and no
+own-body scheduled/deadline/active timestamp (per the R54 date model).
+Containers are skipped as board rows EVERYWHERE, including the Inbox;
+their children represent the content.  A heading WITH a TODO keyword or
+an own date that ALSO has subtasks is still a TASK — kept.
+#+end_quote
+
+Deliverables:
+
+- *R59-1* — a =container= routing branch in =org-air-classify-item=
+  (before the inbox bypass, which is exactly where the container leaks
+  in today), backed by two new scan-time signal slots (=childp=,
+  =own-active-ts=) so the test stays data-pure.  Cache v4 → v5.
+- *R59-2* — the same predicate applied to the day view's Logged/created
+  group (a second leak found during investigation) and to the R54 F7
+  file-ntype vote (containers stop mis-typing pure GTD files into
+  Revisit scope).
+- *R59-3* — =org-air-skip-container-headings= (defcustom, default t) to
+  toggle the whole behaviour; nil restores today's rendering exactly.
+- Explicit inbox LEAF rule: a keyword-less dateless leaf in the inbox (a
+  bare captured note with NO children) is a REAL triage item and still
+  surfaces in the Inbox bucket — only container PARENTS skip.
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine; all R53 laws (never-hang, never-error, data-pure
+render, mtime cache), the R54 note-type model, the R56 progressive
+paint/pacing machine and the R57 vocabulary/cache-key discipline are
+preserved — this round adds two signal slots to the existing single scan
+pass and one pure predicate over them; it never adds a data path.
+
+* Investigation — where the container leaks in (exact traces)
+
+** The Inbox bucket (the reported leak)
+
+The general board ALREADY drops keyword-less dateless headings: since
+R54-2, =* New= derives =ntype= =knowledge= (no TODO, no
+scheduled/deadline) and =org-air-classify-item= routes it to the
+='knowledge= bucket, which has no board section.  The INBOX is the hole:
+
+1. =org-air-classify-item= (org-air-classify.el ~206) checks
+   =org-air-classify--inbox-dweller-p= BEFORE the ntype branches — the
+   R54-2 inbox BYPASS, ruled so a schedule-less CAPTURE (an unfiled
+   task-to-be) never types away into =knowledge=.
+2. =* New= lives in =org-air-inbox-file=, so it IS an inbox-dweller and
+   bypasses straight into =org-air-classify--heading-buckets=.
+3. There, =(when inbox-p (push 'inbox buckets))= is unconditional for
+   not-done, non-archived items — =* New= (todo nil, donep nil) gets the
+   ='inbox= bucket and renders as a row.  The no-date attention default
+   is suppressed for inbox-dwellers (xsqrnoyn), so Inbox is the ONE
+   section it lands in — exactly the screenshot.
+
+The bypass ruling itself is correct for LEAVES (a bare captured note is
+an unfiled task-to-be).  It is wrong for a heading whose only content IS
+other headings: nothing about =* New= needs triage — its children do,
+and they are already individually present in the same bucket.
+
+** The day view's Logged/created group (second leak, found probing)
+
+=org-air-view--day-groups= (org-air-view.el ~4750) iterates
+=org-air-view--visible-items= — scope + filter only, NOT bucket-routed —
+and files an item under Logged/created when its =subtree-ts= falls on
+the viewed day.  =subtree-ts= is the R53fix B1 probe:
+=org-ts-regexp-both=, SUBTREE-wide, inactive stamps IN (the day view
+needs =:CREATED:= drawers).  A container INHERITS its children's
+=:CREATED:= stamps through the subtree walk — so on the user's corpus,
+the day view for any capture day shows =New= AND the captured child
+under Logged/created.  Same disease, second surface; must be fixed by
+the same predicate, not by a bucket (the day view deliberately reads
+visible items, not buckets).
+
+** Surfaces that need NO change (verified)
+
+- *Calendar rail* (=org-air-calendar--marked-days=): marks DAYS, not
+  rows.  A container's =body-deadline= / subtree dates always duplicate
+  a child's own mark on the same day — the mark table is idempotent
+  (=puthash= same key), so skipping containers there changes zero
+  pixels.  Ruled: calendar untouched.
+- *Section counts, rail Summary, mode-line, =org-air-process-inbox=*:
+  all read =org-air-view--items-for-bucket= — they follow the classify
+  routing automatically.  The guided inbox loop stops landing on =New=
+  for free.
+- *Project / Revisit views*: project renders Air DOCS; Revisit renders
+  FILES from file-meta — neither renders heading rows.  (Revisit is
+  affected only via the F7 vote below.)
+- *Refile "Under heading" picker* (=org-air-inbox--file-headings=):
+  deliberately UNCHANGED — a container is exactly what you refile
+  UNDER; structure is the point of that completion list.
+
+** The R54 =active-ts= trap (why the test needs an OWN-scoped date)
+
+The obvious implementation — reuse
+=org-air-classify--stale-eligible-p= as the "no date" test — is WRONG:
+the R54-1 =active-ts= slot is deliberately SUBTREE-wide (any active date
+in the subtree makes it stale-eligible).  A container whose child
+carries =SCHEDULED: <…>= would test as "dated" and leak back onto the
+board.  The container test must read the heading's OWN body only —
+scheduled/deadline are already own-scoped (the heading's planning line,
+=org-entry-get= without inheritance); the active-timestamp signal needs
+an own-body-bounded twin slot (=own-active-ts=, below).  =active-ts=
+itself stays untouched — stale eligibility and every R54 consumer remain
+byte-identical.
+
+** The F7 file-ntype vote (note-type model interaction)
+
+=org-air-query--file-ntype= types a FILE =task= iff EVERY heading item
+is a task (and ≥1) — the R54 F7 mixed-file rule keeping pure GTD files
+out of Revisit.  A container heading derives =ntype= =knowledge= (R54
+step 6), so a GTD file organised as =* Projects= / =** TODO …= today
+types =knowledge= and lands in Revisit scope — structure mis-voting the
+file into the note surfaces.  With the container model in hand the fix
+is one filter: containers do not VOTE (they are structure); the file is
+=task= iff every NON-container heading is a task and at least one
+exists.  A prose note with sectioned subsections is unaffected (its
+non-container leaves are knowledge, so the vote still says knowledge).
+
+** org-air-capture's shape (unaffected, by construction)
+
+=org-air-capture= writes =* TODO <title> :inbox:= + a =:CREATED:=
+drawer — always a TODO keyword, always a leaf.  Captured items can
+never test as containers (todo non-nil), and the capture → triage →
+refile flow is untouched.  Items built OUTSIDE the scan (the
+=org-air-inbox--interactive-item= at-point constructor, unit-test
+structs) carry nil signal slots and are treated as NON-containers — the
+conservative default, matching R54's "nil =ntype= keeps the full task
+treatment" precedent.  Ruled: NO live-marker fallback probe for
+containerness (unlike =--marker-active-ts=, nothing here needs one: the
+safe answer for an unknown is "render it").
+
+* Proposal
+
+** The container predicate (pure, slot-only)
+
+New defcustom, home org-air-query.el beside its policy siblings
+(=org-air-plain-heading-type=), visible to all three consuming layers:
+
+#+begin_src emacs-lisp
+(defcustom org-air-skip-container-headings t
+  "When non-nil, pure CONTAINER headings never render as items (R59).
+A container is a heading that HAS child headings and carries NO
+actionable signal of its OWN: no TODO keyword (the R57 merged
+vocabulary decides what counts as one) and no own-body
+scheduled/deadline/active timestamp (the R54 date model, scoped to the
+heading's own text above its first child).  Such a heading is structure
+— its children represent the content — and is skipped on the board
+\(including the Inbox bucket), in the day view and in the R54 F7
+file-type vote.  Set to nil to restore the pre-R59 behaviour where a
+grouping heading in the inbox rendered as its own row."
+  :type 'boolean
+  :group 'org-air)
+#+end_src
+
+The predicate — pure slot reads, no file access, no marker resolution
+(data-pure render law):
+
+#+begin_src emacs-lisp
+(defun org-air-query-container-item-p (item)
+  "Non-nil when ITEM is a pure CONTAINER heading (R59).
+Slot-only and knob-gated: `childp' set by the scan, no TODO keyword, no
+own scheduled/deadline (the heading's planning line), no own-body active
+timestamp (`own-active-ts' — deliberately NOT the subtree-wide
+`active-ts': a child's date belongs to the child's row), and not
+explicitly overridden to `task' (an `ORG_AIR_TYPE'/`#+type:'/tag
+override wins, same philosophy as every R54 override).  Items built
+outside the scan have nil slots and are never containers — the
+conservative default: when in doubt, render."
+  (and org-air-skip-container-headings
+       (eq (org-air-item-kind item) 'heading)
+       (org-air-item-childp item)
+       (null (org-air-item-todo item))
+       (null (org-air-item-scheduled item))
+       (null (org-air-item-deadline item))
+       (null (org-air-item-own-active-ts item))
+       (not (eq (org-air-item-ntype item) 'task))))
+#+end_src
+
+On the last conjunct: =ntype= can only be =task= with nil
+todo/scheduled/deadline via an EXPLICIT override (property, file
+keyword, or =org-air-note-type-tag-alist= tag — R54 steps 1–3), so this
+one slot test is exactly "the user said it's a task".  The escape hatch
+for a wrongly-skipped heading is therefore the SAME override vocabulary
+users already know, per heading or per subtree (=ORG_AIR_TYPE= inherits).
+
+** Classify routing — skip everywhere, including the Inbox
+
+The container branch goes FIRST among heading branches — before the
+inbox bypass, which is precisely where the leak lives:
+
+#+begin_example
+kind 'file                  -> (notes)              ; R53, unchanged
+container-p                 -> (container)          ; R59 — NEW, before the bypass
+inbox-dweller               -> heading-buckets      ; R54-2 bypass, unchanged
+ntype 'journal              -> (journal)            ; unchanged
+ntype 'knowledge            -> (knowledge)          ; unchanged
+t                           -> heading-buckets      ; unchanged
+#+end_example
+
+='container= is a REAL bucket with NO section descriptor — invisible on
+the board (Inbox included), exactly the ='knowledge= / ='journal=
+pattern, countable by diagnostics.  Consequences, all automatic because
+every count/surface follows buckets: section badges, rail Summary, the
+mode-line totals and =org-air-process-inbox= stop seeing containers.
+Outside the inbox a container previously routed ='knowledge=; it now
+routes ='container= — both off-board, no visible change there (fenced by
+T2).  The classify wrapper =org-air-classify--container-p= is a thin
+alias over the query predicate (kept for layer symmetry with the other
+classify predicates); it adds NO marker probing (ruling above).
+
+** Day view — the same predicate in =--day-groups=
+
+=org-air-view--day-groups= skips container items in its single dolist
+(=(unless (org-air-query-container-item-p item) …)=).  The child that
+actually carries the =:CREATED:= stamp still files under Logged/created;
+the structural parent no longer duplicates it.  Deadline/Scheduled
+groups key on OWN planning slots, which a container by definition lacks
+— the guard is uniform anyway (one filter, top of the loop).
+
+** F7 vote — containers don't vote
+
+=org-air-query--file-ntype='s task clause becomes: the file is =task=
+iff at least one NON-container heading item exists and every
+non-container heading item is =task=.  Containers are structure and
+abstain.  Effect table:
+
+| File                                            | Today       | After R59   |
+|-------------------------------------------------+-------------+-------------|
+| =* Projects= container + =** TODO …= leaves     | knowledge (in Revisit) | task (off Revisit) |
+| Prose note with sectioned subsections           | knowledge   | knowledge   |
+| KB note containing one TODO leaf                | knowledge   | knowledge   |
+| Pure TODO file, no containers                   | task        | task        |
+| Knob nil (legacy)                               | knowledge   | knowledge (unchanged) |
+
+The knob gates the predicate itself, so =org-air-skip-container-headings
+nil= restores the old vote verbatim.
+
+** Data model — two signal slots, cache v5
+
+The scan records SIGNALS; the POLICY (knob + predicate) evaluates live
+at classify/render time — so toggling the defcustom never requires new
+slots, only a re-derive (key section below).  =org-air-item= gains:
+
+- =childp= — t when the subtree contains a child heading.  Probe: in
+  =org-air-query--item-at-point=, with the already-computed subtree
+  =end= in hand, one bounded =re-search-forward= of
+  =org-outline-regexp-bol= from the end of the heading line to =end=;
+  any match is a descendant (the first is the heading's first child).
+  Same shape and cost class as the existing subtree-ts/active-ts probes.
+- =own-active-ts= — epoch float of the first ACTIVE timestamp
+  (=org-ts-regexp=, planning lines in, inactive =[…]= out) in the
+  heading's OWN body: the region from the heading to
+  =(or FIRST-CHILD-POS end)=.  ZERO extra regex work: the existing
+  =active-ts= probe already finds the FIRST active match in the subtree
+  — record its match position; matches are ordered, so
+  =own-active-ts= = the =active-ts= value when that position precedes
+  the first child, else nil (no active stamp can exist in the own body
+  if the first subtree match is already past it).  For a LEAF,
+  =own-active-ts= ≡ =active-ts=.
+- ='file= items (R53 P3): both slots nil; the predicate requires =kind
+  'heading= anyway.
+- Live-buffer scans (R53 rule 1) go through the same
+  =--item-at-point=, so both paths populate the slots identically.
+
+Cache: the struct gains two slots ⇒ =org-air-view--cache-version= 4 → 5.
+A v4 cache is a clean one-time cold miss — skeleton + the R56 paced
+rescan, never a hang (the documented R53/R54 version-mismatch path).
+
+** Cache-key coherence — the knob joins the key
+
+The classify routing and the day-view skip evaluate the knob LIVE over
+persisted signal slots, but the F7 vote is baked into file-meta
+=:ntype= at scan time — a knob flip would leave Revisit scope stale
+until the next natural rescan.  R57 doctrine: the key IS the detector.
+=org-air-view--cache-key= gains =org-air-skip-container-headings= as its
+fourth element — =(list org-air-files org-air-inbox-file
+MERGED-VOCABULARY KNOB)= — so a flip (mid-session or across sessions)
+takes the same documented cold re-derive as a vocabulary change, at
+every existing key site (the R57 helper is the single source of truth;
+no new sites).  Flips are rare; correctness is total.
+
+** The inbox LEAF rule (explicit spec)
+
+A keyword-less dateless LEAF in the inbox — a bare captured note, no
+children — REMAINS an Inbox row (the prompt's recommended reading,
+adopted): =childp= nil fails the container test, so the R54-2 bypass
+carries it into the ='inbox= bucket exactly as today.  Rationale: the
+inbox is a TRIAGE surface and a bare note is a real triage unit (file
+it, task it, or delete it); only structure is noise.  Outside the inbox,
+keyword-less dateless leaves stay R54 ='knowledge= — unchanged.
+
+Documented boundary, accepted: a container whose children are ALL
+refiled away becomes a leaf and will surface as an inbox row.  That is
+the heuristic being honest — an EMPTY grouping heading in the inbox is
+indistinguishable by content from a captured note, and it arguably IS
+reviewable (delete it or keep children under it).  A user who wants a
+permanent empty scaffold heading hidden can give it a date-less child
+placeholder or accept the row; no extra state (e.g. remembering
+"was once a container") is worth the complexity.
+
+* Design details / seams
+
+- org-air-query.el: =org-air-skip-container-headings= defcustom;
+  =childp= + =own-active-ts= slots on =org-air-item= (docstring notes
+  the own-vs-subtree scoping); the child-pos probe + active-ts match
+  position reuse in =--item-at-point=; nil slots in
+  =org-air-query--file-item=; =org-air-query-container-item-p=; the F7
+  abstention filter in =org-air-query--file-ntype=.
+- org-air-classify.el: =org-air-classify--container-p= alias; the
+  =container= branch in =org-air-classify-item= (first heading branch,
+  before the inbox bypass); docstring updates on the routing table.
+- org-air-view.el: cache version 4 → 5; the knob as the fourth
+  =org-air-view--cache-key= element; the container filter in
+  =org-air-view--day-groups=.  No section descriptor for ='container=
+  (that IS the feature).
+- org-air-calendar.el, org-air-inbox.el, org-air-revisit.el,
+  org-air-project.el: NO changes (rulings above).
+
+* ERT seams (batch/headless; each reverts to RED)
+
+All run =noninteractive= over temp-dir fixtures through the synchronous
+scan path; classify tests are pure struct-in/buckets-out.
+
+- T1 /the reported shape/: fixture = the user's inbox verbatim
+  (=#+title: Inbox=; =* New= with a =:PROPERTIES:= drawer + a
+  description paragraph; two =** TODO … :inbox:= children), file set as
+  =org-air-inbox-file=.  Scan ⇒ the =New= item has =childp= t and
+  classifies =(container)= — NO ='inbox=; both children classify with
+  ='inbox=.  The rendered board's Inbox section contains both child
+  titles and NOT ="New"=; the Inbox count badge reads 2.  Reverting the
+  classify branch FAILS (today: =New= gets ='inbox= and a row).
+- T2 /general board twin/: the same container shape in a NON-inbox file
+  ⇒ parent classifies =(container)= (was =(knowledge)= — both
+  off-board), parent absent from the rendered board, TODO children
+  present in their buckets.  Fences the no-visible-change claim outside
+  the inbox.
+- T3 /task parent kept/: =* TODO Ship v1= with TODO children ⇒ parent
+  still classifies into task buckets and renders.  An implementation
+  that skips ALL parents FAILS here.
+- T4 /dated parent kept/: keyword-less =* Milestone= with its OWN
+  =SCHEDULED: <+2d>= and children ⇒ =ntype= task (R54 date signal),
+  ='upcoming=, rendered.  Fences "TODO or a date ⇒ still a task".
+- T5 /the child-date trap/: container =* New= whose CHILD carries
+  =SCHEDULED: <2026-01-01>= ⇒ the parent's =active-ts= slot IS non-nil
+  (proving the trap is live) while =own-active-ts= is nil, and the
+  parent still classifies =(container)=.  An implementation testing the
+  subtree-wide =active-ts= (or =--stale-eligible-p=) FAILS here.
+- T6 /own active date kept/: keyword-less parent with =<2026-08-01>= in
+  its OWN body text above the first child ⇒ =own-active-ts= non-nil ⇒
+  NOT a container (renders per its R54 type/date treatment).
+- T7 /inbox leaf note surfaces/: keyword-less dateless =* Random
+  thought= LEAF in the inbox file ⇒ classifies with ='inbox= and renders
+  as an Inbox row.  An implementation skipping keyword-less inbox
+  LEAVES too FAILS here (the leaf rule).
+- T8 /the defcustom/: T1 rerun with =org-air-skip-container-headings=
+  nil ⇒ =New= classifies ='inbox= and renders again — the pre-R59
+  behaviour byte-for-byte; T9's file vote also reverts to =knowledge=.
+  Reverting the knob gate FAILS.
+- T9 /F7 abstention/: file =* Projects= (container) + =** TODO a= +
+  =** TODO b= ⇒ file-meta =:ntype= =task= (off Revisit scope); a prose
+  file with sectioned subsections stays =knowledge=; container-only
+  quantification never yields =task= with zero non-container headings.
+  Reverting the vote filter FAILS (the GTD file types knowledge).
+- T10 /override wins/: =* New= container shape plus
+  =:ORG_AIR_TYPE: task= (and a =:task:=-tag variant) ⇒ NOT a container,
+  full task treatment.  Reverting the =ntype= conjunct FAILS.
+- T11 /day view/: container whose child has =:CREATED: [today]= ⇒ the
+  day view's Logged/created group contains the child and NOT the parent.
+  Reverting the =--day-groups= filter FAILS.
+- T12 /capture regression guard/: =org-air-capture= an item ⇒ it
+  classifies ='inbox= and renders (TODO + leaf: unaffected by
+  construction); an item built via the at-point constructor (nil slots)
+  is NOT a container (the conservative default).
+- T13 /cache v5 + key/: a v4 cache file ⇒ clean cold miss (no error, no
+  hang); v5 roundtrips =childp= / =own-active-ts= through
+  write→read→classify with T1-identical buckets; a cache written under
+  knob t does not hydrate under knob nil (key mismatch).  Reverting the
+  version bump or the key element FAILS (stale hydration).
+- T14 /data purity/: full board render + day render over cache-hydrated
+  items with containers present ⇒ =(buffer-list)= unchanged (the
+  predicate opens nothing).
+
+* Byte-golden / fixture impact
+
+- Committed board goldens: churn expected ONLY where a fixture has a
+  keyword-less dateless PARENT inside the inbox file or a day-view
+  Logged group — audit says the capture-shaped inbox fixtures (always
+  =* TODO=) are unaffected; any container-bearing golden loses exactly
+  the parent row and decrements the Inbox badge.  Convention per R54:
+  NO fixture edited by the impl seat; churn flagged in
+  =tests/org-air-known-failures.el= for the test-seat re-bless.
+- Cache v5 + the key element: tests pinning version/key literals
+  re-pin; runtime users pay one paced cold rescan (documented path).
+
+* Constraints
+
+- org-ql remains the only query engine; the two probes ride the existing
+  single work-buffer pass (R53), same bounded-regex cost class as the
+  R53/R54 probes beside them.
+- R53: never-hang, never-error, data-pure render (the predicate is slot
+  reads; no marker fallback by ruling); the v4→v5 miss is the documented
+  cold path.
+- R54: =active-ts=, stale eligibility, ntype derivation and the inbox
+  bypass semantics for LEAVES are untouched; the container branch sits
+  ABOVE the bypass and only intercepts has-children no-signal headings.
+- R56: the invalidation-triggered rescan rides the paced machine as-is.
+- R57: the todo conjunct reads the slot the merged vocabulary already
+  parses (a =* HOLD Groceries= parent is a task, kept); the key change
+  follows the R57 single-helper discipline.
+
+* Out of scope
+
+- Rendering containers as VISIBLE section chrome inside the Inbox
+  (group sub-headers per container) — a possible future presentation;
+  this round removes noise, it does not add hierarchy to the flat
+  bucket.
+- Any change to refile targets (containers stay offered — structure is
+  what you refile under) or to the day-view Deadline/Scheduled groups
+  (own-planning-keyed already).
+- Remembering emptied containers (the documented leaf boundary).
+- The R58 bookmark records (view state only — buckets recompute live).
+
+* History
+
+- 2026-07-19: Round 59 design written from the screenshot-confirmed
+  Inbox container report: container heuristic (has-children + no OWN
+  signal, own-scoped active-ts trap called out), classify routing above
+  the inbox bypass, day-view + F7 application, explicit inbox leaf rule,
+  =org-air-skip-container-headings= knob, cache v5 + key coherence, and
+  revert-fenced ERT seams T1–T14.  State: ready.

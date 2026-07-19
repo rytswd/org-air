@@ -110,8 +110,9 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 #+begin_src emacs-lisp
 (use-package org-air
-  ;; org-ql (+ Org) is the only hard dependency.
-  :commands (org-air org-air-project org-air-capture org-air-outline-mode)
+  ;; org-ql (+ Org) is the only hard dependency. Loaded eagerly (not deferred):
+  ;; org-air gains little from lazy loading, and eager loading keeps bookmark /
+  ;; activities / desktop restore working (see below).
   :custom
   ;; Where to look — files and/or directories (scanned recursively for .org).
   (org-air-files '("~/org/"))
@@ -363,7 +364,7 @@ Enabling it in an ~org-mode~ buffer pops the org-air context rail showing that b
 
 The board, project viewer, and Revisit buffers support Emacs's ~bookmark~ system, so ~bookmark-set~ (~C-x r m~), ~bookmark-jump~, [[https://github.com/alphapapa/activities.el][activities.el]], burly, and ~desktop~ can save and rebuild them (view, scope, filter, sort, and point are captured; the handler reopens the view cache-first, no blocking rescan).
 
-Restore works out of the box when org-air is installed via a package manager (MELPA, ~package.el~, straight, elpaca) — its generated autoloads register the bookmark handlers so they resolve even before org-air has loaded. If you instead load org-air from ~load-path~ *and* defer it (e.g. use-package ~:commands~), a bookmark replayed at startup fires before org-air loads; register the three handler autoloads so they resolve (or ~(require 'org-air)~ eagerly):
+This works out of the box with the recommended (eagerly-loaded) setup above — and with any package-manager install, whose generated autoloads register the handlers. The one case to watch: if you *defer* org-air's load (use-package ~:commands~/~:defer~ from ~load-path~), a bookmark replayed at startup can fire before org-air has loaded, and the handler won't be defined yet. org-air gains little from deferral, so eager loading is recommended; but if you do defer, register the three handler autoloads (or ~(require 'org-air)~ eagerly):
 
 #+begin_src emacs-lisp
 (autoload 'org-air-view-bookmark-jump    "org-air-view")

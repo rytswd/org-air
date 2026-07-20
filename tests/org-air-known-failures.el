@@ -2160,14 +2160,62 @@
     ;; says exactly these command-level `m' asserts are UPDATED to the
     ;; ladder.  NOT hand-blessed here — the test seat re-blesses them
     ;; and deletes these entries as closeout.
-    (org-air-r61-4-period-engine-oracle
-     . "R62-3: `m' now cycles the range ladder (week→fortnight→…), no \
-longer week↔month — the command-level toggle-kind asserts need the \
-ladder re-bless (round62 design, Item 2)")
-    (org-air-r61-8-cache-v6-and-no-rescan-nav
-     . "R62-3: same `m' ladder change — the nav-burst toggle-kind \
-asserts expect week↔month; re-bless to the ladder (the zero-scan / \
-zero-read and cache-parity conjuncts are unaffected)")
+    ;;
+    ;; 2026-07-20: ROUND-62 CLOSEOUT (impl tip muqylqul/ae928f60 + test
+    ;; seat <this commit>).  BOTH grind entries CLOSED — no fixture/
+    ;; golden moved (the R62 changes are window machinery + render
+    ;; state; `make clean && make check' green with zero fixture churn —
+    ;; `make clean' FIRST, the R48/R51/R53/R54 stale-.elc lesson bit
+    ;; AGAIN: the first probe ran pre-R62 bytecode and reproduced the
+    ;; \"unfixed\" behaviour on the fixed tree).  The two R61 ERTs
+    ;; re-blessed HONESTLY to the design-blessed R62-3 ladder contract
+    ;; (air/v0.5/org-air-round62-design.org, Item 2) — the pure-engine
+    ;; oracle asserts stand untouched, no conjunct weakened:
+    ;;   org-air-r61-4-period-engine-oracle — the command-level walk now
+    ;;     drives the FULL ladder: `m' from the current week lands
+    ;;     FORTNIGHT ([Jun 8, Jun 22) — the deliberate R62-3 behaviour
+    ;;     change), then month, `>' `>' to August, `m' on through
+    ;;     quarter (Q3) and year (2026), the year→week WRAP landing on
+    ;;     the week containing the anchor day (Aug 1 ⇒ Jul 27 … Aug 3 —
+    ;;     the R61 anchor rule, now uniform over five rungs); the
+    ;;     obsolete alias `org-air-review-toggle-kind' is asserted to
+    ;;     still cycle, `+' to widen back to August, and `.' still
+    ;;     returns to the current period.
+    ;;   org-air-r61-8-cache-v6-and-no-rescan-nav — the nav burst's two
+    ;;     toggle-kind presses became the five-rung ladder walk (`m'
+    ;;     week→fortnight [Mar 30, Apr 13)→month, `+' ×2 through quarter
+    ;;     to year, `m' wrapping back to week) under the SAME
+    ;;     `org-air-query--scan-file' + `insert-file-contents' spies at
+    ;;     ZERO calls; every cache-v6 / sixth-key-element / v5-cold-miss
+    ;;     / warm-byte-parity conjunct carries over verbatim.
+    ;; NEW R62 EXECUTING ERTs (tests/org-air-round62-test.el, all
+    ;; batch/headless; the spec's T1-T10 seams; revert of each FAILS):
+    ;; r62-1 host roster (all four modes + doc-session), r62-2 the R25
+    ;; noninteractive-nil synchronous reconcile KEEPS review's rail
+    ;; (live side window, owner review, never suspended — RED on the
+    ;; unfixed predicate), r62-3 a popped board never steals the
+    ;; selected review's rail while ownership still follows the ACTIVE
+    ;; view both ways (no reconciler regression), r62-4 the `|' toggle
+    ;; guard admits review (and still rejects foreign buffers), r62-5
+    ;; placement parity (per-view review/revisit knobs win, legacy
+    ;; alist + fallback + board/project/outline unchanged), r62-6 the
+    ;; range-ladder oracle (fixed-phase Monday fortnights incl. the
+    ;; W53/2026 edge, quarter/year bounds incl. year rollover, the
+    ;; adjacency law 5 kinds × 9 edge dates × 2 TZs, clip
+    ;; complementarity at the three NEW edges, unknown-kind totality),
+    ;; r62-7 `<'/`>' step by ONE unit of the ACTIVE range per kind,
+    ;; r62-8 `+'/`-'/`m' ladder keys (clamped ends, wrap cycle, ladder
+    ;; knob validation, off-ladder narrow-out, anchor preserved) under
+    ;; scan+read spies at ZERO calls, r62-9 the bookmark record carries
+    ;; the range (quarter round-trip cache-first with zero display
+    ;; calls, R61-shape compat, 'decade degrade, 'current re-tracking
+    ;; at quarter scale), r62-10 the five label shapes + cross-ISO-year
+    ;; fortnight + the four-row legend truth (`.' listed, `=' the
+    ;; legend-less alias).  No .el SOURCE touched on the test track
+    ;; (impl landed R62-1..3 in muqylqul).  Round-62 manifest is EMPTY;
+    ;; the tests stay as permanent regression guards.
+    ;; =================================================================
+    ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

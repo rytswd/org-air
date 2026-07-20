@@ -9,8 +9,9 @@
 ;; R61-3 the pure ISO-week/month period engine (cal-iso bounds, EXACT
 ;; boundary clipping, the four section predicates, the suspect-clock
 ;; rule); R61-4 the new module org-air-review.el (period nav `<'/`>'/`.',
-;; week↔month `m', rollup `f', filter/scope reuse); R61-6 R58 bookmark
-;; parity.
+;; the range switch `m' — since R62-3 the LADDER cycle, no longer the
+;; week↔month toggle — rollup `f', filter/scope reuse); R61-6 R58
+;; bookmark parity.
 ;;
 ;; All BATCH/headless over temp-dir corpora through the REAL scan
 ;; (`org-air-query-items' / `org-air-query--scan-file'), the real fold
@@ -48,9 +49,10 @@
 ;;          bounds (1st → next 1st, December → January rollover) match
 ;;          independently-constructed local-midnight epochs; the
 ;;          year-boundary ISO weeks (2026-01-01 → W1/2026, 2027-01-01 →
-;;          W53/2026, its week = Dec 28 2026 … Jan 4 2027); the
-;;          week↔month toggle keeps the anchor day BOTH directions and
-;;          `.' returns to the current period after navigation.
+;;          W53/2026, its week = Dec 28 2026 … Jan 4 2027); the `m'
+;;          range cycle (R62-3 re-bless: the full ladder, superseding
+;;          the week↔month toggle) keeps the anchor day at EVERY rung
+;;          and `.' returns to the current period after navigation.
 ;;   r61-5  (T3) CLIP EXACTNESS: a 90-minute CLOCK across a week
 ;;          boundary contributes 60 min to the earlier and 30 min to
 ;;          the later week (sum EXACTLY 90 — never dropped, never
@@ -77,7 +79,8 @@
 ;;          four review slots `equal'; `org-air-log-cap' participates
 ;;          in `org-air-view--cache-key' (sixth element, tracks the
 ;;          live value, a flip refuses the stale cache); twelve `<'
-;;          presses + `m'/`>'/`.'/`f' under `org-air-query--scan-file'
+;;          presses + the R62-3 ladder walk (`m'/`+') + `>'/`.'/`f'
+;;          under `org-air-query--scan-file'
 ;;          AND `insert-file-contents' spies ⇒ ZERO calls (period
 ;;          navigation is a filter+fold — data-pure); the render from a
 ;;          live scan and from a cache hydrate are byte-identical at a
@@ -632,16 +635,19 @@ each FAILS its assert."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r61-4-period-engine-oracle ()
-  "T14: ISO-week/month bounds match the oracle; the toggle keeps the day.
+  "T14: ISO-week/month bounds match the oracle; the ladder keeps the day.
 Week bounds are Monday-00:00 → next-Monday-00:00 local half-open pairs
 \(the cal-iso oracle pins the Monday), month bounds 1st → next 1st with
 the December → January rollover; the year-edge ISO weeks read W1/2026
 for 2026-01-01 and W53/2026 for 2027-01-01 (whose week runs Dec 28 …
 Jan 4); adjacent periods share the boundary epoch EXACTLY (half-open);
-the `m' toggle shows the other kind's period CONTAINING the anchor day
-BOTH directions and `.' returns to the current period.  Reverting the
-cal-iso math, the half-open construction or the anchor-preserving
-toggle FAILS."
+the `m' cycle (R62-3 re-bless: the range ladder week → fortnight →
+month → quarter → year → week, superseding the R61 week↔month toggle —
+round62 design, Item 2) shows each next kind's period CONTAINING the
+anchor day, the obsolete alias `org-air-review-toggle-kind' still
+cycles, `+' widens, and `.' returns to the current period.  Reverting
+the cal-iso math, the half-open construction or the anchor-preserving
+range switch FAILS."
   (skip-unless (locate-library "org-air"))
   ;; The pure engine against independently-built local-midnight epochs.
   (should (equal (org-air-review--period-bounds
@@ -674,7 +680,9 @@ toggle FAILS."
              'week (org-air-r61--epoch 2026 6 17)))
          (next (org-air-review--period-bounds 'week (cdr w))))
     (should (equal (cdr w) (car next))))
-  ;; Command level: navigation + the anchor-day-preserving toggle.
+  ;; Command level: navigation + the anchor-day-preserving ladder
+  ;; (R62-3 re-bless: `m' cycles the FULL range ladder; the R61
+  ;; anchor-day rule is unchanged, now uniform across five rungs).
   (org-air-r61--with-corpus '(("inbox.org" . "* TODO Inbox capture\n"))
     (org-air-r61--frozen-at org-air-r61--now
       (org-air-review)
@@ -683,8 +691,16 @@ toggle FAILS."
         (should (equal (org-air-review--bounds)
                        (cons (org-air-r61--epoch 2026 6 15)
                              (org-air-r61--epoch 2026 6 22))))
-        ;; m keeps the (current) anchor: June.  > > walks to August.
-        (org-air-review-toggle-kind)
+        ;; m cycles ONE rung — week → FORTNIGHT first (no longer month,
+        ;; R62-3), keeping the (current) anchor: [Jun 8, Jun 22).
+        (org-air-review-cycle-range)
+        (should (eq org-air-review--period-kind 'fortnight))
+        (should (equal (org-air-review--bounds)
+                       (cons (org-air-r61--epoch 2026 6 8)
+                             (org-air-r61--epoch 2026 6 22))))
+        ;; m again → month: June.  > > walks to August.
+        (org-air-review-cycle-range)
+        (should (eq org-air-review--period-kind 'month))
         (should (equal (org-air-review--bounds)
                        (cons (org-air-r61--epoch 2026 6 1)
                              (org-air-r61--epoch 2026 7 1))))
@@ -693,15 +709,29 @@ toggle FAILS."
         (should (equal (org-air-review--bounds)
                        (cons (org-air-r61--epoch 2026 8 1)
                              (org-air-r61--epoch 2026 9 1))))
-        ;; month → week keeps the anchor DAY: the week containing
-        ;; Aug 1 2026 (a Saturday) is Jul 27 … Aug 3.
-        (org-air-review-toggle-kind)
+        ;; month → quarter → year keep the anchor day (Aug 1): Q3, 2026.
+        (org-air-review-cycle-range)
+        (should (equal (org-air-review--bounds)
+                       (cons (org-air-r61--epoch 2026 7 1)
+                             (org-air-r61--epoch 2026 10 1))))
+        (org-air-review-cycle-range)
+        (should (equal (org-air-review--bounds)
+                       (cons (org-air-r61--epoch 2026 1 1)
+                             (org-air-r61--epoch 2027 1 1))))
+        ;; year WRAPS → week, still on the anchor DAY: the week
+        ;; containing Aug 1 2026 (a Saturday) is Jul 27 … Aug 3.
+        (org-air-review-cycle-range)
         (should (eq org-air-review--period-kind 'week))
         (should (equal (org-air-review--bounds)
                        (cons (org-air-r61--epoch 2026 7 27)
                              (org-air-r61--epoch 2026 8 3))))
-        ;; week → month keeps it too: back to August, not July.
-        (org-air-review-toggle-kind)
+        ;; The obsolete alias still cycles (week → fortnight), and `+'
+        ;; widens back to month: August, not July — the anchor held.
+        (with-suppressed-warnings ((obsolete org-air-review-toggle-kind))
+          (org-air-review-toggle-kind))
+        (should (eq org-air-review--period-kind 'fortnight))
+        (org-air-review-range-widen)
+        (should (eq org-air-review--period-kind 'month))
         (should (equal (org-air-review--bounds)
                        (cons (org-air-r61--epoch 2026 8 1)
                              (org-air-r61--epoch 2026 9 1))))
@@ -941,7 +971,9 @@ preserves clocks/logs/created/rtrunc `equal'; `org-air-log-cap' is the
 SIXTH `org-air-view--cache-key' element (tracks the live value, a
 let-bound flip makes the written cache MISS — the R57 key-IS-detector
 discipline) and a crafted pre-R61 5-element `:key' misses on length;
-twelve `<' presses plus `m'/`>'/`.'/`f' on the live surface under
+twelve `<' presses plus the R62-3 ladder walk (`m' cycles
+week→fortnight→…, `+' widens — the re-blessed burst covers all five
+rungs) plus `>'/`.'/`f' on the live surface under
 `org-air-query--scan-file' AND corpus `insert-file-contents' spies make
 ZERO calls (period navigation is a filter+fold over cached integers);
 and the render from the live scan is BYTE-IDENTICAL to the render from
@@ -975,6 +1007,8 @@ CLOCK: [2026-06-17 Wed 09:00]--[2026-06-17 Wed 11:00] =>  2:00
                 items org-air-review--items)
           (should (member "Weekly habit" (org-air-r61--review-row-titles)))
           ;; The nav burst: pure repaints, zero scans, zero file opens.
+          ;; R62-3 re-bless: `m' cycles the range ladder now, so the
+          ;; burst walks ALL five rungs under the same spies.
           (let ((scans 0) (reads 0))
             (org-air-r61--spying-scans scans
               (org-air-r61--spying-reads reads
@@ -983,11 +1017,20 @@ CLOCK: [2026-06-17 Wed 09:00]--[2026-06-17 Wed 11:00] =>  2:00
                                (cons (org-air-r61--epoch 2026 3 23)
                                      (org-air-r61--epoch 2026 3 30))))
                 (org-air-review-period-next)
-                (org-air-review-toggle-kind)
+                (org-air-review-cycle-range)   ; week → fortnight
+                (should (equal (org-air-review--bounds)
+                               (cons (org-air-r61--epoch 2026 3 30)
+                                     (org-air-r61--epoch 2026 4 13))))
+                (org-air-review-cycle-range)   ; fortnight → month
                 (should (equal (org-air-review--bounds)
                                (cons (org-air-r61--epoch 2026 3 1)
                                      (org-air-r61--epoch 2026 4 1))))
-                (org-air-review-toggle-kind)
+                (org-air-review-range-widen)   ; month → quarter
+                (org-air-review-range-widen)   ; quarter → year
+                (should (equal (org-air-review--bounds)
+                               (cons (org-air-r61--epoch 2026 1 1)
+                                     (org-air-r61--epoch 2027 1 1))))
+                (org-air-review-cycle-range)   ; year WRAPS → week
                 (org-air-review-period-today)
                 (org-air-review-cycle-rollup)
                 (should (equal (org-air-review--bounds)

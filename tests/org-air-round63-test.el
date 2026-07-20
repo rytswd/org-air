@@ -133,6 +133,14 @@
 ;;          byte-identical to tests/fixtures/review-mockup-170.txt —
 ;;          the regen-mockups discipline: fixture and assert share ONE
 ;;          render path (`org-air-viewport-test-review-mockup-lines').
+;;   r63-13 (R63fix) THE FOURTH TAIL — the board-only RESPONSIVE
+;;          TEARDOWN is owner-gated: a NARROW displayed NON-owner (or
+;;          suspended) render of the board / revisit / project / review
+;;          view reaches its board-only teardown branch and must NOT
+;;          hide/delete another view's LIVE rail; the ACTUAL owner's
+;;          narrow render still collapses (R56 unregressed).  Reverting
+;;          the `org-air-rail--tail-owner-p' conjunct at ANY of the four
+;;          teardown sites FAILS the matching leg.
 ;;
 ;; REVERT-FAIL: ALL TWELVE verified RED against the pre-R63 trunk
 ;; (muqylqul) in a scratch workspace — r63-1 fails with SIX owner
@@ -1228,6 +1236,129 @@ glyph, a moved column) diverges here first."
            (format "review render diverges from the golden at line %d (%d expected / %d actual lines)\nexpected: %S\nactual:   %S"
                    (1+ i) (length expected) (length actual)
                    (nth i expected) (nth i actual))))))))
+
+(ert-deftest org-air-r63-13-board-only-teardown-gated ()
+  "R63fix: the board-only responsive teardown is an OWNER privilege.
+The FOURTH tail: each view's render tail deletes the side rail when it
+lands board-only — and before the fix it did so UNGATED, so a narrow
+DISPLAYED non-owner render (the R58 undisplayed carve does not mask a
+windowed host) deleted another view's LIVE rail.  Four legs, one per
+teardown site: with REVIEW owning the rail, a narrow board / revisit /
+project render (each landing `board-only', each displayed in a second
+main window while review stays selected) leaves review's rail window
+live, the owner and the rail bytes untouched; with the BOARD owning the
+rail, a narrow displayed review render — unsuspended AND suspended —
+leaves the board's rail alike.  The non-regression conjunct: the ACTUAL
+owner's own narrow render still tears the side window down (the R56
+responsive collapse).  Reverting the `org-air-rail--tail-owner-p'
+conjunct at ANY of the four sites FAILS the matching leg here."
+  (skip-unless (locate-library "org-air"))
+  ;; Legs 1-3: review owns the rail; board / revisit / project teardowns.
+  (org-air-r63--with-review-rail
+    (should (eq (org-air-rail--side-owner) rbuf))
+    (let ((bytes (org-air-r63--rail-bytes))
+          (bbuf (org-air-r63--make-cold-board))
+          (vbuf (get-buffer-create org-air-revisit-buffer-name))
+          (pbuf (generate-new-buffer "*org-air-r63-project*")))
+      (unwind-protect
+          (let ((w2 (split-window (selected-window) nil 'below)))
+            ;; -- the board site (org-air-view.el) --
+            (with-current-buffer bbuf
+              (setq org-air-view--items (org-air-query-items)))
+            (set-window-buffer w2 bbuf)
+            (should (eq (window-buffer (selected-window)) rbuf))
+            (with-current-buffer bbuf
+              (let ((org-air-view-width 60))
+                (org-air-view--render org-air-view--items nil))
+              ;; The teardown branch WAS taken — no vacuous pass…
+              (should (eq org-air-view--orientation 'board-only)))
+            ;; …and the gate held: review's live rail survives intact.
+            (should (window-live-p (org-air-rail--side-window)))
+            (should (eq (org-air-rail--side-owner) rbuf))
+            (should (equal bytes (org-air-r63--rail-bytes)))
+            ;; -- the revisit site (org-air-revisit.el) --
+            (with-current-buffer vbuf
+              (unless (derived-mode-p 'org-air-revisit-mode)
+                (org-air-revisit-mode))
+              (setq-local org-air-view--rail-popped-out nil)
+              (setq-local org-air-view--rail-suspended nil))
+            (set-window-buffer w2 vbuf)
+            (with-current-buffer vbuf
+              (let ((org-air-view-width 60))
+                (org-air-revisit--render))
+              (should (eq org-air-view--orientation 'board-only)))
+            (should (window-live-p (org-air-rail--side-window)))
+            (should (eq (org-air-rail--side-owner) rbuf))
+            (should (equal bytes (org-air-r63--rail-bytes)))
+            ;; -- the project site (org-air-project.el) --
+            (with-current-buffer pbuf
+              (unless (derived-mode-p 'org-air-project-mode)
+                (org-air-project-mode))
+              (setq-local org-air-project--root org-air-r63--dir)
+              (setq-local org-air-view--rail-popped-out nil)
+              (setq-local org-air-view--rail-suspended nil))
+            (set-window-buffer w2 pbuf)
+            (with-current-buffer pbuf
+              (let ((org-air-view-width 60))
+                (org-air-project--render-current))
+              (should (eq org-air-view--orientation 'board-only)))
+            (should (window-live-p (org-air-rail--side-window)))
+            (should (eq (org-air-rail--side-owner) rbuf))
+            (should (equal bytes (org-air-r63--rail-bytes))))
+        ;; The revisit/project buffers are not on the corpus macro's kill
+        ;; list; their kill hooks (rail teardown) run AFTER the asserts.
+        (let ((kill-buffer-query-functions nil))
+          (dolist (buf (list vbuf pbuf))
+            (when (buffer-live-p buf) (kill-buffer buf)))))))
+  ;; Leg 4: the board owns the rail; the REVIEW teardown site — plus the
+  ;; R56 owner-collapse non-regression conjunct.
+  (org-air-r63--with-corpus org-air-r63--rail-specs
+    (org-air-r63--frozen-at org-air-r63--now
+      (org-air-review)                  ; batch: data only, no windows
+      (let ((rbuf (get-buffer org-air-review-buffer-name))
+            (bbuf (org-air-r63--make-cold-board))
+            (org-air-rail-focus-on-popout nil))
+        (with-current-buffer bbuf
+          (setq org-air-view--items (org-air-query-items)))
+        (let ((noninteractive nil))
+          (select-window (frame-selected-window))
+          (switch-to-buffer bbuf)
+          (delete-other-windows (selected-window))
+          ;; The board renders through the tail and owns the rail.
+          (with-current-buffer bbuf
+            (org-air-view--render org-air-view--items nil))
+          (should (eq (org-air-rail--side-owner) bbuf))
+          (let ((w2 (split-window (selected-window) nil 'below))
+                (bytes (org-air-r63--rail-bytes)))
+            (set-window-buffer w2 rbuf)   ; displayed; the board stays
+            ;; selected — review is a windowed NON-owner.
+            ;; -- the review site (org-air-review.el), unsuspended --
+            (with-current-buffer rbuf
+              (setq-local org-air-view--rail-popped-out nil)
+              (setq-local org-air-view--rail-suspended nil)
+              (let ((org-air-view-width 60))
+                (org-air-review--render-current))
+              (should (eq org-air-view--orientation 'board-only)))
+            (should (window-live-p (org-air-rail--side-window)))
+            (should (eq (org-air-rail--side-owner) bbuf))
+            (should (equal bytes (org-air-r63--rail-bytes)))
+            ;; -- the review site, SUSPENDED (belt 1 blocks alone) --
+            (with-current-buffer rbuf
+              (setq-local org-air-view--rail-suspended t)
+              (let ((org-air-view-width 60))
+                (org-air-review--render-current))
+              (should (eq org-air-view--orientation 'board-only)))
+            (should (window-live-p (org-air-rail--side-window)))
+            (should (eq (org-air-rail--side-owner) bbuf))
+            (should (equal bytes (org-air-r63--rail-bytes)))
+            ;; R56 unregressed: the ACTUAL owner's narrow render still
+            ;; collapses — the gate passes for the owner and the
+            ;; responsive teardown deletes the side window.
+            (with-current-buffer bbuf
+              (let ((org-air-view-width 60))
+                (org-air-view--render org-air-view--items nil))
+              (should (eq org-air-view--orientation 'board-only)))
+            (should-not (org-air-rail--side-window))))))))
 
 (provide 'org-air-round63-test)
 ;;; org-air-round63-test.el ends here

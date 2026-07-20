@@ -7253,9 +7253,14 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
+      ;; R63-1a: the responsive teardown is an OWNER privilege — the
+      ;; fourth gated tail.  A narrow NON-owner (or suspended) render
+      ;; must never delete another view's live rail; the actual owner's
+      ;; R56 board-only collapse passes the gate unchanged.
       ;; R58: an undisplayed (bookmark-restored) board must not delete the
       ;; displayed layout's windows.
-      (unless (org-air-rail--undisplayed-host-p (current-buffer))
+      (when (and (org-air-rail--tail-owner-p (current-buffer))
+                 (not (org-air-rail--undisplayed-host-p (current-buffer))))
         (org-air-rail--hide (current-buffer)))))
     ;; R25-6: an INLINE (two-pane/stacked) self-render must also drop a
     ;; stale side rail owned by ANOTHER view (the cross-view sweep).  When

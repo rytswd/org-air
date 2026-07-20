@@ -1709,9 +1709,13 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
+      ;; R63-1a: the responsive teardown is an OWNER privilege — a
+      ;; narrow NON-owner (or suspended) render must never delete
+      ;; another view's live rail (the fourth gated tail).
       ;; R58: an undisplayed (bookmark-restored) project must not delete
       ;; the displayed layout's windows.
-      (unless (org-air-rail--undisplayed-host-p (current-buffer))
+      (when (and (org-air-rail--tail-owner-p (current-buffer))
+                 (not (org-air-rail--undisplayed-host-p (current-buffer))))
         (org-air-rail--hide (current-buffer)))))
     ;; R25-6: an INLINE (two-pane) self-render must also evict a stale side
     ;; rail owned by ANOTHER view (the cross-view sweep); when SELF is

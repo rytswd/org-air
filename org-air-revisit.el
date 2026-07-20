@@ -679,9 +679,13 @@ side-window lifecycle and the foreign-rail sweep mirror the project view
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
+      ;; R63-1a: the responsive teardown is an OWNER privilege — a
+      ;; narrow NON-owner (or suspended) render must never delete
+      ;; another view's live rail (the fourth gated tail).
       ;; R58: an undisplayed (bookmark-restored) revisit view must not
       ;; delete the displayed layout's windows.
-      (unless (org-air-rail--undisplayed-host-p (current-buffer))
+      (when (and (org-air-rail--tail-owner-p (current-buffer))
+                 (not (org-air-rail--undisplayed-host-p (current-buffer))))
         (org-air-rail--hide (current-buffer)))))
     (org-air-rail--evict-foreign-rail (current-buffer))))
 

@@ -2029,10 +2029,79 @@
     ;; default nil).  NOT hand-blessed on the impl track per the brief.
     ;; No byte golden moved (default-nil excludes are the pre-R60 path
     ;; byte-for-byte; verified: all layout/project/denote goldens green).
-    (org-air-r59-13-cache-v5-and-key
-     . "R60-3: `org-air-view--cache-key' gains `org-air-exclude-regexps' \
-as the FIFTH element; this test pins the pre-R60 4-element key shape \
-(air/v0.5/org-air-round60-design.org) — test seat re-blesses to 5")
+    ;;
+    ;; =================================================================
+    ;; v0.5 ROUND-60 CLOSEOUT (impl tip yukzyouz/5a138df1 + test seat
+    ;; <this commit>).  The ONE grind entry CLOSED — byte goldens
+    ;; byte-IDENTICAL as flagged (default-nil excludes are the pre-R60
+    ;; discovery path byte-for-byte; `make clean && make check' green
+    ;; with zero fixture churn), so the re-bless is assertion-only.  The
+    ;; flagged ERT re-blessed HONESTLY to the design-blessed R60-3
+    ;; contract (air/v0.5/org-air-round60-design.org) — no conjunct
+    ;; weakened:
+    ;;   org-air-r59-13-cache-v5-and-key — the key-shape conjunct moves
+    ;;     4 -> 5 (`org-air-exclude-regexps' is the FIFTH element), and
+    ;;     the re-blessed shape still MEANS something: the fifth element
+    ;;     is asserted to TRACK the live exclude set both ways (the nil
+    ;;     default and a let-bound set) and to DETECT a flip (different
+    ;;     exclude sets compare un-`equal'), and a NEW knob-parallel
+    ;;     hydration conjunct pins that a cache written under nil
+    ;;     excludes never hydrates under a non-nil set (the exact mirror
+    ;;     of the R59 skip-container-headings conjunct — reverting the
+    ;;     R60 key extension hydrates it and FAILS).  Every other
+    ;;     conjunct (v5 roundtrip, crafted-v4 cold miss, knob-t/nil
+    ;;     hydration fence) carries over verbatim.
+    ;; NEW R60 EXECUTING ERTs (tests/org-air-round60-test.el, all
+    ;; batch/headless over temp trees through the REAL discovery layer
+    ;; (`org-air-query-files' / `org-air-query-items' / the real board
+    ;; render / `org-air-view--refresh-start'); revert of each FAILS —
+    ;; the spec's T1-T11 seams mapped onto the eight ERTs):
+    ;;   r60-1 excluded FILE never appears (query-files, scan items, the
+    ;;     rendered board) while the non-matching sibling survives; the
+    ;;     nil-knob anti-tautology leg proves the file is otherwise
+    ;;     enumerated.  Reverting the file post-filter FAILS.
+    ;;   r60-2 excluded DIRECTORY is PRUNED, never descended — both a
+    ;;     dot-dir ("\\.git/") and a named dir ("/archive/"): the
+    ;;     `file-name-all-completions' listing spy proves archive/,
+    ;;     archive/deep/, .git/ and .git/objects/ were never LISTED
+    ;;     (the planted deep files under both would be counted if
+    ;;     walked) — a post-filter-only impl passes the membership
+    ;;     asserts and FAILS the spy.
+    ;;   r60-3 inbox NEVER excluded: file-level guard (a regexp matching
+    ;;     the inbox name drops the non-inbox twin, keeps the inbox),
+    ;;     ancestor guard (inbox inside the excluded tree: the spine is
+    ;;     walked, archive/deep/ still pruned, every OTHER file in the
+    ;;     tree still dropped), and the excluded SOURCE ROOT (nil when
+    ;;     the inbox is outside it; exactly the inbox when inside).
+    ;;   r60-4 exclude WINS over an explicit `org-air-files' listing
+    ;;     (with the nil-knob anti-tautology leg).
+    ;;   r60-5 nil / all-invalid excludes = pre-R60 discovery EXACTLY:
+    ;;     result `equal' to the direct nil-PREDICATE enumeration, the
+    ;;     PREDICATE argument spied as LITERAL nil at every call, the
+    ;;     dot-dir file that leaks today still leaks; never-error —
+    ;;     ("[" "/archive/") signals nowhere, "/archive/" still prunes,
+    ;;     exactly ONE warning per session for "[".
+    ;;   r60-6 the exclude set is the FIFTH cache-key element: different
+    ;;     sets = different keys; a cache written under set A hydrates
+    ;;     under A (anti-vacuous) and never under B or nil; a crafted
+    ;;     pre-R60 4-element `:key' misses on length.
+    ;;   r60-7 the refresh-start key guard: flipping the exclude on a
+    ;;     live board drops the excluded file's rows on `g' — the spy
+    ;;     proves `org-air-query-items-in-files' is never handed the
+    ;;     excluded path — and the NEXT refresh does not resurrect them;
+    ;;     same for narrowing `org-air-files' mid-session (the bonus
+    ;;     bug: the pre-R60 vanished/`file-exists-p' branch resurrected
+    ;;     removed rows on every refresh).
+    ;;   r60-8 symlink-truename dedupe holds with exclusion active:
+    ;;     exclusion is BY NAME (a non-matching symlink into the pruned
+    ;;     tree survives — its target truename enumerates exactly once;
+    ;;     a symlink whose OWN path matches is dropped and its otherwise
+    ;;     unreachable target never surfaces) and the R53 dedupe still
+    ;;     collapses a symlink twin to ONE entry.
+    ;; No .el SOURCE touched on the test track (impl landed R60-1..3 in
+    ;; yukzyouz).  Round-60 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

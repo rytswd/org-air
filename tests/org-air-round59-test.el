@@ -83,7 +83,12 @@
 ;;          v5 roundtrips `childp'/`own-active-ts' write->read->classify
 ;;          with scan-identical buckets; a cache written under knob t
 ;;          does NOT hydrate under knob nil.  Reverting the version bump
-;;          or the key element FAILS (stale hydration).
+;;          or the key element FAILS (stale hydration).  R60 re-bless
+;;          (air/v0.5/org-air-round60-design.org R60-3): the key is FIVE
+;;          elements now — `org-air-exclude-regexps' joins as the FIFTH;
+;;          the shape conjunct tracks it both ways (includes + detects
+;;          the exclude set) and a knob-parallel hydration conjunct pins
+;;          that an exclude-set flip is a clean cold miss too.
 ;;   r59-14 (T14) data purity: full board render + day grouping over
 ;;          CACHE-HYDRATED items with a live container present =>
 ;;          `find-file-noselect' called ZERO times, the visible
@@ -707,7 +712,15 @@ nil load, no error — reverting the version bump hydrates it and FAILS);
 a real v5 cache roundtrips `childp'/`own-active-ts' write->read->classify
 with scan-identical buckets; a cache written under knob t does NOT
 hydrate under knob nil (reverting the key element hydrates it and FAILS
-— the baked F7 vote would go stale across a flip)."
+— the baked F7 vote would go stale across a flip).
+R60 re-bless (air/v0.5/org-air-round60-design.org R60-3, honest — no
+conjunct weakened): the key is FIVE elements — `org-air-exclude-regexps'
+is the FIFTH.  The re-blessed shape assertion still MEANS something: the
+fifth element must TRACK the live exclude set both ways (nil default and
+a let-bound set) and DETECT a flip (different exclude sets compare
+un-`equal'), and a cache written under nil excludes must NOT hydrate
+under a non-nil set (the exact mirror of the R59 knob conjunct —
+reverting the R60 key extension hydrates it and FAILS)."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       (append org-air-r59--inbox-specs
@@ -716,11 +729,20 @@ hydrate under knob nil (reverting the key element hydrates it and FAILS
 Kickoff <2026-08-01 Sat>.\n\
 ** Prose child\n\
 Body.\n")))
-    ;; The version and the key shape.
+    ;; The version and the key shape (R60: the exclude set is the FIFTH
+    ;; element; this corpus runs at the nil default).
     (should (= org-air-view--cache-version 5))
     (let ((key (org-air-view--cache-key)))
-      (should (= (length key) 4))
-      (should (eq (nth 3 key) t)))
+      (should (= (length key) 5))
+      (should (eq (nth 3 key) t))
+      ;; The fifth element IS the live exclude set (nil here)…
+      (should (eq (nth 4 key) org-air-exclude-regexps))
+      ;; …tracks a let-bound set, and DETECTS the flip: different
+      ;; exclude sets are different keys (the R57 "the key IS the
+      ;; detector" discipline the R60 element extends).
+      (let ((org-air-exclude-regexps '("/archive/")))
+        (should (equal (nth 4 (org-air-view--cache-key)) '("/archive/")))
+        (should-not (equal (org-air-view--cache-key) key))))
     (let ((org-air-skip-container-headings nil))
       (should (eq (nth 3 (org-air-view--cache-key)) nil)))
     ;; Scan, snapshot the ground truth, persist.
@@ -756,6 +778,14 @@ Body.\n")))
         (should-not (org-air-view--cache-read))
         (should-not (org-air-view--cache-load)))
       ;; …while the same knob still hydrates (the miss above is the KEY).
+      (should (org-air-view--cache-read))
+      ;; R60: the exclude set detects the same way — this cache was
+      ;; written under nil excludes, so it never hydrates under a
+      ;; non-nil set (toggling the knob can never serve a stale set)…
+      (let ((org-air-exclude-regexps '("/archive/")))
+        (should-not (org-air-view--cache-read))
+        (should-not (org-air-view--cache-load)))
+      ;; …while the original (nil) exclude set still hydrates.
       (should (org-air-view--cache-read))
       ;; A v4 cache (the pre-R59 struct shape) is a clean cold miss even
       ;; with the CURRENT key: no hydration, no error, no hang.

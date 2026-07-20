@@ -94,6 +94,7 @@
 (defvar org-air-exclude-regexps)
 (defvar org-air-cache-file)
 (defvar org-air-skip-container-headings)
+(defvar org-air-log-cap)
 
 ;;;; -------------------------------------------------------------------
 ;;;; Corpus scaffolding
@@ -466,21 +467,35 @@ or shape) and returns nil from both `org-air-view--cache-read' and
 `org-air-view--cache-load' under B and under nil; a crafted pre-R60
 4-element `:key' with the CURRENT version also misses (length
 inequality — no version bump needed).  Reverting the key extension
-hydrates the stale set and FAILS."
+hydrates the stale set and FAILS.
+R61 re-bless (air/v0.5/org-air-round61-design.org R61-2, honest — no
+conjunct weakened): the key is SIX elements now — the exclude set STAYS
+the FIFTH (every detection/hydrate/miss conjunct above holds verbatim)
+and `org-air-log-cap' follows as the SIXTH (tracked live, a flip is a
+different key); the crafted short-`:key' misses now cover BOTH legacy
+shapes — the pre-R60 4-element and the pre-R61 5-element key — each on
+length inequality alone."
   (skip-unless (locate-library "org-air"))
   (org-air-r60--with-tree org-air-r60--tree-specs
-    ;; The key detects: pairwise distinct, fifth element = the live set.
+    ;; The key detects: pairwise distinct, fifth element = the live set
+    ;; (R61: six elements total — `org-air-log-cap' is the sixth, and
+    ;; the exclude set KEEPS its fifth seat).
     (let ((key-nil (org-air-view--cache-key))
           (key-a (let ((org-air-exclude-regexps '("/archive/")))
                    (org-air-view--cache-key)))
           (key-b (let ((org-air-exclude-regexps '("noise\\.org\\'")))
                    (org-air-view--cache-key))))
-      (should (= (length key-a) 5))
+      (should (= (length key-a) 6))
       (should (equal (nth 4 key-a) '("/archive/")))
       (should (equal (nth 4 key-nil) nil))
       (should-not (equal key-a key-b))
       (should-not (equal key-a key-nil))
-      (should-not (equal key-b key-nil)))
+      (should-not (equal key-b key-nil))
+      ;; R61: the sixth element is the live cap; a flip is a new key.
+      (should (eq (nth 5 key-a) org-air-log-cap))
+      (let ((org-air-log-cap 123))
+        (should (equal (nth 5 (org-air-view--cache-key)) 123))
+        (should-not (equal (org-air-view--cache-key) key-nil))))
     ;; A cache written under exclude set A…
     (let ((org-air-exclude-regexps '("/archive/")))
       (let ((files (org-air-query-files)))
@@ -494,18 +509,20 @@ hydrates the stale set and FAILS."
       (should-not (org-air-view--cache-load)))
     (should-not (org-air-view--cache-read))
     (should-not (org-air-view--cache-load))
-    ;; A pre-R60 4-element :key misses on length even with the CURRENT
-    ;; version and the CURRENT first four elements.
+    ;; A pre-R60 4-element :key — and a pre-R61 5-element :key — miss
+    ;; on length even with the CURRENT version and the CURRENT leading
+    ;; elements (no version bump needed for either).
     (let ((org-air-exclude-regexps '("/archive/")))
-      (let ((print-length nil) (print-level nil))
-        (write-region
-         (prin1-to-string
-          (list :version org-air-view--cache-version
-                :key (butlast (org-air-view--cache-key))
-                :mtimes nil :file-meta nil :visits nil :items nil))
-         nil (expand-file-name org-air-cache-file) nil 'silent))
-      (should-not (org-air-view--cache-read))
-      (should-not (org-air-view--cache-load)))))
+      (dolist (drop '(2 1))
+        (let ((print-length nil) (print-level nil))
+          (write-region
+           (prin1-to-string
+            (list :version org-air-view--cache-version
+                  :key (butlast (org-air-view--cache-key) drop)
+                  :mtimes nil :file-meta nil :visits nil :items nil))
+           nil (expand-file-name org-air-cache-file) nil 'silent))
+        (should-not (org-air-view--cache-read))
+        (should-not (org-air-view--cache-load))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r60-7 — T8: the refresh-start key guard never resurrects rows

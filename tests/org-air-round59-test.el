@@ -114,6 +114,8 @@
 (when (locate-library "org-air")
   (require 'org-air))
 
+(defvar org-air-log-cap)
+
 ;;;; -------------------------------------------------------------------
 ;;;; Corpus scaffolding
 ;;;; -------------------------------------------------------------------
@@ -705,22 +707,33 @@ doubt, render."
 
 (ert-deftest org-air-r59-13-cache-v5-and-key ()
   "T13: the struct-shape bump and the knob-bearing key, both revert-fenced.
-`org-air-view--cache-version' is 5; the knob is the FOURTH
-`org-air-view--cache-key' element (tracking the live value both ways); a
-crafted v4 cache with the CURRENT key is a clean cold miss (nil read,
-nil load, no error — reverting the version bump hydrates it and FAILS);
-a real v5 cache roundtrips `childp'/`own-active-ts' write->read->classify
-with scan-identical buckets; a cache written under knob t does NOT
-hydrate under knob nil (reverting the key element hydrates it and FAILS
-— the baked F7 vote would go stale across a flip).
+`org-air-view--cache-version' is 6 (the R61 re-bless below); the knob is
+the FOURTH `org-air-view--cache-key' element (tracking the live value
+both ways); a crafted v4 cache with the CURRENT key is a clean cold miss
+\(nil read, nil load, no error — reverting the version bump hydrates it
+and FAILS); a real live-version cache roundtrips `childp'/`own-active-ts'
+write->read->classify with scan-identical buckets; a cache written under
+knob t does NOT hydrate under knob nil (reverting the key element
+hydrates it and FAILS — the baked F7 vote would go stale across a flip).
 R60 re-bless (air/v0.5/org-air-round60-design.org R60-3, honest — no
-conjunct weakened): the key is FIVE elements — `org-air-exclude-regexps'
-is the FIFTH.  The re-blessed shape assertion still MEANS something: the
-fifth element must TRACK the live exclude set both ways (nil default and
-a let-bound set) and DETECT a flip (different exclude sets compare
-un-`equal'), and a cache written under nil excludes must NOT hydrate
-under a non-nil set (the exact mirror of the R59 knob conjunct —
-reverting the R60 key extension hydrates it and FAILS)."
+conjunct weakened): `org-air-exclude-regexps' is the FIFTH key element.
+The re-blessed shape assertion still MEANS something: the fifth element
+must TRACK the live exclude set both ways (nil default and a let-bound
+set) and DETECT a flip (different exclude sets compare un-`equal'), and
+a cache written under nil excludes must NOT hydrate under a non-nil set
+\(the exact mirror of the R59 knob conjunct — reverting the R60 key
+extension hydrates it and FAILS).
+R61 re-bless (air/v0.5/org-air-round61-design.org R61-2, honest — no
+conjunct weakened): the version is 6 (the `org-air-item' struct gained
+the four review harvest slots clocks/logs/created/rtrunc — a v5 record
+has the wrong record length) and the key is SIX elements —
+`org-air-log-cap' is the SIXTH.  The sixth element must TRACK the live
+cap both ways (the default and a let-bound value) and DETECT a flip
+\(different caps compare un-`equal'), and a cache written under the
+default cap must NOT hydrate under a changed cap (the cap shapes the
+scanned-and-persisted clocks/logs slots — reverting the R61 key
+extension hydrates it and FAILS).  The exclude-set conjuncts above are
+all KEPT: exclude is still detected, at the same (fifth) seat."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       (append org-air-r59--inbox-specs
@@ -730,10 +743,11 @@ Kickoff <2026-08-01 Sat>.\n\
 ** Prose child\n\
 Body.\n")))
     ;; The version and the key shape (R60: the exclude set is the FIFTH
-    ;; element; this corpus runs at the nil default).
-    (should (= org-air-view--cache-version 5))
+    ;; element; R61: `org-air-log-cap' is the SIXTH; this corpus runs at
+    ;; the nil-exclude / default-cap baseline).
+    (should (= org-air-view--cache-version 6))
     (let ((key (org-air-view--cache-key)))
-      (should (= (length key) 5))
+      (should (= (length key) 6))
       (should (eq (nth 3 key) t))
       ;; The fifth element IS the live exclude set (nil here)…
       (should (eq (nth 4 key) org-air-exclude-regexps))
@@ -742,6 +756,12 @@ Body.\n")))
       ;; detector" discipline the R60 element extends).
       (let ((org-air-exclude-regexps '("/archive/")))
         (should (equal (nth 4 (org-air-view--cache-key)) '("/archive/")))
+        (should-not (equal (org-air-view--cache-key) key)))
+      ;; R61: the sixth element IS the live `org-air-log-cap'…
+      (should (eq (nth 5 key) org-air-log-cap))
+      ;; …tracks a let-bound cap, and DETECTS the flip the same way.
+      (let ((org-air-log-cap 123))
+        (should (equal (nth 5 (org-air-view--cache-key)) 123))
         (should-not (equal (org-air-view--cache-key) key))))
     (let ((org-air-skip-container-headings nil))
       (should (eq (nth 3 (org-air-view--cache-key)) nil)))
@@ -755,7 +775,8 @@ Body.\n")))
                      '(container)))
       (should (floatp own-ts))
       (org-air-view--cache-write items (org-air-view--mtimes-snapshot files))
-      ;; v5 roundtrip: the container signals survive write->read->classify.
+      ;; Live-version (v6) roundtrip: the container signals survive
+      ;; write->read->classify.
       (let* ((data (org-air-view--cache-read))
              (hydrated (plist-get data :items)))
         (should data)
@@ -786,6 +807,14 @@ Body.\n")))
         (should-not (org-air-view--cache-read))
         (should-not (org-air-view--cache-load)))
       ;; …while the original (nil) exclude set still hydrates.
+      (should (org-air-view--cache-read))
+      ;; R61: `org-air-log-cap' detects the same way — this cache was
+      ;; written under the default cap, so it never hydrates under a
+      ;; changed cap (the cap shapes the persisted clocks/logs slots)…
+      (let ((org-air-log-cap 123))
+        (should-not (org-air-view--cache-read))
+        (should-not (org-air-view--cache-load)))
+      ;; …while the original cap still hydrates.
       (should (org-air-view--cache-read))
       ;; A v4 cache (the pre-R59 struct shape) is a clean cold miss even
       ;; with the CURRENT key: no hydration, no error, no hang.

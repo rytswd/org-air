@@ -2115,15 +2115,38 @@
     ;; version/key-length contract; every other conjunct in them still
     ;; holds.  NOT hand-blessed here — the test seat re-blesses them to
     ;; the v6 / 6-element contract and deletes these entries as closeout.
-    (org-air-r59-13-cache-v5-and-key
-     . "R61-2: asserts (= cache-version 5) and (= (length key) 5); v6 \
-bumped the version and org-air-log-cap is now the sixth key element \
-— re-bless to the v6 / 6-element shape (all other conjuncts hold)")
-    (org-air-r60-6-exclude-set-is-fifth-cache-key-element
-     . "R61-2: asserts (= (length key-a) 5); the exclude set stays the \
-FIFTH element but org-air-log-cap now follows as the SIXTH — re-bless \
-the length assert (exclude-set position and every hydrate/miss \
-conjunct hold)")
+    ;;
+    ;; 2026-07-20: ROUND-61 CLOSEOUT (test re-bless <this commit>).
+    ;; BOTH entries CLOSED — the two key-contract ERTs re-blessed
+    ;; HONESTLY to the v6 / 6-element-key contract, no conjunct
+    ;; weakened:
+    ;;   org-air-r59-13-cache-v5-and-key — version assert 5 -> 6, key
+    ;;     length 5 -> 6; GAINED the sixth-element conjuncts (the live
+    ;;     `org-air-log-cap' is (nth 5), tracks a let-bound value,
+    ;;     detects a flip as a different key) and the cap hydrate fence
+    ;;     (a cache written under the default cap never hydrates under
+    ;;     a changed cap, while the original cap still does).  The
+    ;;     exclude set is STILL detected at its fifth seat — every
+    ;;     pre-existing R59-knob/R60-exclude detection + hydrate/miss +
+    ;;     v4-cold-miss conjunct kept verbatim.
+    ;;   org-air-r60-6-exclude-set-is-fifth-cache-key-element — key
+    ;;     length 5 -> 6 with the exclude set asserted UNMOVED at
+    ;;     (nth 4) and every pairwise-distinct / hydrates-under-A /
+    ;;     never-under-B-or-nil conjunct kept; GAINED the (nth 5)
+    ;;     log-cap tracking + flip detection, and the crafted short-key
+    ;;     miss now covers BOTH legacy shapes (pre-R60 4-element AND
+    ;;     pre-R61 5-element), each missing on length alone.
+    ;; The new R61 acceptance ERTs (tests/org-air-round61-test.el,
+    ;; r61-1..r61-13: same-pass own-body harvest, never-error net, the
+    ;; log-cap truncation, cal-iso period oracle, clip exactness, R57
+    ;; done-set, exact rollups, cache v6 + zero-rescan navigation +
+    ;; warm byte-parity, started/carried predicates, suspect clocks,
+    ;; R59/R60 inheritance, the ×N chip, and R58 bookmark parity) all
+    ;; PASS against impl tip tklmvwom.  No .el SOURCE touched on the
+    ;; test track.  Round-61 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
+    ;; =================================================================
+    ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

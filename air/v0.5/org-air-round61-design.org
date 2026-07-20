@@ -1,34 +1,129 @@
-#+title: org-air Review surface: what happened this week / month
-#+state: draft
-#+FILETAGS: :review:reporting:clocking:
+#+title: org-air Round 61 — org-air-review: what happened this week / month (the retrospective surface)
+#+state: ready
+#+tags: review reporting clocking scan cache period calendar bookmarks robustness
 
 * Summary
-A new read-first surface — =org-air-review= — that answers "what happened over this week / month": items completed, time clocked (rolled up by tag / directory / origin), items started, and work touched but not finished. Period navigation mirrors the board calendar (=<= / =>= / =.=), plus a week ↔ month toggle.
+
+A new read-first surface — =org-air-review= — that answers "what
+happened over this week / month": items completed, time clocked (rolled
+up by tag / directory / origin), items started, and work touched but
+not finished.  Period navigation mirrors the board calendar (=<= / =>=
+/ =.=), plus a week ↔ month toggle.  The third leg of the family:
+*board = now, revisit = evergreen, review = retrospect*.
+
+This round DELIBERATELY does the thing R53's law forbade lightly: it
+ADDS a data path — LOGBOOK state-change lines and CLOCK intervals are
+new per-heading facts nothing today collects.  The design's job is to
+prove the addition stays inside every R53 guarantee: it is harvested in
+the SAME single work-buffer pass (no second file open, ever), it can
+NEVER error a scan, it is BOUNDED at 5000+ files with years of
+clocking, and the render stays data-pure — period navigation is a
+filter+fold over cached integers, zero file I/O.
+
+Measured this round (batch Emacs 30.2, this machine — harnesses under
+=/tmp/org-air-r61/=):
+
+| Operation                                                   | Measured           |
+|-------------------------------------------------------------+--------------------|
+| =read= 40k cached (START . END) int pairs (1.04 MB text)    | 0.008 s            |
+| =read= 200k pairs (5.2 MB text)                             | 0.057 s            |
+| =read= 1M pairs (26 MB text — the absurd ceiling)           | 0.247 s            |
+| =read= 1M (EPOCH . KIND) log stamps (17.7 B/entry)          | 0.161 s            |
+| Harvest-parse 100k LOGBOOK/CLOCK lines in a work buffer     | 0.94 s (9.4 µs/ln) |
+| Epoch 4102444800 (year 2100) is a fixnum                    | yes (immediate)    |
+| 90-min clock across a week boundary, clipped                | 60 + 30, sum 90    |
+| ISO oracle: 2026-07-20 → week 30/2026, Monday = 2026-07-20  | =cal-iso= confirms |
+
+Deliverables:
+
+- *R61-1* — the HARVEST: =org-air-query--item-at-point= additionally
+  collects, per heading and bounded to the heading's OWN body, the
+  closed CLOCK intervals, the LOGBOOK state-change/note stamps and the
+  =:CREATED:= property — same pass, same buffer, per-heading
+  never-error, capped by the new =org-air-log-cap=.
+- *R61-2* — CACHE v6: four new =org-air-item= slots (=clocks= /
+  =logs= / =created= / =rtrunc=); =org-air-view--cache-version= 5 → 6;
+  =org-air-log-cap= joins =org-air-view--cache-key= as the SIXTH
+  element; the bounding argument (cap, not lookback window) with the
+  measured size/load arithmetic.  Period parameters are RENDER state,
+  never cache-key state.
+- *R61-3* — the PERIOD ENGINE: pure functions for ISO-week/month
+  boundaries, exact boundary clipping, the four section predicates
+  (Completed / Time invested / Started / Carried over), the rollup
+  fold, and the suspect-clock rule
+  (=org-air-review-suspect-clock-hours=, default 16).
+- *R61-4* — the SURFACE: new module =org-air-review.el= mirroring
+  org-air-revisit.el's shape (mode, never-blocking ensure-data with
+  warm / cache-hydrate / paced cold fill, sections, V6 rows, filter =/=
+  + scope =s=, keys, =W= entry from board/project/revisit).
+- *R61-5* — the RAIL: period summary (counts, clocked total, top tags
+  by time) + the reused month-calendar renderer with the period
+  highlighted (two new table-driven mark kinds, one new face).
+- *R61-6* — R58 BOOKMARK PARITY: =bookmark-make-record-function= + an
+  autoloaded =org-air-review-bookmark-jump= (printable record: period
+  kind/anchor + rollup + filter/scope/sort + point locator;
+  cache-first, undisplayed, never signals), plus the rail-delegation
+  and help-context registrations.
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine: the harvest runs INSIDE org-ql's per-heading
+=:action=, adding no query mechanism of its own.
 
 * Motivation
-The requesting user wants a weekly / monthly report of what was accomplished and where time went. The absence of that report is the stated reason clocking never became habitual — there is no payoff for recording time. Report first, clocking follows: the surface creates the incentive loop, and it gets more accurate the more it is used.
 
-Why in org-air and not stock Org: clocktable dynamic blocks are per-file artifacts that need manual =:scope= wrangling and cannot roll up by tag or directory across a tree; agenda log mode (=v l= + clockreport) is day-oriented, noisy, and not a review surface. org-air already scans whole trees through org-ql with a persistent cache, and Revisit set the precedent for a read-only sibling surface over the same scan. This is the natural third leg: board = now, revisit = evergreen, review = retrospect.
+The requesting user wants a weekly / monthly report of what was
+accomplished and where time went.  The absence of that report is the
+stated reason clocking never became habitual — there is no payoff for
+recording time.  Report first, clocking follows: the surface creates
+the incentive loop, and it gets more accurate the more it is used.
 
-Why not defer to an external reporting script: the value is in the loop (review → notice a gap → clock more → better review), which only works if the report lives one keystroke from the board.
+Why in org-air and not stock Org: clocktable dynamic blocks are
+per-file artifacts that need manual =:scope= wrangling and cannot roll
+up by tag or directory across a tree; agenda log mode (=v l= +
+clockreport) is day-oriented, noisy, and not a review surface.  org-air
+already scans whole trees through org-ql with a persistent cache, and
+Revisit set the precedent for a read-only sibling surface over the same
+scan.  This is the natural third leg: board = now, revisit = evergreen,
+review = retrospect.
+
+Why not defer to an external reporting script: the value is in the loop
+(review → notice a gap → clock more → better review), which only works
+if the report lives one keystroke from the board.
 
 ** Goals
-- Period-scoped view: ISO week or calendar month, navigable back / forward, defaulting to the current period.
-- *Completed* section: items closed within the period, grouped by day (default) with a by-tag / by-directory regrouping toggle.
-- *Time invested* section: CLOCK totals intersecting the period, rolled up by tag, by directory, and by origin file — "which part needs more time / work" at a glance.
+
+- Period-scoped view: ISO week or calendar month, navigable back /
+  forward, defaulting to the current period.
+- *Completed* section: items closed within the period, grouped by day
+  (default) with a by-tag / by-directory regrouping toggle.
+- *Time invested* section: CLOCK totals intersecting the period, rolled
+  up by tag, by directory, and by origin file — "which part needs more
+  time / work" at a glance.
 - *Started* section: items created within the period.
-- *Carried over* section: items with activity in the period (state change, clock, logbook note) still open at period end.
+- *Carried over* section: items with activity in the period (state
+  change, clock, logbook note) still open at period end.
 - Reuse the existing filter (=#tag= / free text) and scope machinery.
-- Bookmark / activities / desktop-restore parity with the other surfaces.
+- Bookmark / activities / desktop-restore parity with the other
+  surfaces.
 
 ** Non-Goals
+
 - Editing or correcting clock data — org-clock owns that.
-- A live clocking UI / currently-clocked indicator (possible future, separate doc).
+- A live clocking UI / currently-clocked indicator (possible future,
+  separate doc).
 - Export (org / CSV) in the first cut.
-- Billing-grade accuracy — untracked time stays untracked; the report shows what was recorded, never estimates.
+- Billing-grade accuracy — untracked time stays untracked; the report
+  shows what was recorded, never estimates.
 
 * Proposal
-Entry points: =M-x org-air-review=, plus a single key from the board (candidate: =W=, mirroring =N= for Revisit; final binding left to the design round).
+
+Entry points: =M-x org-air-review=, plus the single key =W= from the
+board, the project view and the revisit view — CONFIRMED this round:
+=W= is unbound in =org-air-view-mode-map= (org-air-view.el ~1565; the
+project view's =W= at org-air-project.el ~785 is a STATE-JUMP key
+inside its own prefix, no clash), and it mirrors the R54-3 single-key
+view-switch convention (=P= project, =N= revisit, now =W= for the
+week/period surface).
 
 Data sources — all already present in org files, nothing new to author:
 
@@ -39,17 +134,611 @@ Data sources — all already present in org files, nothing new to author:
 | Started      | =:CREATED:= property; fallback to the earliest LOGBOOK entry                                 |
 | Carried over | any of the above within the period ∧ heading still in a not-done TODO state                  |
 
-Rail: period summary (totals, top tags by clocked time) and the month calendar with the period highlighted.
+Rail: period summary (totals, top tags by clocked time) and the month
+calendar with the period highlighted.
 
-* Design Details
-- Scan: extend the work-buffer scan to collect LOGBOOK state-change lines and CLOCK intervals per heading, cached alongside the existing per-heading metadata. This is the one cache-schema change — bump the cache version so stale caches rebuild cleanly.
-- Period math: ISO weeks; the month calendar renderer is reused for period display and navigation.
-- CLOCK intervals crossing a period boundary are clipped to the boundary, not dropped and not double-counted.
-- Suspect clocks: a single interval longer than a threshold (e.g. =org-air-review-suspect-clock-hours=, default 16) is flagged inline rather than silently inflating totals — forgotten running clocks are the common failure mode.
-- Performance: rendering a period is a filter + fold over cached entries; no rescan on period navigation.
+* Investigation — the exact seams this round extends
+
+** The scan pass (org-air-query.el)
+
+- =org-air-query--item-at-point= (~866): the ONE per-heading fact
+  collector, run as org-ql's =:action= inside the positioned scan
+  buffer.  It already computes the subtree END once and runs four
+  bounded probes over it (=subtree-ts=, =active-ts=, the R59 CHILD
+  probe — which yields =child-pos= — and =body-deadline=).  The
+  harvest lands HERE (R61-1), reusing END and =child-pos= so the
+  heading's OWN-body region costs zero extra structural work.
+- =org-air-query--scan-work-buffer= (~1158): one =erase-buffer= +
+  =insert-file-contents= per file into the session's single work
+  buffer; =org-set-regexps-and-options= has run before org-ql fires,
+  so =org-done-keywords= inside the action is the file's own
+  vocabulary with the R57-1 merged default — the SAME source =donep=
+  already uses.  The harvest classifies state-change targets against
+  it at scan time; nothing re-derives keywords at render.
+- =org-air-query--scan-live-buffer= (~1128): rule-1 parity — the same
+  =:action= runs in a live user buffer, so unsaved edits harvest
+  identically.
+- =org-air-query--scan-file= (~1202): the per-file never-error
+  wrapper (condition-case + skip log).  Unchanged; it is the OUTER
+  net.  The harvest adds an INNER per-heading net so one rotten
+  drawer degrades that heading's review slots to nil without
+  consuming the whole file's skip budget.
+- =org-air-item= struct (~182) + =org-air-query-files= (~357) +
+  =org-air-query-merged-done-keywords= (~166): the slot home, the
+  R60-filtered file set every consumer inherits, and the R57 done
+  vocabulary.
+
+Empirical finding, load-bearing for R61-1: =org-parse-time-string=
+CLOBBERS the ambient match data (verified — the naive harvest loop
+died with =args-out-of-range= on =(match-string 2)= after the first
+parse).  The harvest MUST copy its match strings out before parsing
+each line.  This is exactly the class of latent bug the seam list
+below pins (T2 exercises a mixed good/bad buffer).
+
+** Cache load/save (org-air-view.el)
+
+- =org-air-view--cache-version= (~7469, currently 5) — the bump seat;
+  its docstring already documents the version-miss path: a mismatch
+  is a clean cold miss (skeleton + R56 paced rescan, never a hang).
+- =org-air-view--item-serialise= (~7504) / =--cache-write= (~7514) /
+  =--cache-read= (~7543) / =--cache-load= (~7626): structs are
+  printed whole and =read= back, so new TRAILING slots ride the
+  existing machinery with zero new code — the version bump exists
+  precisely because a v5 record has the wrong record length.
+- =org-air-view--cache-key= (~746): five elements today (files,
+  inbox, merged vocabulary, R59 knob, R60 excludes).  The R57/R59/R60
+  discipline — "the key IS the detector" for every scan-affecting
+  knob — is why =org-air-log-cap= must join it (R61-2) and why the
+  period parameters must NOT (they affect no scanned byte).
+
+** Calendar renderer + view refresh
+
+- =org-air-calendar-insert-month= (org-air-calendar.el ~216): already
+  takes a precomputed MARKS table (date-key → kind, the R20-5 seam
+  the project and revisit rails use), and the day-number FACE is
+  chosen from the mark kind via =org-air-calendar--mark= (~127).
+  Period highlighting is therefore TABLE-DRIVEN: two new kinds, no
+  renderer surgery (R61-5).
+- =org-air-calendar-prev/next/today= (org-air-view.el ~9211/~9222/
+  ~9355): the board's =<=/=>=/=.= idiom review mirrors — review binds
+  its OWN period-nav commands, it does not reuse these (they move a
+  bare month; review moves a period and the month follows).
+- Refresh: the board machine (=org-air-view--refresh-start= ~8017,
+  =org-air-refresh= ~8624) is untouched; review's =g= re-runs its own
+  ensure-data exactly as revisit's does.
+
+** The module to mirror (org-air-revisit.el)
+
+The whole shape transfers: buffer-local state block (~101-137), the
+data-pure accessor section (~152-296), =--visible-entries= filtering
+through the shared =org-air-view--tokens-pass-filter-p=
+(org-air-view.el ~2062), the rail descriptor (~527), the two-pane
+composition (~583), =--render= (~617), the paced cold fill
+(=--fill-start= ~704 / =--fill-slice= ~729 / =--fill-finish= ~754 /
+=--ensure-data= ~766 — budget =org-air-refresh-slice-budget=, pace
+=org-air-view--refresh-wallclock-pace=, batch scans synchronously so
+ERT is deterministic), the idempotent entry + =--open-core= factoring
+(~1047/~1063), and the R58 bookmark quartet (make-record ~1093, apply
+~1126, consume ~1145, autoloaded jump ~1177 + =bookmark-handler-type=).
+Shared helpers reused verbatim: =org-air-view--bookmark-header=
+(~9775), =--bookmark-scan= (~9804), =--bookmark-locator-of= (~9817),
+=--find-property= (~7275), =--row-property= (~5040), =org-air-scope=
+(~8785).  Registration seams review must ALSO touch:
+=org-air-rail--bookmark-make-record= (~10020) + =org-air-rail-bookmark-jump=
+(~10057) host-kind dispatch, and =org-air-help--context= (~9492) +
+its groups/title tables.
+
+* R61-1 — the harvest: same pass, own body, never-error, capped
+
+** Where and what
+
+Inside =org-air-query--item-at-point=, after the existing probes (END
+and =child-pos= in hand), the harvest scans the heading's OWN body —
+=(heading-start . min(child-pos, END))= — with two anchored regexps:
+
+#+begin_example
+CLOCK line:  ^[ \t]*CLOCK:[ \t]*\[TS1\](?:--\[TS2\][ \t]*=>[ \t]*H:MM)?
+State line:  ^[ \t]*- State "KW" … [TS]        (default org-log-note shape)
+Note line:   ^[ \t]*- Note taken on [TS]
+#+end_example
+
+The OWN-body bound is CORRECTNESS, not economy: org-ql's action runs
+once per heading, so a subtree-wide scan would credit every child's
+clocks to the parent too and rollups would double-count.  Bounding to
+the region above the first child (=child-pos=, already computed by the
+R59 probe; for a leaf, the subtree END) attributes each line to
+exactly the heading org-clock attached it to.  LOGBOOK drawers,
+clock-into-drawer variants and loose (drawerless) clock lines all live
+in that region, so no drawer parsing is needed — the line shapes are
+the contract, exactly like every other probe in this function.
+
+Per matched line: copy the match strings out FIRST (the
+=org-parse-time-string= match-data clobber, verified above), then
+parse to INTEGER epoch seconds via
+=floor(float-time(encode-time(org-parse-time-string ts)))=.  Retained
+shapes (all integers and interned symbols — no strings, no floats;
+epochs are fixnums through year 2100+, measured):
+
+- =clocks= — =(START . END)= pairs, CLOSED intervals with =END > START=
+  only.  A running clock (no =--[TS2]=), an end-before-start pair, an
+  unparseable stamp: that LINE is dropped, nothing else.
+- =logs= — =(EPOCH . KIND)= with KIND ∈ =done= / =todo= / nil: =done=
+  when the quoted keyword is in the buffer's live =org-done-keywords=
+  (the file's own vocabulary under the R57-1 merged default — baked at
+  scan time, coherent because the vocabulary is already a cache-key
+  element), =todo= otherwise, nil for a plain =- Note taken on= stamp
+  (activity signal only, never state inference).
+- =created= — the =:CREATED:= property (=org-entry-get=, one
+  properties-drawer read at the point org is already positioned),
+  parsed to an integer epoch; nil when absent or unparseable.  The
+  Started fallback ("earliest LOGBOOK entry") is derived at RENDER
+  time from the retained stamps — never baked, so truncation can
+  never fossilise a wrong creation date.
+
+Both lists are sorted newest-first and truncated to =org-air-log-cap=
+entries EACH (newest kept); hitting either cap sets =rtrunc=.
+
+Known, accepted difference (documented in the docstring, R53 style): a
+user-customised =org-log-note-headings= state template that no longer
+matches the default =- State "KW" … [TS]= shape harvests nothing from
+those lines — Completed then rides =CLOSED:= stamps (which
+=org-log-done= writes regardless), Time is unaffected, and no error or
+guess is ever produced.  Parsing arbitrary user templates is a
+maintenance tax to adopt on demand.
+
+** Never-error (the per-heading inner net)
+
+The whole harvest body is wrapped in ONE =condition-case= per heading:
+any signal (a pathological drawer, an =encode-time= edge, a regexp
+stack overflow on adversarial input) degrades THAT heading to nil
+review slots — the item is still built, the file still scans, the R53
+P1b outer net (=--scan-file=) is not consumed, and nothing is echoed
+(the scan paths already run under =inhibit-message=; the harvest
+itself never messages).  Malformed individual lines don't even reach
+the net: an unparseable stamp folds to nil and the line is skipped —
+measured on a 100k-line buffer salted with a running clock, a
+=CLOCK: [garbage= fragment and a =[not-a-date]= state stamp: 100 000
+good lines harvested, 2 skipped, 1 never matched, zero signals.
+
+** Cost (the single-pass budget)
+
+Measured: 9.4 µs per log line (regexp match + two stamp parses).  A
+heading with NO log lines costs two failing bounded regexp searches —
+the same cost class as the four probes R53 already pays per heading.
+The harvest is ALWAYS ON (not gated on the review surface having been
+opened): the single-pass law demands it — a conditional harvest would
+mean two cache populations and usage-dependent cache contents, exactly
+the incoherence the R57 key discipline exists to prevent.  Users who
+never clock pay the failing-search floor and four nil slots.  A
+pathological 4 MB file of pure log lines (the =org-air-max-file-size=
+ceiling, ~80k lines) adds ~0.8 s to ITS scan slice — paced background
+work under R56, never a paint stall; and such a file pays this only
+when its mtime changes.
+
+=org-air-query--file-item= (R53 P3 headingless notes): nil review
+slots — a file blob has no per-heading LOGBOOK; review sections ignore
+='file= items entirely.
+
+* R61-2 — cache v6: schema, key, and the bounding argument (the crux)
+
+** Schema
+
+Four new slots at the TAIL of =org-air-item= (v6): =clocks=, =logs=,
+=created=, =rtrunc= as specified above.  On the struct, not in a side
+table — RULED: per-heading facts belong on the per-heading record,
+where they ride =--item-serialise= / =--cache-write= / =--cache-read=
+/ the refresh machine's per-file item replacement FOR FREE.  The R54
+file-meta table needed its own prune/persist/hydrate discipline
+because its unit (the file) differed from the item store's; these
+fields have the item's own unit, so a side table would duplicate the
+merge/staleness machinery only to re-attach the data by identity
+afterwards.  Item identity, mtime staleness, vanished-file pruning:
+all inherited, nothing new to keep coherent.
+
+=org-air-view--cache-version= 5 → 6.  A v5 cache is a version miss in
+=--cache-read= ⇒ the documented one-time cold path (skeleton + R56
+paced rescan, never a hang) — same as v3→v4→v5 before it.  The v6
+docstring entry records that v5 records have the wrong record length.
+
+=org-air-log-cap= (defcustom, org-air-query.el, beside
+=org-air-max-file-size=; integer, default 5000) joins
+=org-air-view--cache-key= as the SIXTH element: the cap shapes
+scanned-and-persisted data, so a cap change must invalidate exactly
+like a vocabulary change (R57: the key IS the detector; pre-R61
+5-element keys also miss, on length).  The render-time knobs
+(=org-air-review-suspect-clock-hours=, rollup basis, period) are
+deliberately NOT key elements — they fold over cached data and take
+effect on repaint.
+
+** Bounded at 5000+ files with years of clocking
+
+The shape is chosen for the arithmetic.  26.0 bytes/interval and
+17.7 bytes/stamp serialised (measured); in memory two cons cells per
+interval (32 B — epochs are immediate fixnums, symbols are interned
+singletons, no strings anywhere).  Three regimes:
+
+- /No clocking (most headings)/: four nil slots ≈ 16 B/item of cache
+  text — ~250 KB at the R53 corpus's 15.9k items, read-time
+  unmeasurable.  The feature is free for non-clockers.
+- /Realistic heavy clocker/: 20 intervals/day × 5 years ≈ 36.5k
+  intervals + a similar stamp volume ≈ 1.7 MB of cache text, 0.015 s
+  of extra warm =read= (measured at 40k), ~2 MB RSS.  Warm paint
+  stays firmly under the R53 <1 s bar (0.51 s measured baseline +
+  hundredths).
+- /Absurd ceiling/: 1M intervals = 26 MB cache text = 0.247 s extra
+  warm read — still within the bar, and reaching it requires ≥55 MB
+  of raw CLOCK text on disk (a corpus an order of magnitude past the
+  design envelope, which R53 set as 5000 human-written files with
+  =org-air-max-file-size= 4 MB).  Cache size is PROPORTIONAL to the
+  log text the user actually wrote, at roughly HALF its on-disk
+  byte cost — it can never invent volume.
+
+The per-heading cap bounds the one case proportionality doesn't: a
+runaway generated heading (a clocking bug, an auto-logger).  Default
+5000 per list ≈ 13 years of daily clocking on a SINGLE heading (the
+requesting user's habit files sit comfortably inside), worst-case
+retention ~220 KB for that heading.  Truncation is never silent:
+=rtrunc= renders an inline "⚠ history truncated" marker on affected
+rows (T11), and period totals older than the retained window
+under-report only on marked headings.
+
+RULED OUT — a lookback WINDOW (drop data older than N days at scan
+time), for three reasons.  (1) It breaks the mtime-cache law: the
+window slides with the wall clock, so an UNCHANGED file's cached
+fields go stale with no mtime change — correctness would need
+time-based cache invalidation, a whole new staleness dimension.
+(2) It amputates the surface: the user has YEARS of existing LOGBOOK
+data and period navigation into it is day-one value; a window turns
+old periods into silent zeros — a report that lies.  (3) The measured
+arithmetic shows real corpora simply don't need it.  The cap is
+content-relative (stable under time), visible when it bites, and
+sufficient.
+
+** No rescan on period navigation (+ R57/R59/R60 interaction)
+
+Period kind/anchor and rollup basis are BUFFER-LOCALS of the review
+buffer, applied at render as a filter+fold over the already-cached
+integer lists.  =<= / =>= / =.= / the week↔month toggle repaint
+without touching =org-air-query--scan-file= at all (T8's spy pins
+this).  Interaction inheritance, all for free:
+
+- R60: review's data flows from =org-air-query-files= (its cold fill
+  literally calls it, and cache/board items were built from it), so
+  exclusions apply and the R60-3 key guard keeps excluded rows from
+  resurrecting.  An excluded tree's clocks do not exist for review.
+- R59: pure containers are skipped in the per-ITEM sections
+  (Completed / Started / Carried — =org-air-query-container-item-p=,
+  slot-only, knob-gated).  Time invested deliberately folds EVERY
+  heading's own-body clocks, containers included: time is attributed
+  where it was clocked, and rollup rows are aggregates — no container
+  ROW can appear by construction.  The R59 knob is already a key
+  element; no new coupling.
+- R57: the done-set is baked into log KINDs at scan time under the
+  file's own vocabulary (merged default), and the vocabulary is
+  already key element three — a vocabulary edit re-derives cold,
+  exactly like the board.
+
+* R61-3 — the period engine and the clock math
+
+Pure functions in org-air-review.el, unit-testable without a buffer.
+
+** Periods
+
+=org-air-review--period-bounds (kind anchor)= → half-open integer pair
+=[START, END)=: week = ISO Monday 00:00 local → next Monday 00:00;
+month = 1st 00:00 → next month's 1st.  ISO math via the stock
+=cal-iso= oracle (=calendar-iso-from-absolute= /
+=calendar-iso-to-absolute= — verified: 2026-07-20 → W30/2026, Monday
+2026-07-20; the year-edge cases in T14).  Boundaries are built with
+=encode-time= on LOCAL calendar dates, so a DST-crossing period has
+23/25-hour days and stays exact by construction — durations are pure
+integer subtraction between two local-midnight epochs.
+
+Navigation: =<= / =>= step one period (±7 days on the anchor, ±1
+month); =.= returns to the current period; the week↔month toggle
+(=m=) keeps the anchor DAY and shows the other kind's period
+CONTAINING it (W30 → July; July → the week containing the anchor).
+Anchor state: nil means "the current period", recomputed each render —
+the default surface tracks today across midnight for free.
+
+** Clipping and rollup (exactness laws)
+
+An interval =[s, e)='s contribution to period =[P0, P1)= is
+=max(0, min(e, P1) − max(s, P0))= — integer seconds.  A
+boundary-crossing interval contributes complementary parts to adjacent
+periods (measured: 90 min across a week edge → 60 + 30, sum exact);
+nothing is dropped, nothing double-counted, and section sums are exact
+integer arithmetic formatted as H:MM only at print time.
+
+Rollup: ONE buffer-local basis — =day= (default) / =tag= / =directory=
+/ =origin= — cycled by =f= and applied coherently: Completed groups
+its rows by it; Time invested aggregates by it (for =day=, time by
+day).  Attribution: directory = the file's parent directory name (the
+item's =group= slot), origin = the file.  A multi-tag heading
+contributes its full time to EACH of its tag rows — stated in the UI
+contract: the tag rollup is a lens, and the section's headline total
+comes from the item fold, never from summing rollup rows (T4 asserts
+both numbers).
+
+Suspect clocks: an interval longer than
+=org-air-review-suspect-clock-hours= (defcustom, default 16, nil
+disables) is EXCLUDED from every total and surfaced on its own line
+under Time invested — "⚠ N suspect clock(s), H:MM excluded" — with the
+owning headings listed.  Ruling: a forgotten 3-day clock swamping a
+week's report is the common failure mode this surface exists to
+repair; including it would make totals useless, hiding it would be a
+lie, so it is loud and separate.  Render-time only: threshold changes
+repaint, never rescan.  (True RUNNING clocks never got cached at all —
+R61-1 skips open intervals.)
+
+** Section predicates (the fold)
+
+Over each non-container item (='file= items and R59 containers are
+skipped in per-item sections):
+
+- /Completed in P/: the =done= stamps in =logs= falling in P; if none
+  AND =closed= ∈ P, the CLOSED stamp counts (fallback, not addition —
+  the final done transition and CLOSED normally coincide, so stamps
+  win to avoid double counting).  ONE row per item per period; N > 1
+  done-stamps render a =×N= count chip (a daily habit reads
+  "Habit ×7", not seven rows); day-grouping keys on the latest stamp
+  in P.
+- /Time in P/: the clipped, suspect-filtered clock sum > 0.
+- /Started in P/: =created= ∈ P; fallback (draft-preserved): the
+  EARLIEST retained log stamp ∈ P, taken only when =rtrunc= is nil — a
+  truncated heading's oldest retained stamp is not its birth, so
+  truncated headings never claim Started through the fallback.
+- /Carried over in P/: activity in P — any log stamp (notes included)
+  or any clock overlap — AND not-done at P's END.  Done-at-time-T
+  inference, in order: the newest =done=/=todo= stamp ≤ T decides;
+  else =closed= ≤ T ⇒ done; else, for the CURRENT period only, the
+  live =donep=; else NOT done — the R59 house default (when in doubt,
+  render): an unlogged, uncloseable item with activity shows as
+  carried rather than silently vanishing.  An item completed after
+  P's end correctly reads as carried in P; an item done and REOPENED
+  within P can legitimately appear in both Completed and Carried.
+
+* R61-4 — the surface (org-air-review.el)
+
+New module mirroring org-air-revisit.el's proven shape.  Buffer
+=*org-air review*=, =org-air-review-mode= derived from =special-mode=,
+keymap parented on =org-air-view-core-map= (RET-pane, =o=/=O= sort,
+=\\=, =M-/=, =|=, =j=/=k= inherited).  Buffer-locals: period kind
+(='week= default) + anchor (nil = current), rollup basis, count,
+rendered width, the fill quintet (token / queue / total / timer /
+last-paint), bookmark locator, and =org-air-review--items= — the
+item snapshot this buffer folds over.
+
+** Data path (never-blocking, R53 laws inherited)
+
+=org-air-review--ensure-data=, in order:
+
+1. /Warm borrow/: the =*org-air*= board buffer is live, its
+   =org-air-view--items-key= equals the live =(org-air-view--cache-key)=
+   and its refresh machine is idle ⇒ snapshot its
+   =org-air-view--items= list (read-only share; items are immutable to
+   review).  Zero I/O.
+2. /Cache hydrate/: =org-air-view--cache-read= under the SAME key ⇒
+   hydrate =:items= (cons-marker slots, the R26-8 shape).  One bounded
+   disk read, zero file opens.
+3. /Paced cold fill/: revisit's pacer verbatim — token-guarded
+   budgeted slices on the wall-clock pace, collecting the items each
+   =org-air-query--scan-file= returns, progressive repaint at most
+   once per =org-air-cold-paint-interval=, =noninteractive= scans
+   synchronously (deterministic ERT).  Never a synchronous scan on the
+   interactive path.
+
+=g= re-runs ensure-data (drop the local snapshot, take the freshest
+tier).  RENDER IS DATA-PURE: every section row and every rollup number
+is a fold over slots; the render path opens no file, ever (T1's spy).
+
+** Sections, rows, keys
+
+Render order: header (=org-air · review · W30 2026 · Jul 20 – 26 ·
+N done · H:MM=), then the four sections (Completed / Time invested /
+Started / Carried over) as board-idiom foldable sections (TAB /
+=M-n= / =M-p=), rows through the shared V6 =insert-row= primitive
+carrying the SHARED ='org-air-item= / ='org-air-marker= text
+properties — so =RET=/=S-RET= visit, the pane, =--find-property= and
+the bookmark consume chain work verbatim.  Time-invested rows are
+aggregate rows (label · H:MM · item count) under the current basis;
+Completed rows carry the =×N= chip and the =rtrunc= "⚠" marker where
+applicable.
+
+Filter and scope, reused not rebuilt: =/= reads into the shared
+=org-air-view--tag-filter= and rows pass
+=org-air-view--tokens-pass-filter-p= (title + tags + origin — the
+R24-6 =#tag=/free-text mini-language, AND/OR via =M-/=, clear via
+=\\=); =s= is the board's structural lens (all / =@group= / =⌂ file=)
+over =org-air-review--items=, =S= clears.  Filter and scope apply
+BEFORE the fold, so totals honestly describe what is shown.
+
+Keys (installer-owned, R35-1 knob-gated): =n=/=p= rows, TAB fold,
+=<=/=>=/=.= period nav, =m= week↔month, =f= rollup cycle, =/= filter,
+=s=/=S= scope, =g= refresh, =RET=/=S-RET= open, =W= (board ~1565,
+project ~2353's block, revisit) → =org-air-review=; from review: =N=
+revisit, =P= project, =q= quit, =?= help.  Help: a
+=org-air-review--help-groups= table + ='review= registration in
+=org-air-help--context= / =--context-title= / =--groups= (the R50-2
+legend-truth discipline: keys derived from live maps).
+
+* R61-5 — the rail
+
+Descriptor-driven (the R20-5 seam), inspector-free like revisit's:
+
+- /Summary/: the four section counts, the clocked total, and the top
+  three tags by clipped time (the "which part needs more" glance),
+  in the revisit Summary's row idiom.
+- /Calendar/: =org-air-calendar-insert-month= centred on the period's
+  month, MARKS table built by review: every day of the period →
+  ='period= (space glyph — no mark-column noise — with the new
+  =org-air-face-calendar-period= on the day number); a period day
+  with ≥1 completion → ='period-done= (the =∙=/=.= glyph +
+  the period face).  Two entries in =org-air-calendar--mark=, one new
+  face in org-air-faces.el; the renderer body is untouched
+  (table-driven, exactly how revisit marks =created=).  =<=/=>= move
+  the PERIOD and the calendar follows the period's month.
+
+* R61-6 — R58 bookmark parity
+
+The revisit quartet, transposed (the activities.el / burly / desktop
+contract — printable records, cache-first rebuild, no window
+touching):
+
+- =org-air-review--bookmark-make-record=: shared header
+  (=org-air-view--bookmark-header 'review
+  #'org-air-review-bookmark-jump=), names ("org-air: review · W30
+  2026" → "org-air: review"), plus:
+  - =org-air-period= — =(KIND . ANCHOR)=: KIND ='week=/='month=;
+    ANCHOR is the period-start integer epoch, or the symbol =current=
+    when the recorded period IS current at record time — RULED: the
+    surface's resting state is "this week", and an activities layout
+    saved on the default view must restore tracking the NEW current
+    period, not fossilise last Tuesday's; an explicitly navigated
+    period records its absolute anchor.
+  - =org-air-rollup=, =org-air-filter= (the live
+    =org-air-view--tag-filter=), =org-air-scope=, =org-air-sort= —
+    the view-defining state, every field printable (symbols,
+    integers, strings; rule 5: no markers, no time objects).
+  - the point locator via the shared row properties
+    (=org-air-item= (FILE . POS) + =org-air-item-title=).
+  Pure buffer-local reads; =condition-case= degrades to the bare
+  header (restores a plain current-week review); never signals.
+- =org-air-review--bookmark-apply=: every field optional, unknown
+  ignored, malformed dropped (forward-compatible best-effort).
+- =org-air-review--bookmark-consume=: the drift chain on the shared
+  properties — exact (FILE . POS) → title scan → stay ARMED while the
+  cold fill is in flight → clear; never signals.
+- =org-air-review-bookmark-jump= — ;;;###autoload, plus
+  =(put … 'bookmark-handler-type "org-air")=: idempotent mode guard,
+  apply, arm locator, then =org-air-review--open-core buffer nil= (the
+  command = prep + =pop-to-buffer= + the same core) — undisplayed, the
+  restorer owns windows; total =condition-case= degrades to a plain
+  review open with one bounded message.
+- Registrations: =org-air-rail--bookmark-make-record='s host-kind cond
+  and =org-air-rail-bookmark-jump='s dispatch gain ='review= (a popped
+  rail over review delegates correctly); =org-air-help-bookmark-jump='s
+  origin resolution gains the review buffer.
+
+* ERT seams (batch, each reverts to RED)
+
+Fixtures: temp corpora of small org files with authored LOGBOOK /
+CLOCK content; =let=-bound =org-air-files= / vocabulary / knobs;
+frozen =current-time= where periods matter; =org-air-view-width= for
+byte-stable renders.  Spy idiom: =cl-letf= wrappers counting calls.
+
+- T1 /single-pass + data-pure/: a file with 3 closed clocks, 2 state
+  changes, a note and =:CREATED:= scans to exact slot values
+  (integer epochs); an =insert-file-contents= spy proves ONE read per
+  file during the scan and ZERO during render + a =<= =>= =m= =f=
+  navigation burst.  Reverting the harvest (nil slots) or sneaking a
+  render-time file open FAILS.
+- T2 /never-error/: the salted buffer (running clock, =CLOCK:
+  [garbage=, =[not-a-date]= stamp, plus one heading whose harvest is
+  forced to signal via a poisoned line) ⇒ scan completes, good
+  headings' slots intact, poisoned heading's review slots nil, item
+  still present, skip-log EMPTY, zero messages (message spy).
+  Reverting the per-heading net FAILS (the file dies wholesale).
+- T3 /clip exactness/: the 60+30 boundary split (week and month
+  edges); a DST-crossing week sums its 23/25-hour days exactly;
+  clipped parts across consecutive periods sum to the interval.
+- T4 /rollups/: two dirs × two files × tags: by-tag / by-directory /
+  by-origin sums exact; a two-tag heading appears in both tag rows;
+  the section headline total equals the item fold and differs from
+  the Σ of tag rows in that fixture.
+- T5 /done-set respected (R57)/: user global declares =CLOSED= after
+  =|=, file has no =#+TODO:=; a =- State "CLOSED"= stamp harvests
+  KIND =done= and the item lists under Completed.  Reverting to a
+  hard-wired DONE set FAILS.
+- T6 /carried-over predicate/: activity in P + done AFTER P-end ⇒
+  carried in P; done IN P ⇒ not carried; unlogged item with clock
+  activity in the current period + live =donep= nil ⇒ carried;
+  =donep= t ⇒ not.  Each clause reverts independently to RED.
+- T7 /suspect flag/: a 17 h interval is excluded from every total and
+  counted on the suspect line; 15 h is summed; flipping the threshold
+  repaints correctly with the T1 spy asserting zero rescans.
+- T8 /cache v6 + no-rescan-on-nav/: a crafted v5 cache ⇒
+  =--cache-read= nil (cold path); a v6 write/read round-trip
+  preserves all four slots =equal=; changing =org-air-log-cap= ⇒ key
+  mismatch (stale cache refused); twelve =<= presses + =m= toggles
+  under an =org-air-query--scan-file= spy ⇒ ZERO calls.
+- T9 /bookmark round-trip/: the record survives =prin1=→=read=
+  =equal= (printability); jump on a fresh session rebuilds
+  undisplayed with period/rollup/filter/scope restored and point on
+  the bookmarked row; a record made on the CURRENT period stores
+  =current= and, restored "next week" (frozen clock advanced),
+  shows the new current period; a malformed record degrades to a
+  plain review without signalling.
+- T10 /container + exclusion inheritance/: R60-excluding a clocked
+  file removes its time everywhere; an R59 container with a clocked
+  child never appears in Completed/Started/Carried while the child's
+  time attributes to the child; the container's OWN-body clocks still
+  count in Time invested.  Reverting the own-body bound (subtree-wide
+  harvest) FAILS the attribution assert (double count).
+- T11 /cap + truncation/: cap+7 clock lines ⇒ exactly cap retained,
+  NEWEST kept (the oldest stamp is absent), =rtrunc= t, the "⚠"
+  marker rendered, and Started never claims the heading through the
+  earliest-stamp fallback.
+- T12 /×N chip/: a habit with 7 done stamps in the week renders ONE
+  Completed row with =×7=, day-grouped under the latest stamp.
+- T13 /warm parity (data-pure proof)/: the review render from a live
+  scan and from a cache hydrate of the same corpus are byte-identical
+  at a fixed width.
+- T14 /period math/: 2026-01-01 → W1/2026; 2027-01-01 → W53/2026
+  (=cal-iso= edges); the week↔month toggle keeps the anchor day both
+  directions; =.= returns to the current period after navigation.
+
+* Constraints
+
+- org-ql remains the ONLY query engine — the harvest is more work
+  inside the existing per-heading =:action=, not a second query path.
+- R53: never-hang (harvest is paced-scan work, measured 9.4 µs/line;
+  warm load stays <1 s with measured headroom at absurd volumes),
+  never-error (per-heading inner net + the untouched P1b outer net),
+  data-pure render (period navigation is a fold; T1/T13 pin it),
+  bounded memory (no retained buffers; integer/symbol-only storage).
+- R56 pacing, R57 vocabulary, R59 container skip, R60 exclusion: all
+  inherited through =org-air-query-files= + the cache key, with the
+  ONE new key element (=org-air-log-cap=) following the same
+  discipline rather than adding a mechanism.
+- R58: review joins the bookmark contract fully (record + autoloaded
+  handler + rail delegation + help), records printable-only.
+
+* Out of scope
+
+- Export (org / CSV), estimates, effort properties, habit-graph
+  visuals — future rounds.
+- A live currently-clocked indicator (needs a data path into
+  org-clock's runtime state — separate doc, as the draft ruled).
+- Parsing customised =org-log-note-headings= templates (documented
+  degradation; adopt on demand).
+- Timezone migration of historical stamps (epochs are baked under the
+  scan-time zone; a TZ move skews old boundaries by the offset delta —
+  accepted, documented).
 
 * Context
-The requesting setup: knowledge notes in a Denote silo (=~/Documents/Syncthing/OrgMode/Denote-Notes/=), tasks being consolidated into an Air workspace (=OrgMode/Tasks/=) reviewed with =org-air-project=, transient tasks in =Inbox.org=. Years of LOGBOOK state changes and CLOCK lines already exist in the habit / routine files, so the surface has real data to render on day one.
+
+The requesting setup: knowledge notes in a Denote silo
+(=~/Documents/Syncthing/OrgMode/Denote-Notes/=), tasks being
+consolidated into an Air workspace (=OrgMode/Tasks/=) reviewed with
+=org-air-project=, transient tasks in =Inbox.org=.  Years of LOGBOOK
+state changes and CLOCK lines already exist in the habit / routine
+files, so the surface has real data to render on day one.
 
 * History
-- 2026-07-20: Initial draft, filed from an assistant session on rytswd's machine at the user's request; handed to org-air-orchestrator via crosstalk. Uncommitted in the working copy — orchestrator to fold into its round flow and commit.
+
+- 2026-07-20: Initial draft, filed from an assistant session on
+  rytswd's machine at the user's request; handed to
+  org-air-orchestrator via crosstalk.
+- 2026-07-20: Round 61 refinement — kept the draft's motivation,
+  goals, data-source table and context whole; confirmed =W=; studied
+  the exact seams (scan action, work-buffer discipline, cache
+  serialise/version/key, calendar MARKS seam, the full revisit module
+  shape, the R58 quartet + registrations); measured the v6 shapes
+  (26.0 B/interval, 17.7 B/stamp, 1M-pair =read= 0.247 s), the
+  harvest (9.4 µs/line, never-error on salted input, the
+  =org-parse-time-string= match-data clobber), clip exactness and the
+  =cal-iso= oracle; ruled cap-over-window with the mtime-law
+  argument, own-body attribution, always-on harvest, suspect-clock
+  exclusion, the =current= period anchor, and struct-slots-over-side-
+  table.  State: ready.

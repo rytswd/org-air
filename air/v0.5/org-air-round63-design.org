@@ -1,0 +1,639 @@
+#+title: org-air Round 63 — rail stability during load + the review main-pane redesign
+#+state: ready
+#+tags: review rail reconciler flicker layout dedup mirrors origin sections golden
+
+* Summary
+
+Two problems in the R61/R62 =org-air-review= surface, both
+screenshot-/report-confirmed by the user, both REPRODUCED this round.
+
+*Item 1 (STABILITY, GUI)*: while the board's R56 paced cold fill is
+still running, pressing =W= makes the shared =*org-air-rail*= side
+window FLICKER between BOARD rail content and REVIEW rail content.
+Reproduced in a real frame (Xvfb, 190×50, the 50-file =/tmp/org-air=
+demo corpus, cold cache): after =W= the rail owner flips
+review → board → review — the board STEALS the rail from two
+background-render paths that both end in the ONE render tail
+(=org-air-rail--show=, org-air-view.el:7170): (i) the C1
+resize-refresh of the still-live board window (fired by review's own
+rail pop, and — the subtle part — running with the board's window
+HOOK-SELECTED, so any instantaneous "active view" test misreads), and
+(ii) the R56 progressive/finish repaints
+(=org-air-view--refresh-progressive-paint= :8332 /
+=--refresh-finish= :8232 → =--refresh-repaint= :7713 → the same
+tail).  R62 fixed the RECONCILER's view of review; the render tails
+themselves remained ungoverned.  The fix — a deterministic TWO-BELT
+single-owner rule (ownership-transfer suspension inside =--show= +
+a tail-owner gate at the three rail choke points) — was PROTOTYPED
+VIA ADVICE and verified in the same frame: zero owner flips across
+the whole load, the quit round-trip re-owns the board.  A one-belt
+active-check-only prototype was verified INSUFFICIENT first (the
+hook-selection steal at +0.01 s slipped through) — that measurement
+is what forces belt 1.
+
+*Item 2 (VISUAL HIERARCHY)*: the review main pane is hard to read.
+All four screenshot problems root-caused, three of them reproduced
+byte-for-byte in batch over a constructed 4-file mirror fixture
+(denote notes + =Active-Work.org= / =Active-Tasks.org=):
+
+- (a) /two rows per item/: under the =origin= rollup basis the
+  Completed section emits a =(group FILENAME)= line above every row
+  (=org-air-review--group-rows= :528 keyed on
+  =org-air-review--rollup-labels= :467) — and the per-row origin cell
+  prints the SAME filename again, because
+  =org-air-review--origin-cell= (:712) FORKS the board's F1 origin
+  idiom with a raw =file-name-nondirectory= instead of the
+  denote-aware =org-air-view--origin= (:2041).  Under the default
+  =day= basis the same structure duplicates the DATE instead
+  ("Tue Jul 14" group line + "Jul 14" cell) — the layout is
+  echo-prone under EVERY basis.
+- (b) /duplication/: INVESTIGATED — not a harvest double-count.
+  Probes: one item per org-ql-matched heading; the own-body harvest
+  extents (:471) never credit a child's DONE log to its parent
+  (verified on a parent/child same-title fixture: 2 items at
+  DISTINCT positions); =org-air-query-files= (:388) dedupes.  The
+  double-=Active-Work.org= rows are two REAL headings — the Air
+  convention's work-item heading and its identically-titled task
+  child, both DONE-logged at completion.  Verdict ⇒ a render-side
+  MIRROR-COLLAPSE rule (same title + same day ⇒ one row, canonical
+  pick, "▤ N files" affordance) plus a mechanical no-double-count
+  guard so any FUTURE harvest duplication turns a test red.
+- (c) /column sprawl/: measured — the cluster fit in
+  =org-air-review--insert-body= (:796) folds the AGG rows' text into
+  the ITEM rows' date-column width (="4:20 · 1 item"= = 13 cols vs
+  ="Jul 14"= = 6), and the "⚠ history truncated" date-cell suffix
+  (:693) can push it past 25 — every row's date cell carries the
+  slack.  Plus the group lines and the doubled origin from (a).
+- (d) /section separation/: the review's section heading (:783)
+  omits the board's icon glyph + section rule treatment (:2552).
+
+ONE board-consistent layout is specified (flat one-row-per-item
+sections, the shared F1 origin, mirror collapse, board section
+headers, split cluster fits) and expressed as a GOLDEN mockup the
+impl targets.  Render stays data-pure/bounded (R53): still a fold
+over cached items, zero file opens.
+
+Measured / observed this round (harnesses under =/tmp/org-air-r63/=):
+
+| Probe                                                          | Result                                    |
+|----------------------------------------------------------------+-------------------------------------------|
+| GUI 190-col frame, cold fill, =W= at ~1 s                      | owner flips review→board→review (flicker) |
+| Board steal #1: +0.01 s after =W= (C1 resize render)           | =RAIL-RENDER host=*org-air*= — hook-selected window fools an active check |
+| Board steal #2: the finish repaint (~0.6 s later)              | second steal; review re-render takes it back — the alternation |
+| Prototype A (active-check gate only)                           | +0.01 s steal REMAINS — insufficient      |
+| Prototype B (transfer-suspension + gate, via advice)           | GATED ×2, owner flips during load = 0     |
+| Prototype B, quit round-trip (=q= after finish)                | board re-owned via the reconciler's suspended branch, rail live |
+| Review @170 over the 4-file mirror fixture, =origin= rollup    | screenshot reproduced: filename group line + same filename origin cell |
+| Same fixture, default =day= rollup                             | date group line + date cell — same echo, different text |
+| Harvest: parent/child SAME-TITLE fixture                       | 2 items, distinct (FILE . POS) — real headings, extents correct |
+| Harvest: mirror fixture full scan                              | 1 item per heading, no file double-scan   |
+| Cluster fit: agg text vs item date                             | dw inflated 6 → 13 for every item row     |
+| Origin cell fork                                               | review prints raw leaf; board prints denote title (F1, =org-air-origin-style=) |
+
+Deliverables:
+
+- *R63-1* — RAIL STABILITY: the deterministic single-owner rule.
+  (a) =org-air-rail--tail-owner-p= + the gate at the three rail
+  choke points (=--show=, =--host-width='s window ensure,
+  =--evict-foreign-rail=); (b) ownership-transfer suspension inside
+  =org-air-rail--show=; (c) the gate's precedence over the R58
+  undisplayed content render; (d) a batch seam that drives the
+  simulated paced-fill sequence and asserts owner stability + the
+  reconcile-timer count.
+- *R63-2* — REVIEW LAYOUT REDESIGN: (a) flat per-item sections —
+  one row per item, grouping removed, =f= becomes the Time-invested
+  lens only; (b) the origin cell through the board's shared F1
+  primitive =org-air-view--item-origin-raw=; (c) the mirror-collapse
+  rule + =org-air-review-collapse-mirrors= knob + the
+  no-double-count guard; (d) the board's section-header treatment
+  (icon glyph + count chip + optional rule); (e) split cluster fits
+  and the compact =⚠= marker; (f) the golden mockup fixture.
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine; the data path (harvest, cache, fold) is untouched
+except that render-side collapse is pure slot work.
+
+* Item 1 — rail flicker during load
+
+** Reproduction (real frame, not guessed)
+
+Harness: =/tmp/org-air-r63/repro-flicker*.el= under Xvfb
+(=DISPLAY=:88 emacs -Q=), 190×50 frame, =org-air-files= → the
+50-file =/tmp/org-air= demo corpus, =org-air-cache-file= nil (true
+cold fill), the shared =org-air-rail-placement= default
+='side-window= (both views pop the rail — the user's shape; with the
+board rail inline the flicker cannot occur, also verified).  Rail
+owner + content sampled every 100 ms; every =org-air-rail--render= /
+=--show= call advised and timestamped.
+
+Timeline (the measured run):
+
+#+begin_example
+0.79s  RAIL-SHOW host=*org-air*          ; board pops its rail mid-fill
+1.00s  PRESS W → RAIL-SHOW host=review   ; review takes the rail (correct)
+1.02s  RAIL-SHOW host=*org-air*          ; STEAL #1 — C1 resize render
+1.07s  RAIL-SHOW host=review             ; review takes it back
+1.35s  refresh FINISH (board)
+1.63s  RAIL-SHOW host=*org-air*          ; STEAL #2 — the finish repaint
+2.07s  RAIL-SHOW host=review             ; review takes it back
+#+end_example
+
+Owner samples: review ×2, board ×6 (~0.6 s of board content while
+the user sits in review), review ×130.  With a big corpus every
+progressive paint (≥ =org-air-cold-paint-interval= = 1 s cadence,
+:863) restarts the cycle — sustained alternation through the load,
+exactly the report.  Steady state settles because the board's
+renders stop after FINISH and review's next render wins last.
+
+** Root cause — the render tails are ungoverned
+
+R62 taught the RECONCILER that review is a host
+(=org-air-rail--host-buffer-p= :6027).  But the reconciler is only
+one of the rail's mutators.  The board's full render
+(=org-air-view--render=) unconditionally drives the shared rail
+whenever its OWN popped flag is up:
+
+- orientation cond :7056 tests only =org-air-rail--popped-p= —
+  never "am I the active view", never the suspension flag;
+- the width resolution :7071 calls =org-air-rail--host-width= which
+  ENSURES (creates/resizes) the side window;
+- the render tail :7170 calls =org-air-rail--show=, which re-owns
+  the window and REWRITES the shared rail buffer's content
+  (=org-air-rail--render=) — and via the R58 undisplayed-host carve
+  (:5560) it rewrites the CONTENT even when the board has no window
+  at all, so in the single-main-window shape the visible review rail
+  flips to board content with no window event whatsoever;
+- =org-air-rail--evict-foreign-rail= :6077 lets ANY view's render
+  tail sweep a rail it does not own.
+
+During the load, two board-side paths reach that tail while REVIEW
+is the user's view:
+
+1. /C1 resize-refresh/: review's rail pop resizes the board's
+   still-live window → the layout hook re-renders the board — with
+   the board's window HOOK-SELECTED (=window-size-change-functions=
+   context), which is why an instantaneous
+   =org-air-rail--active-view= test inside the tail misreads the
+   board as active (measured: prototype A's +0.01 s steal).
+2. /R56 progressive + finish repaints/: timer-driven, selection
+   settled on review, but the tail never asks.
+
+Each steal re-owns the rail buffer's back-pointer, so the NEXT
+window-config change lets the reconciler re-own it for review
+(branch A), and each review re-render/resize does the same — the
+observed ping-pong.  The reconciler itself is NOT the bug: its
+single timer slot (R27-1 S3) held (≤ 1 pending timer throughout the
+run); it repeatedly REPAIRS a theft the render tails keep
+committing.
+
+The same class covers every paced surface: the revisit and review
+cold fills and the project doc refresh all end in the same choke
+points, so the fix is placed there, not in the board.
+
+** The fix — a deterministic two-belt single-owner rule (R63-1)
+
+/The rule/: the shared =*org-air-rail*= may be mutated ONLY by (1)
+the reconciler (which already resolves the settled active view from
+a 0 s timer) and (2) a render tail whose view currently OWNS the
+rail claim.  Ownership is transferred synchronously, never inferred
+from transient window selection.
+
+*R63-1a — the tail-owner gate.*  New predicate
+=org-air-rail--tail-owner-p (self &optional frame)=:
+
+#+begin_example
+non-suspended?  (buffer-local org-air-view--rail-suspended of SELF is nil)
+AND (active is nil OR active == SELF)
+    where active = (org-air-rail--active-view frame)
+#+end_example
+
+Gated call sites (the three choke points — every render tail in
+board/project/revisit/review and the doc-session rail routes through
+them):
+
+- =org-air-rail--show= (:5820): gate fails ⇒ full no-op — no window
+  ensure, NO content render (the R58 carve is subordinate to the
+  gate, see R63-1c), returns nil — and SELF self-suspends
+  (=org-air-view--rail-suspended= t) so every later background
+  render during the load is skipped by the first conjunct without
+  re-resolving anything.
+- =org-air-rail--host-width= (:5776): gate fails ⇒ skip the
+  =--ensure-window= call; the width measure falls through to the
+  live-window/fallback branches unchanged (the host window's usable
+  columns are already rail-adjusted, since the rail lives on the
+  frame under its real owner).
+- =org-air-rail--evict-foreign-rail= (:6077): gate fails ⇒ no sweep.
+  Sweeping a foreign rail is an owner/active privilege; without this
+  the gated board tail (owner ≠ self, no =--show= re-own) would fall
+  through to the evict and DELETE review's rail — the same bug with
+  the opposite sign.
+
+The reconciler's own calls to =--show= are exempt by construction:
+branch A (re-own) and the suspended re-pop branch first clear the
+target's suspended flag and run for the SETTLED active view, so the
+gate passes.  =org-air-rail-toggle= clears the flag before its
+refresh (it already does), so a user toggle always passes.
+
+*R63-1b — ownership-transfer suspension.*  =org-air-rail--show=
+gains one step at the top: when a live rail's owner
+(=org-air-rail--side-owner=) differs from the incoming host, the
+PREVIOUS owner is marked =org-air-view--rail-suspended= t before the
+re-own — synchronously, in the same call that takes the rail.  This
+mirrors exactly what the reconciler's re-own branch does (:6167
+region) and is what makes the rule deterministic: the instant review
+takes the rail on =W=, the board is suspended, and belt 2's
+hook-selection blind spot is closed BEFORE the C1 render can fire.
+Measured: prototype A (gate only) leaked the +0.01 s steal;
+prototype B (both belts) leaked nothing — 0 owner flips.
+
+*R63-1c — precedence over R58.*  The R58 undisplayed-host carve
+(=--show= still renders rail CONTENT for a windowless host so a
+bookmark restore hands the restorer a fresh buffer) is subordinated:
+gate first, carve second.  In the restore flow no other org-air host
+is active (active = nil ⇒ gate passes), so R58 behaviour is
+unchanged there; in the mid-fill flow the carve was the
+content-flip vector and must lose.  Corner accepted + documented: a
+bookmark restoring view B undisplayed WHILE view A is active keeps
+A's rail content; B's rail freshens on the render that fires when
+the restorer displays B (the C1 path R58 already relies on).
+
+*R63-1d — the un-suspend path (already exists, now load-bearing).*
+A suspended view re-pops ONLY via the reconciler's suspended branch
+(settled active view, 0 s timer) — measured in the prototype run:
+after =q= the board's own quit-path render was gated (still
+suspended) and the reconciler performed the re-pop; end state owner
+= board, rail live, suspended nil.  No new mechanism; the R25-6
+contract "the reconciler owns the suspension flag's falling edge"
+is simply now stated and pinned (T5).
+
+/Bounded residual (documented, not fixed)/: a THIRD view mid-fill
+that has never owned the rail could, in the narrow hook-selection
+window of ITS OWN resize, pass the gate and steal once; belt 1 then
+suspends the true owner, the 0 s reconcile re-owns for the settled
+active view, and the thief is suspended by transfer — one bounded
+flip, self-healing, no oscillation.  The reported two-view scenario
+has zero flips (verified).
+
+Ruled out:
+
+- /Coalescing/debouncing the reconcile/: the reconciler already runs
+  one pending timer (R27-1 S3; ≤ 1 measured throughout) — it is the
+  repair crew, not the thief; slowing it only lengthens each theft.
+- /Gating only the progressive paint/: fixes steal #2, leaves #1
+  (the C1 resize render) and every future background render path
+  open.  The choke-point gate covers the class.
+- /An instantaneous active-view check alone/: measured insufficient
+  (prototype A) — hook-time window selection lies.
+- /Suspension flag alone (no active check)/: leaves the
+  never-owned-third-view fills ungated; the active check blocks
+  those timer-driven repaints (selection settled), so both belts
+  stay.
+
+** ERT seams (batch) + the GUI residue
+
+Batch Emacs has a real dummy-terminal frame; the R25
+=noninteractive=-nil idiom (let-bind =noninteractive= to nil, drive
+window/rail machinery + =org-air-rail--reconcile-frame=
+synchronously, assert the live window tree) is the proven vehicle
+(R62 T2/T3).  The R63 seam — the prompt's "reconcile-timer COUNT /
+owner stability across a simulated paced-fill sequence":
+
+- T1 /owner stability across a simulated paced fill/: board + review
+  in two main windows of the batch frame, review selected, both
+  popped, review owning the rail; under =noninteractive= nil drive
+  the board's cold refresh synchronously —
+  =org-air-view--refresh-start= then =--refresh-run-slice= in a loop
+  (the machine's documented ERT drive), with
+  =org-air-view--refresh-progressive= forced t so the progressive
+  paints run — and after EVERY slice, paint and a synchronous
+  =(org-air-rail--reconcile-frame (selected-frame))= assert
+  =org-air-rail--side-owner= is STILL the review buffer and the rail
+  window is live.  RED today (the first progressive paint re-owns
+  the rail for the board); GREEN under R63-1.
+- T2 /reconcile-timer count/: same sequence with the deferred
+  =org-air-rail--reconcile= fired between slices (N rapid fires):
+  the pending =org-air-rail--reconcile-run= timers counted from
+  =timer-list= never exceed ONE (pins R27-1 S3 under the load
+  scenario, and pins that R63 adds no new timers).
+- T3 /gate truth table/: =org-air-rail--tail-owner-p= — active==self
+  ⇒ t; active==other ⇒ nil; active==nil ⇒ t; suspended self ⇒ nil
+  regardless (data-light: mode-initialised buffers + window tree).
+- T4 /non-owner tail is inert/: with review owning the rail, a
+  direct =org-air-rail--show= / =--host-width= /
+  =--evict-foreign-rail= on the BOARD buffer leaves the rail window,
+  owner AND the rail buffer's text byte-identical, and leaves the
+  board suspended.  RED today on all three counts (content rewrite,
+  re-own, sweep).
+- T5 /transfer + round-trip/: =--show(review)= while the board owns
+  ⇒ board's suspended flag t (belt 1); then select the board window,
+  synchronous reconcile ⇒ rail re-owned by the board, suspended
+  cleared (the R63-1d falling edge).
+- T6 /neutrality/: a lone displayed board (active == self) renders
+  through the tail exactly as today — the R25/R62 rail suites and
+  every golden stay green (run as part of the gate).
+
+GUI residue, named for user confirm in a real interactive frame
+(genuinely not batch-reachable): the real wall-clock choreography —
+the 0.2 s fill pacer (:7836), redisplay-driven
+window-config/size hooks, the 0 s reconcile — and the FELT result
+(no flash of board content, no rail width wobble) under live typing.
+Confirm script = the reproduction recipe: =emacs -Q= GUI,
+=ORG_AIR_DEMO=/tmp/org-air=, cold cache, wide frame → open the board
+→ press =W= immediately, while the paced fill runs → the side rail
+shows ONLY review content through the whole fill and after the
+finish paint → =q= back → the board re-owns the rail with the
+finished board.
+
+* Item 2 — the review main-pane redesign
+
+** The screenshot, reproduced
+
+Fixture (becomes the T7 corpus): two denote notes
+(=20260131T020339--manage-data-handler-logic.org= with filetags,
+=20260129T113501--ensure-multi-admin-web-ghcr.org=) + the Air
+workspace mirrors =Active-Work.org= (work-item heading, an
+identically-titled DONE task child, a second DONE task) +
+=Active-Tasks.org= (a third mirror) — every mirror DONE-logged at
+the same instants.  Batch render at width 170:
+
+- =origin= rollup: byte-for-byte the screenshot — faint
+  =20260131T020339--manage-data-handler-logic.org= group line above
+  the bright title, the SAME filename again in the right-hand origin
+  cell, "Manage data-handler logic" ×3 (TWO from workspace files),
+  "Ensure multi-admin-web…" ×2.
+- =day= rollup (the default): same structure, date echo instead of
+  filename echo ("Tue Jul 14" group + "Jul 14" cell).
+- Header claims "5 done" for what a human counts as 2 completions.
+
+** (a) One row per item — grouping removed
+
+Per-item sections (Completed / Started / Carried over) become FLAT:
+=org-air-review--compose-sections= (:732) emits ONLY =item= specs —
+no =(group …)= lines under ANY basis.  One row per item: bright
+title (left), compact date cell, inline tag pills, ONE origin.
+Chronology is already carried by the R22-3 sort (=date= ascending
+default) and by the date cell — the =day= group lines were pure
+duplication; the =origin= group lines were the screenshot's fake
+headers.
+
+The rollup =f= becomes what its aggregation half always was: the
+TIME INVESTED lens (day / tag / directory / origin agg rows,
+untouched math — R61 T4 =--time-rollup= asserts stand).
+=org-air-review--group-rows= (:528) loses its only consumer and is
+DELETED.  Deliberate behaviour change vs R61-3's "Completed groups
+its rows by it" — documented here; no R61 ERT pins the group lines
+(swept: only =--time-rollup= and the count chip are pinned), so no
+test churn beyond the new T7.
+
+** (b) Duplication — verdict + the mirror-collapse rule
+
+/Investigation verdict (measured, probes in the Summary table)/: the
+harvest is one-item-per-heading with own-body log extents and a
+deduped file list — the double-=Active-Work.org= rows are two REAL
+headings (work item + same-titled task child, both DONE-logged), not
+a double count.  The impl round re-runs the decision fixture as T8;
+what would overturn the verdict — two rows sharing one
+=(FILE . POS)= — becomes a permanent mechanical guard:
+
+- /No-double-count law (T8)/: within one rendered section no two
+  rows may share =(org-air-item-file . marker-pos)=.  Green today;
+  any future harvest/merge regression turns it RED.
+
+/The MIRROR-COLLAPSE rule (render-side, pure)/ — new knob
+=org-air-review-collapse-mirrors= (defcustom, default t; nil
+restores one-row-per-heading):
+
+- Key: =(downcase (string-trim TITLE))= × the row epoch's local
+  calendar day (=%F=).  Applied per per-item section, after the fold
+  (:418), before =--sort-rows= (:511).
+- Rows sharing a key merge into ONE row.  Canonical item precedence
+  (deterministic): (1) an item with non-empty tags, (2) an item in a
+  denote-identified file (=org-air-query--denote-file-id=), (3)
+  snapshot order.  The merged row's epoch = the newest member epoch;
+  its completion-stamp set = the UNION of member stamps deduped by
+  epoch, so the ×N chip (R61 T12) counts real distinct completions —
+  a mirrored single completion shows NO chip, a genuine daily-habit
+  ×7 keeps its ×7.
+- Origin cell: members in ONE file ⇒ the normal F1 origin (the
+  same-file parent/child double simply becomes one clean row);
+  members spanning N > 1 files ⇒ the affordance =▤ N files= (origin
+  glyph + faced =org-air-face-origin=).  The row's =org-air-item= /
+  =org-air-marker= props carry the CANONICAL item, so RET / S-RET /
+  the bottom pane open it; the full member list rides a new
+  =org-air-review-mirrors= text property ((FILE . POS) …) for tests
+  and future affordances.
+- Scope: display + counts only.  Section counts, the header's
+  "N done" and the rail Summary count COLLAPSED rows — the R61-4
+  law "totals honestly describe what is shown".  Time invested is
+  NOT collapsed: time is attributed where it was clocked; a user who
+  literally copies CLOCK lines across mirrors still sees both (out
+  of scope, noted below).
+- Fixture arithmetic (T9): Completed = exactly 2 rows —
+  "Manage data-handler logic" once with =▤ 3 files= and canonical =
+  the tagged denote note, "Ensure multi-admin-web…" once with
+  =▤ 2 files=; header reads "2 done"; knob nil ⇒ 5 rows again.
+
+** (c) Column sprawl — retightened
+
+- /Split cluster fits/: the fit in =--insert-body= (:796) folds agg
+  text into the item date width — item rows' =dw= is now fitted over
+  ITEM rows only; agg rows (Time invested) compose their own
+  two-column shape (label + text) with their own fit.  Both keep
+  =:own-fence t= anchoring (the R40-2 documented exception), so
+  columns stay in lockstep within each section.
+- /Compact truncation marker/: the per-row " ⚠ history truncated"
+  date-cell suffix (:693) becomes a 2-col =⚠= in the date cell
+  ("Jul 16 ⚠"); the loud explanation stays on the Time-invested
+  note line ("⚠ history truncated on N headings"), so R61 T11's
+  buffer-level assert ("⚠ history truncated" present when a capped
+  heading renders) still holds; its row stays marked, just
+  compactly.
+- /Origin through the board's F1 primitive/:
+  =org-air-review--origin-cell= (:712) is DELETED in favour of
+  =org-air-view--item-origin-raw= (:2995) — denote-aware title
+  ("▤ manage data handler logic", not the raw ID filename),
+  honouring =org-air-origin-style=, =org-air-show-group= and the
+  =org-air-origin-max-width= cap.  One idiom, no fork — this alone
+  removes every raw =YYYYMMDDTHHMMSS--…= string from the pane.
+  (=--rollup-labels='s origin branch (:467) adopts the same
+  resolver for the Time agg labels.)
+- The row skeleton itself (title flexes, fixed right-anchored
+  cluster, V6 columns) is the board's and is KEPT — with (a)'s group
+  lines gone, the F1 origin ≤ 26 cols and the fits honest, the
+  rhythm matches the board pane the user already accepts.
+
+** (d) Section separation — the board's proven treatment
+
+=org-air-review--insert-section-heading= (:783) adopts the board's
+=org-air-view--insert-section-heading= shape (:2552): icon glyph
+(=org-air-face-section-icon=) + title (=org-air-face-section=) +
+count chip (=org-air-face-count=) + the =org-air-section-rule=-gated
+rule line.  Four new entries in the shared glyph table, degrading by
+the S5b tier table like every glyph:
+
+| Section       | GUI | TTY |
+|---------------+-----+-----|
+| Completed     | ✓   | =+= |
+| Time invested | ◔   | =%= |
+| Started       | ▷   | =>= |
+| Carried over  | ↻   | =~= |
+
+Blank-line separation between sections stays; the =org-air-section=
+text property, TAB fold and section motion are untouched.
+
+** The golden mockup (the impl target)
+
+New fixture =tests/fixtures/review-mockup-170.txt=, generated from
+the REAL renderer (the =make regen-mockups= discipline: regen + diff
++ design re-bless) over the T7 mirror corpus at
+=org-air-view-width= 170, frozen clock (W29 2026), default knobs.
+The target SHAPE (left pane; the R61-5 rail column — calendar /
+Filter / Source / Summary / Actions — is fine as-is and unchanged):
+
+#+begin_example
+  org-air ∙ review ∙ W29 2026 ∙ Jul 13 – Jul 19 ∙ 2 done ∙ 4:20                      ↕ date ^
+
+  ✓ Completed 2
+      Manage data-handler logic                    Jul 14   #backend   #code   ▤ 3 files
+      Ensure multi-admin-web is published to ghcr  Jul 15   #infra             ▤ 2 files
+
+  ◔ Time invested 1
+      Tue Jul 14                                   4:20 · 1 item
+      ⚠ 1 suspect clock, 74:00 excluded — Forgotten clock
+
+  ▷ Started 1
+      Prototype the range ladder                   Jul 16 ⚠ #code              ▤ ladder notes
+
+  ↻ Carried over 1
+      Fix flaky rail test                          Jul 17   #code              ▤ rail flake
+#+end_example
+
+Every element is existing vocabulary: the V6 row primitive, the
+board's pills/faces/origin glyph, the board's section header, the
+review's own agg/note lines.  No new faces, no new visual language.
+Visual taste needs a USER SCREENSHOT-CONFIRM after impl (named
+residue) — the golden pins bytes, not beauty.
+
+** Behaviour changes (deliberate, documented)
+
+1. Per-item sections are never grouped; =f= is the Time-invested
+   lens only (R61-3's grouping half re-ruled; =--group-rows=
+   deleted).
+2. Mirror collapse is ON by default — visible counts change wherever
+   mirrors exist (header, sections, rail Summary), knob-restorable.
+3. The origin column reads the denote TITLE (the board's F1
+   default), not the raw filename; =org-air-origin-style 'filename=
+   restores the leaf name — now in BOTH views through one resolver.
+4. The per-row truncation marker compacts to =⚠= (the note line
+   keeps the words).
+
+* ERT seams (batch; today's RED/GREEN state noted per test)
+
+Item 1: T1–T6 as specified above (T1/T2 the simulated paced-fill
+owner/timer seam — T1 RED today; T3 gate truth table — new; T4
+non-owner tail inert — RED today; T5 transfer + round-trip — RED
+today; T6 neutrality — green-stays-green gate).
+
+Item 2 (fixture: the T7 mirror corpus; every test batch,
+deterministic, frozen clock):
+
+- T7 /one row per item, no echo/: with collapse OFF (isolating (a)),
+  under EVERY basis (day/tag/directory/origin) the composed per-item
+  sections contain zero =group= specs, each fixture heading yields
+  exactly one row, and no rendered pane line consists of a bare
+  filename; the origin cell of a denote-file row contains the denote
+  TITLE and not the =20260…= ID (RED today on the group lines and on
+  the raw-filename origin).
+- T8 /no-double-count law + harvest decision table/: the
+  parent/child same-title fixture scans to two items at distinct
+  positions with the child's log NOT on the parent (the extents
+  law); no rendered section holds two rows sharing (FILE . POS); the
+  one-heading done-log + CLOSED shape still folds to ONE stamp
+  (the R61 stamps-win rule, re-pinned).
+- T9 /mirror collapse/: default knob ⇒ the fixture arithmetic above
+  (2 rows, =▤ 3 files= / =▤ 2 files=, canonical marker = the denote
+  note's (FILE . POS), header "2 done", no ×chip on the mirrored
+  single completion); a synthetic ×7 habit keeps ×7 through
+  collapse; knob nil ⇒ 5 rows; Started/Carried collapse under the
+  same key; Time invested totals unchanged either way (RED today —
+  5 rows, "5 done").
+- T10 /section headers/: each of the four heading lines carries the
+  icon glyph + =org-air-section= property + count chip; with
+  =org-air-section-rule= t a rule line follows (board parity; RED
+  today — no glyph, no rule).
+- T11 /cluster fits split/: a fixture whose agg text is wider than
+  every item date ⇒ the item rows' date column equals the widest
+  ITEM date, not the agg text (RED today: 13 vs 6 measured); the
+  =⚠=-marked row's date cell is exactly "MMM D ⚠"-shaped.
+- T12 /golden/: the review mockup fixture equality against the real
+  renderer (regen-mockups discipline; new).
+
+* Constraints
+
+- org-ql remains the ONLY query engine; NO harvest/scan/cache change
+  — =org-air-view--cache-version= stays 6, the cache key gains no
+  elements (collapse + layout are render state; R57's "the key IS
+  the detector" cuts both ways).
+- R53: all laws hold — Item 1 is window machinery; Item 2 is pure
+  slot/string folds; render opens no file; never-error (collapse is
+  total on already-validated rows); bounded memory (collapse
+  shrinks).
+- R56: the progressive paint itself is untouched — only its rail
+  side effect is gated when the board is not the rail's owner.
+- R25-6/R27-1/R62: the single-owner reconciler, the one-slot timer
+  and the R62 host roster are consumed as-is; R63 adds belts, not
+  timers.
+- R58: record shapes untouched; the undisplayed-host carve is
+  subordinated to the gate as specified (R63-1c), bookmark restore
+  behaviour otherwise byte-identical.
+- R59/R60/R61: predicates, clip math, suspect rule, period engine,
+  calendar marks and the R62 range ladder are consumed unchanged.
+
+* Out of scope
+
+- De-duplicating Time-invested totals for literally copied CLOCK
+  lines across mirrors (honest-as-recorded; a "mirror suspects" note
+  is a future nicety).
+- An expand affordance on the =▤ N files= row (listing member files
+  inline) — the pane + canonical RET cover the need.
+- Content-similarity / fuzzy title matching for mirrors (exact
+  normalised title + day only).
+- The third-view bounded-single-flip residual (documented in
+  R63-1); revisiting it needs a real report.
+- Rail content changes; the rail column is explicitly fine as-is.
+
+* Context
+
+User reports on the R61/R62 surface: (1) opening review during the
+board's progressive load makes the side rail flicker between board
+and review rail content (the "deferred-timer choreography" residue
+R62 flagged, now root-caused to the render tails, not the timers);
+(2) the review main pane is hard to read — screenshot showing the
+faint denote-filename line above every title with the same filename
+in the origin column, near-identical mirrored rows (a task in a
+denote note AND in =Active-Work.org= / =Active-Tasks.org=, one title
+appearing twice from =Active-Work.org= alone), sprawling columns,
+and weak section separation.  Same Denote-silo + Air-workspace setup
+as R61/R62's Context.
+
+* History
+
+- 2026-07-20: Round 63 design.  Item 1 reproduced in a real Xvfb
+  frame (owner flip timeline, two steal vectors measured: the C1
+  hook-selected resize render + the R56 progressive/finish
+  repaints); the one-belt active-check prototype measured
+  INSUFFICIENT, the two-belt rule (ownership-transfer suspension in
+  =org-air-rail--show= + the =org-air-rail--tail-owner-p= gate at
+  the three choke points) prototyped via advice and verified — zero
+  owner flips across the load, clean quit round-trip; batch seam
+  (simulated paced fill under the R25 idiom, owner stability +
+  reconcile-timer count) specified with today's RED states named.
+  Item 2 reproduced byte-for-byte over a constructed mirror fixture
+  (the =origin=-basis group-line echo + the forked raw-filename
+  origin cell), the duplication INVESTIGATED to a verdict (real
+  headings, not a harvest double count — probes recorded), and the
+  ONE board-consistent layout specified: flat sections, shared F1
+  origin, mirror collapse with canonical pick + =▤ N files=,
+  board section headers with four new glyphs, split cluster fits,
+  compact =⚠=, golden mockup fixture; behaviour changes and the
+  screenshot-confirm residue named.  State: ready.

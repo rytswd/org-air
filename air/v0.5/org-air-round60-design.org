@@ -1,0 +1,416 @@
+#+title: org-air Round 60 — User-driven exclusion: org-air-exclude-regexps, pruned at discovery
+#+state: ready
+#+tags: files scan exclusion configuration performance cache never-error
+
+* Summary
+
+USER NEED, verbatim: /"How can I exclude certain files and directories
+with org-air?"/  Today the answer is: you cannot.  =org-air-files= is a
+pure whitelist, and every directory in it is expanded RECURSIVELY into
+all =*.org= / =*.org.gpg= beneath it by =org-air-query--expand-source=
+(org-air-query.el ~243, =directory-files-recursively= with a nil
+PREDICATE).  There is no way to keep out an =archive/= tree, an exports
+directory, one noisy file, or dot-directories — and dot-directories ARE
+walked: verified this round (batch Emacs 30.2, harness below), a planted
+=d.org= under =root/.git/objects/= is returned as a board item today.
+A user with =~/org= configured gets =.git/=, =.attach/=, sync-conflict
+copies, archives — everything — with no recourse but restructuring
+their disk around org-air.
+
+The rule this round establishes:
+
+#+begin_quote
+Exclusion is a first-class, user-driven layer of file DISCOVERY.  One
+knob — =org-air-exclude-regexps=, a list of regexps matched against the
+ABSOLUTE path — removes files at enumeration AND prunes matching
+directories so an excluded tree is never even walked.  It applies in
+=org-air-query-files= itself, so every consumer (board scan, refile
+targets, revisit queue, denote index) sees one coherent set.  The one
+exemption: =org-air-inbox-file= is NEVER excluded — the capture target
+must stay reachable.  The exclude set joins the cache key, so toggling
+it can never serve a stale file set.
+#+end_quote
+
+Deliverables:
+
+- *R60-1* — =org-air-exclude-regexps= (defcustom, =(repeat regexp)=,
+  default nil) with precisely documented match semantics: files match
+  as plain absolute paths, directories match in DIRECTORY-NAME form
+  (trailing =/= appended before matching), so ="/archive/"= and
+  ="\\.git/"= work at both levels.  ONE knob; no separate exact-path
+  list (argued below).
+- *R60-2* — applied at discovery in =org-air-query--expand-source= /
+  =org-air-query-files=: (a) a post-filter drops matching FILES, and
+  (b) the PREDICATE argument of =directory-files-recursively= refuses
+  descent into a matching DIRECTORY — pruning, not post-filtering, so
+  a huge =archive/= is never enumerated (an R53 scale win).  Exclude
+  WINS over an explicit =org-air-files= listing; the inbox guard wins
+  over everything, including pruning of its ancestor directories.
+- *R60-3* — cache/refresh discipline: the exclude set becomes the FIFTH
+  element of =org-air-view--cache-key= (R57 "the key IS the detector"),
+  and =org-air-view--refresh-start= gains a key guard that closes a
+  live-board hole found during this investigation: today, narrowing the
+  file set mid-session and pressing =g= RESURRECTS the removed files'
+  rows through the incremental merge.
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine (this round never touches querying at all — only
+which paths are handed to the scan); all R53 laws (never-hang,
+never-error, data-pure render, mtime cache), R56 pacing and the
+R57/R59 cache-key discipline are preserved and load-bearing throughout.
+
+* Current discovery layer (what the change hooks into)
+
+- =org-air-query--org-file-p= (org-air-query.el ~237): =file-regular-p=
+  + the =\\.org\\(?:\\.gpg\\)?\\'= name test.  Untouched.
+- =org-air-query--expand-source= (~243): =expand-file-name=, then a
+  directory expands via =(directory-files-recursively path
+  "\\.org\\(?:\\.gpg\\)?\\'" nil)= — note the nil PREDICATE and no
+  filtering of any kind; a file source passes =--org-file-p=; anything
+  else nil.  This is where both the file filter and the prune land.
+- =org-air-query-files= (~252): =seq-mapcat= of =--expand-source= over
+  =org-air-files=, then the R53 P1d order-preserving hash dedupe with
+  =file-truename= paid ONLY for actual symlinks.  This is where the
+  exclusions are compiled once per enumeration.
+- Consumers of =org-air-query-files= (all inherit exclusion for free):
+  the full scan =org-air-query-items= (~1128), the refresh machine's
+  enumeration + mtime diff (org-air-view.el ~8035, ~8505, ~8604), the
+  cache loader (~7613), refile targets (org-air-inbox.el ~152), the
+  revisit fill queue (org-air-revisit.el ~716), and the denote
+  link-follow (org-air-query.el ~728).
+
+** =directory-files-recursively= PREDICATE — confirmed semantics
+
+Verified empirically this round (batch Emacs 30.2; the arg exists since
+Emacs 27.1 and org-air targets 29.1+, so no compat shim).  Corpus
+=/tmp/org-air-r60/root/{top.org, keep/a.org, archive/{b.org,
+deep/c.org}, .git/objects/d.org}=; predicate =(lambda (d) (push d seen)
+(not (string-match-p "/archive/" (file-name-as-directory d))))=:
+
+- The predicate receives the ABSOLUTE subdirectory path WITHOUT a
+  trailing slash: ="…/root/archive"=, ="…/root/keep"=, ="…/root/.git"=.
+  Hence the DIRECTORY-NAME normalisation below: org-air matches
+  =(file-name-as-directory d)= so ="/archive/"= and ="\\.git/"= match
+  the way users will inevitably write them.
+- Returning nil PRUNES: =archive/b.org= and =archive/deep/c.org= were
+  absent from the result AND the predicate was never called on
+  =archive/deep= — the subtree is genuinely not walked, which is the
+  scale point: a 5000-file =archive/= costs zero stats, zero sorts,
+  zero list allocation (R53 P1d measured enumeration at 44 ms for 5006
+  files; pruning only subtracts).
+- The predicate is NOT called for the source root itself — a source
+  directory that matches an exclude must be handled separately in
+  =--expand-source= (spec'd below).
+- Error semantics are UNCHANGED versus today's nil predicate: only
+  PREDICATE = =t= wraps descent in =ignore-error=; both nil and a
+  function let an unreadable subdirectory signal exactly as today.  No
+  behaviour drift hides in the switch.
+- Confirmed motivation: with no exclusion, =.git/= was descended and
+  =.git/objects/d.org= returned.
+
+* R60-1 — the knob
+
+#+begin_src emacs-lisp
+(defcustom org-air-exclude-regexps nil
+  "Regexps of files and directories org-air must never scan.
+Each regexp is matched (case-sensitively) against the ABSOLUTE path:
+a candidate FILE matches as-is (e.g. \"/home/u/org/notes/noise.org\");
+a DIRECTORY is matched in directory-name form with a trailing slash
+(e.g. \"/home/u/org/archive/\"), and a matching directory is pruned —
+never descended — so \"/archive/\" or \"\\\\.git/\" silences a whole
+tree cheaply.  Matching wins over an explicit `org-air-files' listing.
+The one exemption: `org-air-inbox-file' is never excluded.
+To exclude one exact file, anchor a quoted path:
+  (concat \"\\\\`\" (regexp-quote (expand-file-name \"~/org/big.org\")) \"\\\\'\")"
+  :type '(repeat regexp)
+  :group 'org-air)
+#+end_src
+
+Lives in org-air.el directly under =org-air-files= (it modifies that
+knob's meaning); =org-air-query.el= and =org-air-view.el= add the
+matching =(defvar org-air-exclude-regexps)= declarations beside the
+existing =org-air-files= ones (query.el ~31, view.el ~40).
+
+** One knob, not two — the argument
+
+An exact-path convenience list (=org-air-exclude-files=) was considered
+and REJECTED.  Grounds:
+
+1. Exact-path equality has three footguns regexps don't: relative vs
+   absolute spelling, trailing-slash spelling for directories, and
+   symlink spelling — each would need its own normalisation ruling,
+   i.e. a second copy of exactly the semantics this doc already pins
+   for regexps.
+2. It is fully expressible inside the one knob — the docstring carries
+   the copy-paste idiom (=regexp-quote= anchored) — while the reverse
+   is not true.
+3. Every knob is a cache-key element (R60-3), a docstring, and a test
+   matrix.  Two knobs that can disagree about the same file is a
+   support burden with no expressive gain.
+4. The customize type =(repeat regexp)= already gives list-editing UX;
+   "convenience" would buy only the =regexp-quote= call.
+
+** Match semantics (normative)
+
+- Matching uses =string-match-p= under a =let=-bound
+  =case-fold-search= nil — path matching must not depend on the
+  ambient (default-t) fold, or the same config behaves differently in
+  batch vs a user session.
+- Matched against the path AS ENUMERATED — absolute, expanded,
+  PRE-truename.  The R53 symlink-only truename dedupe stays downstream
+  and untouched.  Ruled: exclusion is BY NAME — it matches what the
+  user sees and configured; truename is a dedupe implementation
+  detail, not an identity oracle.  Consequences, both directions,
+  documented in the docstring's spirit: a symlink whose OWN path
+  matches is dropped even if its target's doesn't; a symlink whose
+  path does not match survives even when its TARGET lies in an
+  excluded (pruned) tree — the target path was never enumerated, so no
+  dedupe collision arises and the note surfaces under the symlink's
+  name.  Predictable beats clever.
+- Directory candidates (the traversal predicate AND a directory-shaped
+  =org-air-files= source) are matched via =(file-name-as-directory
+  d)=; file candidates plain.  One regexp therefore works at both
+  levels: ="/archive/"= prunes the directory and — belt — matches any
+  file path under it if one arrives by another route.
+
+* R60-2 — apply at discovery
+
+** Compilation, once per enumeration
+
+=org-air-query-files= compiles the exclusion context ONCE and passes it
+down (explicit optional arg to =--expand-source=; no dynamic binding):
+
+- Validation, never-error (R53): each regexp is probed with
+  =(ignore-errors (string-match-p re ""))=; an invalid one (e.g. ="[",=
+  a typo mid-edit) is dropped from the compiled set and reported ONCE
+  per distinct regexp per session (a small warned-set variable; one
+  =message=, no signal, no echo spam).  A broken exclude must never
+  kill the board.
+- The inbox constants are computed once: the truename-normalised
+  absolute inbox path (exactly the =org-air-query--inbox-file-p=
+  normalisation, query.el ~940) and its directory-prefix form for the
+  ancestor test below.
+- Empty result (nil knob, or all entries invalid) ⇒ the compiled
+  context is nil and every call site takes today's code path
+  BYTE-FOR-BYTE — in particular =directory-files-recursively= is
+  called with PREDICATE nil, not with a trivially-true closure.  "nil
+  excludes = today exactly" is a seam (T5), not an aspiration.
+
+** =org-air-query--excluded-p= (pure helper)
+
+=(org-air-query--excluded-p path regexps)= — non-nil when any regexp
+matches PATH (=case-fold-search= nil).  PATH arrives pre-shaped by the
+caller (files plain, directories via =file-name-as-directory=).  Pure
+string work, zero I/O — enumeration stays in the R53 milliseconds
+class; the predicate adds O(#regexps) string matches per directory.
+
+** =org-air-query--expand-source= (the two application points)
+
+With a non-nil compiled context:
+
+- Directory source: if the source directory ITSELF matches (dir-name
+  form) and is not an inbox ancestor ⇒ return nil — the whole source
+  is silenced (the traversal predicate is never consulted for the
+  root; confirmed above).  Otherwise call
+  =directory-files-recursively= with a PREDICATE closure:
+
+  #+begin_example
+  prune D  ⇔  (file-name-as-directory D) matches an exclude
+              AND D is not an ancestor of the inbox path
+  #+end_example
+
+  then post-filter the returned files: drop F when F matches (file
+  form) and F is not the inbox (=--inbox-file-p= normalisation).  The
+  post-filter is the belt for FILE-level regexps (="noise\\.org\\'"=)
+  that pruning cannot see; pruning is the scale mechanism.
+- File source: a file listed EXPLICITLY in =org-air-files= that
+  matches an exclude is DROPPED — exclude wins.  Ruled: the exclude
+  list is the single kill switch; if explicit listing beat it, entries
+  reachable both explicitly and via a directory source would behave
+  differently per route, and silencing a path would require editing
+  two knobs in sync.  The docstring states the precedence.
+
+** The inbox guard (normative)
+
+=org-air-inbox-file= is NEVER excluded, at either level:
+
+- File level: =--excluded-p= is simply not consulted for the inbox —
+  the guard compares truename-normalised paths (mirrors
+  =--inbox-file-p=), so a symlinked inbox is protected too.
+- Directory level: the prune predicate refuses to prune any ANCESTOR
+  of the inbox path (=string-prefix-p= of the candidate's dir-name
+  form against the precomputed inbox path — one string compare, no
+  I/O).  An inbox living INSIDE an excluded tree therefore still gets
+  enumerated: org-air walks the spine of directories down to it and
+  the file post-filter still drops every OTHER file in that tree.
+  Correctness beats the pruning win in that one pathological layout.
+
+Scope note (unchanged from R56 P1c): an inbox OUTSIDE every configured
+source is not enumerated today and still is not — the guard prevents
+exclusion-caused loss of the inbox, it does not add inclusion.
+
+* R60-3 — cache key + refresh discipline
+
+** The key
+
+=org-air-view--cache-key= (org-air-view.el ~745) gains
+=org-air-exclude-regexps= as the FIFTH element — a list of strings:
+plain printable, serialises as-is, compares with =equal=, exactly like
+the four elements before it.  Effects, both detectors:
+
+- In-memory: an open with a changed exclude set fails the
+  =org-air-view--items-key= equality (~8483) ⇒ the in-memory items are
+  not trusted, cold path.
+- Persisted: =org-air-view--cache-read= (~7535) returns nil on the
+  =:key= mismatch ⇒ a cache written under exclude set A never hydrates
+  under set B.  Pre-R60 4-element keys also miss (length inequality) —
+  no =org-air-view--cache-version= bump needed: no serialisation shape
+  changes this round, and the one-time paced cold rescan after
+  changing the knob is the same documented path as R57/R59.
+
+R59's caveat pattern applies verbatim: the knob is read at DISCOVERY
+time, so a flip takes effect through the key mismatch's cold
+re-derive, never by live re-filtering of already-scanned items.
+
+** The live-board hole (found this round; the guard that closes it)
+
+=g= / =org-air-refresh= → =org-air-view--refresh-start= (~8035) never
+consults the key.  Trace the knob flip on a live board: the excluded
+files leave =org-air-query-files=; =org-air-view--changed-files=
+(~7572) names them CHANGED via the vanished branch (in the old baseline,
+absent from FILES); the sync fast path then computes =existing= as
+=(seq-filter #'file-exists-p changed)= — and the excluded files STILL
+EXIST ON DISK — so it re-scans them and merges their rows straight
+back.  The same resurrect already bites anyone narrowing
+=org-air-files= mid-session; the next refresh repeats it, because the
+new baseline (snapshot of FILES) forgets them again.  Two fixes, both
+spec'd:
+
+1. Key guard (the R57 discipline — the key IS the detector):
+   =--refresh-start= begins by comparing =org-air-view--items-key=
+   against the live =(org-air-view--cache-key)=.  On mismatch it
+   treats the session as COLD for data purposes: drop the retained
+   merge inputs (=org-air-view--items-mtimes= ⇒ nil baseline, so every
+   current file is "changed") and run the full machine — paced when
+   large, sync-budget when small; the swap then stamps the fresh key
+   exactly where the machine already does (~8087, ~8181, ~8514).  The
+   painted board stays up until the swap, per R56.
+2. Defence-in-depth, independently correct: the sync path's =existing=
+   set intersects =changed= with the CURRENT enumerated =files= —
+   =org-air-query-items-in-files= must never be handed a path outside
+   the configured set, whatever the reason it left (excluded, un-listed,
+   or vanished; =file-exists-p= was always the wrong predicate for the
+   vanished-from-CONFIG case).
+
+** Pacing and consumers (nothing else moves)
+
+- R56: exclusion happens before the queue exists.
+  =--refresh-queue-order= (inbox first, mtime desc) sorts the
+  already-filtered set; fewer files = fewer slices; the =⟳ scanning
+  N/M= denominator shrinks honestly.  No scheduling change.
+- R53: never-hang — enumeration stays synchronous and strictly gets
+  cheaper (pruning subtracts work; the predicate does no I/O);
+  never-error — invalid regexps are dropped-and-warned, unreadable-dir
+  semantics are byte-identical to today; data-pure render — untouched,
+  this round ends before any buffer opens.
+- Coherence for free: refile targets, the revisit queue, and the
+  denote ID index all flow from =org-air-query-files=, so an excluded
+  tree is invisible EVERYWHERE — stated consequence: a =denote:= link
+  into an excluded tree reports "No note with denote ID …" by design.
+- =org-air--relevant-file-p= (~8609, after-save trigger): unchanged.
+  Saving an excluded-but-listed file triggers a refresh that proves
+  no change (the file is in neither FILES nor the baseline ⇒ =changed=
+  nil ⇒ no-op repaint).  Harmless; no special-casing.
+
+* ERT seams (batch, each reverts to RED)
+
+Fixtures: temp tree =root/{top.org, keep/a.org, archive/{b.org,
+deep/c.org}, .git/objects/d.org}=, plus per-test inbox placements and
+symlinks.  All via =let=-bound =org-air-files= /
+=org-air-exclude-regexps= / =org-air-inbox-file=; no cache file unless
+stated.
+
+- T1 /excluded file never appears/: excludes =("noise\\.org\\'")= on a
+  tree containing =keep/noise.org= ⇒ =org-air-query-files= lacks it.
+  Reverting the post-filter FAILS.
+- T2 /excluded dir pruned, not post-filtered/: excludes =("/archive/")=
+  ⇒ result lacks =archive/b.org= AND =archive/deep/c.org=; a spy
+  (=cl-letf= wrapping =file-name-all-completions=, recording its DIR
+  args) proves neither =…/archive= nor =…/archive/deep= was ever
+  LISTED.  A post-filter-only implementation passes the first assert
+  and FAILS the spy — this seam pins pruning itself.
+- T3 /non-matching survives/: same run: =top.org= and =keep/a.org=
+  present, order preserved (dedupe untouched).
+- T4 /inbox never excluded/: (a) inbox = =root/keep/inbox.org= with an
+  exclude matching its name ⇒ still enumerated; (b) inbox =
+  =root/archive/inbox.org= with =("/archive/")= ⇒ inbox present,
+  =archive/b.org= still absent.  Reverting the ancestor guard FAILS
+  (b); reverting the file-level guard FAILS (a).
+- T5 /nil = today, exactly/: excludes nil ⇒ result =equal= to a direct
+  =(directory-files-recursively root "\\.org\\(?:\\.gpg\\)?\\'" nil)=
+  modulo the existing dedupe; AND a =cl-letf= spy on
+  =directory-files-recursively= asserts PREDICATE was passed as
+  literal nil.  Also: all-invalid excludes =("[")= degrade to the same
+  nil context.
+- T6 /exclude wins over explicit listing/: =org-air-files= lists
+  =keep/noise.org= EXPLICITLY; exclude matches it ⇒ absent.  Revert
+  precedence FAILS.
+- T7 /cache key/: keys under exclude sets A and B are not =equal=; a
+  cache written under A ⇒ =org-air-view--cache-read= nil under B; a
+  pre-R60 4-element =:key= also misses.  Reverting the key extension
+  FAILS (stale hydration).
+- T8 /live-refresh guard/: board holds items for =keep/noise.org=
+  under a matching baseline; flip the exclude, call
+  =--refresh-start= ⇒ after completion no row for it remains, and the
+  sync path never handed it to =org-air-query-items-in-files= (spy).
+  Reverting the key guard AND the intersect FAILS (rows resurrect via
+  the vanished/exists branch).
+- T9 /never-error on bad regexp/: excludes =("[" "/archive/")= ⇒ no
+  signal anywhere, ="/archive/"= still prunes, exactly one warning
+  message per session for ="["=.  Reverting validation FAILS
+  (=string-match-p= signals mid-enumeration).
+- T10 /symlink by-name/: =keep/link.org= → =archive/deep/c.org= with
+  =("/archive/")= ⇒ link SURVIVES under its own name; a symlink whose
+  own path matches an exclude is dropped.  Reverting the pre-truename
+  ruling (matching truenames instead) FAILS the first assert.
+- T11 /excluded source root/: =org-air-files= = =(root/archive)= with
+  =("/archive/")= ⇒ nil; same but inbox inside it ⇒ exactly the inbox.
+
+* Constraints
+
+- org-ql remains the ONLY query engine; this round never reaches it —
+  discovery only.  =org-air-query--org-file-p=, the work-buffer scan,
+  and every item slot are untouched (no cache version bump).
+- R53: never-hang (enumeration only gets cheaper; predicate is pure
+  string work), never-error (validated regexps, warn-once; unreadable
+  dirs behave byte-identically to today's nil predicate), data-pure
+  render untouched; symlink-only truename dedupe untouched.
+- R56: pacing, progressive paint, inbox-first queue order — all
+  operate downstream of the filtered set, unchanged.
+- R57/R59: the cache key stays the one coherence detector; the R60 key
+  element and the =--refresh-start= key guard extend that discipline
+  rather than adding a parallel mechanism.
+
+* Out of scope
+
+- The project view's own discovery (=org-air-project.el= ~343 walks
+  =air/= under project roots independently) — a future round may share
+  the exclusion helper; not this one.
+- Include-style narrowing (only-these-globs), per-source excludes, or
+  =.gitignore= / =.projectile= file parsing — the regexp list covers
+  the reported need; file-format parsers are a maintenance tax to
+  adopt only on demand.
+- Making =org-air--relevant-file-p= exclusion-aware (the after-save
+  trigger already proves no-change harmlessly).
+- Any UI for editing excludes from the board.
+
+* History
+
+- 2026-07-20: Round 60 design written from the user's exclusion
+  question.  Studied the discovery layer (=--expand-source= /
+  =org-air-query-files= / consumers), empirically confirmed
+  =directory-files-recursively= PREDICATE semantics on 30.2 (absolute
+  arg, no trailing slash, real pruning, root not consulted, error
+  semantics unchanged) and that =.git/= is walked today; found and
+  spec'd the live-refresh resurrect hole alongside the key extension.
+  State: ready.

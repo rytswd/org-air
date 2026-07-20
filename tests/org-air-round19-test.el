@@ -120,11 +120,24 @@ carrying NO item rows."
 ;;;; ---------------------------------------------------------------------
 
 (ert-deftest org-air-r19-2-refile-prompt-shows-tags-and-move-relocates ()
-  "R20-4 re-bless: the refile prompt is now SHORT (no `[#urgent #work]' tag
-block), the action-first menu leads with `⌂ Move to file…', and choosing it
-opens a dedicated picker whose `⌂ <file>' target actually RELOCATES the
-heading (gone from A, present in B on disk).  Driven with a DIRECTORY
-`org-air-files' — the exact config that broke the move before R19-2."
+  "R64-3 re-bless (the spec's NAMED deliberate test retirement, R62-T14
+style): the R20-4 action-first `completing-read' menu this stub-chain
+used to drive is RETIRED — `r' now opens the transient form
+`org-air-refile-transient' and ONE confirm executes ONE
+`org-air-refile-item' call.  The retired menu's actual GUARANTEES
+survive and are re-asserted here through the form's batch seams (spec
+seam T8):
+ (a) the SHORT truncated title — no `[#urgent #work]' tag block — is
+     the form's header (`org-air-inbox--form-heading'), while the tag
+     PRE-FILL still shows the full set on its own field;
+ (b) the real `⌂ <file>' candidates + decode-to-real-file live in the
+     `f' infix reader (`org-air-refile-form-file' over
+     `org-air-inbox--read-target-file'), driven with a DIRECTORY
+     `org-air-files' — the exact config that broke the move before
+     R19-2;
+ (c) the form's execute suffix fires the engine and the heading
+     actually RELOCATES (gone from A, present in B on disk, tags riding
+     along), recording the destination for the `l' recall."
   (skip-unless (locate-library "org-air"))
   (org-air-r19--with-temp-org
       ((dir)
@@ -132,38 +145,39 @@ heading (gone from A, present in B on disk).  Driven with a DIRECTORY
        (b "b.org" "* Existing target\n"))
     (let* ((org-air-files (list dir))         ; a DIRECTORY (the bug trigger)
            (org-air-inbox-file a)
+           (org-air-view-buffer-name "*org-air-r19-no-board*")
+           (org-air-inbox--refile-form nil)
+           (org-air-inbox--refile-last nil)
            (b-cand (concat "⌂ " (file-name-nondirectory b)))
-           (captured-prompt nil)
-           (captured-menu nil)
-           (captured-move-coll nil))
+           (captured-move-coll nil)
+           (item (org-air-item-create
+                  :title "Pay the invoice" :tags '("urgent" "work") :file a
+                  :marker (with-current-buffer (find-file-noselect a)
+                            (goto-char (point-min))
+                            (re-search-forward "^\\* TODO Pay the invoice")
+                            (goto-char (match-beginning 0))
+                            (point-marker)))))
+      (org-air-inbox--form-init item)
+      ;; (a) the header is SHORT — title present, the tag block GONE.
+      (let ((head (org-air-inbox--form-heading)))
+        (should (string-match-p (regexp-quote "Pay the invoice") head))
+        (should-not (string-match-p (regexp-quote "[#urgent #work]") head))
+        (should-not (string-match-p ":urgent:" head)))
+      ;; ...while the tag pre-fill still SHOWS the full set (own field).
+      (should (equal (org-air-inbox--form-get :tags) '("urgent" "work")))
+      ;; (b) the `f' reader offers the real `⌂' candidate and decodes it
+      ;; to the REAL expanded file, not the item's own file.
       (cl-letf (((symbol-function 'completing-read)
-                 (lambda (prompt coll &rest _)
-                   (cond
-                    ;; the top action-first menu
-                    ((string-prefix-p "Refile " prompt)
-                     (setq captured-prompt prompt captured-menu coll)
-                     "⌂ Move to file…")
-                    ;; the dedicated move sub-picker
-                    ((string-prefix-p "Move to file: " prompt)
-                     (setq captured-move-coll coll)
-                     b-cand)
-                    (t ""))))
-                ((symbol-function 'read-string) (lambda (&rest _) "")))
-        (with-current-buffer (find-file-noselect a)
-          (goto-char (point-min))
-          (re-search-forward "^\\* TODO Pay the invoice")
-          (goto-char (line-beginning-position))
-          (let ((inhibit-message t))
-            (call-interactively 'org-air-refile-item))))
-      ;; (a) the prompt is SHORT — the current-tags block is GONE.
-      (should-not (string-match-p (regexp-quote "[#urgent #work]")
-                                  captured-prompt))
-      (should (string-match-p (regexp-quote "Pay the invoice") captured-prompt))
-      ;; the dedicated move action leads the top menu...
-      (should (member "⌂ Move to file…" captured-menu))
-      ;; ...and the real `⌂' file target is offered in its sub-picker.
+                 (lambda (_prompt coll &rest _)
+                   (setq captured-move-coll coll)
+                   b-cand)))
+        (call-interactively 'org-air-refile-form-file))
       (should (member b-cand captured-move-coll))
-      ;; (b) the heading RELOCATED.
+      (should (equal (file-truename (org-air-inbox--form-get :file))
+                     (file-truename b)))
+      ;; (c) ONE confirm = ONE engine call; the heading RELOCATED.
+      (let ((inhibit-message t))
+        (call-interactively 'org-air-refile-form-execute))
       (with-temp-buffer
         (insert-file-contents a)
         (should-not (string-match-p "Pay the invoice" (buffer-string))))
@@ -171,7 +185,10 @@ heading (gone from A, present in B on disk).  Driven with a DIRECTORY
         (insert-file-contents b)
         (should (string-match-p "Pay the invoice" (buffer-string)))
         ;; tags rode along with the moved subtree.
-        (should (string-match-p ":urgent:work:" (buffer-string)))))))
+        (should (string-match-p ":urgent:work:" (buffer-string))))
+      ;; the execute recorded the destination — the `l' recall seed.
+      (should (equal (file-truename (car org-air-inbox--refile-last))
+                     (file-truename b))))))
 
 (ert-deftest org-air-r19-2-decode-target-directory-source-resolves-real-file ()
   "Regression net for the move bug (R20-4 re-bless): with `org-air-files' a

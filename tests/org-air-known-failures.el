@@ -2367,18 +2367,122 @@
     ;; rest-are-tags) survive in the batch-drivable `f'/`p'/`c' infix
     ;; readers (`org-air-inbox--read-target-file' /
     ;; `--read-target-path' / `--edit-categories') per spec seam T8.
-    ;; The four legacy ERTs below drive the retired menu SHAPE and die
-    ;; with it — the R64 spec names the R19-2 stub-chain test as the
-    ;; deliberate retirement (R62-T14 style); the test seat re-blesses/
-    ;; retires them (NOT hand-blessed here):
-    (org-air-r19-2-refile-prompt-shows-tags-and-move-relocates
-     . "R64-3: the interactive stub-chain drives the retired R20-4 action menu (the spec's named deliberate test retirement; guarantees re-homed in the f reader, seam T8)")
-    (org-air-r20-4-refile-menu-is-action-first-move-leads
-     . "R64-3: `org-air-inbox--refile-candidates' retired with the action menu (the transient form replaces the one-action-per-invocation menu)")
-    (org-air-r20-4-decode-category-first-is-category-rest-are-tags
-     . "R64-3: `org-air-inbox--decode-target' retired; the CRM first-is-category-rest-are-tags semantics live on in the `c' infix reader (org-air-refile-form-category)")
-    (org-air-r20-4-decode-move-routes-to-read-move-target
-     . "R64-3: `org-air-inbox--decode-target' retired; the move-target guarantees re-home in the `f'/`p' readers (seam T8)")
+    ;; The four legacy ERTs flagged in this grind drove the retired menu
+    ;; SHAPE and died with it — the R64 spec names the R19-2 stub-chain
+    ;; test as the deliberate retirement (R62-T14 style); the test seat
+    ;; re-blesses/retires them (NOT hand-blessed on the impl track).
+    ;;
+    ;; 2026-07-21: ROUND-64 CLOSEOUT (impl tip uoywyzpm/f0c2cd0f + test
+    ;; seat <this commit>).  ALL FOUR grind entries CLOSED — no fixture/
+    ;; golden moved (the R64 changes live in the refile engine + form;
+    ;; `make clean && make check' green with zero fixture churn — `make
+    ;; clean' FIRST, the standing R48/R51/R53/R54/R62/R63 stale-.elc
+    ;; lesson: the first probe of this round again ran pre-R64 bytecode).
+    ;; Each flagged ERT re-blessed or retired HONESTLY against the
+    ;; design-blessed R64 contract (air/v0.5/org-air-round64-design.org),
+    ;; each retained guarantee asserted at its new home, none weakened;
+    ;; the three re-blessed ones verified REVERT-FAIL against the
+    ;; pre-impl trunk kklxowyq in a scratch workspace:
+    ;;   org-air-r19-2-refile-prompt-shows-tags-and-move-relocates —
+    ;;     RE-BLESSED in place to the one-shot API (the spec's NAMED
+    ;;     deliberate retirement): the stub-chain no longer drives the
+    ;;     retired action menu's prompt strings; the menu's actual
+    ;;     guarantees are re-asserted through the form's batch seams —
+    ;;     the SHORT truncated no-tag-block title on the form HEADER
+    ;;     (`org-air-inbox--form-heading', tags still visible on their
+    ;;     own pre-filled field), the real `⌂' candidates + decode-to-
+    ;;     real-file in the `f' infix reader (driven with the DIRECTORY
+    ;;     `org-air-files' bug-trigger config, unchanged), and the
+    ;;     on-disk RELOCATION now through the form's execute suffix
+    ;;     (ONE `org-air-refile-item' call, tags riding along, the
+    ;;     destination recorded for the `l' recall).
+    ;;   org-air-r20-4-refile-menu-is-action-first-move-leads — REMOVED
+    ;;     (the one true retirement): the action-first menu SHAPE it
+    ;;     pinned (`--refile-candidates' ordering, `Schedule: …' quick
+    ;;     rows, no-#tag-soup) has NO successor — the transient form
+    ;;     shows every field at once, so there is no action list left
+    ;;     to lead.  Each surviving guarantee is asserted at its new
+    ;;     home (justification comment left in its place in
+    ;;     tests/org-air-round20-test.el): `⌂' candidates/decode in the
+    ;;     re-blessed r19-2 + the renamed move-target test, the CRM
+    ;;     category semantics in the re-blessed `c'-reader test, the
+    ;;     schedule quicks in `org-air-inbox--schedule-options', the
+    ;;     command/binding contract in r64-7 (seam T8).
+    ;;   org-air-r20-4-decode-category-first-is-category-rest-are-tags —
+    ;;     RE-BLESSED in place: `--decode-target' is gone; the SAME
+    ;;     first-is-category-rest-are-tags + pre-filled-CRM conjuncts
+    ;;     now drive the form's `c' suffix (`org-air-refile-form-
+    ;;     category' over the unchanged `--edit-categories'): FIRST
+    ;;     pick → the form's `:category', extras merged onto `:tags',
+    ;;     the item's current tags kept — nothing lost.
+    ;;   org-air-r20-4-decode-move-routes-to-read-move-target —
+    ;;     RE-BLESSED + RENAMED `org-air-r20-4-move-target-rehomes-in-
+    ;;     file-and-path-readers' (never silent: the old name named the
+    ;;     retired router): the `f' reader resolves the `⌂' candidate
+    ;;     to the REAL file (never the item's own — the original move
+    ;;     bug), the `p' reader completes over that ONE file's real
+    ;;     outline table (existing → `:new' 0, typed-beyond → counted
+    ;;     creations) and the prompt mutates NOTHING on disk (the
+    ;;     R64-2 defer-to-execute ruling).
+    ;; NEW R64 EXECUTING ERTs (tests/org-air-round64-test.el, all
+    ;; batch/headless driving the NON-INTERACTIVE `org-air-refile-item'
+    ;; + the named reader seams — the transient UI polish is the
+    ;; round's one user-confirm residue; ALL EIGHT verified REVERT-FAIL
+    ;; against the pre-impl trunk kklxowyq in a scratch workspace):
+    ;;   r64-1 (T1/T2) nested parents created when absent (‘* Infra’ ›
+    ;;     ‘** Cloud’, exactly one of each, keyword-less R59
+    ;;     containers, no timestamp), item under the deepest; the same
+    ;;     path AGAIN creates nothing (last-child rule); a third call
+    ;;     files a CHILD under a heading a prior call moved into place
+    ;;     (n8n › daily automation); the on-disk tree asserted exactly,
+    ;;     the emptied `* New' container left in the inbox.
+    ;;   r64-2 (T5) the acceptance mirror: the worked example's THREE
+    ;;     engine calls verbatim (syncthing → Infra/Cloud created +
+    ;;     tag + "+1w", n8n → same place, daily automation → CHILD of
+    ;;     n8n) ⇒ the exact final tree modulo the timestamp, every item
+    ;;     re-leveled parent+1 (2→3, 2→4), exactly ONE SCHEDULED stamp
+    ;;     under syncthing, the `inbox' tag gone from all three.
+    ;;   r64-3 (T4) ONE call sets olp + tags + category + schedule +
+    ;;     todo + priority together — all six asserted on-disk via a
+    ;;     fresh org parse (DONE, [#B], both tags, :CATEGORY:,
+    ;;     SCHEDULED 2026-08-01, ("Ops" "Weekly") ancestry, level 3).
+    ;;   r64-4 (T3) the MEASURED sibling-level bug is dead: the level-2
+    ;;     `* New'-container item refiled "under" level-2 `Cloud' lands
+    ;;     level 3 as Cloud's LAST child (never its sibling), and an
+    ;;     item with its OWN child re-levels both (2/3 → 4/5) under a
+    ;;     level-3 parent — string AND path targets.
+    ;;   r64-5 (T6, R53 re-pin) pickers never scan: seeded board-items
+    ;;     cache ⇒ the `f' candidates, the tag/category vocabs (through
+    ;;     the REAL CRM editors) and the R64-2 path table build under
+    ;;     spies on `org-air-query--scan-file' / `org-air-query-items'
+    ;;     / `-in-files' / `org-air-query-files' at ZERO calls; the
+    ;;     path stage opens exactly ONE file — the destination
+    ;;     (`find-file-noselect' spy, distinct files); the vocab/table
+    ;;     content is real cached data (anti-tautology); the cache
+    ;;     fallback leg still scans nothing.
+    ;;   r64-6 (T7) signature compatibility: `(item file)' ⇒ file end
+    ;;     under the `#+title' prose (the R53-6 call shape re-run; nil
+    ;;     paste level 1 = the called-out promotion); `"Existing"' ⇒
+    ;;     filed AT child level (string ≡ one-segment path);
+    ;;     `"Missing"' ⇒ CREATED at top level — the silent file-end
+    ;;     fallback is retired.
+    ;;   r64-7 (T8) the shell's batch-safe parts: `org-air-refile-item'
+    ;;     stays a command + the board's `r' binding;
+    ;;     `org-air-refile-transient' is a command; the `p' resolver is
+    ;;     pure over fixture tables ("A/B" → (:olp ("A" "B") :new 2),
+    ;;     trailing `/' tolerated, partial chains count the missing
+    ;;     tail, empty → :olp nil, a `/'-NAMED heading matches as a
+    ;;     table entry FIRST); the `f' reader resolves a DISAMBIGUATED
+    ;;     `⌂' twin to the real file (the R19-2 guarantee re-homed).
+    ;;   r64-8 (T9) the todo vocabulary is the DESTINATION file's OWN
+    ;;     merged keywords (`#+TODO: TODO HOLD | CLOSED' ⇒ exactly
+    ;;     those three), "CLOSED" round-trips on-disk and `donep'
+    ;;     follows the file's own done set (moved item done, the HOLD
+    ;;     sibling not) — the R57 law.
+    ;; No .el SOURCE touched on the test track (impl landed R64-1..3 in
+    ;; uoywyzpm).  Round-64 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
+    ;; =================================================================
     ;; (test-symbol . "reason / spec reference")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

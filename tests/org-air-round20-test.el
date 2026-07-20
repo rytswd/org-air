@@ -294,25 +294,23 @@ item in a DIFFERENT file builds a FRESH indirect on the new base."
 ;;;; R20-4 — refile: action-first menu, dedicated move, CRM tags/category.
 ;;;; ---------------------------------------------------------------------
 
-(ert-deftest org-air-r20-4-refile-menu-is-action-first-move-leads ()
-  "The refile menu is the NAMED action list — it LEADS with the dedicated
-`⌂ Move to file…' action, carries `Tags…' / `Category…', the spelled-out
-`Schedule: …' quicks, and NO flat `#tag' / `@group' soup."
-  (skip-unless (locate-library "org-air"))
-  (org-air-test-with-fixtures
-    (let* ((item (org-air-item-create
-                  :title "x" :tags '("a") :file (car org-air-files)
-                  :marker (point-marker)))
-           (cands (org-air-inbox--refile-candidates item)))
-      ;; move is FIRST and obvious
-      (should (equal (car cands) "⌂ Move to file…"))
-      (should (member "Tags…" cands))
-      (should (member "Category…" cands))
-      (should (member "Schedule: today" cands))
-      (should (member "Schedule: someday" cands))
-      ;; no one-at-a-time tag/group rows
-      (should-not (seq-find (lambda (c) (string-prefix-p "#" c)) cands))
-      (should-not (seq-find (lambda (c) (string-prefix-p "@" c)) cands)))))
+;; org-air-r20-4-refile-menu-is-action-first-move-leads — RETIRED (R64-3,
+;; air/v0.5/org-air-round64-design.org).  The R20-4 action-first
+;; `completing-read' menu it pinned (`org-air-inbox--refile-candidates')
+;; is GONE: the transient form `org-air-refile-transient' shows
+;; destination AND tags/category/schedule/todo/priority together on one
+;; screen, so there is no action LIST left to lead with `⌂ Move to
+;; file…' and no `#tag'/`@group' soup for it to exclude — the menu
+;; SHAPE has no successor to re-bless against.  Its surviving guarantees
+;; are asserted at their new homes: the `⌂' file candidates + decode in
+;; the `f' reader (re-blessed
+;; `org-air-r19-2-refile-prompt-shows-tags-and-move-relocates' and
+;; `org-air-r20-4-move-target-rehomes-in-file-and-path-readers' below),
+;; the CRM category semantics in the `c' reader (re-blessed
+;; `org-air-r20-4-decode-category-first-is-category-rest-are-tags'), the
+;; schedule quicks incl. `someday' in the `s' reader's option table
+;; (`org-air-inbox--schedule-options'), and the command/binding/reader
+;; contracts in tests/org-air-round64-test.el (spec seam T8, r64-7).
 
 (ert-deftest org-air-r20-4-edit-categories-crm-prefilled ()
   "`org-air-inbox--edit-categories' is `completing-read-multiple' PRE-FILLED
@@ -335,48 +333,81 @@ caller makes the first the `:CATEGORY:' and the rest tags)."
           (should (equal result '("work" "finance"))))))))
 
 (ert-deftest org-air-r20-4-decode-category-first-is-category-rest-are-tags ()
-  "`Category…' decoding makes the FIRST pick the `:CATEGORY:' arg and adds any
-EXTRA picks as tags (merged onto the item's current tags) — nothing is lost."
+  "R64-3 re-bless: `org-air-inbox--decode-target' is RETIRED with the
+action menu; the CRM first-is-category-rest-are-tags semantics live on
+in the form's `c' infix reader (`org-air-refile-form-category' over the
+unchanged `org-air-inbox--edit-categories') — the CRM is PRE-FILLED
+with the item's current category, the FIRST pick becomes the form's
+`:category' and every EXTRA pick is merged onto the form's `:tags'
+\(the item's current tags kept) — nothing the user typed is lost."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     (let ((item (org-air-item-create
                  :title "x" :tags '("keep") :file (car org-air-files)
-                 :group "work" :marker (point-marker))))
+                 :group "work" :marker (point-marker)))
+          (org-air-inbox--refile-form nil)
+          (captured-initial 'unset))
+      (org-air-inbox--form-init item)
       (cl-letf (((symbol-function 'completing-read-multiple)
-                 (lambda (&rest _) '("finance" "q3"))))
-        ;; decoded = (ITEM FILE HEADING TAGS SCHEDULED CATEGORY)
-        (let ((decoded (org-air-inbox--decode-target "Category…" item)))
-          (should (equal (nth 5 decoded) "finance"))      ; FIRST -> category
-          (should (member "q3" (nth 3 decoded)))          ; EXTRA -> tag
-          (should (member "keep" (nth 3 decoded))))))))   ; current tag kept
+                 (lambda (_prompt _coll &optional _pred _req initial &rest _)
+                   (setq captured-initial initial)
+                   '("finance" "q3"))))
+        (call-interactively 'org-air-refile-form-category))
+      ;; pre-filled with the CURRENT category (the R20-4a CRM shape kept)
+      (should (equal captured-initial "work"))
+      (should (equal (org-air-inbox--form-get :category) "finance"))
+      (should (member "q3" (org-air-inbox--form-get :tags)))
+      (should (member "keep" (org-air-inbox--form-get :tags))))))
 
-(ert-deftest org-air-r20-4-decode-move-routes-to-read-move-target ()
-  "`⌂ Move to file…' decoding routes through `--read-move-target' and yields
-the REAL target file + heading (mocking the file picker + heading prompt)."
+(ert-deftest org-air-r20-4-move-target-rehomes-in-file-and-path-readers ()
+  "R64-3 re-bless (was `…-decode-move-routes-to-read-move-target' —
+renamed with the retired router): `org-air-inbox--decode-target' is
+GONE with the action menu; the `⌂ Move to file…' guarantees re-home in
+the form's `f'/`p' infix readers (spec seam T8).  The `f' reader
+resolves a `⌂' candidate to the REAL expanded target file — never the
+item's own file, the original move bug — and the `p' reader completes
+over that ONE file's real outline table: an existing heading resolves
+with `:new' 0, typed-beyond input counts exactly the segments a refile
+will CREATE, and NOTHING mutates at prompt time (creation is deferred
+to execute — the R64-2 defer ruling)."
   (skip-unless (locate-library "org-air"))
   (org-air-r20--with-temp-org
       ((dir)
        (a "a.org" "* TODO H :x:\n")
        (b "b.org" "* Existing\n"))
     (let* ((org-air-files (list dir))
+           (org-air-view-buffer-name "*org-air-r20-no-board*")
            (item (org-air-item-create
                   :title "H" :tags '("x") :file a
                   :marker (with-current-buffer (find-file-noselect a)
                             (goto-char (point-min)) (point-marker))))
-           (b-cand (concat "⌂ " (file-name-nondirectory b))))
-      ;; R24-1: the heading prompt is now a `completing-read' over the target
-      ;; file's real headings (b.org has `* Existing'); `require-match' is nil
-      ;; so a typed-in heading is returned verbatim.  Distinguish the two
-      ;; completing-read calls by prompt (file picker vs heading).
+           (b-cand (concat "⌂ " (file-name-nondirectory b)))
+           (file nil))
+      ;; `f': the real `⌂' candidate decodes to the REAL file.
       (cl-letf (((symbol-function 'completing-read)
                  (lambda (prompt &rest _)
-                   (if (string-match-p "Move to file" prompt) b-cand "Under here"))))
-        (let ((decoded (org-air-inbox--decode-target "⌂ Move to file…" item)))
-          ;; decoded = (ITEM FILE HEADING TAGS SCHEDULED CATEGORY)
-          (should (equal (file-truename (nth 1 decoded)) (file-truename b)))
-          (should (equal (nth 2 decoded) "Under here"))
-          (should-not (nth 3 decoded))
-          (should-not (nth 5 decoded)))))))
+                   (should (string-match-p "Move to file" prompt))
+                   b-cand)))
+        (setq file (org-air-inbox--read-target-file item)))
+      (should (equal (file-truename file) (file-truename b)))
+      (should-not (equal (file-truename file) (file-truename a)))
+      ;; `p': the table is b's REAL outline table; an existing heading
+      ;; resolves with `:new' 0.
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (_prompt coll &rest _)
+                   (should (member "Existing" coll))
+                   "Existing")))
+        (should (equal (org-air-inbox--read-target-path file)
+                       '(:olp ("Existing") :new 0))))
+      ;; `p': typing beyond the tree means CREATE — counted, not built.
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "Existing/Under here")))
+        (should (equal (org-air-inbox--read-target-path file)
+                       '(:olp ("Existing" "Under here") :new 1))))
+      ;; NOTHING mutated at prompt time — creation is deferred.
+      (with-temp-buffer
+        (insert-file-contents b)
+        (should-not (string-match-p "Under here" (buffer-string)))))))
 
 (ert-deftest org-air-r20-4-refile-applies-category-property ()
   "A `Category…' refile sets the moved heading's `:CATEGORY:' property and

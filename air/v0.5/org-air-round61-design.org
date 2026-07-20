@@ -1,0 +1,55 @@
+#+title: org-air Review surface: what happened this week / month
+#+state: draft
+#+FILETAGS: :review:reporting:clocking:
+
+* Summary
+A new read-first surface — =org-air-review= — that answers "what happened over this week / month": items completed, time clocked (rolled up by tag / directory / origin), items started, and work touched but not finished. Period navigation mirrors the board calendar (=<= / =>= / =.=), plus a week ↔ month toggle.
+
+* Motivation
+The requesting user wants a weekly / monthly report of what was accomplished and where time went. The absence of that report is the stated reason clocking never became habitual — there is no payoff for recording time. Report first, clocking follows: the surface creates the incentive loop, and it gets more accurate the more it is used.
+
+Why in org-air and not stock Org: clocktable dynamic blocks are per-file artifacts that need manual =:scope= wrangling and cannot roll up by tag or directory across a tree; agenda log mode (=v l= + clockreport) is day-oriented, noisy, and not a review surface. org-air already scans whole trees through org-ql with a persistent cache, and Revisit set the precedent for a read-only sibling surface over the same scan. This is the natural third leg: board = now, revisit = evergreen, review = retrospect.
+
+Why not defer to an external reporting script: the value is in the loop (review → notice a gap → clock more → better review), which only works if the report lives one keystroke from the board.
+
+** Goals
+- Period-scoped view: ISO week or calendar month, navigable back / forward, defaulting to the current period.
+- *Completed* section: items closed within the period, grouped by day (default) with a by-tag / by-directory regrouping toggle.
+- *Time invested* section: CLOCK totals intersecting the period, rolled up by tag, by directory, and by origin file — "which part needs more time / work" at a glance.
+- *Started* section: items created within the period.
+- *Carried over* section: items with activity in the period (state change, clock, logbook note) still open at period end.
+- Reuse the existing filter (=#tag= / free text) and scope machinery.
+- Bookmark / activities / desktop-restore parity with the other surfaces.
+
+** Non-Goals
+- Editing or correcting clock data — org-clock owns that.
+- A live clocking UI / currently-clocked indicator (possible future, separate doc).
+- Export (org / CSV) in the first cut.
+- Billing-grade accuracy — untracked time stays untracked; the report shows what was recorded, never estimates.
+
+* Proposal
+Entry points: =M-x org-air-review=, plus a single key from the board (candidate: =W=, mirroring =N= for Revisit; final binding left to the design round).
+
+Data sources — all already present in org files, nothing new to author:
+
+| Signal       | Source                                                                                      |
+|--------------+---------------------------------------------------------------------------------------------|
+| Completed    | =CLOSED:= timestamps; LOGBOOK =- State "DONE" from …= entries, respecting the user's done-set from =org-todo-keywords= |
+| Time         | =CLOCK: [start]--[end] => H:MM= lines, clipped to period boundaries                          |
+| Started      | =:CREATED:= property; fallback to the earliest LOGBOOK entry                                 |
+| Carried over | any of the above within the period ∧ heading still in a not-done TODO state                  |
+
+Rail: period summary (totals, top tags by clocked time) and the month calendar with the period highlighted.
+
+* Design Details
+- Scan: extend the work-buffer scan to collect LOGBOOK state-change lines and CLOCK intervals per heading, cached alongside the existing per-heading metadata. This is the one cache-schema change — bump the cache version so stale caches rebuild cleanly.
+- Period math: ISO weeks; the month calendar renderer is reused for period display and navigation.
+- CLOCK intervals crossing a period boundary are clipped to the boundary, not dropped and not double-counted.
+- Suspect clocks: a single interval longer than a threshold (e.g. =org-air-review-suspect-clock-hours=, default 16) is flagged inline rather than silently inflating totals — forgotten running clocks are the common failure mode.
+- Performance: rendering a period is a filter + fold over cached entries; no rescan on period navigation.
+
+* Context
+The requesting setup: knowledge notes in a Denote silo (=~/Documents/Syncthing/OrgMode/Denote-Notes/=), tasks being consolidated into an Air workspace (=OrgMode/Tasks/=) reviewed with =org-air-project=, transient tasks in =Inbox.org=. Years of LOGBOOK state changes and CLOCK lines already exist in the habit / routine files, so the surface has real data to render on day one.
+
+* History
+- 2026-07-20: Initial draft, filed from an assistant session on rytswd's machine at the user's request; handed to org-air-orchestrator via crosstalk. Uncommitted in the working copy — orchestrator to fold into its round flow and commit.

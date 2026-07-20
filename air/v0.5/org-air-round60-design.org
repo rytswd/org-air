@@ -1,5 +1,5 @@
 #+title: org-air Round 60 — User-driven exclusion: org-air-exclude-regexps, pruned at discovery
-#+state: ready
+#+state: complete
 #+tags: files scan exclusion configuration performance cache never-error
 
 * Summary
@@ -414,3 +414,4 @@ stated.
   semantics unchanged) and that =.git/= is walked today; found and
   spec'd the live-refresh resurrect hole alongside the key extension.
   State: ready.
+- 2026-07-20: State: ready → complete.

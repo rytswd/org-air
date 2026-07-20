@@ -1,0 +1,524 @@
+#+title: org-air Round 64 — One-shot refile: a transient destination+metadata form with nested path targets created on the fly
+#+state: ready
+#+tags: inbox refile ux transient board keybindings robustness
+
+* Summary
+
+REAL USER NEED, verbatim intent: /inbox refiling is hard to use/.
+Moving items (e.g. "syncthing") out of the inbox, the user wants to
+add TAGS, CATEGORY, SCHEDULE etc. *in the move*, and to place items
+into a NESTED structure cleanly — "syncthing" under Infra/Cloud,
+"n8n" as a sibling, and "some daily automation with n8n" as a CHILD
+of the n8n heading just created.  The current interaction is awkward
+and unintuitive — and it is, structurally:
+
+- *One action per invocation.*  =org-air-refile-item='s interactive
+  form (org-air-inbox.el:305) is the R20-4 action-first
+  =completing-read= menu: each =r= press picks ONE of
+  {=⌂ Move to file…=, =Tags…=, =Category…=, =Schedule: …=}
+  (=--refile-candidates= :181, dispatched by =--decode-target= :260).
+  Destination + tags + category + schedule therefore costs 3–4
+  SEPARATE full invocations — and the move itself re-queries nothing
+  in between, so the metadata invocations run against the item's NEW
+  location the user must re-find.
+- *No nesting, no creation.*  =⌂ Move to file…= reads a file, then
+  =--read-heading= (:115) offers only EXISTING headings of that file,
+  flat, any depth, no paths.  Nothing can create =Infra= › =Cloud=.
+- *"Under heading" is a lie at the wrong level* — MEASURED this
+  round (=/tmp/org-air-r64/probe-level.el=, batch Emacs 30.2): the
+  insert path (=--target-position= :83 + verbatim
+  =buffer-substring= insert at :295) keeps the item's SOURCE stars.
+  A level-2 inbox item (the R59 user's real shape:
+  =** TODO Set up syncthing= under the =* New= container) "refiled
+  under" the level-2 heading =Cloud= lands as a level-2 *SIBLING of
+  Cloud*, not a child:
+
+  #+begin_example
+  * Infra
+  ** Cloud
+  *** Existing task
+  ** TODO Set up syncthing :inbox:      ← "under Cloud", allegedly
+  #+end_example
+
+  Nesting today happens only by luck of relative levels.  Any fix
+  that adds real nested targets MUST also fix the insert to re-level.
+
+Deliverables:
+
+- *R64-1 (core)* — the non-interactive engine: =org-air-refile-item=
+  grows a clean SUPERSET signature — =TARGET-HEADING= accepts an
+  outline PATH (list of strings), missing segments are CREATED via
+  Org's own =org-refile-new-child=; the insert switches from verbatim
+  text to =org-paste-subtree= at parent-level+1 (the exact
+  =org-refile= idiom, fixing the sibling bug for ALL callers); new
+  optional =TODO= and =PRIORITY= args.  Destination + tags + category
+  + schedule + todo + priority in ONE call.
+- *R64-2 (nested targets)* — the destination picker: the cached
+  =⌂= file stage (R19-2/R53, unchanged) followed by a PATH stage —
+  single-shot outline-path completion over the chosen file's real
+  target table (=org-refile-get-targets= scoped to that ONE file),
+  where typing beyond the existing tree means "create".  Nothing
+  mutates at prompt time; creation is deferred to execute.
+- *R64-3 (the form)* — =r= opens a *transient* form (built-in
+  =transient.el=, Emacs ≥ 28.1; org-air already requires 29.1 — NO
+  new hard dependency): destination, tags, category, schedule, todo,
+  priority each on their own key, editable in any order, a live
+  preview line showing the resulting location + metadata +
+  "(creates: …)" annotation, ONE confirm executes ONE
+  =org-air-refile-item= call.  =l= recalls the last destination for
+  the "file the sibling too" case.  The R20-4 action menu is
+  retired; the command NAME and the =r= binding are preserved.
+
+Measured / verified this round (probes under =/tmp/org-air-r64/=):
+
+| Probe                                                            | Result                                  |
+|------------------------------------------------------------------+-----------------------------------------|
+| Refile level-2 item "under" level-2 =Cloud= (today's code)       | level-2 SIBLING of Cloud (bug, above)   |
+| =org-refile-get-location= NEW-NODES, ONE missing leaf w/ parent  | creates =** Cloud=, correctly leveled   |
+| =org-refile-get-location= NEW-NODES, TWO-level missing chain     | returns NIL silently, creates NOTHING   |
+| …and when it does create                                         | mutates the file AT PROMPT time         |
+| =transient.el= availability                                      | built-in since 28.1; org-air needs 29.1 |
+
+The two =org-refile= probes rule the shape of R64-2: Org's stock
+=org-refile-get-location= creation branch (org-refile.el:704–716,
+Emacs 30.2's bundled Org) can only create ONE new leaf under an
+EXISTING parent — despite the knob's name,
+=org-refile-allow-creating-parent-nodes= (:179) never creates a
+parent CHAIN ("Infra/Cloud" with both missing: nil, silently), and it
+inserts during the prompt, before any confirm.  So org-air reuses the
+proven PIECES — =org-refile-get-targets= (:270) for the table,
+single-shot olpath completion semantics, =org-refile-new-child=
+(:736) for every actual insertion, =org-get-valid-level= +
+=org-paste-subtree= for the re-leveled paste — and supplies only the
+thin per-segment loop Org lacks.  No tree insertion is reinvented.
+
+SPEC ONLY — no =.el= or test edits in this change (a sibling round
+runs in parallel).  org-ql stays the only query engine; =org-refile=
+machinery is org core (org-refile.el), NOT org-agenda.
+
+* Design decision: transient form vs guided multi-step completing-read
+
+The need is a FORM, not a SEQUENCE: N independent fields (destination,
+tags, category, schedule, todo, priority) where the common case sets
+2–3 of them, in whatever order the user thinks of them, then confirms
+once.  The two candidate shapes:
+
+/Guided wizard/ (chained =completing-read=s: file → path → tags →
+category → schedule → confirm): simplest to implement, zero new UI
+machinery, fully batch-drivable.  But it imposes ONE fixed order;
+skipping a field still costs a prompt (or a "skip" convention); a
+mistake three prompts back means =C-g= and restart; there is no
+persistent view of what has been chosen so far; and adding todo/
+priority makes the chain 7 prompts long for every refile, punishing
+exactly the quick case the R20-4 menu was built for.
+
+/Transient/ (=transient-define-prefix=): every field visible with its
+CURRENT value at all times, any order, revisit freely, one execute
+suffix, =C-g= cancels the whole form atomically, dynamic descriptions
+give the live preview for free, and the idiom is the most widely
+trained muscle memory in the ecosystem (magit).  Ships with Emacs
+28.1+, so with org-air's =emacs 29.1= floor it is a built-in — a
+soft dependency in the same sense as =org= itself, not a new install.
+Cost: the transient UI itself is not meaningfully batch-assertable
+(interactive event loop), and it is a new library for this codebase
+(the existing "transient map" uses are =set-transient-map=, unrelated).
+
+*Ruling: transient.*  The wizard's one advantage — batch coverage —
+is recovered by construction: ALL decision logic lives in the
+non-interactive layer (R64-1) and in named reader functions that ARE
+the existing =completing-read= editors (R64-2, the R19-2/R20-4
+functions reused verbatim as infix readers).  The transient is a thin
+shell that collects values and makes ONE call; the batch seams (below)
+drive everything below the shell, and the shell itself is the ONE
+screenshot-confirm residue.  A 7-step wizard would additionally have
+frozen the interaction order into every test that drives it — the
+R19-2 stub-chain test (tests/org-air-round19-test.el:140–166) is
+exactly that shape and exactly what breaks this round (handled below).
+
+* R64-1 — the non-interactive engine (the superset signature)
+
+#+begin_example
+(org-air-refile-item ITEM TARGET-FILE
+                     &optional TARGET-HEADING TAGS SCHEDULED CATEGORY
+                               TODO PRIORITY)
+#+end_example
+
+Existing callers and tests pass =(item file)=, =(item file "Heading")=,
+=(item file nil TAGS nil CAT)= — every one keeps its meaning.  The
+extensions:
+
+- =TARGET-HEADING= now accepts three shapes:
+  - =nil= — append at file end (top level).  The R53 P3 headingless-
+    note contract, byte-for-byte preserved (=--target-position='s nil
+    branch semantics).
+  - a STRING — treated as =(list STRING)=: a one-segment path.
+    Existing headings resolve as today (first match, buffer order);
+    a MISSING heading is now CREATED at top level rather than
+    silently falling through to file end.  The silent fallback is
+    retired as a defect — a typo'd heading dumping the item at file
+    end unasked is data-loss-adjacent, and no interactive path could
+    ever produce a missing string (=--read-heading= only offered
+    existing ones).
+  - a LIST of strings — an outline path, resolved root-down by
+    =org-air-inbox--ensure-olp= (new):
+    1. For each segment, search for a heading with EXACTLY that title
+       (the =org-complex-heading-regexp-format= + =regexp-quote=
+       idiom =--target-position= already uses) at exactly
+       parent-level+1, WITHIN the parent's subtree bounds (whole file
+       for the first segment).  First match in buffer order wins.
+    2. A missing segment is created by =org-refile-new-child=,
+       handed a synthetic =(NAME FILE RE POS)= parent target — Org's
+       own insertion does the level math (=org-get-valid-level=),
+       end-of-subtree placement and blank-line handling; org-air
+       writes no star arithmetic of its own.
+    3. Returns the final heading's position + level.  Total function:
+       creating N missing segments is N =org-refile-new-child= calls,
+       top-down, so ("Infra" "Cloud") on an empty file yields
+       =* Infra= → =** Cloud= in one pass — the chain the stock
+       machinery cannot make (measured, Summary table).
+- The INSERT re-levels: the item's subtree is cut as today, but
+  pasted with =org-paste-subtree (org-get-valid-level PARENT-LEVEL 1)=
+  at the end of the parent's subtree — the exact =org-refile= recipe
+  (org-refile.el:566–583).  The item AND its own children re-level
+  together (a level-2 item with a level-3 child under a level-3
+  parent becomes 4/5).  With =TARGET-HEADING= nil the paste level is
+  1 — note this PROMOTES a level-2+ item refiled to file end (today
+  it kept its stars); that is the correct reading of "top level of
+  the file" and is called out for the sibling test round.
+- =TODO= — a string: applied via =org-todo= on the moved heading
+  after the paste; nil leaves the keyword untouched.  The vocabulary
+  question is R64-3's (the file's OWN merged keywords, R57).
+- =PRIORITY= — a character (or string of one): applied via
+  =org-priority=; nil untouched.
+- =TAGS= / =SCHEDULED= / =CATEGORY= — semantics unchanged (replace /
+  Org shift-or-empty-clears / =:CATEGORY:= property), applied in the
+  same one pass.
+
+Ordering inside the single call: ensure-olp → cut → paste →
+todo → priority → tags → category → schedule → save both buffers →
+=org-air-refresh= when on the board.  One call, one save per buffer,
+one refresh — the "3–4 invocations" class disappears at the engine
+level, which is also what makes the acceptance scenario a THREE-call
+batch test.
+
+=--target-position= stays for its remaining callers but the refile
+path no longer uses its after-the-subtree point directly; the R24-1
+=--read-heading= flat picker is retired with the action menu (its
+=--file-headings= helper survives — see R64-2's fallback note).
+
+* R64-2 — nested destinations: pick, complete, create-on-execute
+
+Two stages, both R53-lawful:
+
+*Stage 1 — file* (unchanged): the R19-2 =⌂= picker over
+=org-air-inbox--target-files= (:150) → board enumeration or cache,
+NEVER a scan; =--file-candidates= (:160) one-pass disambiguation;
+=--decode-file-choice= (:246) resolution; =⌂ other file…= escape
+hatch.  Reused verbatim as the transient's =f= infix reader.  The
+prompt's default is the LAST executed destination's file (session
+=defvar=), so =f RET= re-picks it.
+
+*Stage 2 — path within the chosen file*: a single =completing-read=
+(=require-match= nil, =completion-ignore-case= t — Org's own choice)
+over the outline-path table of THAT ONE FILE:
+
+- The table comes from =org-refile-get-targets= with
+  =org-refile-targets= let-bound to =((FILE :maxlevel . 9))= and
+  =org-refile-use-outline-path= let-bound to =t= — candidates read
+  =Infra/=, =Infra/Cloud/=, =Infra/Cloud/Set up n8n/= — Org's proven
+  path builder, cache and all, scoped so it opens exactly ONE buffer
+  (the destination file, which the refile is about to open anyway).
+  R53 holds: the 5000-file world is never walked at menu time.
+- Because =require-match= is nil, the typed text may extend past the
+  tree: =Infra/Cloud= when only =Infra= exists, =Infra/Cloud= when
+  neither exists, =Infra/Cloud/Set up n8n= when all three exist.
+  The reader SPLITS on =/=, matches the longest existing prefix
+  against the table (the same normalization as
+  =org-refile--get-location=: a trailing =/= is tolerated), and
+  returns a plist =(:olp SEGMENTS :new N)= — segments to file under,
+  count of segments that will be created.  NOTHING is inserted at
+  prompt time: the measured stock behaviour (mutate-at-prompt,
+  Summary) is deliberately NOT reused, because in a form the user
+  must be able to set a destination, keep editing other fields, and
+  still cancel the whole thing atomically.  Creation happens inside
+  =org-air-refile-item= at execute (R64-1), which re-resolves by
+  name — so a concurrently edited file cannot leave the form holding
+  a stale position (positions are never carried, only names).
+- Empty input ⇒ =:olp nil= ⇒ file end — the R53 headingless-note
+  answer, now reachable as "just RET" instead of a special
+  candidate.  A headingless file offers an empty table and the
+  prompt still works (type to create, RET for file end) — strictly
+  more than the old =--read-heading= nil-return.
+- Heading names containing =/= cannot be addressed by the path
+  syntax (Org's own limitation, same trade-off as =C-c C-w=); they
+  remain reachable as EXISTING targets because completion candidates
+  are matched as table entries first, split only as a fallback.
+  Creating a NEW heading with =/= in its name is out of scope.
+
+"Create new" vs "file under existing" is therefore not a mode the
+user chooses — it is a property of what they typed, always visible
+before confirm: the transient preview renders the resolved path with
+a =(creates: Infra › Cloud)= suffix listing exactly the missing
+segments, in creation order.  Zero annotation means every segment
+exists.  Depth/child placement rule, stated once: /the item always
+becomes the LAST CHILD of the final path segment/ (or last top-level
+heading for file end) — "file under n8n" is spelled by ending the
+path AT =Set up n8n=, and sibling-of-n8n is spelled by ending at
+=Cloud=.  One rule, no position picker.
+
+Created parents are plain headings — no TODO keyword, no timestamp —
+so by the R59 container rule they are STRUCTURE, never board rows;
+creating =Infra= › =Cloud= adds zero noise to the board.  The moved
+item itself becomes a real heading in the target file, hence a
+completable path segment for the NEXT refile immediately (the
+acceptance scenario's third move depends on exactly this, via the
+fresh =org-refile-get-targets= table each invocation builds —
+per-file, so still R53-clean).
+
+* R64-3 — the transient form
+
+#+begin_example
+Refile "Set up syncthing"
+                                                       ── Destination ──
+ f file     projects.org
+ p path     Infra › Cloud                       (creates: Infra › Cloud)
+ l last destination
+                                                       ── Metadata ─────
+ t tags     :selfhosted:
+ c category infra
+ s schedule this week (Fri Jul 24)
+ k todo     TODO
+ , priority –
+                                                       ── Preview ──────
+ projects.org › Infra › Cloud › * TODO Set up syncthing :selfhosted:
+                                                       ─────────────────
+ RET refile     q quit
+#+end_example
+
+- =org-air-refile-item= KEEPS its name and the =r= binding (four
+  existing suites assert =(key-binding "r") ⇒ org-air-refile-item=,
+  and the R50 help sheet prints the name — all stay green).  Called
+  interactively with no args it opens the transient prefix
+  (=org-air-refile-transient=); the transient's =RET= suffix calls
+  =org-air-refile-item= NON-interactively with the collected args.
+  =ITEM= and =TARGET-FILE= become =&optional= to permit the dispatch;
+  programmatic callers are unaffected (calling with both nil remains
+  an error outside the interactive dispatch).
+- Infix readers ARE the existing editors, reused verbatim:
+  =f= → =--read-move-target='s stage 1 (=--decode-file-choice=
+  included), =p= → the R64-2 path reader, =t= → =--edit-tags= (CRM
+  over the R53 cached vocab), =c= → =--edit-categories= (CRM,
+  first ⇒ =:CATEGORY:=, extras ⇒ tags — R20-4a semantics kept),
+  =s= → a =completing-read= over {today, tomorrow, this week,
+  someday, other date…, clear} where =other date…= runs
+  =org-read-date= and =someday= keeps its R20-4 meaning (adds the
+  =someday= tag + clears the schedule; the preview shows both
+  effects).  All vocab reads go through =--board-items= — the R53
+  no-scan law, re-pinned by seam T6.
+- =k= todo: vocabulary is the DESTINATION file's own merged
+  =org-todo-keywords-1=, read inside that file's buffer — the R57
+  law (user's globals + per-file =#+TODO:= win; org-air's vocabulary
+  is a supplement, never a replacement).  Changing =f= re-derives it.
+  =,= priority: cycles =–= → =A= → =B= → =C= (range from the
+  destination file's =org-priority-lowest/highest=).
+- Pre-fills from the item: tags (MINUS =inbox= — leaving the inbox
+  is what refiling is; the tag is re-addable in one CRM keystroke),
+  category, todo, priority, schedule.  Destination starts empty
+  (file end of the last-used file would be a silent wrong default).
+- =l= sets file+path to the LAST EXECUTED destination in one key —
+  the "n8n is a sibling of syncthing" case is =r l RET=.
+- The Preview group's =:description= closure re-renders on every
+  transient redraw: basename › path › the heading line as it will be
+  written (todo, title, tags), a second line with SCHEDULED /
+  =:CATEGORY:= when set, and the =(creates: …)= annotation.  Pure
+  string formatting over the collected values — no buffer access, so
+  the form stays instant.
+- =C-g=/=q= abandon everything; no buffer was touched (R64-2's
+  defer-creation ruling is what makes this true).
+
+The R20-4 action-first menu and its dispatcher (=--refile-candidates=,
+=--decode-target=) are retired.  DELIBERATE test change, R62-T14
+style: the R19-2 interactive stub-chain test
+(tests/org-air-round19-test.el:140–166) drives the old menu's prompt
+strings and dies with them; its actual GUARANTEES — short truncated
+title in the prompt, real =⌂= file candidates, decode-to-real-file —
+survive in the =f= infix reader and are re-asserted batch-side in T8.
+The sibling test round updates/retires that test explicitly; no other
+existing assertion touches the menu shape.
+
+* Acceptance scenario (the worked example)
+
+Inbox (the R59 user's real shape) and an existing =projects.org= with
+no =Infra= anywhere:
+
+#+begin_example
+#+title: Inbox                        #+title: projects
+* New                                 * Website relaunch
+** TODO Set up syncthing :inbox:      ** TODO Fix nav
+** TODO Set up n8n :inbox:
+** TODO some daily automation with n8n :inbox:
+#+end_example
+
+/Move 1 — syncthing → Infra › Cloud (created), tag + schedule/:
+point on the row, then
+=r= · =f= =proj RET= · =p= =Infra/Cloud RET= (preview:
+"creates: Infra › Cloud") · =t= =selfhosted RET= · =s= =this week RET=
+· =RET=.  ONE execute call:
+=(org-air-refile-item item "…/projects.org" '("Infra" "Cloud") '("selfhosted") "+1w" nil)=.
+
+/Move 2 — n8n → same place/: point on the row, =r l RET=.  Three keys.
+
+/Move 3 — daily automation → CHILD of the n8n heading just created/:
+=r= · =l= · =p= — completion now OFFERS =Infra/Cloud/Set up n8n/=
+(it is a real heading since move 2) — =TAB=-complete to it, =RET= ·
+=RET=.
+
+On-disk =projects.org= after the three moves (T5 asserts this tree
+verbatim, modulo the timestamp):
+
+#+begin_example
+#+title: projects
+* Website relaunch
+** TODO Fix nav
+* Infra
+** Cloud
+*** TODO Set up syncthing :selfhosted:
+    SCHEDULED: <2026-07-24 Fri>
+*** TODO Set up n8n
+**** TODO some daily automation with n8n
+#+end_example
+
+Every item re-leveled to its parent+1 (2→3, 2→4 for the child move —
+the measured sibling bug is dead), created parents are keyword-less
+R59 containers, the =inbox= tag is gone from all three, and the
+emptied =* New= container remains in the inbox (already invisible on
+the board per R59; auto-deleting emptied containers is out of scope).
+
+* ERT seams (batch; each reverts to RED)
+
+- *T1 /nested parents created when absent/*: non-interactive
+  =org-air-refile-item= with =TARGET-HEADING= ='("Infra" "Cloud")=
+  into a file containing neither ⇒ on-disk =* Infra= / =** Cloud= /
+  =*** TODO …= (the item), exactly one of each; created parents carry
+  NO todo keyword and no timestamp (the R59 container guarantee).
+  RED today (=wrong-type-argument= — the list hits =string-empty-p=
+  via the current =--target-position=).
+- *T2 /existing path, no duplicates/*: the same call twice with two
+  items ⇒ still ONE =Infra=, ONE =Cloud=; second item is a sibling
+  under =Cloud=, after the first (last-child rule).
+- *T3 /child of a named heading + re-level/*: path ending at a task
+  heading (="Infra" "Cloud" "Set up n8n"=) ⇒ the item is level 4
+  under n8n; an item that ITSELF has a child re-levels both (2/3 →
+  4/5).  RED today (measured: verbatim insert leaves the source
+  level ⇒ sibling/escape).
+- *T4 /one call sets everything/*: single call with olp + tags +
+  category + schedule + todo + priority ⇒ on-disk heading has all
+  six applied (org-element-parsed asserts on keyword, priority,
+  tags, =:CATEGORY:=, =SCHEDULED=, ancestry).  RED today (no
+  todo/priority parameters exist).
+- *T5 /the acceptance mirror/*: the three calls from the worked
+  example against the two fixture files ⇒ the exact final tree
+  asserted on-disk (structure equality via org-element ancestry +
+  heading order), inbox left without the three items, =* New= still
+  present.
+- *T6 /pickers never scan/* (R53 re-pin): with a seeded board-items
+  cache, build the =f= candidates, the tag/category vocabs and the
+  R64-2 path table under a spy on =org-air-query--scan-file= AND
+  =org-air-query-items= ⇒ ZERO calls; the path-table build opens
+  only the ONE destination file (spy on =find-file-noselect=
+  counting distinct files).
+- *T7 /signature compatibility/*: =(item file)= ⇒ file end;
+  =(item file "Existing")= ⇒ filed under it AT child level (the
+  string≡one-segment ruling — the level fix applies, called out);
+  ="Missing"= ⇒ created at top level, not silently file-end.  R53-6's
+  headingless-note call shape re-run unchanged.
+- *T8 /the shell, batch-safe parts/*: =org-air-refile-item= remains
+  the =r= binding and a command; =org-air-refile-transient= is a
+  command; the =f= reader still resolves a disambiguated =⌂=
+  candidate to the real file (the R19-2 guarantee, re-homed); the
+  =p= reader parses "A/B" → =(:olp ("A" "B") :new 2)= against a
+  fixture table, tolerates a trailing =/=, returns =:olp nil= for
+  empty input (readers are pure given stubbed =completing-read= —
+  no transient event loop needed).
+- *T9 /R57 todo vocab/*: destination file with =#+TODO: TODO HOLD |
+  CLOSED= ⇒ the =k= vocabulary is exactly the file's merged
+  keywords, not org-air's; =TODO= arg ="CLOSED"= round-trips
+  on-disk with =donep= semantics intact.
+
+GUI residue, screenshot-confirm by the user (genuinely not
+batch-reachable): the transient's layout, live preview redraw, infix
+value display, =l= recall feel, and the whole acceptance scenario
+driven by real keystrokes — the confirm script is the worked example
+verbatim.
+
+* Constraints
+
+- org-ql remains the ONLY query engine; this round adds no query and
+  no scan.  =org-refile= machinery used (=org-refile-get-targets=,
+  =org-refile-new-child=, =org-paste-subtree=) is org core —
+  org-refile.el / org.el — no org-agenda anywhere.
+- R53: pickers/vocabs read the in-memory board items or the
+  persisted cache (=--board-items= / =--target-files= contract),
+  never a fresh enumeration at menu time (T6 spy); the path stage
+  opens exactly ONE file; the headingless-note file-end target stays
+  first-class (nil/empty path).  Never-hang: everything the form
+  does before execute is string work over cached data + one
+  =org-refile-get-targets= on one file.
+- R57: the todo vocabulary and =donep= semantics come from the
+  destination file's OWN merged keywords; org-air never rebinds the
+  user's =org-todo-keywords= (T9).
+- R59: created parents are deliberately signal-free ⇒ containers ⇒
+  never board rows; the emptied source container stays R59-invisible.
+- R60: target files arrive via the board enumeration /
+  =org-air-query-files=, so exclusions are inherited; the inbox file
+  remains always reachable as a target.
+- Cache: no schema change, no new key elements
+  (=org-air-view--cache-version= untouched — refile is a consumer).
+- Dependencies: =transient= is built-in ≥ 28.1 (floor is 29.1);
+  =Package-Requires= unchanged.
+
+* Out of scope
+
+- Auto-deleting a container emptied by refiles (R59 hides it; a
+  cleanup verb is a separate design).
+- Creating new headings whose NAME contains =/= (path syntax limit,
+  same as Org's =C-c C-w=).
+- Bulk refile (marking several rows, one destination) — the =l=
+  recall covers the sequential case; a marking model is its own
+  round.
+- A position picker within the parent (first-child/before-sibling);
+  the last-child rule stays the one rule.
+- Refile-time editing of the item's TITLE or body.
+- Replacing Org's =C-c C-w= inside source Org buffers — this flow is
+  the BOARD's =r=; plain Org buffers keep stock refile.
+
+* Context
+
+Same real-world setup as R53/R59/R61: a large Denote-style notes silo
+(5000-file design target) plus an Air workspace; the user triages
+from the inbox bucket of the board.  The verbatim examples
+("syncthing", "n8n", "some daily automation with n8n" under
+Infra/Cloud) are the user's own; the R59 round already established
+their inbox uses a =* New= container with level-2 captures — which is
+precisely the shape the measured sibling bug mangles today.
+
+* History
+
+- 2026-07-20: Round 64 design.  Current flow read end-to-end
+  (org-air-inbox.el: action menu :181/:260, flat heading picker
+  :115, verbatim insert :295) and the one-action-per-invocation +
+  no-nesting friction named; the sibling-level insert defect
+  MEASURED (probe-level.el — level-2 item "under Cloud" lands as
+  Cloud's sibling); Org's stock creation machinery probed both ways
+  (one leaf under existing parent: works; missing chain: silent nil;
+  and it mutates at prompt time) ruling the reuse boundary —
+  =org-refile-get-targets= + =org-refile-new-child= +
+  =org-paste-subtree= reused, only the per-segment ensure-olp loop
+  and defer-to-execute added.  Transient chosen over a guided wizard
+  (form-not-sequence argument; built-in ≥ 28.1 vs the 29.1 floor;
+  batch coverage preserved by keeping ALL logic non-interactive);
+  superset signature, path reader contract, live preview,
+  last-destination recall, acceptance keystroke trace and nine batch
+  seams (T1/T3/T4 verified conceptually RED against today's code,
+  T1/T3 by measurement) specified.  R19-2's menu-shape test flagged
+  as the one deliberate test retirement.  State: ready.

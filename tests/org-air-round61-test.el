@@ -108,8 +108,11 @@
 ;;          harvest double-counts the child and FAILS; the knob-nil
 ;;          twin re-admits the container (anti-tautology).
 ;;   r61-12 (T12) ×N CHIP: a habit with 7 done stamps in the week
-;;          renders ONE Completed row with "×7", day-grouped under the
-;;          LATEST stamp's day.
+;;          renders ONE Completed row with "×7", keyed on the LATEST
+;;          stamp (R63-2a re-bless: the sections are FLAT — the old
+;;          day-group line above the row is design-removed, so the
+;;          weekday group label is asserted ABSENT; round63 design,
+;;          Item 2a).
 ;;   r61-13 (T9) BOOKMARK (R58 parity): the record is printable
 ;;          (prin1→read `equal') with period kind/anchor + rollup +
 ;;          filter + scope + sort + the (FILE . POS) locator; the
@@ -1371,10 +1374,16 @@ skip or the own-body bound FAILS."
 (ert-deftest org-air-r61-12-completed-count-chip ()
   "T12: 7 done stamps in the week fold to ONE row carrying \"×7\".
 The habit's Completed entry is a single row (never seven), its count
-chip reads ×7, and day-grouping keys on the LATEST stamp in the period
-\(the \"Sun Jun 21\" group precedes the row; the fold row's epoch IS
-the latest stamp).  A one-stamp sibling renders chip-less.  Reverting
-the one-row-per-item fold or the latest-stamp grouping FAILS."
+chip reads ×7 and the fold row's epoch IS the latest stamp in the
+period.  R63-2a re-bless (air/v0.5/org-air-round63-design.org Item 2a):
+the per-item sections are FLAT — the \"Sun Jun 21\" day-group line the
+R61 layout printed above the row is design-REMOVED, so the weekday
+group label is asserted ABSENT from the rendered pane (the date cell
+alone carries the chronology; the old `(should group)' ordering assert
+is inverted, never weakened — the ×7 chip, the latest-stamp epoch and
+the chip-less sibling conjuncts carry over verbatim).  Reverting the
+one-row-per-item fold, the latest-stamp epoch or the R63 flat-section
+layout (the group line returning) FAILS."
   (skip-unless (locate-library "org-air"))
   (org-air-r61--with-corpus
       (list '("inbox.org" . "* TODO Inbox capture\n")
@@ -1425,17 +1434,22 @@ the one-row-per-item fold or the latest-stamp grouping FAILS."
                      (line-beginning-position) (line-end-position))))
           (should (string-match-p "×7" line))
           (should (string-match-p "Jun 21" line)))
-        ;; Day-grouped under the LATEST stamp's day, group label first.
-        (let ((group (string-match
-                      (regexp-quote
-                       (format-time-string
-                        "%a %b %-d" (org-air-r61--epoch 2026 6 21)))
-                      (org-air-r61--buffer-text)))
-              (row (string-match "Water the plants"
-                                 (org-air-r61--buffer-text))))
-          (should group)
-          (should row)
-          (should (< group row)))
+        ;; R63-2a: FLAT sections — no day-group line anywhere in the
+        ;; pane.  The weekday label ("Sun Jun 21") only ever rendered as
+        ;; the R61 group line (this corpus has no clocks, so no day-agg
+        ;; row can carry it either); its ABSENCE pins the flat layout —
+        ;; the exact inversion of the old group-precedes-row assert.
+        (should-not (string-match-p
+                     (regexp-quote
+                      (format-time-string
+                       "%a %b %-d" (org-air-r61--epoch 2026 6 21)))
+                     (org-air-r61--buffer-text)))
+        ;; …and no line of the pane is a bare weekday-date group label.
+        (dolist (line (split-string (org-air-r61--buffer-text) "\n"))
+          (should-not
+           (string-match-p
+            "\\`[ \t]*\\(?:Mon\\|Tue\\|Wed\\|Thu\\|Fri\\|Sat\\|Sun\\) [A-Z][a-z]+ [0-9]+[ \t]*\\'"
+            line)))
         ;; The one-stamp sibling renders chip-less.
         (org-air-r61--goto-review-row "One shot")
         (should-not (string-match-p

@@ -717,5 +717,173 @@ trailing blank lines dropped (the regen + byte-test contract)."
                         (kill-buffer "*org-air*")))))))))
       (delete-directory dir t))))
 
+;;;; -------------------------------------------------------------------
+;;;; R63 review mockup corpus (shared by the byte test + the regen).
+;;;;
+;;;; The T7 MIRROR corpus of air/v0.5/org-air-round63-design.org Item 2:
+;;;; two denote notes + the Air workspace mirrors `Active-Work.org'
+;;;; (a keyword-less work-item CONTAINER heading, its identically-titled
+;;;; DONE task child, a second DONE task) + `Active-Tasks.org' (a third
+;;;; mirror) — every mirror DONE-logged at the same instants — plus the
+;;;; Started (`rtrunc' via a genuine over-cap LOGBOOK under the DEFAULT
+;;;; `org-air-log-cap'), Carried and suspect-clock rows of the golden's
+;;;; target shape.  Used by `org-air-regen--write-review' and the
+;;;; round-63 ERTs so the asserted bytes and the blessed fixture are
+;;;; produced by the SAME render path over the SAME corpus.
+
+(defconst org-air-viewport-test-review-now
+  (floor (float-time (encode-time (list 0 0 18 19 7 2026 nil -1 nil))))
+  "The review mockup's frozen \"now\": Sun 2026-07-19 18:00 local.
+Inside ISO W29 2026 — the current week is [Jul 13, Jul 20).")
+
+(defun org-air-viewport-test--review-old-stamps ()
+  "Return `org-air-log-cap' + 3 pre-period LOGBOOK state stamps.
+All stamps predate W29 2026, so the over-cap heading is `rtrunc' t
+under the DEFAULT cap (default knobs — the golden never rebinds the
+cap) without claiming activity inside the shown period."
+  (mapconcat
+   (lambda (i)
+     (format "- State \"TODO\"       from \"IDEA\"       [2026-%02d-%02d %02d:%02d]\n"
+             (1+ (mod i 5)) (1+ (mod i 27)) (mod i 24) (mod i 60)))
+   (number-sequence 1 (+ (default-value 'org-air-log-cap) 3)) ""))
+
+(defun org-air-viewport-test-review-fixture-specs ()
+  "Return the (NAME . CONTENT) file specs of the T7 mirror corpus."
+  (list
+   (cons "inbox.org" "* TODO Inbox capture\n")
+   ;; The tagged denote note — the mirror-collapse CANONICAL pick.
+   (cons "20260131T020339--manage-data-handler-logic.org"
+         (concat "#+title: Manage data-handler logic\n"
+                 "#+filetags: :backend:code:\n\n"
+                 "* DONE Manage data-handler logic :backend:code:\n"
+                 ":PROPERTIES:\n:CREATED: [2026-01-31 Sat 02:03]\n:END:\n"
+                 ":LOGBOOK:\n"
+                 "- State \"DONE\"       from \"TODO\"       [2026-07-14 Tue 17:30]\n"
+                 "CLOCK: [2026-07-14 Tue 13:10]--[2026-07-14 Tue 17:30] =>  4:20\n"
+                 ":END:\n"))
+   (cons "20260129T113501--ensure-multi-admin-web-ghcr.org"
+         (concat "#+title: Ensure multi-admin-web is published to ghcr\n"
+                 "#+filetags: :infra:\n\n"
+                 "* DONE Ensure multi-admin-web is published to ghcr :infra:\n"
+                 ":PROPERTIES:\n:CREATED: [2026-01-29 Thu 11:35]\n:END:\n"
+                 ":LOGBOOK:\n"
+                 "- State \"DONE\"       from \"TODO\"       [2026-07-15 Wed 11:00]\n"
+                 ":END:\n"))
+   ;; The Air workspace: a keyword-less work-item heading (an R59
+   ;; container — its child is the row), the identically-titled DONE
+   ;; task child, and the second DONE task (the Ensure mirror).
+   (cons "Active-Work.org"
+         (concat "#+title: Active Work\n\n"
+                 "* Manage data-handler logic\n"
+                 ":PROPERTIES:\n:CREATED: [2026-06-01 Mon 09:00]\n:END:\n"
+                 "** DONE Manage data-handler logic\n"
+                 ":PROPERTIES:\n:CREATED: [2026-06-01 Mon 09:00]\n:END:\n"
+                 ":LOGBOOK:\n"
+                 "- State \"DONE\"       from \"TODO\"       [2026-07-14 Tue 17:30]\n"
+                 ":END:\n"
+                 "* DONE Ensure multi-admin-web is published to ghcr\n"
+                 ":PROPERTIES:\n:CREATED: [2026-06-01 Mon 09:00]\n:END:\n"
+                 ":LOGBOOK:\n"
+                 "- State \"DONE\"       from \"TODO\"       [2026-07-15 Wed 11:00]\n"
+                 ":END:\n"))
+   (cons "Active-Tasks.org"
+         (concat "#+title: Active Tasks\n\n"
+                 "* DONE Manage data-handler logic\n"
+                 ":PROPERTIES:\n:CREATED: [2026-06-01 Mon 09:00]\n:END:\n"
+                 ":LOGBOOK:\n"
+                 "- State \"DONE\"       from \"TODO\"       [2026-07-14 Tue 17:30]\n"
+                 ":END:\n"))
+   ;; Started + rtrunc: `:CREATED:' inside W29, an over-cap LOGBOOK of
+   ;; pre-period stamps (rtrunc t under the default cap, no in-period
+   ;; activity, so the row is Started-only with the compact `⚠').
+   (cons "20260601T090000--ladder-notes__code.org"
+         (concat "#+title: ladder notes\n\n"
+                 "* TODO Prototype the range ladder :code:\n"
+                 ":PROPERTIES:\n:CREATED: [2026-07-16 Thu 09:00]\n:END:\n"
+                 ":LOGBOOK:\n"
+                 (org-air-viewport-test--review-old-stamps)
+                 ":END:\n"))
+   ;; Carried over: in-period note activity, still TODO at the frozen now.
+   (cons "20260610T101010--rail-flake__code.org"
+         (concat "#+title: rail flake\n\n"
+                 "* TODO Fix flaky rail test :code:\n"
+                 ":PROPERTIES:\n:CREATED: [2026-06-10 Wed 10:10]\n:END:\n"
+                 ":LOGBOOK:\n"
+                 "- Note taken on [2026-07-17 Fri 10:00] \\\\\n  chased the flake\n"
+                 ":END:\n"))
+   ;; The suspect clock: done BEFORE the period, one 74h clock inside it
+   ;; (> the default 16h threshold) — excluded loud, named on the note.
+   (cons "Journal.org"
+         (concat "#+title: Journal\n\n"
+                 "* DONE Forgotten clock\n"
+                 ":PROPERTIES:\n:CREATED: [2026-06-01 Mon 09:00]\n:END:\n"
+                 ":LOGBOOK:\n"
+                 "- State \"DONE\"       from \"TODO\"       [2026-07-10 Fri 09:00]\n"
+                 "CLOCK: [2026-07-14 Tue 08:00]--[2026-07-17 Fri 10:00] => 74:00\n"
+                 ":END:\n"))))
+
+(defmacro org-air-viewport-test--review-frozen (&rest body)
+  "Run BODY with the clock frozen to `org-air-viewport-test-review-now'.
+Overrides `current-time' and no-arg `float-time'; `float-time' WITH an
+argument passes through, so timestamp parsing and period math stay real."
+  (declare (indent 0) (debug t))
+  `(cl-letf* ((org-air-viewport-test--review-real-ft
+               (symbol-function 'float-time))
+              ((symbol-function 'float-time)
+               (lambda (&optional time)
+                 (if time (funcall org-air-viewport-test--review-real-ft time)
+                   (float org-air-viewport-test-review-now))))
+              ((symbol-function 'current-time)
+               (lambda ()
+                 (seconds-to-time org-air-viewport-test-review-now))))
+     ,@body))
+
+(defun org-air-viewport-test--review-reset-tables ()
+  "Clear the global query-layer tables around a review mockup render."
+  (clrhash org-air-query--file-meta)
+  (clrhash org-air-query--visits)
+  (clrhash org-air-query--denote-id-index)
+  (setq org-air-query--link-graph-dirty nil))
+
+(defun org-air-viewport-test-review-mockup-lines ()
+  "Render the R63 review mockup surface; return its right-trimmed lines.
+The T7 mirror corpus at `org-air-view-width' 170 (height 40), frozen
+clock (W29 2026), DEFAULT knobs, GUI glyphs, the anti-tautology render
+guards active — the bytes come from the REAL renderer (the regen +
+byte-test contract, exactly the denote-golden discipline)."
+  (let ((dir (file-truename (make-temp-file "org-air-r63-review-" t))))
+    (unwind-protect
+        (progn
+          (org-air-viewport-test--review-reset-tables)
+          (pcase-dolist (`(,name . ,content)
+                         (org-air-viewport-test-review-fixture-specs))
+            (let ((coding-system-for-write 'utf-8-unix))
+              (write-region content nil (expand-file-name name dir)
+                            nil 'silent)))
+          (let ((org-air-files (list dir))
+                (org-air-inbox-file (expand-file-name "inbox.org" dir))
+                (org-air-exclude-regexps nil)
+                (org-air-cache-file (expand-file-name ".cache/board.eld" dir))
+                (org-air-view-width 170)
+                (org-air-view-height 40))
+            (org-air-viewport-test-as-gui
+              (org-air-viewport-test--review-frozen
+                (org-air-viewport-test--with-render-guards
+                  (save-window-excursion
+                    (org-air-review)
+                    (unwind-protect
+                        (with-current-buffer org-air-review-buffer-name
+                          (org-air-viewport-test--drop-trailing-blanks
+                           (mapcar (lambda (l)
+                                     (string-trim-right
+                                      (substring-no-properties l)))
+                                   (org-air-viewport-test-lines))))
+                      (let ((kill-buffer-query-functions nil))
+                        (when (get-buffer org-air-review-buffer-name)
+                          (kill-buffer org-air-review-buffer-name))))))))))
+      (org-air-query-teardown)
+      (org-air-viewport-test--review-reset-tables)
+      (delete-directory dir t))))
+
 (provide 'org-air-viewport-helpers)
 ;;; org-air-viewport-helpers.el ends here

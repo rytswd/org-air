@@ -2233,10 +2233,126 @@
     ;; the R63 T7-T12 acceptance seams + the review-mockup-170 golden
     ;; via the regen-mockups discipline) and deletes this entry as
     ;; closeout.
-    (org-air-r61-12-completed-count-chip
-     . "R63-2a flat sections: the day-group line above the habit row is
-design-removed (air/v0.5/org-air-round63-design.org Item 2a); the ×7
-chip/latest-stamp conjuncts still hold — test seat re-blesses")
+    ;; 2026-07-20: ROUND-63 CLOSEOUT (impl tip pusntykn/ee638f3f + test
+    ;; seat <this commit>).  The ONE grind entry CLOSED — the flagged
+    ;; ERT re-blessed HONESTLY to the design-blessed R63-2a flat-section
+    ;; contract (air/v0.5/org-air-round63-design.org, Item 2a), no
+    ;; conjunct weakened (`make clean' FIRST — the R48/R51/R53/R54/R62
+    ;; stale-.elc lesson bit AGAIN: the first fixture probe ran pre-R63
+    ;; bytecode and rendered the grouped layout on the fixed tree):
+    ;;   org-air-r61-12-completed-count-chip — the day-group ordering
+    ;;     assert ("Sun Jun 21" group label precedes the habit row) is
+    ;;     INVERTED to the flat-section contract: the weekday group
+    ;;     label is asserted ABSENT from the rendered pane and no pane
+    ;;     line is a bare weekday-date group label (the date cell alone
+    ;;     carries the chronology); the one-fold-row ×7 chip, the
+    ;;     latest-stamp epoch and the chip-less sibling conjuncts carry
+    ;;     over verbatim.
+    ;; GOLDEN/FIXTURE CHURN: exactly ONE NEW fixture —
+    ;; tests/fixtures/review-mockup-170.txt, generated from the REAL
+    ;; renderer over the spec's T7 mirror corpus (width 170, height 40,
+    ;; frozen clock Sun 2026-07-19 W29, DEFAULT knobs incl. the default
+    ;; `org-air-log-cap' — the rtrunc row carries a genuine over-cap
+    ;; LOGBOOK) via `make clean && make regen-mockups' (anti-tautology
+    ;; guards active; NO HANG, exit 0); every board/layout/project/
+    ;; entry-view/denote golden is byte-identical (jj diff = the new
+    ;; fixture + test .el files only).  The corpus + render harness live
+    ;; in org-air-viewport-helpers.el (`org-air-viewport-test-review-
+    ;; mockup-lines'), shared by the regen tool and the byte test — the
+    ;; denote-golden discipline, no fork.
+    ;; NEW R63 EXECUTING ERTs (tests/org-air-round63-test.el, all
+    ;; batch/headless; the spec's T1-T12 seams; the rail ERTs drive the
+    ;; window machinery under the R25 noninteractive-nil idiom with the
+    ;; reconcile SYNCHRONOUS; revert of each FAILS — ALL TWELVE
+    ;; verified RED against the pre-impl trunk muqylqul in a scratch
+    ;; workspace: r63-1 red with SIX owner flips (one per slice — the
+    ;; reported flicker, reproduced by the seam itself), r63-6 red on
+    ;; the belt-1 handoff conjunct, r63-3/8 red on the R63
+    ;; predicate/identity APIs (their neutrality + harvest-extents
+    ;; halves are the permanent locks), the rest red on the pre-R63
+    ;; behaviour by construction; the re-blessed r61-12 also verified
+    ;; RED there — the inversion is not vacuous):
+    ;;   r63-1 (T1) owner stability across a SIMULATED PACED FILL: board
+    ;;     + review in two main windows, review selected + owning the
+    ;;     rail, the board's cold refresh driven synchronously
+    ;;     (`--refresh-start' + `--refresh-run-slice' one file per
+    ;;     slice, progressive paints forced every slice) — after EVERY
+    ;;     slice, paint and synchronous reconcile the owner is STILL
+    ;;     review, the rail window live, ZERO owner flips, the rail
+    ;;     bytes untouched, and `org-air-rail--render' is NEVER called
+    ;;     with the board host (pins R63-1c: the R58 carve is
+    ;;     subordinate — no content flip even windowless); the board
+    ;;     ends self-suspended (belt 1's raising edge).
+    ;;   r63-2 (T2) reconcile-timer count: the same drive with N rapid
+    ;;     deferred `org-air-rail--reconcile' fires between slices —
+    ;;     pending `org-air-rail--reconcile-run' timers in `timer-list'
+    ;;     never exceed ONE (R27-1 S3 under load; R63 adds belts, not
+    ;;     timers).
+    ;;   r63-3 (T3) the gate truth table: active==self t; active==other
+    ;;     nil; active==nil t; suspended self nil REGARDLESS (even
+    ;;     active==self); a dead buffer never holds a claim —
+    ;;     data-light, mode-initialised buffers + the real window tree.
+    ;;   r63-4 (T4) a non-owner tail is INERT: with review owning the
+    ;;     rail, a direct `org-air-rail--show' on the board returns nil,
+    ;;     leaves window/owner/rail-bytes byte-identical and
+    ;;     self-suspends the board; `--host-width' skips the window
+    ;;     ensure (fingerprint unchanged, the board's rail-buffer local
+    ;;     never set, width still measured); `--evict-foreign-rail'
+    ;;     never sweeps (review's rail survives, review not suspended).
+    ;;   r63-5 (T5) transfer + round-trip: `--show(review)' while the
+    ;;     board owns ⇒ the board's suspended flag raised SYNCHRONOUSLY
+    ;;     in the same call (belt 1) + owner review; selecting the board
+    ;;     back + synchronous reconcile re-owns the board with its flag
+    ;;     CLEARED (the R63-1d falling edge belongs to the reconciler)
+    ;;     and review suspended by transfer.
+    ;;   r63-6 (T6) neutrality: a LONE displayed board (active==self)
+    ;;     renders through the tail exactly as today — rail live, owner
+    ;;     board, never suspended, re-render + reconcile steady; same
+    ;;     for a lone review (the R62 handoff unregressed).
+    ;;   r63-7 (T7) one row per item, no echo: collapse OFF, all FOUR
+    ;;     bases — the composed per-item sections contain ZERO `group'
+    ;;     specs (item/agg/note only), each fixture heading yields
+    ;;     exactly one row, no rendered line is a bare filename or a
+    ;;     bare weekday-date, the denote row's origin cell reads the
+    ;;     de-machined TITLE and the raw `20260…' ID never renders.
+    ;;   r63-8 (T8) the no-double-count law + the harvest verdict: the
+    ;;     parent/child same-title fixture scans to TWO items at
+    ;;     DISTINCT (FILE . POS) with the child's log NOT on the parent
+    ;;     (the extents law); no rendered per-item section holds two
+    ;;     rows sharing an identity (collapse ON and OFF — the
+    ;;     mechanical guard that turns any future harvest duplication
+    ;;     RED); the one-heading done-log + CLOSED shape still folds to
+    ;;     ONE stamp (the R61 stamps-win rule re-pinned).
+    ;;   r63-9 (T9) mirror collapse: the T7 arithmetic — Completed
+    ;;     exactly 2 rows, `▤ 3 files' / `▤ 2 files', canonical item =
+    ;;     the TAGGED denote note's (FILE . POS) on the row's item/
+    ;;     marker props with the member list on `org-air-review-mirrors'
+    ;;     (no duplicate identities), header "2 done", rail Summary 2,
+    ;;     NO ×chip on the mirrored single completion; knob nil ⇒ 5
+    ;;     rows / "5 done" (old behaviour restored); a synthetic ×7
+    ;;     habit keeps ×7 through collapse (stamp UNION deduped by
+    ;;     epoch) with `▤ 2 files'; Started/Carried collapse under the
+    ;;     same title×day key; Time invested totals byte-unchanged
+    ;;     either way (time is attributed where clocked).
+    ;;   r63-10 (T10) section headers: each of the four heading lines
+    ;;     carries the icon glyph (✓ ◔ ▷ ↻ GUI / + %% > ~ TTY tier),
+    ;;     the `org-air-section' property, the count chip
+    ;;     (`org-air-count-badge'); `org-air-section-rule' t appends the
+    ;;     rule line after every heading (board parity).
+    ;;   r63-11 (T11) split cluster fits: spied through the shared V6
+    ;;     `org-air-view--insert-row' — the item rows' date column
+    ;;     equals the widest ITEM date (8, the `⚠' row) and NEVER the
+    ;;     wider agg text (13); the agg rows compose their own
+    ;;     (aw 0 0) fit; the rtrunc row's date cell is exactly
+    ;;     "MMM D ⚠"-shaped with the loud phrase ONLY on the
+    ;;     Time-invested note line.
+    ;;   r63-12 (T12) the golden: the rendered review surface over the
+    ;;     T7 corpus is byte-identical to review-mockup-170.txt
+    ;;     (right-trimmed, trailing blanks dropped — the regen-mockups
+    ;;     discipline, guards active).
+    ;; No .el SOURCE touched on the test track (impl landed R63-1/2 in
+    ;; pusntykn).  Round-63 manifest is EMPTY; the tests stay as
+    ;; permanent regression guards.
     ;; =================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )

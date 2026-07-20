@@ -166,11 +166,21 @@ AND the flex title survives (the title-min budget)."
                                org-air-test-fixture-dir)))
     (org-air-regen--emit out (org-air-viewport-test-denote-board-lines width))))
 
+(defun org-air-regen--write-review ()
+  "Write the R63 review mockup golden (review-mockup-170.txt).
+Rendered by `org-air-viewport-test-review-mockup-lines' — the T7 mirror
+corpus at width 170, frozen clock (W29 2026), default knobs, the SAME
+render path the round-63 byte test asserts (guards active)."
+  (org-air-regen--emit
+   (expand-file-name "review-mockup-170.txt" org-air-test-fixture-dir)
+   (org-air-viewport-test-review-mockup-lines)))
+
 (defun org-air-regen-mockups ()
   "Regenerate every mockup fixture from the honest renderer.
 GTD board: widths × {natural, 24, 50} + the empty board at 120×50.
 F5 project view: the ./air fixture in each grouping (state/dir/tag).
-D-P3 view pane: the entry snapshot + dead-marker goldens."
+D-P3 view pane: the entry snapshot + dead-marker goldens.
+R63 review: the mirror-corpus review mockup at width 170."
   (dolist (width org-air-regen-widths)
     (dolist (height org-air-regen-heights)
       (org-air-regen--write width height)))
@@ -188,6 +198,9 @@ D-P3 view pane: the entry snapshot + dead-marker goldens."
   ;; R17 D-P1 long-Denote origin goldens (isolated mini-board).
   (dolist (width org-air-regen-denote-widths)
     (org-air-regen--write-denote width))
+  ;; R63 review mockup golden (the mirror corpus).
+  (when (fboundp 'org-air-review)
+    (org-air-regen--write-review))
   (message "regen: done — diff fixtures and route to design for re-blessing"))
 
 (provide 'org-air-regen-mockups)

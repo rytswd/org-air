@@ -1895,6 +1895,12 @@ DOC-context side rail."
       (select-window win)
       (with-current-buffer tree
         (setq-local org-air-view--rail-popped-out (and popped t))
+        ;; R63-1: the doc's `org-air-rail--show' suspended the tree when
+        ;; it took the rail (belt 1, ownership-transfer suspension); the
+        ;; back command is the SAME explicit user-driven transfer in
+        ;; reverse, so it clears the flag before its re-own — exactly the
+        ;; toggle's discipline — and the tail-owner gate passes.
+        (setq-local org-air-view--rail-suspended nil)
         (if popped
             ;; Re-own the side window with the PROJECT rail content.
             (org-air-rail--show tree (org-air-project--render-width))
@@ -1928,6 +1934,10 @@ the session."
         (set-window-buffer win tree))
       (with-current-buffer tree
         (setq-local org-air-view--rail-popped-out (and popped t))
+        ;; R63-1: clear the belt-1 suspension before the re-own (the
+        ;; killed doc's rail claim dies with it — same discipline as
+        ;; `org-air-project-back').
+        (setq-local org-air-view--rail-suspended nil)
         (when (and popped (window-live-p (org-air-rail--side-window)))
           (org-air-rail--show tree (org-air-project--render-width)))))))
 

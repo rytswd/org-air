@@ -2215,6 +2215,29 @@
     ;; (impl landed R62-1..3 in muqylqul).  Round-62 manifest is EMPTY;
     ;; the tests stay as permanent regression guards.
     ;; =================================================================
+    ;; 2026-07-20: ROUND-63 grind (impl <this commit>, spec
+    ;; air/v0.5/org-air-round63-design.org).  DELIBERATE R63-2a
+    ;; behaviour change, design-blessed: the review's per-item sections
+    ;; are FLAT under EVERY rollup basis — one row per item, the
+    ;; per-item `(group …)' lines removed (`org-air-review--group-rows'
+    ;; DELETED; the `day' group lines duplicated the date cell, the
+    ;; `origin' ones were the screenshot's fake filename headers) — and
+    ;; `f' is the Time-invested lens only, re-ruling R61-3's "Completed
+    ;; groups its rows by it".  The ONE R61 ERT below pins the OLD
+    ;; day-group line at the buffer level (its `(should group)' searches
+    ;; the rendered pane for the "Sun Jun 21" group label above the
+    ;; habit row); every OTHER conjunct in it — the one-fold-row ×7
+    ;; chip, the latest-stamp epoch, the chip-less sibling — still
+    ;; holds and stays green under R63.  NOT hand-blessed here — the
+    ;; test seat re-blesses it to the flat-section contract (and adds
+    ;; the R63 T7-T12 acceptance seams + the review-mockup-170 golden
+    ;; via the regen-mockups discipline) and deletes this entry as
+    ;; closeout.
+    (org-air-r61-12-completed-count-chip
+     . "R63-2a flat sections: the day-group line above the habit row is
+design-removed (air/v0.5/org-air-round63-design.org Item 2a); the ×7
+chip/latest-stamp conjuncts still hold — test seat re-blesses")
+    ;; =================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

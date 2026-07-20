@@ -68,7 +68,13 @@
     (sort-key . ("↕" . "|"))
     (flip . ("⇄" . "<>"))
     (visited . ("✓" . "v"))
-    (scanning . ("⟳" . "~")))
+    (scanning . ("⟳" . "~"))
+    ;; R63-2d: the four REVIEW section icons (board section-header
+    ;; treatment; degrade by the S5b tier table like every glyph).
+    (completed . ("✓" . "+"))
+    (time . ("◔" . "%"))
+    (started . ("▷" . ">"))
+    (carried . ("↻" . "~")))
   "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
 PREFERRED is the GUI glyph (already the safer S5b default: stale ○, today
 ■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate

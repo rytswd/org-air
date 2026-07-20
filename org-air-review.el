@@ -17,6 +17,13 @@
 ;; The third leg of the family: board = now, revisit = evergreen,
 ;; review = retrospect.
 ;;
+;; R63-2 layout: the per-item sections are FLAT (one row per item —
+;; bright title, compact date cell, inline tag pills, ONE origin through
+;; the board's shared F1 primitive); same-title/same-day MIRROR rows
+;; collapse to a canonical row with a `▤ N files' affordance
+;; (`org-air-review-collapse-mirrors'); section headings wear the
+;; board's icon + count-chip treatment; `f' is the Time-invested lens.
+;;
 ;; Period navigation (`<' / `>' / `.'; the R62-2 range ladder
 ;; week ↔ fortnight ↔ month ↔ quarter ↔ year on `+'/`-'/`m') is a
 ;; RENDER state: a pure filter+fold over cached integer lists — zero
@@ -60,6 +67,28 @@ to repair; including it would make totals useless, hiding it would be a
 lie.  Render-time only: a threshold change repaints, never rescans.
 nil disables the rule entirely."
   :type '(choice (const :tag "Disabled" nil) number)
+  :group 'org-air)
+
+(defcustom org-air-review-collapse-mirrors t
+  "When non-nil, MIRROR rows collapse to one row per real completion (R63-2c).
+The Air convention keeps a work item mirrored across files (a denote
+note plus `Active-Work.org' / `Active-Tasks.org' workspace copies, or
+an identically-titled task child under its work-item heading), every
+mirror DONE-logged at completion — real, distinct headings, not a
+harvest double count (investigated to a verdict, R63).  Rendered
+literally they read as duplicated rows and inflate every count.  Under
+this knob rows sharing a normalised TITLE and a local calendar DAY
+merge into ONE row: the canonical item (tagged first, then
+denote-identified, then snapshot order) owns the row's RET/S-RET/pane,
+the ×N chip counts the UNION of completion stamps deduped by epoch (a
+mirrored single completion shows NO chip; a genuine daily habit keeps
+its ×7), and members spanning N > 1 files read `▤ N files' in the
+origin cell.  Counts follow (header, section chips, rail Summary — the
+R61-4 law: totals honestly describe what is shown); Time invested is
+NOT collapsed (time is attributed where it was clocked).  nil restores
+one row per heading.  Render state only — a flip repaints, never
+rescans."
+  :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-review-rail-placement nil
@@ -110,8 +139,11 @@ the anchor to the shown period's START epoch.")
 
 (defvar-local org-air-review--rollup 'day
   "Active rollup basis: `day' (default) / `tag' / `directory' / `origin'.
-Cycled by `f' (R61-3) and applied coherently: Completed groups its rows
-by it; Time invested aggregates by it.")
+Cycled by `f' and applied to TIME INVESTED alone (R63-2a re-ruling of
+R61-3's grouping half): the per-item sections are FLAT — one row per
+item, chronology carried by the R22-3 sort and the date cell — so `f'
+is exactly what its aggregation half always was, the Time-invested
+lens.")
 
 (defvar-local org-air-review--items nil
   "The item snapshot this review buffer folds over (R61-4).
@@ -468,13 +500,16 @@ tier).  One pass, slots only.  Returns a plist:
   "Return ITEM's rollup label list under BASIS (`tag'/`directory'/`origin').
 A multi-tag heading contributes to EACH of its tag rows — the tag
 rollup is a lens; the section's headline total comes from the item
-fold, never from summing rollup rows."
+fold, never from summing rollup rows.  R63-2c: the `origin' branch
+resolves through the board's shared F1 `org-air-view--origin' (the
+denote-aware title, honouring `org-air-origin-style'), never the raw
+ID filename."
   (pcase basis
     ('tag (or (mapcar (lambda (tag) (concat "#" tag))
                       (org-air-item-tags item))
               (list "(untagged)")))
     ('directory (list (or (org-air-item-group item) "(no group)")))
-    (_ (list (file-name-nondirectory (or (org-air-item-file item) ""))))))
+    (_ (list (org-air-view--origin item)))))
 
 (defun org-air-review--time-rollup (time-items basis p0 p1)
   "Aggregate TIME-ITEMS ((ITEM . SECS) …) by BASIS over [P0, P1).
@@ -525,34 +560,106 @@ alphabetically; `O' reverses (the R22-3 shared core)."
                   (lambda (a b) (< (nth 1 a) (nth 1 b)))))))
     (if desc (nreverse sorted) sorted)))
 
-(defun org-air-review--group-rows (rows basis)
-  "Group the per-item ROWS by BASIS into ((KEY LABEL . ROWS) …).
-`day' keys on each row's epoch date (chronological order); the other
-bases key on `org-air-review--rollup-labels' (label order), so a
-multi-tag item appears under each of its tag groups.  Row order inside
-a group preserves ROWS order (sort upstream)."
-  (let ((table (make-hash-table :test #'equal)))
-    (dolist (row rows)
-      (let ((keys (if (eq basis 'day)
-                      (list (cons (format-time-string "%Y-%m-%d" (nth 1 row))
-                                  (format-time-string "%a %b %-d"
-                                                      (nth 1 row))))
-                    (mapcar (lambda (label) (cons label label))
-                            (org-air-review--rollup-labels (nth 0 row)
-                                                           basis)))))
-        (pcase-dolist (`(,key . ,label) keys)
-          (let ((cell (gethash key table)))
-            (if cell
-                (setcdr (cdr cell) (cons row (cddr cell)))
-              (puthash key (list key label row) table))))))
-    (let (out)
-      (maphash (lambda (_key cell)
-                 (push (cons (nth 0 cell)
-                             (cons (nth 1 cell)
-                                   (nreverse (cddr cell))))
-                       out))
-               table)
-      (sort out (lambda (a b) (string-lessp (car a) (car b)))))))
+;; R63-2a: `org-air-review--group-rows' is DELETED — the per-item
+;; sections are FLAT under every basis (one row per item; the `day'
+;; group lines duplicated the date cell, the `origin' group lines were
+;; the screenshot's fake headers).  `f' is the Time-invested lens only.
+
+;;;; ---------------------------------------------------------------------
+;;;; Mirror collapse (R63-2c) — render-side, pure slot work.  The Air
+;;;; convention mirrors one piece of work across files (denote note +
+;;;; workspace copies + a same-titled task child), every mirror
+;;;; DONE-logged; the harvest is correctly one-item-per-heading, so the
+;;;; de-duplication is a RENDER rule: same title + same day => ONE row.
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-review--item-id (item)
+  "Return ITEM's durable (FILE . POS) identity (R63-2c).
+The R53 marker-slot model: a scanned item's marker slot IS a
+\(FILE . POS) cons; a live-capture marker degrades via
+`marker-position'; never signals."
+  (let ((file (org-air-item-file item))
+        (m (org-air-item-marker item)))
+    (cond ((and (consp m) (stringp (car m)))
+           (cons (car m) (if (integerp (cdr m)) (cdr m) 1)))
+          ((and (markerp m) (marker-position m))
+           (cons file (marker-position m)))
+          (t (cons file 1)))))
+
+(defun org-air-review--mirror-key (row)
+  "Return the mirror-collapse identity key of the per-item ROW (R63-2c).
+Normalised title — `(downcase (string-trim TITLE))' — crossed with the
+row epoch's LOCAL calendar day (%F).  Exact match only: no content
+similarity, no fuzzy titles (out of scope by design)."
+  (cons (downcase (string-trim (or (org-air-item-title (nth 0 row)) "")))
+        (format-time-string "%F" (nth 1 row))))
+
+(defun org-air-review--mirror-canonical (items)
+  "Return the CANONICAL item among the mirror ITEMS (R63-2c).
+Deterministic precedence: (1) an item with non-empty tags, (2) an item
+in a denote-identified file (`org-air-query--denote-file-id'), (3)
+snapshot order (ITEMS arrive in snapshot order)."
+  (or (seq-find (lambda (item) (org-air-item-tags item)) items)
+      (seq-find (lambda (item)
+                  (org-air-query--denote-file-id (org-air-item-file item)))
+                items)
+      (car items)))
+
+(defun org-air-review--collapse-rows (rows)
+  "Collapse same-title/same-day mirror ROWS into single rows (R63-2c).
+ROWS are per-item fold rows (ITEM EPOCH [COUNT STAMPS]); rows sharing
+`org-air-review--mirror-key' merge into ONE row (ITEM EPOCH COUNT
+STAMPS MIRRORS): the canonical item, the NEWEST member epoch, the
+stamp UNION deduped by epoch (so the ×N chip counts real distinct
+completions) and the member (FILE . POS) list — nil on an unmerged
+row.  First-seen order is preserved (`org-air-review--sort-rows' runs
+downstream).  Total on already-validated rows, zero file opens; a nil
+`org-air-review-collapse-mirrors' returns ROWS untouched."
+  (if (not org-air-review-collapse-mirrors)
+      rows
+    (let ((table (make-hash-table :test #'equal))
+          (order nil))
+      (dolist (row rows)
+        (let ((key (org-air-review--mirror-key row)))
+          (if (gethash key table)
+              (push row (gethash key table))
+            (puthash key (list row) table)
+            (push key order))))
+      (mapcar
+       (lambda (key)
+         (let ((members (nreverse (gethash key table))))
+           (if (null (cdr members))
+               (car members)
+             (let* ((canon (org-air-review--mirror-canonical
+                            (mapcar (lambda (r) (nth 0 r)) members)))
+                    (epoch (apply #'max (mapcar (lambda (r) (nth 1 r))
+                                                members)))
+                    (stamps (let (all)
+                              (dolist (r members)
+                                (dolist (s (nth 3 r))
+                                  (unless (memql s all) (push s all))))
+                              (sort all #'>)))
+                    (mirrors (mapcar (lambda (r)
+                                       (org-air-review--item-id (nth 0 r)))
+                                     members)))
+               (list canon epoch (and stamps (length stamps)) stamps
+                     mirrors)))))
+       (nreverse order)))))
+
+(defun org-air-review--collapse-data (data)
+  "Return DATA with the per-item sections mirror-collapsed (R63-2c).
+Applied AFTER the fold and BEFORE sort/compose, so EVERY consumer —
+the section counts, the header's \"N done\", the rail Summary and the
+calendar marks — counts COLLAPSED rows (the R61-4 law: totals honestly
+describe what is shown).  Time invested is deliberately NOT collapsed:
+time is attributed where it was clocked."
+  (if (not org-air-review-collapse-mirrors)
+      data
+    (dolist (key '(:completed :started :carried))
+      (setq data (plist-put data key
+                            (org-air-review--collapse-rows
+                             (plist-get data key)))))
+    data))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Data path (never-blocking, R53 laws inherited)
@@ -686,21 +793,26 @@ Pure slot/string work — zero file opens."
 ;;;; ---------------------------------------------------------------------
 
 (defconst org-air-review--trunc-marker "⚠ history truncated"
-  "The inline marker a `rtrunc' item's rows carry (R61-1/T11).
+  "The loud truncation phrase of the Time-invested note line (R61-1/T11).
 Truncation is never silent: period totals older than the retained
-window under-report only on marked headings.")
+window under-report only on marked headings.  R63-2e: an `rtrunc'
+item's ROW carries the compact 2-col `⚠' in its date cell instead
+\(`org-air-review--row-date-text'); this full phrase stays on the note
+line (\"⚠ history truncated on N headings\").")
 
 (defun org-air-review--row-date-text (row)
   "Return the UNFACED date-cell text for the per-item ROW (ITEM EPOCH [N]).
 The stamp's day, the ×N count chip when the row folds N > 1 completions
-\(a daily habit reads \"×7\", not seven rows), and the `rtrunc' marker."
+\(a daily habit reads \"×7\", not seven rows), and — R63-2e, compact —
+a 2-col `⚠' on an `rtrunc' item (\"Jul 16 ⚠\"); the loud explanation
+stays on the Time-invested note line, so truncation is never silent
+without every row's date column carrying the slack."
   (let ((item (nth 0 row))
         (epoch (nth 1 row))
         (n (nth 2 row)))
     (concat (format-time-string "%b %-d" epoch)
             (when (and (integerp n) (> n 1)) (format " ×%d" n))
-            (when (org-air-item-rtrunc item)
-              (concat " " org-air-review--trunc-marker)))))
+            (when (org-air-item-rtrunc item) " ⚠"))))
 
 (defun org-air-review--item-tagstr (item)
   "Return ITEM's tag pills via the shared board renderer."
@@ -709,40 +821,51 @@ The stamp's day, the ×N count chip when the row folds N > 1 completions
     (if (zerop n) ""
       (org-air-view--item-tagstr tags (min org-air-tags-inline-max n) n))))
 
-(defun org-air-review--origin-cell (item)
-  "Return ITEM's `▤ file' origin cell text (the F1 column idiom)."
-  (let ((text (file-name-nondirectory (or (org-air-item-file item) "")))
-        (budget (max 1 (- org-air-origin-max-width 2))))
-    (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
-            " "
-            (if (<= (string-width text) budget)
-                text
-              (truncate-string-to-width text budget nil nil
-                                        (org-air-view--glyph 'more))))))
+;; R63-2b: `org-air-review--origin-cell' is DELETED — it FORKED the
+;; board's F1 origin idiom with a raw `file-name-nondirectory', printing
+;; the machine Denote ID where the board prints the de-machined title.
+;; The one shared primitive `org-air-view--item-origin-raw' (denote-aware,
+;; honouring `org-air-origin-style' / `org-air-show-group' /
+;; `org-air-origin-max-width') serves both views now.
+
+(defun org-air-review--mirror-origin (n)
+  "Return the `▤ N files' collapsed-mirror origin affordance (R63-2c)."
+  (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
+          " " (format "%d files" n)))
 
 (defun org-air-review--item-lines (rows)
-  "Return `item' display specs for the per-item ROWS ((ITEM EPOCH …) …)."
+  "Return `item' display specs for the per-item ROWS ((ITEM EPOCH …) …).
+R63-2: one flat row per item — title, compact date cell, tag pills and
+ONE unobtrusive origin through the board's shared F1 primitive.  A
+collapsed mirror row whose members span N > 1 files reads `▤ N files'
+instead (naming one member file would misdescribe the row); its member
+list rides the spec's MIRRORS tail into the row's text properties."
   (mapcar (lambda (row)
-            (list 'item (nth 0 row)
-                  (org-air-review--row-date-text row)
-                  (org-air-review--item-tagstr (nth 0 row))
-                  (org-air-review--origin-cell (nth 0 row))))
+            (let* ((item (nth 0 row))
+                   (mirrors (nth 4 row))
+                   (files (and mirrors
+                               (delete-dups (mapcar #'car mirrors)))))
+              (list 'item item
+                    (org-air-review--row-date-text row)
+                    (org-air-review--item-tagstr item)
+                    (if (and files (> (length files) 1))
+                        (org-air-review--mirror-origin (length files))
+                      (org-air-view--item-origin-raw item))
+                    mirrors)))
           rows))
 
 (defun org-air-review--compose-sections (data basis p0 p1)
   "Return the render-ready section table from DATA under BASIS.
-P0/P1 bound the period for the Time rollup.  Each entry is
-\(SECTION TITLE COUNT LINES); LINES are display specs — (group LABEL),
-\(item ITEM DATE TAGS ORIGIN), (agg LABEL TEXT) or (note TEXT) — every
-cell a pure slot/string derivation (data-pure)."
+P0/P1 bound the period for the Time rollup.  R63-2a: the per-item
+sections are FLAT — one `item' spec per row under EVERY basis, no
+group lines (the `day' group lines duplicated the date cell; the
+`origin' ones were fake headers); BASIS drives the Time-invested
+aggregation alone.  Each entry is (SECTION TITLE COUNT LINES); LINES
+are display specs — (item ITEM DATE TAGS ORIGIN MIRRORS), (agg LABEL
+TEXT) or (note TEXT) — every cell a pure slot/string derivation
+\(data-pure)."
   (let* ((completed (org-air-review--sort-rows (plist-get data :completed)))
-         (cgroups (org-air-review--group-rows completed basis))
-         (clines (let (lines)
-                   (pcase-dolist (`(,_key ,label . ,rows) cgroups)
-                     (push (list 'group label) lines)
-                     (dolist (line (org-air-review--item-lines rows))
-                       (push line lines)))
-                   (nreverse lines)))
+         (clines (org-air-review--item-lines completed))
          (rollup (org-air-review--time-rollup (plist-get data :time-items)
                                               basis p0 p1))
          (tlines
@@ -781,17 +904,15 @@ cell a pure slot/string derivation (data-pure)."
                 (org-air-review--item-lines carried)))))
 
 (defun org-air-review--insert-section-heading (section title count)
-  "Insert SECTION's heading row: TITLE + COUNT chip (the board idiom).
-The whole line carries `org-air-section' SECTION so the TAB fold and
-the shared section-motion commands work through the property
-machinery."
-  (let ((start (point)))
-    (insert (org-air-view--item-margin)
-            (propertize title 'face 'org-air-face-section)
-            " "
-            (propertize (format "%d" count) 'face 'org-air-face-count)
-            "\n")
-    (add-text-properties start (point) (list 'org-air-section section))))
+  "Insert SECTION's heading row through the board's shared treatment.
+R63-2d: the board's `org-air-view--insert-section-heading' — icon glyph
+\(`org-air-face-section-icon'; four new entries in the shared glyph
+table, degrading by the S5b tier) + TITLE (`org-air-face-section') +
+COUNT chip (`org-air-face-count') + the `org-air-section-rule'-gated
+rule line — one idiom, no fork.  The line carries `org-air-section'
+SECTION so the TAB fold and the shared section-motion commands work
+through the property machinery, exactly as before."
+  (org-air-view--insert-section-heading section title count nil))
 
 (defun org-air-review--insert-body (sections collapsed scanning width)
   "Insert the four review SECTIONS at WIDTH — the bounded left pane.
@@ -806,17 +927,22 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
     (insert (org-air-view--item-margin)
             (propertize "Scanning your files…" 'face 'org-air-face-empty)
             "\n\n"))
-  (let ((dw 0) (tw 0) (ow 0))
+  ;; R63-2e: SPLIT cluster fits — the item rows' date column (dw) is
+  ;; fitted over ITEM rows only; the agg rows (Time invested) compose
+  ;; their own two-column shape (label + text) with their own fit (aw).
+  ;; Folding the agg text ("4:20 · 1 item" = 13 cols) into the item date
+  ;; width ("Jul 14" = 6) made every row's date cell carry the slack.
+  (let ((dw 0) (tw 0) (ow 0) (aw 0))
     (dolist (section sections)
       (unless (memq (nth 0 section) collapsed)
         (dolist (line (nth 3 section))
           (pcase line
-            (`(item ,_item ,date ,tags ,origin)
+            (`(item ,_item ,date ,tags ,origin ,_mirrors)
              (setq dw (max dw (string-width date))
                    tw (max tw (string-width tags))
                    ow (max ow (string-width origin))))
             (`(agg ,_label ,text)
-             (setq dw (max dw (string-width text))))
+             (setq aw (max aw (string-width text))))
             (_ nil)))))
     (setq ow (min ow org-air-origin-max-width))
     (let* ((gap 2)
@@ -848,11 +974,7 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
                         "\n")
               (dolist (line lines)
                 (pcase line
-                  (`(group ,label)
-                   (insert (org-air-view--item-margin)
-                           (propertize label 'face 'org-air-face-faded)
-                           "\n"))
-                  (`(item ,item ,date ,tags ,origin)
+                  (`(item ,item ,date ,tags ,origin ,mirrors)
                    (org-air-view--insert-row
                     :prefix (org-air-view--item-margin)
                     :title (org-air-item-title item)
@@ -864,17 +986,25 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
                     ;; Review composes its OWN cluster field (own fit) —
                     ;; the documented project-style exception (R40-2).
                     :own-fence t
-                    :props (list 'org-air-item item
-                                 'org-air-marker (org-air-item-marker item)
-                                 'mouse-face 'org-air-face-cursor)))
+                    ;; R63-2c: the row's item/marker props carry the
+                    ;; CANONICAL item (RET/S-RET/pane open it); the full
+                    ;; member list rides `org-air-review-mirrors'.
+                    :props (append
+                            (list 'org-air-item item
+                                  'org-air-marker (org-air-item-marker item)
+                                  'mouse-face 'org-air-face-cursor)
+                            (and mirrors
+                                 (list 'org-air-review-mirrors mirrors)))))
                   (`(agg ,label ,text)
+                   ;; R63-2e: the agg row's own two-column shape — label
+                   ;; flexes, text right-anchored at the agg fit (aw).
                    (org-air-view--insert-row
                     :prefix (org-air-view--item-margin)
                     :title label
                     :date-text (propertize text 'face 'org-air-face-date)
                     :tags ""
                     :origin-text ""
-                    :widths (list dw tw ow)
+                    :widths (list aw 0 0)
                     :own-fence t))
                   (`(note ,text)
                    (insert (truncate-string-to-width
@@ -1164,6 +1294,10 @@ machinery, parameterised)."
          (currentp (and (>= now p0) (< now p1)))
          (visible (org-air-review--visible-items))
          (data (org-air-review--section-data visible p0 p1 currentp))
+         ;; R63-2c: mirror collapse — after the fold, before every
+         ;; consumer, so counts (header / sections / rail Summary) and
+         ;; the calendar marks all describe the COLLAPSED rows.
+         (data (org-air-review--collapse-data data))
          (data (plist-put data :top-tags
                           (org-air-review--time-rollup
                            (plist-get data :time-items) 'tag p0 p1)))
@@ -1314,8 +1448,9 @@ ladder knob trimmed to (week month) the cycle IS the old toggle."
 
 (defun org-air-review-cycle-rollup ()
   "Cycle the rollup basis: day → tag → directory → origin (key `f').
-One buffer-local lens applied coherently: Completed regroups, Time
-invested re-aggregates — a pure repaint, never a rescan (R61-3)."
+The TIME-INVESTED lens (R63-2a): one buffer-local basis re-aggregating
+the Time invested section — the per-item sections stay flat under
+every basis.  A pure repaint, never a rescan (R61-3)."
   (interactive)
   (setq-local org-air-review--rollup
               (pcase org-air-review--rollup

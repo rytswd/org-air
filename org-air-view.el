@@ -5789,9 +5789,15 @@ can move the goalposts.  WIDTH is the fallback when HOST-BUFFER has no
 live window (and the floor input: the result never drops below
 `org-air-item-pane-min').  Shared by the board and the project (one
 primitive, no fork); the batch width seams bypass this helper entirely."
+  ;; R63-1a: never ensure (create/resize) the side window from a tail
+  ;; that does not hold the rail claim — the width measure below falls
+  ;; through to the live-window/fallback branches unchanged (the host
+  ;; window's usable columns are already rail-adjusted, since the rail
+  ;; lives on the frame under its real owner).
   ;; R58: never ensure the side window for an undisplayed host (bookmark
   ;; restore) — the measure below then falls back to WIDTH as always.
-  (unless (org-air-rail--undisplayed-host-p host-buffer)
+  (unless (or (not (org-air-rail--tail-owner-p host-buffer))
+              (org-air-rail--undisplayed-host-p host-buffer))
     (org-air-rail--ensure-window host-buffer width))
   (let ((win (get-buffer-window host-buffer)))
     (if (window-live-p win)
@@ -5826,7 +5832,46 @@ already have created), then renders the rail content + inspector.
 R27-1 S4: the content paint is STAMP-GUARDED — when every paint input
 of `org-air-rail--input-stamp' matches the previous paint the erase+
 re-insert is skipped (the output would be byte-identical), so the steady
-state is zero rail repaints and exactly one at the R26-8 swap."
+state is zero rail repaints and exactly one at the R26-8 swap.
+R63-1: the ONE render tail every rail-showing surface routes through,
+now governed by the deterministic two-belt single-owner rule — the
+`org-air-rail--tail-owner-p' gate (a non-owner tail is a FULL no-op:
+no window ensure, no content render, returns nil, and SELF
+self-suspends so every later background render during a load is skipped
+by the flag alone) plus the ownership-transfer suspension (a passing
+tail whose host differs from the live rail's owner suspends the
+PREVIOUS owner synchronously, in the same call that takes the rail —
+mirroring the reconciler's re-own branch, so belt 2's hook-selection
+blind spot is closed BEFORE any C1 resize render can fire).  The gate
+takes precedence over the R58 undisplayed-host content carve (R63-1c):
+in the bookmark-restore flow no other org-air host is active (active =
+nil, gate passes) so R58 behaviour is unchanged there; in the mid-fill
+flow the carve was the content-flip vector and must lose."
+  (if (not (org-air-rail--tail-owner-p board-buffer))
+      ;; R63-1a: gate failed — full no-op + self-suspend.  The suspended
+      ;; flag's falling edge belongs to the reconciler alone (R63-1d /
+      ;; R25-6): a suspended view re-pops ONLY via the reconciler's
+      ;; suspended branch (settled active view, 0s timer) or an explicit
+      ;; user toggle, both of which clear the flag first.
+      (progn
+        (when (buffer-live-p board-buffer)
+          (with-current-buffer board-buffer
+            (setq-local org-air-view--rail-suspended t)))
+        nil)
+    ;; R63-1b: ownership-transfer suspension — taking the rail from a
+    ;; live previous owner suspends that owner SYNCHRONOUSLY, exactly
+    ;; what the reconciler's re-own branch does, so the transfer is
+    ;; deterministic and never inferred from transient window selection.
+    (let ((prev (org-air-rail--side-owner)))
+      (when (and (buffer-live-p prev) (not (eq prev board-buffer)))
+        (with-current-buffer prev
+          (setq-local org-air-view--rail-suspended t))))
+    (org-air-rail--show-1 board-buffer width)))
+
+(defun org-air-rail--show-1 (board-buffer width)
+  "The ungoverned `org-air-rail--show' body for BOARD-BUFFER at WIDTH.
+R63-1 split: only `org-air-rail--show' (which owns the tail-owner gate
+and the ownership-transfer suspension) may call this."
   (let* ((cols (org-air-rail--window-cols (and org-air-view-width width)))
          ;; R58: a host no window shows (a bookmark/activities restore
          ;; rebuilding views undisplayed) must not create the side window
@@ -6074,6 +6119,34 @@ from the rail buffer's `org-air-rail--board-buffer' (R25-6)."
     (and win (buffer-local-value 'org-air-rail--board-buffer
                                  (window-buffer win)))))
 
+(defun org-air-rail--tail-owner-p (self &optional frame)
+  "Non-nil when SELF's render tail may mutate the shared rail (R63-1a).
+The deterministic single-owner rule's GATE, consulted at the three rail
+choke points (`org-air-rail--show', `org-air-rail--host-width''s window
+ensure, `org-air-rail--evict-foreign-rail'): the shared `*org-air-rail*'
+may be mutated ONLY by (1) the reconciler — which resolves the SETTLED
+active view from a 0s timer and is exempt by construction: its re-own /
+re-pop branches first clear the target's suspended flag and run for the
+active view, so this gate passes — and (2) a render tail whose view
+currently holds the rail claim.  Two conjuncts, both load-bearing
+\(measured: either alone is insufficient):
+
+  non-suspended?  SELF's buffer-local `org-air-view--rail-suspended' is
+    nil.  Belt 1: ownership transfer marks the previous owner suspended
+    SYNCHRONOUSLY (`org-air-rail--show', R63-1b), so a background render
+    of the dispossessed view is blocked here even inside the C1
+    resize-hook window where the view's window is HOOK-SELECTED and any
+    instantaneous active check misreads (the measured +0.01s steal).
+  active?  `org-air-rail--active-view' on FRAME is nil or SELF.  Belt 2:
+    blocks the timer-driven R56 progressive/finish repaints of a view
+    that never owned the rail (selection settled by then).
+
+A dead SELF never holds a claim.  Pure reads — no window mutation."
+  (and (buffer-live-p self)
+       (not (buffer-local-value 'org-air-view--rail-suspended self))
+       (let ((active (org-air-rail--active-view frame)))
+         (or (null active) (eq active self)))))
+
 (defun org-air-rail--evict-foreign-rail (self)
   "Hide a `*org-air-rail*' side window that does NOT belong to SELF (R25-6).
 Suspends its owner (flag kept) so returning to that owner re-pops cleanly.
@@ -6084,6 +6157,12 @@ SELF is inline it drops a lingering foreign rail (the cross-view sweep)."
          (side  (org-air-rail--side-window frame))
          (owner (org-air-rail--side-owner frame)))
     (when (and (window-live-p side) (not (eq owner self))
+               ;; R63-1a: sweeping a foreign rail is an owner/active
+               ;; privilege — without this gate the GATED board tail
+               ;; (owner /= self, no `--show' re-own) would fall through
+               ;; here and DELETE the active view's rail: the same bug
+               ;; with the opposite sign.
+               (org-air-rail--tail-owner-p self frame)
                ;; R58: an undisplayed self-render (a bookmark restore) has
                ;; no layout claim — never sweep the displayed view's rail.
                (not (org-air-rail--undisplayed-host-p self)))
@@ -6127,7 +6206,12 @@ the transient popped-but-windowless state; and the user-close branch may
 fire ONLY on an observed live->dead transition of
 `org-air-rail--side-was-live', never on mere absence (absence + flag t
 + was-live nil = a popout in flight or a suspended view: leave the state
-alone — the render tail owns it)."
+alone — the render tail owns it).
+R63-1d: the reconciler OWNS the suspension flag's falling edge (the
+R25-6 contract, now stated and pinned): a view suspended by the tail
+gate or the transfer belt re-pops ONLY through the suspended branch
+below — settled active view, 0s timer — or an explicit user toggle;
+no render tail may clear the flag for itself."
   (unless noninteractive
     (if org-air-rail--reconciling
         ;; Render latch: never mutate rail state mid-render; the single

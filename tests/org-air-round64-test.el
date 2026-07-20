@@ -65,6 +65,11 @@
 ;;         `k' vocabulary reader; a TODO arg of "CLOSED" round-trips
 ;;         on-disk with `donep' semantics intact (the file's own done
 ;;         set, never org-air's).
+;;   r64-9 CRASH-SAFE MOVE (harden) — a paste-step failure AFTER the
+;;         destructive cut restores the source subtree byte-identically
+;;         (item never lost) and leaves the target file untouched on
+;;         disk (not half-written); the error still propagates and the
+;;         same refile succeeds afterwards.
 ;;
 ;; RETIREMENT LEDGER (the four flagged legacy ERTs, spec R64-3): the
 ;; R19-2 stub-chain test and the two `--decode-target' tests are
@@ -641,6 +646,57 @@ moved item is done while the HOLD sibling is not."
         (should (org-air-item-donep moved))
         (should seed)
         (should-not (org-air-item-donep seed))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r64-9 — a failed paste never loses the item (the harden guard)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r64-9-refile-crash-safe ()
+  "The destructive window is guarded: `org-air-refile-item' cuts the
+source subtree (delete + save, the text held only in a local) BEFORE
+pasting into the target.  If `org-paste-subtree' (or any later step
+before the target's save) SIGNALS, the source subtree is RESTORED at
+its original position and saved — the inbox file is BYTE-IDENTICAL to
+before the call — and the target file on disk is untouched (never
+half-written: the pre-cut created parents live only in the unsaved
+buffer).  The error itself still propagates to the caller, and the
+SAME refile succeeds once the fault is gone — the failed attempt left
+a fully working state.  Reverting the guard loses the item from the
+saved inbox and fails the byte-identity assertion."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r64--with-corpus
+      `(("inbox.org" . ,org-air-r64--acceptance-inbox)
+        ("projects.org" . ,org-air-r64--acceptance-projects))
+    (let* ((projects (expand-file-name "projects.org" org-air-r64--dir))
+           (inbox-before (org-air-r64--text org-air-inbox-file))
+           (projects-before (org-air-r64--text projects))
+           (inhibit-message t))
+      ;; force the paste step to crash AFTER the cut has happened.
+      (cl-letf (((symbol-function 'org-paste-subtree)
+                 (lambda (&rest _)
+                   (error "r64-9: simulated paste crash"))))
+        (should-error
+         (org-air-refile-item
+          (org-air-r64--item org-air-inbox-file "Set up syncthing")
+          projects '("Infra" "Cloud"))
+         :type 'error))
+      ;; the SOURCE is byte-identical on disk: the cut was rolled back.
+      (should (equal (org-air-r64--text org-air-inbox-file) inbox-before))
+      ;; the TARGET file was not half-written: on-disk bytes untouched.
+      (should (equal (org-air-r64--text projects) projects-before))
+      ;; the restored state is fully working: the SAME call (real paste)
+      ;; now lands the item, and the source container empties normally.
+      (org-air-refile-item
+       (org-air-r64--item org-air-inbox-file "Set up syncthing")
+       projects '("Infra" "Cloud"))
+      (should (equal (org-air-r64--headings projects)
+                     '((1 . "Website relaunch")
+                       (2 . "TODO Fix nav")
+                       (1 . "Infra")
+                       (2 . "Cloud")
+                       (3 . "TODO Set up syncthing :inbox:"))))
+      (should-not (string-match-p "Set up syncthing"
+                                  (org-air-r64--text org-air-inbox-file))))))
 
 (provide 'org-air-round64-test)
 ;;; org-air-round64-test.el ends here

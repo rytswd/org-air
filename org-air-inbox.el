@@ -483,7 +483,9 @@ untouched."
            ;; ensure-olp FIRST (spec order): creation re-resolves by NAME,
            ;; and the (MARKER . LEVEL) parent survives the same-file cut.
            (parent (org-air-inbox--resolve-target target-file target-heading))
-           (text nil))
+           (text nil)
+           (src-buf nil)
+           (src-beg nil))
       ;; cut (R26-8: a cache-hydrated item carries (FILE . POS), not a marker)
       (with-current-buffer (org-air-inbox--source-buffer item)
         (save-excursion
@@ -492,39 +494,56 @@ untouched."
           (org-back-to-heading t)
           (let ((begin (point))
                 (end (save-excursion (org-end-of-subtree t t) (point))))
-            (setq text (buffer-substring begin end))
+            (setq text (buffer-substring begin end)
+                  src-buf (current-buffer)
+                  src-beg begin)
             (delete-region begin end)
             (save-buffer))))
       (unless (string-suffix-p "\n" text)
         (setq text (concat text "\n")))
       ;; paste, re-leveled: last child of the parent (or file end, level 1).
-      (with-current-buffer (find-file-noselect target-file)
-        (org-with-wide-buffer
-         (let ((level (if parent (org-get-valid-level (cdr parent) 1) 1)))
-           (if parent
-               (progn (goto-char (car parent))
-                      (org-end-of-subtree t t))
-             (goto-char (point-max)))
-           (unless (bolp) (insert "\n"))
-           (let ((insert-pos (point-marker)))
-             (org-paste-subtree level text)
-             (goto-char insert-pos)
-             (org-back-to-heading t)
-             (when todo (org-todo todo))
-             (when priority
-               (org-priority (if (stringp priority)
-                                 (aref priority 0)
-                               priority)))
-             (when tags (org-set-tags (if (eq tags :none) nil tags)))
-             (when (and category (not (string-empty-p category)))
-               (org-set-property "CATEGORY" category))
-             (when scheduled
-               (if (string-empty-p scheduled)
-                   (org-schedule '(4))
-                 (org-schedule nil scheduled)))
-             (set-marker insert-pos nil))))
-        (when (car-safe parent) (set-marker (car parent) nil))
-        (save-buffer))
+      ;; GUARDED (R64 harden): between the cut above and the target's
+      ;; `save-buffer' the item exists ONLY in TEXT — if the paste or any
+      ;; metadata step signals (or quits), re-insert TEXT at the source
+      ;; position and save, so a failed refile NEVER loses the item; the
+      ;; error then propagates unchanged.
+      (let ((landed nil))
+        (unwind-protect
+            (progn
+              (with-current-buffer (find-file-noselect target-file)
+                (org-with-wide-buffer
+                 (let ((level (if parent (org-get-valid-level (cdr parent) 1) 1)))
+                   (if parent
+                       (progn (goto-char (car parent))
+                              (org-end-of-subtree t t))
+                     (goto-char (point-max)))
+                   (unless (bolp) (insert "\n"))
+                   (let ((insert-pos (point-marker)))
+                     (org-paste-subtree level text)
+                     (goto-char insert-pos)
+                     (org-back-to-heading t)
+                     (when todo (org-todo todo))
+                     (when priority
+                       (org-priority (if (stringp priority)
+                                         (aref priority 0)
+                                       priority)))
+                     (when tags (org-set-tags (if (eq tags :none) nil tags)))
+                     (when (and category (not (string-empty-p category)))
+                       (org-set-property "CATEGORY" category))
+                     (when scheduled
+                       (if (string-empty-p scheduled)
+                           (org-schedule '(4))
+                         (org-schedule nil scheduled)))
+                     (set-marker insert-pos nil))))
+                (when (car-safe parent) (set-marker (car parent) nil))
+                (save-buffer))
+              (setq landed t))
+          (unless landed
+            (with-current-buffer src-buf
+              (save-excursion
+                (goto-char src-beg)
+                (insert text)
+                (save-buffer))))))
       (message "Refiled → %s%s"
                (file-name-nondirectory target-file)
                (cond ((consp target-heading)

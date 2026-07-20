@@ -1,0 +1,518 @@
+#+title: org-air Round 62 — review rail single-owner fix + the duration-range ladder
+#+state: ready
+#+tags: review rail reconciler bug period range calendar bookmarks keybindings
+
+* Summary
+
+Two items on the R61 =org-air-review= surface, both user-reported.
+
+*Item 1 (BUG, GUI-only)*: opening review (=W=) does not keep the
+side-window rail that the board and revisit keep.  REPRODUCED this
+round in a real frame (Xvfb, Emacs 30.2, the 50-file =/tmp/org-air=
+demo corpus) and root-caused to ONE missing mode symbol:
+=org-air-rail--host-buffer-p= (org-air-view.el:6018, the
+=derived-mode-p= list at :6026–6027) names
+=org-air-view-mode= / =org-air-project-mode= / =org-air-revisit-mode=
+— and NOT =org-air-review-mode=.  Every entry/render/reconcile path
+the orchestrator flagged as parallel IS parallel; the divergence is
+this one predicate, which the R25-6 single-owner reconciler uses to
+resolve "the active view".  The one-symbol fix was verified in the
+same frame; a HEADLESS batch ERT seam that turns RED on the unfixed
+code was found and verified both ways (details below — the R25
+harness idiom makes the core defect batch-assertable after all; the
+GUI residue that stays user-confirm-only is named).
+
+*Item 2 (FEATURE)*: a RANGE ladder beyond week/month —
+=week → fortnight → month → quarter → year= — with =+=/=-= to
+widen/narrow one rung, =m= cycling the full ladder, =<=/=>= stepping
+by ONE unit of the active range (already partition-generic, zero
+changes needed to the nav commands), =.= returning to the current
+period.  The period math for the three new ranges was PROTOTYPED and
+oracle-verified this round (table below), reusing R61's exact
+boundary clipping, the =cal-iso= engine and the calendar highlight
+unchanged.  The range is RENDER state — never a cache-key element, no
+rescan on range change (the R61 law, re-pinned by a spy seam).  The
+R58/R61-6 bookmark record already carries =(KIND . ANCHOR)=; the KIND
+domain widens, the record shape does not change.
+
+Measured / observed this round (harnesses under =/tmp/org-air-r62/=):
+
+| Probe                                                        | Result                               |
+|--------------------------------------------------------------+--------------------------------------|
+| GUI: board =W= → review, after the 0 s reconcile timer       | rail OWNER flips review → board      |
+| GUI: review as the ONLY main window, after reconcile         | rail window DELETED, review suspended |
+| GUI: =<= / =m= re-renders while evicted                      | rail flashes in, re-evicted (end: none) |
+| GUI: =\vert= (rail toggle) pressed in review                 | user-error "Not in an org-air board…" |
+| GUI control: revisit in the SAME layouts                     | rail kept, owner = revisit           |
+| =org-air-rail--host-buffer-p= on the review buffer           | nil (revisit: =org-air-revisit-mode=) |
+| GUI: the one-symbol fix, all scenarios re-run                | owner stays review everywhere        |
+| BATCH seam (R25 idiom), unfixed                              | rail-live nil · owner nil · suspended t |
+| BATCH seam, fixed                                            | rail-live t · owner review · suspended nil |
+| Range adjacency law, 5 kinds × 9 edge dates × 2 TZs          | ALL PASS (incl. DST 2026-03-08/11-01) |
+| Clip across fortnight/quarter/year edges (60+30 min straddle)| 3600 + 1800 = 5400 exact, all three  |
+| Fortnight at the W53/2026 ISO edge                           | [Dec 21, Jan 4) then [Jan 4, Jan 18), both 14 d |
+| Fortnight phase anchor 1970-01-05                            | =calendar-day-of-week= → 1 (Monday)  |
+
+Deliverables:
+
+- *R62-1* — the RAIL FIX: =org-air-review-mode= joins the host
+  predicate (the root cause) and the =org-air-rail-toggle= guard (the
+  second bite); the =org-air-view-pane--bookmark-stash= host cond
+  gains ='review= (a sibling omission); ='review= / ='revisit= are
+  NAMED in =org-air-rail--placement= with the two per-view knobs
+  =org-air-review-rail-placement= / =org-air-revisit-rail-placement=
+  for full parity with board/project/outline.
+- *R62-2* — the RANGE ENGINE: =org-air-review--period-bounds= grows
+  =fortnight= (fixed-phase Monday 14-day blocks) / =quarter= (Jan–Mar
+  calendar quarters) / =year= (calendar year) branches; labels for the
+  three new kinds; the calendar centres on today's month when the
+  period contains today; the =org-air-review-ranges= ladder knob.
+- *R62-3* — BINDINGS / LEGEND / BOOKMARK: =+= (and its unshifted
+  alias ==) widen, =-= narrow, =m= cycles the ladder
+  (=org-air-review-cycle-range=, obsolete-aliasing
+  =org-air-review-toggle-kind=); the Actions legend grows to four
+  legend-truth rows; help groups updated; the bookmark apply's KIND
+  =memq= widens to the five ranges; R61 T14's command-level =m=
+  asserts are updated to the ladder (deliberate behaviour change,
+  documented).
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine; no data path is touched at all this round (Item 1
+is window machinery, Item 2 is a pure render-state fold over the
+existing R61 harvest).
+
+* Item 1 — the review rail: reproduction, root cause, fix
+
+** Reproduction (real frame, not guessed)
+
+Harness: =/tmp/org-air-r62/repro-rail{,2,3}.el= under Xvfb
+(=DISPLAY=:88 emacs -Q=), =org-air-files= → the 50-file
+=/tmp/org-air= corpus, frame 190×50, cold fill awaited, every
+snapshot taken from the LIVE window tree (window list + =window-side=
+parameters + =org-air-rail--side-owner= + the host buffer-locals).
+
+/Scenario 1 — board visible, =W= pressed (two main windows)/:
+immediately after =W= the render tail has run:
+=owner=*org-air review*=, orientation ='side-window=, rail live.
+After the deferred 0 s reconcile: =owner=*org-air*= — the rail
+window SURVIVES but its content is re-owned by the BOARD while the
+user sits in review.  The next review re-render (=<=) steals it back
+(no window-config change fires between repaints), so the rail
+ping-pongs between board content and review content.
+
+/Scenario 2 — review as the only main window (the user's shape)/:
+after the reconcile the rail window is DELETED
+(=rail-side-window=nil=), review's window snaps to full width, and
+review is left =popped-out=t / suspended=t=.  Every follow-up render
+(=<=, =m=, =.=) re-creates the window at the render tail
+(=org-air-rail--show=) — and that window creation is itself a
+window-configuration change, so the reconciler re-fires and deletes
+it again ~0 s later.  End state after every repaint: no rail.  This
+is the reported symptom, plus the prompt's suspected
+appear-then-vanish on re-render, confirmed.
+
+/Scenario 3 — =\vert= in review/: =org-air-rail-toggle= signals
+"Not in an org-air board or project buffer" — the user cannot even
+force the rail back by hand.
+
+/Control/: revisit driven through the IDENTICAL layouts keeps the
+rail in every scenario, owner ==*org-air revisit*=.
+
+** Root cause (file:line, the exact chain)
+
+=org-air-rail--host-buffer-p= — org-air-view.el:6018, the
+=derived-mode-p= call at :6026–6027 — omits =org-air-review-mode=:
+
+#+begin_example
+(derived-mode-p 'org-air-view-mode 'org-air-project-mode
+                'org-air-revisit-mode)          ; ← no 'org-air-review-mode
+#+end_example
+
+Chain: review's render tail calls =org-air-rail--show= (owner :=
+review, correct).  The entry's =pop-to-buffer= (and the =--show=
+itself) fires review's buffer-local
+=window-configuration-change-hook= → =org-air-rail--reconcile=
+(:6090) defers to a 0 s timer → =org-air-rail--reconcile-frame=
+(:6104) resolves the active view via =org-air-rail--active-view=
+(:6032), which tests every candidate with the host predicate.  The
+selected review window FAILS the predicate, so:
+
+- another main window still shows the board ⇒ active = board ⇒ branch
+  (A) "owned by another view → re-own": the board steals the rail
+  (Scenario 1's content flip);
+- review is the only main window ⇒ active = nil ⇒ the orphan branch:
+  rail hidden, owner marked suspended (Scenario 2's deletion).
+
+Everything the orchestrator verified as parallel IS parallel — entry
+(review :1428 ≡ revisit :1049), render rail block (:1015–1091 ≡
+:615–672), the reconcile hook install, the OWNER-based
+=--evict-foreign-rail= (:6064).  =org-air-rail--placement= (:494)
+naming neither ='revisit= nor ='review= is confirmed NOT the defect:
+both fall through to the shared ='side-window= default identically,
+and revisit works.  The predicate is the single divergence; it is
+GUI-only because the reconciler body and the placement seeding are
+both =noninteractive=-gated, so no existing batch ERT ever executes
+the failing branch.
+
+Two sibling omissions found by sweeping every =derived-mode-p= host
+list in the codebase:
+
+1. =org-air-rail-toggle='s guard (org-air-view.el:5939–5940) — the
+   same three-mode list ⇒ Scenario 3's user-error.  (The rail-side
+   =q= pop-in path is fine: =org-air-rail-popin= resolves the host
+   through the rail's OWNER back-pointer, not the mode list.)
+2. =org-air-view-pane--bookmark-stash= (org-air-view.el:6325) — the
+   host cond stamps ='board= for a pane driven from review (records
+   still restore, to the wrong host view).  Low-severity parity fix.
+
+All other review registrations are already present and correct:
+=org-air-view--refresh-current= :5920, =--rerender-current-view=
+:8751, help context :9525, rail-bookmark host-kind :10068.
+
+** The minimal fix (verified in-frame) + parity knobs
+
+R62-1a — add ='org-air-review-mode= to the :6026 =derived-mode-p=
+list.  ONE symbol.  Re-run of every reproduction scenario with
+exactly this change: owner stays =*org-air review*= after =W= + the
+reconcile, after deleting the board window, across =<= / =m=
+repaints, across =q= → board → =W= re-entry (the suspension
+round-trip re-pops correctly).  The docstring's "board/project (rail
+HOST)" wording is updated to name all four hosts.
+
+R62-1b — the same symbol in the =org-air-rail-toggle= guard
+(:5939–5940), un-breaking =\vert= in review.
+
+R62-1c — ='review= in the =org-air-view-pane--bookmark-stash= host
+cond (:6325), beside the existing ='revisit=.
+
+R62-1d — PARITY (prompt-suggested, adopted): name ='revisit= and
+='review= in =org-air-rail--placement='s pcase and add the two
+nil-inheriting per-view knobs =org-air-revisit-rail-placement=
+(org-air-revisit.el) and =org-air-review-rail-placement=
+(org-air-review.el), mirroring =org-air-board-rail-placement= exactly
+— including the =defvar= forward-declaration dance org-air-view.el
+already does for the project knob.  Today both views are pinnable
+only through the legacy alist shape of the shared knob; after R62-1d
+every view has the same three-tier resolution (per-view knob → shared
+knob/alist → ='side-window=).  The =org-air-rail-placement= docstring
+names the two new overrides.
+
+NOT adopted: teaching =org-air-rail--active-view= to fall back to
+mode-detection heuristics, or review keeping its own reconciler — the
+single-owner machinery is correct; only its host roster was stale.
+The roster lesson is captured as a seam (T1 below asserts the
+predicate over ALL four modes, so the NEXT sibling surface fails this
+test the moment it derives a new mode and forgets the roster).
+
+** ERT seams — what batch CAN pin, and the GUI residue
+
+The prompt expected this defect to be invisible to headless ERTs.
+Investigated and PROVEN OTHERWISE for the core defect: batch Emacs
+has a real (dummy-terminal) frame whose window tree, side-window
+parameters and =display-buffer-in-side-window= all function, and the
+R25 test harness idiom — let-bind =noninteractive= to nil, drive
+=org-air-rail--reconcile-frame= SYNCHRONOUSLY, assert the live window
+tree — already exercises exactly this machinery for board/project
+(tests/org-air-round25-test.el:62–130).  The verified seam
+(=/tmp/org-air-r62/batch-seam.el=, run RED on the unfixed tree and
+GREEN on the fixed one):
+
+- T1 /host roster/: =org-air-rail--host-buffer-p= is non-nil for a
+  buffer in EACH of the four host modes (data-free: mode init only).
+  The unfixed tree fails the review clause.  Cheapest, names the
+  root cause directly.
+- T2 /reconcile keeps review's rail/ (the R25 idiom): review buffer
+  in the batch frame's single main window, popped flag t,
+  =org-air-rail--show=, then a synchronous
+  =(org-air-rail--reconcile-frame (selected-frame))= under
+  =noninteractive= nil ⇒ the side window is LIVE, its
+  =window-side= parameter ='right=, =org-air-rail--side-owner= is
+  the review buffer, review's =org-air-view--orientation= stays
+  ='side-window= and =org-air-view--rail-suspended= stays nil.
+  Verified failing unfixed (window dead, owner nil, suspended t).
+- T3 /board steals nothing/: board shown in a second main window of
+  the batch frame, review selected ⇒ after the synchronous
+  reconcile the owner is STILL review (pins Scenario 1's content
+  theft, which T2's single-window shape cannot see).
+- T4 /toggle guard/: =org-air-rail-toggle= in a review buffer does
+  not signal =user-error= (pins R62-1b).
+- T5 /placement parity/: =(org-air-rail--placement 'review)= and
+  ='revisit= honour their new per-view knobs over the shared
+  default, and the legacy alist shape still resolves (pins R62-1d
+  without touching windows).
+
+GUI residue, flagged for user confirm in a real interactive frame
+(genuinely not batch-reachable): the DEFERRED path — the 0 s timer
+scheduling from a real =window-configuration-change-hook= fire, the
+=pop-to-buffer= display-action window selection, pixel-width
+divider/geometry — plus the felt behaviour (no flash, no content
+flip) under live typing.  The confirm script is the reproduction
+recipe above verbatim: board → =W= → rail stays and shows REVIEW
+content (period summary + highlighted calendar) → =<= / =>= / =m= /
+range keys keep it → =\vert= toggles it → =q= back to the board
+re-owns it board-side.
+
+* Item 2 — the duration-range ladder
+
+** The ladder
+
+#+begin_example
+week ←→ fortnight ←→ month ←→ quarter ←→ year
+        (2 ISO weeks)         (3 months)  (calendar)
+#+end_example
+
+=org-air-review--period-kind='s domain widens from
+='week=/='month= to the five symbols.  One new knob,
+=org-air-review-ranges= (defcustom, org-air-review.el, default the
+full five in ladder order): the ranges =+=/=-=/=m= walk.  Validation
+at use, never trusted raw: unknown symbols are dropped, an empty
+result degrades to ='(week month)=, and a current kind not in the
+trimmed ladder participates at its natural rank so the user is never
+trapped on an unreachable rung.  Render-time only — the knob, like
+the kind and anchor, is NOT a cache-key element (the R61-2/R57
+discipline: only scan-shaping knobs join the key).
+
+** Period math (each new range, oracle-verified)
+
+All three new branches land in =org-air-review--period-bounds= beside
+the existing two, returning the same half-open integer
+=[START, END)= built by =org-air-review--date-epoch= on LOCAL
+calendar dates — DST-exactness is inherited by construction, and
+R61's =--clip=, =--day-bounds=, the section predicates, the rollup
+fold, the suspect rule and the calendar MARKS builder consume the
+bounds UNCHANGED.  No other engine function is touched.
+
+- /fortnight/ — FIXED-PHASE Monday-anchored 14-day blocks:
+  =start-abs = A − ((A − PHASE) mod 14)= over =calendar-absolute=
+  day numbers, PHASE = the absolute day of Monday 1970-01-05 (a
+  =defconst=; =calendar-day-of-week= verified 1).  Every fortnight
+  is exactly two consecutive ISO weeks (both are Monday-anchored
+  absolute-day blocks).  RULED OUT — the "obvious" ISO-year-local
+  odd/even week pairing: a 53-week ISO year (2026 IS one — W53
+  runs Dec 28 … Jan 3) leaves W53 unpaired, so year-local pairing
+  either overlaps the next year's first fortnight or produces a
+  7-day "fortnight" — both break the partition law (every instant
+  in exactly ONE period) that =<=/=>= adjacency and clip
+  complementarity are built on.  The fixed phase has no year
+  seam: measured at the W53/2026 edge, [2026-12-21, 2027-01-04)
+  then [2027-01-04, 2027-01-18), both exactly 14 days.  Which of
+  a week pair leads is phase-determined, not year-determined —
+  documented in the docstring, asserted in T6.
+- /quarter/ — calendar quarters Jan–Mar / Apr–Jun / Jul–Sep /
+  Oct–Dec: start month =1 + 3⌊(m−1)/3⌋=, 1st 00:00 → the +3
+  month's 1st (December-style year rollover for Q4).
+- /year/ — Jan 1 00:00 → next Jan 1.
+
+The verification battery (=/tmp/org-air-r62/range-math.el=, becomes
+T6's oracle): the ADJACENCY LAW — =bounds(kind, END)= starts at END,
+=bounds(kind, START−1)= ends at START, and the anchor lies inside its
+own bounds — over all 5 kinds × 9 edge dates (ISO year edges
+2026-01-01/2027-01-01, quarter edges Mar 31/Apr 1, Dec 31, the
+W53 Monday Dec 28, leap Feb 29 2028, DST transition Sundays) × 2
+timezones (the local DST-less one and =America/New_York=): ALL PASS.
+Clip complementarity across each NEW boundary: a 90-minute interval
+straddling a fortnight/quarter/year edge splits 60 + 30 exactly.
+
+** Navigation is already generic — and what changes
+
+=<= / =>= / =.= need ZERO changes: =period-prev= anchors to
+=bounds(kind, START−1).start=, =period-next= to the half-open END,
+=.= clears the anchor — all pure functions of the active kind's
+bounds, so they step by ONE unit of the active range for free (the
+adjacency law above IS the proof; T7 asserts it per kind at the
+command level).
+
+New commands (R62-3):
+
+- =org-air-review-range-widen= (=+=, alias == for the unshifted
+  key) / =org-air-review-range-narrow= (=-=): one rung along the
+  effective ladder, CLAMPED at the ends with a bounded message
+  ("widest range" / "narrowest range") — no wrap, so repeated =+=
+  parks safely at year.
+- =org-air-review-cycle-range= (=m=): cycles the effective ladder
+  with wrap-around.  This GENERALISES =org-air-review-toggle-kind=
+  (kept as an obsolete alias): with the ladder knob trimmed to
+  ='(week month)= the cycle IS the old toggle.  DELIBERATE behaviour
+  change at the default ladder — =m= from week now lands fortnight,
+  not month — because two overlapping span mechanisms (a 2-state
+  toggle beside a 5-rung ladder) would leave =m= undefined on the
+  three new rungs; one ladder, three verbs (=+= / =-= directional,
+  =m= rotary).  R61 T14's command-level =m= assertions are UPDATED
+  to the ladder (its pure-engine oracle asserts stand untouched);
+  the legend keeps reading "span" so no muscle-memory label churns.
+
+All three set the kind ONLY — the anchor is preserved, and the shown
+period is the new range's period CONTAINING the anchor (the R61
+anchor-day rule, now uniform across five rungs; a nil anchor stays
+nil, so every rung tracks the current period by default).  Every one
+is a pure repaint: T8's =org-air-query--scan-file= spy asserts a
+burst of =+= =-= =m= =<= =>= across all five ranges makes ZERO scan
+calls (extends R61 T8; the R61 law "range change never rescans" is
+restated here as the design invariant).
+
+** Labels, calendar, sections at the new ranges
+
+Period labels (=--period-short-label= / =--period-label= grow three
+branches; header + bookmark default names inherit):
+
+| Range     | Short              | Full header label                       |
+|-----------+--------------------+-----------------------------------------|
+| week      | =W30 2026=         | =W30 2026 · Jul 20 – 26= (unchanged)    |
+| fortnight | =W30–31 2026=      | =W30–31 2026 · Jul 20 – Aug 2=          |
+| month     | =July 2026=        | =July 2026= (unchanged)                 |
+| quarter   | =Q3 2026=          | =Q3 2026 · Jul – Sep=                   |
+| year      | =2026=             | =2026=                                  |
+
+A fortnight whose two ISO weeks carry different ISO years qualifies
+both: =W52 2026–W1 2027= (measured case: the fortnight containing
+2026-01-01 is [2025-12-22, 2026-01-05) = =W52 2025–W1 2026=).  The
+week numbers come from =--iso-week= on P0 and on P0+7 d — never from
+arithmetic on the first week's number, so W52/W53 pairings label
+correctly by construction.
+
+Calendar (R61-5 seam, unchanged renderer): the MARKS table already
+covers every period day, and the month renderer simply looks its own
+days up — quarter/year periods highlight exactly the shown month's
+in-period days with zero new code.  ONE refinement: the centred month
+becomes /today's month when today ∈ [P0, P1), else P0's month/ — a
+current YEAR must not stare at January in July (the nil-anchor
+default surface tracks today, so its calendar should too).  =<=/=>=
+on a past year then page by P0's month as before.  =--day-bounds= at
+year scale is 365 iterations of pure calendar arithmetic feeding the
+marks/rollup — bounded and render-time.
+
+Sections and rollups fold identically at every range (they are
+parameterised on =[P0, P1)= only).  Noted, not changed: the default
+='day= rollup over a year groups Completed into up to 365 day rows —
+correct, verbose, and one =f= away from tag/directory/origin; picking
+a smarter default per range (e.g. week-of for year) is a future nicety
+the doc leaves out of scope.
+
+** Bookmark (R58/R61-6) carries the range
+
+The record shape is ALREADY =(cons 'org-air-period (KIND . ANCHOR))=
+— KIND simply gains three possible values; nothing new is written.
+Changes on the APPLY side only: the validation =memq= at
+org-air-review.el:1516 widens from ='(week month)= to the five
+symbols — deliberately NOT gated on the =org-air-review-ranges= knob
+(a record must restore on a machine whose ladder was trimmed; the
+knob governs keys, not state validity).  Compatibility both ways: an
+R61-era record (week/month) applies unchanged; an R62 quarter record
+read by an R61 build hits the old =memq= and degrades to the default
+current week — the R61-6 forward-compatible best-effort contract,
+already in place, no signal either direction.  The ='current= anchor
+ruling carries over untouched (a record made on the current quarter
+restores tracking the NEW current quarter).
+
+** Legend + help
+
+=org-air-review--actions-table= grows to FOUR rows of three (the
+renderer is row-count-generic):
+
+#+begin_example
+RET open      <  prev     >  next
+m   span      +  widen    -  narrow
+f   rollup    /  filter   g  refresh
+.   today     ?  help     q  quit
+#+end_example
+
+Every cell keeps the R26/R50-2 legend-truth discipline — each KEY
+must resolve to a real command in =org-air-review-mode-map= (the
+compound "+/-" cell shape was rejected for exactly this reason; ===
+stays a legend-less alias).  =.= joins the legend (it was bound but
+unlisted in R61).  Help groups: "Period" gains the widen/narrow
+entries and re-describes the =m= command as "cycle range
+(week/2w/month/quarter/year)"; the =?= sheet derives keys live, so no
+other help text changes.
+
+* ERT seams (batch; each reverts to RED)
+
+Item 1 (T1–T5 as specified in the Item 1 section: host roster,
+synchronous-reconcile rail survival, no-steal with a board present,
+toggle guard, placement parity — T1–T4 verified RED on the unfixed
+tree this round).  Item 2:
+
+- T6 /range oracle/: the R62 battery as an ERT — per-kind bounds
+  against independently built local-midnight epochs (fortnight via
+  its own absolute-day oracle, quarter/year via explicit dates); the
+  adjacency law over the 5 × 9 × TZ matrix (=TZ= let-bound via
+  =setenv= inside the test, restored); every fortnight start is a
+  Monday and spans exactly two ISO weeks including across W53/2026;
+  clip complementarity at the three new edges.
+- T7 /nav steps by the active unit/: at the command level, for EACH
+  range: =>= then =<= returns byte-identical bounds; =>= from bounds
+  B lands on bounds starting at =B.end=; =.= clears the anchor.
+- T8 /no rescan + widen/narrow transitions/: frozen clock; from the
+  current week, =+ + + += walks fortnight → month → quarter → year
+  with the anchor day inside every shown period and a final clamped
+  =+= messaging without moving; =-= walks back down; =m= × 5 returns
+  to week; the =org-air-query--scan-file= spy counts ZERO calls
+  across the whole burst; a trimmed =org-air-review-ranges= cycles
+  only its members and an off-ladder current kind still narrows out.
+- T9 /bookmark round-trips the range/: a quarter-view record
+  survives =prin1=→=read= =equal= and restores kind+anchor on a
+  fresh session; an R61-shape week record applies; a record with
+  KIND ='decade= degrades to the default current week without
+  signalling; the ='current= anchor re-tracks under an advanced
+  frozen clock at quarter scale.
+- T10 /labels + legend truth/: the five label shapes at a frozen
+  anchor, the cross-ISO-year fortnight label, and the R26
+  legend-truth walk over the four-row actions table (every KEY
+  resolves in the live map — catches a future unbound =+=).
+
+Item 1's GUI residue (the deferred-timer choreography and the felt
+no-flash behaviour) is the ONE part with no meaningful headless seam
+— flagged for user confirm with the recipe above.
+
+* Constraints
+
+- org-ql remains the ONLY query engine; this round adds no query, no
+  scan work, no cache schema change — =org-air-view--cache-version=
+  stays 6 and the cache key gains NO elements (ranges are render
+  state; R57's "the key IS the detector" cuts both ways).
+- R53: all laws untouched — Item 1 is window-lifecycle only; Item 2
+  is a pure fold parameter.  Never-error: the new bounds branches are
+  total functions of a decoded time (no parsing, no I/O).
+- R56/R59/R60: inherited unchanged through the untouched data path.
+- R61: boundary clipping, =cal-iso=, the calendar MARKS seam, the
+  suspect rule and the four section predicates are consumed as-is;
+  the only R61 behaviour deliberately changed is =m='s cycle order
+  (T14 updated, documented above).
+- R58: record shape unchanged, KIND domain widened apply-side only.
+
+* Out of scope
+
+- A per-range default rollup basis (year → week-of grouping).
+- Custom/arbitrary date-range selection (a from–to picker) — the
+  ladder covers the request; free ranges are a different surface.
+- Rail content changes for wide ranges (e.g. a quarter mini-heatmap).
+- The =org-air-rail-popout= board-only guard (:5969) — pre-existing,
+  board-intentional, not review's bug.
+- Timezone migration of historical stamps (R61's accepted skew).
+
+* Context
+
+User reports, verbatim intents: (1) "opening org-air-review (W from
+the board) does not keep the side-window rail that the board /
+revisit surfaces show"; (2) "there should be a binding to extend the
+duration from week to other duration (2w, month, quarter, etc.)".
+Both land on the R61 surface shipped last round; the same Denote-silo
++ Air-workspace setup as R61's Context section.
+
+* History
+
+- 2026-07-20: Round 62 design.  Item 1 reproduced in a real Xvfb
+  frame (three scenarios + revisit control), root-caused to the
+  =org-air-rail--host-buffer-p= mode roster (org-air-view.el:6018,
+  list at :6026), sibling omissions swept (:5939 toggle guard, :6325
+  pane stash), the one-symbol fix verified in-frame, and a
+  batch-assertable seam (the R25 =noninteractive=-nil synchronous
+  reconcile idiom) proven RED/GREEN — the GUI-only residue narrowed
+  to the deferred-timer choreography.  Item 2 range math prototyped
+  and oracle-verified (fixed-phase fortnight ruling vs the
+  ISO-year-local pairing, adjacency law 5 × 9 × 2 TZ, clip
+  complementarity at all new edges, W53/2026 stability); bindings
+  ruled (=+=/==/=-= widen/narrow clamped, =m= ladder cycle with the
+  T14 update called out); ladder knob, label table, calendar
+  centring refinement, apply-side bookmark widening and the
+  four-row legend specified.  State: ready.

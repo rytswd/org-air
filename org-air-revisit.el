@@ -57,6 +57,15 @@ add `journal' to graze them too."
   :type '(repeat (choice (const knowledge) (const journal)))
   :group 'org-air)
 
+(defcustom org-air-revisit-rail-placement nil
+  "REVISIT override for `org-air-rail-placement' (R62-1d).
+nil (the default) inherits the shared `org-air-rail-placement'; `inline'
+or `side-window' pins the revisit view regardless of the shared default.
+Resolved through `org-air-rail--placement'."
+  :type '(choice (const :tag "Inherit `org-air-rail-placement'" nil)
+                 (const inline) (const side-window))
+  :group 'org-air)
+
 (defcustom org-air-revisit-page-limit 200
   "Rows one Revisit page renders before the fold row (R54-3).
 TAB/RET on the `…and N more' fold row extends by ONE more page, so the

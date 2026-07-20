@@ -2146,7 +2146,28 @@
     ;; test track.  Round-61 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
     ;; =================================================================
-    ;; (test-symbol . "reason / spec reference")  — none right now.
+    ;; 2026-07-20: ROUND-62 grind (impl <this commit>, spec
+    ;; air/v0.5/org-air-round62-design.org).  DELIBERATE R62-3 behaviour
+    ;; change, design-blessed: `m' (`org-air-review-toggle-kind', kept
+    ;; as an obsolete alias of the new `org-air-review-cycle-range')
+    ;; cycles the FULL R62-2 range ladder — week → fortnight → month →
+    ;; quarter → year → week — instead of toggling week↔month.  Two
+    ;; overlapping span mechanisms (a 2-state toggle beside a 5-rung
+    ;; ladder) would leave `m' undefined on the three new rungs; one
+    ;; ladder, three verbs (`+'/`-' directional, `m' rotary).  The two
+    ;; R61 ERTs below assert the OLD toggle at the command level (their
+    ;; pure-engine oracle asserts stand untouched); the design's Item 2
+    ;; says exactly these command-level `m' asserts are UPDATED to the
+    ;; ladder.  NOT hand-blessed here — the test seat re-blesses them
+    ;; and deletes these entries as closeout.
+    (org-air-r61-4-period-engine-oracle
+     . "R62-3: `m' now cycles the range ladder (week→fortnight→…), no \
+longer week↔month — the command-level toggle-kind asserts need the \
+ladder re-bless (round62 design, Item 2)")
+    (org-air-r61-8-cache-v6-and-no-rescan-nav
+     . "R62-3: same `m' ladder change — the nav-burst toggle-kind \
+asserts expect week↔month; re-bless to the ladder (the zero-scan / \
+zero-read and cache-parity conjuncts are unaffected)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

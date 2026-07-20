@@ -459,7 +459,8 @@ A symbol: `side-window' (the default) opens each view with its rail
 ALREADY popped out into the dedicated `*org-air-rail*' side window;
 `inline' composes the rail as buffer text beside the content.  Per-view
 overrides win when non-nil: `org-air-board-rail-placement',
-`org-air-project-rail-placement' and `org-air-outline-rail-placement'
+`org-air-project-rail-placement', `org-air-outline-rail-placement',
+`org-air-revisit-rail-placement' and `org-air-review-rail-placement'
 \(nil = inherit this shared default) — every view resolves through the
 ONE `org-air-rail--placement' resolver.
 Consulted ONCE per buffer: when a view first renders with the popped flag
@@ -490,11 +491,15 @@ or `side-window' pins the board regardless of the shared default."
   :group 'org-air)
 
 (defvar org-air-project-rail-placement)  ; defcustom in org-air-project.el
+(defvar org-air-revisit-rail-placement)  ; defcustom in org-air-revisit.el
+(defvar org-air-review-rail-placement)   ; defcustom in org-air-review.el
 
 (defun org-air-rail--placement (view)
-  "Resolve VIEW's (`board' / `project' / `outline') initial rail placement.
-R49-2: per-view override first (`org-air-board-rail-placement' /
-`org-air-project-rail-placement' / `org-air-outline-rail-placement'),
+  "Resolve VIEW's initial rail placement (R49-2; R62-1d).
+VIEW is `board' / `project' / `outline' / `revisit' / `review'.
+Per-view override first (`org-air-board-rail-placement' /
+`org-air-project-rail-placement' / `org-air-outline-rail-placement' /
+`org-air-revisit-rail-placement' / `org-air-review-rail-placement'),
 else the shared `org-air-rail-placement'.  The R26-5 alist shape of the
 shared knob is still honoured (legacy): a `consp' value resolves per view
 via `alist-get'.  Falls back to `side-window' (the R49-3 default) when
@@ -503,7 +508,11 @@ nothing names VIEW."
         ('board org-air-board-rail-placement)
         ('project (and (boundp 'org-air-project-rail-placement)
                        org-air-project-rail-placement))
-        ('outline org-air-outline-rail-placement))
+        ('outline org-air-outline-rail-placement)
+        ('revisit (and (boundp 'org-air-revisit-rail-placement)
+                       org-air-revisit-rail-placement))
+        ('review (and (boundp 'org-air-review-rail-placement)
+                      org-air-review-rail-placement)))
       (let ((base org-air-rail-placement))
         (if (consp base) (alist-get view base) base))
       'side-window))
@@ -5937,7 +5946,7 @@ inline via the reconciler.  The refresh is dispatched per-mode via
 `org-air-view--refresh-current' so the toggle never forks."
   (interactive)
   (unless (or (derived-mode-p 'org-air-view-mode 'org-air-project-mode
-                              'org-air-revisit-mode)
+                              'org-air-revisit-mode 'org-air-review-mode)
               ;; R26-5: the toggle also works from a doc-session buffer
               ;; (its side rail is the DOC context).
               (bound-and-true-p org-air-project--session-tree))
@@ -6016,7 +6025,11 @@ re-pops the side window (R16 D-P1, design transition table)."
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-rail--host-buffer-p (buf)
-  "Non-nil when BUF is an org-air board/project (rail HOST) buffer (R25-6).
+  "Non-nil when BUF is an org-air rail HOST buffer (R25-6; R62-1a).
+The hosts are the board, the project, the revisit AND the review views
+\(every main view that pops the shared `*org-air-rail*' side window —
+omitting one here is exactly the R62-1 bug: the reconciler treated the
+review view as a foreign window and evicted its rail).
 R26-5: a DOC-SESSION file buffer (one carrying the back-pointer
 `org-air-project--session-tree') counts as a host too, so the R25-6
 suspension/re-pop sweep treats the doc half of a project session exactly
@@ -6024,7 +6037,7 @@ like a board<->project switch."
   (and (buffer-live-p buf)
        (or (with-current-buffer buf
              (derived-mode-p 'org-air-view-mode 'org-air-project-mode
-                             'org-air-revisit-mode))
+                             'org-air-revisit-mode 'org-air-review-mode))
            (and (local-variable-p 'org-air-project--session-tree buf)
                 (buffer-local-value 'org-air-project--session-tree buf)
                 t))))
@@ -6323,6 +6336,9 @@ record); never signals — an odd CTX yields nil."
               (and (stringp title) (substring-no-properties title))
               (cond ((derived-mode-p 'org-air-project-mode) 'project)
                     ((derived-mode-p 'org-air-revisit-mode) 'revisit)
+                    ;; R62-1c: the review-driven pane stamps its real
+                    ;; host (a sibling of the R62-1a roster omission).
+                    ((derived-mode-p 'org-air-review-mode) 'review)
                     (t 'board))))
     (error nil)))
 
@@ -10139,6 +10155,7 @@ signals; a stash-less pane records a bare degrading header."
              (host-name (pcase host
                           ('project "org-air: project")
                           ('revisit "org-air: revisit")
+                          ('review "org-air: review")
                           (_ "org-air: board"))))
         (append
          (org-air-view--bookmark-header 'entry
@@ -10146,7 +10163,8 @@ signals; a stash-less pane records a bare degrading header."
                                         "org-air: entry"
                                         (list (concat host-name " · entry")))
          (list (cons 'org-air-host
-                     (if (memq host '(board project revisit)) host 'board)))
+                     (if (memq host '(board project revisit review))
+                         host 'board)))
          (and (stringp file)
               (list (cons 'org-air-entry-ctx
                           (cons file (if (integerp pos) pos 1)))))

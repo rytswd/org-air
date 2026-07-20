@@ -17,10 +17,11 @@
 ;; The third leg of the family: board = now, revisit = evergreen,
 ;; review = retrospect.
 ;;
-;; Period navigation (`<' / `>' / `.', week↔month on `m') is a RENDER
-;; state: a pure filter+fold over cached integer lists — zero file I/O,
-;; NEVER a rescan (the period parameters are deliberately not cache-key
-;; elements, R61-2).  Data arrives through the same never-blocking tiers
+;; Period navigation (`<' / `>' / `.'; the R62-2 range ladder
+;; week ↔ fortnight ↔ month ↔ quarter ↔ year on `+'/`-'/`m') is a
+;; RENDER state: a pure filter+fold over cached integer lists — zero
+;; file I/O, NEVER a rescan (the period parameters are deliberately not
+;; cache-key elements, R61-2).  Data arrives through the same never-blocking tiers
 ;; as the Revisit view: warm borrow from a live board, cache hydrate,
 ;; else the R56-paced cold fill (batch scans synchronously so ERT stays
 ;; deterministic).
@@ -61,6 +62,34 @@ nil disables the rule entirely."
   :type '(choice (const :tag "Disabled" nil) number)
   :group 'org-air)
 
+(defcustom org-air-review-rail-placement nil
+  "REVIEW override for `org-air-rail-placement' (R62-1d).
+nil (the default) inherits the shared `org-air-rail-placement'; `inline'
+or `side-window' pins the review view regardless of the shared default.
+Resolved through `org-air-rail--placement'."
+  :type '(choice (const :tag "Inherit `org-air-rail-placement'" nil)
+                 (const inline) (const side-window))
+  :group 'org-air)
+
+(defconst org-air-review--range-ladder '(week fortnight month quarter year)
+  "The FULL range ladder, narrowest → widest (R62-2).
+The domain of `org-air-review--period-kind' and the natural rank order
+every ladder walk uses; `org-air-review-ranges' trims which rungs the
+keys visit, never what a bookmark may restore.")
+
+(defcustom org-air-review-ranges '(week fortnight month quarter year)
+  "The range rungs `+' / `-' / `m' walk, in ladder order (R62-2).
+A list drawn from `week' / `fortnight' / `month' / `quarter' / `year'.
+Validated at use, never trusted raw: unknown symbols are dropped, an
+empty result degrades to (week month), and a current kind missing from
+the trimmed ladder still participates at its natural rank so the user
+is never trapped on an unreachable rung.  Render state only — like the
+kind and the anchor it is deliberately NOT a cache-key element (only
+scan-shaping knobs join the key, R61-2/R57)."
+  :type '(repeat (choice (const week) (const fortnight) (const month)
+                         (const quarter) (const year)))
+  :group 'org-air)
+
 (defconst org-air-review-buffer-name "*org-air review*"
   "Name of the Review view buffer (R61-4).")
 
@@ -69,7 +98,9 @@ nil disables the rule entirely."
 ;;;; ---------------------------------------------------------------------
 
 (defvar-local org-air-review--period-kind 'week
-  "Shown period kind: `week' (ISO, default) or `month' (R61-3, `m').")
+  "Shown period kind, one of `org-air-review--range-ladder' (R62-2).
+`week' (ISO, the default) / `fortnight' / `month' / `quarter' / `year';
+walked by `+' / `-' (one rung, clamped) and `m' (full cycle).")
 
 (defvar-local org-air-review--period-anchor nil
   "Integer epoch anchoring the shown period, or nil (R61-3).
@@ -134,32 +165,84 @@ appears or the fill goes idle (one-shot either way).")
                                         (nth 0 gregorian) (nth 2 gregorian)
                                         nil -1 nil)))))
 
+(defconst org-air-review--fortnight-phase
+  (calendar-absolute-from-gregorian '(1 5 1970))
+  "Absolute (fixed) day number of Monday 1970-01-05 — the fortnight phase.
+R62-2: fortnights are FIXED-PHASE Monday-anchored 14-day blocks over
+`calendar-absolute-from-gregorian' day numbers, so every fortnight is
+exactly two consecutive ISO weeks and there is NO year seam.  The
+\"obvious\" ISO-year-local odd/even week pairing was RULED OUT: a
+53-week ISO year (2026 is one) leaves W53 unpaired, breaking the
+partition law (every instant in exactly ONE period) that `<'/`>'
+adjacency and clip complementarity are built on.  Which week of a pair
+leads is phase-determined, not year-determined.")
+
 (defun org-air-review--period-bounds (kind anchor)
   "Return KIND's half-open (START . END) integer bounds containing ANCHOR.
 KIND `week' is the ISO week (Monday 00:00 local → next Monday 00:00,
-via the `cal-iso' oracle); KIND `month' is the calendar month (1st
-00:00 → next month's 1st).  ANCHOR is any integer epoch inside the
-period.  Durations are pure integer subtraction between two
-local-midnight epochs — DST-exact by construction."
+via the `cal-iso' oracle); `fortnight' the fixed-phase Monday-anchored
+14-day block (`org-air-review--fortnight-phase'); `month' the calendar
+month (1st 00:00 → next month's 1st); `quarter' the calendar quarter
+\(Jan–Mar / Apr–Jun / Jul–Sep / Oct–Dec); `year' the calendar year.
+ANCHOR is any integer epoch inside the period.  Durations are pure
+integer subtraction between two local-midnight epochs — DST-exact by
+construction; an unknown KIND totals to the `week' branch (never
+signals)."
   (let* ((d (decode-time anchor))
          (month (decoded-time-month d))
          (day (decoded-time-day d))
          (year (decoded-time-year d)))
-    (if (eq kind 'month)
-        (cons (org-air-review--date-epoch (list month 1 year))
-              (org-air-review--date-epoch
-               (if (= month 12)
-                   (list 1 1 (1+ year))
-                 (list (1+ month) 1 year))))
-      (let* ((iso (calendar-iso-from-absolute
-                   (calendar-absolute-from-gregorian
-                    (list month day year))))
-             (monday (calendar-iso-to-absolute
-                      (list (nth 0 iso) 1 (nth 2 iso)))))
-        (cons (org-air-review--date-epoch
-               (calendar-gregorian-from-absolute monday))
-              (org-air-review--date-epoch
-               (calendar-gregorian-from-absolute (+ monday 7))))))))
+    (pcase kind
+      ('month
+       (cons (org-air-review--date-epoch (list month 1 year))
+             (org-air-review--date-epoch
+              (if (= month 12)
+                  (list 1 1 (1+ year))
+                (list (1+ month) 1 year)))))
+      ('fortnight
+       (let* ((abs (calendar-absolute-from-gregorian (list month day year)))
+              (start (- abs (mod (- abs org-air-review--fortnight-phase)
+                                 14))))
+         (cons (org-air-review--date-epoch
+                (calendar-gregorian-from-absolute start))
+               (org-air-review--date-epoch
+                (calendar-gregorian-from-absolute (+ start 14))))))
+      ('quarter
+       (let ((qm (1+ (* 3 (/ (1- month) 3)))))
+         (cons (org-air-review--date-epoch (list qm 1 year))
+               (org-air-review--date-epoch
+                (if (= qm 10)
+                    (list 1 1 (1+ year))
+                  (list (+ qm 3) 1 year))))))
+      ('year
+       (cons (org-air-review--date-epoch (list 1 1 year))
+             (org-air-review--date-epoch (list 1 1 (1+ year)))))
+      (_
+       (let* ((iso (calendar-iso-from-absolute
+                    (calendar-absolute-from-gregorian
+                     (list month day year))))
+              (monday (calendar-iso-to-absolute
+                       (list (nth 0 iso) 1 (nth 2 iso)))))
+         (cons (org-air-review--date-epoch
+                (calendar-gregorian-from-absolute monday))
+               (org-air-review--date-epoch
+                (calendar-gregorian-from-absolute (+ monday 7)))))))))
+
+(defun org-air-review--effective-ranges (&optional kind)
+  "Return the validated range ladder the keys walk, in natural rank order.
+R62-2: `org-air-review-ranges' filtered against the full
+`org-air-review--range-ladder' (unknown symbols dropped, an empty
+result degrading to (week month)); a non-nil KIND absent from the
+trimmed ladder is spliced in at its natural rank, so an off-ladder
+current kind still widens/narrows/cycles out instead of trapping."
+  (let* ((knob (and (listp org-air-review-ranges) org-air-review-ranges))
+         (kept (or (seq-filter (lambda (r) (memq r knob))
+                               org-air-review--range-ladder)
+                   '(week month))))
+    (if (or (null kind) (memq kind kept))
+        kept
+      (seq-filter (lambda (r) (or (memq r kept) (eq r kind)))
+                  org-air-review--range-ladder))))
 
 (defun org-air-review--iso-week (epoch)
   "Return EPOCH's ISO commercial week as (WEEK . YEAR) via `cal-iso'."
@@ -867,11 +950,14 @@ Summary's row idiom."
 
 (defconst org-air-review--actions-table
   '((("RET" . "open")    ("<" . "prev")    (">" . "next"))
-    (("m" . "span")      ("f" . "rollup")  ("/" . "filter"))
-    (("g" . "refresh")   ("?" . "help")    ("q" . "quit")))
-  "Review rail Actions legend: three rows of (KEY . VERB) cells.
+    (("m" . "span")      ("+" . "widen")   ("-" . "narrow"))
+    (("f" . "rollup")    ("/" . "filter")  ("g" . "refresh"))
+    (("." . "today")     ("?" . "help")    ("q" . "quit")))
+  "Review rail Actions legend: four rows of (KEY . VERB) cells (R62-3).
 Every KEY must resolve to a real command in `org-air-review-mode-map'
-\(the round-26 legend-truth discipline).")
+\(the round-26 legend-truth discipline — the compound \"+/-\" cell
+shape was rejected for exactly this reason; `=' stays a legend-less
+alias).  The renderer is row-count-generic.")
 
 (defun org-air-review--insert-actions (width)
   "Insert the Review rail Actions block fitted to content WIDTH.
@@ -897,12 +983,22 @@ Same shape/keycap idiom as the board and revisit Actions blocks."
                width)
               "\n"))))
 
+(defun org-air-review--calendar-month (p0 p1)
+  "Return the TIME the rail calendar centres on for the period [P0, P1).
+R62-2 refinement: TODAY's month when today falls inside the period — a
+current YEAR must not stare at January in July (the nil-anchor default
+surface tracks today, so its calendar should too); else P0's month, so
+`<'/`>' on a past period page by its start month as before."
+  (let ((now (floor (float-time))))
+    (seconds-to-time (if (and (>= now p0) (< now p1)) now p0))))
+
 (defun org-air-review--rail-descriptor (data p0 p1)
   "Return the Review rail descriptor for DATA over [P0, P1) (R20-5 seam).
-The calendar centres on the period's month with the period highlighted
-\(the precomputed MARKS table); the Summary reads the same DATA fold."
+The calendar centres on the period's month — today's month when the
+period contains today (R62-2) — with the period highlighted (the
+precomputed MARKS table); the Summary reads the same DATA fold."
   (let ((marks (org-air-review--calendar-marks data p0 p1))
-        (month (seconds-to-time p0)))
+        (month (org-air-review--calendar-month p0 p1)))
     (list :visible-fn #'identity
           :calendar-fn
           (lambda (entries w inset)
@@ -944,21 +1040,53 @@ the board reads it; else the live window body; else 80."
      key dir (not (and (eq key 'date) (eq dir 'ascending))))))
 
 (defun org-air-review--period-short-label (kind p0)
-  "Return the short period name for KIND starting at P0 (\"W30 2026\")."
-  (if (eq kind 'month)
-      (format-time-string "%B %Y" p0)
-    (let ((iso (org-air-review--iso-week p0)))
-      (format "W%d %d" (car iso) (cdr iso)))))
+  "Return the short period name for KIND starting at P0 (\"W30 2026\").
+R62-2 shapes: week \"W30 2026\", fortnight \"W30–31 2026\" (a pair
+straddling an ISO year qualifies both: \"W52 2025–W1 2026\"), month
+\"July 2026\", quarter \"Q3 2026\", year \"2026\".  The fortnight's
+week numbers come from `org-air-review--iso-week' on P0 and on the
+second week's Monday (calendar arithmetic, never P0-week + 1), so
+W52/W53 pairings label correctly by construction."
+  (pcase kind
+    ('month (format-time-string "%B %Y" p0))
+    ('year (format-time-string "%Y" p0))
+    ('quarter
+     (let ((d (decode-time p0)))
+       (format "Q%d %d" (1+ (/ (1- (decoded-time-month d)) 3))
+               (decoded-time-year d))))
+    ('fortnight
+     (let* ((d (decode-time p0))
+            (abs (calendar-absolute-from-gregorian
+                  (list (decoded-time-month d) (decoded-time-day d)
+                        (decoded-time-year d))))
+            (w1 (org-air-review--iso-week p0))
+            (w2 (org-air-review--iso-week
+                 (org-air-review--date-epoch
+                  (calendar-gregorian-from-absolute (+ abs 7))))))
+       (if (= (cdr w1) (cdr w2))
+           (format "W%d–%d %d" (car w1) (car w2) (cdr w1))
+         (format "W%d %d–W%d %d" (car w1) (cdr w1) (car w2) (cdr w2)))))
+    (_ (let ((iso (org-air-review--iso-week p0)))
+         (format "W%d %d" (car iso) (cdr iso))))))
 
 (defun org-air-review--period-label (kind p0 p1)
-  "Return the full header period label for KIND over [P0, P1)."
-  (if (eq kind 'month)
-      (format-time-string "%B %Y" p0)
-    (format "%s%s%s – %s"
-            (org-air-review--period-short-label kind p0)
-            (org-air-view--sep)
-            (format-time-string "%b %-d" p0)
-            (format-time-string "%b %-d" (1- p1)))))
+  "Return the full header period label for KIND over [P0, P1).
+R62-2: month and year read as their short label; quarter adds the month
+range (\"Q3 2026 · Jul – Sep\"); week and fortnight add the day range
+\(\"W30–31 2026 · Jul 20 – Aug 2\")."
+  (pcase kind
+    ((or 'month 'year) (org-air-review--period-short-label kind p0))
+    ('quarter
+     (format "%s%s%s – %s"
+             (org-air-review--period-short-label kind p0)
+             (org-air-view--sep)
+             (format-time-string "%b" p0)
+             (format-time-string "%b" (1- p1))))
+    (_ (format "%s%s%s – %s"
+               (org-air-review--period-short-label kind p0)
+               (org-air-view--sep)
+               (format-time-string "%b %-d" p0)
+               (format-time-string "%b %-d" (1- p1))))))
 
 (defun org-air-review--header-line (width label done total)
   "Return the Review header for WIDTH: LABEL · DONE done · TOTAL clocked."
@@ -1054,7 +1182,8 @@ machinery, parameterised)."
     ;; through the descriptor (the R22-5 shared primitive); the calendar
     ;; follows the period's month.
     (setq-local org-air-view--items org-air-review--items)
-    (setq-local org-air-view--cal-month (seconds-to-time p0))
+    (setq-local org-air-view--cal-month
+                (org-air-review--calendar-month p0 p1))
     (setq-local org-air-view--rail-descriptor
                 (org-air-review--rail-descriptor data p0 p1))
     (setq-local org-air-view--inspector-region-height nil)
@@ -1133,16 +1262,55 @@ midnight for free."
   (setq-local org-air-review--period-anchor nil)
   (org-air-review--render-current))
 
-(defun org-air-review-toggle-kind ()
-  "Toggle week ↔ month (key `m'), keeping the anchor day (R61-3).
-The other kind's period CONTAINING the anchor is shown (W30 → July;
-July → the week containing the anchor); a nil anchor stays nil (both
-kinds track the current period)."
-  (interactive)
-  (setq-local org-air-review--period-kind
-              (if (eq org-air-review--period-kind 'week) 'month 'week))
+(defun org-air-review--set-range (kind)
+  "Adopt range KIND and repaint, preserving the anchor (R62-3).
+The R61 anchor-day rule, uniform across all five rungs: the shown
+period becomes KIND's period CONTAINING the anchor; a nil anchor stays
+nil (every rung tracks the current period by default).  A pure repaint
+over cached data — NEVER a rescan (the R61 law)."
+  (setq-local org-air-review--period-kind kind)
   (org-air-review--render-current)
-  (message "org-air review: by %s" org-air-review--period-kind))
+  (message "org-air review: by %s" kind))
+
+(defun org-air-review-range-widen ()
+  "Widen the range one rung along the ladder (key `+', alias `=').
+week → fortnight → month → quarter → year over the effective
+`org-air-review-ranges' ladder (R62-3); CLAMPED at the widest rung with
+a bounded message — no wrap, so repeated presses park safely at year."
+  (interactive)
+  (let* ((kind org-air-review--period-kind)
+         (tail (cdr (memq kind (org-air-review--effective-ranges kind)))))
+    (if tail
+        (org-air-review--set-range (car tail))
+      (message "org-air review: widest range (%s)" kind))))
+
+(defun org-air-review-range-narrow ()
+  "Narrow the range one rung along the ladder (key `-').
+The inverse of `org-air-review-range-widen' (R62-3); CLAMPED at the
+narrowest rung with a bounded message — no wrap."
+  (interactive)
+  (let* ((kind org-air-review--period-kind)
+         (ladder (org-air-review--effective-ranges kind))
+         (pos (seq-position ladder kind)))
+    (if (and pos (> pos 0))
+        (org-air-review--set-range (nth (1- pos) ladder))
+      (message "org-air review: narrowest range (%s)" kind))))
+
+(defun org-air-review-cycle-range ()
+  "Cycle the range ladder with wrap-around (key `m') (R62-3).
+week → fortnight → month → quarter → year → week over the effective
+`org-air-review-ranges' ladder.  Generalises the R61 week↔month toggle
+\(one ladder, three verbs: `+'/`-' directional, `m' rotary) — with the
+ladder knob trimmed to (week month) the cycle IS the old toggle."
+  (interactive)
+  (let* ((kind org-air-review--period-kind)
+         (ladder (org-air-review--effective-ranges kind)))
+    (org-air-review--set-range (or (cadr (memq kind ladder))
+                                   (car ladder)))))
+
+(define-obsolete-function-alias 'org-air-review-toggle-kind
+  #'org-air-review-cycle-range "0.1.0"
+  "R62-3: the 2-state week↔month toggle generalised to the range ladder.")
 
 (defun org-air-review-cycle-rollup ()
   "Cycle the rollup basis: day → tag → directory → origin (key `f').
@@ -1294,7 +1462,9 @@ rail and quits back to the previous view (the shared quit convention)."
      (org-air-review-period-prev . "previous period")
      (org-air-review-period-next . "next period")
      (org-air-review-period-today . "current period")
-     (org-air-review-toggle-kind . "toggle week/month"))
+     (org-air-review-cycle-range . "cycle range (week/2w/month/quarter/year)")
+     (org-air-review-range-widen . "widen range")
+     (org-air-review-range-narrow . "narrow range"))
     ("Display"
      (org-air-review-cycle-rollup . "cycle rollup (day/tag/dir/origin)")
      (org-air-view-sort-cycle . "cycle sort key (date/title)")
@@ -1334,10 +1504,11 @@ live keymaps (the legend-truth discipline).")
 Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 ;; R35-1: the REVIEW default keys (installer-owned).  `<'/`>'/`.' are the
-;; board calendar idiom transposed to PERIOD navigation; `m' toggles
-;; week↔month; `f' cycles the rollup basis; `/' + `s'/`S' reuse the shared
-;; filter/scope machinery; S-RET the other-window visit; `P'/`N' the
-;; symmetric view switches.
+;; board calendar idiom transposed to PERIOD navigation (one unit of the
+;; active range); `+'/`=' widen and `-' narrow the R62-2 range ladder,
+;; `m' cycles it; `f' cycles the rollup basis; `/' + `s'/`S' reuse the
+;; shared filter/scope machinery; S-RET the other-window visit; `P'/`N'
+;; the symmetric view switches.
 (org-air--register-default-keys 'org-air-review-mode-map
   "n" #'org-air-review-next
   "p" #'org-air-review-prev
@@ -1349,7 +1520,10 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "<" #'org-air-review-period-prev
   ">" #'org-air-review-period-next
   "." #'org-air-review-period-today
-  "m" #'org-air-review-toggle-kind
+  "m" #'org-air-review-cycle-range
+  "+" #'org-air-review-range-widen
+  "=" #'org-air-review-range-widen
+  "-" #'org-air-review-range-narrow
   "f" #'org-air-review-cycle-rollup
   "/" #'org-air-review-filter
   "s" #'org-air-review-scope
@@ -1424,9 +1598,11 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "Open the Review (retrospective) view (R61).
 Answers \"what happened over this week / month\": items completed, time
 clocked (rolled up by tag / directory / origin), items started and work
-touched but not finished.  `<'/`>'/`.' navigate periods, `m' toggles
-week↔month, `f' cycles the rollup.  Reached from the board, the project
-and the revisit views via `W'; `q' returns to the previous view."
+touched but not finished.  `<'/`>'/`.' navigate periods by ONE unit of
+the active range, `+'/`-' widen/narrow the range ladder
+\(week/fortnight/month/quarter/year, R62-2), `m' cycles it, `f' cycles
+the rollup.  Reached from the board, the project and the revisit views
+via `W'; `q' returns to the previous view."
   (interactive)
   (let ((buffer (get-buffer-create org-air-review-buffer-name)))
     (with-current-buffer buffer
@@ -1512,7 +1688,13 @@ anchor restores tracking the LIVE current period."
         (filter (cdr (assq 'org-air-filter record)))
         (scope (cdr (assq 'org-air-scope record)))
         (sort (cdr (assq 'org-air-sort record))))
-    (when (and (consp period) (memq (car period) '(week month)))
+    ;; R62-3: the KIND domain widened apply-side to the five ranges —
+    ;; deliberately NOT gated on `org-air-review-ranges' (a record must
+    ;; restore on a machine whose ladder was trimmed; the knob governs
+    ;; keys, not state validity).  An unknown kind (\='decade) still
+    ;; degrades to the default current week, no signal.
+    (when (and (consp period)
+               (memq (car period) org-air-review--range-ladder))
       (setq-local org-air-review--period-kind (car period))
       (setq-local org-air-review--period-anchor
                   (and (integerp (cdr period)) (cdr period))))

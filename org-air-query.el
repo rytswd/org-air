@@ -30,6 +30,7 @@
 
 (defvar org-air-files)
 (defvar org-air-inbox-file)
+(defvar org-air-exclude-regexps)
 
 (defcustom org-air-todo-keywords
   '(:not-done ("TODO" "NEXT" "STARTED" "READY" "WIP"
@@ -240,13 +241,117 @@ conservative default: when in doubt, render."
        (file-regular-p file)
        (string-match-p "\\.org\\(?:\\.gpg\\)?\\'" file)))
 
-(defun org-air-query--expand-source (source)
-  "Expand SOURCE, which may be a file or directory, to Org files."
+(defvar org-air-query--exclude-warned nil
+  "Invalid `org-air-exclude-regexps' entries already warned about (R60-2).
+Session-scoped: each distinct broken regexp (e.g. \"[\", a typo
+mid-edit) is reported through ONE `message' — never a signal, never
+echo-area spam — then silently dropped from the compiled set, so a
+broken exclude can never kill the board (R53 never-error).")
+
+(defun org-air-query--excluded-p (path regexps)
+  "Return non-nil when any of REGEXPS matches PATH (R60-2).
+Matching is case-SENSITIVE (`case-fold-search' bound nil): path
+matching must not depend on the ambient fold, or the same config would
+behave differently in batch vs a user session.  PATH arrives pre-shaped
+by the caller — files as plain absolute paths, directories in
+directory-name form (trailing slash) — so one regexp like \"/archive/\"
+works at both levels.  Pure string work, zero I/O."
+  (let ((case-fold-search nil))
+    (seq-some (lambda (re) (string-match-p re path)) regexps)))
+
+(defun org-air-query--exclude-context ()
+  "Compile `org-air-exclude-regexps' ONCE per enumeration (R60-2).
+Returns nil when the knob is nil or every entry is invalid — every
+call site then takes the pre-R60 code path byte-for-byte (in
+particular `directory-files-recursively' keeps its literal nil
+PREDICATE).  Otherwise a list (REGEXPS INBOX INBOX-PATHS): the
+validated regexps; the truename-normalised absolute
+`org-air-inbox-file' (the `org-air-query--inbox-file-p' normalisation;
+nil when no inbox is configured) backing the file-level inbox guard;
+and the inbox path's spellings (expanded + truename) backing the
+directory ancestor guard.  Never-error (R53): an invalid regexp is
+dropped from the compiled set and warned about once per session via
+`org-air-query--exclude-warned'."
+  (let ((regexps nil))
+    (dolist (re (and (boundp 'org-air-exclude-regexps)
+                     org-air-exclude-regexps))
+      (if (and (stringp re)
+               (ignore-errors (or (string-match-p re "") t)))
+          (push re regexps)
+        (unless (member re org-air-query--exclude-warned)
+          (push re org-air-query--exclude-warned)
+          (message "org-air: dropping invalid exclude regexp %S" re))))
+    (when regexps
+      (let* ((raw (and (boundp 'org-air-inbox-file)
+                       org-air-inbox-file
+                       (expand-file-name org-air-inbox-file)))
+             (inbox (and raw (or (ignore-errors (file-truename raw)) raw))))
+        (list (nreverse regexps)
+              inbox
+              (and raw (delete-dups (list raw inbox))))))))
+
+(defun org-air-query--exclude-file-p (file exclude)
+  "Return non-nil when FILE is dropped by the compiled EXCLUDE context (R60-2).
+FILE is absolute and PRE-truename — exclusion is BY NAME: it matches
+what the user sees and configured; the R53 symlink-only truename dedupe
+stays downstream and untouched.  The inbox guard wins over everything:
+a FILE that truename-equals `org-air-inbox-file' is never dropped,
+however the regexps read, so the capture target stays reachable (a
+symlinked inbox is protected too; the truename is paid only for a file
+that actually MATCHED an exclude)."
+  (and (org-air-query--excluded-p file (nth 0 exclude))
+       (not (and (nth 1 exclude)
+                 (equal (or (ignore-errors (file-truename file)) file)
+                        (nth 1 exclude))))))
+
+(defun org-air-query--exclude-dir-p (dir exclude)
+  "Return non-nil when directory DIR must be PRUNED under EXCLUDE (R60-2).
+DIR is the absolute path `directory-files-recursively' hands its
+PREDICATE (no trailing slash); it is matched in DIRECTORY-NAME form
+\(`file-name-as-directory') so \"/archive/\" and \"\\\\.git/\" match the
+way users write them.  Pruning refuses descent entirely — an excluded
+tree is never even enumerated (the R53 scale win: a 5000-file archive/
+costs zero stats, zero sorts, zero list allocation).  The ancestor
+guard: a directory on the spine above `org-air-inbox-file' is never
+pruned (one `string-prefix-p' per inbox spelling, no I/O), so an inbox
+inside an excluded tree still gets enumerated while the file-level
+filter drops every OTHER file in that tree — correctness beats the
+pruning win in that one pathological layout."
+  (let ((dirname (file-name-as-directory dir)))
+    (and (org-air-query--excluded-p dirname (nth 0 exclude))
+         (not (seq-some (lambda (inbox) (string-prefix-p dirname inbox))
+                        (nth 2 exclude))))))
+
+(defun org-air-query--expand-source (source &optional exclude)
+  "Expand SOURCE, which may be a file or directory, to Org files.
+EXCLUDE is the compiled `org-air-query--exclude-context', nil for none
+— and with nil the body is the pre-R60 path byte-for-byte (PREDICATE
+stays literal nil).  With a context (R60-2): a directory source PRUNES
+matching subdirectories via the PREDICATE (refused descent, never
+post-filtered — an excluded archive/ is never walked) and post-filters
+the returned FILES (the belt for file-level regexps pruning cannot
+see); a directory source that ITSELF matches is silenced whole (the
+traversal predicate is never consulted for the root); a file source
+listed explicitly in `org-air-files' that matches is DROPPED — exclude
+wins over an explicit listing.  The inbox guard (in the helpers) wins
+over everything."
   (let ((path (expand-file-name source)))
     (cond
      ((file-directory-p path)
-      (directory-files-recursively path "\\.org\\(?:\\.gpg\\)?\\'" nil))
-     ((org-air-query--org-file-p path) (list path))
+      (cond
+       ((null exclude)
+        (directory-files-recursively path "\\.org\\(?:\\.gpg\\)?\\'" nil))
+       ((org-air-query--exclude-dir-p path exclude) nil)
+       (t
+        (seq-remove
+         (lambda (file) (org-air-query--exclude-file-p file exclude))
+         (directory-files-recursively
+          path "\\.org\\(?:\\.gpg\\)?\\'" nil
+          (lambda (dir)
+            (not (org-air-query--exclude-dir-p dir exclude))))))))
+     ((org-air-query--org-file-p path)
+      (unless (and exclude (org-air-query--exclude-file-p path exclude))
+        (list path)))
      (t nil))))
 
 (defun org-air-query-files ()
@@ -254,10 +359,19 @@ conservative default: when in doubt, render."
 R53 P1d: order-preserving hash-table dedupe; `file-truename' is paid ONLY
 for actual symlinks (`file-symlink-p' pre-check) so a 5000-file tree
 enumerates in milliseconds while a symlinked duplicate still dedupes to
-its target (measured 0.647s -> 0.044s at 5006 files)."
+its target (measured 0.647s -> 0.044s at 5006 files).
+R60-2: the `org-air-exclude-regexps' context is compiled ONCE here and
+passed down explicitly, so every consumer (board scan, refile targets,
+revisit queue, denote index) sees ONE coherent excluded set.  Exclusion
+is BY NAME, applied pre-truename at enumeration — the symlink-only
+dedupe below stays untouched."
   (let ((seen (make-hash-table :test #'equal))
-        (out nil))
-    (dolist (file (seq-mapcat #'org-air-query--expand-source org-air-files))
+        (out nil)
+        (exclude (org-air-query--exclude-context)))
+    (dolist (file (seq-mapcat
+                   (lambda (source)
+                     (org-air-query--expand-source source exclude))
+                   org-air-files))
       (let ((path (if (file-symlink-p file)
                       (or (ignore-errors (file-truename file)) file)
                     file)))

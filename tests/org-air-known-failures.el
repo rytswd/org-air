@@ -2016,6 +2016,23 @@
     ;; No .el SOURCE touched on the test track (impl landed R56 P1-P3 in
     ;; tvlvvlmm).  Round-56 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
+    ;; ===================================================================
+    ;; v0.5 ROUND-60 impl grind (air/v0.5/org-air-round60-design.org).
+    ;; R60-3 CACHE-KEY EXTENSION: `org-air-view--cache-key' gains
+    ;; `org-air-exclude-regexps' as the design-blessed FIFTH element (the
+    ;; key IS the detector — a cache written under exclude set A must
+    ;; never hydrate under set B; pre-R60 4-element keys miss on length,
+    ;; no `org-air-view--cache-version' bump).  The R59 key-shape
+    ;; assertion pins the OLD 4-element contract (`(= (length key) 4)'),
+    ;; so it fails by design until the test seat re-blesses it to the
+    ;; 5-element shape (fifth = the live `org-air-exclude-regexps',
+    ;; default nil).  NOT hand-blessed on the impl track per the brief.
+    ;; No byte golden moved (default-nil excludes are the pre-R60 path
+    ;; byte-for-byte; verified: all layout/project/denote goldens green).
+    (org-air-r59-13-cache-v5-and-key
+     . "R60-3: `org-air-view--cache-key' gains `org-air-exclude-regexps' \
+as the FIFTH element; this test pins the pre-R60 4-element key shape \
+(air/v0.5/org-air-round60-design.org) — test seat re-blesses to 5")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -28,6 +28,20 @@
   :type '(repeat (choice file directory))
   :group 'org-air)
 
+(defcustom org-air-exclude-regexps nil
+  "Regexps of files and directories org-air must never scan.
+Each regexp is matched (case-sensitively) against the ABSOLUTE path:
+a candidate FILE matches as-is (e.g. \"/home/u/org/notes/noise.org\");
+a DIRECTORY is matched in directory-name form with a trailing slash
+\(e.g. \"/home/u/org/archive/\"), and a matching directory is pruned —
+never descended — so \"/archive/\" or \"\\\\.git/\" silences a whole
+tree cheaply.  Matching wins over an explicit `org-air-files' listing.
+The one exemption: `org-air-inbox-file' is never excluded.
+To exclude one exact file, anchor a quoted path:
+  (concat \"\\\\\=`\" (regexp-quote (expand-file-name \"~/org/big.org\")) \"\\\\\='\")"
+  :type '(repeat regexp)
+  :group 'org-air)
+
 (defcustom org-air-inbox-file (locate-user-emacs-file "org-air-inbox.org")
   "Org file where `org-air-capture' stores new inbox items."
   :type 'file

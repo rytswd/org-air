@@ -38,6 +38,7 @@
 
 (defvar org-air-files)
 (defvar org-air-inbox-file)
+(defvar org-air-exclude-regexps)
 ;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
 ;; the modes set it buffer-locally without requiring bookmark at load.
 (defvar bookmark-make-record-function)
@@ -756,10 +757,18 @@ the classify routing and the day-view skip evaluate the knob LIVE over
 persisted signal slots, but the F7 file-ntype vote is baked into
 file-meta `:ntype' at scan time, so a knob flip must take the same
 documented cold re-derive as a vocabulary change.
+R60: `org-air-exclude-regexps' joins as the FIFTH element — the exclude
+set is read at DISCOVERY time, so a flip takes effect through the key
+mismatch's cold re-derive, never by live re-filtering of
+already-scanned items: a cache written under exclude set A never
+hydrates under set B, and a pre-R60 4-element `:key' misses on length
+inequality (no `org-air-view--cache-version' bump — no serialisation
+shape changed).
 Plain printable list data: serialises as-is, compares with `equal'."
   (list org-air-files org-air-inbox-file
         (org-air-query--scan-todo-keywords)
-        org-air-skip-container-headings))
+        org-air-skip-container-headings
+        org-air-exclude-regexps))
 (defvar-local org-air-view--items-mtimes nil
   "Alist FILE -> mtime of the last COMPLETED full scan (R42-1).
 The in-memory baseline `org-air-view--refresh-start' diffs against so a
@@ -7601,6 +7610,19 @@ mtime matches (FRESH: no scan at all)."
     (maphash (lambda (k _v) (push k changed)) table)
     changed))
 
+(defun org-air-view--files-intersect (changed files)
+  "Return the members of CHANGED that are in FILES, order preserved (R60-3).
+The defence-in-depth half of the R60 refresh key guard, independently
+correct: `org-air-query-items-in-files' must never be handed a path
+outside the CURRENT enumerated set, whatever the reason it left
+\(excluded, un-listed, or vanished) — `file-exists-p' was always the
+wrong predicate for the vanished-from-CONFIG case, since a file removed
+from the configured set still exists on disk and would re-scan and
+resurrect its rows through the merge.  Hash-backed single pass (R53)."
+  (let ((table (make-hash-table :test #'equal :size (length files))))
+    (dolist (f files) (puthash f t table))
+    (seq-filter (lambda (f) (gethash f table)) changed)))
+
 (defun org-air-view--cache-load ()
   "Return (ITEMS . STALE-FILES) from the persisted cache, or nil.
 ITEMS carry cons (FILE . POS) marker slots (hydrated on demand by
@@ -8029,10 +8051,30 @@ accumulated items from the running scan (a fill with NO previous content
 enters progressive STREAM mode here and paints repeatedly as slices
 land).
 
+R60-3 key guard (the R57 discipline — the key IS the detector): when
+the live `org-air-view--cache-key' no longer matches the key the
+retained items were derived under (the exclude set / file set narrowed
+mid-session, a vocabulary or routed-knob change), the session is COLD
+for data purposes — the retained merge inputs are dropped (nil mtime
+baseline, so every current file is \"changed\"; nothing is retained
+into the merge) and the full machine runs: paced when large,
+sync-budget when small.  Without the guard the old baseline names the
+removed files \"vanished\", the sync path finds them still ON DISK and
+resurrects their rows through the incremental merge.  The painted
+board stays up until the swap (R56); the swap stamps the fresh key
+exactly where the machine already does.
+
 The caller paints (board or skeleton) after this so the header
 marker/progress is visible from the first paint."
   (org-air-view--refresh-cancel)
-  (let* ((files (org-air-query-files))
+  (let* ((stale-key (not (equal org-air-view--items-key
+                                (org-air-view--cache-key))))
+         (files (progn
+                  ;; R60-3: a stale key voids the merge baseline — the
+                  ;; retained mtimes were recorded under another config.
+                  (when stale-key
+                    (setq org-air-view--items-mtimes nil))
+                  (org-air-query-files)))
          (changed (org-air-view--changed-files
                    files org-air-view--items-mtimes)))
     (cond
@@ -8047,7 +8089,7 @@ marker/progress is visible from the first paint."
      ;; keep the existing mtime baseline VERBATIM (do NOT re-stat) — it just
      ;; proved itself (every current file matched, none vanished); a re-stat
      ;; would only risk masking a file changed post-diff/pre-restat.
-     ((null changed)
+     ((and (null changed) (not stale-key))
       (setq org-air-view--refresh-acc nil
             org-air-view--refresh-queue nil
             org-air-view--refresh-total 0
@@ -8070,11 +8112,17 @@ marker/progress is visible from the first paint."
       ;; + repaint.
       (condition-case err
           (let* ((_ (org-air-query-skip-log-reset))
-                 (existing (seq-filter #'file-exists-p changed))
-                 (retained (seq-remove
-                            (lambda (it)
-                              (member (org-air-item-file it) changed))
-                            org-air-view--items))
+                 ;; R60-3 defence-in-depth: intersect with the CURRENT
+                 ;; enumerated set, never `file-exists-p' — an excluded/
+                 ;; un-listed file still exists on disk.
+                 (existing (org-air-view--files-intersect changed files))
+                 ;; R60-3: under a stale key nothing is retained — the
+                 ;; old items were derived under another config.
+                 (retained (and (not stale-key)
+                                (seq-remove
+                                 (lambda (it)
+                                   (member (org-air-item-file it) changed))
+                                 org-air-view--items)))
                  ;; B1: stat the FULL set ONCE *before* the scan reads any
                  ;; file, so no file is stat'd AFTER it is read; a file
                  ;; changed post-stat/pre-read then diverges next refresh
@@ -8106,11 +8154,13 @@ marker/progress is visible from the first paint."
                   (org-air-view--short-error err)))))
      ;; Bulk/cold: retain unchanged items, PACE only the changed subset.
      (t
-      (let ((existing (seq-filter #'file-exists-p changed))
-            (retained (seq-remove
-                       (lambda (it)
-                         (member (org-air-item-file it) changed))
-                       org-air-view--items)))
+      (let ((existing (org-air-view--files-intersect changed files))
+            ;; R60-3: stale key => retain nothing (see the sync path).
+            (retained (and (not stale-key)
+                           (seq-remove
+                            (lambda (it)
+                              (member (org-air-item-file it) changed))
+                            org-air-view--items))))
         (org-air-query-skip-log-reset)
         ;; R56 P1c: inbox first, then recency — the first budgeted slice
         ;; scans the inbox, so the first progressive paint is real,

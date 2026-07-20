@@ -65,11 +65,24 @@
 ;;         `k' vocabulary reader; a TODO arg of "CLOSED" round-trips
 ;;         on-disk with `donep' semantics intact (the file's own done
 ;;         set, never org-air's).
-;;   r64-9 CRASH-SAFE MOVE (harden) — a paste-step failure AFTER the
-;;         destructive cut restores the source subtree byte-identically
-;;         (item never lost) and leaves the target file untouched on
-;;         disk (not half-written); the error still propagates and the
-;;         same refile succeeds afterwards.
+;;   r64-9 CRASH-SAFE MOVE (harden, fix2) — a failure at the REAL paste
+;;         seam (the genuine `org-paste-subtree' runs and lands bytes,
+;;         THEN the step signals) restores the source byte-identically,
+;;         leaves the target file untouched on disk AND the target
+;;         buffer with ZERO un-landed paste residue (the atomic
+;;         rollback); the error still propagates and the same refile
+;;         then lands the item exactly ONCE.
+;;   r64-10 SAME-FILE TRANSACTION (fix2 B1) — source and target in ONE
+;;         buffer, the target container BEFORE the source item: a
+;;         post-paste metadata failure (a real `org-todo' user-error)
+;;         leaves the single file BYTE-IDENTICAL on disk and in-buffer
+;;         — no half-paste, no stale-position mid-line splice ever
+;;         saved; the retry then lands the item exactly ONCE.
+;;   r64-11 POST-PASTE METADATA (fix2 B2) — cross-file, a metadata step
+;;         signals AFTER the paste landed in the target: the target
+;;         buffer is left UNMODIFIED (no dirty pasted subtree waiting
+;;         for any later save), so the natural retry writes the item
+;;         exactly ONCE on disk, never twice.
 ;;
 ;; RETIREMENT LEDGER (the four flagged legacy ERTs, spec R64-3): the
 ;; R19-2 stub-chain test and the two `--decode-target' tests are
@@ -648,21 +661,31 @@ moved item is done while the HOLD sibling is not."
         (should-not (org-air-item-donep seed))))))
 
 ;;;; -------------------------------------------------------------------
-;;;; r64-9 — a failed paste never loses the item (the harden guard)
+;;;; r64-9/-10/-11 — the move is TRANSACTIONAL (the fix2 harden)
 ;;;; -------------------------------------------------------------------
 
+(defun org-air-r64--count-matches (needle text)
+  "Count the non-overlapping literal occurrences of NEEDLE in TEXT."
+  (let ((n 0) (start 0) (re (regexp-quote needle)))
+    (while (string-match re text start)
+      (setq start (match-end 0))
+      (cl-incf n))
+    n))
+
 (ert-deftest org-air-r64-9-refile-crash-safe ()
-  "The destructive window is guarded: `org-air-refile-item' cuts the
-source subtree (delete + save, the text held only in a local) BEFORE
-pasting into the target.  If `org-paste-subtree' (or any later step
-before the target's save) SIGNALS, the source subtree is RESTORED at
-its original position and saved — the inbox file is BYTE-IDENTICAL to
-before the call — and the target file on disk is untouched (never
-half-written: the pre-cut created parents live only in the unsaved
-buffer).  The error itself still propagates to the caller, and the
-SAME refile succeeds once the fault is gone — the failed attempt left
-a fully working state.  Reverting the guard loses the item from the
-saved inbox and fails the byte-identity assertion."
+  "The destructive window is TRANSACTIONAL: `org-air-refile-item' cuts
+the source subtree (delete + save, the text held only in a local)
+BEFORE pasting into the target.  Here the failure strikes at the REAL
+paste seam — the genuine `org-paste-subtree' runs and LANDS BYTES in
+the target buffer, then the step signals (no wholesale stub: the hard
+case is a dirty target, not an untouched one).  The atomic rollback
+must empty the target buffer of every paste-window byte, the source
+subtree is RESTORED at its original position and saved — the inbox
+file is BYTE-IDENTICAL to before the call — and the target file on
+disk is untouched.  The error itself still propagates, and the SAME
+refile afterwards lands the item exactly ONCE (a dirty buffer would
+make the retry write it twice).  Reverting the fix leaves the pasted
+subtree un-landed in the target buffer and duplicates it on retry."
   (skip-unless (locate-library "org-air"))
   (org-air-r64--with-corpus
       `(("inbox.org" . ,org-air-r64--acceptance-inbox)
@@ -671,10 +694,12 @@ saved inbox and fails the byte-identity assertion."
            (inbox-before (org-air-r64--text org-air-inbox-file))
            (projects-before (org-air-r64--text projects))
            (inhibit-message t))
-      ;; force the paste step to crash AFTER the cut has happened.
-      (cl-letf (((symbol-function 'org-paste-subtree)
-                 (lambda (&rest _)
-                   (error "r64-9: simulated paste crash"))))
+      ;; crash AFTER the cut AND after the REAL paste landed its bytes.
+      (cl-letf* ((paste-orig (symbol-function 'org-paste-subtree))
+                 ((symbol-function 'org-paste-subtree)
+                  (lambda (&rest args)
+                    (apply paste-orig args)
+                    (error "r64-9: simulated crash after the real paste"))))
         (should-error
          (org-air-refile-item
           (org-air-r64--item org-air-inbox-file "Set up syncthing")
@@ -684,8 +709,13 @@ saved inbox and fails the byte-identity assertion."
       (should (equal (org-air-r64--text org-air-inbox-file) inbox-before))
       ;; the TARGET file was not half-written: on-disk bytes untouched.
       (should (equal (org-air-r64--text projects) projects-before))
+      ;; the TARGET BUFFER holds no un-landed paste residue: the atomic
+      ;; rollback removed the really-pasted subtree (pre-fix this buffer
+      ;; keeps it modified-unsaved — the duplicate landmine).
+      (with-current-buffer (find-file-noselect projects)
+        (should-not (string-match-p "Set up syncthing" (buffer-string))))
       ;; the restored state is fully working: the SAME call (real paste)
-      ;; now lands the item, and the source container empties normally.
+      ;; now lands the item exactly ONCE, and the source empties normally.
       (org-air-refile-item
        (org-air-r64--item org-air-inbox-file "Set up syncthing")
        projects '("Infra" "Cloud"))
@@ -695,6 +725,97 @@ saved inbox and fails the byte-identity assertion."
                        (1 . "Infra")
                        (2 . "Cloud")
                        (3 . "TODO Set up syncthing :inbox:"))))
+      (should (= 1 (org-air-r64--count-matches
+                    "Set up syncthing" (org-air-r64--text projects))))
+      (should-not (string-match-p "Set up syncthing"
+                                  (org-air-r64--text org-air-inbox-file))))))
+
+(ert-deftest org-air-r64-10-same-file-refile-failure-is-atomic ()
+  "SAME-FILE refile (source and target in ONE buffer), target container
+BEFORE the source item — the B1 corruption shape: the paste shifts
+every position after it, so a stale integer source position would
+splice the restore MID-LINE and save the corruption.  A real post-paste
+metadata failure (`org-todo' with a keyword not in the file —
+`user-error') must leave the single file BYTE-IDENTICAL on disk AND
+in-buffer: the atomic rollback removes the paste, the marker-based
+restore lands at the correct (shifted-back) position.  The retry
+without the fault then lands the item exactly ONCE.  Reverting the fix
+saves a half-heading splice to disk and fails the byte-identity."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r64--with-corpus
+      '(("inbox.org" . "#+title: Inbox\n* Archive\n* New\n** TODO Set up syncthing :inbox:\n** TODO Set up n8n :inbox:\n"))
+    (let ((inbox-before (org-air-r64--text org-air-inbox-file))
+          (inhibit-message t))
+      ;; the real failure point: BOGUS is not in the file's keyword set,
+      ;; so `org-todo' user-errors AFTER the paste landed — same buffer.
+      (should-error
+       (org-air-refile-item
+        (org-air-r64--item org-air-inbox-file "Set up syncthing")
+        org-air-inbox-file "Archive" nil nil nil "BOGUS")
+       :type 'error)
+      ;; the ONE file is byte-identical ON DISK — no half-paste, no
+      ;; mid-line splice, no duplicate half-heading ever saved.
+      (should (equal (org-air-r64--text org-air-inbox-file) inbox-before))
+      ;; and in-buffer: fully rolled back + restored, nothing un-landed.
+      (with-current-buffer (find-file-noselect org-air-inbox-file)
+        (should (equal (buffer-string) inbox-before))
+        (should-not (buffer-modified-p)))
+      ;; the retry (fault removed) lands the item exactly ONCE.
+      (org-air-refile-item
+       (org-air-r64--item org-air-inbox-file "Set up syncthing")
+       org-air-inbox-file "Archive")
+      (should (equal (org-air-r64--headings org-air-inbox-file)
+                     '((1 . "Archive")
+                       (2 . "TODO Set up syncthing :inbox:")
+                       (1 . "New")
+                       (2 . "TODO Set up n8n :inbox:"))))
+      (should (= 1 (org-air-r64--count-matches
+                    "Set up syncthing"
+                    (org-air-r64--text org-air-inbox-file)))))))
+
+(ert-deftest org-air-r64-11-post-paste-metadata-failure-no-duplicate ()
+  "CROSS-FILE, the B2 duplicate landmine: a metadata step signals AFTER
+the paste landed in the target (`org-todo' with a keyword the target
+file lacks — the reachable `k'-reader shape).  The source must be
+restored byte-identically AND the target buffer left with ZERO
+un-landed modifications — otherwise the pasted subtree sits
+modified-unsaved and the user's natural retry (or ANY later save of
+that buffer) writes the item TWICE.  The retry with a valid keyword
+lands the item exactly ONCE, keyword applied.  Reverting the fix
+leaves the target buffer dirty and the retry duplicates the item."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r64--with-corpus
+      `(("inbox.org" . ,org-air-r64--acceptance-inbox)
+        ("projects.org" . ,org-air-r64--acceptance-projects))
+    (let* ((projects (expand-file-name "projects.org" org-air-r64--dir))
+           (inbox-before (org-air-r64--text org-air-inbox-file))
+           (projects-before (org-air-r64--text projects))
+           (inhibit-message t))
+      ;; existing target heading (no creation): the ONLY target-side
+      ;; changes are the paste window's own — all must roll back.
+      (should-error
+       (org-air-refile-item
+        (org-air-r64--item org-air-inbox-file "Set up syncthing")
+        projects "Website relaunch" nil nil nil "BOGUS")
+       :type 'error)
+      ;; source restored byte-identically, target file untouched.
+      (should (equal (org-air-r64--text org-air-inbox-file) inbox-before))
+      (should (equal (org-air-r64--text projects) projects-before))
+      ;; the target buffer left the failure with ZERO un-landed
+      ;; modifications — no dirty pasted subtree for a save to persist.
+      (with-current-buffer (find-file-noselect projects)
+        (should-not (buffer-modified-p))
+        (should-not (string-match-p "Set up syncthing" (buffer-string))))
+      ;; the natural retry (valid keyword) writes the item exactly ONCE.
+      (org-air-refile-item
+       (org-air-r64--item org-air-inbox-file "Set up syncthing")
+       projects "Website relaunch" nil nil nil "DONE")
+      (should (= 1 (org-air-r64--count-matches
+                    "Set up syncthing" (org-air-r64--text projects))))
+      (should (equal (org-air-r64--headings projects)
+                     '((1 . "Website relaunch")
+                       (2 . "TODO Fix nav")
+                       (2 . "DONE Set up syncthing :inbox:"))))
       (should-not (string-match-p "Set up syncthing"
                                   (org-air-r64--text org-air-inbox-file))))))
 

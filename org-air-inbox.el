@@ -496,54 +496,77 @@ untouched."
                 (end (save-excursion (org-end-of-subtree t t) (point))))
             (setq text (buffer-substring begin end)
                   src-buf (current-buffer)
-                  src-beg begin)
+                  ;; a MARKER, never a stale integer (r64fix2): a
+                  ;; SAME-FILE paste shifts every position after it, and
+                  ;; the marker rides the shift (and the atomic rollback
+                  ;; below), so a failure restore lands EXACTLY where
+                  ;; the subtree was cut.
+                  src-beg (copy-marker begin))
             (delete-region begin end)
             (save-buffer))))
-      (unless (string-suffix-p "\n" text)
-        (setq text (concat text "\n")))
       ;; paste, re-leveled: last child of the parent (or file end, level 1).
-      ;; GUARDED (R64 harden): between the cut above and the target's
-      ;; `save-buffer' the item exists ONLY in TEXT — if the paste or any
-      ;; metadata step signals (or quits), re-insert TEXT at the source
-      ;; position and save, so a failed refile NEVER loses the item; the
-      ;; error then propagates unchanged.
-      (let ((landed nil))
+      ;; TRANSACTIONAL (R64 harden + fix2): between the cut above and the
+      ;; target's `save-buffer' the item exists ONLY in TEXT.  The whole
+      ;; post-cut window — paste + EVERY metadata step (todo / priority /
+      ;; tags / category / schedule) + the save — runs inside ONE
+      ;; `atomic-change-group' on the target buffer, so ANY signal (or
+      ;; quit) first rolls back EVERY target-side change in-buffer: no
+      ;; half-paste, no dirty pasted subtree left for a retry (or any
+      ;; later save) to double-write — and in the SAME-FILE case the
+      ;; rollback restores the shared buffer's post-cut geometry.  Only
+      ;; then does the unwind handler re-insert the RAW capture at the
+      ;; SRC-BEG marker and save: the source is byte-identical on disk,
+      ;; the error propagates unchanged, a retry starts from a clean
+      ;; slate.  The paste-local newline keeps TEXT itself un-mutated so
+      ;; a no-final-newline source restores without growing a byte.
+      (let ((paste-text (if (string-suffix-p "\n" text)
+                            text
+                          (concat text "\n")))
+            (landed nil))
         (unwind-protect
             (progn
               (with-current-buffer (find-file-noselect target-file)
                 (org-with-wide-buffer
-                 (let ((level (if parent (org-get-valid-level (cdr parent) 1) 1)))
-                   (if parent
-                       (progn (goto-char (car parent))
-                              (org-end-of-subtree t t))
-                     (goto-char (point-max)))
-                   (unless (bolp) (insert "\n"))
-                   (let ((insert-pos (point-marker)))
-                     (org-paste-subtree level text)
-                     (goto-char insert-pos)
-                     (org-back-to-heading t)
-                     (when todo (org-todo todo))
-                     (when priority
-                       (org-priority (if (stringp priority)
-                                         (aref priority 0)
-                                       priority)))
-                     (when tags (org-set-tags (if (eq tags :none) nil tags)))
-                     (when (and category (not (string-empty-p category)))
-                       (org-set-property "CATEGORY" category))
-                     (when scheduled
-                       (if (string-empty-p scheduled)
-                           (org-schedule '(4))
-                         (org-schedule nil scheduled)))
-                     (set-marker insert-pos nil))))
-                (when (car-safe parent) (set-marker (car parent) nil))
-                (save-buffer))
+                 (atomic-change-group
+                   (let ((level (if parent (org-get-valid-level (cdr parent) 1) 1)))
+                     (if parent
+                         (progn (goto-char (car parent))
+                                (org-end-of-subtree t t))
+                       (goto-char (point-max)))
+                     (unless (bolp) (insert "\n"))
+                     (let ((insert-pos (point-marker)))
+                       (unwind-protect
+                           (progn
+                             (org-paste-subtree level paste-text)
+                             (goto-char insert-pos)
+                             (org-back-to-heading t)
+                             (when todo (org-todo todo))
+                             (when priority
+                               (org-priority (if (stringp priority)
+                                                 (aref priority 0)
+                                               priority)))
+                             (when tags
+                               (org-set-tags (if (eq tags :none) nil tags)))
+                             (when (and category (not (string-empty-p category)))
+                               (org-set-property "CATEGORY" category))
+                             (when scheduled
+                               (if (string-empty-p scheduled)
+                                   (org-schedule '(4))
+                                 (org-schedule nil scheduled))))
+                         (set-marker insert-pos nil))))
+                   (save-buffer))))
               (setq landed t))
-          (unless landed
-            (with-current-buffer src-buf
-              (save-excursion
-                (goto-char src-beg)
-                (insert text)
-                (save-buffer))))))
+          ;; `inhibit-quit': a second C-g must not abort the restore (or
+          ;; the marker cleanup) half-way.
+          (let ((inhibit-quit t))
+            (unless landed
+              (with-current-buffer src-buf
+                (save-excursion
+                  (goto-char src-beg)
+                  (insert text)
+                  (save-buffer))))
+            (set-marker src-beg nil)
+            (when (car-safe parent) (set-marker (car parent) nil)))))
       (message "Refiled → %s%s"
                (file-name-nondirectory target-file)
                (cond ((consp target-heading)

@@ -1,5 +1,5 @@
 #+title: org-air Round 61 — org-air-review: what happened this week / month (the retrospective surface)
-#+state: ready
+#+state: complete
 #+tags: review reporting clocking scan cache period calendar bookmarks robustness
 
 * Summary
@@ -742,3 +742,4 @@ files, so the surface has real data to render on day one.
   argument, own-body attribution, always-on harvest, suspect-clock
   exclusion, the =current= period anchor, and struct-slots-over-side-
   table.  State: ready.
+- 2026-07-20: State: ready → complete.

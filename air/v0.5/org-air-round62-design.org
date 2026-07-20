@@ -1,5 +1,5 @@
 #+title: org-air Round 62 — review rail single-owner fix + the duration-range ladder
-#+state: ready
+#+state: complete
 #+tags: review rail reconciler bug period range calendar bookmarks keybindings
 
 * Summary
@@ -516,3 +516,4 @@ Both land on the R61 surface shipped last round; the same Denote-silo
   T14 update called out); ladder knob, label table, calendar
   centring refinement, apply-side bookmark widening and the
   four-row legend specified.  State: ready.
+- 2026-07-20: State: ready → complete.

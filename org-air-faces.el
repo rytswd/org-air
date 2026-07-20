@@ -651,6 +651,20 @@ three but quieter than the full popout."
   "Calendar day carrying only a created/activity stamp (T3b: quiet)."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-calendar-period
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#3E6A8E" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#88C0D0" :weight bold))
+    (t (:inherit org-air-face-salient)))
+  "Calendar day inside the Review period (R61-5).
+The review rail highlights every day of the shown week/month with this
+face on the day NUMBER (mark kinds `period' / `period-done' in
+`org-air-calendar--mark'); a period day carrying a completion also gets
+the quiet dot glyph.  Today's filled cell still wins (the mark-face cond
+in `org-air-calendar-insert-month' is unchanged)."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-day-header
   '((t :inherit org-air-face-strong))
   "Face for the single-day focus-view title (R6), e.g. the

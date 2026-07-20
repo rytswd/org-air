@@ -2102,6 +2102,28 @@
     ;; yukzyouz).  Round-60 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
     ;; =================================================================
+    ;; =================================================================
+    ;; v0.5 ROUND-61 grind (impl track) — assertions that legitimately
+    ;; shift under the design-blessed R61-2 cache-v6 contract
+    ;; (air/v0.5/org-air-round61-design.org): `org-air-view--cache-version'
+    ;; bumped 5 -> 6 (the org-air-item struct gained the four review
+    ;; harvest slots clocks/logs/created/rtrunc — v5 records have the
+    ;; wrong record length) and `org-air-log-cap' joined
+    ;; `org-air-view--cache-key' as the SIXTH element (the cap shapes
+    ;; scanned-and-persisted data; the R57 "the key IS the detector"
+    ;; discipline).  The two pre-R61 tests below hardcode the old
+    ;; version/key-length contract; every other conjunct in them still
+    ;; holds.  NOT hand-blessed here — the test seat re-blesses them to
+    ;; the v6 / 6-element contract and deletes these entries as closeout.
+    (org-air-r59-13-cache-v5-and-key
+     . "R61-2: asserts (= cache-version 5) and (= (length key) 5); v6 \
+bumped the version and org-air-log-cap is now the sixth key element \
+— re-bless to the v6 / 6-element shape (all other conjuncts hold)")
+    (org-air-r60-6-exclude-set-is-fifth-cache-key-element
+     . "R61-2: asserts (= (length key-a) 5); the exclude set stays the \
+FIFTH element but org-air-log-cap now follows as the SIXTH — re-bless \
+the length assert (exclude-set position and every hydrate/miss \
+conjunct hold)")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

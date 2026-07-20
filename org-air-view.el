@@ -43,6 +43,7 @@
 ;; the modes set it buffer-locally without requiring bookmark at load.
 (defvar bookmark-make-record-function)
 (defvar org-air-revisit-buffer-name)
+(defvar org-air-review-buffer-name)
 
 ;; R54-3: the Revisit view lives in org-air-revisit.el (module split);
 ;; this file only NAMES its entry points (the `N' key, the Notes-heading
@@ -764,11 +765,19 @@ already-scanned items: a cache written under exclude set A never
 hydrates under set B, and a pre-R60 4-element `:key' misses on length
 inequality (no `org-air-view--cache-version' bump — no serialisation
 shape changed).
+R61: `org-air-log-cap' joins as the SIXTH element — the cap shapes the
+scanned-and-persisted `clocks'/`logs' slots, so a cap change must
+invalidate exactly like a vocabulary change (the key IS the detector;
+a pre-R61 5-element key also misses, on length).  The review's
+RENDER-time knobs (period kind/anchor, rollup basis,
+`org-air-review-suspect-clock-hours') are deliberately NOT key
+elements — they fold over cached data and take effect on repaint.
 Plain printable list data: serialises as-is, compares with `equal'."
   (list org-air-files org-air-inbox-file
         (org-air-query--scan-todo-keywords)
         org-air-skip-container-headings
-        org-air-exclude-regexps))
+        org-air-exclude-regexps
+        org-air-log-cap))
 (defvar-local org-air-view--items-mtimes nil
   "Alist FILE -> mtime of the last COMPLETED full scan (R42-1).
 The in-memory baseline `org-air-view--refresh-start' diffs against so a
@@ -1598,6 +1607,8 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "z" '(:prefix . org-air-columns-prefix-map)
   ;; R54-3: the symmetric view-switch pair — `P' project, `N' revisit.
   "N" #'org-air-revisit
+  ;; R61-4: the third leg — `W' opens the review (week/period) surface.
+  "W" #'org-air-review
   "?" #'org-air-help
   "q" #'org-air-quit)
 
@@ -5905,6 +5916,10 @@ the board re-renders via `org-air-view--render-current'; the project via
    ((and (derived-mode-p 'org-air-revisit-mode)
          (fboundp 'org-air-revisit--render-current))
     (org-air-revisit--render-current))
+   ;; R61-4: the review view re-renders in place (data untouched).
+   ((and (derived-mode-p 'org-air-review-mode)
+         (fboundp 'org-air-review--render-current))
+    (org-air-review--render-current))
    ;; R26-5: a doc-session buffer "refreshes" by re-showing/hiding its
    ;; DOC-context side rail per the popped flag (the buffer text is the
    ;; user's file — never re-rendered by org-air).
@@ -7466,7 +7481,7 @@ interrupt, but the guard is cheap and harmless."
 ;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
-(defconst org-air-view--cache-version 5
+(defconst org-air-view--cache-version 6
   "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
 v2 (R53): `org-air-item' gained the scan-time slots
 \(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
@@ -7489,7 +7504,13 @@ v5 (R59): the struct gained the two container signal slots (`childp' +
 `own-active-ts') backing `org-air-query-container-item-p'; a v4 cache
 would hydrate records of the wrong shape, so it is a clean one-time
 cold miss — skeleton + the R56 paced rescan, never a hang (the
-documented version-mismatch path).")
+documented version-mismatch path).
+v6 (R61): the struct gained the four review harvest slots (`clocks' /
+`logs' / `created' / `rtrunc') — v5 records have the wrong record
+length, so a v5 cache is the same clean one-time cold miss.  New
+TRAILING slots ride the existing print/`read' machinery with zero new
+serialisation code — the version bump exists precisely for the record
+length.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.
@@ -8726,6 +8747,10 @@ org-air-project (resolved by `fboundp')."
    ((and (derived-mode-p 'org-air-revisit-mode)
          (fboundp 'org-air-revisit--render-current))
     (org-air-revisit--render-current))
+   ;; R61-4: the review view re-renders in place (data untouched).
+   ((and (derived-mode-p 'org-air-review-mode)
+         (fboundp 'org-air-review--render-current))
+    (org-air-review--render-current))
    (t (org-air-view--render-current))))
 
 (defun org-air-filter (tags)
@@ -9491,12 +9516,13 @@ The doc file buffer is EDITABLE, so these derive to the
 
 (defun org-air-help--context (buffer)
   "Return the help context symbol for BUFFER (R50-2).
-`board' / `project' / `doc-session'; anything else falls back to `board'
-\(matching the old echo-area fallback)."
+`board' / `project' / `revisit' / `review' / `doc-session'; anything
+else falls back to `board' (matching the old echo-area fallback)."
   (with-current-buffer buffer
     (cond
      ((derived-mode-p 'org-air-project-mode) 'project)
      ((derived-mode-p 'org-air-revisit-mode) 'revisit)
+     ((derived-mode-p 'org-air-review-mode) 'review)
      ((derived-mode-p 'org-air-view-mode) 'board)
      ((and (boundp 'org-air-doc-session-mode) org-air-doc-session-mode)
       'doc-session)
@@ -9511,6 +9537,10 @@ The doc file buffer is EDITABLE, so these derive to the
     ('revisit (if (boundp 'org-air-revisit--help-groups)
                   (symbol-value 'org-air-revisit--help-groups)
                 org-air-help--board-groups))
+    ;; R61-4: the review groups live in org-air-review.el (module split).
+    ('review (if (boundp 'org-air-review--help-groups)
+                 (symbol-value 'org-air-review--help-groups)
+               org-air-help--board-groups))
     (_ org-air-help--board-groups)))
 
 (defun org-air-help--context-title (context)
@@ -9518,6 +9548,7 @@ The doc file buffer is EDITABLE, so these derive to the
   (pcase context
     ('project "project")
     ('revisit "revisit")
+    ('review "review")
     ('doc-session "doc session")
     (_ "board")))
 
@@ -9752,6 +9783,7 @@ the current window.  Used when no captured configuration is available."
 
 (declare-function org-air-project-bookmark-jump "org-air-project")
 (declare-function org-air-revisit-bookmark-jump "org-air-revisit")
+(declare-function org-air-review-bookmark-jump "org-air-review")
 
 (defconst org-air-view--bookmark-version 1
   "Schema version stamped into every org-air bookmark record (R58).
@@ -10033,6 +10065,7 @@ board-hosted rail record; never signals."
                    (with-current-buffer host
                      (cond ((derived-mode-p 'org-air-project-mode) 'project)
                            ((derived-mode-p 'org-air-revisit-mode) 'revisit)
+                           ((derived-mode-p 'org-air-review-mode) 'review)
                            ((derived-mode-p 'org-air-view-mode) 'board)))))
              (host-record
               (and host-kind
@@ -10066,10 +10099,12 @@ windows; never signals."
   (require 'org-air)
   (condition-case err
       (let* ((host-kind (let ((h (cdr (assq 'org-air-host record))))
-                          (if (memq h '(board project revisit)) h 'board)))
+                          (if (memq h '(board project revisit review))
+                              h 'board)))
              (handler (pcase host-kind
                         ('project #'org-air-project-bookmark-jump)
                         ('revisit #'org-air-revisit-bookmark-jump)
+                        ('review #'org-air-review-bookmark-jump)
                         (_ #'org-air-view-bookmark-jump))))
         ;; The host's handler applies the embedded fields, arms the point
         ;; locator and re-enters the cache-first core — and leaves the
@@ -10187,7 +10222,7 @@ cells).  Leaves the help buffer current; never touches windows; never
 signals."
   (require 'org-air)
   (let* ((context (let ((c (cdr (assq 'org-air-help-context record))))
-                    (if (memq c '(board project revisit doc-session))
+                    (if (memq c '(board project revisit review doc-session))
                         c 'board)))
          (buffer (get-buffer-create org-air-help-buffer-name))
          (origin (or (pcase context
@@ -10195,6 +10230,9 @@ signals."
                        ('revisit (and (boundp 'org-air-revisit-buffer-name)
                                       (get-buffer
                                        org-air-revisit-buffer-name)))
+                       ('review (and (boundp 'org-air-review-buffer-name)
+                                     (get-buffer
+                                      org-air-review-buffer-name)))
                        (_ (get-buffer org-air-view-buffer-name)))
                      buffer)))
     (condition-case err

@@ -133,6 +133,13 @@ so a day carrying both reads as a deadline."
                       'org-air-face-calendar-scheduled))
     ('created (cons (org-air-calendar--glyph "∙" ".")
                     'org-air-face-calendar-created))
+    ;; R61-5: the review-period marks — table-driven, no renderer surgery.
+    ;; `period' highlights the day NUMBER (the face) with a SPACE glyph so
+    ;; the mark column carries no noise; `period-done' adds the quiet
+    ;; completion dot in the same period face.
+    ('period (cons " " 'org-air-face-calendar-period))
+    ('period-done (cons (org-air-calendar--glyph "∙" ".")
+                        'org-air-face-calendar-period))
     (_ nil)))
 
 (declare-function org-air-view-day "org-air-view")

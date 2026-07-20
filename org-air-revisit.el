@@ -981,6 +981,8 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "/" #'org-air-revisit-filter
   "g" #'org-air-revisit-refresh
   "P" #'org-air-project
+  ;; R61-4: `W' opens the Review (week/period) surface.
+  "W" #'org-air-review
   "z" '(:prefix . org-air-revisit-columns-map)
   "?" #'org-air-help
   "q" #'org-air-revisit-quit)

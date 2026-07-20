@@ -2351,6 +2351,9 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   ;; R54-3: the symmetric view-switch pair — `N' opens the Revisit view
   ;; (board `P' -> project, board/project `N' -> revisit).
   "N" #'org-air-revisit
+  ;; R61-4: `W' opens the Review (week/period) surface.  No clash with
+  ;; the state-jump `W' — that one lives inside its own prefix map.
+  "W" #'org-air-review
   "q" #'org-air-project-quit)
 
 (defvar org-air-project-leader-map

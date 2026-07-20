@@ -105,6 +105,22 @@ monster-file valve of the never-hang contract."
   :type '(choice (const :tag "No limit" nil) integer)
   :group 'org-air)
 
+(defcustom org-air-log-cap 5000
+  "Most CLOCK intervals / LOGBOOK stamps retained per heading (R61-1).
+The R61 harvest keeps at most this many entries in EACH of the `clocks'
+and `logs' item slots (NEWEST kept); hitting either cap sets the item's
+`rtrunc' flag, rendered as an inline \"⚠ history truncated\" marker on
+the review surface — truncation is never silent.  A cap, deliberately
+NOT a lookback window: a window slides with the wall clock, so an
+unchanged file's cached fields would go stale with no mtime change (it
+breaks the mtime-cache law) and old periods would read as silent zeros.
+The default ≈ 13 years of daily clocking on a SINGLE heading.  The cap
+shapes scanned-and-persisted data, so it is the SIXTH element of
+`org-air-view--cache-key' (R61-2): a change invalidates the cache
+exactly like a vocabulary change."
+  :type 'integer
+  :group 'org-air)
+
 (defun org-air-query--todo-keyword-name (kw)
   "Return KW's bare keyword name, exactly as Org itself splits it.
 Org's `org-set-regexps-and-options' splitter: the name is everything
@@ -209,12 +225,27 @@ so painting a cache-hydrated board never opens a file."
   childp        ; t when the subtree contains a child heading — half of
                 ; the container signal (`org-air-query-container-item-p');
                 ; nil on items built outside the scan (never containers)
-  own-active-ts) ; epoch float of the first ACTIVE <ts> in the heading's
+  own-active-ts ; epoch float of the first ACTIVE <ts> in the heading's
                 ; OWN body (the region above its first child) — the
                 ; own-scoped twin of the deliberately SUBTREE-wide
                 ; `active-ts' (R54 stale eligibility): a child's date
                 ; belongs to the child's row and must not make the
                 ; parent test "dated".  For a leaf, ≡ `active-ts'.
+  ;; R61 scan-time slots (cache v6) — the review harvest, bounded to the
+  ;; heading's OWN body and capped by `org-air-log-cap':
+  clocks        ; closed CLOCK intervals of the heading's own body,
+                ; newest-first list of (START . END) INTEGER epoch pairs
+                ; (END > START only; a running or malformed CLOCK line is
+                ; dropped at scan time, never cached)
+  logs          ; LOGBOOK stamps, newest-first list of (EPOCH . KIND):
+                ; KIND `done'/`todo' (a state change classified against
+                ; the buffer's live `org-done-keywords' at scan time —
+                ; the file's own vocabulary under the R57-1 merged
+                ; default) or nil (a plain "- Note taken on" stamp —
+                ; an activity signal only, never state inference)
+  created       ; INTEGER epoch of the `:CREATED:' property, or nil
+  rtrunc)       ; t when either list above hit `org-air-log-cap' —
+                ; truncation is never silent (the review "⚠" marker)
 
 (defun org-air-query-container-item-p (item)
   "Non-nil when ITEM is a pure CONTAINER heading (R59).
@@ -400,6 +431,115 @@ dedupe below stays untouched."
 Lets `org-air-query--item-at-point' seed the `activity' slot's mtime
 fallback from the stat the scan already paid, instead of a per-item
 re-stat.")
+
+;;;; ---------------------------------------------------------------------
+;;;; R61-1 — the review harvest: same pass, own body, never-error, capped.
+;;;; ---------------------------------------------------------------------
+
+(defconst org-air-query--clock-line-regexp
+  "^[ \t]*CLOCK:[ \t]*\\[\\([^]\n]+\\)\\]\\(?:--\\[\\([^]\n]+\\)\\][ \t]*=>\\)?"
+  "Anchored CLOCK-line regexp of the R61-1 harvest.
+Group 1 is the start stamp; group 2 (nil on a RUNNING clock) the end
+stamp.  The line shape is the contract, exactly like every other probe
+in `org-air-query--item-at-point' — no drawer parsing.")
+
+(defconst org-air-query--log-line-regexp
+  (concat "^[ \t]*- \\(?:State[ \t]+\"\\([^\"\n]+\\)\"\\|Note taken on\\)"
+          ".*\\[\\([^]\n]+\\)\\]")
+  "Anchored LOGBOOK stamp regexp of the R61-1 harvest.
+Matches the DEFAULT `org-log-note-headings' state shape
+\(`- State \"KW\" … [TS]', group 1 = the quoted keyword) and the plain
+`- Note taken on [TS]' stamp (group 1 nil); group 2 is the timestamp.
+Known, accepted difference (R53 style): a user-customised state template
+that no longer matches this shape harvests nothing from those lines —
+Completed then rides `CLOSED:' stamps (which `org-log-done' writes
+regardless), Time is unaffected, and no error or guess is produced.")
+
+(defun org-air-query--stamp-epoch (ts)
+  "Parse Org timestamp string TS to an INTEGER epoch second, or nil.
+Never signals: an unparseable stamp folds to nil (the R61-1 skip rule).
+A date-only stamp reads as local midnight; epochs are fixnums through
+year 2100+ (measured), so the retained shapes carry no floats."
+  (ignore-errors
+    (let ((d (org-parse-time-string ts)))
+      (floor (float-time (encode-time (list (or (nth 0 d) 0)
+                                            (or (nth 1 d) 0)
+                                            (or (nth 2 d) 0)
+                                            (nth 3 d) (nth 4 d) (nth 5 d)
+                                            nil -1 nil)))))))
+
+(defun org-air-query--harvest-at-point (child-pos end)
+  "Collect the R61-1 review facts for the heading at point.
+Scans the heading's OWN body — the region above CHILD-POS (its first
+child), bounded by the subtree END — with the two anchored line regexps,
+so a child's clocks are never credited to the parent (rollups would
+double-count).  Point sits on the heading in the positioned scan buffer;
+the buffer's live `org-done-keywords' (the file's own vocabulary under
+the R57-1 merged default) classifies state-change targets at scan time.
+Returns (CLOCKS LOGS CREATED RTRUNC) — the four `org-air-item' review
+slots, integer epochs and interned symbols only, each list newest-first
+and truncated to `org-air-log-cap' (NEWEST kept; a cap hit sets RTRUNC).
+Per matched line the match strings are copied out BEFORE parsing:
+`org-parse-time-string' CLOBBERS the ambient match data (verified — the
+naive loop died with `args-out-of-range' after the first parse).
+NEVER-ERROR (the per-heading inner net): any signal degrades THIS
+heading to nil review slots — the item is still built, the file still
+scans, the R53 P1b outer net is not consumed, nothing is echoed."
+  (condition-case nil
+      (let ((bound (if child-pos (min child-pos end) end))
+            (cap (max 1 org-air-log-cap))
+            (clocks nil) (logs nil) (rtrunc nil))
+        (save-excursion
+          (forward-line 1)
+          (let ((body-start (point)))
+            (when (< body-start bound)
+              (save-excursion
+                (goto-char body-start)
+                (while (re-search-forward org-air-query--clock-line-regexp
+                                          bound t)
+                  ;; Copy the match strings out FIRST (the match-data
+                  ;; clobber documented above).
+                  (let ((s1 (match-string-no-properties 1))
+                        (s2 (match-string-no-properties 2)))
+                    ;; A running clock (no second stamp), an unparseable
+                    ;; stamp or an end-before-start pair drops THIS line,
+                    ;; nothing else.
+                    (when s2
+                      (let ((t1 (org-air-query--stamp-epoch s1))
+                            (t2 (org-air-query--stamp-epoch s2)))
+                        (when (and t1 t2 (> t2 t1))
+                          (push (cons t1 t2) clocks)))))))
+              (save-excursion
+                (goto-char body-start)
+                (while (re-search-forward org-air-query--log-line-regexp
+                                          bound t)
+                  (let ((kw (match-string-no-properties 1))
+                        (ts (match-string-no-properties 2)))
+                    (let ((epoch (org-air-query--stamp-epoch ts)))
+                      (when epoch
+                        (push (cons epoch
+                                    (cond ((null kw) nil)
+                                          ((member kw org-done-keywords)
+                                           'done)
+                                          (t 'todo)))
+                              logs)))))))))
+        (setq clocks (sort clocks (lambda (a b) (> (car a) (car b)))))
+        (setq logs (sort logs (lambda (a b) (> (car a) (car b)))))
+        (when (> (length clocks) cap)
+          (setq rtrunc t
+                clocks (seq-take clocks cap)))
+        (when (> (length logs) cap)
+          (setq rtrunc t
+                logs (seq-take logs cap)))
+        (list clocks logs
+              ;; `:CREATED:' — one properties-drawer read at the point org
+              ;; is already positioned; nil when absent or unparseable.
+              ;; The Started fallback (earliest LOGBOOK stamp) is derived
+              ;; at RENDER time from the retained stamps — never baked.
+              (when-let* ((value (org-entry-get (point) "CREATED")))
+                (org-air-query--stamp-epoch value))
+              rtrunc))
+    (error (list nil nil nil nil))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R54-2 — the content-derived note-type model + denote READ compat.
@@ -885,7 +1025,8 @@ retained by scanning; live positions resolve on demand)."
          (active-ts nil)
          (active-ts-pos nil)
          (child-pos nil)
-         (body-deadline nil))
+         (body-deadline nil)
+         (harvest nil))
     ;; R53 P2: the two bounded subtree probes, run HERE in the already-
     ;; positioned scan buffer (they used to be per-item render-time file
     ;; opens — the 186s warm-paint hang).
@@ -932,7 +1073,12 @@ retained by scanning; live positions resolve on demand)."
                        (org-timestamp-to-time
                         (org-timestamp-from-string
                          (format "<%s>"
-                                 (match-string-no-properties 1))))))))))))
+                                 (match-string-no-properties 1))))))))))
+        ;; R61-1: the review harvest — SAME pass, same buffer, reusing END
+        ;; and `child-pos' so the own-body region costs zero extra
+        ;; structural work.  Per-heading never-error (the inner net lives
+        ;; inside the helper); capped by `org-air-log-cap'.
+        (setq harvest (org-air-query--harvest-at-point child-pos end))))
     (org-air-item-create
      :title title
      :tags tags
@@ -984,7 +1130,13 @@ retained by scanning; live positions resolve on demand)."
      :own-active-ts (and active-ts
                          (or (null child-pos)
                              (< active-ts-pos child-pos))
-                         active-ts))))
+                         active-ts)
+     ;; R61-1: the four review slots (integer epochs + interned symbols
+     ;; only — data-pure period folds, zero render-time file opens).
+     :clocks (nth 0 harvest)
+     :logs (nth 1 harvest)
+     :created (nth 2 harvest)
+     :rtrunc (nth 3 harvest))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R53 P1/P1b — the never-error work-buffer scan.
@@ -1118,6 +1270,9 @@ fallback), tags from `#+filetags', group = parent directory name, marker
            ;; `heading' anyway, so a 'file item is never a container.
            :childp nil
            :own-active-ts nil
+           ;; R61-1: nil review slots — a file blob has no per-heading
+           ;; LOGBOOK; the review sections ignore 'file items entirely.
+           :clocks nil :logs nil :created nil :rtrunc nil
            ;; R54-2: 'file items type from the FILE-level signals alone
            ;; (keyword/tag override → journal → knowledge); they route to
            ;; the 'notes bucket regardless, so this feeds the note

@@ -52,6 +52,7 @@ To exclude one exact file, anchor a quoted path:
 (require 'org-air-view)
 (require 'org-air-project)
 (require 'org-air-revisit)
+(require 'org-air-review)
 
 ;;;###autoload
 (defun org-air ()

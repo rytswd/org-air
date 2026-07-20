@@ -2354,7 +2354,32 @@
     ;; pusntykn).  Round-63 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
     ;; =================================================================
-    ;; (test-symbol . "reason / spec reference")  — none right now.
+    ;; v0.5 ROUND-64 impl grind (air/v0.5/org-air-round64-design.org).
+    ;; R64-3 ONE-SHOT REFILE FORM: the R20-4 action-first refile menu and
+    ;; its dispatcher (`org-air-inbox--refile-candidates',
+    ;; `org-air-inbox--decode-target') are RETIRED — `r' (the command
+    ;; NAME and binding preserved) now opens the transient
+    ;; destination+metadata form `org-air-refile-transient', whose one
+    ;; confirm executes ONE superset `org-air-refile-item' call (olp +
+    ;; tags + schedule + category + todo + priority).  The retired menu's
+    ;; actual GUARANTEES (short truncated title, real `⌂' file
+    ;; candidates, decode-to-real-file, CRM category first-is-category-
+    ;; rest-are-tags) survive in the batch-drivable `f'/`p'/`c' infix
+    ;; readers (`org-air-inbox--read-target-file' /
+    ;; `--read-target-path' / `--edit-categories') per spec seam T8.
+    ;; The four legacy ERTs below drive the retired menu SHAPE and die
+    ;; with it — the R64 spec names the R19-2 stub-chain test as the
+    ;; deliberate retirement (R62-T14 style); the test seat re-blesses/
+    ;; retires them (NOT hand-blessed here):
+    (org-air-r19-2-refile-prompt-shows-tags-and-move-relocates
+     . "R64-3: the interactive stub-chain drives the retired R20-4 action menu (the spec's named deliberate test retirement; guarantees re-homed in the f reader, seam T8)")
+    (org-air-r20-4-refile-menu-is-action-first-move-leads
+     . "R64-3: `org-air-inbox--refile-candidates' retired with the action menu (the transient form replaces the one-action-per-invocation menu)")
+    (org-air-r20-4-decode-category-first-is-category-rest-are-tags
+     . "R64-3: `org-air-inbox--decode-target' retired; the CRM first-is-category-rest-are-tags semantics live on in the `c' infix reader (org-air-refile-form-category)")
+    (org-air-r20-4-decode-move-routes-to-read-move-target
+     . "R64-3: `org-air-inbox--decode-target' retired; the move-target guarantees re-home in the `f'/`p' readers (seam T8)")
+    ;; (test-symbol . "reason / spec reference")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

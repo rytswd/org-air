@@ -1,0 +1,455 @@
+#+title: org-air Round 66 — Refile to a new file must synthesise Air frontmatter: derived #+title, #+state from a defcustom, #+FILETAGS from the heading's tags
+#+state: ready
+#+tags: inbox refile robustness board project
+
+* Summary
+
+REPORTED BUG in the shipped R64 refile (user repro, verbatim): refiling
+a board/inbox heading to a NEW file drops Air frontmatter.  Refile
+=* TODO [#A] Set up syncthing :#Nix:= to a fresh
+=Tasks/Coding/Infra/Syncthing.org= in an Air workspace → the file
+contains ONLY the moved subtree — no =#+title:=, no =#+state:= — so
+=airctl status= and org-air-project both classify it *Unknown*
+(=org-air-project--read-doc= org-air-project.el:294:
+=state (or (--read-keyword "state") "unknown")=, exactly airctl's
+=unwrap_or(DocumentState::Unknown)=).  Already hand-fixed on disk by the
+user — no data loss; this is *missing behaviour*, not corruption.
+
+Root cause (read end-to-end this round): =org-air-refile-item='s write
+path (org-air-inbox.el:451) goes =--resolve-target= (:485) →
+=find-file-noselect target-file= (:528) → =org-paste-subtree= + metadata
+inside the R64 =atomic-change-group= (:530) → =save-buffer=.  *No
+frontmatter is written anywhere* — not in the R53 P3 "refile to file
+top" branch (TARGET-HEADING nil → =point-max=), not for a target typed
+at the =⌂ other file…= → =read-file-name "Refile to file: "= prompt
+(:230), not for OLP targets.  The only frontmatter writer in the file is
+the inbox's own =--ensure-file= (:61), which the refile path never
+touches.
+
+Deliverables:
+
+- *R66-1 (engine synthesis)* — a new step 0 of =org-air-refile-item=:
+  when the target buffer lacks a =#+title:= keyword (which includes the
+  brand-new-file case), synthesise Air frontmatter at the file top
+  BEFORE anything else touches the target: =#+title:= derived from the
+  heading text via *org's own parsers* (=org-get-heading= +
+  org-element; TODO keyword per the R57 merged vocabulary, =[#A]=
+  priority cookie, trailing =:tag:= list, statistics =[1/3]= / =[33%]=
+  cookies and the =COMMENT= keyword all stripped — measured below);
+  =#+state:= from a new defcustom =org-air-refile-new-file-state=
+  (default ="draft"=); =#+FILETAGS:= from the moved heading's effective
+  tags (the user's =:#Nix:= round-trips).  Idempotent: a target that
+  already has =#+title:= is left byte-for-byte as-is.
+- *R66-2 (scope gate)* — a defcustom
+  =org-air-refile-synthesize-frontmatter= (default =t= = *only under an
+  Air tree*, auto-detected; ='always= = every new/frontmatter-less
+  target; =nil= = never), with a cheap O(path-depth) Air-tree detector
+  (=locate-dominating-file= over the =air-config.toml= / =air/= marker
+  =org-air-detect-air-project= already defines, plus configured
+  =org-air-project-roots= membership).  Non-Air org files in the
+  user's 5000-file notes silo are untouched by default.
+- *R66-3 (brand-new-target fold-in)* — the deferred v0.2
+  =refile-create-target-directory= is ABSORBED here (same "brand-new
+  target" story, one line): step 0 first ensures the target's
+  directory exists, mirroring =--ensure-file='s
+  =(make-directory (file-name-directory file) t)=.  Plus a one-string
+  transient nicety: the preview's =(creates: …)= annotation
+  (=--form-creates= :669) notes "new file" when the chosen =:file=
+  does not exist yet.
+
+Both flows benefit with ZERO signature change: synthesis is
+engine-internal, so the non-interactive =org-air-refile-item= call and
+the transient =r= form hit the same step 0.
+
+Measured this round (probes under =/tmp/org-air-r66/=, batch Emacs
+30.2 / Org 9.7.11):
+
+| Probe                                                              | Result                                        |
+|--------------------------------------------------------------------+-----------------------------------------------|
+| Derive: =* TODO [#A] Set up syncthing :#Nix:=                      | ="Set up syncthing"=                          |
+| Derive: =* TODO [#A] Plan the rollout [1/3] :a:b:=                 | ="Plan the rollout"=                          |
+| Derive: =* Progress [33%] on thing= (inline cookie)                | ="Progress on thing"=                         |
+| Derive under file-local =#+TODO: WAIT \vert ARCHIVED=: =* WAIT [#B] …= | ="Plan the rollout"= (WAIT stripped — R57)  |
+| Same heading WITHOUT the file-local vocab                          | ="WAIT Plan the rollout"= (NOT a keyword)     |
+| Derive: =* TODO COMMENT Secret thing=                              | ="Secret thing"=                              |
+| Derive: =* TODO [1/2]= (degenerate)                                | =""= → fallback needed (file-name-base)       |
+| Marker at pos 1, then insert frontmatter at =point-min=            | marker STAYS at 1 → now points at =#+title:=  |
+| First element of a file starting =:PROPERTIES:…:END:=              | ='property-drawer= begin=1 end=29             |
+| =locate-dominating-file= w/ air predicate, file 3 dirs deep        | finds the =air-config.toml= root; nil outside |
+
+The marker probe is load-bearing: it RULES the placement of step 0
+(before =--resolve-target=, NOT inside the paste transaction — argued
+in Decision 2).
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine; everything used is org core (=org-get-heading=,
+org-element, org-refile machinery already in place) — no org-agenda,
+no new dependency.
+
+* Decision 1 — SCOPE: which targets get frontmatter?
+
+The rule, crisply:
+
+#+begin_example
+Synthesise frontmatter iff, at EXECUTE time:
+  (1) org-air-refile-synthesize-frontmatter is non-nil,      AND
+  (2) the target buffer has NO "#+title:" keyword
+      (a brand-new file trivially satisfies this),           AND
+  (3) the value is `always, OR the target file lies under an
+      Air tree.
+Otherwise the target is written exactly as today (bare).
+#+end_example
+
+- =org-air-refile-synthesize-frontmatter= — defcustom, =:group
+  'org-air=, =:type '(choice (const :tag "In Air trees (default)" t)
+  (const :tag "Every new/frontmatter-less target" always)
+  (const :tag "Never" nil))=, default =t=.
+- "Under an Air tree" — new cheap predicate
+  =org-air-inbox--air-tree-p (file)=:
+  =(locate-dominating-file file PRED)= where PRED is exactly
+  =org-air-detect-air-project='s marker test (org-air-project.el:222:
+  =air-config.toml= present OR an =air/= subdirectory) — inlined
+  locally so org-air-inbox.el does not grow a hard requirement on
+  org-air-project.el — ORed with membership under any configured root
+  when org-air-project IS loaded: =(fboundp 'org-air-project-roots)=
+  → =file-in-directory-p= against each root (covers an explicit
+  =org-air-projects= entry whose root carries neither marker).
+  Wrapped =ignore-errors=; nil on any failure (degrades to bare —
+  today's behaviour, never an error).  Cost: O(path-depth)
+  =file-exists-p= stats, ONCE per execute, never at prompt time —
+  R53-lawful (no scan, no enumeration).
+
+Why Air-gate by DEFAULT (the argument): =#+state:= and =#+FILETAGS:=
+are *Air vocabulary* — the R53 context is a 5000-file Denote-style
+notes silo where refile targets are ordinary org notes that are NOT
+Air documents; silently stamping =#+state: draft= into a fresh plain
+note would be org-air imposing its schema on files it does not manage
+(the same posture R57 took for =org-todo-keywords=: supplement, never
+replacement).  The reported bug is precisely the Air-workspace case —
+airctl only ever classifies files under an Air tree, so the Unknown
+symptom cannot even occur outside one.  =#+title:= alone is arguably
+universal org hygiene, which is what ='always= is for — one setting,
+user's explicit choice; splitting the block per-keyword (title
+everywhere, state Air-only) was considered and rejected as a
+harder-to-state rule with no reported need behind it.
+
+The user's repro passes the gate: =Tasks/Coding/Infra/Syncthing.org=
+sits inside the Air workspace, whose root carries =air-config.toml= —
+the probe resolves the root from a file three directories down.
+
+* Decision 2 — placement, idempotence, atomicity
+
+** Where step 0 runs (the marker probe rules it)
+
+Step 0 runs in the TARGET buffer *before* =--resolve-target= (:485),
+i.e. the engine order becomes:
+
+#+begin_example
+0. ensure directory (R66-3) → find-file-noselect target →
+   synthesise frontmatter when the rule fires   (buffer only, NO save)
+1. --resolve-target  (may create OLP parents — unchanged)
+2. cut               (source save — unchanged)
+3. atomic-change-group: paste + metadata + save-buffer   (unchanged)
+   unwind: restore source                                 (unchanged)
+#+end_example
+
+Why NOT inside the R64 =atomic-change-group= (the naive "same
+atomicity" reading): the parent =(MARKER . LEVEL)= from
+=--resolve-target= pre-dates the group, and the probe shows a marker
+at position 1 does NOT advance past a =point-min= insertion — in a
+new file whose OLP parents were just created at buffer top, a
+frontmatter insert inside the group would leave the parent marker
+pointing at the =#+title:= line, and the very next
+=(goto-char (car parent)) (org-end-of-subtree)= would
+=org-back-to-heading= into "before first headline" — a crash in the
+exact scenario being fixed.  Synthesising FIRST dissolves the hazard
+by construction and yields the correct file shape for free: OLP
+parents created in step 1 land BELOW the frontmatter
+(=org-refile-new-child= appends at end of buffer/subtree), so
+("Infra") on a fresh file reads =#+title:= → =* Infra= → the item,
+never headings above keywords.  Moving =--resolve-target= itself into
+the group was also rejected: R64 deliberately resolves BEFORE the cut
+so a bad target fails while the item is still untouched — step 0
+inherits that same safety (it can only fail before anything moved).
+
+** The atomicity contract, precisely (composing with R64)
+
+The unit of atomicity is the ON-DISK file, and it is preserved
+exactly: step 0 writes the BUFFER only; the target's disk state still
+changes solely via the ONE =save-buffer= at the end of the successful
+=atomic-change-group=.  On ANY failure (signal or quit, before or
+during the transaction) the target is never saved — a brand-new
+target therefore *never comes into existence on disk* (T7: no
+half-written file, no title-less file, NO file at all), and an
+existing frontmatter-less target's disk bytes are untouched.  The
+source restore leg is unchanged (byte-identical restore, R64 fix2).
+
+In-buffer residue on failure — unsaved frontmatter in a never-saved
+buffer — is the SAME class as R64's unsaved OLP parents, and it is
+retry-safe by design because idempotence is checked against the
+*buffer*, not the disk:
+
+- The check: a =#+title:= keyword anywhere before the first heading
+  (the =org-air-project--read-keyword= regexp idiom, wide buffer) ⇒
+  synthesis is a NO-OP, byte-for-byte.  A retry after a failed
+  attempt finds the residue and writes nothing twice; a target that
+  already had frontmatter is never touched at all (T2); running the
+  refile N times into the same file yields exactly one block (T6).
+- Insertion point: =point-min=, EXCEPT when the buffer's first
+  element is a file-level =:PROPERTIES:= drawer (org requires it
+  first; probed: =org-element-at-point= at bob reports
+  ='property-drawer= with its =:end=) — then insert at that drawer's
+  =:end=.  The block is followed by ONE blank line, matching
+  =--ensure-file='s shape.
+
+Same-file edge (target = source, source lacks =#+title:=): step 0
+titles the buffer, and the cut's existing source =save-buffer=
+persists it even if the paste later fails.  Accepted and documented:
+that disk write happens today anyway (the cut), the residue is a
+strictly-valid improvement (the file gains its own frontmatter), and
+the restore leg still lands the item back byte-identically below it.
+
+** The synthesised block (exact bytes for the repro)
+
+#+begin_example
+#+title: Set up syncthing
+#+state: draft
+#+FILETAGS: :#Nix:
+
+* TODO [#A] Set up syncthing :#Nix:
+#+end_example
+
+- =#+title:= — Decision 3's derivation.  Lowercase key, matching
+  =--ensure-file= and every Air doc in this repo (readers are
+  case-insensitive either way).
+- =#+state:= — the verbatim value of defcustom
+  =org-air-refile-new-file-state=: =:type '(choice (const "draft")
+  (const "ready") (const "work-in-progress") (const "complete")
+  (const "dropped") (string :tag "Custom"))=, default ="draft"= — a
+  freshly refiled item is un-triaged planning material; users who
+  treat refile-out-of-inbox as commitment set ="ready"= (T4).
+- =#+FILETAGS:= — colon-wrapped, order-preserving, exactly the shape
+  =org-air-project--parse-tags= (:289) and airctl read.  Source set =
+  the moved heading's EFFECTIVE tags: the TAGS argument when non-nil
+  (=:none= ⇒ empty), else the item's own tags — i.e. what the
+  transient preview shows — MINUS =inbox= (leaving the inbox is what
+  refiling is; same rule as the R64 form pre-fill :remove at
+  =--form-init=).  Empty set ⇒ the line is OMITTED entirely.  The
+  heading's own tags are NOT touched by synthesis (the item stays
+  self-describing if refiled again; org de-duplicates inherited +
+  local tags on display).
+
+Deliberately NOT synthesised: =#+created:= /​ =#+date:= —
+=org-air-project--doc-created= (:317) already falls back to the
+file's ctime, which for a brand-new file IS the creation moment;
+adding a keyword would duplicate truth.  (Non-goal.)
+
+* Decision 3 — deriving =#+title:= with org's own parsers
+
+New helper =org-air-inbox--derive-title=, called *in the source
+buffer with point on the item's heading, at cut time before
+=delete-region=* — placement is the R57 point: the TODO strip must
+use the SOURCE buffer's own merged vocabulary
+(=org-todo-regexp=, set from the user's globals + the file's
+=#+TODO:= line per R57-1), and the probe proves it (=WAIT= is
+stripped exactly when the buffer declares it).  Step 0 runs before
+the cut, so the engine derives the title while still resolving the
+item (order: derive at the same =org-back-to-heading= the cut path
+already performs — one extra read, zero extra file visits).
+
+The recipe (probed, no hand-rolled heading regexp anywhere):
+
+1. =(org-get-heading t t t t)= — org's own parser strips the TODO
+   keyword (buffer vocabulary), the =[#A]= priority cookie, the
+   trailing =:tag:= list and the =COMMENT= keyword in one call.
+2. Statistics cookies via org-element, not a regexp:
+   =org-element-parse-secondary-string= with
+   =(org-element-restriction 'headline)= parses the remaining text;
+   =org-element-map= collects the ='statistics-cookie= objects;
+   =org-element-extract-element= removes each;
+   =org-element-interpret-data= re-serialises.  Probed: =[1/3]=
+   trailing and =[33%]= mid-title both vanish, and NON-cookie
+   bracketed text (org link markup) survives verbatim — a title may
+   legitimately carry a link; airctl reads the raw line; fine.
+3. =substring-no-properties= + =string-clean-whitespace= (collapses
+   the doubled space a removed inline cookie leaves).
+4. Empty result (probed degenerate =* TODO [1/2]=) ⇒ fall back to
+   =(file-name-base target-file)= — the same fallback
+   =org-air-project--read-doc= uses for a title-less doc, so the
+   board name and the file name agree.
+
+* Decision 4 — fold in the v0.2 directory creation? YES
+
+=air/v0.2/refile-create-target-directory.org= (state ready) is the
+same "brand-new target" story: today =find-file-noselect= on
+=Tasks/Coding/Infra/Syncthing.org= with =Infra/= missing fails at
+save time.  The fix is ONE line at the very top of step 0 —
+=(make-directory (file-name-directory target-file) t)= — mirroring
+=--ensure-file= (:64), and the new-file ERT fixtures this round needs
+are exactly that doc's proposed test.  Shipping R66 without it leaves
+the headline scenario ("refile to a fresh file in a nested Air tree")
+still broken for the nested-directory half.  RECOMMENDATION: fold it
+in; on completion the v0.2 doc is marked =complete= with a History
+pointer to this round (absorbed, not re-implemented).  The R64
+no-mutation rule is untouched — the mkdir happens at EXECUTE only,
+never at prompt time (T8 pins).  Failure residue: an empty directory
+chain may remain if the refile fails after step 0 — accepted as
+inert (file enumerations, airctl and the board list *files*; an
+empty directory yields no rows, no docs, no candidates — asserted in
+T7) rather than adding a fiddly rmdir-on-unwind.
+
+=air/v0.2/refile-engine-hardening.org= stays SEPARATE — different
+story (quit-safety/descendant-guard robustness, not the brand-new
+target), and no shared seam.
+
+* R66-3 — the transient nicety (one string)
+
+=org-air-inbox--form-creates= (:669) currently annotates only missing
+OLP segments.  Extend: when =(:file)= is set and
+=(not (file-exists-p FILE))=, the annotation includes =new file= —
+e.g. =(creates: new file, Infra › Cloud)=.  Pure string work over the
+already-collected form value (=file-exists-p= is one stat; no buffer,
+no mutation) — the form stays instant and the R64 defer-everything
+rule holds.  The preview thereby answers "will this refile mint a
+new Air doc?" before confirm; the frontmatter itself is invisible in
+the preview by design (it is a consequence, not a field).
+
+* ERT seams — batch, each reverts to RED (tests/org-air-round66-test.el)
+
+Shared fixture: a temp Air workspace root with an empty
+=air-config.toml=, an inbox file (=#+title:= + the repro heading),
+and a non-Air sibling directory outside the marker.  All through the
+non-interactive engine (the R64 T-idiom); no transient event loop
+needed.
+
+- *T1 /the repro/*: =(org-air-refile-item item NEW-FILE)= (heading
+  nil — the R53 P3 branch) with item
+  =* TODO [#A] Set up syncthing :#Nix:= ⇒ on-disk bytes BEGIN
+  exactly with the four-line block above, then the moved subtree
+  (re-leveled, R64); AND the airctl-style presence check passes:
+  =org-air-project--read-doc= on the file yields name
+  ="Set up syncthing"= and state ="draft"= — NOT ="unknown"=.
+  RED today: the file contains only the subtree; =--read-doc= ⇒
+  state ="unknown"= (the reported symptom, mechanised).
+- *T2 /existing titled target untouched/*: target pre-seeded with
+  =#+title: projects\n#+state: ready\n= ⇒ after refile the
+  frontmatter region is byte-identical, exactly ONE =#+title:= in
+  the file, state still ="ready"=.  RED against a naive
+  unconditional-insert implementation (the duplicate/clobber
+  anti-behaviour this seam exists to forbid).
+- *T3 /the strip, all four species + R57/*: source fixture declares
+  =#+TODO: WAIT | ARCHIVED=; heading
+  =* WAIT [#B] Plan the rollout [1/3] :a:b:= ⇒ =#+title: Plan the
+  rollout= (keyword + priority + tags + trailing cookie all
+  stripped, file-local vocabulary respected); =* Progress [33%] on
+  thing= ⇒ =Progress on thing= (inline cookie, single-spaced);
+  =* TODO COMMENT Secret thing= ⇒ =Secret thing=.  RED against a
+  default-vocab-only strip (probed: =WAIT= survives) or any
+  cookie-less derivation.
+- *T4 /state defcustom + title fallback/*: with
+  =org-air-refile-new-file-state= let-bound to ="ready"= ⇒
+  =#+state: ready=; degenerate heading =* TODO [1/2]= into
+  =syncthing.org= ⇒ =#+title: syncthing= (file-name-base fallback).
+- *T5 /the gate, all three values/*: new target OUTSIDE any Air tree
+  (default =t=) ⇒ file is BARE (subtree only, no =#+title:= —
+  today's behaviour preserved for non-Air org files); same target
+  with ='always= ⇒ synthesised; target INSIDE the Air tree with
+  =nil= ⇒ bare.  Each leg reverts RED independently (gate dropped ⇒
+  first leg fails; detection dropped ⇒ ='always=-only behaviour
+  fails the default leg).
+- *T6 /frontmatter-less EXISTING file/*: target with prose +
+  headings but no =#+title:= ⇒ block inserted at top, original
+  content byte-preserved below, item appended; variant whose file
+  BEGINS with a file-level =:PROPERTIES:= drawer ⇒ block lands AFTER
+  the drawer; a SECOND refile into the same file ⇒ still exactly one
+  =#+title:= (buffer-level idempotence).
+- *T7 /new-file failure = NO file/* (the R64 transactional
+  composition): =cl-letf= a metadata step (=org-set-tags=) to
+  signal, refile to a brand-new target ⇒ after the failure the
+  target file does NOT exist on disk (=file-exists-p= nil — no
+  half-written, no title-only file), the source is byte-identical
+  (R64 restore), and any created directory is empty + inert (no
+  board row, no airctl doc); the RETRY without the stub succeeds
+  with exactly ONE frontmatter block (residue-safe idempotence).
+  RED against a synthesis that saves eagerly in step 0.
+- *T8 /directory fold-in + prompt purity/*: target
+  =new-dir/sub/new.org= (neither directory exists) under the Air
+  root ⇒ refile succeeds, directories created, frontmatter present,
+  T1's =--read-doc= check passes; AND the R64-2 path reader run
+  against a fixture table leaves the directory NON-existent
+  (prompt-time no-mutation, the R64 pin extended to mkdir).  The
+  v0.2 doc's proposed ERT, absorbed verbatim.
+- *T9 /FILETAGS shapes/*: item tags =("#Nix" "inbox")=, TAGS arg nil
+  ⇒ =#+FILETAGS: :#Nix:= (inbox excluded, user tag verbatim —
+  =#=-prefixed tags round-trip); TAGS arg =("selfhosted")= ⇒
+  =:selfhosted:= (argument wins over item tags); TAGS =:none= ⇒ NO
+  =#+FILETAGS:= line; tagless item ⇒ no line; the moved heading's
+  own =:tag:= list unchanged by synthesis.  Cross-check: T1's file
+  through =org-air-project--read-doc= yields tags =("#Nix")= (the
+  parse round-trip airctl performs).
+
+GUI residue (screenshot-confirm, not ERT-able): the transient
+preview's =(creates: new file, …)= annotation rendering.  Goldens/
+fixtures: ZERO shifts expected — no existing fixture refiles into a
+new or frontmatter-less file (the R64 suite's targets are all
+pre-seeded with =#+title:=; verified by reading the fixtures); if a
+run disagrees, that is a spec violation to investigate, not a
+re-bless.  Known-failures manifest stays EMPTY.
+
+* Non-goals
+
+- No retro-fix pass over EXISTING frontmatter-less files (refile is
+  the only writer this round; a bulk "adopt into Air" verb is its
+  own design).
+- No =#+created:= / =#+date:= synthesis (ctime already carries it
+  for a new file); no file RENAME to match the derived title.
+- No transient field for editing the synthesised title/state at
+  refile time (the defcustoms are the knobs; a form field is future
+  work if ever reported).
+- No per-keyword scope splitting (title-everywhere/state-Air-only) —
+  one crisp rule, three values.
+- No rmdir-on-failure for the folded-in directory creation (inert
+  residue, argued in Decision 4).
+
+* Compatibility
+
+- *R53 (never-hang / never-error)*: no scans, no enumeration, no new
+  file visits (the target buffer is the one the refile opens
+  anyway); Air-tree detection is O(path-depth) stats at execute
+  only; synthesis runs BEFORE the cut so any failure aborts with the
+  item unmoved; the P3 headingless-note contract is preserved — an
+  existing =#+title:=-only note is idempotence-exempt (untouched)
+  and the nil-heading append lands BELOW the synthesised block.
+- *R57 (todo vocabulary)*: the keyword strip reads the SOURCE
+  buffer's own merged =org-todo-regexp= — user globals + file-local
+  =#+TODO:= win, org-air supplements, never replaces (probed both
+  ways; T3).
+- *R64 (transactional one-shot refile)*: the atomic-change-group,
+  single-save-per-buffer, byte-identical source restore and
+  prompt-time no-mutation contracts are all preserved and EXTENDED
+  (disk-atomicity now also means "a failed refile to a new file
+  creates no file at all", T7); the =l= recall, OLP creation and
+  re-leveled paste are untouched; the preview grows one string.
+- *R59 (containers)*: the synthesised block adds keywords, never
+  headings — zero new board rows; the moved item remains the row.
+- *airctl / org-air-project*: the three synthesised keys are exactly
+  the ones =--read-doc= (:294) and airctl extract; T1/T9 assert the
+  round-trip so "Unknown" cannot regress silently.
+- Cache: no schema change (=org-air-view--cache-version= untouched —
+  refile stays a consumer).
+
+* Implementation History
+
+- 2026-07-21: Round 66 spec (design seat).  Bug reproduced from the
+  code read (no frontmatter writer on any refile path:
+  org-air-inbox.el :451/:485/:528, =⌂ other file…= :230); derivation
+  recipe, R57 vocabulary interaction, the pos-1 marker hazard (rules
+  step-0 placement), file-level property-drawer insertion point and
+  Air-root detection all MEASURED under =/tmp/org-air-r66/=
+  (probe-title.el, probe-marker.el; table in Summary).  Decisions:
+  Air-tree-gated by default via a three-valued defcustom
+  (=t=/='always=/=nil=), buffer-level idempotence + disk-only
+  atomicity composing with R64, v0.2 directory-creation FOLDED IN
+  (one line, same story; v0.2 doc to be marked absorbed),
+  engine-internal so both call paths benefit with no signature
+  change.  Nine batch seams, each revert-RED.  State: ready.

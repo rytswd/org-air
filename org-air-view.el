@@ -6648,13 +6648,46 @@ golden strips it), so this is byte-invisible."
                                         'face 'org-air-face-inspector-label))
               ""))))
 
+(defun org-air-view-pane--reveal (&optional wide)
+  "Reveal the pane's content, then re-fold its drawers (R65-1).
+Runs in the current (PANE) buffer only: `org-fold-show-subtree' reveals
+the narrowed heading's ENTIRE subtree — body, sub-headings and their
+bodies (WIDE non-nil — the heading-less / pos-nil file-head case — uses
+`org-fold-show-all' instead: there is no subtree to bound); THEN the
+zero-arg `org-fold-hide-drawer-all' (the Org 9.6-compatible call shape,
+bounded by the narrow) re-folds the `:PROPERTIES:' (and other) drawers,
+matching Org's own cycle idiom.  Pane-LOCAL by construction: on
+org-air's platform floor (Emacs 29.1 / Org 9.6) `make-indirect-buffer'
+runs `clone-indirect-buffer-hook', where org-fold DECOUPLES the pane's
+fold state at creation (text-properties style), and overlay folds are
+private itree clone copies — so nothing here can mutate the SOURCE
+buffer's folds.  Each call rides an `fboundp' ladder (the
+`org-show-context' precedent) so an exotic pre-org-fold Org degrades
+sanely.  Never errors (R53): any failure degrades to today's folded
+pane, never a broken `v'."
+  (condition-case nil
+      (progn
+        (if wide
+            (funcall (if (fboundp 'org-fold-show-all)
+                         #'org-fold-show-all
+                       (intern "org-show-all")))
+          (funcall (if (fboundp 'org-fold-show-subtree)
+                       #'org-fold-show-subtree
+                     (intern "org-show-subtree"))))
+        (if (fboundp 'org-fold-hide-drawer-all)
+            (org-fold-hide-drawer-all)       ; zero-arg: the Org 9.6 shape
+          (funcall (intern "org-cycle-hide-drawers") 'all)))
+    (error nil)))
+
 (defun org-air-view-pane--indirect (base pos title)
   "Return an `org-mode' indirect buffer on BASE narrowed to the subtree at POS.
 Edits write through to BASE; `save-buffer' persists to disk (R19-3).  TITLE
 names the (hidden) indirect buffer.  When POS is before the first heading —
 a heading-less file head — the buffer is left WIDE so the file shows.
 Narrowing is per-indirect-buffer — it never leaks to BASE or to the board's
-own markers/classify scans of that file."
+own markers/classify scans of that file.  R65-1: the pane's content is
+REVEALED (body + sub-headings visible) with the drawers re-folded —
+pane-locally, the source buffer's fold state is never touched."
   ;; R28-1(a) naming contract: every buffer org-air creates and shows in
   ;; a window carries the `*org-air' prefix — NO leading `hidden buffer'
   ;; space, or the shipped/manual dimmer exclusions can never match the
@@ -6667,13 +6700,19 @@ own markers/classify scans of that file."
     (with-current-buffer ind
       (unless (derived-mode-p 'org-mode) (delay-mode-hooks (org-mode)))
       (widen)
-      (when pos
-        (goto-char pos)
-        (ignore-errors (org-back-to-heading t))
-        (if (org-before-first-heading-p)
-            (widen)                          ; heading-less / preamble
-          (org-narrow-to-subtree)))
-      (goto-char (point-min)))
+      (let ((wide t))
+        (when pos
+          (goto-char pos)
+          (ignore-errors (org-back-to-heading t))
+          (if (org-before-first-heading-p)
+              (widen)                        ; heading-less / preamble
+            (org-narrow-to-subtree)
+            (setq wide nil)))
+        (goto-char (point-min))
+        ;; R65-1: reveal the item's body/sub-headings, re-fold drawers —
+        ;; pane-local (the clone inherited the base's FOLDED state; the
+        ;; base's own folds are decoupled and stay untouched).
+        (org-air-view-pane--reveal wide)))
     ind))
 
 (defvar-local org-air-view-pane--header-ruled nil
@@ -6721,12 +6760,38 @@ remap are then absent and the buffer keeps its plain `org-mode' local map."
       (define-key map [remap quit-window] #'org-air-view-pane-quit)
       (use-local-map map))))
 
+(defun org-air-view-pane--snapshot-fold-drawers ()
+  "Fold `:PROPERTIES:' drawers in the snapshot pane, DISPLAY-ONLY (R65-2).
+Walks the current (pane) buffer for property drawers and puts the
+`org-air-pane-drawer' `invisible' text property from the end of each
+`:PROPERTIES:' line through the end of its matching `:END:' line, with
+the invisibility-spec entry registered for an ellipsis — the folded
+look, with buffer BYTES untouched (every pane golden and the R58
+bookmark stash stay byte-identical; string `equal' ignores text
+properties).  Unterminated drawers are skipped; never errors (R53)."
+  (condition-case nil
+      (progn
+        (unless (and (listp buffer-invisibility-spec)
+                     (member '(org-air-pane-drawer . t)
+                             buffer-invisibility-spec))
+          (add-to-invisibility-spec '(org-air-pane-drawer . t)))
+        (save-excursion
+          (goto-char (point-min))
+          (while (re-search-forward "^[ \t]*:PROPERTIES:[ \t]*$" nil t)
+            (let ((beg (point)))             ; end of the :PROPERTIES: line
+              (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+                (put-text-property beg (line-end-position)
+                                   'invisible 'org-air-pane-drawer))))))
+    (error nil)))
+
 (defun org-air-view-pane--render-snapshot (ctx src)
   "Render the READ-ONLY entry snapshot for CTX/SRC into `*org-air-view*'.
 The unchanged R16 path: a fontified COPY of the subtree, dead sources show
 a calm hint.  Used under `noninteractive', when `org-air-view-pane-editable'
 is nil, or when the source is unresolvable — so every fixture stays
-byte-identical (R19-3).  Returns the pane buffer."
+byte-identical (R19-3).  R65-2: the body stays visible (a copy carries no
+live folds) and the `:PROPERTIES:' drawer(s) are folded DISPLAY-ONLY —
+buffer bytes unchanged.  Returns the pane buffer."
   (let ((buf (org-air-view-pane--buffer))
         ;; R58: capture the printable bookmark stash HERE, in the caller's
         ;; (host) buffer — the one writer of the snapshot — so the pane's
@@ -6745,7 +6810,11 @@ byte-identical (R19-3).  Returns the pane buffer."
                                 'face 'org-air-face-empty))
           (let ((text (org-air-view-pane--entry-text (car src) (cdr src))))
             (insert text)
-            (org-air-view-pane--apply-max-lines)))
+            (org-air-view-pane--apply-max-lines)
+            ;; R65-2: display-only fold of the raw `:PROPERTIES:' dump —
+            ;; applied AFTER the truncation, bytes unchanged (goldens
+            ;; stay byte-identical).
+            (org-air-view-pane--snapshot-fold-drawers)))
         (setq-local header-line-format
                     (org-air-view-pane--header-line ctx "q"))
         (org-air-view-pane--install-header-rule)
@@ -6773,18 +6842,24 @@ The dominant per-change follow cost is REBUILDING the indirect (a fresh
 lives in the SAME base file we instead widen + `org-narrow-to-subtree' at
 the new heading and refresh the CTX header-line, skipping that cost
 entirely.  Returns IND on success, nil on any error so the caller falls
-back to a rebuild (R20-3b)."
+back to a rebuild (R20-3b).  R65-1: the reuse path re-reveals per item
+\(body visible, drawers re-folded) — pane-local, like the build path;
+stale reveal state outside the new narrow is invisible + pane-private."
   (condition-case nil
       (with-current-buffer ind
         (widen)
-        (let ((pos (cdr src)))
+        (let ((pos (cdr src))
+              (wide t))
           (when pos
             (goto-char pos)
             (ignore-errors (org-back-to-heading t))
             (if (org-before-first-heading-p)
                 (widen)
-              (org-narrow-to-subtree)))
-          (goto-char (point-min)))
+              (org-narrow-to-subtree)
+              (setq wide nil)))
+          (goto-char (point-min))
+          ;; R65-1: same reveal as the build path (the second call site).
+          (org-air-view-pane--reveal wide))
         (setq-local header-line-format
                     (org-air-view-pane--header-line ctx "C-c C-q"))
         ind)

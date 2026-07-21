@@ -1,5 +1,5 @@
 #+title: Refile: auto-create a brand-new target directory
-#+state: ready
+#+state: complete
 #+FILETAGS: :inbox:refile:
 
 * Summary
@@ -27,3 +27,11 @@ to refile targets.
 * History
 
 - 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.
+- 2026-07-21: ABSORBED by Round 66 (air/v0.1/org-air-round66-design.org,
+  R66-3) — not re-implemented separately: =org-air-refile-item='s step 0
+  now runs =(make-directory (file-name-directory target-file) t)= before
+  =find-file-noselect= (execute-time only; the prompt readers stay
+  mutation-free), and the transient preview's =(creates: …)= annotation
+  notes =new file= for a not-yet-existing target.  The proposed ERT
+  landed as org-air-r66-8 (tests/org-air-round66-test.el): a target two
+  missing directories deep succeeds, prompt-time no-mutation pinned.

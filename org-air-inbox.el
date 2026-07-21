@@ -16,10 +16,19 @@
 ;; category/schedule/todo/priority in ONE call, with NESTED outline-path
 ;; targets whose missing parents are created on the fly by Org's own
 ;; refile machinery (org-refile.el / org.el — never org-agenda).
+;;
+;; R66: refiling to a brand-new or frontmatter-less target under an Air
+;; tree synthesises Air frontmatter (a derived `#+title:', `#+state:'
+;; from `org-air-refile-new-file-state', `#+FILETAGS:' from the moved
+;; heading's effective tags) at the file top before the paste, and a
+;; brand-new target's missing directory chain is created on execute —
+;; both inside the R64 disk-atomic transaction: a failed refile leaves
+;; no half-written file and mints no new file at all.
 
 ;;; Code:
 
 (require 'org)
+(require 'org-element)
 (require 'org-refile)
 (require 'seq)
 (require 'subr-x)
@@ -361,6 +370,173 @@ means file end.  Returns the `org-air-inbox--resolve-path' plist
     (org-air-inbox--resolve-path input table)))
 
 ;;;; ---------------------------------------------------------------------
+;;;; R66 — step 0: Air frontmatter synthesis for new/frontmatter-less
+;;;; targets, plus the v0.2 target-directory creation fold-in.
+;;;; ---------------------------------------------------------------------
+
+(defcustom org-air-refile-synthesize-frontmatter t
+  "When the refile engine synthesises Air frontmatter into a target (R66-2).
+Fires only for a target buffer with no `#+title:' keyword before its
+first heading — which a brand-new file trivially is; an already-titled
+target is always left byte-for-byte as-is.  t (the default) gates the
+synthesis on the target lying under an Air-managed tree
+\(`org-air-inbox--air-tree-p'), so ordinary org notes outside Air stay
+bare; `always' synthesises for every new/frontmatter-less target; nil
+never synthesises (the bare pre-R66 write everywhere)."
+  :type '(choice (const :tag "In Air trees (default)" t)
+                 (const :tag "Every new/frontmatter-less target" always)
+                 (const :tag "Never" nil))
+  :group 'org-air)
+
+(defcustom org-air-refile-new-file-state "draft"
+  "The `#+state:' value a synthesised refile target receives (R66-1).
+A freshly refiled item is un-triaged planning material, hence the
+\"draft\" default; users who treat refile-out-of-inbox as commitment
+set \"ready\"."
+  :type '(choice (const "draft") (const "ready")
+                 (const "work-in-progress") (const "complete")
+                 (const "dropped") (string :tag "Custom"))
+  :group 'org-air)
+
+(defun org-air-inbox--air-tree-p (file)
+  "Return non-nil when FILE lies under an Air-managed tree (R66-2).
+Cheap O(path-depth) stats, run once per refile EXECUTE and never at
+prompt time (R53 — no scan, no enumeration):
+`locate-dominating-file' over exactly the `org-air-detect-air-project'
+marker test (an `air-config.toml' file or an `air/' subdirectory —
+inlined so this file grows no hard org-air-project.el requirement),
+ORed with membership under a configured Air root when org-air-project
+IS loaded (covers an explicit `org-air-projects' entry whose root
+carries neither marker).  nil on any failure — the refile degrades to
+the bare write, never an error."
+  (ignore-errors
+    (let ((file (expand-file-name file)))
+      (and (or (locate-dominating-file
+                file
+                (lambda (dir)
+                  (or (file-exists-p (expand-file-name "air-config.toml" dir))
+                      (file-directory-p (expand-file-name "air" dir)))))
+               (and (fboundp 'org-air-project-roots)
+                    (seq-some (lambda (root)
+                                (and (stringp root)
+                                     (file-in-directory-p file root)))
+                              (org-air-project-roots))))
+           t))))
+
+(defun org-air-inbox--derive-title ()
+  "Return the Air `#+title:' derived from the heading at point (R66-1).
+Org's OWN parsers, no hand-rolled heading regexp: `org-get-heading'
+strips the TODO keyword (THIS buffer's merged R57 vocabulary — the
+user's globals + the file's own `#+TODO:' line win), the `[#A]'
+priority cookie, the trailing tag list and the COMMENT keyword in one
+call; the statistics cookies are then removed via org-element
+\(`org-element-parse-secondary-string' under the `headline'
+restriction, `org-element-extract-element', re-interpreted), so
+non-cookie bracketed text — org link markup — survives verbatim.
+`string-clean-whitespace' collapses the doubled space a removed inline
+cookie leaves.  May return the empty string (degenerate headings like
+\"* TODO [1/2]\"); the caller falls back to the target's
+`file-name-base'."
+  (let* ((raw (substring-no-properties (org-get-heading t t t t)))
+         (dummy (org-element-create 'headline (list :secondary '(:title))))
+         (title (org-element-parse-secondary-string
+                 raw (org-element-restriction 'headline) dummy)))
+    (org-element-put-property dummy :title title)
+    (dolist (cookie (org-element-map title 'statistics-cookie #'identity))
+      (org-element-extract-element cookie))
+    (string-clean-whitespace
+     (substring-no-properties
+      (org-element-interpret-data (org-element-property :title dummy))))))
+
+(defun org-air-inbox--item-derived-title (item)
+  "Derive the synthesised `#+title:' for ITEM in its SOURCE buffer (R66-1).
+The R57 point: the TODO strip must read the source buffer's own merged
+vocabulary, so the derivation runs at the item's heading in its own
+file — the same `org-back-to-heading' resolution the cut path performs
+\(one extra read, zero extra file visits)."
+  (with-current-buffer (org-air-inbox--source-buffer item)
+    (org-with-wide-buffer
+     (goto-char (let ((m (org-air-item-marker item)))
+                  (if (markerp m) (marker-position m) (or (cdr-safe m) 1))))
+     (org-back-to-heading t)
+     (org-air-inbox--derive-title))))
+
+(defun org-air-inbox--synthesis-filetags (item tags)
+  "Return the `#+FILETAGS:' tag list for a synthesised target, or nil.
+The moved heading's EFFECTIVE tags — the refile TAGS argument when
+non-nil (`:none' means empty), else ITEM's own tags (what the
+transient preview shows) — MINUS `inbox': leaving the inbox is what
+refiling is (the same rule as the R64 form pre-fill).  Order is
+preserved; nil (the empty set) means the line is omitted entirely."
+  (remove "inbox"
+          (cond ((eq tags :none) nil)
+                (tags tags)
+                (t (org-air-item-tags item)))))
+
+(defun org-air-inbox--target-titled-p ()
+  "Return non-nil when the current buffer already carries a `#+title:'.
+The idempotence check of the R66 synthesis, against the BUFFER — not
+the disk, so a retry after a failed refile finds its own unsaved
+residue and never writes the block twice: the
+`org-air-project--read-keyword' regexp idiom, wide buffer, bounded to
+BEFORE the first heading (a keyword below a heading is not file
+frontmatter)."
+  (org-with-wide-buffer
+   (goto-char (point-min))
+   (let ((bound (save-excursion
+                  (if (re-search-forward org-outline-regexp-bol nil t)
+                      (match-beginning 0)
+                    (point-max))))
+         (case-fold-search t))
+     (and (re-search-forward "^[ \t]*#\\+title:" bound t) t))))
+
+(defun org-air-inbox--frontmatter-insert-point ()
+  "Return the insertion position for the synthesised frontmatter block.
+`point-min', EXCEPT when the buffer's first element is a file-level
+`:PROPERTIES:' drawer (org requires it to come first; probed:
+`org-element-at-point' at bob reports `property-drawer') — then that
+drawer's `:end'."
+  (org-with-wide-buffer
+   (goto-char (point-min))
+   (let ((first (org-element-at-point)))
+     (if (eq (org-element-type first) 'property-drawer)
+         (org-element-property :end first)
+       (point-min)))))
+
+(defun org-air-inbox--synthesize-frontmatter (item target-file tags)
+  "Step 0 of the refile engine: give TARGET-FILE Air frontmatter (R66-1).
+When the synthesis rule fires — `org-air-refile-synthesize-frontmatter'
+non-nil, TARGET-FILE's buffer has no `#+title:' yet (a brand-new file
+trivially so), and the value is `always' or the target lies under an
+Air tree (`org-air-inbox--air-tree-p') — insert at the file top:
+`#+title:' derived from ITEM's heading (falling back to the file-name
+base when the derivation is empty), `#+state:' from
+`org-air-refile-new-file-state', and `#+FILETAGS:' from ITEM's
+effective TAGS (omitted when empty), followed by ONE blank line (the
+`--ensure-file' shape).  BUFFER ONLY, never a save: the target's disk
+state still changes solely via the ONE `save-buffer' at the end of the
+successful R64 transaction, so a failed refile to a brand-new target
+creates NO file at all.  Return non-nil when a block was written."
+  (when (and org-air-refile-synthesize-frontmatter
+             (or (eq org-air-refile-synthesize-frontmatter 'always)
+                 (org-air-inbox--air-tree-p target-file)))
+    (with-current-buffer (find-file-noselect target-file)
+      (unless (org-air-inbox--target-titled-p)
+        (let* ((derived (org-air-inbox--item-derived-title item))
+               (title (if (string-empty-p derived)
+                          (file-name-base target-file)
+                        derived))
+               (ftags (org-air-inbox--synthesis-filetags item tags)))
+          (org-with-wide-buffer
+           (goto-char (org-air-inbox--frontmatter-insert-point))
+           (insert "#+title: " title "\n"
+                   "#+state: " org-air-refile-new-file-state "\n")
+           (when ftags
+             (insert "#+FILETAGS: :" (mapconcat #'identity ftags ":") ":\n"))
+           (insert "\n")
+           t))))))
+
+;;;; ---------------------------------------------------------------------
 ;;;; R64-1 — the non-interactive engine: ensure-olp + re-leveled paste.
 ;;;; ---------------------------------------------------------------------
 
@@ -473,16 +649,42 @@ them); CATEGORY sets the moved heading's `:CATEGORY:' property;
 SCHEDULED is an Org timestamp/shift string (empty clears the schedule);
 TODO (a keyword string) and PRIORITY (a character, or string of one)
 are applied via `org-todo' / `org-priority' — nil leaves each
-untouched."
+untouched.
+
+R66: step 0 first ensures TARGET-FILE's directory chain exists, and —
+gated by `org-air-refile-synthesize-frontmatter' — a brand-new or
+`#+title:'-less target gets Air frontmatter synthesised at its top
+\(`org-air-inbox--synthesize-frontmatter': derived `#+title:',
+`#+state:' from `org-air-refile-new-file-state', `#+FILETAGS:' from
+the effective tags) before the paste; an already-titled target is left
+byte-for-byte as-is, and a failed refile still creates no file."
   (interactive (list 'org-air-inbox--form-dispatch))
   (if (eq item 'org-air-inbox--form-dispatch)
       (call-interactively #'org-air-refile-transient)
     (unless (and item target-file)
       (error "ITEM and TARGET-FILE are required (org-air-refile-item)"))
     (let* ((target-file (expand-file-name target-file))
-           ;; ensure-olp FIRST (spec order): creation re-resolves by NAME,
-           ;; and the (MARKER . LEVEL) parent survives the same-file cut.
-           (parent (org-air-inbox--resolve-target target-file target-heading))
+           ;; R66 step 0, BEFORE `--resolve-target' (the pos-1 marker
+           ;; hazard: a marker does not advance past an insertion AT its
+           ;; own position, so frontmatter written after resolution
+           ;; would leave a fresh file's parent marker on the `#+title:'
+           ;; line).  First the v0.2 directory fold-in (R66-3, mirrors
+           ;; `--ensure-file'; EXECUTE-time only — a failed refile's
+           ;; empty chain is inert residue, spec Decision 4), then the
+           ;; frontmatter synthesis (R66-1/-2; buffer only, no save —
+           ;; disk atomicity stays with the ONE transactional
+           ;; `save-buffer' below).  Both run before the cut, so any
+           ;; failure here aborts with the item untouched (R64 safety).
+           (parent (progn
+                     (make-directory (file-name-directory target-file) t)
+                     (org-air-inbox--synthesize-frontmatter
+                      item target-file tags)
+                     ;; ensure-olp NEXT (R64 spec order): creation
+                     ;; re-resolves by NAME, the (MARKER . LEVEL) parent
+                     ;; survives the same-file cut, and OLP parents
+                     ;; created on a fresh file land BELOW the block.
+                     (org-air-inbox--resolve-target target-file
+                                                    target-heading)))
            (text nil)
            (src-buf nil)
            (src-beg nil))
@@ -667,15 +869,23 @@ schedule); `other date…' runs `org-read-date'.")
   (format "%-9s%s" label (or value "–")))
 
 (defun org-air-inbox--form-creates ()
-  "Return the create-list annotation for the form's path, or nil.
-The \"(creates: …)\" suffix lists exactly the missing segments, in
-creation order; nil (no annotation) means every segment exists."
-  (let ((olp (org-air-inbox--form-get :olp))
-        (new (or (org-air-inbox--form-get :new) 0)))
-    (when (and olp (> new 0))
-      (format "  (creates: %s)"
-              (mapconcat #'identity (nthcdr (- (length olp) new) olp)
-                         " › ")))))
+  "Return the create-list annotation for the form's destination, or nil.
+The \"(creates: …)\" suffix lists what EXECUTE will mint: `new file'
+when the chosen `:file' does not exist yet (R66-3 — one `file-exists-p'
+stat over the collected value; no buffer, no mutation, the R64
+defer-everything rule holds), then exactly the missing path segments in
+creation order; nil (no annotation) means everything exists."
+  (let* ((file (org-air-inbox--form-get :file))
+         (olp (org-air-inbox--form-get :olp))
+         (new (or (org-air-inbox--form-get :new) 0))
+         (parts (delq nil
+                      (list (and file (not (file-exists-p file)) "new file")
+                            (and olp (> new 0)
+                                 (mapconcat #'identity
+                                            (nthcdr (- (length olp) new) olp)
+                                            " › "))))))
+    (when parts
+      (format "  (creates: %s)" (mapconcat #'identity parts ", ")))))
 
 (defun org-air-inbox--form-heading ()
   "Return the transient's header: the short truncated refile prompt."

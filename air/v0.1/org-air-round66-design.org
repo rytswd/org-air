@@ -453,3 +453,32 @@ re-bless.  Known-failures manifest stays EMPTY.
   (one line, same story; v0.2 doc to be marked absorbed),
   engine-internal so both call paths benefit with no signature
   change.  Nine batch seams, each revert-RED.  State: ready.
+- 2026-07-21: Round 66 impl (impl seat).  Delivered exactly as specced
+  in org-air-inbox.el: step 0 of =org-air-refile-item= — directory
+  creation (R66-3, the absorbed v0.2 doc marked complete) +
+  =org-air-inbox--synthesize-frontmatter= (R66-1: derived =#+title:=
+  via =org-air-inbox--derive-title= — =org-get-heading= under the
+  SOURCE buffer's merged R57 vocabulary + org-element
+  statistics-cookie extraction over a =:secondary '(:title)= dummy
+  headline, =file-name-base= fallback; =#+state:= from the new
+  =org-air-refile-new-file-state= defcustom; =#+FILETAGS:= from the
+  effective tags minus =inbox=, omitted when empty; ONE trailing blank
+  line, the =--ensure-file= shape) — both BEFORE =--resolve-target=
+  (the pos-1 marker hazard) and buffer-only (disk atomicity stays with
+  the one transactional =save-buffer=; a failed refile to a new file
+  creates NO file, T7 pinned).  R66-2: the three-valued
+  =org-air-refile-synthesize-frontmatter= defcustom (default t =
+  Air-tree-gated) over =org-air-inbox--air-tree-p=
+  (=locate-dominating-file= with the inlined air-config.toml⁄air/
+  marker test, ORed with configured =org-air-project-roots=
+  membership, =ignore-errors= → nil degrades bare).  Idempotence via
+  =org-air-inbox--target-titled-p= (buffer-level, bounded to before
+  the first heading); file-level =:PROPERTIES:= drawers keep first
+  place (=--frontmatter-insert-point=).  The =(creates: …)= preview
+  annotation gains the =new file= token (=--form-creates=).  Nine
+  executing ERTs T1–T9 (tests/org-air-round66-test.el) — 8⁄9 verified
+  revert-RED against the pre-impl trunk qpynnyqy (r66-2 is the
+  anti-clobber LOCK, red against a naive unconditional insert, as
+  specced).  Goldens: ZERO shifts, exactly as predicted —
+  known-failures manifest stays EMPTY.  make clean && make check
+  GREEN: 819 tests, 0 unexpected, 8 standing GUI skips, lint 0.

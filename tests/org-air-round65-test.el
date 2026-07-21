@@ -62,6 +62,19 @@
 ;;         all four host maps (board / project / review / revisit) via
 ;;         the SHARED `org-air-view-core-map' binding — no host forks
 ;;         the binding above the fixed `--render' funnel.
+;;   r65-8 (T8, audit hardening) editable-path edge shapes from the
+;;         spec's edge list: EMPTY subtree (heading only — reveal +
+;;         drawer re-fold are no-ops, nothing signals), DRAWER-ONLY
+;;         entry (drawer folds pane-side, base's stays open), and
+;;         NESTED drawers (`:PROPERTIES:' + `:LOGBOOK:' + the child's
+;;         own drawer ALL fold pane-side while both bodies stay
+;;         visible) — base folds/modified-flag untouched throughout.
+;;   r65-9 (T9, audit hardening) snapshot edge shapes: an UNTERMINATED
+;;         `:PROPERTIES:' (no `:END:' anywhere) is SKIPPED — body
+;;         visible, ZERO `invisible' properties, bytes = raw subtree,
+;;         nothing signals; and with parent + child drawers BOTH
+;;         properly terminated, both fold display-only while both
+;;         bodies stay visible and the bytes stay raw.
 
 ;;; Code:
 
@@ -403,6 +416,171 @@ R65 fix below the `--render' funnel applies everywhere `v' opens a pane
     (let ((own (copy-keymap map)))
       (set-keymap-parent own nil)
       (should-not (lookup-key own (kbd "v"))))))
+
+;;;; -------------------------------------------------------------------
+;;;; T8 — audit hardening: editable-path edge shapes
+;;;; -------------------------------------------------------------------
+
+(defconst org-air-r65--nested-fixture
+  (concat "* TODO Deep\n"
+          ":PROPERTIES:\n"
+          ":A: 1\n"
+          ":END:\n"
+          ":LOGBOOK:\n"
+          "- a note\n"
+          ":END:\n"
+          "Deep body.\n"
+          "** Kid\n"
+          ":PROPERTIES:\n"
+          ":B: 2\n"
+          ":END:\n"
+          "Kid body.\n")
+  "Entry with `:PROPERTIES:' + `:LOGBOOK:' + the child's own drawer.")
+
+(ert-deftest org-air-r65-8-editable-edge-shapes ()
+  "Editable-pane edge shapes: empty subtree, drawer-only, nested drawers.
+Spec edge list (\"Item with no drawer / no body / no children —
+show-subtree and hide-drawer-all are no-ops; nothing signals\"): an
+EMPTY subtree opens without error and leaves the base unmodified; a
+DRAWER-ONLY entry folds its drawer pane-side while the base's spec
+stays open; NESTED drawers (`:PROPERTIES:' + `:LOGBOOK:' + the child's
+own drawer) ALL fold pane-side — org's one-call `hide-drawer-all'
+idiom — while both bodies stay visible and the base's folds, open
+drawer specs and modified flag are untouched (the no-leak invariant on
+a new shape)."
+  (skip-unless (locate-library "org-air"))
+  ;; --- empty subtree: heading only, then a sibling ---------------------
+  (org-air-r65--with-file "* TODO Empty\n* Next\nNext body.\n"
+    (org-air-r65--fold-recipe base)
+    (let* ((pos (org-air-r65--pos base "^\\* TODO Empty"))
+           (ind nil))
+      (unwind-protect
+          (progn
+            ;; reveal + drawer re-fold are no-ops here; must not signal.
+            (setq ind (org-air-view-pane--indirect base pos "Empty"))
+            (with-current-buffer ind
+              (should (string-prefix-p "* TODO Empty" (buffer-string))))
+            (with-current-buffer base
+              (should-not (buffer-modified-p))))
+        (when (buffer-live-p ind) (kill-buffer ind)))))
+  ;; --- drawer-only entry: heading + :PROPERTIES:, no body --------------
+  (org-air-r65--with-file
+      "* TODO Bare\n:PROPERTIES:\n:K: v\n:END:\n* Next\nBody.\n"
+    (org-air-r65--fold-recipe base)
+    (let* ((pos (org-air-r65--pos base "^\\* TODO Bare"))
+           (dpos (org-air-r65--pos base ":K:"))
+           (ind nil))
+      ;; anti-tautology: the base recipe left the drawer spec OPEN.
+      (with-current-buffer base
+        (should-not (org-fold-folded-p dpos 'drawer)))
+      (unwind-protect
+          (progn
+            (setq ind (org-air-view-pane--indirect base pos "Bare"))
+            (with-current-buffer ind
+              (should (invisible-p dpos))
+              (should (org-fold-folded-p dpos 'drawer)))
+            (with-current-buffer base
+              ;; base drawer spec STILL open, buffer unmodified.
+              (should-not (org-fold-folded-p dpos 'drawer))
+              (should-not (buffer-modified-p))))
+        (when (buffer-live-p ind) (kill-buffer ind)))))
+  ;; --- nested drawers: PROPERTIES + LOGBOOK + child's drawer -----------
+  (org-air-r65--with-file org-air-r65--nested-fixture
+    (org-air-r65--fold-recipe base)
+    (let* ((pos (org-air-r65--pos base "^\\* TODO Deep"))
+           (a-pos (org-air-r65--pos base ":A:"))
+           (log-pos (org-air-r65--pos base "- a note"))
+           (b-pos (org-air-r65--pos base ":B:"))
+           (body-pos (org-air-r65--pos base "Deep body"))
+           (kid-body-pos (org-air-r65--pos base "Kid body"))
+           (probes (list a-pos log-pos b-pos body-pos kid-body-pos))
+           (before (org-air-r65--vis base probes))
+           (ind nil))
+      (unwind-protect
+          (progn
+            (setq ind (org-air-view-pane--indirect base pos "Deep"))
+            (with-current-buffer ind
+              ;; both bodies VISIBLE,
+              (should-not (invisible-p body-pos))
+              (should-not (invisible-p kid-body-pos))
+              ;; ALL three drawers folded — including the nested
+              ;; LOGBOOK and the child's own drawer.
+              (should (invisible-p a-pos))
+              (should (invisible-p log-pos))
+              (should (invisible-p b-pos))
+              (should (org-fold-folded-p a-pos 'drawer))
+              (should (org-fold-folded-p b-pos 'drawer)))
+            (with-current-buffer base
+              ;; base byte-for-byte as before the pane opened.
+              (should (equal (org-air-r65--vis base probes) before))
+              (should-not (buffer-modified-p))))
+        (when (buffer-live-p ind) (kill-buffer ind))))))
+
+;;;; -------------------------------------------------------------------
+;;;; T9 — audit hardening: snapshot edge shapes
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r65-9-snapshot-edge-shapes ()
+  "Snapshot edges: unterminated drawer skipped; parent+child both fold.
+Spec edge list (\"Unterminated `:PROPERTIES:' (no `:END:') in the
+snapshot — no property applied for that drawer (never-error)\"): a
+drawer with NO `:END:' anywhere renders with the body visible and ZERO
+`invisible' text properties (the walk skipped it, nothing signaled),
+bytes = the raw subtree.  And with parent + child drawers BOTH properly
+terminated, both fold via the `org-air-pane-drawer' spec entry while
+both bodies stay visible — bytes still raw (the byte-identity gate on a
+multi-drawer shape)."
+  (skip-unless (locate-library "org-air"))
+  ;; --- unterminated: no :END: anywhere — the walk must skip -----------
+  (org-air-r65--with-file "* TODO Broken\n:PROPERTIES:\n:K: v\nBody line.\n"
+    (let* ((pos (org-air-r65--pos base "^\\* TODO Broken"))
+           (expected (with-current-buffer base
+                       (buffer-substring-no-properties (point-min) (point-max))))
+           (mk (with-current-buffer base (copy-marker pos)))
+           (ctx (list :marker mk :file file :title "Broken" :state "TODO"))
+           (buf (let ((noninteractive t))
+                  (org-air-view-pane--render ctx))))
+      (unwind-protect
+          (with-current-buffer buf
+            ;; bytes untouched, body visible,
+            (should (equal (buffer-substring-no-properties
+                            (point-min) (point-max))
+                           expected))
+            (should-not (invisible-p (org-air-r65--pos buf "Body line")))
+            ;; and ZERO invisible properties — the drawer was skipped.
+            (should-not (next-single-property-change
+                         (point-min) 'invisible)))
+        (when (buffer-live-p buf) (kill-buffer buf)))))
+  ;; --- parent + child drawers, both terminated: both fold -------------
+  (org-air-r65--with-file
+      (concat "* TODO Two\n:PROPERTIES:\n:A: 1\n:END:\nBody A.\n"
+              "** Kid\n:PROPERTIES:\n:B: 2\n:END:\nBody B.\n")
+    (let* ((pos (org-air-r65--pos base "^\\* TODO Two"))
+           (expected (with-current-buffer base
+                       (buffer-substring-no-properties (point-min) (point-max))))
+           (mk (with-current-buffer base (copy-marker pos)))
+           (ctx (list :marker mk :file file :title "Two" :state "TODO"))
+           (buf (let ((noninteractive t))
+                  (org-air-view-pane--render ctx))))
+      (unwind-protect
+          (with-current-buffer buf
+            (should (equal (buffer-substring-no-properties
+                            (point-min) (point-max))
+                           expected))
+            (let ((a (org-air-r65--pos buf ":A:"))
+                  (b (org-air-r65--pos buf ":B:"))
+                  (ba (org-air-r65--pos buf "Body A"))
+                  (bb (org-air-r65--pos buf "Body B")))
+              ;; BOTH drawers display-folded, BOTH bodies visible.
+              (should (invisible-p a))
+              (should (invisible-p b))
+              (should (eq (get-text-property a 'invisible)
+                          'org-air-pane-drawer))
+              (should (eq (get-text-property b 'invisible)
+                          'org-air-pane-drawer))
+              (should-not (invisible-p ba))
+              (should-not (invisible-p bb))))
+        (when (buffer-live-p buf) (kill-buffer buf))))))
 
 (provide 'org-air-round65-test)
 ;;; org-air-round65-test.el ends here

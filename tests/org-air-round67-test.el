@@ -57,6 +57,35 @@
 ;;         lands the `someday' tag AND a cleared schedule with `inbox'
 ;;         still present.  RED against a `t'-suffix-only dirty flag.
 ;;
+;; The audit seat (round-67 test audit) adds four hardening ERTs for
+;; the spec's uncovered seams:
+;;
+;;   r67-10 MULTI-FIELD IN ONE EXECUTE — all six metadata fields in a
+;;          single destination-less confirm: every field lands at the
+;;          source heading in one write, the completion message
+;;          enumerates the applied fields in the engine's order, the
+;;          item does not move, `inbox' re-attached, `--refile-last'
+;;          still nil.  RED today (the destination guard).
+;;   r67-11 CLEAR+SET MIX IN PLACE — one execute clears SCHEDULED
+;;          ("") while setting a new DEADLINE; and a deadline-only
+;;          "" clear removes DEADLINE while the untouched SCHEDULED
+;;          survives byte-for-byte.  The in-place ""-clear leg was
+;;          otherwise only reachable through T9's `someday'.  RED
+;;          today (the destination guard).
+;;   r67-12 READ-ONLY SOURCE FILE — a cache-hydrated (FILE . POS)
+;;          item whose file is chmod 444 BEFORE any visit: the
+;;          in-place execute signals `buffer-read-only' from inside
+;;          the atomic group, the disk bytes stay identical, and the
+;;          freshly-visited buffer is unmodified with identical bytes
+;;          (no dirty residue).  RED today (the destination guard).
+;;   r67-13 NEW-FILE REFILE + DEADLINE (R66 × R67) — the FORM's
+;;          refile leg into a brand-new file under an Air tree with a
+;;          deadline set: frontmatter synthesis still fires
+;;          (`#+title:' + `#+state: draft') AND the trailing DEADLINE
+;;          engine argument stamps the moved heading; `--refile-last'
+;;          records the destination.  RED today: the pre-R67 execute
+;;          never reads `:deadline', so the stamp is missing.
+;;
 ;; GUI residue (screenshot-confirm, not ERT-able as pixels): the
 ;; reframed transient RENDERING.  The string-level halves ARE pinned
 ;; here — the `Edit / refile "<title>"' heading, the `(in place — f to
@@ -547,6 +576,167 @@ present (R20-4 semantics in the new leg).  RED against a
       (should (string-match-p "^\\* TODO Someday thing :someday:inbox:$" new))
       (should-not (string-match-p "SCHEDULED:" new))
       (should (= 1 (org-air-r67--count "Someday thing" new))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r67-10 (audit) — every field at once, ONE in-place execute
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r67-10-multi-field-single-execute ()
+  "All six metadata fields collected in ONE destination-less form and
+applied by ONE execute: the source heading carries todo + priority +
+the dirty tags (with `inbox' re-attached at the END), the planning
+line carries BOTH stamps (org's canonical DEADLINE-then-SCHEDULED
+order), the `:CATEGORY:' drawer lands — all IN PLACE (one match, no
+move), the completion message enumerates the applied fields in the
+engine's order (todo → priority → tags → category → scheduled →
+deadline), and `--refile-last' stays nil.  RED today: the destination
+guard user-errors."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r67--with-corpus nil
+    (let ((msgs nil))
+      (org-air-inbox--form-init (org-air-r67--item "inbox.org" "Capture me"))
+      (org-air-inbox--form-put :todo "DONE")
+      (org-air-inbox--form-put :priority ?B)
+      (org-air-inbox--form-put :tags '("x" "y"))
+      (org-air-inbox--form-put :tags-dirty t)
+      (org-air-inbox--form-put :category "work")
+      (org-air-inbox--form-put :scheduled "2026-08-01")
+      (org-air-inbox--form-put :deadline "2026-08-15")
+      (cl-letf (((symbol-function 'message)
+                 (lambda (fmt &rest args)
+                   (when fmt (push (apply #'format fmt args) msgs))
+                   nil)))
+        (org-air-r67--execute))
+      (let ((new (org-air-r67--text "inbox.org")))
+        (should (string-match-p "^\\* DONE \\[#B\\] Capture me :x:y:inbox:$"
+                                new))
+        (should (string-match-p
+                 "^DEADLINE: <2026-08-15[^>]*> SCHEDULED: <2026-08-01[^>]*>$"
+                 new))
+        (should (string-match-p ":CATEGORY: +work" new))
+        (should (= 1 (org-air-r67--count "Capture me" new)))
+        (should-not (string-match-p "Capture me"
+                                    (org-air-r67--text "projects.org"))))
+      ;; the completion message enumerates in application order…
+      (should (seq-some
+               (lambda (m)
+                 (string-match-p
+                  "todo, priority, tags, category, scheduled, deadline" m))
+               msgs))
+      ;; …and no destination was used.
+      (should (null org-air-inbox--refile-last))
+      (should (null org-air-inbox--refile-form)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r67-11 (audit) — clear+set mix in place; "" clears each stamp
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r67-11-clear-set-mix-in-place ()
+  "The \"\"-clear semantics compose with a set in ONE in-place
+execute: clearing SCHEDULED while setting a NEW deadline removes the
+schedule stamp and replaces the old deadline; and a deadline-only
+\"\" clear removes DEADLINE while the untouched SCHEDULED stamp
+survives byte-for-byte (the in-place `'(4)' prefix leg for BOTH date
+fields — otherwise reachable only through T9's `someday').  RED
+today: the destination guard user-errors."
+  (skip-unless (locate-library "org-air"))
+  ;; clear SCHEDULED + set a new DEADLINE, one execute
+  (org-air-r67--with-corpus
+      '(("inbox.org" . "#+title: inbox\n\n* TODO Mixed :inbox:\nSCHEDULED: <2026-07-25 Sat> DEADLINE: <2026-08-05 Wed>\n  body\n")
+        ("projects.org" . "#+title: projects\n\n* Existing\n"))
+    (org-air-inbox--form-init (org-air-r67--item "inbox.org" "Mixed"))
+    (org-air-inbox--form-put :scheduled "")
+    (org-air-inbox--form-put :deadline "2026-09-01")
+    (org-air-r67--execute)
+    (let ((new (org-air-r67--text "inbox.org")))
+      (should-not (string-match-p "SCHEDULED:" new))
+      (should (string-match-p "^DEADLINE: <2026-09-01" new))
+      (should-not (string-match-p "2026-08-05" new))
+      (should (= 1 (org-air-r67--count "Mixed" new)))))
+  ;; deadline-only "" clear: the untouched SCHEDULED survives
+  (org-air-r67--with-corpus
+      '(("inbox.org" . "#+title: inbox\n\n* TODO Mixed :inbox:\nSCHEDULED: <2026-07-25 Sat> DEADLINE: <2026-08-05 Wed>\n  body\n")
+        ("projects.org" . "#+title: projects\n\n* Existing\n"))
+    (org-air-inbox--form-init (org-air-r67--item "inbox.org" "Mixed"))
+    (org-air-inbox--form-put :deadline "")
+    (org-air-r67--execute)
+    (let ((new (org-air-r67--text "inbox.org")))
+      (should-not (string-match-p "DEADLINE:" new))
+      (should (string-match-p "^SCHEDULED: <2026-07-25 Sat>$" new)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r67-12 (audit) — a read-only source file: clean signal, zero residue
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r67-12-read-only-source-file ()
+  "An in-place edit on an item whose file is READ-ONLY (chmod 444
+before any visit; the item is R26-8 cache-hydrated — `(FILE . POS)',
+no marker, no pre-existing buffer) fails CLEANLY: the first mutator
+signals `buffer-read-only' inside the atomic group, the error
+propagates, the disk bytes stay identical, and the freshly-visited
+buffer is UNMODIFIED with identical bytes — no dirty residue for a
+later save to flush.  RED today: the destination guard user-errors
+instead."
+  (skip-unless (locate-library "org-air"))
+  (skip-unless (not (zerop (user-uid))))   ; root ignores file modes
+  (org-air-r67--with-corpus nil
+    (let* ((file (org-air-r67--file "inbox.org"))
+           (old (org-air-r67--text "inbox.org"))
+           (pos (1+ (string-match "\\* TODO" old)))
+           (item (org-air-item-create
+                  :title "Capture me" :tags '("inbox" "x")
+                  :todo "TODO" :file file :marker (cons file pos))))
+      (should (null (get-file-buffer file))) ; genuinely unvisited
+      (set-file-modes file #o444)
+      (unwind-protect
+          (progn
+            (org-air-inbox--form-init item)
+            (org-air-inbox--form-put :priority ?A)
+            (should-error (org-air-r67--execute) :type 'buffer-read-only)
+            ;; disk untouched…
+            (should (equal (org-air-r67--text "inbox.org") old))
+            ;; …and the visited buffer carries NO residue.
+            (let ((buf (get-file-buffer file)))
+              (should buf)
+              (should-not (buffer-modified-p buf))
+              (should (equal (with-current-buffer buf
+                               (buffer-substring-no-properties
+                                (point-min) (point-max)))
+                             old))))
+        (set-file-modes file #o644)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r67-13 (audit) — R66 × R67: new-file refile with a deadline set
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r67-13-new-file-refile-with-deadline ()
+  "The FORM's refile leg into a BRAND-NEW file under an Air tree with
+a deadline collected: R66 frontmatter synthesis still fires (derived
+`#+title:' + `#+state: draft' at the target top) AND the R67-3
+trailing DEADLINE engine argument stamps the moved heading — the two
+rounds compose inside the ONE transactional save.  The source no
+longer holds the item and `--refile-last' records the destination.
+RED today: the pre-R67 execute never reads `:deadline', so the moved
+heading lacks the stamp."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r67--with-corpus
+      '(("air-config.toml" . "")      ; the Air-tree marker (R66-2 gate)
+        ("inbox.org" . "#+title: inbox\n\n* TODO Fresh idea :inbox:\n  body\n")
+        ("projects.org" . "#+title: projects\n\n* Existing\n"))
+    (let ((org-air-refile-synthesize-frontmatter t)
+          (target (org-air-r67--file "notes/new-idea.org")))
+      (org-air-inbox--form-init (org-air-r67--item "inbox.org" "Fresh idea"))
+      (org-air-inbox--form-put :file target)
+      (org-air-inbox--form-put :deadline "2026-08-20")
+      (org-air-r67--execute)
+      (let ((new (org-air-r67--text "notes/new-idea.org")))
+        (should (string-match-p "\\`#\\+title: Fresh idea\n#\\+state: draft\n"
+                                new))
+        (should (string-match-p "^\\* TODO Fresh idea\nDEADLINE: <2026-08-20"
+                                new)))
+      (should-not (string-match-p "Fresh idea" (org-air-r67--text "inbox.org")))
+      (should (equal org-air-inbox--refile-last (cons target nil)))
+      (should (null org-air-inbox--refile-form)))))
 
 (provide 'org-air-round67-test)
 ;;; org-air-round67-test.el ends here

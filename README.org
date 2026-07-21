@@ -147,6 +147,12 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 ~org-air-files~ accepts any mix of files and directories; directories are scanned recursively for ~.org~ (and ~.org.gpg~) files.
 
+To keep whole trees out of the scan, set ~org-air-exclude-regexps~ — a list of regexps matched against each candidate's *absolute path*. A matching *directory* (matched in directory-name form, e.g. ~"/archive/"~ or ~"\\.git/"~) is *pruned* — never even descended — so silencing a big tree costs nothing; a matching file is simply dropped. Exclusion wins over an explicit ~org-air-files~ entry, and your ~org-air-inbox-file~ is never excluded.
+
+#+begin_src emacs-lisp
+(setq org-air-exclude-regexps '("/archive/" "\\.git/" "/exports/"))
+#+end_src
+
 *** Try it with demo data
 
 Don't want to point org-air at your real notes yet?  The repo ships a generator
@@ -191,6 +197,7 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | Variable                            | Default                                      | Meaning                                                                   |
 |-------------------------------------+----------------------------------------------+---------------------------------------------------------------------------|
 | ~org-air-files~                     | ~nil~                                        | Org files/directories to scan.                                            |
+| ~org-air-exclude-regexps~           | ~nil~                                        | Regexps (abs path) of files/dirs to skip; matching directories are pruned. |
 | ~org-air-inbox-file~                | =~/.emacs.d/org-air-inbox.org=               | Where ~c~ / ~org-air-capture~ stores items.                               |
 | ~org-air-upcoming-days~             | ~7~                                          | Horizon (days) for the Upcoming bucket.                                   |
 | ~org-air-stale-days~                | ~21~                                         | Quiet period before an item is Stale.                                     |

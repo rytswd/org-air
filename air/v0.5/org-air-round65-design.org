@@ -1,5 +1,5 @@
 #+title: org-air Round 65 — View pane must show the item's BODY: reveal the narrowed subtree pane-locally, keep :PROPERTIES: folded, never touch the source buffer's folds
-#+state: ready
+#+state: complete
 #+tags: view-pane ux folding robustness board project review revisit
 
 * Summary
@@ -431,3 +431,6 @@ no legitimate shift exists to flag).
   clone-copy semantics, decouple-at-creation verification, naive
   reveal-in-base leak (RED anchor), snapshot byte-safety.  State →
   ready.
+
+* History
+- 2026-07-21: State: ready → complete.

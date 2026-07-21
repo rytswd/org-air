@@ -37,3 +37,5 @@ one-shot refile engine (=org-air-refile-item=):
 * History
 
 - 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.
+
+- R67 (2026-07-21): move =org-air-inbox--apply-item-edits= save-buffer INSIDE the atomic-change-group (currently outside — disk-safe, but a save failure leaves the buffer dirty; consistency with the refile engine). Fable-approved as non-blocking, deferred here.

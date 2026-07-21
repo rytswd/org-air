@@ -1,5 +1,5 @@
 #+title: org-air Round 64 — One-shot refile: a transient destination+metadata form with nested path targets created on the fly
-#+state: ready
+#+state: complete
 #+tags: inbox refile ux transient board keybindings robustness
 
 * Summary
@@ -522,3 +522,4 @@ precisely the shape the measured sibling bug mangles today.
   seams (T1/T3/T4 verified conceptually RED against today's code,
   T1/T3 by measurement) specified.  R19-2's menu-shape test flagged
   as the one deliberate test retirement.  State: ready.
+- 2026-07-21: State: ready → complete.

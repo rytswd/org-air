@@ -1,0 +1,413 @@
+#+title: org-air Round 67 — The refile transient becomes a general item editor: destination OPTIONAL, metadata applies in place, deadline field added
+#+state: ready
+#+tags: inbox refile ux transient board robustness
+
+* Summary
+
+REPORTED NEED (user, verbatim intent): change metadata — priority,
+tags, schedule, etc. — on a board note via the transient WITHOUT
+moving it.  Today that FAILS: =org-air-refile-form-execute=
+(org-air-inbox.el:1117) hard-rejects a destination-less form —
+=(unless file (user-error "No destination yet — pick a file with f"))=
+— and the destination is EMPTY by design (=org-air-inbox--form-init=
+:805 deliberately seeds =:file nil=; the last-used file would be a
+silent wrong default).  So the exact form the user naturally reaches
+— open =r=, set a priority, RET — is the exact form that errors.
+Their framing names the fix: /"this is not really a refile — general
+edit using transient is nice; I want to work with most of the notes
+in the org-air buffer."/
+
+DESIGN: the transient becomes the board's general per-item EDITOR;
+refile (a destination) is one OPTIONAL field of it.
+
+- *R67-1 (the in-place leg)* — =org-air-refile-form-execute= becomes
+  a two-way dispatch on =:file=:
+  - =:file= set → TODAY'S behaviour byte-for-byte: ONE
+    =org-air-refile-item= call (the R64/R66 engine — cut, paste,
+    frontmatter synthesis, transactional save) — regression-pinned.
+  - =:file= nil + at least one metadata field changed → apply the
+    collected metadata IN PLACE at the item's source heading via a
+    new writer =org-air-inbox--apply-item-edits= (the
+    =org-air-view--at-item-source= semantics, inlined — Decision 2):
+    the SAME mutators the engine uses (=org-todo= / =org-priority= /
+    =org-set-tags= / =org-set-property= CATEGORY / =org-schedule= /
+    =org-deadline=), one =atomic-change-group=, one =save-buffer=,
+    NO move, NO refile engine, then the usual board refresh.
+  - =:file= nil + NOTHING changed → a gentle no-op =message=
+    ("Nothing to change…"), no error, no mutation.
+- *R67-2 (dirty-tracking + the inbox tag)* — the dirty-only fields
+  (=:todo= =:priority= =:scheduled= =:deadline= =:category=) already
+  encode "changed" as non-nil.  =:tags= is SEEDED non-nil, so it
+  gains an explicit =:tags-dirty= flag; and the form-init strip of
+  the =inbox= tag is re-scoped as a REFILE effect: the strip is
+  recorded (=:tags-stripped=) and the in-place leg re-attaches it —
+  an in-place tag edit NEVER silently graduates an inbox item, and a
+  non-inbox item's tags are never touched at all (Decision 3).
+- *R67-3 (the deadline field)* — the Metadata group gains =d=
+  (=org-air-refile-form-deadline=; =d= is free — the transient uses
+  f/p/l · t/c/s/k/, · RET/q), a quick-date reader mirroring the =s=
+  field minus its schedule-specific =someday= leg; applied via
+  =org-deadline= in BOTH legs — the engine grows a trailing optional
+  DEADLINE parameter (additive, no caller breaks).
+- *R67-4 (the reframe)* — heading becomes =Edit / refile "<title>"=,
+  the RET label turns dynamic (="refile"= with a destination,
+  ="edit in place"= without), the empty-destination preview reads
+  =(in place — f to refile)=, and the =k=/=,= fields read their
+  vocabulary/priority-range from the file THE WRITE WILL LAND IN —
+  =(or :file <item's own file>)= — instead of falling back to
+  globals when no destination is set (load-bearing: probed, an
+  undeclared keyword makes =org-todo= *user-error* at apply time).
+  The =r= binding and every =org-air-refile-*= symbol KEEP their
+  names (muscle memory + test pins); no new board key (Non-goals).
+
+Measured this round (probes under =/tmp/org-air-r67/=, batch Emacs
+30.2 / Org 9.7.11):
+
+| Probe                                                          | Result                                                   |
+|----------------------------------------------------------------+----------------------------------------------------------|
+| =org-todo "WAIT"= in a default-vocab buffer                    | =user-error= "State 'WAIT' not valid in this file"       |
+| =org-todo "WAIT"= under file-local =#+TODO: WAIT \vert ARCHIVED=   | applied (=* WAIT …=)                                     |
+| =org-deadline nil "2026-08-01"= / =org-deadline '(4)=          | DEADLINE stamp added / removed                           |
+| =atomic-change-group= around =org-priority= + signal           | buffer byte-identical after rollback                     |
+| =(org-air-item-deadline item)= static call, view.el loaded     | slot value (compiler-macro inlines the struct accessor)  |
+| same call, symbol resolved at RUNTIME                          | the view.el COMMAND fires → =user-error= (collision!)    |
+
+The first probe RULES the R67-4 vocabulary-source change; the last
+two document a DISCOVERED latent hazard (Decision 4 — noted, not
+fixed this round).
+
+SPEC ONLY — no =.el= or test edits in this change.  org-ql stays the
+only query engine; every mutator is org core (=org-todo=,
+=org-priority=, =org-set-tags=, =org-set-property=, =org-schedule=,
+=org-deadline=) — no org-agenda, no new dependency.
+
+* Decision 1 — the execute dispatch, precisely
+
+#+begin_example
+RET (org-air-refile-form-execute):
+  :file set                     → org-air-refile-item …        (today, + DEADLINE)
+  :file nil, ≥1 field changed   → org-air-inbox--apply-item-edits  (in place)
+  :file nil, nothing changed    → (message "Nothing to change — …") (no-op)
+#+end_example
+
+"Changed" is per-field:
+
+- =:todo=, =:priority= — non-nil (the R64 dirty-only convention).
+- =:scheduled=, =:deadline= — non-nil; the empty string ="" means
+  CLEAR (a change: =org-schedule '(4)= / =org-deadline '(4)=),
+  exactly the engine's existing =scheduled= semantics.
+- =:category= — non-nil AND non-empty (mirrors the engine's
+  =(and category (not (string-empty-p category)))= guard).
+- =:tags= — the new =:tags-dirty= flag (Decision 3), set by every
+  code path that mutates =:tags=: the =t= suffix, the =c= suffix's
+  extras-merge leg, and the =s= suffix's =someday= leg (which adds
+  the =someday= tag).
+
+The refile leg is UNCHANGED apart from the appended DEADLINE
+argument: same =(or tags :none)= call shape, same
+=org-air-inbox--refile-last= recording.  The in-place leg records
+NOTHING in =--refile-last= (no destination was used; =l= keeps
+recalling the last actual refile) and ends, like the engine, with
+=(setq org-air-inbox--refile-form nil)= and the
+board-refresh-when-on-the-board tail.  The no-op leg also clears the
+form state and simply closes (RET is already a non-transient suffix;
+"never mind" ≈ =q= with a hint: the message names both ways forward
+— =f= for a destination, any metadata key to edit).
+
+Why dispatch inside =form-execute= rather than a second execute
+suffix (an "apply" key next to RET): ONE confirm key is the R64
+contract ("one interaction, one confirm"), and the form already
+shows which of the two RET means — the destination field plus the
+new dynamic RET label make the outcome unambiguous before the press.
+
+* Decision 2 — the in-place writer (compose cleanly, no engine)
+
+New =org-air-inbox--apply-item-edits (item edits)= — EDITS a plist
+of exactly the changed fields (=:todo= =:priority= =:tags= [+
+=:tags-p= t] =:scheduled= =:deadline= =:category=).  Returns the
+list of applied field symbols (the completion message enumerates
+them: =Edited "title" — priority, deadline=).
+
+- *Placement*: org-air-inbox.el, next to the form it serves.  The
+  natural seam =org-air-view--at-item-source= (org-air-view.el:9212)
+  is a MACRO in a file that REQUIRES org-air-inbox.el — a hard
+  require back would be circular — so the writer INLINES its
+  semantics: position via the engine's own cut idiom (marker or the
+  R26-8 cache-hydrated =(FILE . POS)= pair: org-air-inbox.el:695),
+  =org-back-to-heading t= under =org-with-wide-buffer=, soft-call
+  =org-air-view--refresh-stale-item-guard= when =fboundp= (the
+  mid-refresh stale-position guard), and set
+  =org-air-view--triage-source-buffer= when =boundp= — so the
+  board's =u= (triage undo) covers an in-place edit exactly as it
+  covers every other single-field board verb.
+- *Mutator order*: the engine's, verbatim — todo → priority → tags →
+  category → schedule — plus deadline after schedule.  Priority
+  applies with the engine's char coercion
+  =(if (stringp p) (aref p 0) p)=.
+- *Atomicity*: ALL mutators inside ONE =atomic-change-group= on the
+  source buffer, ONE =save-buffer= after — the R64 discipline scaled
+  down.  Any signal (e.g. =org-todo= rejecting a free-typed keyword
+  the file never declared, or a malformed date) rolls back every
+  in-buffer change and propagates; the file is never saved, bytes
+  identical (probed: the rollback is byte-exact; seam T8).
+- *NOT the engine*: no cut, no paste, no =--resolve-target=, no
+  frontmatter synthesis, no directory creation — the item's own file
+  already exists and already is whatever it is; R66 stays a refile
+  behaviour.  The source heading never moves; every byte outside the
+  heading's own line/planning/drawer region is untouched (T1 pins
+  "otherwise byte-stable").
+
+* Decision 3 — tags: dirty flag, and the inbox tag stays put
+
+Today =--form-init= seeds =:tags (remove "inbox" item-tags)= —
+correct for a refile (leaving the inbox is what refiling is, R64)
+and HARMLESS for non-inbox items (by
+=org-air-classify--inbox-dweller-p= :181 an item CARRYING the tag
+*is* an inbox item, so the remove is vacuous on every non-inbox
+item — the only nuance is a case-variant tag like =:Inbox:=, which
+today's case-sensitive remove already leaves alone).  But reused
+as-is by an IN-PLACE write it turns toxic: applying the seeded list
+back to an unmoved inbox item would silently strip =inbox= — a
+graduation the user never asked for.  The fix scopes the strip to
+the destination decision:
+
+- =--form-init= additionally records
+  =:tags-stripped (and (member "inbox" item-tags) '("inbox"))= and
+  seeds =:tags-dirty nil=.
+- Effective tags at write time, ONE rule used by the preview AND
+  both execute legs (WYSIWYG by construction):
+
+#+begin_example
+:file set                → the collected :tags        (engine, (or tags :none) — today)
+:file nil, :tags-dirty   → (delete-dups (append :tags :tags-stripped))
+:file nil, not dirty     → tags are NOT written; preview shows the item's own tags
+#+end_example
+
+So: refile behaviour is byte-for-byte today's (including the
+"re-add =inbox= in one CRM keystroke" affordance — the collected
+list is applied verbatim); an in-place tag edit rewrites exactly
+the visible list PLUS the stripped inbox tag (the item stays an
+inbox dweller; T6); an untouched tags field writes nothing at all
+(a priority-only edit leaves the tags bytes alone even on an inbox
+item; T1/T7).  The re-attached =inbox= lands at the END of the tag
+list — an accepted, documented order shift (org semantics are
+order-independent; =delete-dups= covers the user re-adding =inbox=
+by hand).  Removing the =inbox= tag in place is deliberately NOT
+expressible through this form (that is a graduation — refile,
+archive, done and kill already own it; Non-goals).
+
+* Decision 4 — the deadline field, and a discovered collision
+
+- =org-air-inbox--deadline-options= — the =s= field's option list
+  minus its two schedule-specific legs: =("today" . ".")
+  ("tomorrow" . "+1d") ("this week" . "+1w") ("other date…" . other)
+  ("clear" . "")=.  =someday= is R20-4 schedule vocabulary (tag +
+  cleared SCHEDULE) and does not transfer to deadlines.
+- =org-air-refile-form-deadline= — a standalone suffix mirroring
+  =org-air-refile-form-schedule= (own reader, =:deadline= +
+  =:deadline-label=, the same =--schedule-resolved= "(Fri Jul 24)"
+  label decoration); the =s= suffix is left UNTOUCHED (zero
+  regression surface).  Key =d=, placed directly after =s= in the
+  Metadata group (the two date fields read together).
+- Preview: line 2 gains =DEADLINE: <label>=, joined with the
+  existing =  ·  = separator logic alongside SCHEDULED /
+  =:CATEGORY:=.
+- Engine: =org-air-refile-item= grows a trailing =&optional …
+  deadline= parameter, applied after =scheduled= inside the
+  existing transaction — =""= clears via =org-deadline '(4)=, a
+  spec string applies via =(org-deadline nil deadline)=.  Additive:
+  every existing caller and test passes unchanged.
+- The unset =d= field row displays the item's CURRENT deadline when
+  it is a string — the =s= field's exact =(stringp …)= guard —
+  via the struct accessor =org-air-item-deadline= as a STATIC call.
+  *Discovered hazard, documented here*: org-air-view.el:9284
+  defines a COMMAND named =org-air-item-deadline=, clobbering the
+  struct accessor's function cell.  Probed: static calls in loaded/
+  compiled code survive (cl-defstruct's compiler macro inlines the
+  slot access at expansion time), but a runtime-resolved call
+  (=funcall (intern …)=, =eval= of a data form) hits the command
+  and user-errors.  Static accessor calls are therefore SAFE and
+  used here; renaming the command (=org-air-item-set-deadline=,
+  with the =d= board binding and the =process-inbox= dispatch
+  updated) is future hardening, out of scope this round (Non-goals
+  — it touches keybinding pins and autoloads unrelated to this
+  editor).
+
+* Decision 5 — the reframe (strings + vocabulary sources)
+
+- =--form-heading= → =Edit / refile "<title>"= (the r19 heading pin
+  asserts title-present + no tag block — both preserved).
+- The RET suffix gains a =:description= lambda: ="refile"= when
+  =:file= is set, ="edit in place"= otherwise.  =q= unchanged.
+- =--form-preview='s empty-destination placeholder becomes
+  =(in place — f to refile)= — the preview's heading line now
+  truthfully previews the IN-PLACE result (todo/priority/title/
+  effective tags per Decision 3's rule).
+- Vocabulary sources follow the WRITE TARGET: the =k= (todo) field
+  reads =org-air-inbox--target-todo-keywords= over
+  =(or :file <item file>)=, the =,= (priority) field reads
+  =--target-priority-range= over the same — with a destination,
+  today's behaviour exactly; without one, the item's OWN buffer
+  vocabulary (R57: the user's globals + the file's =#+TODO:= line
+  win) instead of the bare global fallback.  Load-bearing, not
+  cosmetic: the probe shows =org-todo= *user-errors* on a keyword
+  the target buffer never declared, so completing over the wrong
+  file's vocabulary manufactures apply-time failures (T7 pins the
+  collection).  Both helpers already take a file argument —
+  callers change, helpers do not.
+- Docstrings of the form suffixes, the prefix and =--refile-form=
+  reframe around "editor with optional destination"; ALL symbol
+  names keep =refile= (muscle memory, autoload stability, dozens of
+  test pins — renames are churn with zero behaviour).
+- Works on ANY board note by construction: =r= is a whole-board
+  binding and =--interactive-item= already builds an item from any
+  row (or any org heading); nothing in the new legs assumes inbox
+  membership — the inbox-specific strip is exactly the part
+  Decision 3 scoped away from the in-place path.
+
+* ERT seams — batch, each reverts to RED (tests/org-air-round67-test.el)
+
+All through the r19/r64 batch idiom: =--form-init= on a fixture item
++ =--form-put= + =(call-interactively 'org-air-refile-form-execute)=
+— no transient event loop.  Fixture: a temp dir with =inbox.org=
+(=#+title:= + =* TODO Capture me :inbox:x:=), =notes.org= (a
+non-inbox =* Jot :keep:= plus a =#+TODO: WAIT | ARCHIVED= variant),
+=projects.org= (a titled refile target).
+
+- *T1 /the repro/*: form-init on the inbox item, =:priority ?A=,
+  execute with =:file= nil ⇒ the SOURCE heading gains =[#A]= in
+  place; the item did not move (still exactly one match, in
+  inbox.org); the file is otherwise byte-stable (assert: new bytes
+  = old bytes with only the cookie inserted on the heading line);
+  =org-air-inbox--refile-last= stays nil.  RED today:
+  =user-error "No destination yet — pick a file with f"=.
+- *T2 /every field in place/*: separate legs — =:scheduled
+  "2026-08-01"= ⇒ a SCHEDULED stamp; =:deadline "2026-08-01"= ⇒ a
+  DEADLINE stamp; =:todo "DONE"= ⇒ the keyword; =:tags= dirty
+  =("alpha")= on the non-inbox item ⇒ =:alpha:=; =:category "work"=
+  ⇒ =:CATEGORY: work= in the drawer.  Each in place, no move, each
+  RED today (same user-error).
+- *T3 /the no-op/*: form-init, nothing touched, execute ⇒ NO error,
+  source bytes IDENTICAL, the message matches "Nothing to change",
+  =--refile-last= nil, form state cleared.  RED today (user-error).
+- *T4 /refile regression pin/*: =:file projects.org= + =:todo= +
+  dirty =:tags= ⇒ the item MOVES (gone from source, present in
+  target with the metadata) and =--refile-last= records the
+  destination — the engine leg is untouched by the dispatch.  RED
+  against an in-place leg that hijacks the destination case.
+- *T5 /deadline through the engine/*: =org-air-refile-item item
+  projects.org nil :none nil nil nil nil "2026-08-01"= ⇒ the moved
+  heading carries the DEADLINE stamp; and =""= clears a source
+  deadline through a refile.  RED today: the engine has no ninth
+  parameter (wrong-number-of-arguments).
+- *T6 /the inbox tag stays put in place/*: inbox item tags
+  =("inbox" "x")= — form seeds =:tags ("x")=; dirty-edit to
+  =("x" "y")=; execute =:file= nil ⇒ heading tags are exactly
+  ={x y inbox}= (the re-attach; the item REMAINS an inbox dweller
+  per =--inbox-dweller-p=).  Companion pin: the same edit WITH
+  =:file= set drops =inbox= (today's refile semantics kept).  RED
+  against applying the collected list verbatim in place.
+- *T7 /non-inbox item + vocabulary source/*: (a) form-init on the
+  =:keep:=-tagged notes item seeds =:tags ("keep")= (nothing
+  stripped) and a priority-only in-place edit leaves the tags bytes
+  identical; (b) with =:file= nil, =cl-letf=-captured
+  =completing-read= collection of the =k= field contains =WAIT= for
+  an item whose OWN file declares =#+TODO: WAIT | ARCHIVED= — and
+  the in-place apply of ="WAIT"= succeeds.  RED against the current
+  global-vocab fallback (collection lacks WAIT; probed: the apply
+  would user-error).
+- *T8 /in-place atomicity/*: =cl-letf= =org-set-property= to signal;
+  execute =:file= nil with =:category= + =:priority= ⇒ the error
+  propagates, and the source file's DISK bytes are byte-identical
+  (rollback + no save).  RED against mutate-and-save-per-field.
+- *T9 /tags-dirty propagation/*: the =c= suffix's extras-merge and
+  the =s= suffix's =someday= leg both set =:tags-dirty= — a
+  someday-only edit with =:file= nil lands the =someday= tag AND a
+  cleared schedule in place, =inbox= still present.  RED against a
+  =t=-suffix-only dirty flag.
+
+GUI residue (screenshot-confirm, not ERT-able): the reframed
+heading, the =d= row, the dynamic RET label, the =(in place — f to
+refile)= placeholder.  Goldens: any board screenshot golden that
+renders the transient's strings may shift by exactly the reframed
+strings — expected shifts are ONLY string-level (heading/RET/
+placeholder); anything structural is a spec violation to
+investigate.  Known-failures manifest stays EMPTY.
+
+* Non-goals
+
+- No =e= board-map alias for the editor.  =r= stays the one entry
+  (muscle memory, per the user).  Argued: the R30-2 legend derives
+  keys via =where-is=, so a SECOND binding to the same command can
+  flip which key the legend (and the C-c leader help) displays —
+  golden churn for zero capability.  Revisit only if discoverability
+  is reported.
+- No renames: =org-air-refile-transient=, =org-air-refile-form-*=,
+  =org-air-refile-item= all keep their names (autoloads + pins);
+  the reframe is strings and docstrings.
+- No in-place =inbox=-tag REMOVAL through the form (graduation
+  belongs to refile/archive/done/kill; Decision 3).
+- No fix for the =org-air-item-deadline= accessor/command name
+  collision (documented in Decision 4; future hardening round —
+  candidate for =air/v0.2/refile-engine-hardening.org='s
+  neighbourhood).
+- No new engine capability beyond the DEADLINE parameter; no
+  destination-clearing key (=q= + reopen is the reset; the form is
+  two keystrokes deep).
+- No batch/noninteractive form entry (the prefix's =noninteractive=
+  guard stands; batch callers use =org-air-refile-item= /
+  =org-air-inbox--apply-item-edits= directly).
+
+* Compatibility
+
+- *R53 (never-hang / never-error)*: no scans, no enumeration; the
+  in-place leg visits ONE buffer (the item's own file — the same
+  buffer every existing single-field board verb visits); the
+  =k=/=,= vocabulary reads open at FIELD time exactly one
+  =find-file-noselect= on a file the write will touch anyway —
+  same class as today's destination reads.
+- *R57 (todo vocabulary)*: strengthened — with no destination the
+  =k= field now completes over the item's own merged file
+  vocabulary instead of the global fallback, and the in-place
+  =org-todo= runs in that same buffer, so the completion and the
+  apply agree by construction.
+- *R64 (one-shot refile)*: the destination leg is byte-for-byte
+  today's — same engine call, same =(or tags :none)=, same
+  =--refile-last=, same prompt-time no-mutation (the in-place leg
+  writes at EXECUTE only, like everything else).  The one-confirm
+  contract extends to the editor: RET means exactly what the
+  dynamic label says.
+- *R66 (frontmatter synthesis)*: untouched and unreachable from the
+  in-place leg (no cut/paste/target, so no synthesis, no mkdir —
+  Decision 2's "NOT the engine" list).
+- *R20-4 (someday semantics)*: preserved in both legs — the tag +
+  cleared schedule now also lands in place (T9).
+- *R59 (containers)*: the in-place leg writes no headings — zero
+  new board rows.
+- Cache: no schema change (=org-air-view--cache-version= untouched);
+  the in-place save bumps the file's mtime, so the ordinary refresh
+  pipeline picks the edit up like any board verb's write.
+
+* Implementation History
+
+- 2026-07-21: Round 67 spec (design seat).  User need: metadata
+  edits on a board note WITHOUT moving it — today rejected by
+  =form-execute='s destination guard (org-air-inbox.el:1125) against
+  the intentionally-empty =:file= seed.  Decisions: two-way execute
+  dispatch (destination optional; in-place writer
+  =org-air-inbox--apply-item-edits= inlining the
+  =--at-item-source= semantics — the macro's home file requires
+  inbox.el, a hard require back would be circular — with the R64
+  atomicity scaled down to one =atomic-change-group= + one save);
+  =:tags-dirty= / =:tags-stripped= so the inbox-tag strip stays a
+  refile-only effect (an in-place edit never graduates an inbox
+  item; non-inbox items provably unaffected — a tag-carrier IS a
+  dweller by =--inbox-dweller-p=); a =d= deadline field mirroring
+  =s= minus =someday=, with a trailing DEADLINE engine parameter;
+  reframed strings + write-target-scoped todo/priority vocabulary
+  (probed: =org-todo= user-errors on undeclared keywords).
+  Discovered + documented: the =org-air-item-deadline=
+  accessor/command collision (static calls safe via compiler-macro
+  inlining; runtime-resolved calls hit the command — probed both
+  ways).  Probes under =/tmp/org-air-r67/= (table in Summary).
+  Nine batch seams, each revert-RED.  State: ready.

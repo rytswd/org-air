@@ -24,6 +24,14 @@
 ;; brand-new target's missing directory chain is created on execute —
 ;; both inside the R64 disk-atomic transaction: a failed refile leaves
 ;; no half-written file and mints no new file at all.
+;;
+;; R67: the transient is the board's general per-item EDITOR — the
+;; destination is one OPTIONAL field.  With a destination, execute is
+;; today's ONE engine call; without one, the changed metadata applies
+;; IN PLACE at the item's source heading (`org-air-inbox--apply-item-
+;; edits': one `atomic-change-group', one `save-buffer', no move); a
+;; fully untouched form is a gentle no-op.  A `d' DEADLINE field joins
+;; the metadata group and the engine (trailing optional argument).
 
 ;;; Code:
 
@@ -39,8 +47,10 @@
 (defvar org-air-view-buffer-name)
 (defvar org-air-view--items)
 (defvar org-air-view--items-mtimes)
+(defvar org-air-view--triage-source-buffer)
 
 (declare-function org-air-view--cache-read "org-air-view")
+(declare-function org-air-view--refresh-stale-item-guard "org-air-view" (item))
 
 (defun org-air-inbox--board-buffer ()
   "Return the live board buffer, or nil (R53 P4)."
@@ -625,7 +635,8 @@ as a defect.  A LIST of strings is an outline path handed to
 
 ;;;###autoload
 (defun org-air-refile-item (&optional item target-file target-heading tags
-                                      scheduled category todo priority)
+                                      scheduled category todo priority
+                                      deadline)
   "Move ITEM to TARGET-FILE — the one-shot refile engine (R64-1).
 
 Interactively (the board's `r') this opens the transient
@@ -649,7 +660,10 @@ them); CATEGORY sets the moved heading's `:CATEGORY:' property;
 SCHEDULED is an Org timestamp/shift string (empty clears the schedule);
 TODO (a keyword string) and PRIORITY (a character, or string of one)
 are applied via `org-todo' / `org-priority' — nil leaves each
-untouched.
+untouched.  DEADLINE (R67-3) mirrors SCHEDULED via `org-deadline':
+an Org timestamp/shift string stamps a deadline, the empty string
+clears one, nil leaves it untouched — a trailing additive parameter,
+so every pre-R67 caller passes unchanged.
 
 R66: step 0 first ensures TARGET-FILE's directory chain exists, and —
 gated by `org-air-refile-synthesize-frontmatter' — a brand-new or
@@ -710,7 +724,7 @@ byte-for-byte as-is, and a failed refile still creates no file."
       ;; TRANSACTIONAL (R64 harden + fix2): between the cut above and the
       ;; target's `save-buffer' the item exists ONLY in TEXT.  The whole
       ;; post-cut window — paste + EVERY metadata step (todo / priority /
-      ;; tags / category / schedule) + the save — runs inside ONE
+      ;; tags / category / schedule / deadline) + the save — runs inside ONE
       ;; `atomic-change-group' on the target buffer, so ANY signal (or
       ;; quit) first rolls back EVERY target-side change in-buffer: no
       ;; half-paste, no dirty pasted subtree left for a retry (or any
@@ -754,7 +768,11 @@ byte-for-byte as-is, and a failed refile still creates no file."
                              (when scheduled
                                (if (string-empty-p scheduled)
                                    (org-schedule '(4))
-                                 (org-schedule nil scheduled))))
+                                 (org-schedule nil scheduled)))
+                             (when deadline
+                               (if (string-empty-p deadline)
+                                   (org-deadline '(4))
+                                 (org-deadline nil deadline))))
                          (set-marker insert-pos nil))))
                    (save-buffer))))
               (setq landed t))
@@ -782,16 +800,22 @@ byte-for-byte as-is, and a failed refile still creates no file."
           (org-air-refresh))))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R64-3 — the transient form: destination + metadata, one confirm.
+;;;; R64-3 / R67 — the transient editor: metadata + OPTIONAL destination,
+;;;; one confirm.
 ;;;; ---------------------------------------------------------------------
 
 (defvar org-air-inbox--refile-form nil
-  "The transient refile form state (R64-3), a plist.
-Keys: `:item' (the org-air item being refiled), `:file' / `:olp' /
-`:new' (destination + to-create count), `:tags' (ALWAYS applied —
-pre-filled from the item MINUS `inbox'), and the dirty-only fields
-`:category', `:scheduled' (+ `:schedule-label'), `:todo', `:priority'
-\(nil = leave the item's own value untouched).")
+  "The transient editor form state (R64-3 / R67), a plist.
+Keys: `:item' (the org-air item being edited), `:file' / `:olp' /
+`:new' (the OPTIONAL destination + to-create count — set means execute
+REFILES, nil means it edits IN PLACE), `:tags' (pre-filled from the
+item MINUS `inbox') with the R67-2 companions `:tags-dirty' (set by
+every path that mutates `:tags' — an untouched field writes nothing in
+place) and `:tags-stripped' (the recorded `inbox' strip, re-attached by
+the in-place leg so an in-place edit never graduates an inbox item),
+and the dirty-only fields `:category', `:scheduled'
+\(+ `:schedule-label'), `:deadline' (+ `:deadline-label'), `:todo',
+`:priority' \(nil = leave the item's own value untouched).")
 
 (defun org-air-inbox--form-get (key)
   "Return KEY's value from the transient refile form state."
@@ -803,15 +827,22 @@ pre-filled from the item MINUS `inbox'), and the dirty-only fields
         (plist-put org-air-inbox--refile-form key value)))
 
 (defun org-air-inbox--form-init (item)
-  "Seed the transient refile form state from ITEM (R64-3 pre-fills).
-Tags pre-fill MINUS `inbox' (leaving the inbox is what refiling is; the
-tag is re-addable in one CRM keystroke); destination starts EMPTY (the
-last-used file would be a silent wrong default — `l' recalls it)."
+  "Seed the transient editor form state from ITEM (R64-3 / R67 pre-fills).
+Tags pre-fill MINUS `inbox' — leaving the inbox is what refiling is,
+and the strip is RECORDED on `:tags-stripped' so the R67-1 in-place
+leg can re-attach it (an in-place tag edit never silently graduates an
+inbox item).  Destination starts EMPTY (the last-used file would be a
+silent wrong default — `l' recalls it); an empty destination means
+execute applies the changed metadata IN PLACE."
   (setq org-air-inbox--refile-form
         (list :item item
               :file nil :olp nil :new 0
               :tags (remove "inbox" (org-air-item-tags item))
+              :tags-dirty nil
+              :tags-stripped (and (member "inbox" (org-air-item-tags item))
+                                  '("inbox"))
               :category nil :scheduled nil :schedule-label nil
+              :deadline nil :deadline-label nil
               :todo nil :priority nil)))
 
 (defun org-air-inbox--item-priority-char (item)
@@ -857,6 +888,49 @@ an undeclared file still sees org-air's supplement — the user's global
 `someday' keeps its R20-4 meaning (adds the `someday' tag + clears the
 schedule); `other date…' runs `org-read-date'.")
 
+(defconst org-air-inbox--deadline-options
+  '(("today" . ".") ("tomorrow" . "+1d") ("this week" . "+1w")
+    ("other date…" . other) ("clear" . ""))
+  "The R67-3 `d' quick-pick: label → Org shift string or action symbol.
+The `s' list minus its schedule-specific `someday' leg (R20-4 is
+schedule vocabulary — tag + cleared SCHEDULE — and does not transfer
+to deadlines); `other date…' runs `org-read-date'.")
+
+(defun org-air-inbox--form-write-target ()
+  "Return the file the form's EXECUTE will write in (R67-4).
+The chosen destination when set; otherwise the item's OWN file — the
+in-place leg writes there, so the `k'/`,' vocabulary must read the
+same buffer the apply-time `org-todo'/`org-priority' will run in
+\(probed: `org-todo' user-errors on a keyword the buffer never
+declared — completing over the wrong file's vocabulary manufactures
+apply-time failures)."
+  (or (org-air-inbox--form-get :file)
+      (let* ((item (org-air-inbox--form-get :item))
+             (file (and item (org-air-item-file item))))
+        (and file (not (string-empty-p file)) file))))
+
+(defun org-air-inbox--form-effective-tags ()
+  "Return (WRITE-P . TAGS) — the ONE R67-2 effective-tags rule.
+Used by the preview AND both execute legs (WYSIWYG by construction):
+with a destination the collected `:tags' apply verbatim (today's
+refile semantics — the `inbox' strip IS the graduation); without one,
+a dirty tag edit applies the collected list PLUS the recorded
+`:tags-stripped' `inbox' tag appended at the END (an in-place edit
+never graduates an inbox item; `delete-dups' covers the user re-adding
+`inbox' by hand), and an untouched field writes nothing — WRITE-P nil,
+TAGS then previews the item's own list."
+  (let ((file (org-air-inbox--form-get :file))
+        (tags (org-air-inbox--form-get :tags)))
+    (cond
+     (file (cons t tags))
+     ((org-air-inbox--form-get :tags-dirty)
+      ;; the trailing nil forces `append' to COPY `:tags-stripped' too,
+      ;; so the destructive `delete-dups' never mutates the form state.
+      (cons t (delete-dups
+               (append tags (org-air-inbox--form-get :tags-stripped) nil))))
+     (t (cons nil (let ((item (org-air-inbox--form-get :item)))
+                    (and item (org-air-item-tags item))))))))
+
 (defun org-air-inbox--schedule-resolved (spec)
   "Return SPEC (an Org date/shift string) resolved to `Fri Jul 24', or nil."
   (ignore-errors
@@ -888,38 +962,40 @@ creation order; nil (no annotation) means everything exists."
       (format "  (creates: %s)" (mapconcat #'identity parts ", ")))))
 
 (defun org-air-inbox--form-heading ()
-  "Return the transient's header: the short truncated refile prompt."
+  "Return the transient's header: the short truncated editor prompt (R67-4)."
   (let ((item (org-air-inbox--form-get :item)))
     (if item
-        (format "Refile \"%s\""
+        (format "Edit / refile \"%s\""
                 (truncate-string-to-width
                  (org-air-item-title item) 40 nil nil "…"))
-      "Refile")))
+      "Edit / refile")))
 
 (defun org-air-inbox--form-preview ()
-  "Render the live preview group (R64-3).
+  "Render the live preview group (R64-3 / R67-4).
 Pure string formatting over the collected values — no buffer access, so
-the form stays instant.  Line 1: basename › path › the heading line as
-it will be written (todo, priority, title, tags) + the `(creates: …)'
-annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
+the form stays instant.  Line 1: basename › path (or the in-place
+placeholder) › the heading line as it will be written (todo, priority,
+title, the R67-2 EFFECTIVE tags) + the `(creates: …)' annotation;
+line 2: SCHEDULED / DEADLINE / `:CATEGORY:' when set."
   (let ((item (org-air-inbox--form-get :item)))
     (if (not item)
         "Preview"
       (let* ((file (org-air-inbox--form-get :file))
              (olp (org-air-inbox--form-get :olp))
-             (tags (org-air-inbox--form-get :tags))
+             (tags (cdr (org-air-inbox--form-effective-tags)))
              (todo (or (org-air-inbox--form-get :todo)
                        (org-air-item-todo item)))
              (pri (or (org-air-inbox--form-get :priority)
                       (org-air-inbox--item-priority-char item)))
              (sched (org-air-inbox--form-get :schedule-label))
+             (dead (org-air-inbox--form-get :deadline-label))
              (cat (org-air-inbox--form-get :category))
              (dest (if file
                        (concat (file-name-nondirectory file)
                                (and olp
                                     (concat " › "
                                             (mapconcat #'identity olp " › "))))
-                     "(no destination — f)"))
+                     "(in place — f to refile)"))
              (head (concat "* "
                            (and todo (concat todo " "))
                            (and pri (format "[#%c] " pri))
@@ -927,9 +1003,13 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
                            (and tags
                                 (concat " :" (mapconcat #'identity tags ":")
                                         ":"))))
-             (extra (concat (and sched (concat "SCHEDULED: " sched))
-                            (and sched cat "  ·  ")
-                            (and cat (concat ":CATEGORY: " cat)))))
+             (extra (mapconcat
+                     #'identity
+                     (delq nil
+                           (list (and sched (concat "SCHEDULED: " sched))
+                                 (and dead (concat "DEADLINE: " dead))
+                                 (and cat (concat ":CATEGORY: " cat))))
+                     "  ·  ")))
         (concat "Preview\n " dest " › " head
                 (or (org-air-inbox--form-creates) "")
                 (unless (string-empty-p extra) (concat "\n " extra)))))))
@@ -1006,7 +1086,8 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
                  :title (org-air-item-title item)
                  :file (org-air-item-file item)
                  :tags (org-air-inbox--form-get :tags))))
-    (org-air-inbox--form-put :tags (org-air-inbox--edit-tags probe))))
+    (org-air-inbox--form-put :tags (org-air-inbox--edit-tags probe))
+    (org-air-inbox--form-put :tags-dirty t)))
 
 (transient-define-suffix org-air-refile-form-category ()
   "Edit the category (CRM; first pick is `:CATEGORY:', extras are tags)."
@@ -1029,7 +1110,8 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
     (when (cdr picks)
       (org-air-inbox--form-put
        :tags (delete-dups (append (org-air-inbox--form-get :tags)
-                                  (cdr picks)))))))
+                                  (cdr picks))))
+      (org-air-inbox--form-put :tags-dirty t))))
 
 (transient-define-suffix org-air-refile-form-schedule ()
   "Pick the schedule: today / tomorrow / this week / someday / date / clear."
@@ -1055,7 +1137,8 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
       (org-air-inbox--form-put :schedule-label "someday (+ #someday, cleared)")
       (org-air-inbox--form-put
        :tags (delete-dups (append (org-air-inbox--form-get :tags)
-                                  (list "someday")))))
+                                  (list "someday"))))
+      (org-air-inbox--form-put :tags-dirty t))
      ((eq spec 'other)
       (let ((date (org-read-date)))
         (org-air-inbox--form-put :scheduled date)
@@ -1070,8 +1153,51 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
        (let ((resolved (org-air-inbox--schedule-resolved spec)))
          (if resolved (format "%s (%s)" choice resolved) choice)))))))
 
+(transient-define-suffix org-air-refile-form-deadline ()
+  "Pick the deadline: today / tomorrow / this week / date / clear (R67-3).
+Mirrors the `s' schedule field minus its schedule-specific `someday'
+leg; applied via `org-deadline' in BOTH execute legs (refile and
+in-place)."
+  :transient t
+  :description (lambda ()
+                 (org-air-inbox--form-field
+                  "deadline"
+                  (or (org-air-inbox--form-get :deadline-label)
+                      (let ((item (org-air-inbox--form-get :item)))
+                        ;; a STATIC `org-air-item-deadline' accessor
+                        ;; call — safe: cl-defstruct's compiler macro
+                        ;; inlines the slot access at expansion time,
+                        ;; so the view.el COMMAND of the same name
+                        ;; (the documented R67 Decision-4 collision)
+                        ;; is never consulted.  Keep it static.
+                        (and item
+                             (stringp (org-air-item-deadline item))
+                             (org-air-item-deadline item))))))
+  (interactive)
+  (let* ((choice (completing-read
+                  "Deadline: "
+                  (mapcar #'car org-air-inbox--deadline-options) nil t))
+         (spec (cdr (assoc choice org-air-inbox--deadline-options))))
+    (cond
+     ((eq spec 'other)
+      (let ((date (org-read-date)))
+        (org-air-inbox--form-put :deadline date)
+        (org-air-inbox--form-put :deadline-label date)))
+     ((string-empty-p spec)
+      (org-air-inbox--form-put :deadline "")
+      (org-air-inbox--form-put :deadline-label "clear"))
+     (t
+      (org-air-inbox--form-put :deadline spec)
+      (org-air-inbox--form-put
+       :deadline-label
+       (let ((resolved (org-air-inbox--schedule-resolved spec)))
+         (if resolved (format "%s (%s)" choice resolved) choice)))))))
+
 (transient-define-suffix org-air-refile-form-todo ()
-  "Pick the TODO keyword from the DESTINATION file's own vocabulary (R57)."
+  "Pick the TODO keyword from the WRITE TARGET's own vocabulary (R57/R67-4).
+The destination file when one is set, else the item's OWN file — the
+file the write will land in, so completion and the apply-time
+`org-todo' agree by construction."
   :transient t
   :description (lambda ()
                  (org-air-inbox--form-field
@@ -1082,7 +1208,7 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
   (interactive)
   (let* ((item (org-air-inbox--form-get :item))
          (vocab (or (org-air-inbox--target-todo-keywords
-                     (org-air-inbox--form-get :file))
+                     (org-air-inbox--form-write-target))
                     org-todo-keywords-1))
          (choice (completing-read
                   "Todo (empty leaves untouched): " vocab nil nil nil nil
@@ -1091,7 +1217,9 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
     (org-air-inbox--form-put :todo (unless (string-empty-p choice) choice))))
 
 (transient-define-suffix org-air-refile-form-priority ()
-  "Cycle the priority: – → A → … → lowest → – (destination file's range)."
+  "Cycle the priority: – → A → … → lowest → – (the WRITE TARGET's range).
+The destination file when one is set, else the item's OWN file
+\(R67-4)."
   :transient t
   :description (lambda ()
                  (org-air-inbox--form-field
@@ -1105,7 +1233,7 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
                     (string c))))
   (interactive)
   (let* ((range (org-air-inbox--target-priority-range
-                 (org-air-inbox--form-get :file)))
+                 (org-air-inbox--form-write-target)))
          (current (or (org-air-inbox--form-get :priority)
                       (let ((item (org-air-inbox--form-get :item)))
                         (and item (org-air-inbox--item-priority-char item)))))
@@ -1114,31 +1242,131 @@ annotation; line 2: SCHEDULED / `:CATEGORY:' when set."
                      (t (1+ current)))))
     (org-air-inbox--form-put :priority next)))
 
+(defun org-air-inbox--apply-item-edits (item edits)
+  "Apply EDITS to ITEM's source heading IN PLACE — the R67-1 editor leg.
+EDITS is a plist of exactly the CHANGED fields: `:todo', `:priority'
+\(char or one-char string), `:tags' (guarded by `:tags-p' t — the
+value may be nil, which CLEARS), `:scheduled' / `:deadline' (Org
+date/shift strings; \"\" clears via the \='(4) prefix), `:category'.
+Returns the list of applied field symbols in application order (the
+completion message enumerates them).
+
+Inlines `org-air-view--at-item-source's semantics — its home file
+requires this one, a hard require back would be circular: the
+mid-refresh stale guard when loaded, the R26-8 marker-or-(FILE . POS)
+position, `org-back-to-heading' under `org-with-wide-buffer', and the
+triage-undo source recording (the board's `u' covers an in-place edit
+like every other single-field verb).  NOT the refile engine: no cut,
+no paste, no target resolution, no frontmatter synthesis, no directory
+creation — the mutators run at the source heading in the engine's
+order (todo → priority → tags → category → schedule → deadline)
+inside ONE `atomic-change-group' with ONE `save-buffer' after (the
+R64 discipline scaled down): any signal rolls back every in-buffer
+change and propagates — the file is never saved, bytes identical."
+  (when (fboundp 'org-air-view--refresh-stale-item-guard)
+    (org-air-view--refresh-stale-item-guard item))
+  (let ((applied nil)
+        (buf (org-air-inbox--source-buffer item)))
+    (with-current-buffer buf
+      (org-with-wide-buffer
+       (goto-char (let ((m (org-air-item-marker item)))
+                    (if (markerp m) (marker-position m) (or (cdr-safe m) 1))))
+       (org-back-to-heading t)
+       (atomic-change-group
+         (when-let* ((todo (plist-get edits :todo)))
+           (org-todo todo)
+           (push 'todo applied))
+         (when-let* ((p (plist-get edits :priority)))
+           (org-priority (if (stringp p) (aref p 0) p))
+           (push 'priority applied))
+         (when (plist-get edits :tags-p)
+           (org-set-tags (plist-get edits :tags))
+           (push 'tags applied))
+         (when-let* ((category (plist-get edits :category)))
+           (org-set-property "CATEGORY" category)
+           (push 'category applied))
+         (when-let* ((scheduled (plist-get edits :scheduled)))
+           (if (string-empty-p scheduled)
+               (org-schedule '(4))
+             (org-schedule nil scheduled))
+           (push 'scheduled applied))
+         (when-let* ((deadline (plist-get edits :deadline)))
+           (if (string-empty-p deadline)
+               (org-deadline '(4))
+             (org-deadline nil deadline))
+           (push 'deadline applied))))
+      (save-buffer)
+      (when (boundp 'org-air-view--triage-source-buffer)
+        (setq org-air-view--triage-source-buffer buf)))
+    (nreverse applied)))
+
 (transient-define-suffix org-air-refile-form-execute ()
-  "Execute ONE `org-air-refile-item' call from the collected form."
+  "Execute the collected editor form — the R67-1 two-way dispatch.
+With a destination (`:file' set): today's ONE `org-air-refile-item'
+engine call, byte-for-byte (R64/R66 — cut, paste, frontmatter
+synthesis, transactional save), plus the R67-3 trailing DEADLINE.
+Without one: the changed fields apply IN PLACE at the item's source
+via `org-air-inbox--apply-item-edits' (no move, no engine, nothing
+recorded for the `l' recall); a fully untouched form is a gentle
+no-op message — never an error, never a mutation."
+  :description (lambda ()
+                 (if (org-air-inbox--form-get :file) "refile" "edit in place"))
   (interactive)
   (let* ((item (org-air-inbox--form-get :item))
          (file (org-air-inbox--form-get :file))
          (olp (org-air-inbox--form-get :olp))
-         (tags (org-air-inbox--form-get :tags)))
-    (unless file
-      (user-error "No destination yet — pick a file with f"))
-    (org-air-refile-item item file olp
-                         (or tags :none)
-                         (org-air-inbox--form-get :scheduled)
-                         (org-air-inbox--form-get :category)
-                         (org-air-inbox--form-get :todo)
-                         (org-air-inbox--form-get :priority))
-    (setq org-air-inbox--refile-last (cons file olp))
-    (setq org-air-inbox--refile-form nil)))
+         (eff (org-air-inbox--form-effective-tags))
+         (scheduled (org-air-inbox--form-get :scheduled))
+         (deadline (org-air-inbox--form-get :deadline))
+         (category (org-air-inbox--form-get :category))
+         (todo (org-air-inbox--form-get :todo))
+         (priority (org-air-inbox--form-get :priority)))
+    (cond
+     (file
+      ;; the refile leg — R64/R66 unchanged: same `(or tags :none)'
+      ;; call shape, same `--refile-last' recording (+ DEADLINE).
+      (org-air-refile-item item file olp
+                           (or (cdr eff) :none)
+                           scheduled category todo priority deadline)
+      (setq org-air-inbox--refile-last (cons file olp))
+      (setq org-air-inbox--refile-form nil))
+     (t
+      ;; the in-place leg — collect ONLY the dirty fields (R67-2).
+      (let ((edits nil))
+        (when todo (setq edits (plist-put edits :todo todo)))
+        (when priority (setq edits (plist-put edits :priority priority)))
+        (when (car eff)                 ; `:tags-dirty' (no destination)
+          (setq edits (plist-put edits :tags (cdr eff)))
+          (setq edits (plist-put edits :tags-p t)))
+        (when (and category (not (string-empty-p category)))
+          (setq edits (plist-put edits :category category)))
+        (when scheduled (setq edits (plist-put edits :scheduled scheduled)))
+        (when deadline (setq edits (plist-put edits :deadline deadline)))
+        (if (null edits)
+            (progn
+              (setq org-air-inbox--refile-form nil)
+              (message "Nothing to change — f picks a destination, any metadata key edits in place"))
+          (let ((applied (org-air-inbox--apply-item-edits item edits)))
+            (setq org-air-inbox--refile-form nil)
+            (message "Edited \"%s\" — %s"
+                     (org-air-item-title item)
+                     (mapconcat #'symbol-name applied ", "))
+            (when (derived-mode-p 'org-air-view-mode)
+              (when (fboundp 'org-air-refresh)
+                (org-air-refresh))))))))))
 
 ;;;###autoload (autoload 'org-air-refile-transient "org-air-inbox" nil t)
 (transient-define-prefix org-air-refile-transient ()
-  "One-shot refile form for the item at point (R64-3).
+  "The per-item EDITOR with an OPTIONAL destination (R64-3 / R67).
 Every field is visible with its current value, editable in any order;
-the Preview group re-renders live; RET executes ONE
-`org-air-refile-item' call; \\`C-g' / q abandon everything (no buffer
-was touched — creation is deferred to execute, R64-2)."
+the Preview group re-renders live; RET means what its dynamic label
+says — with a destination it executes ONE `org-air-refile-item' call,
+without one it applies the changed metadata IN PLACE at the item's
+source (an untouched form is a gentle no-op); \\`C-g' / q abandon
+everything (no buffer was touched — every write is deferred to
+execute, R64-2).  The `r' binding and the `org-air-refile-*' names
+stay — refiling is one optional field of the editor, not a separate
+mode."
   [:description org-air-inbox--form-heading
    ["Destination"
     ("f" org-air-refile-form-file)
@@ -1148,14 +1376,15 @@ was touched — creation is deferred to execute, R64-2)."
     ("t" org-air-refile-form-tags)
     ("c" org-air-refile-form-category)
     ("s" org-air-refile-form-schedule)
+    ("d" org-air-refile-form-deadline)
     ("k" org-air-refile-form-todo)
     ("," org-air-refile-form-priority)]]
   [:description org-air-inbox--form-preview
-   ("RET" "refile" org-air-refile-form-execute)
+   ("RET" org-air-refile-form-execute)
    ("q" "quit" transient-quit-one)]
   (interactive)
   (when noninteractive
-    (user-error "The refile form is interactive-only; call `org-air-refile-item' with arguments in batch"))
+    (user-error "The editor form is interactive-only; call `org-air-refile-item' / `org-air-inbox--apply-item-edits' with arguments in batch"))
   (org-air-inbox--form-init (org-air-inbox--interactive-item))
   (transient-setup 'org-air-refile-transient))
 

@@ -1,5 +1,5 @@
 #+title: org-air Round 67 — The refile transient becomes a general item editor: destination OPTIONAL, metadata applies in place, deadline field added
-#+state: ready
+#+state: complete
 #+tags: inbox refile ux transient board robustness
 
 * Summary
@@ -411,3 +411,47 @@ investigate.  Known-failures manifest stays EMPTY.
   inlining; runtime-resolved calls hit the command — probed both
   ways).  Probes under =/tmp/org-air-r67/= (table in Summary).
   Nine batch seams, each revert-RED.  State: ready.
+- 2026-07-21: Round 67 impl (impl seat).  Delivered exactly as specced
+  in org-air-inbox.el.  R67-1: =org-air-refile-form-execute= is the
+  two-way dispatch — =:file= set ⇒ today's ONE =org-air-refile-item=
+  call byte-for-byte (same =(or tags :none)= shape, same
+  =--refile-last= recording, + the trailing DEADLINE); =:file= nil +
+  ≥1 dirty field ⇒ =org-air-inbox--apply-item-edits= IN PLACE (the
+  =--at-item-source= semantics inlined — stale guard when =fboundp=,
+  R26-8 marker-or-cons position, =org-back-to-heading= under
+  =org-with-wide-buffer=, triage-undo buffer recorded when =boundp= —
+  mutators in the engine's order todo → priority → tags → category →
+  schedule → deadline inside ONE =atomic-change-group= + ONE
+  =save-buffer=; returns the applied-field list for the completion
+  message); nothing changed ⇒ the gentle "Nothing to change …"
+  no-op (form cleared, no error, no mutation).  R67-2:
+  =:tags-dirty= (raised by the =t= suffix, the =c= extras-merge leg
+  and the =s= =someday= leg) + =:tags-stripped= recorded at
+  =--form-init=; ONE effective-tags rule
+  (=org-air-inbox--form-effective-tags=) shared by the preview and
+  both execute legs — the in-place leg re-attaches the stripped
+  =inbox= at the END, an untouched field writes nothing; "" still
+  means CLEAR (='(4)= prefix) for both date fields.  R67-3: =d= →
+  =org-air-refile-form-deadline= (own =--deadline-options= — the =s=
+  list minus =someday= — =:deadline=/=:deadline-label=, the shared
+  =--schedule-resolved= decoration; =s= untouched); the engine grew
+  the trailing optional DEADLINE applied after =scheduled= inside the
+  transaction; preview line 2 joins SCHEDULED / DEADLINE /
+  =:CATEGORY:= with the =  ·  = separator.  R67-4: heading
+  =Edit / refile "<title>"=, dynamic RET =:description=
+  (refile⁄edit in place), placeholder =(in place — f to refile)=,
+  =k=/=,= vocabulary over the new =--form-write-target=
+  (=(or :file <item file>)=); all =org-air-refile-*= names + the =r=
+  binding kept, no new board key.  Nine executing ERTs T1–T9
+  (tests/org-air-round67-test.el), ALL NINE verified revert-RED
+  against the pre-impl trunk wpkrynnx (r67-8 pins the INJECTED fault
+  string, so it is red against both the trunk guard and a
+  mutate-and-save-per-field impl).  Goldens: ZERO shifts (no fixture
+  renders the transient strings; =make regen-mockups= byte-clean) —
+  known-failures manifest stays EMPTY.  =make clean && make check=
+  GREEN: 829 tests, 0 unexpected, 8 standing GUI skips, lint 0.  One
+  NEW benign compile warning surfaced by the blessed static
+  =org-air-item-deadline= accessor call — the Decision-4 collision
+  becoming visible at =org-air-query.el:198= ("used to take 0 or 1
+  arguments, now takes 1"); non-gating, the rename stays future
+  hardening per Non-goals.  State: complete.

@@ -1,0 +1,433 @@
+#+title: org-air Round 65 — View pane must show the item's BODY: reveal the narrowed subtree pane-locally, keep :PROPERTIES: folded, never touch the source buffer's folds
+#+state: ready
+#+tags: view-pane ux folding robustness board project review revisit
+
+* Summary
+
+REAL USER NEED, verbatim intent: when an item is viewed in the VIEW
+PANE (the =v= command → =org-air-view-pane=), the item's CONTENT must
+NOT be collapsed — the body (and any sub-headings) should be VISIBLE.
+The =:PROPERTIES:= drawer MAY stay collapsed (permissive: keeping it
+folded is fine/desired).  Today the content shows COLLAPSED.
+
+Root cause (MEASURED this round, probes under =/tmp/org-air-r65/=,
+batch Emacs 30.2 / Org 9.7.11): the default interactive pane path
+=org-air-view-pane--render-editable= (org-air-view.el:6755) →
+=org-air-view-pane--indirect= (:6651) creates the pane with
+=make-indirect-buffer BASE NAME t= — and CLONE=t *inherits the base
+file's folded state*, under BOTH org-fold implementation styles:
+
+- =org-fold-core-style= =text-properties= (the Org 9.6 default —
+  i.e. every stock Emacs 29 user): folds are text properties on the
+  SHARED text, and the clone copies the base's
+  =char-property-alias-alist=, so the pane starts out showing the
+  base's folds.
+- =org-fold-core-style= =overlays= (the Org 9.7 default on Emacs ≥
+  29 — i.e. every stock Emacs 30 user): folds are overlays, and
+  since the Emacs 29 itree overlay rewrite =make-indirect-buffer=
+  with CLONE=t *COPIES the base buffer's overlays into the indirect
+  buffer* (probe below) — so the pane starts out folded here too.
+
+After =org-narrow-to-subtree= nothing unfolds the body — the pane
+shows a bare collapsed heading.  The read-only snapshot path
+(=--render-snapshot= :6724 / =--entry-text= :6582) is a text COPY and
+already shows the body (probe S5 below, both styles) — but it dumps
+the =:PROPERTIES:= drawer raw.
+
+Deliverables (all inside org-air-view.el's pane internals; no other
+file is touched):
+
+- *R65-1 (editable pane reveal)* — one new never-error helper,
+  =org-air-view-pane--reveal=, called from BOTH narrow sites —
+  =--indirect= (:6651) and the same-file =--renarrow= reuse path
+  (:6769): after narrowing, reveal the subtree content
+  (=org-fold-show-subtree=), THEN re-fold the drawers
+  (=org-fold-hide-drawer-all=, zero-arg).  All fold operations run
+  IN THE PANE BUFFER ONLY; the source buffer's fold state is
+  provably untouched (probe section below).
+- *R65-2 (snapshot consistency)* — the read-only snapshot keeps
+  showing the body (pinned by a new assert; it already does) and
+  gains a DISPLAY-ONLY fold of the =:PROPERTIES:= drawer(s): an
+  =invisible= text property + invisibility-spec entry over the drawer
+  interior.  Buffer BYTES are unchanged, so every pane golden
+  (=entry-view-pane.txt=, =entry-view-dead.txt=) stays byte-identical
+  (probe E3: byte-equality holds; =equal= on strings ignores text
+  properties, so the existing fixture comparisons are untouched).
+  NO golden shifts — nothing to flag.
+
+Because =v= is bound ONCE on =org-air-view-core-map=
+(org-air-view.el:1560) and the board, project, review and revisit
+maps all inherit it via =set-keymap-parent= (org-air-project.el:2335,
+org-air-review.el:1640, org-air-revisit.el:976, board :1574), and the
+fix lives BELOW the shared =--render= funnel (:6793), every surface
+that opens the pane — including pane follow — is fixed by the same
+two call sites.
+
+Measured this round (probes under =/tmp/org-air-r65/=, run through
+the repo harness =tests/org-air-test-init.el=):
+
+| Probe (batch Emacs 30.2, Org 9.7.11)                         | text-properties        | overlays               |
+|--------------------------------------------------------------+------------------------+------------------------|
+| S1 repro: pane on overview-folded base, TODAY's code          | body+child INVISIBLE   | body+child INVISIBLE   |
+| S2 fix: pane-local show-subtree + hide-drawer-all             | body vis, drawer invis | body vis, drawer invis |
+| S2 …base afterwards                                           | folds intact, unmodified | folds intact, unmodified |
+| S4 reverse leak: base drawer OPEN, pane refolds drawer        | base drawer stays OPEN | base drawer stays OPEN |
+| S5 snapshot =--entry-text= of a folded base                   | body vis, 0 invisible chars | body vis, 0 invisible chars |
+| S6 =--renarrow= to a second heading + reveal                  | body vis, drawer invis, base intact | same     |
+| E1 child item buried under a WIDER enclosing parent fold      | head+body+grandchild vis, base intact | same    |
+| E2 headingless file-item (wide branch), =org-fold-show-all=   | prose vis, no error, base intact | same         |
+| E3 snapshot display-only drawer fold prototype                | bytes unchanged, drawer invis, body vis, golden-safe | n/a |
+| Naive alternative: reveal in the BASE before cloning          | LEAKS (base body visible) — the RED anchor | —      |
+
+org-ql/org only: everything here is org core (=org-fold=,
+org-fold-core, =make-indirect-buffer=) — no org-agenda, no new
+dependency, no query-engine change.
+
+SPEC ONLY — no =.el= or test edits in this change.
+
+* Root cause, precisely
+
+=org-air-view-pane--indirect= (:6651):
+
+#+begin_example
+(make-indirect-buffer base NAME t)   ; CLONE = inherit org-mode
+...
+(org-narrow-to-subtree)              ; nothing unfolds afterwards
+#+end_example
+
+Why the pane inherits the fold — per style:
+
+- *text-properties style* (Org 9.6 default; =defcustom
+  org-fold-core-style= flipped its default to =overlays= only in Org
+  9.7, and only for Emacs ≥ 29): org-fold stores folds as text
+  properties named by buffer-unique symbols
+  (=org-fold-core-get-folding-property-symbol=), routed into
+  =invisible= via a buffer-local =char-property-alias-alist=.  Text
+  properties live on the text, which an indirect buffer SHARES; and
+  CLONE=t copies the base's local variables — including
+  =char-property-alias-alist= — so the fresh pane resolves the BASE's
+  fold properties and displays folded.
+- *overlays style* (Org 9.7 default on Emacs ≥ 29): folds are
+  overlays.  Overlays are per-buffer, BUT since the Emacs 29 itree
+  overlay rewrite =make-indirect-buffer= with CLONE=t *copies* every
+  base overlay into the new indirect buffer.  Probe (Emacs 30.2):
+  the copy is a DISTINCT object (=eq= → nil), CLONE=nil copies
+  nothing, deleting the pane's copy leaves the base's overlay alive,
+  and overlays created in the base AFTER the clone never appear in
+  the pane.  So the pane starts with its own private copy of the
+  base's fold overlays — folded.
+
+Either way: the user keeps their source file at =org-startup-folded=
+/ overview, presses =v=, and the pane shows a collapsed heading with
+no body.
+
+* The leak gotcha, investigated (why a pane-local reveal is safe)
+
+The obvious fix — unfold in the pane — looks dangerous under
+text-properties style: fold state is text properties on SHARED text,
+so a naive expectation is that =org-fold-show-subtree= in the pane
+strips the BASE's fold properties and unfolds the user's real source
+buffer.  Measured, that does NOT happen at org-air's platform floor
+(=Package-Requires: ((emacs "29.1") (org "9.6") …)=), for two
+platform reasons — both verified by probe:
+
+1. *Emacs ≥ 29 runs =clone-indirect-buffer-hook= from
+   =make-indirect-buffer= itself* (NEWS.29: "The
+   'clone-indirect-buffer-hook' is now run by 'make-indirect-buffer'").
+   =org-fold-core-initialize= registers
+   =org-fold-core-decouple-indirect-buffer-folds= on that hook
+   buffer-locally in every Org buffer; CLONE=t copies the local hook,
+   so the decouple runs AT PANE CREATION.  Probe: immediately after
+   =org-air-view-pane--indirect= returns, (a) the pane is registered
+   in the base's =org-fold-core--indirect-buffers= (both styles), and
+   (b) under text-properties style the pane's
+   =char-property-alias-alist= =invisible= entry already differs from
+   the base's — the fold state has been *copied onto pane-unique
+   property symbols* (preserving the folded appearance, which is
+   exactly the bug's mechanics) and every subsequent fold/unfold in
+   the pane touches only the pane's own symbols.  Belt-and-braces:
+   even if the hook were somehow skipped, org-fold-core's
+   =org-fold-core--property-symbol-get-create= performs the same
+   decouple lazily on the FIRST fold operation issued in the pane
+   (the "carried-over properties" branch), i.e. before our reveal
+   could ever touch a base-owned property.
+2. *Under overlays style the pane's fold overlays are private
+   copies* (itree CLONE copy, probe above), so removing/adding them
+   in the pane cannot affect the base by construction.
+
+Probe results S2/S4/S6/E1 confirm end to end, under BOTH styles: after
+the pane reveals the subtree AND re-folds the drawers, the base
+buffer's body/child/preamble stay invisible exactly as before, an
+OPEN base drawer stays open (no reverse leak from the pane's drawer
+re-fold), and =buffer-modified-p= on the base stays nil (org-fold
+wraps property writes in =with-silent-modifications=; overlays never
+modify).
+
+Chosen mechanism, argued against the alternatives:
+
+- *In-pane org-fold reveal (CHOSEN)*: zero new machinery; uses the
+  documented org-fold API whose per-buffer isolation is a designed,
+  probed property at org-air's exact platform floor (Emacs 29.1 is
+  the first release with BOTH the hook-on-make-indirect-buffer and
+  itree overlay copy; Org 9.6 is the first with org-fold-core and its
+  decouple).  The isolation is additionally PINNED by leak ERTs under
+  both styles (test plan), so a platform regression turns the gate
+  red instead of silently un-folding user files.
+- /Overlay-based local reveal (manual overlays over the fold
+  regions)/: rejected — re-implements org-fold's display layer,
+  fights org's own fold bookkeeping inside an EDITABLE buffer (org
+  commands in the pane would still consult org-fold state, now
+  disagreeing with what the user sees), and buys nothing the probed
+  isolation doesn't already give.
+- /Save + restore the base's fold spec around the reveal/: rejected —
+  racy by design (the pane is long-lived and editable; "around" has
+  no bracket), O(file) fold-state capture per pane open on large
+  files (R53), and needless: the state never becomes shared in the
+  first place.
+- /Switch the default pane to the snapshot path/: rejected — regresses
+  R19-3's headline feature (live write-through editing in the pane).
+
+The naive alternative — reveal in the BASE (before/instead of the
+pane) — measurably leaks (probe: base body becomes visible), which is
+precisely the anti-behavior the leak ERTs assert against; it anchors
+their RED story.
+
+* Design
+
+** R65-1: =org-air-view-pane--reveal= + the two call sites
+
+New internal helper (org-air-view.el, next to =--indirect=):
+
+- =org-air-view-pane--reveal (&optional wide)= — "Reveal the pane's
+  content, then re-fold drawers; pane-buffer-local; never errors."
+  Runs in the current (pane) buffer:
+  1. Whole body wrapped in =(condition-case nil … (error nil))= —
+     R53's never-error posture: any failure degrades to today's
+     behavior (a folded pane), never a broken =v=.
+  2. Narrowed branch (WIDE nil; point is at =point-min= = the
+     heading, exactly where both call sites leave it):
+     =(org-fold-show-subtree)= — reveals the heading's ENTIRE
+     subtree: body, sub-headings AND their bodies.  This is why
+     show-subtree is chosen over show-entry + show-children: the
+     user's need is "the body (and any sub-headings) VISIBLE", and
+     =org-fold-show-children= leaves the children's own bodies
+     folded while =org-fold-show-entry= reveals only the first body.
+     show-subtree also correctly splits a fold that STARTS BEFORE the
+     narrow (viewing a child item buried under an overview-folded
+     parent — probe E1: heading, body and grandchild all reveal).
+  3. Wide branch (WIDE non-nil; the heading-less / pos-nil file-head
+     case, where =--indirect= leaves the buffer wide):
+     =(org-fold-show-all)= — there is no subtree to bound; the pane
+     already shows (and font-locks) the whole file in this branch, so
+     the O(buffer) reveal adds no new cost class (R53 note below).
+  4. THEN =(org-fold-hide-drawer-all)= — ZERO-ARG deliberately: the
+     Org 9.6 signature takes no arguments and the 9.7 BEGIN/END are
+     optional, and under the subtree narrowing the zero-arg call is
+     already bounded to =point-min=..=point-max= = the subtree.
+     Re-folds the =:PROPERTIES:= drawer(s) — including sub-headings'
+     — plus any other drawers (LOGBOOK etc.), matching Org's own
+     cycle idiom (reveal, then =org-cycle-hide-drawers=).  Probed:
+     the re-fold is pane-local too (S4 — an OPEN drawer in the base
+     stays open).
+  5. API floor + fallback: org-air's floor (Org 9.6) has the whole
+     =org-fold-*= API, but follow the existing defensive precedent at
+     org-air-view.el:9790 (=org-fold-show-context= vs
+     =org-show-context=): each call goes through an =fboundp= ladder
+     — =org-fold-show-subtree= → =org-show-subtree=,
+     =org-fold-show-all= → =org-show-all=,
+     =org-fold-hide-drawer-all= → =(org-cycle-hide-drawers 'all)= —
+     so an exotic older external Org still degrades sanely (where
+     pre-org-fold Org folds with overlays, which Emacs ≥ 29 clones
+     privately — isolation still holds).
+
+Call site 1 — =org-air-view-pane--indirect= (:6651): in the
+=with-current-buffer ind= block, after the narrow/widen decision and
+the final =(goto-char (point-min))=, call
+=(org-air-view-pane--reveal WIDE)= where WIDE is non-nil in the
+heading-less/pos-nil branches.  Docstring gains the R65 contract
+sentence (content revealed, drawers re-folded, pane-local).
+
+Call site 2 — =org-air-view-pane--renarrow= (:6769): same call, same
+placement — after =(goto-char (point-min))=, before the header-line
+refresh; WIDE non-nil in its =org-before-first-heading-p= branch.
+The reuse path may carry the PREVIOUS item's reveal state outside the
+new narrow — harmless (invisible outside the narrow, pane-private)
+and probed (S6: second heading reveals correctly on reuse).
+
+Explicitly UNCHANGED: the =make-indirect-buffer … t= call (CLONE=t is
+what makes edits+modes work and, on Emacs ≥ 29, what triggers the
+fold decouple), the narrowing semantics, point placement, chrome,
+teardown, follow debounce, and the =--render= funnel logic.
+
+** R65-2: snapshot — body pinned visible, =:PROPERTIES:= folded display-only
+
+Probe S5 confirms the snapshot ALREADY shows the body under both
+styles: =--entry-text='s =buffer-substring= does carry the base's
+fold text properties (text-properties style), but they are inert in
+the =*org-air-view*= buffer — nothing aliases them into =invisible=
+and no fold overlay is copied by string insertion.  R65 pins this
+with an assert (T5) so it can never silently regress.
+
+Decision for the raw =:PROPERTIES:= dump: *FOLD, don't omit.*
+Omitting drawer lines would change buffer BYTES — breaking the pane
+byte goldens, the R58 printable bookmark stash context and plain
+copy-out of the snapshot text.  Instead =--render-snapshot= (:6724),
+after inserting the entry text and applying =--apply-max-lines=,
+walks the inserted region for property drawers
+(=^[ \t]*:PROPERTIES:[ \t]*$= … matching =^[ \t]*:END:[ \t]*$=; skip
+unterminated) and puts a display-only
+='invisible 'org-air-pane-drawer= text property from the end of the
+=:PROPERTIES:= line through the end of the =:END:= line, with
+=(add-to-invisibility-spec '(org-air-pane-drawer . t))= in the pane
+buffer (ellipsis shown, matching the folded look).  Scope: property
+drawers only — the minimal, prompt-scoped consistency fix (the
+editable pane folds all drawers because that is org's own one-call
+idiom; the deliberate asymmetry is called out here and is fine under
+the permissive drawer contract).  Probe E3: buffer bytes unchanged;
+=equal= on strings ignores text properties, so the R16 golden
+comparisons (=buffer-substring-no-properties= / string =equal=) are
+untouched.  The truncation marker interplay is nil: the fold is
+applied AFTER =--apply-max-lines= on whatever drawer lines survive.
+Goldens/fixtures: ZERO shifts expected; if any fixture run ever
+shows a diff here, that is a spec violation, not a re-bless.
+
+** Scope: everywhere =v= opens a pane
+
+No per-view work: =v= → =org-air-view-pane= is bound once on
+=org-air-view-core-map= and inherited by the board, project, review
+and revisit keymaps; every render funnels through
+=org-air-view-pane--render= (:6793) into exactly the three functions
+above (=--indirect= / =--renarrow= / =--render-snapshot=), including
+the follow-mode re-renders.  T7 guards the funnel.
+
+** Edge cases (all probed or bounded)
+
+- Child item under a wider enclosing fold (E1) — reveals fully;
+  org-fold splits the pane's private fold at the narrow boundary.
+- Heading-less file / pos-nil file head (E2) — wide branch reveals
+  prose, re-folds drawers, no error; R53 file-items covered.
+- Item with no drawer / no body / no children — show-subtree and
+  hide-drawer-all are no-ops; nothing signals.
+- Drawer OPEN in the source (S4) — pane re-folds its copy; source
+  drawer stays open (no reverse leak).
+- Unterminated =:PROPERTIES:= (no =:END:=) in the snapshot — no
+  property applied for that drawer (never-error).
+- Repeated =v= / follow on the same file (S6) — the =--renarrow=
+  reuse path re-reveals per item; stale reveal state outside the
+  narrow is invisible and pane-private.
+- R53 cost: no scan, no extra file visit, no timer; narrowed-branch
+  work is O(subtree); wide-branch O(file) matches the branch's
+  existing font-lock cost; never-error wrapper throughout.
+
+* Test plan — batch ERT seams (=tests/org-air-round65-test.el=)
+
+org-fold visibility is fully headless-checkable: =invisible-p= /
+=org-fold-folded-p= consult buffer state (text properties + alias
+alist + overlays + =buffer-invisibility-spec=), no redisplay needed —
+every probe above ran =emacs -Q --batch=.  The editable-path
+functions are plain functions, callable in batch even though
+=--render= itself gates the editable pane on =(not noninteractive)=
+(tests call =--indirect= / =--renarrow= directly — the established
+R19/R28 idiom).  Shared fixture: an org file with =* TODO Parent= +
+=:PROPERTIES:= drawer + body paragraph + =** Child= sub-heading (with
+its own body) + a second =* Other= heading with its own drawer/body.
+Base fold recipe for RED-ability: =(org-fold-show-all)= then
+=(org-fold-hide-sublevels 1)= — outline folded (so the reveal is
+load-bearing) with the drawer spec OPEN underneath (so the drawer
+re-fold is load-bearing).
+
+- *T1 =r65-1-pane-reveals-body-drawer-stays-folded=* (default style —
+  =overlays= on the gate's Emacs 30): folded base → real
+  =org-air-view-pane--indirect= → in the pane: body paragraph NOT
+  =invisible-p=, =** Child= heading and its body NOT invisible,
+  drawer interior =invisible-p= AND =(org-fold-folded-p POS 'drawer)=
+  (via the editable path this is a real drawer fold, not display
+  sugar).  REVERT-RED: drop the =--reveal= call → body invisible
+  (probe S1 row); drop the =hide-drawer-all= step → drawer visible
+  (base recipe leaves it open, S4 shape).
+- *T2 =r65-2-pane-reveal-never-leaks-to-source=* (default style):
+  after T1's ops — in the BASE: body/child/preamble =invisible-p=
+  values byte-for-byte as captured BEFORE the pane opened, the open
+  drawer STILL open, =buffer-modified-p= nil.  RED anchor: the naive
+  reveal-in-the-base implementation (probed: leaks) fails this
+  immediately; thereafter it is the pinned no-leak guard under the
+  gate's default style.
+- *T3 =r65-3-pane-reveal-text-properties-style=*: T1+T2's asserts
+  repeated with =(let ((org-fold-core-style 'text-properties)) …)=
+  wrapped around the ENTIRE scenario (base creation through
+  assertion — the style var is read at both fold-write and
+  fold-read time), pinning the stock Emacs 29 / Org 9.6 user.
+  REVERT-RED identical to T1/T2 (probe S1/S2 text-properties rows).
+- *T4 =r65-4-renarrow-rereveals=*: one pane on =Parent=, then real
+  =org-air-view-pane--renarrow= to =Other= (same-file reuse, non-nil
+  return) → =Other='s body visible, =Other='s drawer folded, base
+  untouched (S6).  REVERT-RED: drop the =--reveal= call in
+  =--renarrow= only — T1 stays green, T4 goes red (proves BOTH call
+  sites are load-bearing).
+- *T5 =r65-5-snapshot-body-visible-drawer-display-folded=*: batch
+  =org-air-view-pane--render= (falls to the snapshot) on the folded
+  base → pane buffer contains the body text and it is NOT
+  =invisible-p= (pins today's behavior, both branches of the
+  prompt); drawer interior IS =invisible-p= via the
+  =org-air-pane-drawer= spec entry; =buffer-substring-no-properties=
+  of the pane equals the pre-R65 bytes (in-test byte capture — the
+  golden discipline in miniature).  REVERT-RED: drop the R65-2
+  property walk → drawer interior visible.  The existing R16 golden
+  ERT (=entry-view-pane.txt=) must stay GREEN UNTOUCHED — the
+  byte-identity gate.
+- *T6 =r65-6-headingless-file-item-reveals=*: heading-less
+  =#+title:= note (R53 file-item shape), pos-nil pane → wide branch:
+  prose visible, drawer folded pane-side, base untouched, no error
+  signaled (E2).  REVERT-RED: drop the wide-branch reveal.
+- *T7 =r65-7-v-is-one-command-on-all-four-hosts=*: =lookup-key= on
+  the board, project, review and revisit mode maps each resolves
+  =v= to the ONE =org-air-view-pane= command (guards "applies
+  wherever =v= opens a pane" against a future host forking the
+  binding above the fixed funnel).  REVERT-RED: rebind =v= in any
+  host map.
+
+GUI-only residue (user-confirm, not ERT-able): the actual ellipsis
+glyph rendering and the window split — both unchanged by this round.
+Manifest stays EMPTY; goldens/fixtures byte-identical (T5 enforces;
+no legitimate shift exists to flag).
+
+* Non-goals
+
+- No change, ever, to the fold state of the user's source buffers
+  (that is the round's central invariant, not a feature).
+- No new fold customization knobs; no re-fold of the pane after user
+  edits inside it (the user's in-pane folding is theirs).
+- No snapshot folding of non-property drawers; no drawer OMISSION
+  anywhere (bytes are sacred to the goldens/bookmarks).
+- No org-agenda, no new dependencies, no query-engine change
+  (org-ql remains the only query path).
+
+* Compatibility
+
+- *R53 (never-hang / never-error)*: no scans, no extra file visits,
+  O(subtree) work in the narrowed pane, the wide branch stays in its
+  existing O(file) cost class, and the whole reveal is
+  condition-case-guarded — a fold failure yields today's folded pane,
+  never a broken =v=.
+- *R64 (refile form, parallel round)*: disjoint — R64 lives in
+  org-air-inbox.el + the transient form; R65 touches only the three
+  pane internals in org-air-view.el.  No shared functions, no
+  ordering constraint.
+- *R16/R19/R20 pane contracts*: narrowing, write-through editing,
+  chrome, teardown, follow reuse and every byte golden preserved;
+  R35.1 keybinding gating untouched (the fix is render-side, not
+  key-side).
+- *Platform floor*: =emacs 29.1 / org 9.6= is exactly the floor
+  where both isolation guarantees hold (make-indirect-buffer runs
+  clone-indirect-buffer-hook; itree clones copy overlays; org-fold
+  decouples indirect fold state) — verified by probe on 30.2/9.7.11
+  and pinned across both fold styles by T2/T3.
+
+* Implementation History
+
+- 2026-07-21: Round 65 spec (design seat).  Probes under
+  =/tmp/org-air-r65/= (probe-fold.el, probe-edge.el): repro under
+  both fold styles, pane-local reveal no-leak proof, overlay
+  clone-copy semantics, decouple-at-creation verification, naive
+  reveal-in-base leak (RED anchor), snapshot byte-safety.  State →
+  ready.

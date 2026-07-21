@@ -1,5 +1,5 @@
 #+title: org-air Round 66 — Refile to a new file must synthesise Air frontmatter: derived #+title, #+state from a defcustom, #+FILETAGS from the heading's tags
-#+state: ready
+#+state: complete
 #+tags: inbox refile robustness board project
 
 * Summary
@@ -482,3 +482,6 @@ re-bless.  Known-failures manifest stays EMPTY.
   specced).  Goldens: ZERO shifts, exactly as predicted —
   known-failures manifest stays EMPTY.  make clean && make check
   GREEN: 819 tests, 0 unexpected, 8 standing GUI skips, lint 0.
+
+* History
+- 2026-07-21: State: ready → complete.

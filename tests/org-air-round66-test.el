@@ -59,6 +59,14 @@
 ;;         `#'-prefixed user tag round-trips through
 ;;         `org-air-project--read-doc', and the moved heading's own tag
 ;;         list is untouched by synthesis.
+;;   r66-10 STEP-0 ORDER LOCK (audit R66) — synthesis runs BEFORE
+;;         `--resolve-target' (the spec's pos-1 marker hazard, Decision
+;;         2), pinned by BYTES: a parent heading resolved at position 1
+;;         of a frontmatter-less file still receives the item INSIDE
+;;         its subtree (before the next sibling) — a resolve-first
+;;         implementation strands the parent marker on the inserted
+;;         `#+title:' line and misfiles the item at buffer end, under
+;;         the LAST top-level heading (measured).
 
 ;;; Code:
 
@@ -545,6 +553,50 @@ round-trip."
         (should (string-prefix-p "#+title: Tagless thing\n#+state: draft\n\n"
                                  text))
         (should-not (string-match-p "FILETAGS" text))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r66-10 — step 0 BEFORE resolve: the pos-1 marker hazard, pinned
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r66-10-synthesis-before-resolve-pos1-parent ()
+  "The engine ORDER is observable and pinned: frontmatter synthesis
+runs BEFORE `--resolve-target' (spec Decision 2 — the pos-1 marker
+hazard).  In a frontmatter-less existing file whose FIRST heading (at
+position 1) is the refile parent, a resolve-first implementation
+strands the parent (MARKER . LEVEL) marker on the inserted `#+title:'
+line (a marker does not advance past an insertion AT its own
+position); on Org 9.7 the paste then degrades via
+`org-back-to-heading-or-point-min' to END OF BUFFER and the item is
+MISFILED under the LAST top-level heading instead of the named parent
+\(measured: it lands under `* Zother').  Pinned by bytes: the block on
+top exactly once, the item INSIDE `* Infra' — after it, BEFORE its
+`* Zother' sibling — re-leveled to `**'.  RED under a resolve-first
+mutant; RED pre-R66 (no block at all)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r66--with-tree
+      `(("inbox.org" . ,org-air-r66--repro-inbox)
+        ("hazard.org" . "* Infra\nBody.\n* Zother\nOther body.\n"))
+    (let ((target (expand-file-name "hazard.org" org-air-r66--ws)))
+      (org-air-refile-item
+       (org-air-r66--item org-air-inbox-file "Set up syncthing")
+       target "Infra")
+      (let ((text (org-air-r66--text target)))
+        ;; the block on top, exactly once.
+        (should (string-prefix-p
+                 "#+title: Set up syncthing\n#+state: draft\n#+FILETAGS: :#Nix:\n\n"
+                 text))
+        (should (= 1 (org-air-r66--count "#+title:" text)))
+        ;; the item INSIDE the pos-1 parent's subtree: after `* Infra',
+        ;; BEFORE the `* Zother' sibling, re-leveled to `**'.
+        (let ((infra (string-match "^\\* Infra$" text))
+              (item (string-match
+                     "^\\*\\* TODO \\[#A\\] Set up syncthing" text))
+              (zother (string-match "^\\* Zother$" text)))
+          (should infra)
+          (should item)
+          (should zother)
+          (should (< infra item))
+          (should (< item zother)))))))
 
 (provide 'org-air-round66-test)
 ;;; org-air-round66-test.el ends here

@@ -1,0 +1,29 @@
+#+title: Refile: auto-create a brand-new target directory
+#+state: ready
+#+FILETAGS: :inbox:refile:
+
+* Summary
+
+The R64 one-shot refile engine creates a missing target FILE and missing
+target HEADINGS (=org-air-inbox--ensure-olp=, root-down), but not a missing
+target *directory*: =org-air-refile-item= goes straight to
+=find-file-noselect= on the target path, so refiling into a file under a
+directory that does not exist yet fails at save time.  The inbox's own
+=org-air-inbox--ensure-file= already does =(make-directory
+(file-name-directory file) t)= — the engine should extend the same courtesy
+to refile targets.
+
+* Proposal
+
+- In the execute path of =org-air-refile-item= (org-air-inbox.el ~482),
+  ensure the target file's directory exists before =find-file-noselect=:
+  =(make-directory (file-name-directory target-file) t)=.
+- Creation stays deferred to execute (the R64 rule: nothing mutates at
+  prompt time); the picker may show the =(creates: …)= annotation for the
+  directory segment as it already does for outline segments.
+- ERT: refile to =brand-new-dir/new-file.org= succeeds; prompt-time
+  no-mutation assertions stay green.
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

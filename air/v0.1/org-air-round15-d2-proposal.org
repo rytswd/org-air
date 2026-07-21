@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-15 D-P2 — rail/divider architecture (PROPOSAL, approval gate)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:architecture:proposal:
 
 * Status: PROPOSAL — approval gate
@@ -173,3 +173,7 @@ two-buffer model is rejected.
   migration and a per-buffer-dump + window-config testability plan; B2 as a
   stopgap if the two-buffer model is rejected.  APPROVAL GATE — no impl
   routed, no fixtures blessed.  Set =#+state: ready=.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+- 2026-07-21: State: ready → complete.

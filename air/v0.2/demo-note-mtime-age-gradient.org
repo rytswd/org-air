@@ -1,0 +1,29 @@
+#+title: Demo corpus: backdate note mtimes for a realistic age gradient
+#+state: ready
+#+FILETAGS: :demo:
+
+* Summary
+
+The demo generator (=examples/demo/generate.py=) writes every note "now", so
+all file mtimes are identical and the Revisit surface renders a flat age
+column — screenshots cannot show the dusty-first ordering (=dusty 2y 4m= …)
+that is the point of the view.
+
+* Proposal
+
+- After writing each demo file, set its mtime to a spread of backdates
+  (=os.utime=), e.g. derived from the entry's existing =created= offset so
+  the corpus tells one coherent story (stale items are also the dusty ones).
+- Keep the spread deterministic (fixed offsets, not random) so re-generated
+  screenshots are reproducible.
+- Scope: the generator only — no elisp change; the board/Revisit pick the
+  gradient up through the normal =:mtime= scan.
+
+* References
+
+- =v0.1/org-air-round54-design.org= (age chip = now − =:mtime=).
+- =examples/demo/README.org=.
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

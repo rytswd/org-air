@@ -1,0 +1,27 @@
+#+title: Review: smarter default rollup per range (week-of for year)
+#+state: draft
+#+FILETAGS: :review:polish:
+
+* Summary
+
+R62's duration-range ladder keeps ='day= as the default Completed rollup at
+every range: over a year that groups Completed into up to 365 day rows —
+correct, verbose, and one =f= away from tag/directory/origin.  The R62
+design explicitly left "a smarter default per range (e.g. week-of for year)"
+out of scope as a future nicety.
+
+* Proposal (sketch)
+
+- Derive the default rollup from the active range scale: day for
+  week/fortnight, week-of for quarter/year (month open to design).
+- Explicit user choice (=f=) still wins and is remembered per the existing
+  session behaviour; bookmark range carry composes unchanged.
+
+* References
+
+- =v0.1/org-air-round62-design.org= (rollup note under the ladder section).
+- Fable review =/tmp/org-air-ace/fable-review/REPORT-r62.md= (note 3).
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

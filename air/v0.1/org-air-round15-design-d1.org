@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-15 D-P1 — reserve the TODO-keyword column so titles align (design)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:alignment:v0.4:
 
 * Summary
@@ -109,3 +109,7 @@ fixtures.
   repeat reservation, so all titles share one left edge.  Pure text, V6
   holds; keyword-less + short-keyword rows regen → BLESS follows with the
   change-id.  Set =#+state: ready=.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+- 2026-07-21: State: ready → complete.

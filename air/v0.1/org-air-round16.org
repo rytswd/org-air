@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-16: native side-window UX + bottom view pane + project sorting
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:windows:project:sorting:
 
 * Summary
@@ -78,3 +78,9 @@ the active sort key (P4) as the secondary.  So grouping + sorting compose.
 - (pending) round-16 opened after the D-P2 side-window shipped dormant;
   user reports the forceful side-window is buggy (toggle/other-window/
   dimmer) and wants native UX + a bottom view pane + project sorting.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+
+* History
+- 2026-07-21: State: ready → complete.

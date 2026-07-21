@@ -1,0 +1,27 @@
+#+title: Dropped rows: faded re-pillify variant for tag/date pills (if the pills still shout)
+#+state: draft
+#+FILETAGS: :project:ui:polish:
+
+* Summary
+
+R48 greys dropped doc rows via the title + flex pad (dim + strike); the
+pre-faced tag/date pill cells keep their own full-strength pill faces.  The
+design ruled the title band dominant enough and explicitly noted a "faded
+re-pillify variant" for the pills as out of scope, "noted for a future
+round if the pills still shout".  Conditional polish — take it up only if
+dogfooding confirms the pills still visually dominate dropped rows.
+
+* Proposal (sketch)
+
+- A faded pill variant (re-rasterised once per face, honouring the R47
+  no-per-motion-rasterisation lock) applied to tag/date pills on dropped
+  rows, wherever dropped rows are visible (expanded folds, collapse nil,
+  filter-revealed).
+
+* References
+
+- =v0.1/org-air-round48-design.org= (scope note under the grey-out item).
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

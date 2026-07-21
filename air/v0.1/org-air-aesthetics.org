@@ -1,5 +1,5 @@
 #+title: org-air v0.2.x — aesthetic hardening (S2/S3/S5/S6)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:ux:visual:faces:
 
 * Summary
@@ -298,3 +298,7 @@ rule as a faded hairline and the counts as quiet faded/popout numbers
   their real cell faces (event/today) so the legend doubles as a key.
   Face-only — legend text byte-identical, fixtures unaffected; gate
   103/103.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+- 2026-07-21: State: ready → complete.

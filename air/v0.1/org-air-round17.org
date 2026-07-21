@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-17: origin column must be bounded (long Denote filenames break titles)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:bug:critical:
 
 * Summary
@@ -51,3 +51,9 @@ de-slug consistently).
 * Implementation History
 - (pending) round-17 opened from screenshot 2026-06-25 00-47-41: long
   Denote filenames collapse all titles to TODO…
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+
+* History
+- 2026-07-21: State: ready → complete.

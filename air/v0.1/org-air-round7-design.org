@@ -1,5 +1,5 @@
 #+title: org-air v0.3 round-7 — readability, calendar focus, footer (design)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:ux:visual:v0.3:
 
 * Summary
@@ -176,3 +176,7 @@ fallback.
   created, day-nav, scoped render).  Added the face-only bits (today bg,
   day-header) to =org-air-faces.el=; flagged byte/gui per item.  Set
   =#+state: ready=.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+- 2026-07-21: State: ready → complete.

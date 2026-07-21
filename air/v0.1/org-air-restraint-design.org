@@ -1,5 +1,5 @@
 #+title: org-air v0.3 round-6 — visual restraint (design)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:visual:faces:v0.3:
 
 * Summary
@@ -136,3 +136,7 @@ width the tag run shrinks with a trailing =…= (D2); origin flush-right.
   placement (byte \u2192 regen) to kill the title\u2192tags void, and V3 removal of
   the half-drawn T7 outer frame (keep the in-buffer hairlines + single
   divider).  V4: colour via face, not chrome.  Set =#+state: ready=.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+- 2026-07-21: State: ready → complete.

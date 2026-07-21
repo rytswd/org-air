@@ -1,0 +1,32 @@
+#+title: v0.1 — the shipped 0.1 milestone (the full round-by-round build)
+
+v0.1 tracks everything that shipped on main for org-air 0.1: the complete
+round-by-round build (rounds 1–65, all integrated and green).
+
+The directories =v0.1/=…=v0.5/= used to be *iteration* buckets, not releases;
+they were consolidated here on 2026-07-21.  Filenames keep their round numbers
+so the build order stays readable.  Genuine follow-ups deferred out of 0.1
+live in =../v0.2/= (see its =OVERVIEW.org=).
+
+* Map of the milestone
+
+| Phase                  | Docs / rounds                                                                              |
+|------------------------+--------------------------------------------------------------------------------------------|
+| Foundation             | =org-air-core=, =org-air-design=, =org-air-layout*=, =org-air-aesthetics=, =org-air-ux-hardening=, =org-air-modern*=, =org-air-restraint*=, round 7 (visual identity, full-viewport layout, restraint, readability, calendar) |
+| Board / rail / layout  | rounds 8–15 (project mode, svg pills, inspector, responsive rail, side-window rail + window-divider) and rounds 16–41 (native side-window UX, filters, chrome/header geometry hardening, pixel-true widths) |
+| Scale / never-hang     | rounds 20, 42, 45, 47, 53, 56, 57 (dogfood stability, mtime-incremental refresh, cache-first launch, hover perf, work-buffer scan + data-pure render at 5000 files, progressive paint, user todo-vocabulary merge) |
+| Note-types / Revisit   | rounds 54, 59 (task/knowledge/journal model, stale-for-dated-only, the Revisit surface, container headings are structure) |
+| Review surface         | rounds 61–63 (org-air-review retrospective, duration-range ladder, rail single-owner + two-belt stability, main-pane redesign) |
+| Inbox + refile         | =org-air-triage=, rounds 19, 23, 24, 64 (triage flow, refile UX, heading completion, the one-shot transient refile with nested path targets) |
+| Bookmarks / exclusion  | rounds 58, 60 (Emacs bookmark support for every view, =org-air-exclude-regexps= pruned at discovery) |
+| View pane              | rounds 16, 18, 19, 65 (bottom view pane, editable pane, pane-local body reveal)             |
+
+Docs named =…-design= are the design-seat specs; the round docs without the
+suffix are the findings/impl companions from the earlier rounds.
+
+* Release checklist (ops — tracked outside the feature docs)
+
+- Tag =v0.1.0=.
+- Make the repository public.
+- MELPA PR.
+- Screenshot render pass for the README.

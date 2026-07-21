@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-16 DESIGN: native side-window + bottom view pane + project sorting
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:windows:project:sorting:design:v0.5:
 
 * Status
@@ -485,3 +485,9 @@ org-air's territory.  org-air ships no dimmer integration.
   stable =*org-air= buffer-naming contract in interface-design.md (board /
   project / rail / view), with the user-side dimmer-exclusion snippet; org-air
   ships no dimmer integration of its own.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+
+* History
+- 2026-07-21: State: ready → complete.

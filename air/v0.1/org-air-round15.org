@@ -1,5 +1,5 @@
 #+title: org-air v0.4 round-15: title alignment + rail/divider architecture proposal
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:architecture:
 
 * Summary
@@ -54,3 +54,9 @@ uses REAL Emacs side-windows + window borders.
 
 * Implementation History
 - (pending) round-15 opened from round-13 dashboard screenshot.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+
+* History
+- 2026-07-21: State: ready → complete.

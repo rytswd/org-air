@@ -1,0 +1,26 @@
+#+title: Project search: match doc BODY content (heavier follow-up to R24-6)
+#+state: draft
+#+FILETAGS: :project:search:
+
+* Summary
+
+R24-6's project search matches title + origin/path + tag names — cheap, no
+file read per keystroke.  The design's open question proposed, and deferred,
+body search: "a body grep is a heavier follow-up (would need an org-ql
+content query / a cache) — note it for a later round".
+
+* Proposal (sketch)
+
+- Extend the search vocabulary with doc body content, backed by a cached
+  content index (built at scan time under the mtime-cache law) rather than
+  a per-keystroke grep — the R53 never-hang laws apply.
+- Bare tokens gain body hits; =#tag= tokens stay tag-only; ranking keeps
+  title/path hits above body hits.
+
+* References
+
+- =v0.1/org-air-round24-design.org= (Open questions, R24-6).
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

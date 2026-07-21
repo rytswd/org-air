@@ -1,0 +1,28 @@
+#+title: Classify: scan-time #+PRIORITIES-aware high-priority flag
+#+state: draft
+#+FILETAGS: :classify:correctness:
+
+* Summary
+
+R57's respect-the-user audit (#4) found that classify's high-priority gate
+compares to the GLOBAL =org-priority-highest= at classify time, so a
+file-local =#+PRIORITIES:= range diverging from the global can mis-gate an
+item.  Fixing needs a scan-time flag carried in a cache slot — explicitly
+recorded for a future round in the R57 design's Out-of-scope list.
+
+* Proposal (sketch)
+
+- Compute "is high priority" inside the parsed scan buffer (where
+  =org-get-priority= already honours the file declaration) and persist it
+  as an item/cache slot; classify reads the flag instead of re-comparing
+  against globals.
+- Cache version bump for the new slot; ERT with a file-local
+  =#+PRIORITIES:= range diverging from the global.
+
+* References
+
+- =v0.1/org-air-round57-design.org= (audit row 4 + Out of scope).
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

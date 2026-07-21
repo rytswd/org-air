@@ -1,0 +1,28 @@
+#+title: desktop.el session restore riding the R58 bookmark records
+#+state: draft
+#+FILETAGS: :bookmarks:session:
+
+* Summary
+
+R58 gave every org-air view an Emacs bookmark record (activities.el /
+=bookmark-jump= compatible).  desktop.el integration
+(=desktop-buffer-mode-handlers=) was ruled out of scope there, with the
+note that "the bookmark records built here are the natural payload for a
+future round".
+
+* Proposal (sketch)
+
+- Register =desktop-buffer-mode-handlers= entries for the org-air view
+  modes; the handler rebuilds the view from the same record plist the R58
+  bookmark maker produces (the restorer owns windows; org-air's reconciler
+  adapts post-display, per the R58 rule).
+- Non-goals carried over from R58: persisting rail/window layout,
+  cross-machine portability.
+
+* References
+
+- =v0.1/org-air-round58-design.org= (Out of scope).
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

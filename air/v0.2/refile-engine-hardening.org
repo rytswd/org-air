@@ -1,0 +1,39 @@
+#+title: Refile engine hardening (R64 review notes: quit-safety, marker cleanup, descendant guard)
+#+state: ready
+#+FILETAGS: :inbox:refile:robustness:
+
+* Summary
+
+Three non-blocking robustness notes from the R64 Fable review of the
+one-shot refile engine (=org-air-refile-item=):
+
+1. The unwind handler that restores the cut item on failure should bind
+   =inhibit-quit= t, so a second =C-g= cannot abort the restore mid-way
+   (losing the item).
+2. On the failure path, =insert-pos= and the parent marker are never
+   cleared — they leak (point at the target buffer) until GC.
+3. Refiling an item under its own descendant (same file) is unguarded — the
+   parent marker collapses into the cut region (stock =org-refile= errors
+   here); the engine should detect and refuse it up front.
+
+* Proposal
+
+- Wrap the restore leg in =(let ((inhibit-quit t)) …)=.
+- =set-marker … nil= the parent marker (and drop =insert-pos=) on both the
+  success and failure exits.
+- Before the cut, error cleanly if the resolved parent position lies inside
+  the item's own subtree region in the same file (mirror org-refile's
+  check).
+- ERTs: quit-during-restore leaves the item intact somewhere; markers nil
+  after both exits; own-descendant target signals a clean user error with
+  no buffer mutation.
+
+* References
+
+- Fable review =/tmp/org-air-ace/fable-review/REPORT-r64.md= (Notes,
+  non-blocking).
+- =v0.1/org-air-round64-design.org=.
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

@@ -1,0 +1,26 @@
+#+title: Project view discovery shares the R60 exclusion helper
+#+state: draft
+#+FILETAGS: :project:config:
+
+* Summary
+
+R60's =org-air-exclude-regexps= prunes at board discovery, but the project
+view's OWN discovery (=org-air-project.el= ~343 walks =air/= under project
+roots independently) does not consult it.  The R60 design's Out-of-scope
+list notes "a future round may share the exclusion helper; not this one".
+
+* Proposal (sketch)
+
+- Route the project view's directory walk through the same exclusion
+  predicate the board discovery uses, so one =org-air-exclude-regexps=
+  governs both surfaces; cache-key discipline extends per R60.
+- ERT: an excluded path disappears from BOTH the board and the project
+  tree with one setting.
+
+* References
+
+- =v0.1/org-air-round60-design.org= (Out of scope).
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

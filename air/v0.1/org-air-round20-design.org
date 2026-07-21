@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-20 DESIGN: stability · polish · performance (make it dogfoodable)
-#+state: ready
+#+state: complete
 #+FILETAGS: :perf:ui:stability:inbox:project:render:design:v0.5:
 
 * Scope of this document
@@ -861,3 +861,7 @@ re-verify byte goldens.
     displayed-only meta-widths → projected < 0.1 s, byte-identical.
   All items honour the architecture invariants and KEEP the R18 caches; the
   blockers (R20-1, R20-5) lead.  Impl-ready; nothing integrated here.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+- 2026-07-21: State: ready → complete.

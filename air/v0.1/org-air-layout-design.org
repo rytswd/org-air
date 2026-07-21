@@ -1,5 +1,5 @@
 #+title: org-air v0.2: full-viewport layout specification
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:design:emacs:
 
 * Summary
@@ -802,6 +802,11 @@ are inherited unchanged.
   =[D] Draft   (2)=) — all with the [W] Work In Progress badge, matching
   airctl =-a/-Da/-Ta=.  V6 GTD fixtures unchanged.  Gate 156/156.  Round-8
   feature integration cleared.
+
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+- 2026-07-21: State: ready → complete.
 
 * References
 - air/v0.1/org-air-design.org — v0.1 visual & UX spec (authoritative).

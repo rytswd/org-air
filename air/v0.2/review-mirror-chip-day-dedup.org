@@ -1,0 +1,31 @@
+#+title: Review: dedup the completion chip by day, not exact epoch (spurious ×2 on mirrors)
+#+state: ready
+#+FILETAGS: :review:bug:
+
+* Summary
+
+The R63 review surface's stamp union dedups completion stamps by *exact
+epoch*.  Mirrors DONE-logged minutes apart on the same day (the realistic
+by-hand mirror flow) yield two distinct epochs, so one real completion shows
+a spurious =×2= chip.  The R63 fixtures log mirrors at identical instants,
+so no test sees it.  Flagged by the R63 Fable review as spec-faithful but
+worth a future line.
+
+* Proposal
+
+- Dedup for the chip count at day granularity: count distinct *days* (or
+  dedup epochs per key-day) when folding mirror stamps into one item's
+  completion chip.
+- Add the missing fixture shape: mirrors DONE-logged minutes apart on the
+  same day ⇒ chip shows no multiplier; genuinely-repeated completions on
+  different days keep their =×N=.
+
+* References
+
+- Fable review =/tmp/org-air-ace/fable-review/REPORT-r63.md=
+  (non-blocking observation under Q-findings).
+- =v0.1/org-air-round63-design.org= (mirror collapse + chip).
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

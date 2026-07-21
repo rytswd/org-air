@@ -1,5 +1,5 @@
 #+title: org-air v0.2.x — U4: real-window UX spec deltas
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:ux:layout:u4:
 
 * Summary
@@ -201,3 +201,7 @@ filename always survives.  Not a blocker for integration.
   placement (D4), point preservation across refresh (D5), spacing/
   hierarchy + no-trailing-whitespace (D6), and a hard "never exceed the
   window" invariant (D7).  Set =#+state: ready=.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+- 2026-07-21: State: ready → complete.

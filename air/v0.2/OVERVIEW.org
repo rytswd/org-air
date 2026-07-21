@@ -1,0 +1,25 @@
+#+title: v0.2 — deferred follow-ups from the 0.1 milestone
+
+v0.2 collects the genuine follow-ups identified during the 0.1
+round-by-round build (see =../v0.1/OVERVIEW.org=) that were explicitly left
+out of 0.1 — scraped from the round docs' Non-Goals / out-of-scope /
+future-round lines and the Fable review reports' non-blocking notes.  No new
+scope was invented here.
+
+* Deferred items
+
+| Doc                                     | State | Deferred from        | One line                                                          |
+|-----------------------------------------+-------+----------------------+-------------------------------------------------------------------|
+| =r65-snapshot-drawer-fold-bounds=       | ready | R65 design + review  | Bound the snapshot drawer =:END:= search at the next heading; element-check the block-literal (P5b) shape |
+| =refile-create-target-directory=        | ready | R64 engine gap       | Refile auto-creates a brand-new target *directory* (files and headings already create) |
+| =classify-cache-merged-done-set=        | ready | R57                  | Memoise =org-air-query-merged-done-keywords= (~+15% classify), invalidated by the R57 cache key |
+| =revisit-git-mtime-age-source=          | ready | R54                  | Opt-in git last-commit age source — clone-reset mtimes flatten the dusty ordering |
+| =demo-note-mtime-age-gradient=          | ready | demo corpus          | Backdate demo note mtimes so Revisit screenshots show a real age gradient |
+| =review-mirror-chip-day-dedup=          | ready | R63 review note      | Dedup completion stamps by day, not exact epoch — kills the spurious =×2= mirror chip |
+| =refile-engine-hardening=               | ready | R64 review notes     | =inhibit-quit= during restore, marker/pos cleanup on failure, own-descendant target guard |
+| =review-range-default-rollup=           | draft | R62                  | Smarter default Completed rollup per range (e.g. week-of for year) |
+| =project-search-body-grep=              | draft | R24-6 open question  | Search doc BODY content via a cached index (never-hang laws apply) |
+| =classify-file-local-priorities-flag=   | draft | R57 audit #4         | Scan-time =#+PRIORITIES=-aware high-priority flag (needs a cache slot) |
+| =bookmark-desktop-integration=          | draft | R58 out-of-scope     | desktop.el handlers riding the R58 bookmark records               |
+| =project-discovery-shared-exclusions=   | draft | R60 out-of-scope     | Project-view discovery consults =org-air-exclude-regexps= too     |
+| =dropped-row-faded-pills=               | draft | R48 scope note       | Faded re-pillify variant for pills on dropped rows (only if they still shout) |

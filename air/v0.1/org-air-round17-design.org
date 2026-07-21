@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-17 DESIGN: bound the origin column (long Denote filenames must not starve the title)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:bug:critical:design:v0.5:
 
 * Status
@@ -407,3 +407,9 @@ every verify (stale .elc).  Inspector inert in batch (no new hooks here).
   no-redundant-group form.  V6 pixel-lock,
   svg line-height clamp and byte/TTY fallback all preserved; no
   svg/face/glyph bytes move.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+
+* History
+- 2026-07-21: State: ready → complete.

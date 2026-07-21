@@ -1,0 +1,32 @@
+#+title: Classify: cache the merged done-set (~+15% classify)
+#+state: ready
+#+FILETAGS: :perf:classify:
+
+* Summary
+
+R57's =org-air-query-merged-done-keywords= derives the done set from
+=org-air-query--scan-todo-keywords= on every call, and
+=org-air-classify--done-keywords= uses it as the fallback for every item
+built outside a live scan buffer — so the merged vocabulary is re-derived
+per classify pass.  Memoising the merged done-set is worth roughly +15% on
+classify.
+
+* Proposal
+
+- Cache the result of =org-air-query-merged-done-keywords= (a simple
+  variable memo).
+- Invalidate on the same detector that already guards vocabulary coherence:
+  the R57 cache key (=org-air-view--cache-key=) — a mid-session
+  =org-todo-keywords= change must drop the memo exactly when it drops the
+  item cache.
+- No behaviour change; existing R57 ERTs (T6/T8) stay the gate, plus one
+  memo-invalidation test.
+
+* References
+
+- =v0.1/org-air-round57-design.org= ("Classify's fallback done set" +
+  "Cache and key invalidation").
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

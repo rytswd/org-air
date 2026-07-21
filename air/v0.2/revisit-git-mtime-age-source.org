@@ -1,0 +1,33 @@
+#+title: Revisit: git-aware age source (last-commit time as attention-age)
+#+state: ready
+#+FILETAGS: :revisit:
+
+* Summary
+
+Revisit's attention-age is pure file mtime by default (the R54 D2 ruling;
+the opt-in visit ledger folds in visits).  File mtime is fragile across
+clones/checkouts: a fresh =git clone= (or a branch switch touching files)
+resets mtimes, flattening the dusty-first ordering so every note looks
+equally fresh.  A git-aware age source — last-commit time per file, when the
+notes silo is a git repo — keeps "dustiest on top" meaningful.
+
+* Proposal
+
+- New opt-in age source (e.g. =org-air-revisit-age-source= ∈ ='mtime=
+  (default) | ='git=): under ='git=, age = now − the file's last-commit
+  time, falling back to mtime for untracked/dirty files or non-git silos.
+- Batch the lookup (one =git log=-style query per silo, not per file) and
+  store it in file-meta beside =:mtime= so the R53 bounded/paged render
+  laws hold; respect the mtime-cache law (the git timestamp is data
+  computed at scan time, keyed like =:mtime=).
+- The ledger knob composes unchanged: age = max(git-time, visit) when both
+  knobs are on.
+
+* References
+
+- =v0.1/org-air-round54-design.org= (attention-age model, D2 mtime ruling,
+  file-meta =:mtime= slot).
+
+* History
+
+- 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.

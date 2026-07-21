@@ -1,5 +1,5 @@
 #+title: org-air v0.5 round-33 DESIGN: header STILL overflows even empty (Seam B — ambiguous-width middle-dot separator) · project hover highlight "too slow" (per-row redisplay unmasked by R32; lock zero per-motion hover work)
-#+state: ready
+#+state: complete
 #+FILETAGS: :ui:layout:header:chrome:glyph:mouse:hover:design:v0.5:
 
 * Scope of this document
@@ -293,3 +293,9 @@ batch, so the ERTs assert the INVARIANTS that make hover instant.
   invariants with ERTs (no help-echo, no mouse machinery, follow is
   point-move, cursor face lightweight, click opens single doc).
   Byte-invisible.  Both items specified; implementation pending.
+- 2026-07-21: Marked complete during the v0.1 milestone consolidation — this
+  work shipped on main (the 0.1 round-by-round build; rounds 1–65 all
+  integrated and green); the =ready= state was stale.
+
+* History
+- 2026-07-21: State: ready → complete.

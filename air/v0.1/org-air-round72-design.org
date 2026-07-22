@@ -1,0 +1,522 @@
+#+title: org-air Round 72 — Date/status filter tokens: `is:overdue' / `due:7d' join the `/' mini-language (the buckets' own date logic, one vocabulary, zero new knobs)
+#+state: ready
+#+tags: board filter dates classify ux mini-language
+
+* Summary
+
+USER NEED: "filter only for overdue items, or items scheduled in the
+next week or so."  Today the =/= filter (=org-air-view--filter-tags= /
+=org-air-view--filter-token-match-p=, org-air-view.el ~2054-2110)
+speaks exactly two token shapes — =#tag= (tag membership) and bare
+text (substring) — and has NO date/status axis.  The date buckets
+show overdue/upcoming/stale/dateless, but nothing can ISOLATE "only
+overdue" or "scheduled within N days": the information is on the
+board, the lens is missing.
+
+This round adds a DATE/STATUS token layer to the SAME mini-language,
+applied by the SAME fold over cached items (R53: no rescan — every
+predicate reads slots the item already carries under the R54 date
+model), agreeing with the buckets BY CONSTRUCTION (the predicates ARE
+the bucket helpers, exported).  Three work packages:
+
+- *R72-1 (the vocabulary + the matcher)* — a =qualifier:value= token
+  family, colon-shaped so it can never be an org tag (probed:
+  =org-tag-re= admits no colon — a literal =:is:overdue:= in a
+  headline is TWO tags), never a =#tag= token (the =#= branch stays
+  first), and never silently steals a chip's bare-name token (no
+  bare reserved words — Decision 1):
+  - STATUS: =is:overdue= · =is:upcoming= · =is:stale= · =is:nodate=
+    · =is:hipri=;
+  - WINDOW: =due:Nd= / =due:Nw= (scheduled OR deadline within
+    [today .. today+N]; overdue does NOT count — Decision 2), plus
+    the slot-scoped =scheduled:Nd= / =deadline:Nd= twins.
+  A pure parser (=org-air-view--filter-token-parse=) recognises the
+  closed grammar; anything else falls through to the existing
+  #tag/substring rules VERBATIM (never-error; the label quoting is
+  the tell — Decision 5).  The matcher gains an optional ITEM
+  argument threaded from =org-air-view--passes-filter-p=; a parsed
+  token is just one more predicate under the untouched =M-/=
+  AND/OR fold (Decision 6).
+- *R72-2 (agreement by construction)* — the bucket date logic is
+  HOISTED into named classify predicates (=--board-active-p=,
+  =--overdue-p=, =--due-within-p=, =--stale-p=, =--hipri-p=;
+  =--future-or-today-p= gains an optional DAYS horizon) and
+  =org-air-classify--heading-buckets= is rewritten to call them —
+  behaviour-neutral (pinned), so filter and buckets share ONE
+  definition of every date word (Decision 3).  Every date/status
+  token also carries the buckets' own top gate (not done, not
+  archived): the filter never resurrects what the board buries.
+  And the probed render hole is closed: an item at today+8 lives in
+  NO bucket, so =due:2w= would select rows with no home — an active
+  window token therefore WIDENS the Upcoming horizon to its span
+  for that render (cache keyed on (DAY . HORIZON) — Decision 4).
+- *R72-3 (discoverability + inheritance)* — the =/= completion
+  OFFERS the vocabulary (the =is:= five plus knob-tracking examples
+  =due:7d= / =scheduled:7d= / =deadline:7d=), the prompt names the
+  shapes, the rail Filter line / banner / mode-line render parsed
+  tokens verbatim-unquoted beside the =Match:= combinator, help and
+  README rows mention them.  The BOARD and the REVIEW view inherit
+  (both filter real =org-air-item= snapshots — the item is free at
+  their call sites); the project and revisit views do NOT (docs and
+  file-meta entries have no planning slots): there a date token is
+  vacuously false and the vocabulary is not offered (Decision 7/8).
+
+Zero new defcustoms: the vocabulary reuses =org-air-upcoming-days=
+and =org-air-stale-days=, so the filter and the buckets cannot drift
+by configuration.
+
+Measured this round (probes under =/tmp/org-air-r72/=, batch Emacs
+30.2 / Org 9.7.11, against the R71 tip):
+
+| Probe                                                            | Result                                                        |
+|------------------------------------------------------------------+----------------------------------------------------------------|
+| =org-tag-re=                                                     | =[[:alnum:]_@#%]+= — a tag can NEVER contain =:=; =:is:overdue:= parses as the two tags =("is" "overdue")= |
+| CRM pre-fill round-trip of ="is:overdue,due:7d,#work"=           | splits cleanly — =crm-separator= is the comma, colons travel   |
+| the anchored parser over 22 candidate tokens                     | the 10 grammar tokens parse (case-insensitive, =2w=→14, =0d=→0); all 12 near-misses (=overdue=, =#is:overdue=, =is:urgent=, =due:7=, =due:7x=, =due:-1d=, trailing space…) return nil |
+| prototype predicates built ONLY from classify helpers, frozen NOW, 11-item fixture | =due:7d= ⇔ Upcoming bucket and =is:stale= ⇔ Stale bucket: agreement EXACT over the whole fixture |
+| boundary table (same run)                                        | day 0 and day 7 IN, day 8 OUT, past OUT of every window; DONE and ARCHIVED past-due items match NO token (they classify into no bucket either) |
+| the render hole (same run)                                       | =sched-plus-8= classifies into ZERO buckets — a =due:2w= match with no board row unless the horizon widens (Decision 4) |
+
+SPEC ONLY — no =.el= or test edits in this change.  org/org-ql only:
+no new dependency, no new query path — the round adds pure
+predicates over slots the R53/R54 scan already caches.
+
+* Decision 1 — the syntax: `qualifier:value', no bare keywords, no new sigil
+
+Three candidate shapes were argued:
+
+1. /Bare reserved words/ (=overdue=, =upcoming=…) — REJECTED, twice
+   over.  The tag chips (org-air-view.el ~2351) toggle BARE tag
+   names into the filter: a user with a literal =:overdue:= tag
+   clicks its chip and gets the token ="overdue"= — reserving the
+   word would silently flip that chip from "show my overdue-tagged
+   items" to a date predicate.  And free text loses a word: today
+   ="overdue"= substring-searches titles; a reserved set breaks the
+   R24-6 mini-language's simplest contract (bare = text).
+2. /A new sigil/ (=!overdue=, =.overdue=) — REJECTED.  =!= / =.= are
+   legitimate title text (substring tokens), so the collision moves
+   rather than dies; a third sigil beside =#=/bare grows the
+   grammar the user must memorise; and it cannot express the
+   parametrised window (=!7d=?) without inventing more syntax.
+3. /=qualifier:value=/ (GitHub/notmuch idiom) — CHOSEN.  The colon
+   is UNAMBIGUOUS against both existing shapes by grammar, not by
+   convention: an org tag can never contain =:= (probed —
+   =org-tag-re= is =[[:alnum:]_@#%]+=), so no =#tag= or chip token
+   collides; the qualifiers are a tiny closed set, so free text is
+   only affected when it matches =\`is:(overdue|…)\'= EXACTLY —
+   and anything that does NOT parse falls through to today's
+   substring rule unchanged (Decision 5).  The value slot gives the
+   window its parameter (=due:7d=) for free, and the idiom is
+   already in the user's fingers from every forge search box.
+
+The =#= branch of =org-air-view--filter-token-match-p= stays FIRST
+and the parser refuses =#=-prefixed tokens outright, so =#overdue= —
+and any =#=-spelled literal tag that "looks like" a keyword — is a
+tag match forever (the disambiguation seam, r72-8).  Tokens are
+stored VERBATIM (R24-6), parsed at match time; matching is
+case-insensitive like the rest of the mini-language.
+
+* Decision 2 — the vocabulary, each predicate defined against cached slots
+
+One NOW per filter application (Decision 3 binds it); =sched= / =dl=
+are the item's =scheduled= / =deadline= slots (org timestamp
+objects, cache-hydrated verbatim); GATE is
+=org-air-classify--board-active-p= (Decision 3).  All day arithmetic
+is =org-air-classify--days-between= over =org-air-classify--time= —
+the buckets' own calendar-day comparisons, repeaters and hour parts
+behaving exactly as they already do in the buckets (shared code, not
+parallel reimplementation).
+
+| Token              | Predicate (all conjoined with GATE)                                                  |
+|--------------------+---------------------------------------------------------------------------------------|
+| =is:overdue=       | =(or (org-air-classify--past-p sched now) (org-air-classify--past-p dl now))= — the Needs-attention bucket's overdue disjunct, verbatim |
+| =is:upcoming=      | =(org-air-classify--due-within-p item now org-air-upcoming-days)= — the Upcoming bucket predicate, verbatim |
+| =is:stale=         | =(org-air-classify--stale-p item now)= — R54-1 eligibility gate (scheduled ∨ deadline ∨ active-ts) AND activity gap ≥ =org-air-stale-days=; the Stale bucket body, hoisted |
+| =is:nodate=        | =(not (org-air-classify--stale-eligible-p item))= — truly dateless under the R54 date model: no scheduled, no deadline, no active =<ts>= anywhere in the subtree.  Deliberately the R54-1 negation, NOT the attention bucket's narrower =(null sched)(null dl)=: an item whose only date is a body =<ts>= is dated (it feeds the calendar and the stale clock) and must not answer "nodate" |
+| =is:hipri=         | =(org-air-classify--hipri-p item)= — the High-priority bucket test (=priority ≥ org-priority-highest=), hoisted |
+| =due:Nd= / =due:Nw= | ∃ ts ∈ {sched, dl}: =0 ≤ days(now→ts) ≤ N= — i.e. =(org-air-classify--due-within-p item now N)=; =w= = 7×N days |
+| =scheduled:Nd/w=   | the same window over =sched= ONLY                                                    |
+| =deadline:Nd/w=    | the same window over =dl= ONLY                                                       |
+
+Rulings inside the table:
+
+- *Overdue does NOT count in a window.*  =due:7d= answers "what is
+  coming"; =is:overdue= already owns the past, and =M-/= =any=
+  composes the union in two tokens.  Keeping the window's inequality
+  identical to =--future-or-today-p= (=0 ≤ d ≤ N=) is also what
+  makes =due:7d= ≡ the Upcoming bucket a THEOREM at the default
+  horizon (probed EXACT), not a test hope.  =due:0d= = today only.
+- *The GATE on every token.*  A DONE or ARCHIVED past-due item
+  classifies into ZERO buckets (probed) — it renders nowhere; a
+  filter that matched it would inflate "N of M shown" with
+  invisible rows and break every filter⇔bucket agreement seam.  So
+  every date/status predicate conjoins the buckets' own top gate.
+- *Value grammar is strict*: =\`(due|scheduled|deadline):[0-9]+[dw]\'=
+  — a unit is REQUIRED (=due:7= does not parse; self-documenting
+  tokens, and the fall-through stays predictable).  No =due:today= /
+  =due:1m= aliases this round (Non-goals).
+
+* Decision 3 — agreement by construction: the classify hoist + one NOW
+
+The filter must not reimplement the buckets' date logic; it must
+CALL it.  org-air-classify.el therefore exports the bucket bodies as
+named pure predicates, and =--heading-buckets= is rewritten to use
+them — a behaviour-neutral refactor, pinned byte-exact (r72-12):
+
+- =org-air-classify--board-active-p (item)= — the factored =unless=
+  gate: not =--done-p=, no =org-archive-tag= in tags.
+- =org-air-classify--future-or-today-p (timestamp now &optional days)=
+  — DAYS horizon, defaulting to =org-air-upcoming-days=; every
+  existing caller unchanged.
+- =org-air-classify--overdue-p (item now)= — the past-p disjunction.
+- =org-air-classify--due-within-p (item now days &optional slot)= —
+  SLOT ∈ {=due= (default: scheduled ∨ deadline), =scheduled=,
+  =deadline=}; the Upcoming bucket becomes
+  =(org-air-classify--due-within-p item now org-air-upcoming-days)=.
+- =org-air-classify--stale-p (item now)= — eligibility + clock, the
+  bucket's =when=-chain hoisted whole.
+- =org-air-classify--hipri-p (item)= — the priority test hoisted.
+
+On the view side, =org-air-view--filter-date-token-match-p (parsed
+item now)= dispatches the table of Decision 2 onto exactly these
+symbols — the filter contains NO date arithmetic of its own.
+
+*One NOW*: a new defvar =org-air-view--filter-now= (nil ⇒
+=current-time=).  =org-air-view--compute-partition= binds it to the
+SAME =now= it classifies with, so within one render the filter and
+the buckets evaluate against a single instant (and ERT freezes time
+by let-binding it).  Off-partition calls fall back to
+=current-time= — day-granular predicates, same as classify.
+
+*R53 — no rescan, restated as a contract*: applying a filter is
+=setq org-air-view--tag-filter= + a re-render over the CACHED
+=org-air-view--items=.  Every predicate above reads struct slots
+(=scheduled=/=deadline=/=active-ts=/=activity=/=priority=/=donep=/
+=tags=); the only probe in the chain is =--stale-eligible-p='s
+live-marker fallback, which resolves ONLY against an already-live
+buffer (a cache-hydrated =(FILE . POS)= cons returns nil — the R53
+P2 law) and can never open a file.  Pinned with spies (r72-9).
+
+* Decision 4 — an active window token WIDENS the Upcoming horizon
+
+The probe exposed the hole: =sched-plus-8= classifies into ZERO
+buckets — the board renders rows bucket-by-bucket, so a =due:2w=
+filter would "show" 1 of M while painting no row anywhere.  The
+user's literal ask ("the next week or so") lands exactly in this
+hole with the default 7-day horizon.
+
+Ruling: /the filter narrows sections; it never invents rows the
+buckets don't own — with ONE principled widening: an active window
+token extends the Upcoming horizon to its span, so every item the
+window selects has a home row./
+
+- =org-air-view--filter-window-days ()= — the MAX days over the
+  active filter's parsed window tokens, nil when none.
+- Effective horizon = =(max org-air-upcoming-days (or that 0))= —
+  widening only, never narrowing (=due:2d= still renders the full
+  7-day Upcoming section; the FILTER does the narrowing, the bucket
+  keeps its shape — no surprise shrink of an unfiltered axis).
+- =org-air-view--classify-cached= binds =org-air-upcoming-days= to
+  the effective horizon around its =org-air-classify-item= call —
+  the ONE classify choke point (the partition, the sections, the
+  rail Summary counts and the fallback path all flow through it),
+  and the temp pane buffers already carry the filter var across
+  (=--render-lines= binds =org-air-view--tag-filter=).
+- The memo key grows: =org-air-view--classify-cache-day= becomes
+  the pair (DAY . EFFECTIVE-HORIZON), so toggling a window filter
+  rebuilds the memo instead of serving stale buckets — a pure
+  slot-fold rebuild, the measured R53 0.26 s warm-refresh class at
+  15.9k items, and a NO-OP when the horizon is unchanged (=due:7d=
+  at defaults keys identically to no filter — pinned).
+- The Upcoming empty-state string (org-air-view.el:2569 reads the
+  raw knob) reads the effective horizon too, so it can never
+  announce "next 7 days" under a 14-day lens.
+
+=is:upcoming= keeps meaning the KNOB horizon (it widens nothing);
+under a mixed =any= filter its matches are a subset of any wider
+active window, so every selected row still has a home.  Agreement
+survives widening by construction: bucket and filter both read the
+same dynamic value.
+
+* Decision 5 — fall-through, labels: the quoting is the tell
+
+=org-air-view--filter-token-parse= returns nil for ANYTHING outside
+the closed grammar — =is:urgent=, =due:7=, =due:7x=, a trailing
+space (probed table) — and the matcher then runs the existing
+#tag/substring branches byte-for-byte.  Nothing errors, nothing
+warns mid-fold (R53 never-error; a typo degrades to a text search,
+exactly what the pre-R72 board did with the same input).
+
+The tell is the LABEL: =org-air-view--filter-token-label= renders a
+token that PARSES verbatim-unquoted (like a =#tag=), while an
+unparsed bare token keeps its R24-6 quotes.  So the rail/banner/
+mode-line read =is:overdue AND #work= for the real thing but
+="is:urgent"= for the typo — the user sees at a glance whether the
+board understood a date token or is text-searching.  Storage stays
+verbatim either way (R24-6); no face change (TTY-safe goldens).
+
+* Decision 6 — composition: one more predicate under the untouched fold
+
+=org-air-view--tokens-pass-filter-p (text tags &optional item)= —
+the ONLY signature change in the fold.  The combinator dispatch
+(=seq-every-p= / =seq-some= on =org-air-filter-match=), =M-/=, =\\=,
+the pre-filled prompt, chips, scope interplay: all byte-untouched.
+A date/status token is just another element of the token list, so
+=is:overdue,#work= under =all= is "overdue AND work-tagged",
+=is:overdue,due:7d= under =any= is "past OR next week" — the
+user's two asks are each ONE filter away, and mixing in free text
+(=is:overdue,#work,release= under =all=) needs no new rules
+(r72-7).
+
+=org-air-view--passes-filter-p= threads the item;
+=--tags-pass-filter-p= (legacy tags-only wrapper) passes no item —
+date tokens are vacuously false there, correctly (no slots, no
+claim).
+
+* Decision 7 — discoverability: completion, prompt, chrome, help
+
+- =org-air-view--filter-vocabulary ()= returns the offer list: the
+  five =is:= tokens plus =due:7d= / =scheduled:7d= / =deadline:7d=
+  where 7 is =org-air-upcoming-days= FORMATTED LIVE — the examples
+  track the knob, teach the value grammar by example, and (for
+  =due:=) are the exact Upcoming-bucket twin at any setting.
+  Concrete editable examples beat bare =due:= prefixes as
+  candidates: they complete to something that already works, and
+  CRM leaves them editable in place.
+- =org-air-view--read-filter (candidate-tags &optional vocab)= —
+  VOCAB appended after the tag candidates; when non-nil the prompt
+  reads =Filter (#tag, text, is:/due:): =.  REQUIRE-MATCH stays
+  nil, so =due:12d= types freely.  The board (=org-air-filter=) and
+  the review view pass =(org-air-view--filter-vocabulary)=; project
+  and revisit pass nothing (Decision 8).
+- Chrome: the rail Filter block, the header banner and the
+  mode-line segment all join tokens through
+  =--filter-token-label= + the combinator word — they render the
+  new tokens with ZERO further changes (Decision 5 covers the
+  label).  The =N of M shown= count is honest by the Decision 2
+  gate + Decision 4 widening.
+- Help: the board "Filter & sort" row becomes =(org-air-filter .
+  "filter by tag / text / date (is:overdue, due:7d…)")=; the
+  review view's filter row gains the same suffix; project/revisit
+  help rows unchanged (their filters don't speak date).  The
+  footer legend line (=[/]filter=) is untouched — width-budgeted.
+
+* Decision 8 — inheritance: board + review yes, project + revisit no
+
+The machinery is shared (=--tokens-pass-filter-p=), so the question
+is per-caller: /does the filtered thing carry the R54 date slots?/
+
+- *Board* — yes (the round's subject).
+- *Review* — YES, inherited: =org-air-review--visible-items=
+  filters real =org-air-item= snapshots; threading the item is one
+  argument, and "time spent on overdue items" is a coherent lens
+  (filter applies before the fold, so totals stay honest — the
+  R61-4 law).  Review's =/= offers the vocabulary.  No bucket
+  machinery there, so no widening question.
+- *Project* — NO: it filters =org-air-doc= records (state-tagged
+  planning docs, no planning line).  Passes no item ⇒ a date token
+  is vacuously FALSE (loud: =0 of N shown= with the unquoted label
+  naming the token — honest, not silently text-searched, which
+  would make the same token mean different things per view).
+  Vocabulary not offered.
+- *Revisit* — NO, same shape: file-meta entries, and the view's
+  population is knowledge notes — dateless BY the R54-2 model; a
+  date lens there is a category error.  Vocabulary not offered.
+
+* The reframe — every surface touched
+
+- org-air-classify.el: the five hoisted predicates + the DAYS
+  parameter (Decision 3); =--heading-buckets= rewritten onto them;
+  docstrings say which board surface each predicate now also
+  serves.
+- org-air-view.el: =--filter-token-parse=, =--filter-vocabulary=,
+  =--filter-date-token-match-p=, =--filter-window-days=,
+  =--filter-now= defvar; ITEM threading through
+  =--filter-token-match-p= / =--tokens-pass-filter-p= /
+  =--passes-filter-p=; =--filter-token-label= quoting rule;
+  =--classify-cached= horizon binding + (DAY . HORIZON) memo key;
+  =--compute-partition= binds =--filter-now=; the Upcoming
+  empty-state string reads the effective horizon; =--read-filter=
+  VOCAB arg + prompt; =org-air-filter= passes the vocabulary; help
+  row wording.
+- org-air-review.el: =--visible-items= threads the item;
+  =org-air-review-filter= passes the vocabulary; help row wording.
+- org-air-project.el / org-air-revisit.el: NO code change (they
+  keep passing no item and no vocab); their docstrings gain one
+  line noting date tokens are board/review vocabulary.
+- README.org:64 (the Filtering bullet) gains the date axis: "…a
+  ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ /
+  ~is:stale~ / ~is:nodate~ / ~is:hipri~ and ~due:7d~-style windows
+  match the planning slots"; the key-table row 257 becomes "Filter
+  by tag, free text, or date/status (~is:overdue~, ~due:7d~)".
+- No keymap change anywhere (=/= =\\= =M-/= untouched); no new
+  defcustom; no cache schema change (the memo key is per-buffer
+  runtime state, not the on-disk cache).
+
+* ERT seams — batch, tests/org-air-round72-test.el (each revert-RED against the R71 tree)
+
+Fixture: hand-built =org-air-item= structs via =org-air-item-create=
+with timestamp objects minted relative to a frozen instant (the
+probe-3 corpus verbatim: past-scheduled, past-deadline, today, +3d
+deadline, +7d, +8d, +10d, dateless, active-ts-only-stale, DONE-past,
+ARCHIVED-past, hipri-dateless, plus =:overdue:=-TAGGED current item
+for r72-8), =(FILE . POS)= cons markers throughout (cache-hydrated
+shape); =org-air-view--filter-now= let-bound to the frozen instant;
+filters driven by setting =org-air-view--tag-filter= directly and
+folding =org-air-view--passes-filter-p= / reading the partition.
+
+- *r72-1 /the grammar/*: the probe-2 table pinned — 10 parses
+  (case-insensitive qualifiers and values, =2w= → 14, =0d= → 0,
+  slot symbols right) and 12 nils (=overdue=, =#overdue=,
+  =#is:overdue=, =is:urgent=, =is:overdues=, =due:7=, =due:7x=,
+  =due:-1d=, =due:=, ="due:7d "=, =xdue:7d=, =is:overdue,=).  RED
+  today (no parser).
+- *r72-2 /is:overdue isolates/*: the fold passes ONLY the two
+  past-due items; DONE-past and ARCHIVED-past are OUT (the gate);
+  today/+7d/dateless OUT.
+- *r72-3 /the agreement theorem/*: over EVERY fixture item,
+  =due:7d= ⇔ =is:upcoming= ⇔ ='upcoming= ∈
+  =(org-air-classify-item item frozen-now)=, and =is:stale= ⇔
+  ='stale= ∈, and =is:hipri= ⇔ ='high-priority= ∈ — the
+  filter⇔bucket agreement fold (probed EXACT).  Boundaries pinned
+  inside the same test: day 0 IN, day 7 IN, day 8 OUT, past OUT.
+- *r72-4 /windows and slots/*: =due:2w= ⊃ =due:7d= (+10d in the
+  former only); =scheduled:3d= misses the +3d DEADLINE item and
+  =deadline:3d= hits it (slot scoping); =due:0d= passes today
+  only.
+- *r72-5 /is:nodate/*: passes the dateless and the hipri-dateless
+  items ONLY — the active-ts-only item is OUT (dated under R54-1);
+  equivalence with =(not (org-air-classify--stale-eligible-p))=
+  ∧ gate pinned over the fixture.
+- *r72-6 /composition/*: =is:overdue,#work= under =all= =
+  intersection; =is:overdue,due:7d= under =any= = union (the
+  user's two asks verbatim); =is:overdue,#work,release= under
+  =all= mixes all three token kinds through the ONE fold; =M-/=
+  flip re-partitions with no special-casing (same matcher, spied
+  to one code path).
+- *r72-7 /disambiguation/*: with a literal =:overdue:= tag in the
+  fixture — token ="overdue"= (the chip shape) substring-matches
+  the TAGGED item (legacy, unchanged); =#overdue= tag-matches it
+  and NOT the past-due item; =is:overdue= matches the past-due
+  item and NOT the tagged one; =is:urgent= (unparsed) falls
+  through to substring and its label renders QUOTED while
+  =is:overdue='s renders unquoted.
+- *r72-8 /no rescan (R53)/*: filter apply over the cons-marker
+  fixture with =org-air-query--scan-file= (and the work-buffer
+  entry) + =find-file-noselect= spied ⇒ ZERO calls; every
+  predicate answered from slots; =--stale-eligible-p='s fallback
+  provably nil-safe on cons markers.
+- *r72-9 /the widened horizon/*: with =due:14d= active the +10d
+  item classifies ='upcoming= through =--classify-cached= (and the
+  partition gives it a home row-set); clearing the filter (or
+  =due:7d=) restores the 7-day membership; the memo KEY differs
+  between the two states and is IDENTICAL between no-filter and
+  =due:7d= at defaults (no gratuitous rebuild); the Upcoming
+  empty-state string names the effective horizon.
+- *r72-10 /the refactor is neutral/*: =--future-or-today-p= with
+  no DAYS ≡ the pre-R72 answers over a boundary table; the FULL
+  fixture's =org-air-classify-item= bucket lists are byte-equal
+  pre/post-hoist (golden pinned in the test itself via expected
+  lists); =--board-active-p= ⇔ the old =unless= gate.
+- *r72-11 /inheritance edges/*: =--tokens-pass-filter-p= with NIL
+  item and token =is:overdue= ⇒ nil (project/revisit shape — under
+  =all= the view honestly empties); review's =--visible-items=
+  with =is:overdue= active keeps ONLY the past-due snapshot items;
+  the board's and review's interactive =/= candidate lists CONTAIN
+  the vocabulary (and track a let-bound =org-air-upcoming-days= in
+  the =due:= example) while project's and revisit's do NOT.
+- *r72-12 /one NOW/*: every date predicate honours a let-bound
+  =org-air-view--filter-now= (the fixture asserts a different
+  answer under two frozen instants); =--compute-partition= binds
+  it to the SAME now it passes classify (spied equal).
+
+GUI residue (screenshot-confirm, not ERT-able): the CRM completion
+popup showing the vocabulary; the rail Filter line with
+=is:overdue AND #work= live.  Goldens: ZERO shifts expected — no
+mockup fixture activates a filter (the regen harness renders
+unfiltered; re-confirmed in tests/org-air-regen-mockups.el); =make
+regen-mockups= must come back byte-clean.  Known-failures manifest
+stays EMPTY.
+
+* Non-goals
+
+- No bare reserved words, ever — =overdue= stays free text
+  (Decision 1 is a compatibility law, not a phase).
+- No absolute-date or range syntax (=due:2026-08-01=,
+  =due:3d..7d=), no =due:today= / month/year units — the strict
+  =Nd/Nw= grammar ships first; aliases are additive later.
+- No negation (=-is:overdue=) or per-token combinator overrides —
+  composition stays the ONE global =M-/= combinator (R18 D-P2).
+- No date tokens for project/revisit (Decision 8) and no doc-state
+  vocabulary (=state:ready=) this round — a separate design if
+  wanted.
+- No saved/named filters, no filter history.
+- No new faces, no chip buttons for date tokens (label text only).
+- No scan/cache schema change — the vocabulary is exactly as
+  expressive as the slots R53/R54 already cache.
+
+* Compatibility
+
+- *R53 (never-hang / never-error)*: filter apply stays
+  setq + re-render over cached items — NO rescan (pinned r72-8);
+  predicates are pure slot folds; malformed tokens degrade to
+  substring, never signal; the horizon-widened memo rebuild is the
+  measured warm-refresh class and only fires when the effective
+  horizon actually changes.
+- *R54 (date model)*: =is:nodate= IS the R54-1 eligibility
+  negation; =is:stale= is the R54-1-gated stale body; the
+  =active-ts= slot keeps its exact meaning; the R54-2 routing is
+  untouched (knowledge/journal/notes items pass date tokens or
+  not by their slots, and render per their own buckets as today).
+- *R57 (vocabulary respect)*: the gate reuses =--done-p= — the
+  merged-keyword discipline flows through unchanged; no keyword
+  surface added.
+- *R24-6 (mini-language) / R18 D-P2/D-P3*: tokens stored verbatim;
+  =#=/bare semantics byte-identical; one shared matcher for every
+  view; the combinator, pre-fill, =\\= and =M-/= untouched.
+- *R69-5 (chip labels)*: chip → bare-name token behaviour
+  preserved by construction (no bare reserved words); the
+  =#=-first match order keeps literal =#=-named tags safe.
+- *R61-4 (review honesty)*: review inherits with filter-before-
+  fold intact — totals describe what is shown.
+- *R20-6 / R18 D-P1c (render partition + classify memo)*: one
+  classify pass per render preserved; the memo key gains the
+  horizon dimension and stays day-granular otherwise; partition
+  identity checks unchanged.
+- Cache: on-disk schema untouched (no version bump); everything
+  new is runtime state.
+
+* Implementation History
+
+- 2026-07-22: Round 72 spec (design seat, Fable).  User need: a
+  date/status axis for the =/= filter ("only overdue", "scheduled
+  in the next week or so").  Decisions: =qualifier:value= syntax —
+  =is:overdue/upcoming/stale/nodate/hipri= + =due:Nd/Nw= windows
+  with =scheduled:=/=deadline:= slot twins; no bare reserved words
+  (chips push bare tag names — a reserved =overdue= would hijack a
+  literal tag's chip), no new sigil; colon collision-free vs tags
+  by =org-tag-re= grammar (probed).  Predicates defined ONLY over
+  cached slots via hoisted classify helpers (=--board-active-p=,
+  =--overdue-p=, =--due-within-p= with a DAYS param on
+  =--future-or-today-p=, =--stale-p=, =--hipri-p=) — buckets
+  rewritten onto the same symbols, behaviour-neutral, so
+  filter⇔bucket agreement is by construction (probe: EXACT over an
+  11-item frozen-now fixture; boundaries 0/7 in, 8 out, past out
+  of windows; DONE/ARCHIVED gated).  Windows exclude overdue
+  (compose via =M-/= any).  Probed render hole: +8d lives in NO
+  bucket, so an active window token WIDENS the Upcoming horizon to
+  its span (memo key (DAY . HORIZON), widening-only, empty-state
+  string follows).  Unparsed tokens fall through to the R24-6
+  substring rule; the label quoting is the tell (parsed =
+  unquoted).  One NOW (=org-air-view--filter-now=, partition-
+  bound).  Discoverability: =/= completion offers the vocabulary
+  with knob-tracking =due:7d= examples (board + review), prompt
+  names the shapes, rail/banner/mode-line render via the one label
+  helper, help + README rows updated.  Inheritance: review YES
+  (real item snapshots, filter-before-fold), project/revisit NO
+  (no date slots — vacuously false, vocabulary not offered).  Zero
+  new knobs, zero cache schema change, org/org-ql only.  Probes
+  under =/tmp/org-air-r72/= (tag grammar, parser table, agreement
+  fold).  Twelve batch seams r72-1..r72-12, each revert-RED;
+  goldens expected byte-clean; known-failures manifest stays
+  EMPTY.  State: ready.

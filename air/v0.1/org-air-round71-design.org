@@ -1,5 +1,5 @@
 #+title: org-air Round 71 — The comment becomes a form FIELD: `n' drafts the note, ONE RET confirms edit + note together (the R70 S-RET action retires)
-#+state: ready
+#+state: complete
 #+tags: board editor transient field notes logbook ux
 
 * Summary
@@ -516,3 +516,59 @@ violation to investigate.  Known-failures manifest stays EMPTY.
     full ERT suite); goldens byte-clean as predicted — the
     known-failures manifest stays EMPTY (nothing flagged).
     r71-1..r71-12 remain for the test seat.
+- 2026-07-22: Round 71 TEST/AUDIT (test seat, Fable — fixtures/
+  tests/gate only, no =.el= source touched).  Independent audit of
+  impl kqtpluky:
+  - The 8 re-pointed r70 pins (r70-4/6/7/8/9/10/11/12) all EXECUTE
+    green on the impl tree and ALL EIGHT verified REVERT-RED against
+    the R70 parent tree (r70-1/2/3/5 stay green there — the rebind
+    and the note writer untouched, as specced).  Failure shapes
+    inspected: each is red for the CONTRACT reason (S-RET still
+    bound / =:note= ignored by the applier / no signal from the
+    stubbed store / form state never holding the draft), none
+    vacuous — the stale-.elc lesson bit AGAIN first (the standing
+    R48/R51/R53/R54/R62/R63/R64/R70 lesson: pre-R71 bytecode
+    initially reproduced the "unimplemented" behaviour; =make clean=
+    first, then everything green).
+  - NEW tests/org-air-round71-test.el: the spec's twelve seams
+    r71-1..r71-12 + SIX audit-gap ERTs (18 total, all green on the
+    gate):
+    r71-13 two sessions never cross-contaminate the note (fresh
+    =--form-init= re-seeds =:note= nil; ONE note line after a
+    note-confirm followed by a todo-only confirm);
+    r71-14 a MULTI-LINE comment through ONE RET (stored verbatim,
+    org's own indented continuation lines in the saved bytes);
+    r71-15 =C-g= at the note prompt keeps the previous draft (quit
+    propagates, zero bytes moved);
+    r71-16 REFILE-leg atomicity WITH the note (junk-then-signal
+    store: source restored byte-identical, target disk AND buffer
+    byte-identical, nothing recorded for =l=);
+    r71-17 R66 frontmatter synthesis still fires for a brand-new
+    file with the note riding (one created file: frontmatter +
+    moved heading + dated note);
+    r71-18 FLUSH-FIRST IN THE ENGINE LEG — Decision 4 pins the
+    order in BOTH legs but the spec's r71-5 only drove it in place:
+    a refile whose new stamp queues a downgraded reschedule record
+    plus a note lands stamp + record + note in the TARGET's saved
+    bytes.
+    r71-4/5/9/13/17 additionally pin "nothing written at DRAFT
+    time" — without it the immediate-write R70 tree passes them
+    (found during revert-testing; the assert makes the ONE-RET law
+    the thing under test).
+  - Revert audit: 17/18 r71 ERTs RED against the R70 tree; r71-10
+    (empty = no-op note) is the one by-design parity pin — its
+    revert target is the unconditional-write mutation, verified by
+    mutation below.
+  - MUTATION audit (each applied to the impl tree, the named seam
+    RED, then reverted): note-before-flush in the APPLIER ⇒ r71-5;
+    note-before-flush in the ENGINE ⇒ r71-18; unconditional note
+    write ⇒ r71-10; empty stored as "" ⇒ r71-2; pre-fill dropped ⇒
+    r71-2; the engine call's tenth argument dropped ⇒ r71-7; note
+    applied OUTSIDE the atomic change group ⇒ r71-6; the S-RET row
+    restored ⇒ r70-4 AND r71-1.  None of the re-pointed or new pins
+    is vacuous.
+  - Gate: =make clean && make check= GREEN (compile + lint + 897
+    ERTs, 0 unexpected, the 8 standing GUI-only skips); =make
+    regen-mockups= byte-clean (ZERO fixture churn — no fixture
+    renders the transient, exactly as predicted).  Known-failures
+    manifest stays EMPTY.  State → complete.

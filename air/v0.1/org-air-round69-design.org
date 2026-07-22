@@ -1,0 +1,398 @@
+#+title: org-air Round 69 — Rail polish: Filter→Source spacer, dead ✕ dropped, M-/ rail reconcile, Actions reflow at narrow widths, #-tag chip dedup
+#+state: ready
+#+tags: rail ui polish filter tags actions side-window
+
+* Summary
+
+Five screenshot-confirmed rail items from ryota (side-window rail,
+board scoped to =#nix=; screenshot
+=~/Pictures/Screenshots/Screenshot from 2026-07-22 10-28-37.png=).
+All five are display/reconcile-layer fixes — no data model, no query,
+no keymap changes.
+
+- *R69-1 SPACER* — the Filter block's =Match: …= line and the
+  =Source= section header sit flush (org-air-view.el:4038–4094);
+  every OTHER rail section pair breathes one blank line
+  (=--insert-rail-1= separates Calendar/Filter/Summary/Inspector/
+  Actions with a literal =(insert "\n")=).  Fix: the same one-blank
+  primitive between the two blocks INSIDE =--insert-rail-filters=.
+- *R69-2 DEAD ✕* — the =✕= after the rail filter chips
+  (org-air-view.el:4067, =(org-air-view--glyph 'clear)=; glyph table
+  org-air-layout.el:44) carries NO keymap/button/mouse action — it
+  promises a click it cannot honour.  Ryota's stated preference:
+  remove it.  The =M-/ toggles ∙ \ clears= hint line directly under
+  it already teaches the keys.  The glyph table entry STAYS (still
+  used by the banner :2456 and the project header :1308).
+- *R69-3 STALE RAIL on M-/* — root cause FOUND and probed:
+  =org-air-filter-toggle-match= (:8974) re-renders correctly
+  (=--rerender-current-view=, the same path =\= uses), but the
+  side-window rail's repaint is guarded by
+  =org-air-rail--input-stamp= (:5807) — and the stamp does NOT
+  include =org-air-filter-match=.  =/= and =\= repaint the rail only
+  because they mutate =org-air-view--tag-filter=, which IS stamped.
+  Fix: add the missing INPUT to the stamp (not a new refresh call).
+- *R69-4 ACTIONS clipping* — at the current rail width the 3rd
+  Actions column truncates (=s sou…= in the screenshot; probed: at
+  28 cols BOTH rows clip, at 31 with a scope row 1 clips).  The row
+  emitter hard-codes 3 columns and =--pad-to= (:2257) ellipsizes the
+  overflow.  Fix: a fit-driven COLUMN REFLOW (3 → 2 → 1 columns,
+  more rows) in ONE shared row emitter — nothing truncates, no verb
+  is dropped, no label is shortened, and the four copy-pasted
+  emitters (board :4117, project :1417, review :1092, revisit :512)
+  collapse into it.
+- *R69-5 ##TAG* — a tag whose text already starts with =#= (ryota's
+  literal =:#Nix:= org tags, kept for svg-tag-mode) renders =##Nix=
+  because every chip surface does =(concat "#" tag)= — probed on the
+  board pills, the inline chips, the scope label; ELEVEN scattered
+  call sites, NO shared primitive today.  Fix: ONE new chip-label
+  primitive with the prefix dedup, applied at every tag-name chip
+  surface; the two FILTER-TOKEN surfaces that still hand-prepend
+  (banner :2455, project header :1307) instead route through the
+  existing R24-6 token primitive =--filter-token-label=.  Companion:
+  the token matcher's tag branch learns to hit a literal =#=-named
+  tag (today a =#Nix= token can NEVER match a tag named =#Nix= —
+  probed), so the deduped chips stay clickable/filterable.
+
+Measured this round (probe =/tmp/org-air-r69/probe.el=, batch via
+=tests/org-air-test-init.el=; ASCII glyph tier, so =✕=→=x=, =…=→=...=):
+
+| Probe                                                        | Result                                       |
+|--------------------------------------------------------------+----------------------------------------------|
+| =--insert-rail-filters= 32w, 2 tokens: line before =Source=  | the =Match: …= line — NO blank (R69-1 RED)   |
+| same render: clear glyph present after chips                 | yes, =#nix AND #emacs  x= (R69-2 RED)        |
+| =--insert-actions-default= at 28w                            | BOTH rows ellipsized (R69-4 RED)             |
+| same at 31w, scope active                                    | row 1 =… s so...= ellipsized (R69-4 RED)     |
+| =--item-tagstr '("#nix")= / =--insert-tag-chip "#nix"=       | =##nix= / =##nix= (R69-5 RED)                |
+| =--scope-label= with =(:tag "#nix")=                         | =##nix= (R69-5 RED)                          |
+| =--filter-token-match-p "#Nix" "" '("#nix")=                 | nil — literal tag unmatchable (R69-5 RED)    |
+| =--rail--input-stamp= across an AND↔OR flip                  | EQUAL — repaint skipped (R69-3 root cause)   |
+
+SPEC ONLY — no =.el= or test edits in this change (a sibling round
+edits org-air-view.el in parallel; the impl seat lands this on top).
+org-ql stays the only query engine; every fix is pure string
+composition or a stamp input — nothing opens a buffer or scans a file
+(R53 holds by construction).
+
+* Decision 1 — R69-1: the spacer, exactly one line
+
+=org-air-view--insert-rail-filters= (:4038) emits the Filter block
+(header + chips line + =Match:= hint line, or header + =none=) and
+then the =Source= header with no gap.  Add =(insert "\n")=
+immediately before =(org-air-view--rail-header "Source" width)=
+(:4084) — the SAME inter-section primitive =--insert-rail-1= (:4678)
+uses between Calendar/Filter, Filter/Summary, Summary/Inspector.
+
+- Reaches every surface that composes the two blocks: the inline
+  two-pane rail, the side-window rail (both via =--insert-rail-1=),
+  and the stacked top-band rail (:4747 =filters-fn=) — one edit, no
+  per-surface fork.
+- The D6 blank-collapse pass keeps a single blank canonical, so this
+  can never double up against a future edit.
+- Foot arithmetic: =--insert-rail-1= COUNTS lines already emitted
+  (=top-used=) before sizing the reserved inspector region, so the
+  extra line is absorbed automatically (the breathing tail shrinks
+  by one; the R26-3 clamp rules unchanged).
+
+* Decision 2 — R69-2: drop the dead ✕ (rail only)
+
+Remove =("  " (org-air-view--glyph 'clear))= from the chips-line
+=insert= at :4067.  Nothing else on that line changes: the chips +
+combinator join stays, the =Match: AND   M-/ toggles ∙ \ clears=
+hint line below stays — the hint is the teaching surface, and unlike
+the glyph it names BOTH verbs.
+
+- Why remove rather than wire a click: ryota's stated preference;
+  and a mouse affordance on a keyboard-first rail would be the only
+  clickable chrome in the block (the chips themselves are plain text
+  in the rail — unlike the board's =--insert-tag-chip= buttons).
+- The =clear= glyph table entry (org-air-layout.el:44) and its SAFE
+  tier (=org-air-layout-safe-glyphs=) STAY: the banner filter
+  segment (org-air-view.el:2456) and the project header segment
+  (org-air-project.el:1307–1308) still render it.  Those two are the
+  same dead-glyph pattern — noted, NOT touched this round
+  (Non-goals; R69-5 edits the same expressions for the token-label
+  switch but deliberately leaves their ✕ so this round's banner
+  shift is zero).
+
+* Decision 3 — R69-3: the stamp learns the combinator
+
+The reconcile machinery is CORRECT and already wired: =M-/= →
+=org-air-filter-toggle-match= (:8974) → =--rerender-current-view=
+(:8916) → full render → render tail → =org-air-rail--show= (:5826)
+→ =--show-1= — which SKIPS the repaint when
+=org-air-rail--input-stamp= (:5807) equals the previous paint's
+stamp.  The stamp lists every input the rail paint reads… except
+=org-air-filter-match=, which the paint reads THREE times: the chip
+join word, the =Match: %s= line, and the =N of M shown= count
+(=--visible-items= runs the combinator).  =/= and =\= only appear to
+"have the wiring" because they mutate =org-air-view--tag-filter=,
+which is stamped.
+
+Fix: add =org-air-filter-match= to the stamp list (between the
+tag-filter and scope entries — position is cosmetic, list =equal= is
+the guard).  One symbol read; the S4 skip-proof ("an unchanged stamp
+proves a byte-identical repaint") is RESTORED to truth rather than
+weakened.
+
+- Covers every rail owner through the one seam: board, project doc
+  rail, review, revisit — all side-window repaints route through
+  =--show-1='s stamp guard.
+- The INLINE rail was never stale (the whole buffer re-renders);
+  the project HEADER segment likewise repaints with its buffer.
+- No new refresh call, no timer, no dirty flag: the M-/ command body
+  is untouched.
+
+* Decision 4 — R69-4: fit-driven column reflow, one shared emitter
+
+** The strategy (reflow; not shorten, not drop)
+
+New primitive in org-air-view.el:
+
+- =org-air-view--insert-verb-rows (cells width)= — CELLS is the flat
+  ordered list of =(KEY . DESC)= conses (reading order).  It:
+  1. Measures every cell: =cellw = string-width(KEY) + 1 +
+     string-width(DESC)= (=string-width=, matching the R50-1 rule
+     that layout follows the DERIVED key text — the board's cells
+     come from =--legend-key=, so a leader/evil rebind changes the
+     arithmetic automatically).
+  2. Picks columns-per-row =n= — the LARGEST n in {3, 2, 1} such
+     that every resulting row fits:
+     =inset + Σ_{j=1..n} colw_j + gapw × (n−1) ≤ WIDTH=,
+     where the grid is CELLS chunked in order into rows of n,
+     =colw_j= is the widest cell in column j, and =gapw= is the
+     existing tier rule (4 when =width ≥ 38=, else 1).  The LAST
+     column still emits unpadded (=--verb-cell … 0=, as today) but
+     its =colw= counts in the fit test — the fit is judged on the
+     widest possible row.
+  3. Emits the rows via the UNCHANGED =--verb-cell= + =--pad-to=.
+- Floor: at n=1 a single derived cell wider than WIDTH still
+  ellipsizes via =--pad-to= — the documented last resort (requires a
+  pathological rebinding; with the fallback keys the widest cell is
+  =g r refresh= = 11 cols, safe at every tier ≥ the 28-col narrow
+  rail).
+
+Worked defaults (fallback keys, inset 3, gap 1): no-scope 3-col rows
+need 34 cols (=11+1+10+1+8= + inset) — so the 31–32-col mid tier
+reflows to n=2 (3 rows, widest =3+10+1+11=25=), and the 28-col
+narrow tier (inset 1) likewise; the 41-col wide tier keeps today's
+2×3 layout byte-for-byte.  With a scope active 3-col needs 32 — the
+screenshot's exact =s sou…= case lands at n=2.
+
+Why reflow wins over the two alternatives the round listed:
+shortening verb labels ("sou", "refr") re-introduces truncation by
+another name and breaks the derived-cell arithmetic the moment a
+rebind lengthens a key; dropping low-priority cells makes the legend
+LIE by omission — R50-1's whole point is that the legend never lies
+about reachability.  Rows are the one axis the rail has to spare,
+and the foot arithmetic already measures the Actions block
+(=--render-lines= in =--insert-rail-1=), so extra rows shrink the
+inspector's reserved region exactly like any other foot growth
+(R26-3: the clamped side-window rail lets it reach zero).
+
+** The four call sites collapse
+
+The board (=--insert-actions-default= :4117), project
+(=org-air-project--insert-actions= :1417), review
+(=org-air-review--insert-actions= :1092) and revisit
+(=org-air-revisit--insert-actions= :512) emitters are byte-level
+copies of the same 3-column loop (the three static tables even
+recompute =cellw= with =length= instead of =string-width= — same
+values on their all-ASCII cells).  Each becomes: header + =(org-air-
+view--insert-verb-rows (flattened cells) width)=.  The board
+flattens its two derived rows (capture, filter, source, refresh,
+reset|expand, help); the static 3×3 tables flatten row-major.  When
+fit(3) passes the output is byte-identical to today BY CONSTRUCTION
+(same column maxima, same gap, same last-column rule) — the
+consolidation carries zero golden shift at standard widths; reflow
+engages only where today truncates.
+
+* Decision 5 — R69-5: one chip-label primitive + the token surfaces
+
+** Confirmed: there is NO chip-label primitive today
+
+Eleven sites hand-write =(concat "#" tag)=.  They split into two
+kinds, and the fix differs by kind:
+
+- *Tag-NAME chips* (input is a raw tag string) — NINE sites gain the
+  new primitive:
+  | Surface                        | Site                 |
+  |--------------------------------+----------------------|
+  | board inline chip buttons      | org-air-view.el:2332 |
+  | board tag pills (=--item-tagstr=, pill + plain) | org-air-view.el:2963–2964 |
+  | Source chip (=--scope-label= =:tag= branch)     | org-air-view.el:4027 |
+  | board inspector tags line      | org-air-view.el:4413 |
+  | project by-tag section titles  | org-air-project.el:1030 |
+  | project inspector tags line    | org-air-project.el:1511 |
+  | project doc-rail Document tags | org-air-project.el:1971 |
+  | review tag rollup labels       | org-air-review.el:508 |
+  (Eight rows; :2963–2964 is one site with two style branches.)
+- *Filter-TOKEN chips* (input is an R24-6 verbatim token) — TWO
+  sites pre-date R24-6 and hand-prepend, which double-prefixes a
+  =#tag= token (=##nix=) and falsely tags-dresses a bare substring
+  token (=#git=): the banner segment (org-air-view.el:2455) and the
+  project header segment (org-air-project.el:1307).  These route
+  through the EXISTING token primitive
+  =org-air-view--filter-token-label= (:2062 — verbatim for =#…=
+  tokens, quoted for bare), exactly as the rail (:4062) and the
+  mode-line (:1643) already do.  One rendering per surface kind, no
+  third idiom.
+
+** The primitive
+
+- =org-air-view--tag-chip-label (tag)= → =(if (string-prefix-p "#"
+  tag) tag (concat "#" tag))=.  Placed next to
+  =--filter-token-label= (the two label primitives read together).
+  Collapse ONLY the org-air-prepended prefix: a tag literally named
+  =##x= renders =##x= (we never rewrite the user's tag text).
+- Face hashing is untouched: =org-air-faces-tag-face= keeps hashing
+  the RAW tag name (=#Nix= and =Nix= are different tags and may
+  carry different accents — correct, they ARE different tags).
+- svg-tag-mode rationale preserved: the tag's own text keeps its
+  =#=; org-air merely stops adding a second one on its chrome.
+
+** Companion: the matcher's tag branch (keeps deduped chips live)
+
+=org-air-view--filter-token-match-p= (:2068) resolves a =#…= token
+ONLY as =(substring token 1)= tag membership — so the token =#Nix=
+(what chip-clicking a =#Nix= tag toggles via =org-air-filter-toggle=,
+and what CRM completion over the raw tag vocabulary returns) can
+never match an item actually tagged =#Nix= (probed: nil).  The tag
+branch becomes: match when the STRIPPED name OR the VERBATIM token
+is a member of the item's tags (both sides downcased, as today).
+=#Nix= then matches items tagged =nix= or =#nix= — the union is the
+only reading under which both the plain-tag world and ryota's
+literal-# world stay one-keystroke filterable.  Bare-token
+semantics, token storage (R24-6), and the AND/OR fold are untouched.
+
+* ERT seams — batch, tests/org-air-round69-test.el
+
+Rendering seams run the block functions into a temp buffer with the
+relevant buffer-locals let-bound (the P1/P2 probe idiom) — no window,
+no fixture scan.  Batch glyphs are the ASCII tier (=✕=→=x=, =…=→=...=).
+
+- *T1 /spacer/*: =--insert-rail-filters= at 32w with tokens
+  =("#alpha" "#beta")= ⇒ exactly ONE blank line immediately before
+  the =Source= header line (and none today — revert-RED); the empty-
+  filter branch (=none=) gains the same blank.
+- *T2 /no clear glyph/*: same render ⇒ the chips line is EXACTLY
+  =inset + "#alpha AND #beta"= — no trailing glyph token (exact-line
+  pin, immune to =x= appearing inside a tag name).  Revert-RED.
+- *T3 /the stamp/*: on an =org-air-view-mode= temp buffer,
+  =org-air-rail--input-stamp= differs across an
+  =org-air-filter-match= AND↔OR flip and is =equal= across a no-op
+  re-read.  Revert-RED (probed equal today).  This IS the repaint
+  guarantee: =--show-1= repaints exactly when the stamp changed; the
+  visible side-window paint itself is GUI-confirm (below).
+- *T4 /reflow fits/*: =--insert-actions-default= at 28w (board
+  buffer dead ⇒ fallback keys) ⇒ (a) no =more= glyph anywhere,
+  (b) all six verb words present (=capture filter source refresh
+  expand help=), (c) every line's =string-width= ≤ 28.  Repeat at
+  31w with =(:tag "nix")= scope (=reset= replaces =expand=).  Both
+  revert-RED (probed ellipsized today).
+- *T5 /wide parity/*: =--insert-actions-default= at 41w ⇒
+  byte-identical to the current 2×3 layout (exact-string pin); same
+  parity pin for ONE static-table site (review at 32w) — guards the
+  four-site consolidation, GREEN today by design.
+- *T6 /chip dedup/*: =--tag-chip-label= unit pins (="Nix"=→=#Nix=,
+  ="#Nix"=→=#Nix=, ="##x"=→=##x=); surface pins: =--item-tagstr
+  '("#nix")= renders one =#=; =--insert-tag-chip "#nix"= buffer text
+  = =#nix=; =--scope-label= with =(:tag "#nix")= = =#nix=; review
+  =--rollup-labels= tag basis on a =#nix=-tagged item = =("#nix")=;
+  the banner/project filter segments over token ="#nix"= contain
+  =#nix= exactly once and over token ="git"= read ="git"= quoted
+  (the token-label switch).  Each revert-RED.
+- *T7 /matcher companion/*: =--filter-token-match-p "#Nix" "" tags=
+  ⇒ t for tags =("#nix")= (revert-RED) AND still t for =("nix")=
+  (regression pin); =--tokens-pass-filter-p= under =all= with tokens
+  =("#a" "#b")= unchanged (fold untouched).
+
+GUI-confirm-only (screenshot pass with ryota, not ERT-able): the
+live side-window repaint on the actual =M-/= keypress (window +
+render-tail machinery never runs headless); the one-line gap's
+visual rhythm next to the svg header markers; svg PILL rendering of
+deduped =#Nix= chips (pill goldens are byte-level, but the baked svg
+is GUI); the reflowed Actions block at ryota's real rail width; the
+✕'s absence in the live rail.
+
+Goldens/mockups: =make regen-mockups= expected shifts are confined
+to (a) one added blank line in every rail render between Filter and
+Source (with the inspector tail one line shorter — same total
+height), and (b) the chips line losing its trailing glyph in any
+filter-active fixture.  Actions blocks at standard golden widths are
+byte-identical (T5); banner shifts only if a fixture renders an
+ACTIVE filter through the banner (token-label switch).  Anything
+structural beyond these classes is a spec violation to investigate.
+Known-failures manifest stays EMPTY.
+
+* Non-goals
+
+- No removal of the =clear= glyph table entry or its SAFE tier — the
+  banner (:2456) and project header (:1308) still render it.  Their
+  ✕ is the SAME dead-glyph pattern; sweeping those two surfaces
+  (remove or make actionable) is a candidate for a later polish
+  round once ryota confirms the rail feel — this round touches those
+  expressions only for the R69-5 token-label switch and keeps their
+  glyph byte-for-byte.
+- No clickable replacement for the rail ✕; no mouse bindings on rail
+  chips.  The keyboard hint line is the teaching surface.
+- No verb-label shortening, no cell dropping, no new Actions
+  content — R69-4 is layout-only, and =--verb-cell= itself is
+  unchanged (the strategy lives in the shared row emitter).
+- No change to filter token STORAGE or the CRM vocabulary (R24-6
+  verbatim tokens stand; the completion still offers raw tag names).
+- No rewrite of the user's tag text anywhere — the dedup is chrome-
+  side only; org files, =org-set-tags= paths (R67 editor) and the
+  cache never see a modified tag.
+- No new rail dirty-flag/refresh machinery — R69-3 is one stamp
+  input; the R27-1 S4 skip-proof discipline stands.
+
+* Compatibility
+
+- *R53 (never-hang / never-error)*: all five fixes are pure string
+  composition or a stamp-list entry; zero buffers opened, zero
+  scans, zero timers added.  The reflow's fit test is O(cells) over
+  already-derived strings.
+- *R67 (item editor)*: disjoint surface (inbox/transient untouched);
+  tag semantics feeding the editor are unchanged (chrome-only
+  dedup).  NOTE for the impl seat: a sibling round edits
+  org-air-view.el in parallel — this spec's view.el hunks are
+  :4038–4094 (spacer + ✕), :5807 (stamp), :4117–4176 + the new
+  emitter (reflow), :2062/:2068/:2332/:2455/:2963/:4027/:4413
+  (chips/matcher) — rebase on whatever lands first.
+- *R50-1 (derived legend keys)*: strengthened — the reflow computes
+  from the SAME derived cell strings, so a leader/evil rebind
+  changes the column arithmetic and, when needed, the column COUNT,
+  still never truncating.
+- *R27-1 S4 (stamp-guarded rail paint)*: restored to truth — the
+  stamp again lists EVERY input the paint reads.
+- *R26-3 (foot fit) / R19-4c (block order) / R22-4 (Filter vs
+  Source naming)*: unchanged; the spacer and reflow ride the
+  existing foot arithmetic.
+- *R24-6 (token mini-language)*: storage + display primitives stand;
+  two stragglers adopt =--filter-token-label=; the matcher's tag
+  branch WIDENS (strict superset — every match today still matches).
+- *R63-2 (review rollups)*: label-only dedup; the fold and totals
+  untouched.
+
+* Implementation History
+
+- 2026-07-22: Round 69 spec (design seat).  Five rail items from
+  ryota's screenshot.  Probed (=/tmp/org-air-r69/probe.el=): the
+  missing Filter→Source blank; the ✕ carrying no action; Actions
+  ellipsized at 28w/31w; =##nix= on pills/chips/scope-label; the
+  =#Nix= token unable to match a literal =#nix= tag; and the R69-3
+  root cause — =org-air-rail--input-stamp= omits
+  =org-air-filter-match=, so the stamp guard proves a stale repaint
+  "byte-identical" and skips it (=/= and =\= repaint only because
+  =--tag-filter= IS stamped).  Decisions: one-blank spacer inside
+  =--insert-rail-filters=; drop the rail ✕ only (glyph table entry
+  stays — banner/project still use it); add the combinator to the
+  stamp (no new refresh machinery); a shared fit-driven verb-row
+  emitter (3→2→1 columns, derived-width arithmetic, four call sites
+  collapse, byte-identical where 3-col fits); ONE
+  =--tag-chip-label= dedup primitive across eight tag-name chip
+  surfaces + the two token stragglers switch to
+  =--filter-token-label= + the matcher's tag branch accepts the
+  verbatim =#=-token so literal-# tags stay filterable.  Seven batch
+  seams (T1–T4, T6–T7 revert-RED; T5 parity guards); GUI-confirm
+  residue listed.  State: ready.

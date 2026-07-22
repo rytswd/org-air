@@ -1,0 +1,437 @@
+#+title: org-air Round 70 — The item editor moves to `e' (the refile key retires) + S-RET in the editor appends a dated log note in place
+#+state: ready
+#+tags: board editor transient keybinding notes logbook ux
+
+* Summary
+
+USER REQUEST (two changes to the item EDIT transient — R67 made it a
+general editor, R68 fixed =T=):
+
+1. /"It's no longer refile, it's about edit"/ — the transient's board
+   entry key moves =r= → =e= BY DEFAULT.
+2. =S-RET= inside the edit transient adds a COMMENT/NOTE to the org
+   item — the org-idiomatic dated log note.
+
+Two work packages:
+
+- *R70-1 (the rebind)* — the board map's =r= → =org-air-refile-item=
+  (org-air-view.el:1599) becomes =e=; =r= is DROPPED, not aliased
+  (Decision 1 argues it).  Audited: =e= is FREE in every org-air map
+  (board, core, project, review, revisit, g-prefix, z-prefix,
+  leader — grep confirms zero =e= bindings), and NO other surface
+  binds a refile key — project/review/revisit never had one, so the
+  rebind is board-only.  The =process-inbox= walk's =?r= char row
+  KEEPS its refile framing (Decision 2).  The teaching surfaces
+  reframe: the =?= help Triage row (=refile item= → edit wording,
+  key derived to =e= automatically via `where-is'), the R26-6
+  docstring note, the engine/prefix docstrings, and the transient
+  heading =Edit / refile "<title>"= → =Edit "<title>"=.  Audit
+  finding: there is NO Actions-rail refile verb cell to update —
+  R26-6 made =?= help "the single teaching surface" (the board
+  Actions block is capture/filter/source/refresh/reset|expand/help)
+  — so the rail carries ZERO shift.  All =org-air-refile-*= symbol
+  names stay (test pins; the change is the KEY + the user-facing
+  framing, per the request).
+- *R70-2 (the note)* — new transient suffix
+  =org-air-refile-form-note= on key ="S-<return>"= (the =[S-return]=
+  GUI event; the board's own S-RET visit binds the same event — no
+  conflict: the transient's modal keymap shadows the board while
+  open).  It reads the comment text from the MINIBUFFER (Decision 4)
+  and appends it to the item's SOURCE heading as the org-idiomatic
+  dated note — =- Note taken on [ts] \\= + indented text, placed by
+  org itself into the LOGBOOK drawer or under the heading per the
+  file's =org-log-into-drawer= — via =org-add-log-setup= +
+  a SYNCHRONOUS =org-store-log-note= carrying the PROVIDED text
+  (Decision 3: the emulation, every internal it touches documented;
+  NEVER org's interactive note prompt, which would trap an
+  =*Org Note*= buffer against the undisplayed source — the exact
+  R68 trap class).  In place, no move, one =atomic-change-group= +
+  one =save-buffer=, triage-undo (=u=) recorded, then the board
+  refresh.  The suffix is =:transient t= — add a note, keep editing
+  (Decision 5).  An EXPLICIT user note is INTENTIONAL: it is
+  APPLIED, never suppressed/downgraded by the R68 logging
+  discipline — probed, the two mechanisms are disjoint by
+  construction (Decision 3).
+
+Measured this round (probes under =/tmp/org-air-r70/=, batch Emacs
+30.2 / Org 9.7.11 / bundled transient):
+
+| Probe                                                                | Result                                                       |
+|----------------------------------------------------------------------+--------------------------------------------------------------|
+| =key-valid-p= / =kbd= ="S-<return>"=                                 | t / =[S-return]= (the GUI event)                             |
+| =kbd "S-RET"=                                                        | =[33554445]= — a DIFFERENT key (shifted-CR char)             |
+| =transient-define-prefix= with =("S-<return>" …)= + =transient-get-suffix= | accepted; batch lookup returns the suffix                    |
+| =org-add-log-setup 'note= + synchronous =org-store-log-note= with provided text (batch, UNMOCKED) | =- Note taken on [2026-07-22 Wed 12:49] \\= + =  hello world= lands under the heading; no =*Org Note*= buffer; hook clear; =org-log-setup= nil |
+| same under =(org-inhibit-logging 'note)= — the R68 discipline binding | the note lands IN FULL — not suppressed, not downgraded      |
+| same under =(org-log-into-drawer t)=                                 | the note lands INSIDE =:LOGBOOK:= … =:END:=                  |
+| multi-line text                                                      | continuation lines indented under the note bullet            |
+| =atomic-change-group= around setup+store, then a signal              | byte-exact rollback — the note is gone                       |
+| grep: =e= bound in any org-air map                                   | ZERO hits — free everywhere                                  |
+| grep: refile bound outside the board map                             | only the =?r= char row in the walk + =f= (file-group, calls the same command); project/review/revisit carry NO refile binding |
+| grep: an Actions-rail refile verb cell                               | NONE — R26-6 retired it; =?= help is the teaching surface    |
+
+SPEC ONLY — no =.el= or test edits in this change.  org/org-ql only:
+the note machinery is org core (=org-add-log-setup= /
+=org-store-log-note= / =org-log-beginning=); no new dependency, no
+new query path.
+
+* Decision 1 — r's fate: DROP (no deprecated alias)
+
+=e= becomes THE binding; =r= is removed from
+=org-air--register-default-keys 'org-air-view-mode-map= (:1599) and
+left UNBOUND on the board (the map's comment row updates: triage
+verbs =c/m/s/d/e/f/t/T/a/D/x/u/I=).  No one-release =r= alias:
+
+- The user's own framing rules it: /"it's no longer refile"/.  The
+  muscle memory being protected is the requester's, and the request
+  is the rebind.
+- Legend truth (R30-2/R50-1): every legend/help key derives via
+  `where-is-internal' FIRSTONLY.  A second binding to the same
+  command makes the DISPLAYED key an accident of keymap internals —
+  the exact argument R67's Non-goals used to refuse an =e= alias
+  when =r= was primary; it cuts the same way reversed.  One binding
+  keeps the derivation deterministic: help shows =e=, period.
+- An unbound =r= is LOUD (="r is undefined"=) — active retraining;
+  a silent alias postpones the same relearning and adds a test
+  surface for a key already scheduled to die.  v0.1 pre-release
+  carries no compat obligation.
+- =g r= (refresh, the g-prefix) is untouched — a different map.
+
+The knob-off contract (R35-1) follows automatically: with
+=org-air-use-default-keybindings= nil, =e= — like every installer key
+— is absent from the map.
+
+* Decision 2 — the walk's =?r= row stays "[r]efile"
+
+=org-air-process-inbox= (:9545) dispatches =?r= from its char menu
+to the same command.  It KEEPS the key and the =[r]efile= label:
+
+- It is a modal =read-char= menu, not a keymap — no `where-is' /
+  legend interplay, so the Decision-1 determinism argument does not
+  apply.
+- In the guided walk the user's intent IS filing (the countdown to
+  Inbox zero); "refile" names the disposition truthfully there —
+  the editor's destination leg is what the walk reaches for.  Its
+  sibling =?f= (file-group) opens the same editor already.
+- The in-place leg remains reachable from the walk too (open, edit
+  metadata, RET) — nothing is lost.
+
+Likewise UNTOUCHED: =org-air-item-file-group= (board =f=) keeps
+calling =org-air-refile-item= interactively, and the =org-air.el=
+autoload stands.
+
+* Decision 3 — the note writer: setup + synchronous store, never the prompt
+
+** Why not org's own interactive note flow
+
+An =org-add-log-setup 'note= left to its own devices defers
+=org-add-log-note= to =post-command-hook=, which pops a full-frame
+=*Org Note*= buffer awaiting =C-c C-c= — against a source buffer the
+user never saw, inside a transient session: the R68 trap class,
+verbatim.  R68's answer for IMPLICIT logging was downgrade + flush;
+this round's case is the opposite pole — an EXPLICIT user note —
+so the text must be APPLIED, with org still owning the formatting,
+placement and timestamp.
+
+** The core primitive (org-air-inbox.el, next to the R68 flush)
+
+=org-air-inbox--append-log-note (text)= — point at the heading in
+its source buffer; appends TEXT as a dated note.  The probed,
+unmocked-in-batch emulation of =org-add-log-note='s finishing
+branch, with the note buffer PRE-FILLED instead of user-edited:
+
+#+begin_src emacs-lisp
+(org-add-log-setup 'note nil nil 'note)   ; marker, purpose, effective time
+(remove-hook 'post-command-hook #'org-add-log-note)
+(setq org-log-setup nil)
+(setq org-log-note-window-configuration (current-window-configuration))
+(move-marker org-log-note-return-to (point))
+(let ((buf (generate-new-buffer " *org-air-note*"))
+      (current-prefix-arg nil)          ; store's abort gates: forced off
+      (org-note-abort nil))
+  (with-current-buffer buf (insert text))
+  (with-current-buffer buf (org-store-log-note)))
+#+end_src
+
+Every internal it touches, and why (org 9.7.11 source, read):
+
+- =org-add-log-setup= is the org-owned seam: it records
+  =org-log-note-marker= (point), =org-log-note-purpose= ='note=
+  (which selects the ="Note taken on %t"= template from
+  =org-log-note-headings=) and =org-log-note-effective-time= (the
+  =[ts]=), and queues the hook — which we immediately dequeue
+  (+ clear =org-log-setup=), taking over its ONLY remaining job.
+- =org-log-note-window-configuration= / =org-log-note-return-to=:
+  =org-store-log-note='s epilogue restores both unconditionally —
+  set here so the restore is a no-op bracket (the same
+  save/restore =org-add-log-note= itself performs on the R68 flush
+  path, probed batch-safe there and here).
+- =org-store-log-note= reads the note TEXT from the current buffer
+  (killing it — hence a =generate-new-buffer=, never
+  =with-temp-buffer='s double-kill), prefixes the dated heading
+  line (=… \\= exactly when text follows), indents continuation
+  lines, and inserts at =(org-log-beginning t)= via MARKER —
+  display-independent, and the drawer decision
+  (=org-log-into-drawer= / =#+STARTUP: logdrawer= /
+  =LOG_INTO_DRAWER=) is org's own, read file-locally in the SOURCE
+  buffer.  =current-prefix-arg= / =org-note-abort= are its two
+  abort gates — let-bound nil so a stray prefix can never silently
+  drop the note.
+
+** Composition with the R68 discipline — disjoint by construction
+
+The R68 bindings (=org-inhibit-logging 'note=,
+reschedule/redeadline ='note=→='time=) act on the DOLOG computation
+inside =org-todo= / =org--deadline-or-schedule= — an explicit
+=org-add-log-setup 'note= never consults them (probed: the note
+lands in full under the binding).  And the R68 flush
+(=org-air-inbox--flush-pending-log-note=) gates on hook membership
++ =how ∈ (time state)=: after this primitive the hook is already
+clean, so a surrounding =org-air-view--at-item-source= (or the
+macro's own post-body flush) no-ops — no double-insert, no
+suppression, no interaction.  The two mechanisms answer opposite
+problems: implicit log records are downgraded+flushed; an explicit
+user note is applied.
+
+** The item-level wrapper
+
+=org-air-inbox--add-item-note (item text)= — the apply-side twin of
+=org-air-inbox--apply-item-edits= (same file, same inlined
+=--at-item-source= semantics — view.el requires inbox.el, so the
+macro is unreachable here by design): stale guard when =fboundp=,
+=org-air-inbox--source-buffer=, =org-with-wide-buffer=, goto the
+R26-8 marker-or-=(FILE . POS)= position, =org-back-to-heading t=,
+then ONE =atomic-change-group= around =--append-log-note= (probed:
+a signal rolls the note back byte-exactly), ONE =save-buffer= (the
+note is part of the same saved bytes — the R53 scan sees the
+complete edit), and the triage-undo recording when =boundp= (the
+board's =u= covers a note like every single-field verb).  NOT the
+engine: no cut, no paste, no destination.  Returns non-nil on
+apply.
+
+* Decision 4 — the reader: minibuffer, not a note buffer
+
+=read-string "Note: "= against the DISPLAYED board — the board's
+established idiom for every quick text read (R64/R67 fields, R68's
+todo completion).  A dedicated note-buffer read is exactly the
+modal =*Org Note*= interaction shape this round exists to avoid;
+multi-line text still travels (yank, =C-q C-j=) and org indents the
+continuation lines (probed).  Long-form writing belongs in the
+source buffer via =RET= visit, where org's full note UI applies
+untouched (the R68 Decision-2 boundary, unchanged).  Empty input ⇒
+a gentle =message "Empty note — nothing added"= — no write, no
+error (R53).
+
+* Decision 5 — the suffix: immediate apply, transient stays open
+
+=org-air-refile-form-note= (the =refile-form-*= family name — the
+prompt's no-rename rule extends to the new sibling), key
+="S-<return>"=, placed in the bottom group between RET and =q=,
+label ="add note"=, =:transient t=.
+
+- *An ACTION suffix, not a deferred field* — deliberately unlike
+  =t/c/s/d/k/,=.  A note is append-only journaling, not item state:
+  it has no meaningful "current value" row, no WYSIWYG preview
+  line, and deferring it to RET would entangle it with the refile
+  leg (engine plumbing for a =:note= parameter, before/after-move
+  ordering) for zero user value.  The R64 one-confirm contract is
+  honoured at its own scale: typing the note and pressing RET in
+  the minibuffer IS the note's one confirm — S-RET alone (empty
+  read, =C-g=) writes nothing, so prompt-time no-mutation holds
+  for every FORM field exactly as before.
+- *Stays open* (=:transient t=): the natural flow is "jot a note,
+  maybe also bump a field" — closing would force a reopen; RET/=q=
+  remain the ONLY exits (the clean modal invariant).  Two S-RETs =
+  two dated notes — journaling, as org means it.  The immediate
+  write cannot stale the form: a note appends BELOW the heading
+  line, so every seeded field, the item's marker, and a later
+  refile (the note travels with the subtree) stay correct.
+- Tail: =message "Added note to \"%s\""= + the execute-leg's
+  board-refresh-when-on-the-board guard (the save has bumped mtime;
+  the refresh repaints under the open transient harmlessly).
+- Key choice: =[S-return]= is what a GUI delivers, and what
+  CSI-u/modifyOtherKeys terminals normalise to via xterm.el; the
+  board's belt-and-braces =\"S-RET\"= CHAR registration is a keymap
+  nicety the transient menu cannot mirror without a duplicate menu
+  row — one entry, the symbol form, is the honest binding.  A
+  plain terminal cannot send S-RET at all (it sends RET) — the
+  same hardware limit the board's S-RET visit already lives with;
+  noted as GUI residue, not worked around.
+
+* The reframe — every surface that says "refile" for the entry
+
+- =org-air-inbox--form-heading= → =Edit "<title>"= (fallback
+  ="Edit"=).  The r19 heading pin (title present, no tag block)
+  survives; the r67 exact-string pin flips (listed below).
+- The transient prefix + engine docstrings: "the board's =e='";
+  "The =e= binding and the =org-air-refile-*= names stay — refiling
+  is one optional field of the editor".
+- =?= help, Triage group: =(org-air-refile-item . "refile item")= →
+  ="edit item (a destination refiles)"= — the key cell derives to
+  =e= via `where-is' with no further change; the knob-off honest
+  cell stays =M-x org-air-refile-item= (r50 pin unaffected).
+- The R26-6 docstring note (view.el:3097) reads =e= instead of =r=.
+- The C-c leader map carries no refile entry — nothing to do.
+
+Existing pins that FLIP (legitimate reframe updates, the impl seat
+edits them alongside — each is an exact-key or exact-string pin of
+the OLD framing):
+
+| Pin                                                | New assertion                                    |
+|----------------------------------------------------+--------------------------------------------------|
+| tests/org-air-triage-test.el:48 table row =("r" . org-air-refile-item)= | =("e" . org-air-refile-item)=                    |
+| tests/org-air-triage-test.el:188/:199 (=r= lookup + ="^  r +refile"= help row) | =e= lookup + ="^  e +edit"=                      |
+| tests/org-air-round26-test.el =r26-6-refile-still-works= | =e= resolves; help row regexp follows            |
+| tests/org-air-round35-test.el:83 =(key-binding "r")= | =(key-binding "e")= resolves; the knob-nil leg adds =e= to the unbound list (=r= stays trivially absent) |
+| tests/org-air-round67-test.el:234 heading pin      | ="Edit \"Capture me\""=                          |
+
+* ERT seams — batch, tests/org-air-round70-test.el (each reverts to RED)
+
+Fixture: the r67/r68 temp-dir idiom — =inbox.org= (=#+title:= +
+=* TODO Capture me :inbox:=), =drawer.org= (=#+STARTUP: logdrawer= +
+a TODO item), =projects.org= (a titled refile target).  Form suffixes
+run batch via =--form-init= + =--form-put= + =call-interactively=
+(the r19/r64 idiom — no transient event loop); reads stubbed via
+=cl-letf=.
+
+- *r70-1 /the rebind/*: =(lookup-key org-air-view-mode-map (kbd "e"))=
+  is =org-air-refile-item= and =(kbd "r")= resolves to NIL.
+  Companion route-proof without an event loop:
+  =call-interactively= on the =e= binding in batch signals the
+  transient's OWN noninteractive guard ("interactive-only") —
+  proving key → command → transient dispatch end-to-end.
+  Revert-RED both ways.
+- *r70-2 /no alias, deterministic legend key/*:
+  =where-is-internal #'org-air-refile-item (list org-air-view-mode-map)=
+  returns exactly ONE binding, =[?e]=.  RED against a kept-=r= alias.
+- *r70-3 /help shows e/*: =org-air-help= from a board-mode origin ⇒
+  the help buffer matches ="^  e +edit"= and does NOT match
+  ="^  r +refile"=.  Revert-RED.
+- *r70-4 /transient layout/*:
+  =transient-get-suffix 'org-air-refile-transient "S-<return>"= is
+  =org-air-refile-form-note= with slot =transient= t (the
+  stays-open pin, batch-readable); ="RET"= still
+  =org-air-refile-form-execute=; ="q"= still quits.  RED today (no
+  such suffix).
+- *r70-5 /the note core — exact shape/*:
+  =--append-log-note "hello world"= at a temp-buffer heading ⇒ the
+  next lines are =- Note taken on [ts] \\= (regexp-pinned
+  timestamp) + =  hello world=; NO =*Org Note*= buffer exists;
+  =post-command-hook= does not carry =org-add-log-note=;
+  =org-log-setup= nil.  RED today (function absent).
+- *r70-6 /drawer honoured/*: same call under
+  =(org-log-into-drawer t)= ⇒ the note sits inside =:LOGBOOK:= …
+  =:END:=; and through the WRAPPER on the =drawer.org=
+  (=#+STARTUP: logdrawer=) item ⇒ drawered in the SAVED bytes —
+  the file's own setting governed, nothing global.
+- *r70-7 /the wrapper: in place, saved, undoable/*:
+  =--add-item-note item "quick thought"= on the inbox item ⇒ DISK
+  bytes carry the note under the SOURCE heading; the heading line
+  itself is byte-identical; the item did not move (exactly one
+  match, still in inbox.org); the visiting buffer is unmodified
+  post-save; =org-air-view--triage-source-buffer= records the
+  buffer; a cache-cold =(FILE . POS)= marker slot works (the R26-8
+  leg).  RED today.
+- *r70-8 /NOT suppressed by the R68 discipline/*: the wrapper under
+  a let-bound =(org-inhibit-logging 'note)= AND invoked from within
+  an =org-air-view--at-item-source= body ⇒ the note text lands IN
+  FULL, exactly ONE note line, the macro's post-body flush no-ops
+  (hook clean before it runs), no error.  RED against a note path
+  routed through the downgrade.
+- *r70-9 /atomicity/*: =cl-letf= =org-store-log-note= to
+  insert-junk-then-signal ⇒ the error propagates and the DISK bytes
+  are byte-identical (rollback + no save).  RED against
+  store-then-save-regardless.
+- *r70-10 /the suffix/*: form-init on the item; =read-string= →
+  ="hi"= ⇒ =call-interactively 'org-air-refile-form-note= writes
+  the note to disk, the form state SURVIVES (=--refile-form=
+  non-nil — add-note-keep-editing) and the collected fields are
+  untouched; =read-string= → ="" ⇒ no write, bytes identical,
+  message matches "nothing added".  Companion regression: after a
+  note, execute WITH =:file projects.org= still refiles and the
+  note text arrives at the TARGET (the note travels with the
+  subtree).  RED today.
+
+GUI residue (screenshot-confirm, not ERT-able): the live S-RET
+keypress dispatching inside the real transient event loop; the
+="S-<return>  add note"= menu row; the reframed =Edit "…"= heading;
+plain-terminal S-RET unreachability (hardware, matches the board's
+S-RET visit).  Goldens: ZERO shifts expected — no fixture renders
+the transient, the help buffer, or an Actions refile cell (audit:
+none exists); =make regen-mockups= must come back byte-clean, and
+anything else is a spec violation to investigate.  Known-failures
+manifest stays EMPTY.
+
+* Non-goals
+
+- No =r= deprecated alias, no grace-period message on =r= (Decision
+  1); =g r= refresh untouched.
+- No rename of ANY =org-air-refile-*= symbol — commands, suffixes,
+  the engine, the autoloads all keep their names (test pins; the
+  new suffix JOINS the family as =org-air-refile-form-note=).
+- No walk (=process-inbox=) menu change — =?r [r]efile= stays
+  (Decision 2).
+- No note-buffer/interactive org note UI from board context — the
+  R68 Decision-2 boundary stands; full note flow lives at the
+  source via =RET= visit.
+- No =:note= deferred form FIELD, no engine note parameter, no
+  preview line for notes (Decision 5 argues the action shape).
+- No second CHAR-variant S-RET menu entry in the transient (one
+  honest binding; the board's dual registration is keymap-only).
+- No note rendering on board rows/inspector — display of LOGBOOK
+  content is a separate (unrequested) surface.
+
+* Compatibility
+
+- *R53 (never-hang / never-error)*: strengthened where it counts —
+  the one historically trap-prone org UI (the note prompt) is
+  entered only via its synchronous, display-independent finishing
+  path (probed unmocked in batch).  One =find-file-noselect= on the
+  item's own file — the same buffer every board verb visits; no
+  scans; empty input is a message, not an error.
+- *R57*: untouched (no vocabulary surface).
+- *R64 (one-confirm, prompt-time no-mutation)*: the FORM fields keep
+  the contract byte-for-byte; the note is a self-confirming action
+  (Decision 5) — S-RET without text mutates nothing.
+- *R67 (the editor)*: both execute legs untouched; the heading
+  reframe is string-level (the r19 structural pin survives); the
+  in-place leg and the note wrapper are siblings sharing the same
+  inlined =--at-item-source= semantics and atomicity discipline.
+- *R68 (logging discipline)*: intact and PROVEN disjoint — the
+  discipline downgrades implicit records; the explicit note path
+  neither consults its knobs nor leaves anything for its flush
+  (r70-8).  The flush helper itself is unchanged.
+- *R30-2/R50-1 (derived legend keys)*: strengthened — one binding,
+  one derivable key; help/legend can never disagree about =e=.
+- *R26-6*: the discovery guarantee relocates with the key — help
+  documents =e=; still no row nudges, still no rail cell.
+- Cache: no schema change; the note save bumps mtime and the
+  ordinary refresh pipeline picks it up like every board write.
+
+* Implementation History
+
+- 2026-07-22: Round 70 spec (design seat, Fable).  User request:
+  (1) the editor transient moves =r= → =e= ("no longer refile");
+  (2) S-RET in the transient adds a comment/note to the item.
+  Audited: =e= free in every map; refile bound ONLY on the board
+  map (+ the walk's =?r= char row); NO Actions-rail refile cell
+  exists (R26-6 — zero rail shift).  Decisions: DROP =r= (no
+  alias — user's framing, `where-is' legend determinism, loud
+  retraining); the walk's =?r= keeps its refile framing (char menu,
+  filing intent); the note writes via =org-add-log-setup 'note= +
+  a synchronous pre-filled =org-store-log-note= (probed unmocked in
+  batch: exact =- Note taken on [ts] \\= shape, drawer per the
+  file's =org-log-into-drawer=, no =*Org Note*=, hook clean,
+  byte-exact rollback under =atomic-change-group=, and NOT
+  suppressed by the R68 discipline — the knobs and the flush gate
+  are provably disjoint); minibuffer read (a note-buffer read is
+  the trap shape); immediate-apply ACTION suffix
+  =org-air-refile-form-note= on ="S-<return>"=, =:transient t=
+  (add note, keep editing; RET/q stay the only exits); core
+  primitive =--append-log-note= + item wrapper =--add-item-note=
+  (the =--apply-item-edits= twin: stale guard, R26-8 position,
+  atomic group, one save, triage-undo).  Heading → =Edit "<title>"=;
+  help desc reframed; five existing pins flip (table in the
+  reframe section).  Probes under =/tmp/org-air-r70/= (table in
+  Summary).  Ten batch seams, each revert-RED; goldens expected
+  byte-clean.  State: ready.

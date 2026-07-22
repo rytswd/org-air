@@ -604,6 +604,34 @@ pends past the save."
 redeadline record only when an OLD date exists) and one with an
 existing SCHEDULED for the legacy-verb leg.")
 
+(defun org-air-r68--fn-mentions-p (fn symbol)
+  "Non-nil when the loaded definition of FN mentions SYMBOL.
+Walks closure slots — constants vector + code for byte-compiled,
+code tree + env for Emacs 30 `interpreted-function' objects, conses
+for pre-30 interpreted closures — recursively through nested
+lambdas.  Returns t when SYMBOL is found, nil when FN was
+inspectable but SYMBOL absent, and `uninspectable' for opaque shapes
+\(e.g. a native-compiled subr, whose constants a test cannot open —
+callers should fall back to the behavioural assertions)."
+  (let ((queue (list (indirect-function fn)))
+        (found nil) (opened nil))
+    (while (and queue (not found))
+      (let ((o (pop queue)))
+        (cond
+         ((eq o symbol) (setq found t))
+         ((or (byte-code-function-p o)
+              (and (fboundp 'closurep) (closurep o)))
+          (setq opened t)
+          (dotimes (i (length o))       ; every slot; strings/ints inert
+            (push (aref o i) queue)))
+         ((consp o)
+          (setq opened t)
+          (push (car o) queue)
+          (push (cdr o) queue))
+         ((vectorp o)
+          (setq queue (nconc (append o nil) queue))))))
+    (cond (found t) (opened nil) (t 'uninspectable))))
+
 (ert-deftest org-air-r68-14-redeadline-knob-and-legacy-set-schedule ()
   "AUDIT hardening for the two discipline lines r68-7 leaves unpinned:
 \(a) `org-log-redeadline' let-bound to \\='note (the `lognoteredeadline'
@@ -617,8 +645,39 @@ macro to the macro itself — under `org-log-reschedule' \\='note lands
 its stamp with the `- Rescheduled from' record saved and no pending
 note.  RED on revert: both legs pend a \\='note record against the
 undisplayed buffer (`org--deadline-or-schedule' reads these knobs
-directly and ignores `org-inhibit-logging')."
+directly and ignores `org-inhibit-logging').
+
+R68fix (build-order hardening, the round-68 Fable blocker): two
+structural pins make the stale-expansion defect fail REGARDLESS of
+clean-vs-incremental build order — (1) in org-air-view.el's SOURCE
+order, `org-air-view--at-item-source' must be a defmacro BEFORE its
+first call form (a call above the defmacro byte-compiles against
+whatever stale macro an old `.elc' carries on an incremental build,
+silently dropping the logging discipline); (2) the LOADED definition
+of `org-air-set-schedule' must mention
+`org-air-inbox--flush-pending-log-note' (skipped only for opaque
+native-compiled shapes, where the behavioural legs still
+discriminate — the stale expansion reds them, as the reviewer's
+incremental run showed)."
   (skip-unless (locate-library "org-air"))
+  ;; R68fix pin 1: source order — the defmacro precedes every call form.
+  (let* ((src (locate-library "org-air-view.el" t))
+         (text (with-temp-buffer
+                 (insert-file-contents src)
+                 (buffer-string)))
+         (def (string-match "(defmacro org-air-view--at-item-source" text))
+         (use (string-match "(org-air-view--at-item-source" text)))
+    (should def)
+    (should use)
+    ;; The first call form (open paren + name, no `defmacro') must sit
+    ;; AFTER the definition; docstring back-quoted mentions don't match.
+    (should (< def use)))
+  ;; R68fix pin 2: the loaded verb carries the discipline's flush call.
+  (let ((hit (org-air-r68--fn-mentions-p
+              'org-air-set-schedule
+              'org-air-inbox--flush-pending-log-note)))
+    (unless (eq hit 'uninspectable)
+      (should (eq hit t))))
   (org-air-r68--with-board org-air-r68--dated-specs
     ;; (a) deadline under lognoteredeadline
     (org-air-r68--goto-row "Deadlined thing")

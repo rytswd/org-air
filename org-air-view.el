@@ -9188,19 +9188,6 @@ round (uniformity churn with no bug behind it)."
       (save-buffer)))
   (org-air-refresh))
 
-(defun org-air-set-schedule (date)
-  "Set SCHEDULED DATE on the item at point (legacy — no key binding).
-R68-3: converted to `org-air-view--at-item-source' (its old body was
-a hand-copy of the macro), so a `lognotereschedule' configuration now
-records a downgraded timestamped entry in the same save instead of
-trapping an `*Org Note*' prompt against the undisplayed source buffer
-— and the edit gains the triage-undo (`u') recording."
-  (interactive "sSchedule (empty clears): ")
-  (let ((item (org-air-view--item-at-point)))
-    (org-air-view--at-item-source item
-      (org-schedule nil (unless (string-empty-p date) date))))
-  (org-air-refresh))
-
 ;;;; Inbox triage — inline dispositions + process-inbox (org-air-triage.org)
 
 (defvar org-air-view--triage-source-buffer nil
@@ -9317,6 +9304,23 @@ DATE may be supplied non-interactively.  A refinement: stays in Inbox."
   (interactive)
   (org-air-view--apply-date 'deadline
                             (or date (org-air-view--read-quick-date "Deadline"))))
+
+(defun org-air-set-schedule (date)
+  "Set SCHEDULED DATE on the item at point (legacy — no key binding).
+R68-3: converted to `org-air-view--at-item-source' (its old body was
+a hand-copy of the macro), so a `lognotereschedule' configuration now
+records a downgraded timestamped entry in the same save instead of
+trapping an `*Org Note*' prompt against the undisplayed source buffer
+— and the edit gains the triage-undo (`u') recording.
+R68fix: this defun must sit BELOW the `org-air-view--at-item-source'
+defmacro — a use above the definition byte-compiles against whatever
+macro a stale `.elc' happens to carry on an incremental build,
+silently losing the logging discipline (the round-68 Fable blocker)."
+  (interactive "sSchedule (empty clears): ")
+  (let ((item (org-air-view--item-at-point)))
+    (org-air-view--at-item-source item
+      (org-schedule nil (unless (string-empty-p date) date))))
+  (org-air-refresh))
 
 ;;;###autoload
 (defun org-air-item-file-group ()

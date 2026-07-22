@@ -468,3 +468,29 @@ Known-failures manifest stays EMPTY.
   GREEN: 843 tests, 0 unexpected, 8 standing GUI skips, lint 0 (the
   one pre-existing project.el docstring-width compile warning
   unchanged).  State: complete.
+- 2026-07-22: R68fix (impl seat, Fable review BLOCKER 1).  Build-order
+  defect: the converted =org-air-set-schedule= (view.el:9191) CALLED
+  the =org-air-view--at-item-source= macro 26 lines ABOVE its
+  defmacro (:9217) — correct on a clean build only by accident (an
+  earlier compile-batch file =require='s view as source); on an
+  INCREMENTAL build over a pre-R68 tree the compiler holds the STALE
+  macro from the old .elc and the verb expands WITHOUT the logging
+  discipline (no downgrade, no flush) — the reviewer's un-cleaned
+  =make check= red'd r68-14 exactly there.  Fix: moved the defun
+  BELOW the defmacro, next to the other schedule/deadline verbs
+  (docstring notes the ordering invariant); audited — it was the
+  ONLY macro call site above the definition, and
+  =at-item-source= is the only macro in the codebase.  Verified:
+  fresh compile → the compiled verb's constants carry
+  =flush-pending-log-note= + =org-inhibit-logging= +
+  =org-log-reschedule=; incremental SIMULATED (stale pre-R68 macro
+  fset in the compile session, then byte-compile) → old ordering
+  loses the flush (nil), fixed ordering keeps it (t).  r68-14
+  strengthened build-order-robust: (1) a source-order pin — the
+  defmacro must precede the FIRST =(org-air-view--at-item-source=
+  call form in view.el; (2) the LOADED =org-air-set-schedule= must
+  mention the flush symbol (closure/byte-code constants walker;
+  gracefully skipped for opaque native-compiled shapes, where the
+  behavioural legs still discriminate).  =make clean && make check=
+  GREEN: 847 tests, 0 unexpected, 8 standing GUI skips, manifest
+  EMPTY, regen-mockups byte-clean.  State: complete.

@@ -39,3 +39,6 @@ one-shot refile engine (=org-air-refile-item=):
 - 2026-07-21: Deferred to v0.2 — not tackled in the 0.1 milestone.
 
 - R67 (2026-07-21): move =org-air-inbox--apply-item-edits= save-buffer INSIDE the atomic-change-group (currently outside — disk-safe, but a save failure leaves the buffer dirty; consistency with the refile engine). Fable-approved as non-blocking, deferred here.
+
+- R68 (2026-07-22): org-log-done 'note leak — org.el hardcodes 'note on the done branch, bypassing the R68 org-inhibit-logging downgrade; a done-note PENDS against the undisplayed buffer (interactive: *Org Note* prompt / process-inbox: lost). Fix = add org-log-done 'note→'time to the 3 discipline sites. Fable-deferred.
+- R68 (2026-07-22): org-air-item-deadline COMMAND (view.el:9314) collides with the org-air-item struct-slot ACCESSOR of the same name (pre-existing; latent hazard for a runtime funcall). Fix = rename the command (the todo one was renamed -cycle-todo for this). Fable-deferred.

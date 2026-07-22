@@ -1,5 +1,5 @@
 #+title: org-air Round 68 — Board T silently no-ops under fast-selection todo keywords: select-with-completion over the item's own vocabulary + a board-context logging discipline
-#+state: ready
+#+state: complete
 #+tags: bug board triage todo keywords robustness ux
 
 * Summary
@@ -494,3 +494,6 @@ Known-failures manifest stays EMPTY.
   behavioural legs still discriminate).  =make clean && make check=
   GREEN: 847 tests, 0 unexpected, 8 standing GUI skips, manifest
   EMPTY, regen-mockups byte-clean.  State: complete.
+
+* History
+- 2026-07-22: State: ready → complete.

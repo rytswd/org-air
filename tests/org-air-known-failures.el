@@ -2597,12 +2597,71 @@
     ;; regen-mockups' byte-clean — no fixture renders the transient,
     ;; the help buffer, or an Actions refile cell, exactly as the spec
     ;; predicts).
-    (org-air-ux-keys-refile
-     . "R70-1: the §9 pin asserts the OLD board `r' → `org-air-refile-item' binding; the editor entry moved to `e' (r dropped, no alias — Decision 1). Test seat re-blesses to (kbd \"e\").")
-    (org-air-r64-7-shell-binding-and-pure-readers
-     . "R70-1: the shell-contract conjunct pins the board's `r' binding for `org-air-refile-item'; the entry key is `e' now (command + transient + pure-reader conjuncts unaffected). Test seat re-blesses the one binding conjunct to `e'.")
-    (org-air-r50-2-help-opens-buffer-from-board
-     . "R70-1: the help-buffer conjunct greps the OLD `^  r +refile' Triage row; the derived row now reads `^  e +edit…' (edit wording, `where-is' key). Test seat re-blesses the one regexp conjunct.")
+    ;;
+    ;; 2026-07-22: ROUND-70 CLOSEOUT (impl tip lotzoxnt/d804378b + test
+    ;; seat <this commit>).  ALL THREE grind entries CLOSED — no
+    ;; fixture/golden moved (the R70 changes are one keymap row, help/
+    ;; heading strings and the note machinery; `make clean && make
+    ;; check' green with zero fixture churn — `make clean' FIRST, the
+    ;; standing R48/R51/R53/R54/R62/R63/R64 stale-.elc lesson).  Each
+    ;; flagged ERT re-blessed HONESTLY to the design-blessed R70-1
+    ;; contract (air/v0.1/org-air-round70-design.org), none weakened —
+    ;; each still MEANS something and each gained the anti-revert `r'
+    ;; conjunct (a restored `r' binding turns it RED again):
+    ;;   org-air-ux-keys-refile — the §9 verb-key pin flips to `e'
+    ;;     (`(key-binding (kbd "e"))' is `org-air-refile-item' on the
+    ;;     live dashboard) + the anti-revert conjunct (`r' no longer
+    ;;     reaches the command — dropped, no alias, Decision 1).
+    ;;   org-air-r64-7-shell-binding-and-pure-readers — ONLY the one
+    ;;     binding conjunct moved (`r' → `e' on the live board keymap,
+    ;;     + the `r'-gone anti-revert pin); the command/transient/pure
+    ;;     `p'-resolver/`f'-reader conjuncts carry over verbatim — the
+    ;;     T8 shell contract itself is untouched by the rebind.
+    ;;   org-air-r50-2-help-opens-buffer-from-board — the one help-row
+    ;;     regexp re-blessed to the derived `^  e +edit' Triage row
+    ;;     (edit wording, `where-is' key) + `^  r +refile' pinned
+    ;;     ABSENT; the buffer/window/mode/`g r' conjuncts verbatim.
+    ;; NEW R70 EXECUTING ERTs (tests/org-air-round70-test.el, the
+    ;; spec's ten seams r70-1..r70-10 + two audit-gap ERTs, all
+    ;; batch/headless through the r19/r64/r67 form idiom — no transient
+    ;; event loop; the note core driven UNMOCKED through org's own
+    ;; `org-add-log-setup' + synchronous `org-store-log-note'):
+    ;;   r70-1 rebind (e → `org-air-refile-item', r → nil, batch
+    ;;     dispatch reaches the transient's own interactive-only guard),
+    ;;   r70-2 `where-is' determinism (exactly ONE binding, [?e]),
+    ;;   r70-3 help shows `e  edit…' / never `r  refile',
+    ;;   r70-4 transient layout (S-<return> → `org-air-refile-form-note',
+    ;;     :transient t; RET/q unchanged),
+    ;;   r70-5 the note core's exact dated shape (no *Org Note*, hook
+    ;;     clean, `org-log-setup' nil),
+    ;;   r70-6 drawer honoured (global knob + the file's own #+STARTUP:
+    ;;     logdrawer in the SAVED bytes),
+    ;;   r70-7 the wrapper: in place, saved, heading byte-identical, no
+    ;;     move, triage-undo source recorded, cache-cold (FILE . POS),
+    ;;   r70-8 NOT suppressed by the R68 discipline (org-inhibit-logging
+    ;;     'note + inside `org-air-view--at-item-source', exactly ONE
+    ;;     note line, the post-body flush no-ops),
+    ;;   r70-9 atomicity (a signalling store rolls back byte-exactly,
+    ;;     no save),
+    ;;   r70-10 the suffix (writes via minibuffer read, form state
+    ;;     SURVIVES with fields untouched, empty read is a no-op
+    ;;     message + zero bytes moved, then note + refile COMPOSE: the
+    ;;     note text travels with the subtree to the target).
+    ;;   AUDIT GAPS (the test seat's own): r70-11 note + IN-PLACE
+    ;;     metadata edit in one session (the compose leg the spec's
+    ;;     r70-10 only drove through the refile leg) — both land, no
+    ;;     move, one note line; r70-12 two S-RETs = two dated notes
+    ;;     (the Decision-5 journaling law, batch-pinned).
+    ;; All 12 verified green against impl tip lotzoxnt, and ALL 15
+    ;; touched ERTs (the 12 new + the 3 re-blessed) verified
+    ;; REVERT-RED against the pre-impl trunk zlymnnmo in a scratch
+    ;; workspace — r70-9 initially passed there VACUOUSLY (its
+    ;; `should-error' swallowed the void-function error) and was
+    ;; tightened to pin the stubbed store's OWN signal, closing the
+    ;; vacuity.  No .el SOURCE touched on the test track (impl landed
+    ;; R70-1/2 in lotzoxnt).
+    ;; Round-70 manifest is EMPTY; the tests stay as permanent
+    ;; regression guards.
     ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

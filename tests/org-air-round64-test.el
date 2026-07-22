@@ -52,7 +52,8 @@
 ;;         one-segment path — the level fix applies); `"Missing"' ⇒
 ;;         CREATED at top level, never the silent file-end fallback.
 ;;   r64-7 THE SHELL, batch-safe parts (T8) — `org-air-refile-item'
-;;         remains a command and the board's `r' binding;
+;;         remains a command and the board's `e' binding (R70-1: the
+;;         editor entry moved r → e, r dropped);
 ;;         `org-air-refile-transient' is a command; the `p' reader
 ;;         parses "A/B" → (:olp ("A" "B") :new 2) against a fixture
 ;;         table, tolerates a trailing `/', answers `:olp' nil for
@@ -568,8 +569,9 @@ silent file-end fallback is retired as a defect."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r64-7-shell-binding-and-pure-readers ()
-  "`org-air-refile-item' remains a command and the board's `r' binding
-(the four legacy binding suites' contract, unchanged);
+  "`org-air-refile-item' remains a command and the board's `e' binding
+(R70-1: the editor entry moved `r' → `e', `r' dropped with no alias —
+the four legacy binding suites' contract relocated to the new key);
 `org-air-refile-transient' is a command.  The `p' reader's resolver is
 PURE over a fixture table: \"A/B\" with neither existing →
 (:olp (\"A\" \"B\") :new 2), a trailing `/' is tolerated, a partial
@@ -585,7 +587,9 @@ guarantee re-homed from the retired action menu."
   (should (commandp 'org-air-refile-transient))
   (org-air-r64--with-corpus '(("inbox.org" . "* TODO I :inbox:\n"))
     (org-air-r64--with-board
-      (should (eq (key-binding (kbd "r")) 'org-air-refile-item))))
+      (should (eq (key-binding (kbd "e")) 'org-air-refile-item))
+      ;; R70-1 anti-revert: `r' is gone — dropped, no alias.
+      (should-not (eq (key-binding (kbd "r")) 'org-air-refile-item))))
   ;; the `p' resolver, pure against fixture tables.
   (should (equal (org-air-inbox--resolve-path "A/B" '("X"))
                  '(:olp ("A" "B") :new 2)))

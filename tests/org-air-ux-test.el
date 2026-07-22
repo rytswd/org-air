@@ -116,10 +116,15 @@ returns from the single-day view to the board, else quits the window."
     (should (eq (key-binding (kbd "\\")) 'org-air-filter-clear))))
 
 (ert-deftest org-air-ux-keys-refile ()
-  "\"r\" is bound to `org-air-refile-item' (§9)."
+  "\"e\" is bound to `org-air-refile-item' (§9; R70-1 rebind).
+The editor entry moved `r' → `e' (\"it's no longer refile\") and `r'
+was DROPPED, no alias (Decision 1) — so the §9 verb-key pin flips to
+`e' and gains the anti-revert conjunct: `r' no longer reaches the
+command on the live dashboard."
   (skip-unless (locate-library "org-air"))
   (org-air-ux-test--with-dashboard
-    (should (eq (key-binding (kbd "r")) 'org-air-refile-item))))
+    (should (eq (key-binding (kbd "e")) 'org-air-refile-item))
+    (should-not (eq (key-binding (kbd "r")) 'org-air-refile-item))))
 
 ;;; Calendar pane (design spec §6)
 

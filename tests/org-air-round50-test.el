@@ -163,9 +163,10 @@ legend derives from the live binding, it cannot go stale.  Trunk FAILS
   "Dispatching `?' in a live board runs `org-air-help', which pops a
 LIVE `*org-air-help*' buffer displayed in a window (NOT an echo-area
 line): grouped rows derived from the board's actual keymaps — the
-refresh row reads the true `g r' sequence and the refile verb is
-documented (the relocated R26-6 discovery guarantee).  Trunk FAILS
-(echo only, no buffer, no window)."
+refresh row reads the true `g r' sequence and the editor verb is
+documented (the relocated R26-6 discovery guarantee; R70-1: the entry
+key is `e' with the edit wording now, the `r  refile' row is gone).
+Trunk FAILS (echo only, no buffer, no window)."
   (skip-unless (locate-library "org-air"))
   (org-air-r28--with-live-board
     (unwind-protect
@@ -183,7 +184,10 @@ documented (the relocated R26-6 discovery guarantee).  Trunk FAILS
             (let ((text (org-air-r50--help-text)))
               (should (string-match-p "org-air help — board" text))
               (should (string-match-p "^  g r +refresh" text))
-              (should (string-match-p "^  r +refile" text)))))
+              ;; R70-1: the Triage row derives to `e' with the edit
+              ;; wording; the old `r  refile' row must be gone.
+              (should (string-match-p "^  e +edit" text))
+              (should-not (string-match-p "^  r +refile" text)))))
       (org-air-r50--kill-help))))
 
 (ert-deftest org-air-r50-2-help-context-aware ()

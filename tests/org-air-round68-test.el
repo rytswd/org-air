@@ -463,5 +463,183 @@ second reader."
     (should (string-match-p "^\\* READY Fix the widget"
                             (org-air-r68--text "vocab.org")))))
 
+;;;; -------------------------------------------------------------------
+;;;; r68-11 — AUDIT: no #+TODO declaration → the GLOBAL fallback offered
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r68-11-no-declaration-global-fallback-offered ()
+  "AUDIT hardening (round-68 test seat): on a file with NO `#+TODO:'
+line (`sched.org') the reader offers the R57 MERGED fallback — the
+user's global base (TODO/DONE) plus org-air's supplement
+\(`org-air-todo-keywords': NEXT …) — a vocabulary with NO fast keys —
+and `completing-read' is STILL offered (the reported UX: \"give me
+the list\"), with fast-selection stubbed to signal as proof the
+explicit path never routes there for ANY vocabulary shape.  Another
+file's `#+TODO:'-only keywords (DROPPED/DRAFT) do NOT leak in.
+Choosing \"DONE\" applies + saves.  RED on revert: the pre-fix bare
+`(org-todo)' on a no-fast-keys vocab CYCLES silently — no completion
+ever runs, the captured collection stays nil."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r68--with-board nil
+    (let ((colls nil))
+      (org-air-r68--goto-row "Dated thing")
+      (cl-letf (((symbol-function 'org-fast-todo-selection)
+                 (lambda (&rest _) (error "fast-selection entered")))
+                ((symbol-function 'completing-read)
+                 (lambda (_prompt coll &rest _)
+                   (push coll colls) "DONE")))
+        (org-air-item-cycle-todo))
+      (should (= 1 (length colls)))
+      ;; the global base survives …
+      (should (member "TODO" (car colls)))
+      (should (member "DONE" (car colls)))
+      ;; … the R57 supplement engaged for the undeclared file …
+      (should (member "NEXT" (car colls)))
+      ;; … and vocab.org's file-local-only keywords never leaked in
+      (should-not (member "DROPPED" (car colls)))
+      (should-not (member "DRAFT" (car colls)))
+      (should-not (org-air-r68--log-pending-p))
+      (should (string-match-p "^\\* DONE Dated thing"
+                              (org-air-r68--text "sched.org")))
+      (should-not (buffer-modified-p
+                   (find-file-noselect (org-air-r68--file "sched.org")))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r68-12 — AUDIT: an item already in the last board-reachable keyword
+;;;; -------------------------------------------------------------------
+
+(defconst org-air-r68--last-kw-specs
+  '(("inbox.org" . "#+title: inbox\n")
+    ("last.org" . "#+TODO: TODO(t) DRAFT(d) READY(r) WIP(w) | COMP(c!) DROPPED(x@)\n\n* WIP Last-kw thing :inbox:\n- State \"WIP\"        from \"TODO\"       [2026-07-20 Mon 09:00]\n")
+  )
+  "r68-12 fixture: an item ALREADY in `WIP' — the last keyword a board
+row can sit in (done keywords graduate off the board; probed: a
+DROPPED heading renders no row) — with an EXISTING state-log line in
+its body.")
+
+(ert-deftest org-air-r68-12-item-already-in-last-keyword ()
+  "AUDIT hardening: the item already sits in `WIP' (the vocabulary's
+last board-reachable keyword) with an EXISTING `- State' line.
+\(a) re-picking \"WIP\" is the gentle no-op — message \"unchanged\",
+source bytes byte-IDENTICAL (the existing log line is NOT duplicated,
+no new record, no save churn); (b) choosing \"DROPPED\" (the
+vocabulary's terminal `x@' keyword) from that non-TODO origin applies,
+leaves the hook clear, appends the NEW `- State \"DROPPED\" from
+\"WIP\"' record in the same save and keeps the OLD line intact.
+Fast-selection stubbed to signal throughout — RED on revert: the bare
+nil-arg `(org-todo)' routes into the stub under this fast-key vocab."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r68--with-board org-air-r68--last-kw-specs
+    (cl-letf (((symbol-function 'org-fast-todo-selection)
+               (lambda (&rest _) (error "fast-selection entered"))))
+      ;; (a) re-picking the current (last) keyword
+      (let ((old (org-air-r68--text "last.org"))
+            (msgs nil))
+        (org-air-r68--goto-row "Last-kw thing")
+        (cl-letf (((symbol-function 'completing-read)
+                   (lambda (&rest _) "WIP"))
+                  ((symbol-function 'message)
+                   (lambda (fmt &rest args)
+                     (when fmt (push (apply #'format fmt args) msgs))
+                     nil)))
+          (org-air-item-cycle-todo))
+        (should (seq-some (lambda (m) (string-match-p "unchanged" m)) msgs))
+        (should (equal (org-air-r68--text "last.org") old)))
+      ;; (b) WIP → DROPPED: the terminal @-keyword from a non-TODO origin
+      (org-air-r68--goto-row "Last-kw thing")
+      (cl-letf (((symbol-function 'completing-read)
+                 (lambda (&rest _) "DROPPED")))
+        (org-air-item-cycle-todo))
+      (should-not (org-air-r68--log-pending-p))
+      (should-not (get-buffer "*Org Note*"))
+      (let ((new (org-air-r68--text "last.org")))
+        (should (string-match-p "^\\* DROPPED Last-kw thing" new))
+        (should (string-match-p
+                 "^- State \"DROPPED\" +from +\"WIP\" +\\[" new))
+        ;; the pre-existing record survived untouched
+        (should (string-match-p
+                 "^- State \"WIP\" +from +\"TODO\" +\\[2026-07-20 Mon 09:00\\]" new)))
+      (should-not (buffer-modified-p
+                   (find-file-noselect (org-air-r68--file "last.org")))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r68-13 — AUDIT: a done keyword with a note, chosen via T itself
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r68-13-at-done-keyword-via-T ()
+  "AUDIT hardening: `T' choosing the `@'-carrying FIRST done keyword
+\(`atdone.org's `DONE(d@)') — the T-path companion of r68-6's `-done'
+leg: the command returns, the hook is clear, no `*Org Note*' buffer,
+the downgraded `- State \"DONE\"' record is in the SAVED bytes and the
+visiting buffer is unmodified.  Fast-selection stubbed to signal (the
+`d' fast key arms the trap on revert).  RED on revert: bare
+`(org-todo)' hits the stub; RED against a no-op'd flush: the record
+pends past the save."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r68--with-board nil
+    (org-air-r68--goto-row "At-done thing")
+    (cl-letf (((symbol-function 'org-fast-todo-selection)
+               (lambda (&rest _) (error "fast-selection entered")))
+              ((symbol-function 'completing-read)
+               (lambda (&rest _) "DONE")))
+      (org-air-item-cycle-todo))
+    (should-not (org-air-r68--log-pending-p))
+    (should-not (get-buffer "*Org Note*"))
+    (let ((new (org-air-r68--text "atdone.org")))
+      (should (string-match-p "^\\* DONE At-done thing" new))
+      (should (string-match-p
+               "^- State \"DONE\" +from +\"TODO\" +\\[" new)))
+    (should-not (buffer-modified-p
+                 (find-file-noselect (org-air-r68--file "atdone.org"))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r68-14 — AUDIT: the redeadline knob + the converted legacy verb
+;;;; -------------------------------------------------------------------
+
+(defconst org-air-r68--dated-specs
+  '(("inbox.org" . "#+title: inbox\n")
+    ("dead.org" . "#+title: dead\n\n* TODO Deadlined thing :inbox:\nDEADLINE: <2026-07-30 Thu>\n")
+    ("sched.org" . "#+title: sched\n\n* TODO Dated thing :inbox:\nSCHEDULED: <2026-07-25 Sat>\n"))
+  "r68-14 fixture: an item with an existing DEADLINE (org logs a
+redeadline record only when an OLD date exists) and one with an
+existing SCHEDULED for the legacy-verb leg.")
+
+(ert-deftest org-air-r68-14-redeadline-knob-and-legacy-set-schedule ()
+  "AUDIT hardening for the two discipline lines r68-7 leaves unpinned:
+\(a) `org-log-redeadline' let-bound to \\='note (the `lognoteredeadline'
+user) — `org-air-item-deadline' (the COMMAND; called through
+`symbol-function' because eager macroexpansion inlines the struct
+accessor of the same name over direct calls) lands the new stamp,
+leaves the hook clear, and the downgraded TIMESTAMPED `- New deadline
+from' record is in the saved bytes; (b) the legacy unbound
+`org-air-set-schedule' — converted this round from a hand-copy of the
+macro to the macro itself — under `org-log-reschedule' \\='note lands
+its stamp with the `- Rescheduled from' record saved and no pending
+note.  RED on revert: both legs pend a \\='note record against the
+undisplayed buffer (`org--deadline-or-schedule' reads these knobs
+directly and ignores `org-inhibit-logging')."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r68--with-board org-air-r68--dated-specs
+    ;; (a) deadline under lognoteredeadline
+    (org-air-r68--goto-row "Deadlined thing")
+    (let ((org-log-redeadline 'note))
+      (funcall (symbol-function 'org-air-item-deadline) "2026-08-15"))
+    (should-not (org-air-r68--log-pending-p))
+    (should-not (get-buffer "*Org Note*"))
+    (let ((new (org-air-r68--text "dead.org")))
+      (should (string-match-p "DEADLINE: <2026-08-15" new))
+      (should (string-match-p
+               "^- New deadline from \"\\[2026-07-30 Thu\\]\" on \\[" new)))
+    ;; (b) the converted legacy verb under lognotereschedule
+    (org-air-r68--goto-row "Dated thing")
+    (let ((org-log-reschedule 'note))
+      (org-air-set-schedule "2026-09-01"))
+    (should-not (org-air-r68--log-pending-p))
+    (should-not (get-buffer "*Org Note*"))
+    (let ((new (org-air-r68--text "sched.org")))
+      (should (string-match-p "SCHEDULED: <2026-09-01" new))
+      (should (string-match-p
+               "^- Rescheduled from \"\\[2026-07-25 Sat\\]\" on \\[" new)))))
+
 (provide 'org-air-round68-test)
 ;;; org-air-round68-test.el ends here

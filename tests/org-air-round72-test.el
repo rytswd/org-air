@@ -551,5 +551,228 @@ The fixture answers differently under two frozen instants, and
         (should (equal now org-air-test-now))
         (should (equal filter-now org-air-test-now))))))
 
+;;;; ---------------------------------------------------------------------
+;;;; Test-seat AUDIT GAP ERTs (round-72 closeout).  The independent audit
+;;;; of the twelve impl seams found four uncovered edges; each ERT below
+;;;; drives one of them.
+;;;; ---------------------------------------------------------------------
+
+(ert-deftest org-air-r72-13-overdue-agrees-with-attention-members ()
+  "AUDIT GAP: `is:overdue' <=> the Needs-attention bucket's OVERDUE members.
+r72-3 drove the agreement theorem for upcoming/stale/hipri; the overdue
+token's bucket home was only asserted as a SET (r72-2), never against
+the attention bucket itself.  Pinned here: over EVERY fixture item,
+`is:overdue' <=> (attention-member AND `--overdue-p') — every filter hit
+has a home row in Needs-attention, and the attention members the filter
+does NOT select are exactly the dateless/stale/hipri remainder (the
+no-date default disjunct), so the token isolates the overdue disjunct
+alone."
+  (let* ((fixture (org-air-r72--fixture))
+         (org-air-upcoming-days 7)
+         (org-air-stale-days 21)
+         (overdue (org-air-r72--pass-keys fixture '("is:overdue"))))
+    (pcase-dolist (`(,key . ,item) fixture)
+      (let ((attention (memq 'attention
+                             (org-air-classify-item item org-air-test-now))))
+        (should (eq (not (null (memq key overdue)))
+                    (not (null (and attention
+                                    (org-air-classify--overdue-p
+                                     item org-air-test-now))))))
+        ;; every `is:overdue' hit renders somewhere: attention is its home.
+        (when (memq key overdue)
+          (should attention))))
+    ;; the exact split of the attention bucket: overdue disjunct = the
+    ;; filter; no-date/stale/hipri remainder = untouched by it.
+    (let ((attention-members
+           (mapcar #'car
+                   (seq-filter
+                    (lambda (pair)
+                      (memq 'attention (org-air-classify-item
+                                        (cdr pair) org-air-test-now)))
+                    fixture))))
+      (should (equal '(past-sched past-dl dateless stale-active
+                                  hipri-dateless)
+                     attention-members))
+      (should (equal '(dateless stale-active hipri-dateless)
+                     (seq-remove (lambda (k) (memq k overdue))
+                                 attention-members))))))
+
+(ert-deftest org-air-r72-14-due-2w-widens-and-shows ()
+  "AUDIT GAP: the user's literal ask with the literal `due:2w' TOKEN.
+r72-9 drove the widening with `due:14d'; the `w' spelling only ever met
+the parser (r72-1).  Pinned end-to-end here: `due:2w' selects the SAME
+set as `due:14d'; overdue and the DONE/ARCHIVED buried items stay OUT of
+the wide window; the +10d item is both MATCHED (visible under the
+filter) and SHOWN (an Upcoming member of the partition's bucket table)
+under the widened 14-day horizon; an UNPARSED near-miss (`due:99x')
+widens NOTHING; and a mixed `is:upcoming,due:2w' any-filter still widens
+to the window's span (`is:upcoming' itself keeps the knob meaning — its
+matches are a subset of the wider window, so every selected row has a
+home)."
+  (let* ((fixture (org-air-r72--fixture))
+         (items (org-air-r72--items fixture))
+         (d10 (cdr (assq 'd10 fixture)))
+         (org-air-upcoming-days 7)
+         (org-air-stale-days 21)
+         (org-air-filter-match 'all)
+         (org-air-view--scope nil)
+         (due2w (org-air-r72--pass-keys fixture '("due:2w"))))
+    ;; due:2w == due:14d, the SAME set (w = 7×N by grammar AND by fold).
+    (should (equal due2w (org-air-r72--pass-keys fixture '("due:14d"))))
+    ;; the wide window still excludes the past (is:overdue owns it)…
+    (should-not (memq 'past-sched due2w))
+    (should-not (memq 'past-dl due2w))
+    ;; …and never resurrects what the board buries (the gate).
+    (should-not (memq 'done-past due2w))
+    (should-not (memq 'archived-past due2w))
+    ;; matched AND shown: +10d is visible under the filter and lives in
+    ;; the widened Upcoming bucket of the REAL partition.
+    (with-temp-buffer
+      (setq-local org-air-view--items items)
+      (setq-local org-air-view--tag-filter '("due:2w"))
+      (should (= 14 (org-air-view--filter-effective-horizon)))
+      (should (equal "Nothing scheduled in the next 14 days."
+                     (org-air-view--empty-upcoming)))
+      (let* ((part (org-air-view--compute-partition items org-air-test-now))
+             (upcoming (gethash 'upcoming (cddr part))))
+        (should (memq d10 (cadr part)))      ; matched (visible)
+        (should (memq d10 upcoming))         ; shown (a home row)
+        (should (equal 14 (cdr org-air-view--classify-cache-day))))
+      ;; an unparsed near-miss is NOT a window: no widening.
+      (setq-local org-air-view--tag-filter '("due:99x"))
+      (should (= 7 (org-air-view--filter-effective-horizon)))
+      ;; the mixed any-filter: `is:upcoming' widens nothing itself, the
+      ;; window token widens for both — the union is the wider set.
+      (setq-local org-air-view--tag-filter '("is:upcoming" "due:2w"))
+      (should (= 14 (org-air-view--filter-effective-horizon))))
+    (let ((org-air-filter-match 'any))
+      (should (equal due2w (org-air-r72--pass-keys fixture
+                                                   '("is:upcoming" "due:2w")
+                                                   'any))))))
+
+(ert-deftest org-air-r72-15-rail-filter-line-renders-tokens ()
+  "AUDIT GAP: the rail Filter line + `Match:' render the R72 tokens.
+r72-7 pinned `--filter-token-label' as a FUNCTION; nothing drove the
+rendered rail surface.  Pinned here on `--insert-rail-filters' output:
+`is:overdue,#work' under `all' reads `is:overdue AND #work' (the parsed
+token verbatim-unquoted beside the tag chip) with the `Match: AND' cue;
+the M-/ flip reads `is:overdue OR #work' + `Match: OR'; a lone window
+token reads `due:2w' unquoted; and the unparsed near-miss `is:urgent'
+renders QUOTED in the same line — the tell, on the rendered surface."
+  (with-temp-buffer
+    (let ((org-air-show-rail-filters t)
+          (org-air-view--tag-filter '("is:overdue" "#work"))
+          (org-air-view--scope nil)
+          (org-air-filter-match 'all))
+      (org-air-view--insert-rail-filters 40)
+      (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+        (should (string-match-p "is:overdue AND #work" text))
+        (should (string-match-p "Match: AND" text))
+        ;; parsed = verbatim-unquoted on the surface.
+        (should-not (string-match-p "\"is:overdue\"" text))))
+    (erase-buffer)
+    (let ((org-air-show-rail-filters t)
+          (org-air-view--tag-filter '("is:overdue" "#work"))
+          (org-air-view--scope nil)
+          (org-air-filter-match 'any))
+      (org-air-view--insert-rail-filters 40)
+      (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+        (should (string-match-p "is:overdue OR #work" text))
+        (should (string-match-p "Match: OR" text))))
+    (erase-buffer)
+    (let ((org-air-show-rail-filters t)
+          (org-air-view--tag-filter '("due:2w"))
+          (org-air-view--scope nil)
+          (org-air-filter-match 'all))
+      (org-air-view--insert-rail-filters 40)
+      (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+        (should (string-match-p "due:2w" text))
+        (should-not (string-match-p "\"due:2w\"" text))))
+    (erase-buffer)
+    (let ((org-air-show-rail-filters t)
+          (org-air-view--tag-filter '("is:urgent" "#work"))
+          (org-air-view--scope nil)
+          (org-air-filter-match 'all))
+      (org-air-view--insert-rail-filters 40)
+      (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+        ;; the typo is text-search, and the rail SAYS so: quoted.
+        (should (string-match-p "\"is:urgent\" AND #work" text))))))
+
+(ert-deftest org-air-r72-16-interactive-filter-apply-no-rescan ()
+  "AUDIT GAP: the R53 no-rescan law at the COMMAND seam.
+r72-8 spied the bare predicate fold; nothing drove the interactive apply
+path (`org-air-filter' -> `--render-current' -> the real board render).
+Pinned here on a WARM fully-scanned board: applying `is:overdue,due:2w'
+through the command re-renders over the CACHED items with the scan layer
+\(`org-air-query--scan-file' / `org-air-query-items' / `-in-files') and
+`find-file-noselect' spied at ZERO calls — and the render is REAL: the
+repaint tick advances and the widened-horizon memo key (DAY . 14) lands;
+clearing through the command restores the default (DAY . knob) key,
+still scan-free.  Revert-red: the pre-R72 memo key was the bare day
+integer, so the key conjuncts fail there.
+
+`org-air-show-inspector' is bound nil: the rail inspector's CREATED
+hydration is the ONE design-sanctioned bounded file probe (one file,
+for the single inspected item, user-driven — pre-R72 behaviour, fires
+on ANY render with an item at point) and is not the filter's doing; with
+it out of frame the ZERO-opens assert pins the R72 contract exactly."
+  (skip-unless (locate-library "org-air"))
+  (org-air-test-with-fixtures
+    (let ((org-air-view-width 120)
+          (org-air-view-height 50)
+          (org-air-view-buffer-name "*org-air-r72*")
+          (org-air-cache-file
+           (expand-file-name "cache/board-r72.eld" org-air-test--dir))
+          (org-air-show-inspector nil)
+          (org-air-filter-match 'all))
+      (unwind-protect
+          (with-current-buffer (get-buffer-create org-air-view-buffer-name)
+            (unless (derived-mode-p 'org-air-view-mode) (org-air-view-mode))
+            ;; warm board: ONE full synchronous scan, then paint (the r42
+            ;; warm-board shape).
+            (let ((files (org-air-query-files)))
+              (setq org-air-view--items (org-air-query-items)
+                    org-air-view--items-key (list org-air-files
+                                                  org-air-inbox-file)
+                    org-air-view--classify-cache nil
+                    org-air-view--items-mtimes
+                    (org-air-view--mtimes-snapshot files))
+              (org-air-view--render org-air-view--items nil))
+            (let ((scans 0) (opens 0))
+              (cl-letf (((symbol-function 'org-air-query--scan-file)
+                         (lambda (&rest _) (cl-incf scans) nil))
+                        ((symbol-function 'org-air-query-items)
+                         (lambda (&rest _) (cl-incf scans) nil))
+                        ((symbol-function 'org-air-query-items-in-files)
+                         (lambda (&rest _) (cl-incf scans) nil))
+                        ((symbol-function 'find-file-noselect)
+                         (lambda (&rest _) (cl-incf opens) nil)))
+                (let ((tick0 (buffer-chars-modified-tick))
+                      (today (time-to-days (current-time))))
+                  ;; the user's two asks, applied through the COMMAND.
+                  (org-air-filter '("is:overdue" "due:2w"))
+                  (should (equal '("is:overdue" "due:2w")
+                                 (org-air-view--filter-tags)))
+                  ;; the render was REAL…
+                  (should (> (buffer-chars-modified-tick) tick0))
+                  ;; …the widened-horizon memo key landed…
+                  (should (equal (cons today 14)
+                                 org-air-view--classify-cache-day))
+                  ;; …and NOTHING was scanned or opened (R53).
+                  (should (= 0 scans))
+                  (should (= 0 opens))
+                  ;; clearing restores the default key, still scan-free.
+                  (let ((tick1 (buffer-chars-modified-tick)))
+                    (org-air-filter nil)
+                    (should-not (org-air-view--filter-tags))
+                    (should (> (buffer-chars-modified-tick) tick1))
+                    (should (equal (cons today org-air-upcoming-days)
+                                   org-air-view--classify-cache-day))
+                    (should (= 0 scans))
+                    (should (= 0 opens)))))))
+        (when (get-buffer "*org-air-r72*")
+          (let ((kill-buffer-query-functions nil))
+            (kill-buffer "*org-air-r72*")))))))
+
 (provide 'org-air-round72-test)
 ;;; org-air-round72-test.el ends here

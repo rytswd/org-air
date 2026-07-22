@@ -2684,11 +2684,71 @@
     ;; on an unfiltered board) and deletes this entry as closeout.  ZERO
     ;; byte goldens moved (`make regen-mockups' byte-clean — no fixture
     ;; renders an active filter, exactly as the spec predicts).
-    (org-air-r42-f2-no-change-repaints
-     . "R72 Decision 4: the classify memo key is now the pair (DAY .
-EFFECTIVE-HORIZON); this ERT pins the pre-R72 bare-integer shape
-(`(eql org-air-view--classify-cache-day today)').  Test seat re-blesses
-the key-shape conjunct; the rollover/repaint contract is unchanged.")
+    ;;
+    ;; 2026-07-22: ROUND-72 CLOSEOUT (impl tip skvpxswu/e1c4c4a6 + test
+    ;; seat <this commit>).  The ONE grind entry CLOSED — no fixture/
+    ;; golden moved (`make clean && make check' green with zero fixture
+    ;; churn — `make clean' FIRST, the standing R48/R51/R53/R54/R62/R63/
+    ;; R64 stale-.elc lesson).  The flagged ERT re-blessed HONESTLY to
+    ;; the design-blessed R72 Decision 4 memo-key contract
+    ;; (air/v0.1/org-air-round72-design.org), no conjunct weakened:
+    ;;   org-air-r42-f2-no-change-repaints — the stale midnight stamp now
+    ;;     uses the NEW (DAY . EFFECTIVE-HORIZON) pair shape with
+    ;;     yesterday's day (so the rebuild is driven by the DAY rollover
+    ;;     alone, never a shape mismatch — the rollover conjunct stays
+    ;;     non-vacuous), and the post-render assert moves from the
+    ;;     bare-integer `(eql … today)' to
+    ;;     `(equal … (cons today org-air-upcoming-days))' — the
+    ;;     unfiltered board's effective horizon IS the knob, so the cdr
+    ;;     is pinned too.  The repaint tick conjunct and every other
+    ;;     no-change/single-swap conjunct carry over verbatim.
+    ;; The 12 new R72 ERTs (tests/org-air-round72-test.el, the spec's
+    ;; seams r72-1..r72-12) independently audited on the test seat: all
+    ;; 12 green against impl tip skvpxswu, and ALL touched ERTs (the 12
+    ;; + the 4 gap ERTs below + the re-blessed r42-f2) verified against
+    ;; the pre-impl trunk mvutqotu in a scratch workspace: 16 of 17 RED;
+    ;; the one green is r72-8-no-rescan, which is a LOCK, not a fence —
+    ;; the pre-R72 filter fold never scanned either (the R53 law the
+    ;; test pins is a carried-over invariant; the spec's "each
+    ;; revert-RED" was optimistic for exactly this seam — same class as
+    ;; the R56-7/R69-T5 by-design pins).  The audit found FOUR
+    ;; uncovered seams; the test seat added gap ERTs for each (in the
+    ;; same file):
+    ;;   r72-13-overdue-agrees-with-attention-members — the crux driven
+    ;;     at the ATTENTION bucket: `is:overdue' ⇔ (attention-member ∧
+    ;;     `--overdue-p') over EVERY fixture item — every filter hit has
+    ;;     a home row in Needs-attention, and the dateless/hipri/stale
+    ;;     attention members are exactly the non-overdue remainder.
+    ;;   r72-14-due-2w-widens-and-shows — the user's literal ask with
+    ;;     the literal `due:2w' TOKEN (r72-9 drove `due:14d'):
+    ;;     `due:2w' ≡ `due:14d' set-equal, past stays OUT of the wide
+    ;;     window, and the +10d item is both MATCHED (visible) and SHOWN
+    ;;     (an Upcoming bucket member of the partition table) under a
+    ;;     widened 14-day horizon.
+    ;;   r72-15-rail-filter-line-renders-tokens — the rail Filter block
+    ;;     with `is:overdue,#work' live: the lens line reads
+    ;;     `is:overdue AND #work' (parsed token verbatim-unquoted), the
+    ;;     `Match: AND' line renders, the OR flip renders `is:overdue OR
+    ;;     #work' + `Match: OR', and an unparsed `is:urgent' renders
+    ;;     QUOTED in the same rendered line (the tell, on the surface).
+    ;;   r72-16-interactive-filter-apply-no-rescan — the R53 law at the
+    ;;     COMMAND seam (r72-8 drove the bare fold): `org-air-filter'
+    ;;     apply with date tokens on a warm cons-marker board re-renders
+    ;;     through the cached items with the scan layer +
+    ;;     `find-file-noselect' spied at ZERO calls — and the render is
+    ;;     REAL (the repaint tick advances, the widened-horizon memo key
+    ;;     lands, clearing restores the default key).  AUDIT FINDING
+    ;;     while driving it: the rail INSPECTOR's CREATED hydration
+    ;;     (`org-air-view--item-created', the design-sanctioned bounded
+    ;;     one-file probe for the single inspected item) fires on any
+    ;;     render with an item at point — pre-R72 behaviour, not the
+    ;;     filter's doing; the ERT binds `org-air-show-inspector' nil so
+    ;;     the ZERO-opens assert pins the R72 contract exactly.
+    ;; All 16 + the re-blessed r42-f2 green; `make clean && make check'
+    ;; green (0 unexpected), goldens byte-consistent (zero fixture
+    ;; churn).  No .el SOURCE touched on the test track (impl landed
+    ;; R72-1..3 in skvpxswu).  Round-72 manifest is EMPTY; the tests
+    ;; stay as permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

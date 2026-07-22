@@ -511,6 +511,13 @@ This is the documented \"single-swap the same items, clear the marker\"
 yesterday's overdue/today/upcoming bucketing on screen indefinitely (no
 midnight timer; the classify cache invalidates only ON RENDER).
 
+R72 Decision 4 re-bless: the memo key is now the pair
+(DAY . EFFECTIVE-HORIZON) — the stale stamp uses the NEW shape with
+yesterday's day, so the rebuild below is driven by the DAY rollover
+alone (not a shape mismatch), and the post-render key is asserted to be
+(TODAY . `org-air-upcoming-days') — the unfiltered board's effective
+horizon is the knob.  The rollover/repaint contract itself is unchanged.
+
 Revert-fails: the pre-R42.1 `had-marker' guard SKIPPED the repaint when no
 `refreshing'/`failed'/`loading' marker was up — the tick would not advance
 and the classify day would stay YESTERDAY, so both `should's FAIL."
@@ -522,9 +529,12 @@ and the classify day would stay YESTERDAY, so both `should's FAIL."
     (let ((tick0 (buffer-chars-modified-tick))
           (yesterday (1- (time-to-days (current-time))))
           (today (time-to-days (current-time))))
-      ;; stamp the classify cache with a STALE (yesterday) day, as a board
-      ;; left open across midnight would be.
-      (setq org-air-view--classify-cache-day yesterday)
+      ;; stamp the classify cache with a STALE (yesterday) key, as a board
+      ;; left open across midnight would be.  R72: the key is the pair
+      ;; (DAY . EFFECTIVE-HORIZON); stamp the new shape with yesterday's
+      ;; day so ONLY the day is stale.
+      (setq org-air-view--classify-cache-day
+            (cons yesterday (org-air-view--filter-effective-horizon)))
       (should org-air-view--classify-cache)      ; a table is present to rebuild
       (org-air-view--refresh-start)
       ;; no-change: synchronous, no paced machine, state stays nil.
@@ -532,8 +542,11 @@ and the classify day would stay YESTERDAY, so both `should's FAIL."
       ;; …but it REPAINTED: the buffer's char tick advanced…
       (should (> (buffer-chars-modified-tick) tick0))
       ;; …and the render rebuilt the classify cache for TODAY (drops the
-      ;; stale midnight bucketing).
-      (should (eql org-air-view--classify-cache-day today)))))
+      ;; stale midnight bucketing).  R72: the rebuilt key is the pair
+      ;; (TODAY . HORIZON) with the cdr = the knob horizon (the board is
+      ;; unfiltered, so no window token widens it).
+      (should (equal org-air-view--classify-cache-day
+                     (cons today org-air-upcoming-days))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; 9. R42.1 F3 — sync fast-path scan error => `failed', never stranded

@@ -1,5 +1,5 @@
 #+title: org-air Round 72 — Date/status filter tokens: `is:overdue' / `due:7d' join the `/' mini-language (the buckets' own date logic, one vocabulary, zero new knobs)
-#+state: ready
+#+state: complete
 #+tags: board filter dates classify ux mini-language
 
 * Summary
@@ -571,3 +571,6 @@ stays EMPTY.
   unchanged).  =make regen-mockups= byte-clean — zero golden
   fixtures moved, exactly as predicted (no mockup renders an active
   filter).
+
+* History
+- 2026-07-22: State: ready → complete.

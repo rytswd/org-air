@@ -1,5 +1,5 @@
 #+title: org-air Round 70 — The item editor moves to `e' (the refile key retires) + S-RET in the editor appends a dated log note in place
-#+state: ready
+#+state: complete
 #+tags: board editor transient keybinding notes logbook ux
 
 * Summary
@@ -482,3 +482,6 @@ manifest stays EMPTY.
   predicts.  New-suffix layout verified batch:
   =transient-get-suffix … "S-<return>"= → =org-air-refile-form-note=,
   proto =transient= slot t; RET/q unchanged.
+
+* History
+- 2026-07-22: State: ready → complete.

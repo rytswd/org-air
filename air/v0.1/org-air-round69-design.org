@@ -396,3 +396,51 @@ Known-failures manifest stays EMPTY.
   verbatim =#=-token so literal-# tags stay filterable.  Seven batch
   seams (T1–T4, T6–T7 revert-RED; T5 parity guards); GUI-confirm
   residue listed.  State: ready.
+- 2026-07-22: Round 69 IMPLEMENTED (impl seat, on the R68-integrated
+  main).  All five items landed exactly as specced:
+  - R69-1: =(insert "\n")= before the =Source= header inside
+    =--insert-rail-filters= (covers both the chips and =none=
+    branches; one edit, every surface).
+  - R69-2: the dead ✕ dropped from the rail chips line only; the
+    =clear= glyph table entry + the banner/project-header ✕ stay
+    byte-for-byte (Non-goals honoured).
+  - R69-3: =org-air-filter-match= added to =org-air-rail--input-stamp=
+    between the tag-filter and scope entries; no new refresh
+    machinery; docstring records the three combinator reads.
+  - R69-4: new shared =org-air-view--insert-verb-rows (cells width)=
+    (fit-driven 3→2→1 chunking, =string-width= derived-cell
+    arithmetic, tier gap charged, last column unpadded but counted in
+    the fit, =--pad-to= ellipsis as the documented n=1 floor); the
+    four emitters (board/project/review/revisit) collapse into it.
+    Probed: board 28w/31w(+scope) reflow to 2 cols with zero
+    truncation; board 41w and review 32w byte-identical (T5 pins).
+  - R69-5: =org-air-view--tag-chip-label= (prefix dedup, placed next
+    to =--filter-token-label=) applied at all EIGHT specced tag-name
+    surfaces + ONE straggler found during impl: the BANNER scope
+    segment (org-air-view.el:2459, =(concat … "#" tag)= on the scope
+    tag — the same =##nix= class in the exact screenshot scenario,
+    zero-shift for plain tags); the two token stragglers (banner
+    :2455, project header :1307) route through =--filter-token-label=;
+    the matcher's tag branch accepts stripped OR verbatim membership.
+  ERTs: tests/org-air-round69-test.el — 16 tests over the T1–T7
+  seams, all green.  =make clean && make check= GREEN: 863 tests, 0
+  unexpected, 8 standing GUI skips, lint 0, the one pre-existing
+  project.el docstring warning unchanged.  GOLDENS: NOT hand-blessed
+  — 12 tests FLAGGED in tests/org-air-known-failures.el for the test
+  seat (a scratch =make regen-mockups= was diffed to characterise the
+  classes, fixtures restored byte-identical): (a) the spacer line in
+  every side-rail golden; (b) the Actions reflow exactly where the
+  old goldens TRUNCATED (mid-tier board rail =s sou…=, 28-col project
+  rail =/ ...=) — natural-height goldens grow by the extra row(s);
+  (c) the banner/project-header BARE tokens now quoted per R24-6
+  (three assertion ERTs pinned the old hand-prepended =#work=).
+  FINDING (for the test seat's re-bless of
+  =org-air-r26-3-legend-on-screen-popped=): at that test's 24-line
+  CLAMPED side rail the inspector region had ALREADY reached zero, so
+  there is no tail left to absorb the spacer — the Actions header
+  lands on the last visible line and the first verb row one below the
+  fold (rows 2–3 were below the fold before R69 too; the spec's
+  "same total height" note assumed a live inspector tail).  A
+  candidate for a later round if ryota hits it live: collapse the
+  post-Summary blank when the clamped rail has no inspector region.
+  State: ready (awaiting test-seat golden re-bless + GUI confirm).

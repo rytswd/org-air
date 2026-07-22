@@ -511,27 +511,12 @@ Every KEY must resolve to a real command in `org-air-revisit-mode-map'
 
 (defun org-air-revisit--insert-actions (width)
   "Insert the Revisit rail Actions block fitted to content WIDTH.
-Same shape/keycap idiom as the board and project Actions blocks."
+Same shape/keycap idiom as the board and project Actions blocks.
+R69-4: emits through the shared fit-driven `org-air-view--insert-verb-rows'
+\(3→2→1 columns; byte-identical where 3 columns fit)."
   (org-air-view--rail-header "Actions" width)
-  (let* ((inset (org-air-view--rail-inset-str width))
-         (rows org-air-revisit--actions-table)
-         (cellw (lambda (cell) (+ (length (car cell)) 1 (length (cdr cell)))))
-         (c1 (apply #'max (mapcar (lambda (r) (funcall cellw (nth 0 r))) rows)))
-         (c2 (apply #'max (mapcar (lambda (r) (funcall cellw (nth 1 r))) rows)))
-         (gap (if (>= width 38) "    " " ")))
-    (dolist (row rows)
-      (insert (org-air-view--pad-to
-               (concat inset
-                       (org-air-view--verb-cell
-                        (car (nth 0 row)) (cdr (nth 0 row)) c1)
-                       gap
-                       (org-air-view--verb-cell
-                        (car (nth 1 row)) (cdr (nth 1 row)) c2)
-                       gap
-                       (org-air-view--verb-cell
-                        (car (nth 2 row)) (cdr (nth 2 row)) 0))
-               width)
-              "\n"))))
+  (org-air-view--insert-verb-rows
+   (apply #'append org-air-revisit--actions-table) width))
 
 (defun org-air-revisit--rail-descriptor ()
   "Return the Revisit rail descriptor (the R20-5 parameterisation seam)."

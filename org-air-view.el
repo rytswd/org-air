@@ -2065,15 +2065,32 @@ A `#tag' token reads verbatim; a bare substring token reads quoted
 \(`\"git\"') so the lens presents it as text, not a tag."
   (if (string-prefix-p "#" token) token (format "%S" token)))
 
+(defun org-air-view--tag-chip-label (tag)
+  "Return TAG's chip label: the `#'-prefixed tag name, prefix-DEDUPED (R69-5).
+A tag whose own text already starts with `#' (a literal `:#Nix:' org tag,
+kept for svg-tag-mode) is returned VERBATIM — org-air never adds a second
+`#' on its chrome (`##Nix').  Only the org-air-prepended prefix collapses:
+a tag literally named `##x' still renders `##x' (the user's tag text is
+never rewritten).  The ONE label primitive for every tag-NAME chip surface
+\(board pills/chips, scope labels, inspectors, project sections, review
+rollups); filter-TOKEN surfaces use `org-air-view--filter-token-label'."
+  (if (string-prefix-p "#" tag) tag (concat "#" tag)))
+
 (defun org-air-view--filter-token-match-p (token text tags)
   "Non-nil when TOKEN matches TEXT/TAGS (R24-6 filter mini-language).
-A `#tag' token = exact TAG membership; a BARE token = case-insensitive
-SUBSTRING of TEXT (the caller builds it from the title + origin/path) plus
-the tag NAMES (so a bare tag name still finds its tagged items, the legacy
-behaviour as a subset).  Case-insensitive throughout."
+A `#tag' token = exact TAG membership of the STRIPPED name OR of the
+VERBATIM token (R69-5: a literal `#'-named org tag like `:#Nix:' is hit
+by the `#Nix' token its own chip toggles, so deduped chips stay
+clickable/filterable — a strict superset of the old stripped-only rule);
+a BARE token = case-insensitive SUBSTRING of TEXT (the caller builds it
+from the title + origin/path) plus the tag NAMES (so a bare tag name
+still finds its tagged items, the legacy behaviour as a subset).
+Case-insensitive throughout."
   (if (string-prefix-p "#" token)
-      (let ((tag (downcase (substring token 1))))
-        (and (member tag (mapcar #'downcase tags)) t))
+      (let ((names (mapcar #'downcase tags)))
+        (and (or (member (downcase (substring token 1)) names)
+                 (member (downcase token) names))
+             t))
     (and (string-search (downcase token)
                         (downcase (concat (or text "") " "
                                           (string-join tags " "))))
@@ -2329,7 +2346,7 @@ line is normalized with `org-air-view--pad-to'."
 When ACTIVE is non-nil, use the active-filter tag face."
   (let ((start (point))
         (face (if active 'org-air-face-tag-active (org-air-faces-tag-face tag))))
-    (insert-text-button (concat "#" tag)
+    (insert-text-button (org-air-view--tag-chip-label tag)
                         'follow-link t
                         'action (lambda (_button) (org-air-filter-toggle tag))
                         'face face
@@ -2452,11 +2469,17 @@ optional segments (after filter, scope and count)."
                         (when filters
                           (propertize
                            (concat (org-air-view--sep)
-                                   (mapconcat (lambda (tag) (concat "#" tag)) filters sep)
+                                   ;; R69-5: route through the R24-6 token
+                                   ;; primitive (verbatim `#…', quoted bare)
+                                   ;; instead of hand-prepending `#'.
+                                   (mapconcat #'org-air-view--filter-token-label filters sep)
                                    " " (org-air-view--glyph 'clear))
                            'face 'org-air-face-faded))))
          (scope-text (pcase org-air-view--scope
-                       (`(:tag ,tag) (propertize (concat (org-air-view--sep) "#" tag)
+                       ;; R69-5: prefix-deduped chip label (a `#Nix' tag
+                       ;; scope reads `#Nix', never `##Nix').
+                       (`(:tag ,tag) (propertize (concat (org-air-view--sep)
+                                                         (org-air-view--tag-chip-label tag))
                                                  'face 'org-air-face-faded))
                        (`(:group ,group) (propertize (concat (org-air-view--sep) "@" group)
                                                      'face 'org-air-face-faded))
@@ -2959,9 +2982,13 @@ the svg box gains genuine internal margin and the byte/V6 widths track it."
                 (lambda (tg)
                   (let* ((face (org-air-faces-tag-face tg))
                          (pill (eq org-air-tag-style 'pill))
+                         ;; R69-5: prefix-deduped chip label (one shared
+                         ;; primitive; a literal `#nix' tag never `##nix').
                          (chip (if pill
-                                   (org-air-view--pill-pad-label (concat "#" tg) face)
-                                 (propertize (concat "#" tg) 'face face))))
+                                   (org-air-view--pill-pad-label
+                                    (org-air-view--tag-chip-label tg) face)
+                                 (propertize (org-air-view--tag-chip-label tg)
+                                             'face face))))
                     (if pill
                         (org-air-view--svg-pillify chip face)
                       chip)))
@@ -4024,7 +4051,8 @@ the descriptor is nil so the board summary stays byte-identical."
 (defun org-air-view--scope-label ()
   "Return active Source/scope display label; a file source carries ⌂ (R22-4)."
   (pcase org-air-view--scope
-    (`(:tag ,tag) (concat "#" tag))
+    ;; R69-5: prefix-deduped chip label (a literal `#nix' tag reads `#nix').
+    (`(:tag ,tag) (org-air-view--tag-chip-label tag))
     (`(:group ,group) (concat "@" group))
     (`(:file ,file) (concat "⌂ " (file-name-nondirectory file)))
     (_ "all items")))
@@ -4059,12 +4087,17 @@ Names the two roles UNMISTAKABLY (the user kept reading them as the same):
             ;; R18 D-P2.3: join the chips with the combinator word when
             ;; >=2 are active, then teach the toggle AND the clear key.
             (insert inset
+                    ;; R69-2: the trailing ✕ clear glyph is DROPPED — it
+                    ;; carried no keymap/button action (a promise the rail
+                    ;; could not honour); the `M-/ toggles ∙ \ clears' hint
+                    ;; line below is the teaching surface and names BOTH
+                    ;; verbs.  The glyph table entry stays (banner/project
+                    ;; header still render it).
                     (mapconcat #'org-air-view--filter-token-label
                                filters
                                (if (> (length filters) 1)
                                    (concat " " (org-air-view--filter-combinator-word) " ")
                                  " "))
-                    "  " (org-air-view--glyph 'clear)
                     "\n")
             (insert inset
                     (propertize
@@ -4078,6 +4111,12 @@ Names the two roles UNMISTAKABLY (the user kept reading them as the same):
                     "\n"))
         ;; R22-4: empty filter reads `none' — the dataset is the Source's job.
         (insert inset (propertize "none" 'face 'org-air-face-faded) "\n"))
+      ;; R69-1: one blank line between the Filter and Source sections —
+      ;; the SAME inter-section spacer `--insert-rail-1' emits between
+      ;; every other rail section pair (Calendar/Filter/Summary/…); the
+      ;; foot arithmetic absorbs the extra line (the breathing tail
+      ;; shrinks by one, R26-3 clamp rules unchanged).
+      (insert "\n")
       ;; R22-4: the SOURCE/DATASET selector, named + counted, on its own
       ;; labelled line; the dataset name rides the readable origin face so
       ;; it reads as a dataset chip, NOT a faded second filter.
@@ -4104,6 +4143,69 @@ column alignment (D5f); a WIDTH of 0 (the trailing column) is as-is."
         (concat cell (make-string (max 0 (- width (string-width cell))) ?\s))
       cell)))
 
+(defun org-air-view--insert-verb-rows (cells width)
+  "Insert Actions verb CELLS as column-aligned rows fitted to WIDTH (R69-4).
+CELLS is the flat ordered list of (KEY . DESC) conses in reading order.
+The ONE shared row emitter for every rail Actions block (board, project,
+review, revisit).  It picks the LARGEST column count n in {3, 2, 1} whose
+grid FITS WIDTH: cells chunk in order into rows of n, each column is
+sized to its widest DERIVED cell (`string-width' over \"KEY DESC\" — the
+R50-1 rule: a leader/evil rebind changes the arithmetic, and when needed
+the column COUNT, automatically), and the fit charges the spine inset,
+the tier gap (4 columns at WIDTH >= 38, else 1) and EVERY column
+including the unpadded last one (the fit is judged on the widest possible
+row).  When 3 columns fit the output is byte-identical to the historical
+3-column emitters BY CONSTRUCTION (same column maxima, same gap, same
+unpadded-last-column rule); at narrower widths the block REFLOWS to more
+rows instead of truncating — no verb dropped, no label shortened.  Floor:
+at n=1 a single cell wider than WIDTH still ellipsizes via `--pad-to'
+\(the documented last resort; needs a pathological rebinding — the widest
+fallback cell is 11 cols, safe at every rail tier)."
+  (when cells
+    (let* ((inset (org-air-view--rail-inset-str width))
+           (gap (if (>= width 38) "    " " "))
+           (cellw (lambda (cell)
+                    (+ (string-width (car cell)) 1 (string-width (cdr cell)))))
+           (chunk (lambda (n)
+                    (let ((rest cells) rows)
+                      (while rest
+                        (push (seq-take rest n) rows)
+                        (setq rest (nthcdr n rest)))
+                      (nreverse rows))))
+           (colws (lambda (rows n)
+                    (mapcar (lambda (j)
+                              (apply #'max 0
+                                     (mapcar (lambda (row)
+                                               (if (nth j row)
+                                                   (funcall cellw (nth j row))
+                                                 0))
+                                             rows)))
+                            (number-sequence 0 (1- n)))))
+           (fits (lambda (n)
+                   (<= (+ (string-width inset)
+                          (apply #'+ (funcall colws (funcall chunk n) n))
+                          (* (string-width gap) (1- n)))
+                       width)))
+           (n (cond ((funcall fits 3) 3)
+                    ((funcall fits 2) 2)
+                    (t 1)))
+           (rows (funcall chunk n))
+           (ws (funcall colws rows n)))
+      (dolist (row rows)
+        (let ((line inset)
+              (last (1- (length row)))
+              (j 0))
+          (dolist (cell row)
+            (setq line (concat line
+                               (if (zerop j) "" gap)
+                               (org-air-view--verb-cell
+                                (car cell) (cdr cell)
+                                ;; The row's LAST cell emits unpadded (its
+                                ;; colw still counted in the fit test).
+                                (if (= j last) 0 (nth j ws))))
+                  j (1+ j)))
+          (insert (org-air-view--pad-to line width) "\n"))))))
+
 (defun org-air-view--insert-actions (width)
   "Insert the named D5f Actions block fitted to rail content WIDTH.
 Two column-aligned verb rows, inset to the spine, the leading key token in
@@ -4128,10 +4230,11 @@ legend readable), a user `define-key' rebinding, an `org-air-leader-key'
 move, and evil (the R29-2 overriding map makes `where-is' return the
 sequences evil actually dispatches).  Column widths are computed from the
 DERIVED cell strings, so the layout follows automatically at every rail
-tier (wide/mid/narrow gap rules unchanged)."
+tier (wide/mid/narrow gap rules unchanged).  R69-4: the rows emit through
+the shared fit-driven `org-air-view--insert-verb-rows' (3→2→1 columns),
+so a narrow rail REFLOWS instead of truncating a verb."
   (org-air-view--rail-header "Actions" width)
-  (let* ((inset (org-air-view--rail-inset-str width))
-         (board (get-buffer org-air-view-buffer-name))
+  (let* ((board (get-buffer org-air-view-buffer-name))
          (key (lambda (command fallback)
                 (org-air-view--legend-key command board fallback)))
          ;; Round-9 Q1: when a scope is active the second row's middle verb
@@ -4149,30 +4252,11 @@ tier (wide/mid/narrow gap rules unchanged)."
          ;; buffer is dead — a legend key must never be a bare prefix.
          (row2 (list (cons (funcall key #'org-air-refresh "g r") "refresh")
                      mid2
-                     (cons (funcall key #'org-air-help "?") "help")))
-         ;; Column field widths = the widest DERIVED "KEY DESC" cell in
-         ;; each column (`string-width', not hardcoded lengths).
-         (cellw (lambda (cell)
-                  (+ (string-width (car cell)) 1 (string-width (cdr cell)))))
-         (c1 (max (funcall cellw (nth 0 row1)) (funcall cellw (nth 0 row2))))
-         (c2 (max (funcall cellw (nth 1 row1)) (funcall cellw (nth 1 row2))))
-         ;; D5f: a 4-space column gap at the wide tier; tighten to 1 at the
-         ;; mid/narrow tiers so the three verbs still fit (elide only at the
-         ;; very narrow rail, as the spec allows).
-         (gap (if (>= width 38) "    " " ")))
-    (dolist (row (list row1 row2))
-      (insert (org-air-view--pad-to
-               (concat inset
-                       (org-air-view--verb-cell
-                        (car (nth 0 row)) (cdr (nth 0 row)) c1)
-                       gap
-                       (org-air-view--verb-cell
-                        (car (nth 1 row)) (cdr (nth 1 row)) c2)
-                       gap
-                       (org-air-view--verb-cell
-                        (car (nth 2 row)) (cdr (nth 2 row)) 0))
-               width)
-              "\n"))))
+                     (cons (funcall key #'org-air-help "?") "help"))))
+    ;; R69-4: the shared fit-driven emitter (column widths from the
+    ;; DERIVED cells via `string-width'; 3-col byte-identical when it
+    ;; fits, else reflow to 2 then 1 columns — never truncate a verb).
+    (org-air-view--insert-verb-rows (append row1 row2) width)))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P7 — item inspector (lower-rail metadata for the line at point)
@@ -4410,7 +4494,10 @@ fields function while the core stays content-agnostic."
     ;; title+state — the row's IDENTITY — ABOVE the breathing blank and
     ;; the metadata KV rows (origin/dates).  tags (all, accent, wrapped).
     (let ((tagstr (mapconcat
-                   (lambda (tg) (propertize (concat "#" tg)
+                   ;; R69-5: prefix-deduped chip label; the face keeps
+                   ;; hashing the RAW tag name (`#Nix' and `Nix' ARE
+                   ;; different tags and may carry different accents).
+                   (lambda (tg) (propertize (org-air-view--tag-chip-label tg)
                                             'face (org-air-faces-tag-face tg)))
                    (org-air-item-tags item) " ")))
       (unless (string-empty-p tagstr)
@@ -5807,15 +5894,23 @@ primitive, no fork); the batch width seams bypass this helper entirely."
 (defun org-air-rail--input-stamp (board-buffer width height)
   "Return the rail content input stamp for BOARD-BUFFER at WIDTH x HEIGHT.
 R27-1 S4: every input the rail paint reads through the back-pointer —
-owner buffer, `org-air-view--items' identity, items key, filter, scope,
-expanded sections, calendar month, cols, height, descriptor identity,
-plus the calendar's current day — so an unchanged stamp proves a repaint
-would be byte-identical and may be skipped."
+owner buffer, `org-air-view--items' identity, items key, filter, the
+AND/OR combinator (R69-3: `org-air-filter-match' feeds the chip join
+word, the `Match:' line and the `N of M shown' count, so M-/ must bust
+the stamp exactly like `/' and `\\' do), scope, expanded sections,
+calendar month, cols, height, descriptor identity, plus the calendar's
+current day — so an unchanged stamp proves a repaint would be
+byte-identical and may be skipped."
   (with-current-buffer board-buffer
     (list board-buffer
           org-air-view--items
           org-air-view--items-key
           org-air-view--tag-filter
+          ;; R69-3: the AND/OR combinator IS a paint input (the chip join
+          ;; word, the `Match: %s' line, and the `N of M shown' count all
+          ;; read it) — without it the stamp guard proves an M-/ repaint
+          ;; "byte-identical" and wrongly skips it.
+          org-air-filter-match
           org-air-view--scope
           org-air-view--expanded-sections
           org-air-view--cal-month

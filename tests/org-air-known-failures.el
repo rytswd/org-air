@@ -2483,8 +2483,53 @@
     ;; uoywyzpm).  Round-64 manifest is EMPTY; the tests stay as
     ;; permanent regression guards.
     ;; =================================================================
-    ;; (test-symbol . "reason / spec reference")
-    )
+    ;; v0.1 ROUND-69 impl grind (air/v0.1/org-air-round69-design.org) —
+    ;; goldens/assertions that change BYTES under the design-blessed
+    ;; R69-1 Filter→Source spacer, R69-2 dropped rail ✕, R69-4 Actions
+    ;; reflow and R69-5 token-label switch.  Per the impl brief these
+    ;; are FLAGGED, not hand-blessed — the test seat regenerates the
+    ;; fixtures (`make regen-mockups', frozen clock, guards active) and
+    ;; re-blesses the assertion ERTs.  A scratch regen was diffed to
+    ;; characterise the classes (fixtures then RESTORED byte-identical):
+    ;;   (a) R69-1 spacer: every side-rail golden gains ONE blank line
+    ;;       between the Filter block and the `▌ Source' header.
+    ;;   (b) R69-4 reflow: rails whose Actions block TRUNCATED today
+    ;;       (the mid-tier ~32-col board rail's `s sou…', the 28-col
+    ;;       project rail's `/ ...') reflow 3→2 columns — more rows,
+    ;;       no ellipsis; wide-tier Actions are byte-identical (pinned
+    ;;       by org-air-r69-4-*-parity-byte-identical).  Natural-height
+    ;;       goldens grow by the extra row(s) + the spacer line.
+    ;;   (c) R69-5 token-label: the banner/project header filter
+    ;;       segments now route through `--filter-token-label', so a
+    ;;       BARE token reads quoted (`"work"'), no longer falsely
+    ;;       tag-dressed (`#work'); `#tag' tokens are unchanged.
+    ;; Byte-golden comparisons (classes a+b):
+    (org-air-layout-mockup-120
+      . "R69-1/4: spacer line + mid-tier Actions reflow (was `s sou…' truncated) — regen + re-bless")
+     (org-air-layout-mockup-160
+      . "R69-1: spacer line before `▌ Source' — regen + re-bless")
+     (org-air-layout-mockup-heights
+      . "R69-1/4: spacer + reflow across the x24/x50 height variants — regen + re-bless")
+     (org-air-layout-mockup-thresholds
+      . "R69-1/4: spacer + reflow across the 90/96/100/104/110 tiers — regen + re-bless")
+     (org-air-f5-project-view-byte-mockups
+      . "R69-1/4: spacer + 28-col project Actions reflow (was `( flip / ...' truncated) — regen + re-bless")
+     (org-air-r17-denote-origin-byte-mockup
+      . "R69-1: spacer line in the denote-origin-120 rail — regen + re-bless")
+     (org-air-r63-12-review-mockup-golden
+      . "R69-1: spacer line in the review rail (review-mockup-170) — regen + re-bless")
+     (org-air-r49-5-batch-placement-blind
+      . "R69-1: compares a live render against the (stale) 120 mockup — green once the golden is re-blessed")
+     ;; Assertion ERTs (class c — the R69-5 token-label switch):
+     (org-air-r18-dp2-banner-shows-combinator
+      . "R69-5: BARE tokens ('(\"work\" \"home\")) now read quoted in the banner (`\"work\" AND \"home\"'), not `#work AND #home' — re-bless to the R24-6 token contract")
+     (org-air-r18-dp3-project-filter-narrows
+      . "R69-5: the project header's bare `ui'/`core' tokens now read quoted, not `#ui'/`#core' — re-bless to the R24-6 token contract")
+     (org-air-r19-4-clear-hint-shows-clear-key-when-filter-active
+      . "R69-5: asserts `#work AND #client' from the banner's hand-prepended `#' on BARE tokens; the rail already read them quoted — re-bless to the token contract")
+     ;; Assertion ERT (classes a+b at a pathologically short rail):
+     (org-air-r26-3-legend-on-screen-popped
+      . "R69-1/4: at the 24-line clamped side rail the inspector had ALREADY given way (nothing left to absorb), so the spacer lands the first verb row one line below the fold (Actions header on the last visible line); rows 2-3 were below the fold BEFORE R69 too — test seat re-blesses the fold assertion (or sizes the frame +1) with the regenerated goldens"))
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 
 (defun org-air-test-apply-known-failures ()

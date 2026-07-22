@@ -1027,7 +1027,9 @@ connector logic whether it is the final sibling."
      (lambda (tag)
        (list :icon nil
              :icon-face nil
-             :title (concat "#" tag)
+             ;; R69-5: prefix-deduped chip label (a literal `#nix' tag
+             ;; titles its section `#nix', never `##nix').
+             :title (org-air-view--tag-chip-label tag)
              :title-face (org-air-faces-tag-face tag)
              :docs (seq-filter (lambda (d) (member tag (org-air-doc-tags d))) docs)
              :attention nil
@@ -1304,7 +1306,10 @@ filter is active, keeping the existing project goldens byte-identical."
                 " ")))
     (if filters
         (propertize (concat (org-air-view--sep)
-                            (mapconcat (lambda (tag) (concat "#" tag)) filters sep)
+                            ;; R69-5: route through the R24-6 token primitive
+                            ;; (verbatim `#…', quoted bare) instead of
+                            ;; hand-prepending `#'.
+                            (mapconcat #'org-air-view--filter-token-label filters sep)
                             " " (org-air-view--glyph 'clear))
                     'face 'org-air-face-faded)
       "")))
@@ -1418,27 +1423,13 @@ three grouping keys; `S-RET visit' and `\\ clear' surface in `?' help.")
   "Insert the project rail Actions block fitted to rail content WIDTH (R26-3).
 Same SHAPE + keycap idiom as the board's Actions: three column-aligned verb
 rows built from `org-air-project--actions-table' — the REAL project keys:
-open / flip / filter, sort / group / rail, refresh / help / quit."
+open / flip / filter, sort / group / rail, refresh / help / quit.
+R69-4: emits through the shared fit-driven `org-air-view--insert-verb-rows'
+\(3→2→1 columns; byte-identical where 3 columns fit, reflow — never a
+truncated verb — where they do not)."
   (org-air-view--rail-header "Actions" width)
-  (let* ((inset (org-air-view--rail-inset-str width))
-         (rows org-air-project--actions-table)
-         (cellw (lambda (cell) (+ (length (car cell)) 1 (length (cdr cell)))))
-         (c1 (apply #'max (mapcar (lambda (r) (funcall cellw (nth 0 r))) rows)))
-         (c2 (apply #'max (mapcar (lambda (r) (funcall cellw (nth 1 r))) rows)))
-         (gap (if (>= width 38) "    " " ")))
-    (dolist (row rows)
-      (insert (org-air-view--pad-to
-               (concat inset
-                       (org-air-view--verb-cell
-                        (car (nth 0 row)) (cdr (nth 0 row)) c1)
-                       gap
-                       (org-air-view--verb-cell
-                        (car (nth 1 row)) (cdr (nth 1 row)) c2)
-                       gap
-                       (org-air-view--verb-cell
-                        (car (nth 2 row)) (cdr (nth 2 row)) 0))
-               width)
-              "\n"))))
+  (org-air-view--insert-verb-rows
+   (apply #'append org-air-project--actions-table) width))
 
 (defun org-air-project--two-pane-body (docs left-fn width)
   "Return (BODY-LINES . FILL-ROW) composing the LEFT pane | project-rail.
@@ -1508,7 +1499,8 @@ spine prefix, CONTENT-W the wrap width, NOW the render clock."
           lines)
     ;; R30-1: tags move UP to sit under State — the identity block.
     (let ((tagstr (mapconcat
-                   (lambda (tg) (propertize (concat "#" tg)
+                   ;; R69-5: prefix-deduped chip label (shared primitive).
+                   (lambda (tg) (propertize (org-air-view--tag-chip-label tg)
                                             'face (org-air-faces-tag-face tg)))
                    (org-air-doc-tags doc) " ")))
       (unless (string-empty-p tagstr)
@@ -1968,7 +1960,8 @@ in the rail jumps the main window to that heading."
              width)
             "\n")
     (let ((tagstr (mapconcat
-                   (lambda (tg) (propertize (concat "#" tg)
+                   ;; R69-5: prefix-deduped chip label (shared primitive).
+                   (lambda (tg) (propertize (org-air-view--tag-chip-label tg)
                                             'face (org-air-faces-tag-face tg)))
                    (org-air-doc-tags doc) " ")))
       (unless (string-empty-p tagstr)

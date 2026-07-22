@@ -944,6 +944,9 @@ silently DROP the reschedule line (the probed hazard, refile door)."
       (org-air-r71--draft "moved and noted")
       (org-air-inbox--form-put :scheduled "2026-08-01")
       (org-air-inbox--form-put :file projects)
+      ;; nothing written at draft time — the note rides the ONE RET.
+      (should-not (string-match-p "- Note taken on"
+                                  (org-air-r71--text "sched.org")))
       (let ((org-log-reschedule 'note))   ; the R68 downgrade target
         (call-interactively 'org-air-refile-form-execute))
       (let ((target (org-air-r71--text "projects.org")))

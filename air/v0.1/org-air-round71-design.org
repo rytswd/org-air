@@ -555,10 +555,17 @@ violation to investigate.  Known-failures manifest stays EMPTY.
     time" — without it the immediate-write R70 tree passes them
     (found during revert-testing; the assert makes the ONE-RET law
     the thing under test).
-  - Revert audit: 17/18 r71 ERTs RED against the R70 tree; r71-10
-    (empty = no-op note) is the one by-design parity pin — its
-    revert target is the unconditional-write mutation, verified by
-    mutation below.
+  - Revert audit (CORRECTED, round-71fix — Fable review blocker):
+    as first committed only 16/18 were RED against the R70 tree,
+    not the 17/18 claimed — r71-18 LACKED the draft-time assert its
+    siblings gained and passed GREEN against the immediate-write
+    behaviour.  The fix mirrors the sibling shape into r71-18
+    (after the draft, before RET: no LOGBOOK note in sched.org's
+    bytes); scratch-workspace re-run confirms r71-18 now fails at
+    exactly that assert on the R70 tree ⇒ 17/18 revert-RED holds
+    accurately; r71-10 (empty = no-op note) is the one by-design
+    parity pin — its revert target is the unconditional-write
+    mutation, verified by mutation below.
   - MUTATION audit (each applied to the impl tree, the named seam
     RED, then reverted): note-before-flush in the APPLIER ⇒ r71-5;
     note-before-flush in the ENGINE ⇒ r71-18; unconditional note

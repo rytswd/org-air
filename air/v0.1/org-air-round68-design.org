@@ -1,0 +1,425 @@
+#+title: org-air Round 68 — Board T silently no-ops under fast-selection todo keywords: select-with-completion over the item's own vocabulary + a board-context logging discipline
+#+state: ready
+#+tags: bug board triage todo keywords robustness ux
+
+* Summary
+
+REPORTED BUG (user, verbatim intent): the board's =T=
+(=org-air-item-cycle-todo=, org-air-view.el:9298) neither changes the
+TODO keyword NOR shows the available keywords — a SILENT no-op.  The
+user's framing names the missing UX too: /"it doesn't even give me the
+list of available keywords"/.
+
+ROOT CAUSE (user-confirmed, probe-verified): line 9304 runs a BARE
+=(org-todo)= inside =org-air-view--at-item-source= (the macro at
+:9212 — =with-current-buffer= on an UNDISPLAYED source buffer +
+=save-excursion=).  The user's =org-todo-keywords= carry
+FAST-SELECTION keys —
+
+#+begin_src emacs-lisp
+'((sequence "TODO(t)" "DRAFT(d)" "READY(r)" "WIP(w)"
+            "|" "COMP(c!)" "DROPPED(x@)"))
+#+end_src
+
+— and with =org-use-fast-todo-selection= at its default (=auto=) a
+nil-arg =org-todo= routes into =org-fast-todo-selection= EVEN from
+pure Lisp (probed: batch, non-interactive — the mock signalled;
+=org-todo= never checks =called-interactively-p= on that path): it
+pops =' *Org todo*'= and synchronously reads a key against a buffer
+context that isn't shown ⇒ the interaction dies silently.
+=DROPPED(x@)='s log-note prompt is a SECOND interactive trap on the
+same path.
+
+FIX (the user's, adopted): never call nil-arg =org-todo= from board
+context.  Reuse the inbox flow's machinery —
+=org-air-inbox--target-todo-keywords= (org-air-inbox.el:862; the
+apply pattern at :1277): =completing-read= over the TARGET buffer's
+=org-todo-keywords-1= (honours dir/file-local =#+TODO:= keywords),
+then =(org-todo "<KEYWORD>")= with an EXPLICIT string — bypasses
+fast-selection entirely (probed) and delivers exactly the
+"show me the available keywords" UX the =T= key implies.
+
+Three work packages:
+
+- *R68-1* — =org-air-item-cycle-todo= is reframed to
+  SELECT-WITH-COMPLETION (not a silent cycle): a new shared reader
+  =org-air-inbox--read-todo-keyword= (extracted from the R67 =k=
+  field) completes over the item's OWN file vocabulary; the choice
+  applies via explicit-string =(org-todo CHOICE)= through the
+  existing macro.  The =T= binding, the =process-inbox= =?T= row and
+  the command NAME all stay (muscle memory + test pins).
+- *R68-2* — the LOG-NOTE trap: board-context writes downgrade
+  @-style notes to timestamps (=org-inhibit-logging 'note= — Org's
+  own knob) and FLUSH the pending log record synchronously BEFORE
+  the save, so the state line lands in the saved bytes and no
+  =*Org Note*= buffer ever waits against an undisplayed context.
+  Argued in Decision 2 (the alternative — making the note flow
+  "work" — is structurally broken inside =org-air-process-inbox=).
+- *R68-3* — the CLASS fix + sibling audit: the discipline lives in
+  =org-air-view--at-item-source= itself (every macro user is covered,
+  now and in the future) and is mirrored into the two other
+  non-interactive =org-todo= appliers — =org-air-inbox--apply-item-edits=
+  (R67 in-place leg) and the =org-air-refile-item= engine (:759).
+  Every sibling item verb is audited (Decision 3's table): =-done=
+  can trap TODAY under an @-carrying done keyword (probed);
+  =-schedule=/=-deadline= can trap under =lognotereschedule= /
+  =lognoteredeadline= (probed against org.el source:
+  =org--deadline-or-schedule= IGNORES =org-inhibit-logging=);
+  =-archive=, =-kill=, =-set-tag= are safe (notes left).
+
+Measured this round (probes under =/tmp/org-air-r68/=, batch Emacs
+30.2 / Org 9.7.11 — the report's environment class):
+
+| Probe                                                              | Result                                                     |
+|--------------------------------------------------------------------+------------------------------------------------------------|
+| nil-arg =(org-todo)= under the user's exact vocab, batch Lisp      | ENTERS =org-fast-todo-selection= (mock signalled)          |
+| …=org-use-fast-todo-selection= / =org-todo-key-trigger=            | =auto= / non-nil — the =auto= route is armed               |
+| =(org-todo "READY")= explicit string, same vocab                   | applied; fast-selection NEVER entered                      |
+| =(org-todo "DROPPED")= (the =x@= keyword)                          | =org-log-note-how = note=, =org-add-log-note= PENDING on =post-command-hook= — the second trap |
+| same under =(org-inhibit-logging 'note)=                           | downgraded: =org-log-note-how = time=                      |
+| synchronous flush (=org-add-log-note= with =this-command= let-bound), UNMOCKED batch | =- State "DROPPED" from "TODO" [ts]= line lands, hook cleared, no prompt |
+| =(org-todo 'done)= under the user's vocab                          | → COMP, no fast-selection; =time= record pending           |
+| =(org-todo 'done)= under =#+TODO: TODO \vert DONE(d@)=                 | → DONE, =note= record pending — =-done='s own trap         |
+| org.el source read (9.7.11)                                        | =org--deadline-or-schedule= consults =org-log-reschedule= / =org-log-redeadline= directly and ignores =org-inhibit-logging=; =org-add-log-note= gates on =org-log-note-this-command= + =recursion-depth=; =org-store-log-note= inserts via MARKER (display-independent) |
+
+SPEC ONLY — no =.el= or test edits in this change.  org/org-ql only:
+every mutator is org core (=org-todo= explicit-string/symbol,
+=org-schedule=, =org-deadline=); the fix REMOVES an interactive org
+UI from a non-interactive path, adds no dependency.
+
+* Decision 1 — T becomes select-with-completion (R68-1)
+
+** The shared reader
+
+New =org-air-inbox--read-todo-keyword (file &optional current)= in
+org-air-inbox.el — the R67 =k= field's reader (org-air-inbox.el:1210)
+EXTRACTED, not forked:
+
+- vocabulary: =(or (org-air-inbox--target-todo-keywords file)
+  org-todo-keywords-1)= — FILE's own buffer-local merged vocabulary
+  (R57: the user's globals + the file's =#+TODO:= line win;
+  dir-locals apply because the helper reads inside
+  =find-file-noselect='s fully-initialised buffer), global fallback
+  when FILE is unreadable.
+- =completing-read "Todo (empty leaves untouched): " vocab nil nil
+  nil nil current= — CURRENT as the default, exactly the field's
+  call shape today.
+- returns the chosen keyword string, or nil for an empty choice.
+
+=org-air-refile-form-todo= re-implements over the helper — behaviour
+byte-for-byte (the r67-7 vocabulary pin holds); board =T= and the
+transient's todo edit now share ONE completion-over-target-vocab +
+explicit-=(org-todo "KEYWORD")= path, per the user's fix.
+
+** The reframed command
+
+=org-air-item-cycle-todo= KEEPS its name, its =T= binding
+(org-air-view.el:1602), and its =process-inbox= =?T= dispatch row
+(:9392) — muscle memory plus the existing pins
+(tests/org-air-triage-test.el:51 keymap row; the known-failures
+manifest comment).  New body:
+
+1. =org-air-view--item-at-point=.
+2. =choice ← org-air-inbox--read-todo-keyword= over the ITEM'S OWN
+   file, CURRENT = the item's present keyword.  view.el already
+   requires inbox.el (the dependency runs in the right direction —
+   the R67 circularity concern was the reverse edge).
+3. nil choice, or choice equal to the current keyword ⇒
+   =(message "Todo unchanged")= — NO write, NO refresh churn.
+4. else =(org-air-view--at-item-source item (org-todo choice))= —
+   the explicit-string apply, through the SAME macro as every
+   sibling verb (so it inherits Decision 3's discipline AND the
+   triage-undo recording: the board's =u= covers =T= like every
+   other single-field verb), then =org-air-refresh= and
+   =(message "Todo \"%s\": %s → %s" title old choice)=.
+
+Docstring reframed around "select from the file's own keywords"; the
+=C-c= legend entry (:9620) becomes ="set todo state"= — grepped: no
+fixture or test pins the old ="cycle todo state"= string, so the
+shift is string-level only.
+
+Why completion and not a repaired cycle: the user's expectation is
+explicit ("give me the list"); a silent =right=-cycle is invisible
+from the board (the row repaints, but which state comes next is
+undiscoverable); and completion is already the board's idiom for this
+exact vocabulary (the R64/R67 =k= field).  A free-typed keyword the
+file never declares is NOT pre-filtered (=require-match= nil, the
+field's shape): =org-todo= itself rejects it with an honest
+=user-error= ("State X not valid in this file") — an error message,
+not a trap, and consistent with the R67 form's semantics.
+
+* Decision 2 — the log-note trap: downgrade to timestamp + flush (R68-2)
+
+An explicit keyword carrying =@= (=DROPPED(x@)=) still runs
+=org-add-log-setup=, which defers =org-add-log-note= to
+=post-command-hook= — a SECOND synchronous interaction (a full-frame
+=*Org Note*= buffer awaiting =C-c C-c=) against a context the user
+never saw.  Two candidate designs; the second is adopted:
+
+- /Make the note flow work from board context/ — REJECTED.  The note
+  fires at =post-command-hook= time, which is structurally wrong
+  here twice over: (a) inside =org-air-process-inbox= the WHOLE
+  guided loop is ONE command — the hook cannot run between
+  iterations, and a second =org-todo= in the same loop OVERWRITES
+  the shared =org-log-note-*= globals and marker
+  (=org-add-log-setup= stores into globals), silently LOSING the
+  earlier record; (b) the macro's =save-buffer= has already run, so
+  even a successful note lands in an unsaved buffer the user isn't
+  looking at.  Making this correct means displaying the source
+  buffer and re-ordering saves around an async prompt — a different
+  interaction model, not a quick board verb.
+- /Downgrade notes to timestamps for board-context writes/ —
+  ADOPTED.  The user framed the note prompt as a trap; the board
+  verbs are quick refinements.  =org-inhibit-logging 'note= is Org's
+  OWN documented knob for exactly this (org-todo:
+  =(when (and (eq dolog 'note) (eq org-inhibit-logging 'note))
+  (setq dolog 'time))= — probed: =how= drops to =time=).  The state
+  CHANGE is still recorded (a =- State "X" from "Y" [ts]= line — the
+  =c!=-style record), only the free-text note is skipped.  Real
+  note-taking remains available where it belongs: visit the item
+  (=RET=) and change state in the source buffer, where org's full UI
+  applies untouched.
+
+** The flush
+
+Downgrading is not enough: even a =time= record is DEFERRED to
+=post-command-hook= (same loss-inside-process-inbox + lands-after-save
+problems).  New helper =org-air-inbox--flush-pending-log-note= (in
+inbox.el, next to the apply machinery; view.el requires inbox.el so
+both files reach it):
+
+#+begin_src emacs-lisp
+(when (and (memq 'org-add-log-note post-command-hook)
+           (memq org-log-note-how '(time state)))
+  (let ((this-command org-log-note-this-command))
+    (org-add-log-note)))
+#+end_src
+
+- The =this-command= let-binding satisfies =org-add-log-note='s own
+  identity gate (probed against the 9.7.11 source; the
+  =recursion-depth= gate holds trivially — the minibuffer read has
+  exited by apply time).
+- For =time=/=state= the hook fn stores IMMEDIATELY
+  (=org-store-log-note= inserts via marker — display-independent;
+  probed UNMOCKED in batch: the line lands, the hook clears, no
+  prompt).  Its window-configuration save/restore brackets the call,
+  so an interactive frame is left exactly as it was.
+- The =how= gate is belt-and-braces: a genuinely interactive pending
+  ='note= (impossible under the downgrade, conceivable from an outer
+  context) is left for the command loop — this helper never opens an
+  interaction and never hijacks one.
+- Ordering: flush runs AFTER the mutators and BEFORE =save-buffer=,
+  so the log line is part of the SAME save — no modified-unsaved
+  residue, and the R53 scan (which reads files) sees the complete
+  edit at the next refresh.
+
+** Reschedule/redeadline notes are the same trap, different knob
+
+Probed against org.el: =org--deadline-or-schedule= reads
+=org-log-reschedule= / =org-log-redeadline= DIRECTLY and never
+consults =org-inhibit-logging= — so a =lognotereschedule= /
+=lognoteredeadline= user (customs or =#+STARTUP=) hits the identical
+note trap through the board's schedule/deadline verbs.  The
+discipline therefore also let-binds each of those two vars from
+='note= to ='time= (any other value passes through untouched) in the
+same scope.  The user's global config is NEVER modified — these are
+dynamic bindings around board-context writes only; editing in a
+normally-visited org buffer still takes notes exactly as configured.
+
+* Decision 3 — the class fix + the sibling audit (R68-3)
+
+** Where the discipline lives
+
+=org-air-view--at-item-source= (:9212) itself — the macro is shared,
+so this is a class fix.  Inside its =with-current-buffer=, around
+=,@body=:
+
+#+begin_src emacs-lisp
+(let ((org-inhibit-logging (or org-inhibit-logging 'note))
+      (org-log-reschedule (if (eq org-log-reschedule 'note) 'time
+                            org-log-reschedule))
+      (org-log-redeadline (if (eq org-log-redeadline 'note) 'time
+                            org-log-redeadline)))
+  ,@body)
+(org-air-inbox--flush-pending-log-note)   ; then the existing save-buffer
+#+end_src
+
+(=(or org-inhibit-logging 'note)= preserves an outer =t= — full
+inhibition stays full.)  Every current macro user — =T=, =-done=,
+=-archive=, =-kill=, =--apply-date= (schedule/deadline) — and every
+future verb written through the macro is covered by construction.
+
+The same discipline is mirrored into the two non-macro appliers
+(both INLINE the macro's semantics by design, R67 Decision 2):
+
+- =org-air-inbox--apply-item-edits= (:1277) — bindings around the
+  mutator block; the flush as the =atomic-change-group='s LAST form
+  (rollback covers the inserted log line too), before its
+  =save-buffer=.  This closes the SAME bug in the R67 transient's
+  in-place leg: a =k=-field ='DROPPED'= applied in place pends a
+  note against an undisplayed buffer today.
+- =org-air-refile-item= (the engine, :759) — the todo/schedule/
+  deadline mutators run in the TARGET buffer with the same exposure;
+  bindings around the metadata block inside the existing
+  transaction, flush before the transactional save.
+
+** The audit table (every sibling, verdict + action)
+
+| Command (all via :9212 unless noted)         | Interactive-prompt exposure                                                                       | Verdict / action                              |
+|----------------------------------------------+---------------------------------------------------------------------------------------------------+-----------------------------------------------|
+| =org-air-item-cycle-todo= (:9298)            | bare =(org-todo)= → fast-selection trap; =@= note trap                                            | THE BUG — reframed, Decision 1                |
+| =org-air-item-done= (:9321)                  | =(org-todo 'done)= — explicit symbol, NO fast-selection (probed).  BUT: =COMP(c!)= pends a =time= record (deferred/lost in =process-inbox=, lands post-save); a =@=-carrying FIRST done keyword (=DONE(d@)=) pends a NOTE — probed, traps today | FIXED by the macro discipline; behaviour otherwise unchanged |
+| =org-air-item-schedule= / =-deadline= (via =--apply-date= :9266) | quick-date =read-char-exclusive= runs BEFORE the macro, against the displayed board — safe.  =lognotereschedule= / =lognoteredeadline= config pends a NOTE — traps today | FIXED by the macro discipline (the reschedule knob, Decision 2) |
+| =org-air-item-archive= (:9312)               | =org-archive-subtree=: no interactive reads; archive-buffer writes are non-interactive             | SAFE — note left in the docstring             |
+| =org-air-item-kill= (:9331)                  | =yes-or-no-p= BEFORE the macro (board context); =org-cut-subtree= prompt-free                     | SAFE — note left                              |
+| =org-air-set-tag= (:9174, open-coded, not the macro) | =read-string= BEFORE the buffer switch; =org-toggle-tag= prompt-free                              | SAFE — note left; NOT converted this round (Non-goals) |
+| =org-air-set-schedule= (:9187, open-coded, UNBOUND legacy — no key, no tests) | =org-schedule= under =lognotereschedule= pends a NOTE — traps via =M-x=                           | CONVERTED to =--at-item-source= (its body is a hand-copy of the macro already; gains the discipline + triage-undo recording) |
+| priority                                     | NO board priority verb exists (grepped: =org-air-item-priority= is the struct accessor only); priority edits flow through the R67 form → =--apply-item-edits= | covered by the apply-item-edits discipline    |
+
+* ERT seams — batch, each reverts to RED (tests/org-air-round68-test.el)
+
+Fixture: a temp dir with =vocab.org= (=#+TODO: TODO(t) DRAFT(d)
+READY(r) WIP(w) | COMP(c!) DROPPED(x@)= — the user's EXACT line as a
+file-local declaration — plus =* TODO Fix the widget :inbox:=),
+=wait.org= (=#+TODO: WAIT | ARCHIVED= + a =* TODO Jot=), =atdone.org=
+(=#+TODO: TODO | DONE(d@)= + a TODO item).  Board built over the dir
+per the house harness idiom; =completing-read= /
+=org-fast-todo-selection= stubbed via =cl-letf= — no interactive
+loop anywhere.
+
+- *r68-1 /THE REPRO — the revert-RED anchor/*: point on the
+  =vocab.org= row; =org-fast-todo-selection= stubbed to signal
+  ="fast-selection entered"=; =completing-read= → ="READY"=;
+  =org-air-item-cycle-todo= ⇒ the source heading reads =* READY …=,
+  no signal raised, the file is SAVED (visiting buffer unmodified).
+  RED on revert: the pre-fix bare =(org-todo)= routes into
+  fast-selection even from batch Lisp (probed) — restoring the
+  nil-arg call makes the stub signal under a fast-key vocab.
+- *r68-2 /vocabulary offered + honoured/*: capture the COLLECTION
+  passed to =completing-read= — on the =wait.org= item it contains
+  =WAIT= and =ARCHIVED= (the file-local declaration won over the
+  global); on the =vocab.org= item it carries the fast-key
+  vocabulary (=READY=, =DROPPED=, …).  Choosing ="ARCHIVED"= applies
+  it.  RED today: no =completing-read= ever runs.
+- *r68-3 /@ keyword does not hang or trap/*: choose ="DROPPED"= ⇒
+  the command RETURNS; =post-command-hook= no longer carries
+  =org-add-log-note=; the SAVED FILE bytes contain the
+  =- State "DROPPED"= line; the visiting buffer is unmodified; no
+  =*Org Note*= buffer exists.  RED today: hook still pending, line
+  absent from disk.
+- *r68-4 /timestamp keyword records in the same save/*: choose
+  ="COMP"= (the =c!= keyword) ⇒ =- State "COMP"= in the saved bytes,
+  hook clear, buffer unmodified.  RED today (record deferred past
+  the save).
+- *r68-5 /empty choice = graceful no-op/*: =completing-read= → ="" =
+  ⇒ no write, source bytes IDENTICAL, message matches "unchanged",
+  no error.  RED today (the bare call cycles or traps instead).
+- *r68-6 /-done under an @-first done vocabulary/*:
+  =org-air-item-done= on the =atdone.org= item ⇒ =DONE= applied,
+  hook clear, state line in the saved bytes; companion: under the
+  user's vocab =-done= lands =COMP= with its =time= record saved.
+  RED today (probed: pending ='note' record).
+- *r68-7 /reschedule-note config/*: =org-log-reschedule= let-bound
+  to ='note=; an item WITH an existing SCHEDULED;
+  =org-air-item-schedule= with a date ⇒ the new stamp lands, hook
+  clear, the (downgraded, timestamped) reschedule record is in the
+  saved bytes.  RED today (pending note against the undisplayed
+  buffer).
+- *r68-8 /the R67 in-place leg shares the fix/*:
+  =org-air-inbox--apply-item-edits item (:todo "DROPPED")= on the
+  =vocab.org= item ⇒ applied, hook clear, the state line inside the
+  SAME save (assert on DISK bytes).  RED today (pending + line
+  missing from disk).
+- *r68-9 /the engine leg/*: =org-air-refile-item= with todo
+  ="DROPPED"= into a target file declaring the same vocabulary ⇒
+  the item moves, hook clear, state line in the TARGET's saved
+  bytes.  RED today.
+- *r68-10 /ONE reader, not two/*: =cl-letf=
+  =org-air-inbox--read-todo-keyword= to a sentinel-returning stub;
+  both the board =T= body and the =org-air-refile-form-todo= suffix
+  route through it (the form's =:todo= becomes the sentinel; =T=
+  applies it).  RED against a forked second reader.
+
+GUI residue (screenshot-confirm, not ERT-able): the minibuffer
+completion itself.  Goldens: only the =C-c= legend string
+("cycle todo state" → "set todo state") may shift — string-level
+only; anything structural is a spec violation to investigate.
+Known-failures manifest stays EMPTY.
+
+* Non-goals
+
+- No repaired fast-selection UI from the board (displaying
+  =' *Org todo*'= from board context).  Completion is the board's
+  existing idiom (R64/R67 =k= field), batch-testable, and answers
+  the report literally.  The user's =org-use-fast-todo-selection=
+  setting keeps governing their OWN org buffers untouched.
+- No note-taking UI from board verbs — downgrade-to-timestamp is the
+  round's contract (Decision 2); full note flow stays available at
+  the source via =RET= visit.  A future "note-aware board verb"
+  (display the source buffer first, then prompt) is logged as a
+  possible v0.2 hardening, not built.
+- No rename of =org-air-item-cycle-todo= and no new board key — the
+  =T= binding, the =?T= process-inbox row, the command name and the
+  triage-test keymap pin all stand.
+- No change to =org-air-set-tag= (audited SAFE; converting it to the
+  macro is uniformity churn with no bug behind it — note left
+  instead).
+- No global mutation of any logging custom (=org-log-done=,
+  =org-log-reschedule=, =org-log-redeadline=,
+  =org-use-fast-todo-selection=) — dynamic let-bindings scoped to
+  board-context writes only.
+- No engine capability change — the engine edit is the
+  three-let-bindings + flush lines inside the existing transaction.
+
+* Compatibility
+
+- *R53 (never-hang / never-error)*: strengthened — this round
+  REMOVES two synchronous interactive reads from non-interactive
+  paths.  The vocabulary read opens exactly one
+  =find-file-noselect= on the item's OWN file — the same buffer the
+  write visits anyway; same class as the R67 field reads.  No
+  scans, no enumeration.  A free-typed undeclared keyword surfaces
+  =org-todo='s own =user-error= (honest failure, not a hang).
+- *R57 (todo vocabulary)*: the =T= completion IS the R57 merged
+  vocabulary (=--target-todo-keywords=: the user's globals + the
+  file's =#+TODO:= line win; the scan supplement covers undeclared
+  files), read in the same buffer the apply-time =org-todo= runs in
+  — completion and apply agree by construction.
+- *R67 (the item editor)*: the =k= field's behaviour is
+  byte-for-byte through the extracted reader (r67-7 holds);
+  =--apply-item-edits= gains the logging discipline — none of the
+  r67 seams pin logging bytes, so all thirteen stay green; the
+  in-place leg's own latent =@=-keyword trap is closed (r68-8).
+- *R64 (one-shot refile)*: untouched — one confirm, prompt-time
+  no-mutation; the engine change is bindings + flush inside the
+  existing transaction (r68-9 pins the moved item).
+- *Triage undo (=u=)*: =T= keeps recording through the macro; the
+  flushed log line is part of the same undo unit + save.
+- Cache: no schema change (=org-air-view--cache-version= untouched);
+  saves bump mtime, the ordinary refresh pipeline picks edits up.
+
+* Implementation History
+
+- 2026-07-22: Round 68 spec (design seat).  Reported bug: board =T=
+  is a silent no-op under fast-selection todo keywords — root cause
+  (user-confirmed, probe-verified) a bare =(org-todo)= at
+  org-air-view.el:9304 inside the undisplayed-buffer macro; nil-arg
+  =org-todo= routes into =org-fast-todo-selection= even from batch
+  Lisp under the default =auto=; =DROPPED(x@)='s log note is a
+  second trap.  Decisions: T reframed to select-with-completion via
+  an extracted shared reader (=org-air-inbox--read-todo-keyword=
+  over =--target-todo-keywords=; explicit-string =org-todo= apply;
+  name/binding/legend pins kept); board-context logging discipline
+  (=org-inhibit-logging 'note= + reschedule/redeadline 'note→'time
+  + a synchronous pre-save flush of pending time/state records —
+  probed unmocked in batch, the state line lands and the hook
+  clears); the discipline lives in the shared
+  =--at-item-source= macro (class fix) and is mirrored into
+  =--apply-item-edits= and the refile engine; full sibling audit
+  (=-done= traps under =@=-first done vocab — probed; schedule/
+  deadline trap under lognotereschedule — org.el ignores
+  =org-inhibit-logging= there; archive/kill/set-tag safe; unbound
+  legacy =org-air-set-schedule= converted to the macro).  Probes
+  under =/tmp/org-air-r68/= (table in Summary).  Ten batch seams,
+  each revert-RED; r68-1 is the bare-=(org-todo)= revert anchor.
+  State: ready.

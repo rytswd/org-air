@@ -1,0 +1,9 @@
+#+title: Rail/chip tag-label grouping for mixed #-prefixed datasets
+#+state: draft
+#+FILETAGS: :rail:tags:review:
+
+* Summary
+When a corpus mixes a plain tag (=nix=) AND a literal #-prefixed org tag (=#nix=), the R69 chip-label dedup makes both render as =#nix=, and any rollup/grouping that keys on the LABEL merges the two distinct tags into one bucket. Display-only dedup vs matching is correct (R69); the grouping key should be the underlying tag VALUE, not the rendered label.
+
+* History
+- 2026-07-22: Deferred to v0.2 — Fable-noted non-blocking during R69 review; grouping should key on tag value not display label.

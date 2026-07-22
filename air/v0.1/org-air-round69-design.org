@@ -1,5 +1,5 @@
 #+title: org-air Round 69 — Rail polish: Filter→Source spacer, dead ✕ dropped, M-/ rail reconcile, Actions reflow at narrow widths, #-tag chip dedup
-#+state: ready
+#+state: complete
 #+tags: rail ui polish filter tags actions side-window
 
 * Summary
@@ -444,3 +444,6 @@ Known-failures manifest stays EMPTY.
   candidate for a later round if ryota hits it live: collapse the
   post-Summary blank when the clamped rail has no inspector region.
   State: ready (awaiting test-seat golden re-bless + GUI confirm).
+
+* History
+- 2026-07-22: State: ready → complete.

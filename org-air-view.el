@@ -1579,7 +1579,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 ;; R35-1: the BOARD default keys (installer-owned).  R18 D-P4: S-RET visits
 ;; the file in the other window (and `O' via the shared core sort); RET
 ;; opens the pane (inherited).  T2: TAB toggles a section; motion on
-;; M-n/M-p/M-TAB.  Triage verbs c/m/s/d/r/f/t/T/a/D/x/u/I.  `/' per-mode
+;; M-n/M-p/M-TAB.  Triage verbs c/m/s/d/e/f/t/T/a/D/x/u/I.  `/' per-mode
 ;; filter.  `g' -> g-prefix, `z' -> columns prefix.
 (org-air--register-default-keys 'org-air-view-mode-map
   "<S-return>" #'org-air-visit-item
@@ -1596,7 +1596,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "m" #'org-air-toggle-mark
   "s" #'org-air-scope
   "d" #'org-air-item-deadline
-  "r" #'org-air-refile-item
+  "e" #'org-air-refile-item
   "f" #'org-air-item-file-group
   "t" #'org-air-set-tag
   "T" #'org-air-item-cycle-todo
@@ -3094,7 +3094,7 @@ non-byte overlay over this same text.  R26-6: the old \"· r to file\"
 Inbox nudge is GONE from rows — it cost 12 columns per dated inbox row,
 read as a path fragment, and broke that row's V6 tag/origin columns via
 the local date-cell expansion; discovery lives in `?' help + the Actions
-legend (`r' `org-air-refile-item' stays bound), the single teaching
+legend (`e' `org-air-refile-item' stays bound), the single teaching
 surface."
   (let ((date (org-air-view--date-label item bucket)))
     (when date
@@ -9770,7 +9770,7 @@ read by the bookmark record producer.")
      (org-air-calendar-today . "calendar: today"))
     ("Triage"
      (org-air-capture . "capture")
-     (org-air-refile-item . "refile item")
+     (org-air-refile-item . "edit item (a destination refiles)")
      (org-air-item-deadline . "set deadline")
      (org-air-set-tag . "set tag")
      (org-air-item-cycle-todo . "set todo state")

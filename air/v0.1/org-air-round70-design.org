@@ -435,3 +435,50 @@ manifest stays EMPTY.
   reframe section).  Probes under =/tmp/org-air-r70/= (table in
   Summary).  Ten batch seams, each revert-RED; goldens expected
   byte-clean.  State: ready.
+- 2026-07-22: Round 70 IMPLEMENTED (impl seat, fresh child of
+  zlymnnmo).  Both packages landed exactly as specced:
+  - R70-1: the board map's =r= → =org-air-refile-item= (view.el's
+    installer row) rebound to =e=; =r= DROPPED, no alias — verified
+    =where-is-internal= returns exactly =[?e]= and =(kbd "r")=
+    resolves nil.  Reframes: the keymap comment row
+    (=c/m/s/d/e/f/t/T/a/D/x/u/I=), the R26-6 docstring (=e= stays
+    bound), the =?= help Triage row → =edit item (a destination
+    refiles)= (key derives to =e= via `where-is', no further change),
+    the engine docstring (=the board's `e'=), the transient prefix
+    docstring (=The `e' binding and the `org-air-refile-*' names
+    stay=), and =--form-heading= → =Edit "<title>"= (fallback
+    =Edit=).  Audit confirmed: no Actions-rail refile cell exists —
+    zero rail shift; the walk's =?r [r]efile= row, =f= file-group and
+    the org-air.el autoload untouched (Decision 2 / Non-goals).
+  - R70-2: =org-air-inbox--append-log-note= (next to the R68 flush)
+    — the probed setup+synchronous-store emulation byte-for-byte from
+    Decision 3 (=org-add-log-setup 'note nil nil 'note=, hook
+    dequeued + =org-log-setup= cleared, window-config/return-to
+    no-op bracket, =generate-new-buffer= pre-filled note buffer,
+    abort gates let-bound nil); =org-air-inbox--add-item-note= (the
+    =--apply-item-edits= twin: stale guard, R26-8 position, ONE
+    =atomic-change-group=, ONE =save-buffer=, triage-undo recording,
+    returns non-nil); suffix =org-air-refile-form-note= on
+    ="S-<return>"= (=:transient t=, label =add note=, minibuffer
+    =read-string=, empty ⇒ gentle no-op message, tail message + the
+    execute-leg board-refresh guard) placed between RET and =q=.
+    Re-probed on this tree: the exact note shape lands under
+    =(org-inhibit-logging 'note)= IN FULL (R68 disjointness), the
+    drawer honoured per file, rollback byte-exact, disk bytes carry
+    the note after the wrapper, no =*Org Note*= buffer, hook clean.
+  The spec's five flip-pins updated alongside (triage key table +
+  lookup/help row → =e=/=^  e +edit=; r26-6 → =e= + help regexp; r35
+  knob-t =e= resolves + knob-nil unbound list gains =e= (=r= stays
+  trivially absent); r67 heading pin → =Edit "Capture me"=).  The
+  impl audit found THREE MORE exact old-framing pins NOT in the
+  spec's table — =org-air-ux-keys-refile=,
+  =org-air-r64-7-shell-binding-and-pure-readers= (its one binding
+  conjunct) and =org-air-r50-2-help-opens-buffer-from-board= (its one
+  =^  r +refile= regexp) — FLAGGED in
+  tests/org-air-known-failures.el for the test seat per the brief,
+  NOT hand-blessed.  =make clean && make check=: 867 tests, 0
+  unexpected (3 expected failures = exactly the flagged trio);
+  =make regen-mockups= byte-clean — ZERO fixture churn, as the spec
+  predicts.  New-suffix layout verified batch:
+  =transient-get-suffix … "S-<return>"= → =org-air-refile-form-note=,
+  proto =transient= slot t; RET/q unchanged.

@@ -80,7 +80,7 @@ regression fence)."
     (org-air-r35--in-board
       ;; core + view single keys.
       (should (eq (key-binding (kbd "c")) 'org-air-capture))
-      (should (eq (key-binding (kbd "r")) 'org-air-refile-item))
+      (should (eq (key-binding (kbd "e")) 'org-air-refile-item))
       (should (eq (key-binding (kbd "n")) 'org-air-next-item))
       (should (eq (key-binding (kbd "p")) 'org-air-prev-item))
       (should (eq (key-binding (kbd "/")) 'org-air-filter))
@@ -119,20 +119,22 @@ defaults and the shared `C-c C-a' leader."
 
 (ert-deftest org-air-r35-1-nil-board-keys-unbound ()
   "With the knob nil the board map installs NONE of org-air's action keys:
-`c' / `r' / `z' / `C-c C-a' resolve to nil in the map (special-mode does
+`c' / `e' / `z' / `C-c C-a' resolve to nil in the map (special-mode does
 not bind them), and `g' no longer opens the org-air `g' prefix — it falls
 THROUGH to the `special-mode' parent (`revert-buffer'), never an org-air
 command."
   (skip-unless (locate-library "org-air"))
   (org-air-r35--with-knob nil
     (org-air-r35--in-board
-      ;; org-air's own action keys are absent from its map.
+      ;; org-air's own action keys are absent from its map (R70-1: `e' is
+      ;; the editor key now; `r' stays trivially absent — dropped, no alias).
       (should (null (lookup-key org-air-view-mode-map (kbd "c"))))
+      (should (null (lookup-key org-air-view-mode-map (kbd "e"))))
       (should (null (lookup-key org-air-view-mode-map (kbd "r"))))
       (should (null (lookup-key org-air-view-mode-map (kbd "z"))))
       (should (null (lookup-key org-air-view-mode-map (kbd "C-c C-a"))))
       ;; nothing on these keys resolves to an org-air command…
-      (dolist (k '("c" "r" "/" "|" "z d" "g r" "C-c C-a |"))
+      (dolist (k '("c" "e" "r" "/" "|" "z d" "g r" "C-c C-a |"))
         (let ((b (key-binding (kbd k))))
           (ert-info ((format "key %S -> %S" k b))
             (should-not (and (symbolp b) b

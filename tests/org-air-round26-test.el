@@ -1030,14 +1030,14 @@ FAILS on trunk (the hint pushed that one row's tags 12 cols right)."
       (should (= (length (seq-uniq cols)) 1)))))
 
 (ert-deftest org-air-r26-6-refile-still-works ()
-  "`r' still resolves to `org-air-refile-item' on the board, and the `?'
-help — the R50-2 `*org-air-help*' BUFFER now, not an echo-area line —
-documents the refile verb.  The R26-6 discovery guarantee survives,
-relocated: the old one-line `message' is deleted, so the assertion reads
-the rendered help buffer (key derived via `where-is' from the live board
-map, so the row really is `r  refile…')."
+  "`e' (R70-1: the editor key) resolves to `org-air-refile-item' on the
+board, and the `?' help — the R50-2 `*org-air-help*' BUFFER now, not an
+echo-area line — documents the edit verb.  The R26-6 discovery guarantee
+survives, relocated twice: the old one-line `message' is deleted, so the
+assertion reads the rendered help buffer (key derived via `where-is'
+from the live board map, so the row really is `e  edit…')."
   (skip-unless (locate-library "org-air"))
-  (should (eq (lookup-key org-air-view-mode-map (kbd "r"))
+  (should (eq (lookup-key org-air-view-mode-map (kbd "e"))
               'org-air-refile-item))
   ;; the board help BUFFER documents it (R50-2).
   (save-window-excursion
@@ -1049,8 +1049,8 @@ map, so the row really is `r  refile…')."
             (should help)
             (with-current-buffer help
               (let ((text (substring-no-properties (buffer-string))))
-                ;; the refile row: derived key `r' + the refile verb.
-                (should (string-match-p "^  r +refile" text))
+                ;; the editor row: derived key `e' + the edit verb.
+                (should (string-match-p "^  e +edit" text))
                 ;; …and the true refresh sequence rides along (R50-1).
                 (should (string-match-p "^  g r +refresh" text))))))
       (when (get-buffer org-air-help-buffer-name)

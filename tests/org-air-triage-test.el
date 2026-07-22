@@ -45,7 +45,7 @@ their keys."
   (skip-unless (locate-library "org-air"))
   (pcase-dolist (`(,key . ,command)
                  '(("d" . org-air-item-deadline)
-                   ("r" . org-air-refile-item)
+                   ("e" . org-air-refile-item)
                    ("f" . org-air-item-file-group)
                    ("t" . org-air-set-tag)
                    ("T" . org-air-item-cycle-todo)
@@ -164,10 +164,11 @@ never by a row-less phantom.  Data-variation board, GUI glyphs."
   "R26-6 deliberate INVERSION of R19-2(c): dated-unfiled inbox rows carry
 NO row hint any more — the `· r to file' nudge is retired (user: wasteful
 + cryptic; it also broke the row's V6 tag/origin alignment).  The date
-cell is the date label + optional repeat marker ONLY; `r' stays bound to
-the refile verb and `?' help — the R50-2 `*org-air-help*' BUFFER now, not
-an echo-area `message' — is the single teaching surface (the refile
-discovery guarantee relocated into the buffer text)."
+cell is the date label + optional repeat marker ONLY; `e' (R70-1: the
+editor key) stays bound to `org-air-refile-item' and `?' help — the
+R50-2 `*org-air-help*' BUFFER now, not an echo-area `message' — is the
+single teaching surface (the discovery guarantee relocated into the
+buffer text)."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-alt-dashboard 160
     (let ((found nil))
@@ -185,10 +186,10 @@ discovery guarantee relocated into the buffer text)."
                                   (buffer-substring-no-properties
                                    (point-min) (point-max))))
       ;; discovery lives on the key + help, not the row.
-      (should (eq (lookup-key org-air-view-mode-map (kbd "r"))
+      (should (eq (lookup-key org-air-view-mode-map (kbd "e"))
                   'org-air-refile-item))
       ;; R50-2: `?' renders the *org-air-help* buffer (echo line deleted);
-      ;; the refile row is there, key derived from the live board map.
+      ;; the editor row is there, key derived from the live board map.
       (save-window-excursion
         (unwind-protect
             (progn
@@ -196,7 +197,7 @@ discovery guarantee relocated into the buffer text)."
               (let ((help (get-buffer org-air-help-buffer-name)))
                 (should help)
                 (should (string-match-p
-                         "^  r +refile"
+                         "^  e +edit"
                          (with-current-buffer help
                            (substring-no-properties (buffer-string)))))))
           (when (get-buffer org-air-help-buffer-name)

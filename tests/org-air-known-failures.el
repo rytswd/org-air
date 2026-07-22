@@ -2581,6 +2581,29 @@
     ;; R69-1..5 in zxrxlzyo).  Round-69 manifest is EMPTY; the tests
     ;; stay as permanent regression guards.
     ;; =================================================================
+    ;; v0.1 ROUND-70 impl grind (air/v0.1/org-air-round70-design.org).
+    ;; R70-1 REBIND, design-blessed: the board's editor entry moved
+    ;; `r' → `e' (`org-air-refile-item' — the command NAME stays; `r'
+    ;; DROPPED, no alias, per Decision 1) and the `?' help Triage row
+    ;; reframed to the edit wording (key derived via `where-is', so the
+    ;; row now reads `e  edit item (a destination refiles)').  The
+    ;; spec's five flip-pins (triage-test key table + lookup/help row,
+    ;; r26-6, r35 knob legs, r67 heading string) were design-listed for
+    ;; the impl seat and are updated in this commit.  The impl audit
+    ;; found THREE MORE exact pins of the OLD framing, not in the
+    ;; spec's table — FLAGGED here per the brief, NOT hand-blessed; the
+    ;; test seat re-blesses them to the R70-1 contract and deletes
+    ;; these entries as closeout.  ZERO byte goldens moved (`make
+    ;; regen-mockups' byte-clean — no fixture renders the transient,
+    ;; the help buffer, or an Actions refile cell, exactly as the spec
+    ;; predicts).
+    (org-air-ux-keys-refile
+     . "R70-1: the §9 pin asserts the OLD board `r' → `org-air-refile-item' binding; the editor entry moved to `e' (r dropped, no alias — Decision 1). Test seat re-blesses to (kbd \"e\").")
+    (org-air-r64-7-shell-binding-and-pure-readers
+     . "R70-1: the shell-contract conjunct pins the board's `r' binding for `org-air-refile-item'; the entry key is `e' now (command + transient + pure-reader conjuncts unaffected). Test seat re-blesses the one binding conjunct to `e'.")
+    (org-air-r50-2-help-opens-buffer-from-board
+     . "R70-1: the help-buffer conjunct greps the OLD `^  r +refile' Triage row; the derived row now reads `^  e +edit…' (edit wording, `where-is' key). Test seat re-blesses the one regexp conjunct.")
+    ;; =================================================================
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

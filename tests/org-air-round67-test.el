@@ -88,7 +88,7 @@
 ;;
 ;; GUI residue (screenshot-confirm, not ERT-able as pixels): the
 ;; reframed transient RENDERING.  The string-level halves ARE pinned
-;; here — the `Edit / refile "<title>"' heading, the `(in place — f to
+;; here — the `Edit "<title>"' heading (R70-1 reframe), the `(in place — f to
 ;; refile)' placeholder and the dynamic RET label (via the suffix
 ;; object's description slot).
 
@@ -222,8 +222,9 @@ does not move (still exactly one match, in inbox.org), the file is
 otherwise byte-stable (new bytes = old bytes with only the cookie
 inserted on the heading line), and `org-air-inbox--refile-last' stays
 nil (no destination was used — `l' keeps recalling the last actual
-refile).  Also pins the R67-4 string reframes: the `Edit / refile
-\"<title>\"' heading and the `(in place — f to refile)' placeholder.
+refile).  Also pins the R67-4 string reframes (heading re-reframed by
+R70-1): the `Edit \"<title>\"' heading and the `(in place — f to
+refile)' placeholder.
 RED today: `user-error' \"No destination yet — pick a file with f\"."
   (skip-unless (locate-library "org-air"))
   (org-air-r67--with-corpus nil
@@ -232,7 +233,7 @@ RED today: `user-error' \"No destination yet — pick a file with f\"."
       (org-air-inbox--form-init item)
       ;; the R67-4 reframed strings (string-level, ERT-able half).
       (should (equal (org-air-inbox--form-heading)
-                     "Edit / refile \"Capture me\""))
+                     "Edit \"Capture me\""))
       (should (string-match-p (regexp-quote "(in place — f to refile)")
                               (org-air-inbox--form-preview)))
       (org-air-inbox--form-put :priority ?A)

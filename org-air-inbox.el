@@ -636,7 +636,7 @@ as a defect.  A LIST of strings is an outline path handed to
 ;;;###autoload
 (defun org-air-refile-item (&optional item target-file target-heading tags
                                       scheduled category todo priority
-                                      deadline)
+                                      deadline note)
   "Move ITEM to TARGET-FILE — the one-shot refile engine (R64-1).
 
 Interactively (the board's `e') this opens the transient
@@ -663,7 +663,14 @@ are applied via `org-todo' / `org-priority' — nil leaves each
 untouched.  DEADLINE (R67-3) mirrors SCHEDULED via `org-deadline':
 an Org timestamp/shift string stamps a deadline, the empty string
 clears one, nil leaves it untouched — a trailing additive parameter,
-so every pre-R67 caller passes unchanged.
+so every pre-R67 caller passes unchanged.  NOTE (R71-2) replays that
+precedent: a non-empty string is appended as a dated Org log note at
+the MOVED heading in the TARGET buffer (after the metadata block,
+inside the same transaction, before the ONE transactional save) via
+`org-air-inbox--append-log-note' — the drawer decision is the WRITE
+TARGET file's own `org-log-into-drawer' / `#+STARTUP: logdrawer'
+\(the R67-4 write-target law); nil or the empty string writes no
+note, so every pre-R71 caller passes unchanged.
 
 R66: step 0 first ensures TARGET-FILE's directory chain exists, and —
 gated by `org-air-refile-synthesize-frontmatter' — a brand-new or
@@ -787,13 +794,34 @@ byte-for-byte as-is, and a failed refile still creates no file."
                                (when deadline
                                  (if (string-empty-p deadline)
                                      (org-deadline '(4))
-                                   (org-deadline nil deadline)))))
+                                   (org-deadline nil deadline))))
+                             ;; R68-2: flush the pending (downgraded)
+                             ;; log record INSIDE the transaction,
+                             ;; before the ONE save — the state line
+                             ;; lands in the saved bytes and rolls back
+                             ;; with everything else on a signal.
+                             ;; Relocated here (R71 Decision 4,
+                             ;; behaviour-neutral: same transaction,
+                             ;; still before the save) so it provably
+                             ;; runs BEFORE the note — the probed
+                             ;; globals-overwrite hazard:
+                             ;; `org-add-log-setup' would clobber the
+                             ;; shared `org-log-note-*' globals of a
+                             ;; pending downgraded record, and the note
+                             ;; writer's own dequeue would silently
+                             ;; drop it.
+                             (org-air-inbox--flush-pending-log-note)
+                             ;; R71-2: the explicit NOTE at the MOVED
+                             ;; heading — the write-target buffer's own
+                             ;; `org-log-into-drawer' governs (R67-4);
+                             ;; still inside the atomic-change-group,
+                             ;; so a signal rolls the note back with
+                             ;; everything else.
+                             (when (and note (not (string-empty-p note)))
+                               (goto-char insert-pos)
+                               (org-back-to-heading t)
+                               (org-air-inbox--append-log-note note)))
                          (set-marker insert-pos nil))))
-                   ;; R68-2: flush the pending (downgraded) log record
-                   ;; INSIDE the transaction, before the ONE save — the
-                   ;; state line lands in the saved bytes and rolls back
-                   ;; with everything else on a signal.
-                   (org-air-inbox--flush-pending-log-note)
                    (save-buffer))))
               (setq landed t))
           ;; `inhibit-quit': a second C-g must not abort the restore (or
@@ -835,7 +863,9 @@ place) and `:tags-stripped' (the recorded `inbox' strip, re-attached by
 the in-place leg so an in-place edit never graduates an inbox item),
 and the dirty-only fields `:category', `:scheduled'
 \(+ `:schedule-label'), `:deadline' (+ `:deadline-label'), `:todo',
-`:priority' \(nil = leave the item's own value untouched).")
+`:priority' \(nil = leave the item's own value untouched), and
+`:note' (R71-1 — the drafted dated-log-note text; nil = no note,
+the form never holds \"\").")
 
 (defun org-air-inbox--form-get (key)
   "Return KEY's value from the transient refile form state."
@@ -863,7 +893,7 @@ execute applies the changed metadata IN PLACE."
                                   '("inbox"))
               :category nil :scheduled nil :schedule-label nil
               :deadline nil :deadline-label nil
-              :todo nil :priority nil)))
+              :todo nil :priority nil :note nil)))
 
 (defun org-air-inbox--item-priority-char (item)
   "Return ITEM's priority cookie as a character, or nil.
@@ -980,6 +1010,21 @@ TAGS then previews the item's own list."
      "%a %b %d"
      (org-time-string-to-time (org-read-date nil nil spec)))))
 
+(defun org-air-inbox--form-note-label (note)
+  "Return the drafted NOTE's one-line field/preview label (R71-1).
+The FIRST line of NOTE, truncated to width 24 via
+`truncate-string-to-width' with an \"…\" ellipsis; the ellipsis is
+ALSO appended when further lines follow untruncated, so a short first
+line never masquerades as the whole note.  Pure string formatting —
+used by BOTH the `n' field row and the Preview extras segment, so the
+two render identically by construction (WYSIWYG)."
+  (let* ((first (car (split-string note "\n")))
+         (multi (string-match-p "\n" note))
+         (label (truncate-string-to-width first 24 nil nil "…")))
+    (if (and multi (equal label first))
+        (concat label "…")
+      label)))
+
 (defun org-air-inbox--form-field (label value)
   "Format one transient field row: LABEL, then VALUE (`–' when unset)."
   (format "%-9s%s" label (or value "–")))
@@ -1018,7 +1063,10 @@ Pure string formatting over the collected values — no buffer access, so
 the form stays instant.  Line 1: basename › path (or the in-place
 placeholder) › the heading line as it will be written (todo, priority,
 title, the R67-2 EFFECTIVE tags) + the `(creates: …)' annotation;
-line 2: SCHEDULED / DEADLINE / `:CATEGORY:' when set."
+line 2: SCHEDULED / DEADLINE / `:CATEGORY:' when set, plus the R71-1
+`note: <first line>…' trailing segment when a note is drafted (the
+shared `org-air-inbox--form-note-label' truncation — the field row
+and this segment render the same label by construction)."
   (let ((item (org-air-inbox--form-get :item)))
     (if (not item)
         "Preview"
@@ -1032,6 +1080,7 @@ line 2: SCHEDULED / DEADLINE / `:CATEGORY:' when set."
              (sched (org-air-inbox--form-get :schedule-label))
              (dead (org-air-inbox--form-get :deadline-label))
              (cat (org-air-inbox--form-get :category))
+             (note (org-air-inbox--form-get :note))
              (dest (if file
                        (concat (file-name-nondirectory file)
                                (and olp
@@ -1050,7 +1099,12 @@ line 2: SCHEDULED / DEADLINE / `:CATEGORY:' when set."
                      (delq nil
                            (list (and sched (concat "SCHEDULED: " sched))
                                  (and dead (concat "DEADLINE: " dead))
-                                 (and cat (concat ":CATEGORY: " cat))))
+                                 (and cat (concat ":CATEGORY: " cat))
+                                 (and note
+                                      (concat
+                                       "note: "
+                                       (org-air-inbox--form-note-label
+                                        note)))))
                      "  ·  ")))
         (concat "Preview\n " dest " › " head
                 (or (org-air-inbox--form-creates) "")
@@ -1354,9 +1408,12 @@ downgraded or suppressed."
 EDITS is a plist of exactly the CHANGED fields: `:todo', `:priority'
 \(char or one-char string), `:tags' (guarded by `:tags-p' t — the
 value may be nil, which CLEARS), `:scheduled' / `:deadline' (Org
-date/shift strings; \"\" clears via the \='(4) prefix), `:category'.
-Returns the list of applied field symbols in application order (the
-completion message enumerates them).
+date/shift strings; \"\" clears via the \='(4) prefix), `:category',
+and `:note' (R71-2 — a dated Org log note appended at the heading via
+`org-air-inbox--append-log-note', drawer per the SOURCE file's own
+`org-log-into-drawer'; nil or \"\" writes no note).  Returns the list
+of applied field symbols in application order (the completion message
+enumerates them).
 
 Inlines `org-air-view--at-item-source's semantics — its home file
 requires this one, a hard require back would be circular: the
@@ -1370,16 +1427,26 @@ order (todo → priority → tags → category → schedule → deadline)
 inside ONE `atomic-change-group' with ONE `save-buffer' after (the
 R64 discipline scaled down): any signal rolls back every in-buffer
 change and propagates — the file is never saved, bytes identical.
+The R70 standalone note wrapper (`org-air-inbox--add-item-note')
+folded into this function's `:note' leg (R71 Decision 3): a
+note-only edit is `(:note \"…\")' through the same path, same
+discipline — one code shape for every in-place confirm.
 
 R68-3: mirrors the board-context logging discipline of
 `org-air-view--at-item-source' (whose semantics this function inlines
 by design) — `org-inhibit-logging' `note' + the reschedule/redeadline
 `note'→`time' downgrade around the mutators, and the synchronous
-`org-air-inbox--flush-pending-log-note' as the change group's LAST
-form (rollback covers the inserted log line too), before the save —
-so a `@'-note keyword (or a `lognotereschedule' config) records a
-timestamped state line in the same save instead of trapping an
-`*Org Note*' prompt against the undisplayed source buffer."
+`org-air-inbox--flush-pending-log-note' AFTER the mutators, before
+the save — so a `@'-note keyword (or a `lognotereschedule' config)
+records a timestamped state line in the same save instead of trapping
+an `*Org Note*' prompt against the undisplayed source buffer.  The
+intra-transaction ORDER is part of the contract (R71 Decision 4,
+probed): mutators → flush → `:note' — the explicit note displaces the
+flush as the change group's LAST form; running the note's
+`org-add-log-setup' BEFORE the flush would overwrite the shared
+`org-log-note-*' globals of a pending downgraded record and its
+dequeue would silently drop that record.  Rollback covers metadata,
+record and note together (probed byte-exact)."
   (when (fboundp 'org-air-view--refresh-stale-item-guard)
     (org-air-view--refresh-stale-item-guard item))
   (let ((applied nil)
@@ -1423,82 +1490,69 @@ timestamped state line in the same save instead of trapping an
                  (org-deadline '(4))
                (org-deadline nil deadline))
              (push 'deadline applied)))
-         ;; R68-2: the flush is the change group's LAST form — the log
-         ;; line rides the same rollback AND the same save below.
-         (org-air-inbox--flush-pending-log-note)))
+         ;; R68-2: the flush AFTER the mutators — the log line rides
+         ;; the same rollback AND the same save below.  R71 Decision 4
+         ;; pins it BEFORE the note (the probed globals-overwrite
+         ;; hazard: `org-add-log-setup' clobbers a pending downgraded
+         ;; record's shared globals and the note writer's dequeue
+         ;; drops it).
+         (org-air-inbox--flush-pending-log-note)
+         ;; R71-2: the explicit note is the change group's LAST form —
+         ;; re-anchored first (the mutators may drift point); drawer
+         ;; per this SOURCE buffer's own `org-log-into-drawer'.
+         (let ((note (plist-get edits :note)))
+           (when (and note (not (string-empty-p note)))
+             (org-back-to-heading t)
+             (org-air-inbox--append-log-note note)
+             (push 'note applied)))))
       (save-buffer)
       (when (boundp 'org-air-view--triage-source-buffer)
         (setq org-air-view--triage-source-buffer buf)))
     (nreverse applied)))
 
-(defun org-air-inbox--add-item-note (item text)
-  "Append TEXT as a dated log note to ITEM's SOURCE heading (R70-2).
-The apply-side twin of `org-air-inbox--apply-item-edits' — the same
-inlined `org-air-view--at-item-source' semantics (its home file
-requires this one; a hard require back would be circular): the
-mid-refresh stale guard when loaded, the R26-8 marker-or-(FILE . POS)
-position, `org-back-to-heading' under `org-with-wide-buffer', ONE
-`atomic-change-group' around `org-air-inbox--append-log-note' (any
-signal rolls the note back byte-exactly and propagates — the file is
-never saved), ONE `save-buffer' after (the note is part of the same
-saved bytes, so the R53 scan sees the complete edit at the next
-refresh), and the triage-undo source recording (the board's `u'
-covers a note like every single-field verb).  NOT the engine: no cut,
-no paste, no destination — in place, no move.  Returns non-nil on
-apply."
-  (when (fboundp 'org-air-view--refresh-stale-item-guard)
-    (org-air-view--refresh-stale-item-guard item))
-  (let ((buf (org-air-inbox--source-buffer item)))
-    (with-current-buffer buf
-      (org-with-wide-buffer
-       (goto-char (let ((m (org-air-item-marker item)))
-                    (if (markerp m) (marker-position m) (or (cdr-safe m) 1))))
-       (org-back-to-heading t)
-       (atomic-change-group
-         (org-air-inbox--append-log-note text)))
-      (save-buffer)
-      (when (boundp 'org-air-view--triage-source-buffer)
-        (setq org-air-view--triage-source-buffer buf)))
-    t))
-
 (transient-define-suffix org-air-refile-form-note ()
-  "Add a dated log note to the item IN PLACE — the R70-2 action suffix.
-Reads the note text from the MINIBUFFER (the board's quick-read idiom
-— never org's interactive `*Org Note*' buffer, the exact R68 trap
-shape) and writes it immediately via `org-air-inbox--add-item-note':
-org's own dated note, placed into the LOGBOOK drawer or under the
-heading per the SOURCE file's own `org-log-into-drawer'.  An ACTION,
-not a deferred form field: a note is append-only journaling with no
-\"current value\" row, and the minibuffer RET is the note's one
-confirm (the R64 contract at its own scale) — empty input is a gentle
-no-op message, no write, so prompt-time no-mutation holds.
-`:transient' t: add a note, keep editing — two \\=`S-RET's are two
-dated notes; RET/`q' remain the only exits.  The immediate write
-cannot stale the form: the note appends BELOW the heading line, so
-every seeded field, the item's marker, and a later refile (the note
-travels with the subtree) stay correct."
+  "Draft the dated log-note FIELD — the R71-1 action→field repurpose.
+A transient FIELD like its Metadata siblings, not the R70 immediate
+action: reads the note text from the MINIBUFFER (multi-line ok —
+yank, \\`C-q C-j'; never org's interactive `*Org Note*' buffer, the
+exact R68 trap shape) PRE-FILLED with the pending value, so a
+re-press RE-EDITS the same draft and EMPTY input CLEARS the field
+\(initial-input, deliberately NOT a default — a default would
+re-assert itself on empty RET, leaving the field no way out; the `k'
+todo field's empty-clears shape applied to free text).  Stores the
+dirty `:note' — the form never holds \"\", empty IS nil IS no note —
+and writes NOTHING at read time (the R64-2 prompt-time no-mutation
+contract covers the note; \\`C-g' at the prompt keeps the previous
+value, \\`C-g'/`q' on the form ABANDON a drafted note).  The field
+REPLACES rather than journals: one RET writes at most ONE dated note
+\(RET then `e' again journals); on execute the note rides whichever
+leg RET's label announces — in place via
+`org-air-inbox--apply-item-edits', or at the MOVED heading through
+the engine's trailing NOTE parameter."
   :transient t
-  :description "add note"
+  :description (lambda ()
+                 (org-air-inbox--form-field
+                  "note"
+                  (when-let* ((note (org-air-inbox--form-get :note)))
+                    (org-air-inbox--form-note-label note))))
   (interactive)
-  (let* ((item (org-air-inbox--form-get :item))
-         (text (read-string "Note: ")))
-    (if (string-empty-p text)
-        (message "Empty note — nothing added")
-      (org-air-inbox--add-item-note item text)
-      (message "Added note to \"%s\"" (org-air-item-title item))
-      (when (derived-mode-p 'org-air-view-mode)
-        (when (fboundp 'org-air-refresh)
-          (org-air-refresh))))))
+  (let ((text (read-string "Note (empty clears): "
+                           (org-air-inbox--form-get :note))))
+    (org-air-inbox--form-put :note (unless (string-empty-p text) text))))
 
 (transient-define-suffix org-air-refile-form-execute ()
   "Execute the collected editor form — the R67-1 two-way dispatch.
 With a destination (`:file' set): today's ONE `org-air-refile-item'
 engine call, byte-for-byte (R64/R66 — cut, paste, frontmatter
-synthesis, transactional save), plus the R67-3 trailing DEADLINE.
-Without one: the changed fields apply IN PLACE at the item's source
-via `org-air-inbox--apply-item-edits' (no move, no engine, nothing
-recorded for the `l' recall); a fully untouched form is a gentle
-no-op message — never an error, never a mutation."
+synthesis, transactional save), plus the R67-3 trailing DEADLINE and
+the R71-2 trailing NOTE (applied at the MOVED heading; never part of
+the `l' recall — per-confirm payload).  Without one: the changed
+fields apply IN PLACE at the item's source via
+`org-air-inbox--apply-item-edits' — a drafted `:note' is a REAL edit
+like any field, so a note-only form runs the applier (no move, no
+engine, nothing recorded for the `l' recall); a fully untouched form
+is a gentle no-op message — never an error, never a mutation.  ONE
+RET confirms edit + note together in BOTH legs (R71)."
   :description (lambda ()
                  (if (org-air-inbox--form-get :file) "refile" "edit in place"))
   (interactive)
@@ -1510,14 +1564,17 @@ no-op message — never an error, never a mutation."
          (deadline (org-air-inbox--form-get :deadline))
          (category (org-air-inbox--form-get :category))
          (todo (org-air-inbox--form-get :todo))
-         (priority (org-air-inbox--form-get :priority)))
+         (priority (org-air-inbox--form-get :priority))
+         (note (org-air-inbox--form-get :note)))
     (cond
      (file
       ;; the refile leg — R64/R66 unchanged: same `(or tags :none)'
-      ;; call shape, same `--refile-last' recording (+ DEADLINE).
+      ;; call shape, same `--refile-last' recording (+ DEADLINE, and
+      ;; the R71-2 trailing NOTE — landed at the moved heading, never
+      ;; recorded for `l').
       (org-air-refile-item item file olp
                            (or (cdr eff) :none)
-                           scheduled category todo priority deadline)
+                           scheduled category todo priority deadline note)
       (setq org-air-inbox--refile-last (cons file olp))
       (setq org-air-inbox--refile-form nil))
      (t
@@ -1532,6 +1589,10 @@ no-op message — never an error, never a mutation."
           (setq edits (plist-put edits :category category)))
         (when scheduled (setq edits (plist-put edits :scheduled scheduled)))
         (when deadline (setq edits (plist-put edits :deadline deadline)))
+        ;; R71-2: a drafted note is a REAL edit — a note-only form
+        ;; runs the applier; "Nothing to change" now fires only when
+        ;; the form is truly untouched.
+        (when note (setq edits (plist-put edits :note note)))
         (if (null edits)
             (progn
               (setq org-air-inbox--refile-form nil)
@@ -1554,9 +1615,14 @@ says — with a destination it executes ONE `org-air-refile-item' call,
 without one it applies the changed metadata IN PLACE at the item's
 source (an untouched form is a gentle no-op); \\`C-g' / q abandon
 everything (no buffer was touched — every write is deferred to
-execute, R64-2).  The `e' binding and the `org-air-refile-*' names
-stay — refiling is one optional field of the editor, not a separate
-mode."
+execute, R64-2, INCLUDING the `n' note field: the drafted note is
+stored, previewed, and only written by RET, so abandoning the form
+abandons the draft too).  Fields: tags / category / schedule /
+deadline / todo / priority / note (a dated LOGBOOK note, drawer per
+the write target) — ONE RET confirms edit + note together, in place
+or at the refiled heading (R71).  The `e' binding and the
+`org-air-refile-*' names stay — refiling is one optional field of
+the editor, not a separate mode."
   [:description org-air-inbox--form-heading
    ["Destination"
     ("f" org-air-refile-form-file)
@@ -1568,10 +1634,10 @@ mode."
     ("s" org-air-refile-form-schedule)
     ("d" org-air-refile-form-deadline)
     ("k" org-air-refile-form-todo)
-    ("," org-air-refile-form-priority)]]
+    ("," org-air-refile-form-priority)
+    ("n" org-air-refile-form-note)]]
   [:description org-air-inbox--form-preview
    ("RET" org-air-refile-form-execute)
-   ("S-<return>" org-air-refile-form-note)
    ("q" "quit" transient-quit-one)]
   (interactive)
   (when noninteractive

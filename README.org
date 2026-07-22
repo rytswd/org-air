@@ -248,7 +248,7 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~TAB~ / ~S-TAB~         | Toggle / previous section                                              |
 | ~M-n~ / ~M-p~ / ~M-TAB~ | Forward / back / next section                                          |
 | ~c~                     | Capture to the inbox                                                   |
-| ~e~                     | Edit the item — metadata / refile / ~S-RET~ note                       |
+| ~e~                     | Edit the item — metadata / note / refile                               |
 | ~I~                     | Walk the Inbox one item at a time                                      |
 | ~m~                     | Toggle mark                                                            |
 | ~t~ / ~T~               | Set tag / cycle TODO keyword                                           |
@@ -339,7 +339,7 @@ A sticky header shows the date, a visible-item count, and any active filter or s
 The capture → process loop is two steps:
 
 1. ~c~ captures a titled note straight to ~org-air-inbox-file~, tagged ~:inbox:~. It appears in the Inbox on the next refresh.
-2. ~e~ on any item opens the *edit transient*: set tags / category / schedule / deadline / todo / priority (applied *in place*, no move), optionally pick a destination to *refile* (creating nested headings / a new file with synthesised Air frontmatter as needed), or ~S-RET~ to add a dated LOGBOOK note — one ~RET~ confirms.
+2. ~e~ on any item opens the *edit transient*: set tags / category / schedule / deadline / todo / priority / a dated LOGBOOK note (~n~) (applied *in place*, no move), optionally pick a destination to *refile* (creating nested headings / a new file with synthesised Air frontmatter as needed) — one ~RET~ confirms everything.
 
 ~I~ walks the whole Inbox one item at a time with single-key dispositions.
 

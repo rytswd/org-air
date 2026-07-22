@@ -460,3 +460,59 @@ violation to investigate.  Known-failures manifest stays EMPTY.
   (table), r70-1/2/3/5 stand.  Twelve batch seams r71-1..r71-12,
   each revert-RED against the R70 tree; goldens expected
   byte-clean; manifest stays EMPTY.  State: ready.
+- 2026-07-22: Round 71 IMPLEMENTED (impl seat, fresh child of
+  uqlwnpyr).  Both packages landed exactly as specced:
+  - R71-1 (the field): the ="S-<return>"= row deleted from
+    =org-air-refile-transient= — nothing replaces it, the key is
+    UNBOUND in the transient (probed: =transient-get-suffix= now
+    signals its own "not found" for the key — the r70-4 flip pins
+    that signal, not a nil return).  =org-air-refile-form-note=
+    repurposed action→field (name kept): key =n=, LAST Metadata row
+    (=t/c/s/d/k/,/n=), =:transient t=, =read-string= with the
+    pending =:note= as INITIAL-INPUT ("Note (empty clears): "),
+    empty input clears (=:note= never holds ""), ZERO writes at
+    read time.  New pure helper =org-air-inbox--form-note-label=
+    (first line, width 24, =…= on truncation OR trailing lines)
+    feeds BOTH the field row and the new Preview extras segment
+    (=note: <label>= after =:CATEGORY:=).  =--refile-form= defvar +
+    =--form-init= seed =:note= nil; prefix docstring reframed — the
+    R64-2 "every write is deferred to execute" claim now TRUE again
+    and names the note.
+  - R71-2 (the application): =:note= a first-class EDITS field of
+    =--apply-item-edits= — applied via =--append-log-note= as the
+    change group's LAST form, AFTER the R68 flush (Decision-4 order
+    verified live: a =lognotereschedule= downgraded record AND the
+    full note land in the SAME saved bytes, one save), point
+    re-anchored with =org-back-to-heading t=, ='note= joins the
+    applied list.  =org-air-refile-item= gained the trailing
+    additive NOTE parameter (ten-arg; every pre-R71 caller passes
+    unchanged — nine-arg compatibility smoke-verified) applied at
+    the MOVED heading inside the inner unwind-protect while
+    =insert-pos= is a live marker, with the engine's pre-save flush
+    call relocated there (behaviour-neutral: same transaction,
+    before the ONE save, provably before the note); drawer per the
+    write target's =org-log-into-drawer= verified (logdrawer
+    fixture drawers in saved bytes, global knob nil).
+    =--form-execute= passes the tenth argument on the refile leg
+    and =plist-put='s =:note= on the in-place leg (a note-only form
+    is a REAL edit); =--refile-last= never records the note.
+    =org-air-inbox--add-item-note= REMOVED (Decision 3 — no
+    delegator kept).
+  - Reframe: README =e= row → "metadata / note / refile" and the
+    walkthrough sentence → "… todo / priority / a dated LOGBOOK
+    note (~n~) … one ~RET~ confirms everything"; =?= help audited —
+    no S-RET wording existed, no change; no autoload names the
+    suffix.
+  - The eight r70 action-shaped pins re-pointed per the flip table
+    (none weakened): r70-4 (=n= in the Metadata layout walk, S-RET
+    lookup signals, RET/q unchanged), r70-6/7/8/9 (the applier's
+    =:note= leg carries the wrapper's byte/discipline/atomicity
+    contracts, ='(note)= return pinned), r70-10 (store-no-write,
+    empty-clears, ONE RET refile+note at the target), r70-11 (draft
+    + priority on ONE RET, ONE spied =save-buffer=), r70-12
+    (INVERTED to the field law: two reads = one =:note=, one dated
+    note).  r70-1/2/3/5 untouched.
+  - Gate: =make clean && make check= green (compile + lint + the
+    full ERT suite); goldens byte-clean as predicted — the
+    known-failures manifest stays EMPTY (nothing flagged).
+    r71-1..r71-12 remain for the test seat.

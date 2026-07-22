@@ -4,11 +4,9 @@
 ;; Acceptance ERTs for round-70 (air/v0.1/org-air-round70-design.org):
 ;; the item editor's board entry moves `r' → `e' (R70-1 — `r' DROPPED,
 ;; no alias, per Decision 1; help/legend derive the new key via
-;; `where-is'; the transient heading reads `Edit "<title>"'), and
-;; S-<return> inside the edit transient appends a DATED LOGBOOK note to
-;; the item's SOURCE heading in place (R70-2 —
-;; `org-air-inbox--append-log-note' + the `org-air-inbox--add-item-note'
-;; wrapper + the `:transient t' action suffix `org-air-refile-form-note';
+;; `where-is'; the transient heading reads `Edit "<title>"'), and the
+;; edit transient gains a DATED LOGBOOK note written to the item's
+;; SOURCE heading in place (R70-2 — `org-air-inbox--append-log-note';
 ;; org owns the formatting/placement via `org-add-log-setup' + a
 ;; SYNCHRONOUS pre-filled `org-store-log-note', NEVER the interactive
 ;; `*Org Note*' prompt — the R68 trap class).  All BATCH/headless
@@ -16,6 +14,18 @@
 ;; `call-interactively' — no transient event loop); the note core runs
 ;; UNMOCKED through org's own machinery.  The spec's ten seams map onto
 ;; r70-1..r70-10; the test-seat audit adds two gap ERTs (r70-11/12).
+;;
+;; R71 FLIP (air/v0.1/org-air-round71-design.org): the note's DELIVERY
+;; changed from the R70 S-RET immediate-write ACTION to a deferred form
+;; FIELD on `n' — ONE RET confirms edit + note together in both legs,
+;; `org-air-inbox--add-item-note' folded into
+;; `org-air-inbox--apply-item-edits' (`:note' a first-class EDITS
+;; field), and the engine gained a trailing additive NOTE parameter.
+;; The action-shaped pins below (r70-4/6/7/8/9/10/11/12) were
+;; re-pointed at the REAL executed path per the spec's flip table —
+;; none weakened: same byte asserts, same discipline asserts, new
+;; delivery.  r70-1/2/3/5 stand untouched — the rebind and the note
+;; WRITER survive R71 byte-for-byte.
 ;;
 ;;   r70-1 THE REBIND — `e' resolves to `org-air-refile-item' in the
 ;;         board map and on a live board; `r' is NIL in the map and
@@ -30,48 +40,50 @@
 ;;   r70-3 HELP SHOWS e — the board `?' help buffer carries the derived
 ;;         `e  edit item (a destination refiles)' Triage row and never
 ;;         the old `r  refile' row.
-;;   r70-4 TRANSIENT LAYOUT — "S-<return>" is `org-air-refile-form-note'
-;;         with prototype slot `transient' t (the stays-open pin) and
-;;         the "add note" label; RET is still
-;;         `org-air-refile-form-execute'; `q' still quits.
+;;   r70-4 TRANSIENT LAYOUT (R71 flip) — "n" is
+;;         `org-air-refile-form-note' (`transient' t) in the METADATA
+;;         group; "S-<return>" names NO suffix (retired, unbound); RET
+;;         is still `org-air-refile-form-execute'; `q' still quits.
 ;;   r70-5 THE NOTE CORE, exact shape — `--append-log-note' at a
 ;;         heading yields `- Note taken on [ts] \\' + the indented
 ;;         text; NO `*Org Note*' buffer; `post-command-hook' clean;
 ;;         `org-log-setup' nil.
-;;   r70-6 DRAWER HONOURED — the core under `org-log-into-drawer' t
-;;         lands inside `:LOGBOOK:'…`:END:'; the WRAPPER on the
-;;         `#+STARTUP: logdrawer' fixture drawers the SAVED bytes with
-;;         the GLOBAL knob still nil — the file's own setting governs.
-;;   r70-7 THE WRAPPER — in place (heading + rest byte-identical
-;;         around the spliced note), saved to disk, no move, buffer
-;;         unmodified post-save, triage-undo source recorded, and the
-;;         cache-cold (FILE . POS) marker slot works (R26-8).
-;;   r70-8 NOT SUPPRESSED BY R68 — the wrapper under a let-bound
-;;         `(org-inhibit-logging 'note)' AND invoked from within an
-;;         `org-air-view--at-item-source' body lands the note IN FULL,
-;;         exactly ONE note line; the macro's post-body flush runs
-;;         against an ALREADY-CLEAN hook (spied) — the two mechanisms
-;;         are disjoint by construction.
-;;   r70-9 ATOMICITY — a store stub that lands real junk bytes at the
-;;         log marker and THEN signals: the error propagates, the disk
-;;         AND buffer bytes stay byte-identical (rollback + no save).
-;;   r70-10 THE SUFFIX — minibuffer-read "hi" writes the note NOW while
-;;         the form state SURVIVES with its collected fields untouched
-;;         (add-note-keep-editing); an EMPTY read is a no-op ("nothing
-;;         added", zero bytes moved); then execute WITH a destination
-;;         still refiles and the note text ARRIVES AT THE TARGET (the
-;;         note travels with the subtree).
-;;   r70-11 (audit gap) NOTE + IN-PLACE EDIT COMPOSE — S-RET note then
-;;         a destination-less priority edit in the SAME session: both
-;;         land at the source, one note line, no move, `--refile-last'
-;;         still nil (the R67 in-place leg unbroken under the note).
-;;   r70-12 (audit gap) TWO S-RETs = TWO DATED NOTES — the Decision-5
-;;         journaling law, batch-pinned; the form survives both.
+;;   r70-6 DRAWER HONOURED (R71 flip) — the core under
+;;         `org-log-into-drawer' t lands inside `:LOGBOOK:'…`:END:';
+;;         the APPLIER's `:note' leg on the `#+STARTUP: logdrawer'
+;;         fixture drawers the SAVED bytes with the GLOBAL knob still
+;;         nil — the file's own setting governs.
+;;   r70-7 THE APPLIER's :note LEG (R71 flip — the wrapper folded) —
+;;         in place (heading + rest byte-identical around the spliced
+;;         note), saved to disk, no move, buffer unmodified post-save,
+;;         triage-undo source recorded, and the cache-cold (FILE . POS)
+;;         marker slot works (R26-8); returns \='(note).
+;;   r70-8 NOT SUPPRESSED BY R68 (R71 flip) — the composed applier
+;;         call under a let-bound `(org-inhibit-logging 'note)' AND
+;;         invoked from within an `org-air-view--at-item-source' body
+;;         lands the note IN FULL, exactly ONE note line; the macro's
+;;         post-body flush runs against an ALREADY-CLEAN hook (spied)
+;;         — the two mechanisms are disjoint by construction.
+;;   r70-9 ATOMICITY (R71 flip) — a store stub that lands real junk
+;;         bytes at the log marker and THEN signals under the applier's
+;;         `:note' leg: the error propagates, the disk AND buffer bytes
+;;         stay byte-identical (rollback + no save).
+;;   r70-10 THE SUFFIX (R71 full flip: action → field) — `n' STORES
+;;         the dirty `:note' with disk bytes IDENTICAL at read time,
+;;         an EMPTY read CLEARS, then execute WITH a destination
+;;         refiles AND lands the note at the TARGET (one RET).
+;;   r70-11 (audit gap; R71 flip) NOTE DRAFT + IN-PLACE EDIT COMPOSE —
+;;         `n' draft + a destination-less priority edit confirm on ONE
+;;         RET: both land at the source, one note line, ONE
+;;         `save-buffer', no move, `--refile-last' still nil.
+;;   r70-12 (audit gap; R71 INVERSION) THE FIELD REPLACES — two `n'
+;;         reads = ONE `:note' (the second text); execute writes
+;;         exactly ONE dated note.
 ;;
-;; GUI residue (screenshot-confirm, not ERT-able): the live S-RET
+;; GUI residue (screenshot-confirm, not ERT-able): the live `n'
 ;; keypress inside the real transient event loop; the rendered
-;; `S-<return>  add note' menu row; plain-terminal S-RET
-;; unreachability (hardware — matches the board's S-RET visit).
+;; `note     …' field row + preview segment; S-RET's undefined-key
+;; feedback in an open editor.
 ;; Goldens: ZERO shifts — no fixture renders the transient, the help
 ;; buffer, or an Actions refile cell (audit: none exists).
 
@@ -266,21 +278,37 @@ row.  Revert-RED."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r70-4-transient-layout-s-ret-note ()
-  "\"S-<return>\" in `org-air-refile-transient' is
-`org-air-refile-form-note' with prototype slot `transient' t (the
-stays-open pin, batch-readable) and the \"add note\" label; \"RET\" is
-still `org-air-refile-form-execute' and \"q\" still quits.  RED today
-(no such suffix)."
+  "R71 flip of the R70 action-shape pin (spec flip table): \"n\" in
+`org-air-refile-transient' is `org-air-refile-form-note' with
+prototype slot `transient' t (the stays-open pin, batch-readable),
+the LAST row of the METADATA group (keys t c s d k , n — the layout
+walk); \"S-<return>\" names NO suffix (the R70 action row retired,
+the key left UNBOUND — R71 Decision 1, no alias:
+`transient-get-suffix' signals its own \"not found\"); \"RET\" is
+still `org-air-refile-form-execute' and \"q\" still quits."
   (skip-unless (locate-library "org-air"))
-  (let ((suffix (transient-get-suffix 'org-air-refile-transient
-                                      '("S-<return>"))))
+  ;; S-RET: gone, nothing replaces it — the lookup itself signals.
+  (let ((err (should-error (transient-get-suffix
+                            'org-air-refile-transient '("S-<return>")))))
+    (should (string-match-p "not found" (error-message-string err))))
+  ;; n: the repurposed FIELD suffix, still stays-open…
+  (let ((suffix (transient-get-suffix 'org-air-refile-transient '("n"))))
     (should suffix)
     (should (eq (plist-get (nth 2 suffix) :command)
                 'org-air-refile-form-note)))
   (let ((proto (get 'org-air-refile-form-note 'transient--suffix)))
     (should proto)
-    (should (eq (oref proto transient) t))
-    (should (equal (oref proto description) "add note")))
+    (should (eq (oref proto transient) t)))
+  ;; …sitting LAST in the METADATA group (the layout walk).
+  (let* ((layout (get 'org-air-refile-transient 'transient--layout))
+         (meta (seq-find
+                (lambda (col)
+                  (equal (plist-get (aref col 2) :description) "Metadata"))
+                (aref (nth 0 layout) 3))))
+    (should meta)
+    (should (equal (mapcar (lambda (s) (plist-get (nth 2 s) :key))
+                           (aref meta 3))
+                   '("t" "c" "s" "d" "k" "," "n"))))
   (let ((ret (transient-get-suffix 'org-air-refile-transient '("RET"))))
     (should (eq (plist-get (nth 2 ret) :command)
                 'org-air-refile-form-execute)))
@@ -323,9 +351,11 @@ today (function absent)."
 
 (ert-deftest org-air-r70-6-drawer-honoured-per-file ()
   "The note core under `org-log-into-drawer' t sits inside `:LOGBOOK:'
-… `:END:'; and the WRAPPER on the `#+STARTUP: logdrawer' fixture item
-drawers the note in the SAVED bytes while the GLOBAL knob is still nil
-— the file's own setting governs, nothing global."
+… `:END:'; and the APPLIER's `:note' leg (R71 flip — the R70 wrapper
+folded into `org-air-inbox--apply-item-edits') on the `#+STARTUP:
+logdrawer' fixture item drawers the note in the SAVED bytes while the
+GLOBAL knob is still nil — the file's own setting governs, nothing
+global."
   (skip-unless (locate-library "org-air"))
   ;; the core, global knob leg.
   (with-temp-buffer
@@ -341,11 +371,13 @@ drawers the note in the SAVED bytes while the GLOBAL knob is still nil
                      "[ \t]+drawered\n"
                      "[ \t]*:END:")
              (buffer-substring-no-properties (point-min) (point-max)))))
-  ;; the wrapper, file-own-setting leg (SAVED bytes).
+  ;; the applier's :note leg, file-own-setting (SAVED bytes).
   (org-air-r70--with-corpus nil
     (should (null (default-value 'org-log-into-drawer))) ; anti-tautology
     (let ((item (org-air-r70--item "drawer.org" "Drawer thing")))
-      (should (org-air-inbox--add-item-note item "file setting"))
+      (should (equal '(note)
+                     (org-air-inbox--apply-item-edits
+                      item '(:note "file setting"))))
       (should (string-match
                (concat "\\* TODO Drawer thing\n"
                        "[ \t]*:LOGBOOK:\n"
@@ -359,19 +391,23 @@ drawers the note in the SAVED bytes while the GLOBAL knob is still nil
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r70-7-wrapper-in-place-saved ()
-  "`org-air-inbox--add-item-note' writes the note to DISK under the
-SOURCE heading with everything around the splice byte-identical (the
-heading line untouched, the body following) — in place, no move; the
-visiting buffer is unmodified post-save;
+  "R71 flip — the wrapper folded: `org-air-inbox--apply-item-edits'
+with a lone `:note' edit writes the note to DISK under the SOURCE
+heading with everything around the splice byte-identical (the heading
+line untouched, the body following) — in place, no move; returns
+\\='(note); the visiting buffer is unmodified post-save;
 `org-air-view--triage-source-buffer' records the buffer (the board's
 `u' covers a note); and a cache-cold (FILE . POS) marker slot works
-(the R26-8 leg).  RED today."
+(the R26-8 leg).  The absorption is lossless — same byte contract as
+the R70 wrapper."
   (skip-unless (locate-library "org-air"))
   (org-air-r70--with-corpus nil
     (let* ((file (org-air-r70--file "inbox.org"))
            (item (org-air-r70--item "inbox.org" "Capture me"))
            (before (org-air-r70--text "inbox.org")))
-      (should (org-air-inbox--add-item-note item "quick thought"))
+      (should (equal '(note)
+                     (org-air-inbox--apply-item-edits
+                      item '(:note "quick thought"))))
       (let ((after (org-air-r70--text "inbox.org")))
         ;; the splice is EXACTLY the note block; heading + rest verbatim.
         (should (string-match
@@ -401,7 +437,9 @@ visiting buffer is unmodified post-save;
            (item (org-air-item-create
                   :title "Capture me" :tags '("inbox") :todo "TODO"
                   :file file :marker (cons file pos))))
-      (should (org-air-inbox--add-item-note item "cold note"))
+      (should (equal '(note)
+                     (org-air-inbox--apply-item-edits
+                      item '(:note "cold note"))))
       (let ((after (org-air-r70--text "inbox.org")))
         (should (string-match-p org-air-r70--note-line-re after))
         (should (string-match-p "cold note" after))))))
@@ -411,13 +449,15 @@ visiting buffer is unmodified post-save;
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r70-8-not-suppressed-by-r68-discipline ()
-  "The wrapper under a let-bound `(org-inhibit-logging 'note)' AND
-invoked from within an `org-air-view--at-item-source' body: the note
-text lands IN FULL, exactly ONE note line, and the macro's post-body
-flush runs against an ALREADY-CLEAN hook (spied) so it no-ops — the
-R68 discipline downgrades IMPLICIT records; an explicit note is
-applied.  The two mechanisms are disjoint by construction.  RED
-against a note path routed through the downgrade."
+  "The composed applier call (R71 flip — `:note' through
+`org-air-inbox--apply-item-edits') under a let-bound
+`(org-inhibit-logging 'note)' AND invoked from within an
+`org-air-view--at-item-source' body: the note text lands IN FULL,
+exactly ONE note line, and the macro's post-body flush runs against
+an ALREADY-CLEAN hook (spied) so it no-ops — the R68 discipline
+downgrades IMPLICIT records; an explicit note is applied.  The two
+mechanisms are disjoint by construction.  RED against a note path
+routed through the downgrade."
   (skip-unless (locate-library "org-air"))
   (org-air-r70--with-corpus nil
     (let* ((item (org-air-r70--item "inbox.org" "Capture me"))
@@ -433,7 +473,7 @@ against a note path routed through the downgrade."
                     (funcall flush-orig))))
         (let ((org-inhibit-logging 'note))
           (org-air-view--at-item-source item
-            (org-air-inbox--add-item-note item "explicit note"))))
+            (org-air-inbox--apply-item-edits item '(:note "explicit note")))))
       ;; the macro's post-body flush ran, against a clean hook.
       (should (> flush-calls 0))
       (should-not hook-dirty-at-flush)
@@ -451,8 +491,9 @@ against a note path routed through the downgrade."
 
 (ert-deftest org-air-r70-9-atomic-rollback-on-store-failure ()
   "A stubbed `org-store-log-note' that inserts REAL junk bytes at the
-log marker and then signals: the error propagates out of
-`org-air-inbox--add-item-note', and both the DISK bytes and the
+log marker and then signals under the applier's `:note' leg (R71 flip
+— the wrapper folded): the error propagates out of
+`org-air-inbox--apply-item-edits', and both the DISK bytes and the
 visiting buffer are byte-identical to before (one
 `atomic-change-group' rollback + no save).  RED against
 store-then-save-regardless."
@@ -473,7 +514,8 @@ store-then-save-regardless."
         ;; ran through the stub (a void-function / wrapped error would
         ;; not match, keeping this seam revert-RED).
         (let ((err (should-error
-                    (org-air-inbox--add-item-note item "doomed"))))
+                    (org-air-inbox--apply-item-edits
+                     item '(:note "doomed")))))
           (should (string-match-p "boom: store failed"
                                   (error-message-string err)))))
       ;; rollback: disk AND buffer byte-identical, junk gone, no save.
@@ -483,47 +525,43 @@ store-then-save-regardless."
                                (point-min) (point-max))))))))
 
 ;;;; -------------------------------------------------------------------
-;;;; r70-10 — the suffix: write now, keep editing, compose with refile
+;;;; r70-10 — the suffix (R71 flip): n STORES; RET refiles + lands note
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r70-10-suffix-writes-and-form-survives ()
-  "`org-air-refile-form-note' driven batch: a minibuffer read of
-\"hi\" writes the note to disk NOW while the form state SURVIVES
-(add-note-keep-editing — `:transient' t) with its collected fields
-untouched; an EMPTY read is a no-op (bytes identical, the gentle
-\"nothing added\" message); and execute WITH a destination afterwards
-still refiles — the note text ARRIVES AT THE TARGET (the note travels
-with the subtree).  RED today."
+  "R71 full flip (action → field): `org-air-refile-form-note' driven
+batch — a minibuffer read of \"hi\" STORES the dirty `:note' with the
+DISK bytes IDENTICAL at read time (the R64-2 prompt-time no-mutation
+contract now covers the note) and the form's collected fields
+untouched; an EMPTY read CLEARS the field (still zero bytes moved);
+then execute WITH a destination refiles AND lands the drafted note at
+the TARGET — ONE RET confirms edit + note together."
   (skip-unless (locate-library "org-air"))
   (org-air-r70--with-corpus nil
     (let* ((projects (org-air-r70--file "projects.org"))
-           (item (org-air-r70--item "inbox.org" "Capture me")))
+           (item (org-air-r70--item "inbox.org" "Capture me"))
+           (before (org-air-r70--text "inbox.org")))
       (org-air-inbox--form-init item)
       (org-air-inbox--form-put :priority ?A)   ; a collected field to watch
-      ;; S-RET with text: the note is written immediately…
+      ;; n with text: the note is STORED — nothing written…
       (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "hi")))
         (call-interactively 'org-air-refile-form-note))
-      (should (string-match
-               (concat org-air-r70--note-line-re "[ \t]+hi\n")
-               (org-air-r70--text "inbox.org")))
-      ;; …and the form session SURVIVES, fields untouched.
+      (should (equal (org-air-inbox--form-get :note) "hi"))
+      (should (equal before (org-air-r70--text "inbox.org")))
+      ;; …and the form session survives, fields untouched.
       (should org-air-inbox--refile-form)
       (should (eq (org-air-inbox--form-get :item) item))
       (should (equal (org-air-inbox--form-get :priority) ?A))
       (should (null (org-air-inbox--form-get :file)))
-      ;; S-RET with EMPTY input: no write, the gentle message.
-      (let ((before (org-air-r70--text "inbox.org"))
-            (msgs nil))
-        (cl-letf (((symbol-function 'read-string) (lambda (&rest _) ""))
-                  ((symbol-function 'message)
-                   (lambda (fmt &rest args)
-                     (when fmt (push (apply #'format fmt args) msgs))
-                     nil)))
-          (call-interactively 'org-air-refile-form-note))
-        (should (equal before (org-air-r70--text "inbox.org")))
-        (should (seq-some (lambda (m) (string-match-p "nothing added" m))
-                          msgs)))
-      ;; compose: a refile in the SAME session — the note travels.
+      ;; an EMPTY read CLEARS the field — still zero bytes moved.
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "")))
+        (call-interactively 'org-air-refile-form-note))
+      (should (null (org-air-inbox--form-get :note)))
+      (should (equal before (org-air-r70--text "inbox.org")))
+      ;; re-draft, then ONE RET with a destination: the refile AND the
+      ;; note land TOGETHER — at the TARGET.
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "hi")))
+        (call-interactively 'org-air-refile-form-note))
       (org-air-inbox--form-put :file projects)
       (call-interactively 'org-air-refile-form-execute)
       (let ((target (org-air-r70--text "projects.org"))
@@ -540,20 +578,30 @@ with the subtree).  RED today."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r70-11-note-then-in-place-edit-compose ()
-  "The compose leg the spec's r70-10 only drove through the REFILE
-side: S-RET note, then a destination-less priority edit in the SAME
-session — both land at the SOURCE heading (the R67 in-place leg
-unbroken under the note), exactly one note line, no move,
-`org-air-inbox--refile-last' still nil."
+  "R71 flip: the `n' note DRAFT + a destination-less priority edit
+confirm TOGETHER on ONE RET — both in the SOURCE's saved bytes (the
+R67 in-place leg extended under the note), exactly one note line, no
+move, exactly ONE `save-buffer' (the composed apply is one
+transaction), `org-air-inbox--refile-last' still nil."
   (skip-unless (locate-library "org-air"))
   (org-air-r70--with-corpus nil
-    (let ((item (org-air-r70--item "inbox.org" "Capture me")))
+    (let ((item (org-air-r70--item "inbox.org" "Capture me"))
+          (saves 0))
       (org-air-inbox--form-init item)
       (cl-letf (((symbol-function 'read-string)
                  (lambda (&rest _) "session note")))
         (call-interactively 'org-air-refile-form-note))
       (org-air-inbox--form-put :priority ?A)
-      (call-interactively 'org-air-refile-form-execute)
+      ;; nothing written at draft time — the note waits for RET.
+      (should-not (string-match-p "- Note taken on"
+                                  (org-air-r70--text "inbox.org")))
+      (cl-letf* ((save-orig (symbol-function 'save-buffer))
+                 ((symbol-function 'save-buffer)
+                  (lambda (&rest args)
+                    (cl-incf saves)
+                    (apply save-orig args))))
+        (call-interactively 'org-air-refile-form-execute))
+      (should (= 1 saves))
       (let ((after (org-air-r70--text "inbox.org")))
         (should (string-match-p "^\\* TODO \\[#A\\] Capture me :inbox:$"
                                 after))
@@ -564,12 +612,14 @@ unbroken under the note), exactly one note line, no move,
       (should (null org-air-inbox--refile-form)))))
 
 ;;;; -------------------------------------------------------------------
-;;;; r70-12 — audit gap: two S-RETs = two dated notes (journaling)
+;;;; r70-12 — audit gap (R71 INVERSION): the field REPLACES
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r70-12-two-s-rets-two-notes ()
-  "Two S-RETs in one session append TWO dated notes — journaling, as
-org means it (Decision 5) — and the form survives both."
+  "R71 INVERSION of the R70 journaling law (spec flip table): the
+field REPLACES — two `n' reads in one session leave ONE pending
+`:note' (the SECOND text), and execute writes exactly ONE dated note
+carrying it.  Journaling is RET + `e' again."
   (skip-unless (locate-library "org-air"))
   (org-air-r70--with-corpus nil
     (let ((item (org-air-r70--item "inbox.org" "Capture me"))
@@ -579,11 +629,14 @@ org means it (Decision 5) — and the form survives both."
                  (lambda (&rest _) (pop texts))))
         (call-interactively 'org-air-refile-form-note)
         (call-interactively 'org-air-refile-form-note))
+      ;; ONE pending value — the second read REPLACED the first.
+      (should (equal (org-air-inbox--form-get :note) "second thought"))
+      (call-interactively 'org-air-refile-form-execute)
       (let ((after (org-air-r70--text "inbox.org")))
-        (should (= 2 (org-air-r70--count "- Note taken on" after)))
-        (should (string-match-p "first thought" after))
-        (should (string-match-p "second thought" after)))
-      (should org-air-inbox--refile-form))))
+        (should (= 1 (org-air-r70--count "- Note taken on" after)))
+        (should (string-match-p "second thought" after))
+        (should-not (string-match-p "first thought" after)))
+      (should (null org-air-inbox--refile-form)))))
 
 (provide 'org-air-round70-test)
 ;;; org-air-round70-test.el ends here

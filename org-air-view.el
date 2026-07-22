@@ -9172,7 +9172,11 @@ header and never toggles or hangs."
       (insert (if marked " " "•")))))
 
 (defun org-air-set-tag ()
-  "Add TAG to the item at point."
+  "Add TAG to the item at point.
+R68-3 audit: SAFE — the `read-string' prompt runs BEFORE the buffer
+switch (against the displayed board) and `org-toggle-tag' is
+prompt-free; NOT converted to `org-air-view--at-item-source' this
+round (uniformity churn with no bug behind it)."
   (interactive)
   (let* ((item (org-air-view--item-at-point))
          (tag (read-string "Tag: ")))
@@ -9185,15 +9189,16 @@ header and never toggles or hangs."
   (org-air-refresh))
 
 (defun org-air-set-schedule (date)
-  "Set SCHEDULED DATE on the item at point."
+  "Set SCHEDULED DATE on the item at point (legacy — no key binding).
+R68-3: converted to `org-air-view--at-item-source' (its old body was
+a hand-copy of the macro), so a `lognotereschedule' configuration now
+records a downgraded timestamped entry in the same save instead of
+trapping an `*Org Note*' prompt against the undisplayed source buffer
+— and the edit gains the triage-undo (`u') recording."
   (interactive "sSchedule (empty clears): ")
   (let ((item (org-air-view--item-at-point)))
-    (org-air-view--refresh-stale-item-guard item)
-    (with-current-buffer (find-file-noselect (org-air-item-file item))
-      (goto-char (org-air-view--item-pos item))
-      (org-back-to-heading t)
-      (org-schedule nil (unless (string-empty-p date) date))
-      (save-buffer)))
+    (org-air-view--at-item-source item
+      (org-schedule nil (unless (string-empty-p date) date))))
   (org-air-refresh))
 
 ;;;; Inbox triage — inline dispositions + process-inbox (org-air-triage.org)
@@ -9213,7 +9218,22 @@ lookup there fails)."
   "At ITEM's heading in its source buffer run BODY, save, and remember it.
 R26-8: soft-errors first when ITEM's file is mid-refresh stale (its cached
 position may be wrong); hydrates a cache-cold (FILE . POS) marker slot on
-demand via `org-air-view--item-pos'."
+demand via `org-air-view--item-pos'.
+
+R68-3 (the class fix): the source buffer is UNDISPLAYED, so BODY must
+never be allowed to queue an interactive `*Org Note*' prompt against
+it.  Around BODY the board-context logging discipline applies —
+`org-inhibit-logging' `note' (Org's own knob: an `@'-style state note
+downgrades to a timestamped record; the `or' fallback preserves an
+outer t — full inhibition stays full) plus the reschedule/redeadline
+`note'→`time' downgrade (`org--deadline-or-schedule' reads those two
+knobs DIRECTLY and ignores `org-inhibit-logging').  After BODY the
+pending record is flushed synchronously
+\(`org-air-inbox--flush-pending-log-note') BEFORE the save, so the
+state line lands in the same saved bytes.  Dynamic bindings only —
+the user's logging customs are never modified, and a normally-visited
+org buffer still takes notes exactly as configured.  Every macro user
+— current and future — is covered by construction."
   (declare (indent 1) (debug t))
   (let ((buf (make-symbol "buf")) (it (make-symbol "it")))
     `(let* ((,it ,item))
@@ -9223,7 +9243,13 @@ demand via `org-air-view--item-pos'."
            (save-excursion
              (goto-char (org-air-view--item-pos ,it))
              (org-back-to-heading t)
-             ,@body)
+             (let ((org-inhibit-logging (or org-inhibit-logging 'note))
+                   (org-log-reschedule (if (eq org-log-reschedule 'note) 'time
+                                         org-log-reschedule))
+                   (org-log-redeadline (if (eq org-log-redeadline 'note) 'time
+                                         org-log-redeadline)))
+               ,@body))
+           (org-air-inbox--flush-pending-log-note)
            (save-buffer))
          (setq org-air-view--triage-source-buffer ,buf)
          ,buf))))
@@ -9259,7 +9285,11 @@ demand via `org-air-view--item-pos'."
 
 (defun org-air-view--apply-date (kind date)
   "Set KIND (`scheduled' or `deadline') to DATE on the item at point.
-DATE is a date string or `clear'.  Refinement only — stays in Inbox."
+DATE is a date string or `clear'.  Refinement only — stays in Inbox.
+R68-3 audit: the quick-date `read-char-exclusive' runs BEFORE the
+macro, against the displayed board — safe; a `lognotereschedule' /
+`lognoteredeadline' note is downgraded + flushed by the macro's
+logging discipline."
   (let* ((item (org-air-view--item-at-point))
          (clearp (eq date 'clear))
          (setter (if (eq kind 'deadline) #'org-deadline #'org-schedule)))
@@ -9296,17 +9326,37 @@ DATE may be supplied non-interactively.  A refinement: stays in Inbox."
 
 ;;;###autoload
 (defun org-air-item-cycle-todo ()
-  "Cycle/promote the TODO state of the item at point (a refinement).
-Named -cycle-todo to avoid colliding with the `org-air-item-todo' struct
-accessor; the triage spec's `T' key maps here."
+  "Set the TODO state of the item at point — select from its file's keywords.
+R68-1: completes over the item's SOURCE file's own merged todo
+vocabulary (`org-air-inbox--read-todo-keyword' — the user's globals +
+the file's `#+TODO:' line win, dir/file-local declarations honoured;
+R57) and applies the choice via an EXPLICIT-string `org-todo' through
+`org-air-view--at-item-source'.  Never a nil-arg `org-todo': under
+fast-selection todo keywords (`TODO(t)' …) that routes into
+`org-fast-todo-selection' even from pure Lisp — a synchronous key
+read against the board's UNDISPLAYED source buffer, the reported
+silent no-op.  An empty choice, or re-picking the current keyword, is
+a gentle \"Todo unchanged\" no-op (no write, no refresh churn).
+Named -cycle-todo (name/binding kept — muscle memory + test pins) to
+avoid colliding with the `org-air-item-todo' struct accessor; the
+triage spec's `T' key maps here."
   (interactive)
-  (let ((item (org-air-view--item-at-point)))
-    (org-air-view--at-item-source item (org-todo))
-    (org-air-refresh)))
+  (let* ((item (org-air-view--item-at-point))
+         (old (org-air-item-todo item))
+         (choice (org-air-inbox--read-todo-keyword
+                  (org-air-item-file item) old)))
+    (if (or (null choice) (equal choice old))
+        (message "Todo unchanged")
+      (org-air-view--at-item-source item (org-todo choice))
+      (org-air-refresh)
+      (message "Todo \"%s\": %s → %s"
+               (org-air-item-title item) old choice))))
 
 ;;;###autoload
 (defun org-air-item-archive ()
-  "Archive the item at point's subtree (graduates it out of Inbox)."
+  "Archive the item at point's subtree (graduates it out of Inbox).
+R68-3 audit: SAFE — `org-archive-subtree' performs no interactive
+reads and its archive-buffer writes are non-interactive."
   (interactive)
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item (org-archive-subtree))
@@ -9315,7 +9365,12 @@ accessor; the triage spec's `T' key maps here."
 
 ;;;###autoload
 (defun org-air-item-done ()
-  "Mark the item at point DONE (graduates it out of Inbox)."
+  "Mark the item at point DONE (graduates it out of Inbox).
+The explicit-symbol `(org-todo \='done)' never enters fast-selection;
+R68-3: a `COMP(c!)'-style time record — or a `DONE(d@)' note,
+downgraded to its timestamp — is flushed into the same save by the
+`org-air-view--at-item-source' logging discipline instead of pending
+against the undisplayed source buffer."
   (interactive)
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item (org-todo 'done))
@@ -9324,7 +9379,9 @@ accessor; the triage spec's `T' key maps here."
 
 ;;;###autoload
 (defun org-air-item-kill ()
-  "Delete the item at point's subtree, with confirmation (graduates it)."
+  "Delete the item at point's subtree, with confirmation (graduates it).
+R68-3 audit: SAFE — the `yes-or-no-p' confirm runs BEFORE the macro,
+against the displayed board; `org-cut-subtree' is prompt-free."
   (interactive)
   (let ((item (org-air-view--item-at-point)))
     (when (yes-or-no-p (format "Delete \"%s\"? " (org-air-item-title item)))
@@ -9617,7 +9674,7 @@ read by the bookmark record producer.")
      (org-air-refile-item . "refile item")
      (org-air-item-deadline . "set deadline")
      (org-air-set-tag . "set tag")
-     (org-air-item-cycle-todo . "cycle todo state")
+     (org-air-item-cycle-todo . "set todo state")
      (org-air-item-archive . "archive item")
      (org-air-item-done . "mark done")
      (org-air-item-kill . "kill item")

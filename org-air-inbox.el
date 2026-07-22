@@ -756,24 +756,44 @@ byte-for-byte as-is, and a failed refile still creates no file."
                              (org-paste-subtree level paste-text)
                              (goto-char insert-pos)
                              (org-back-to-heading t)
-                             (when todo (org-todo todo))
-                             (when priority
-                               (org-priority (if (stringp priority)
-                                                 (aref priority 0)
-                                               priority)))
-                             (when tags
-                               (org-set-tags (if (eq tags :none) nil tags)))
-                             (when (and category (not (string-empty-p category)))
-                               (org-set-property "CATEGORY" category))
-                             (when scheduled
-                               (if (string-empty-p scheduled)
-                                   (org-schedule '(4))
-                                 (org-schedule nil scheduled)))
-                             (when deadline
-                               (if (string-empty-p deadline)
-                                   (org-deadline '(4))
-                                 (org-deadline nil deadline))))
+                             ;; R68-3: the board-context logging
+                             ;; discipline around the metadata block —
+                             ;; the todo/schedule/deadline mutators run
+                             ;; in a TARGET buffer the user never sees,
+                             ;; the same `@'-note exposure as the board
+                             ;; verbs (see `org-air-view--at-item-source').
+                             (let ((org-inhibit-logging
+                                    (or org-inhibit-logging 'note))
+                                   (org-log-reschedule
+                                    (if (eq org-log-reschedule 'note) 'time
+                                      org-log-reschedule))
+                                   (org-log-redeadline
+                                    (if (eq org-log-redeadline 'note) 'time
+                                      org-log-redeadline)))
+                               (when todo (org-todo todo))
+                               (when priority
+                                 (org-priority (if (stringp priority)
+                                                   (aref priority 0)
+                                                 priority)))
+                               (when tags
+                                 (org-set-tags (if (eq tags :none) nil tags)))
+                               (when (and category
+                                          (not (string-empty-p category)))
+                                 (org-set-property "CATEGORY" category))
+                               (when scheduled
+                                 (if (string-empty-p scheduled)
+                                     (org-schedule '(4))
+                                   (org-schedule nil scheduled)))
+                               (when deadline
+                                 (if (string-empty-p deadline)
+                                     (org-deadline '(4))
+                                   (org-deadline nil deadline)))))
                          (set-marker insert-pos nil))))
+                   ;; R68-2: flush the pending (downgraded) log record
+                   ;; INSIDE the transaction, before the ONE save — the
+                   ;; state line lands in the saved bytes and rolls back
+                   ;; with everything else on a signal.
+                   (org-air-inbox--flush-pending-log-note)
                    (save-buffer))))
               (setq landed t))
           ;; `inhibit-quit': a second C-g must not abort the restore (or
@@ -873,6 +893,28 @@ an undeclared file still sees org-air's supplement — the user's global
              org-todo-keywords)))
       (with-current-buffer (find-file-noselect (expand-file-name file))
         (copy-sequence org-todo-keywords-1)))))
+
+(defun org-air-inbox--read-todo-keyword (file &optional current)
+  "Complete a TODO keyword over FILE's own merged vocabulary (R68-1).
+The R67 `k'-field reader EXTRACTED, not forked — the ONE shared
+completion-over-target-vocab path behind both the board's `T'
+\(`org-air-item-cycle-todo') and `org-air-refile-form-todo'.  The
+collection is FILE's buffer-local `org-todo-keywords-1' via
+`org-air-inbox--target-todo-keywords' (R57: the user's globals + the
+file's `#+TODO:' line win; dir-locals apply because that helper reads
+inside `find-file-noselect's fully-initialised buffer), with the
+global `org-todo-keywords-1' as the fallback when FILE is unreadable.
+CURRENT pre-fills as the completion default.  Returns the chosen
+keyword string, or nil for an empty choice.  `require-match' stays
+nil (the R67 field's shape): a free-typed keyword the file never
+declares is rejected by `org-todo' itself with an honest `user-error'
+\(\"State X not valid in this file\") — an error message, not a trap."
+  (let* ((vocab (or (org-air-inbox--target-todo-keywords file)
+                    org-todo-keywords-1))
+         (choice (completing-read
+                  "Todo (empty leaves untouched): " vocab nil nil nil nil
+                  current)))
+    (unless (string-empty-p choice) choice)))
 
 (defun org-air-inbox--target-priority-range (file)
   "Return (HIGHEST . LOWEST) priority chars for destination FILE."
@@ -1206,15 +1248,15 @@ file the write will land in, so completion and the apply-time
                       (let ((item (org-air-inbox--form-get :item)))
                         (and item (org-air-item-todo item))))))
   (interactive)
-  (let* ((item (org-air-inbox--form-get :item))
-         (vocab (or (org-air-inbox--target-todo-keywords
-                     (org-air-inbox--form-write-target))
-                    org-todo-keywords-1))
-         (choice (completing-read
-                  "Todo (empty leaves untouched): " vocab nil nil nil nil
-                  (or (org-air-inbox--form-get :todo)
-                      (org-air-item-todo item)))))
-    (org-air-inbox--form-put :todo (unless (string-empty-p choice) choice))))
+  (let ((item (org-air-inbox--form-get :item)))
+    ;; R68-1: behaviour byte-for-byte through the extracted shared
+    ;; reader (the r67-7 vocabulary pin holds) — the board `T' and this
+    ;; suffix are ONE completion-over-target-vocab path now.
+    (org-air-inbox--form-put
+     :todo (org-air-inbox--read-todo-keyword
+            (org-air-inbox--form-write-target)
+            (or (org-air-inbox--form-get :todo)
+                (org-air-item-todo item))))))
 
 (transient-define-suffix org-air-refile-form-priority ()
   "Cycle the priority: – → A → … → lowest → – (the WRITE TARGET's range).
@@ -1242,6 +1284,33 @@ The destination file when one is set, else the item's OWN file
                      (t (1+ current)))))
     (org-air-inbox--form-put :priority next)))
 
+(defun org-air-inbox--flush-pending-log-note ()
+  "Synchronously store a pending timestamp-style Org log record (R68-2).
+`org-add-log-setup' DEFERS its record to `post-command-hook' — wrong
+twice over for a board-context write: inside `org-air-process-inbox'
+the whole guided loop is ONE command, so the hook cannot run between
+iterations and a second `org-todo' OVERWRITES the shared
+`org-log-note-*' globals (silently losing the earlier record); and a
+deferred record lands AFTER the verb's `save-buffer'.  So: when a
+`time'/`state' record is pending, run `org-add-log-note' NOW with
+`this-command' let-bound to `org-log-note-this-command' (satisfying
+its identity gate; the `recursion-depth' gate holds trivially — any
+minibuffer read has exited by apply time).  For those hows the hook
+function stores IMMEDIATELY: `org-store-log-note' inserts via MARKER
+\(display-independent, probed unmocked in batch) and its
+window-configuration save/restore brackets the call, leaving an
+interactive frame exactly as it was.  The `how' gate is
+belt-and-braces: a genuinely interactive pending `note' (impossible
+under the R68 downgrade, conceivable from an outer context) is LEFT
+for the command loop — this helper never opens an interaction and
+never hijacks one.  Callers run it AFTER the mutators and BEFORE the
+save, so the log line is part of the SAME saved bytes (and the R53
+scan sees the complete edit at the next refresh)."
+  (when (and (memq 'org-add-log-note post-command-hook)
+             (memq org-log-note-how '(time state)))
+    (let ((this-command org-log-note-this-command))
+      (org-add-log-note))))
+
 (defun org-air-inbox--apply-item-edits (item edits)
   "Apply EDITS to ITEM's source heading IN PLACE — the R67-1 editor leg.
 EDITS is a plist of exactly the CHANGED fields: `:todo', `:priority'
@@ -1262,7 +1331,17 @@ creation — the mutators run at the source heading in the engine's
 order (todo → priority → tags → category → schedule → deadline)
 inside ONE `atomic-change-group' with ONE `save-buffer' after (the
 R64 discipline scaled down): any signal rolls back every in-buffer
-change and propagates — the file is never saved, bytes identical."
+change and propagates — the file is never saved, bytes identical.
+
+R68-3: mirrors the board-context logging discipline of
+`org-air-view--at-item-source' (whose semantics this function inlines
+by design) — `org-inhibit-logging' `note' + the reschedule/redeadline
+`note'→`time' downgrade around the mutators, and the synchronous
+`org-air-inbox--flush-pending-log-note' as the change group's LAST
+form (rollback covers the inserted log line too), before the save —
+so a `@'-note keyword (or a `lognotereschedule' config) records a
+timestamped state line in the same save instead of trapping an
+`*Org Note*' prompt against the undisplayed source buffer."
   (when (fboundp 'org-air-view--refresh-stale-item-guard)
     (org-air-view--refresh-stale-item-guard item))
   (let ((applied nil)
@@ -1273,28 +1352,42 @@ change and propagates — the file is never saved, bytes identical."
                     (if (markerp m) (marker-position m) (or (cdr-safe m) 1))))
        (org-back-to-heading t)
        (atomic-change-group
-         (when-let* ((todo (plist-get edits :todo)))
-           (org-todo todo)
-           (push 'todo applied))
-         (when-let* ((p (plist-get edits :priority)))
-           (org-priority (if (stringp p) (aref p 0) p))
-           (push 'priority applied))
-         (when (plist-get edits :tags-p)
-           (org-set-tags (plist-get edits :tags))
-           (push 'tags applied))
-         (when-let* ((category (plist-get edits :category)))
-           (org-set-property "CATEGORY" category)
-           (push 'category applied))
-         (when-let* ((scheduled (plist-get edits :scheduled)))
-           (if (string-empty-p scheduled)
-               (org-schedule '(4))
-             (org-schedule nil scheduled))
-           (push 'scheduled applied))
-         (when-let* ((deadline (plist-get edits :deadline)))
-           (if (string-empty-p deadline)
-               (org-deadline '(4))
-             (org-deadline nil deadline))
-           (push 'deadline applied))))
+         ;; R68-3: the logging discipline around the mutator block —
+         ;; `(or … 'note)' preserves an outer t (full inhibition stays
+         ;; full); the reschedule/redeadline knobs are read DIRECTLY by
+         ;; `org--deadline-or-schedule' (it ignores `org-inhibit-logging'),
+         ;; so their `note' value downgrades here too.  Dynamic bindings
+         ;; only — the user's customs are never modified.
+         (let ((org-inhibit-logging (or org-inhibit-logging 'note))
+               (org-log-reschedule (if (eq org-log-reschedule 'note) 'time
+                                     org-log-reschedule))
+               (org-log-redeadline (if (eq org-log-redeadline 'note) 'time
+                                     org-log-redeadline)))
+           (when-let* ((todo (plist-get edits :todo)))
+             (org-todo todo)
+             (push 'todo applied))
+           (when-let* ((p (plist-get edits :priority)))
+             (org-priority (if (stringp p) (aref p 0) p))
+             (push 'priority applied))
+           (when (plist-get edits :tags-p)
+             (org-set-tags (plist-get edits :tags))
+             (push 'tags applied))
+           (when-let* ((category (plist-get edits :category)))
+             (org-set-property "CATEGORY" category)
+             (push 'category applied))
+           (when-let* ((scheduled (plist-get edits :scheduled)))
+             (if (string-empty-p scheduled)
+                 (org-schedule '(4))
+               (org-schedule nil scheduled))
+             (push 'scheduled applied))
+           (when-let* ((deadline (plist-get edits :deadline)))
+             (if (string-empty-p deadline)
+                 (org-deadline '(4))
+               (org-deadline nil deadline))
+             (push 'deadline applied)))
+         ;; R68-2: the flush is the change group's LAST form — the log
+         ;; line rides the same rollback AND the same save below.
+         (org-air-inbox--flush-pending-log-note)))
       (save-buffer)
       (when (boundp 'org-air-view--triage-source-buffer)
         (setq org-air-view--triage-source-buffer buf)))

@@ -423,3 +423,48 @@ Known-failures manifest stays EMPTY.
   under =/tmp/org-air-r68/= (table in Summary).  Ten batch seams,
   each revert-RED; r68-1 is the bare-=(org-todo)= revert anchor.
   State: ready.
+- 2026-07-22: Round 68 impl (impl seat, Fable).  Delivered exactly as
+  specced.  R68-1: =org-air-inbox--read-todo-keyword= extracted from
+  the R67 =k= field (vocabulary =(or (--target-todo-keywords file)
+  org-todo-keywords-1)=, same =completing-read= call shape, nil on
+  empty choice); =org-air-refile-form-todo= re-implemented over it
+  byte-for-byte (r67-7 stays green); =org-air-item-cycle-todo= (name,
+  =T= binding, =?T= process-inbox row all kept) now reads over the
+  item's OWN file with CURRENT as default, no-ops with
+  "Todo unchanged" on empty/same choice, else applies the EXPLICIT
+  string =(org-todo choice)= through the macro + =org-air-refresh= +
+  the old→new message; the =C-c= legend string moved "cycle todo
+  state" → "set todo state" (string-level only, nothing pinned it).
+  R68-2: =org-air-inbox--flush-pending-log-note= (hook-membership +
+  =(memq org-log-note-how '(time state))= gate, =this-command=
+  let-bound to =org-log-note-this-command=) — probed unmocked in
+  batch, the state line lands via marker and the hook clears; a
+  pending ='note= is left alone.  R68-3 (class fix):
+  =org-air-view--at-item-source= wraps BODY in the discipline
+  (=org-inhibit-logging (or … 'note)= preserving an outer t;
+  reschedule/redeadline 'note→'time — org.el 9.7.11 confirmed:
+  =org--deadline-or-schedule= reads those knobs directly) and flushes
+  BEFORE its =save-buffer=; mirrored into =--apply-item-edits=
+  (bindings around the mutator block, flush as the
+  =atomic-change-group='s LAST form — rollback covers the log line)
+  and the =org-air-refile-item= engine (bindings around the metadata
+  block, flush before the transactional save).  Sibling audit landed
+  as specced: =-done=/=--apply-date= fixed by the macro discipline
+  (docstrings note it), =-archive=/=-kill=/=-set-tag= SAFE notes
+  left, legacy unbound =org-air-set-schedule= converted to the macro
+  (gains discipline + triage-undo recording).  Ten executing ERTs
+  (tests/org-air-round68-test.el) over the spec corpus — the board
+  built for real over the temp dir (=org-air-plain-heading-type=
+  ='task=, a documented defcustom choice, so wait.org's keyword-less
+  heading carries a row); ALL TEN verified: green on the fixed tree,
+  r68-1 revert-RED against the restored bare =(org-todo)= (the stub
+  signals "fast-selection entered"; unstubbed siblings HANG on the
+  revert — the reported bug class reproduced literally), and
+  r68-3/4/6/7/8/9 all RED against a no-op'd flush; r68-10 RED against
+  a forked reader by construction (=completing-read= stubbed to
+  signal).  Goldens: ZERO shifts (=make clean && make regen-mockups=
+  byte-clean — the legend string renders in no fixture);
+  known-failures manifest stays EMPTY.  =make clean && make check=
+  GREEN: 843 tests, 0 unexpected, 8 standing GUI skips, lint 0 (the
+  one pre-existing project.el docstring-width compile warning
+  unchanged).  State: complete.

@@ -13,23 +13,24 @@
       TODO   Dust off old archive pr…  no date       #projects  … │
       TODO   Untracked idea with no …  no date       #projects  … │ ▌ Filter
       TODO   Learn lute                no date       #someday   … │  none
-      …and 1 more — press TAB on the title to expand              │ ▌ Source
-                                                                  │  all items ∙ 23 loaded
-  ◆ Upcoming 8                                                    │
-      TODO   Renew library card        Today         #personal  … │ ▌ Summary
-      TODO   Water the garden          Today         #projects  … │    3   Inbox
-      TODO ■ Prep client presentation  Tomorrow      #work   #cl… │    7   Needs attention
-      TODO   Prepare standup notes     Tomorrow      #projects  … │    8   Upcoming
-      TODO   Email finance about bud…  Tomorrow      #work        │    3   High priority
-      …and 3 more — press TAB on the title to expand              │    0   Stale
-                                                                  │  ────
-  ★ High priority 3                                               │   23   total
-      TODO ■ Ship quarterly report     Wed           #projects  … │
-      TODO ■ Fix production outage r…  OVERDUE 5d    #projects  … │ ▌ Inspector
-      TODO ■ Prep client presentation  Tomorrow      #work   #cl… │  Quick note about org-air
-                                                                  │  idea
-  ○ Stale 0                                                       │  #inbox
-      Nothing has gone stale.                                     │
+      …and 1 more — press TAB on the title to expand              │
+                                                                  │ ▌ Source
+  ◆ Upcoming 8                                                    │  all items ∙ 23 loaded
+      TODO   Renew library card        Today         #personal  … │
+      TODO   Water the garden          Today         #projects  … │ ▌ Summary
+      TODO ■ Prep client presentation  Tomorrow      #work   #cl… │    3   Inbox
+      TODO   Prepare standup notes     Tomorrow      #projects  … │    7   Needs attention
+      TODO   Email finance about bud…  Tomorrow      #work        │    8   Upcoming
+      …and 3 more — press TAB on the title to expand              │    3   High priority
+                                                                  │    0   Stale
+  ★ High priority 3                                               │  ────
+      TODO ■ Ship quarterly report     Wed           #projects  … │   23   total
+      TODO ■ Fix production outage r…  OVERDUE 5d    #projects  … │
+      TODO ■ Prep client presentation  Tomorrow      #work   #cl… │ ▌ Inspector
+                                                                  │  Quick note about org-air
+  ○ Stale 0                                                       │  idea
+      Nothing has gone stale.                                     │  #inbox
+                                                                  │
                                                                   │  ▤ inbox.org
                                                                   │
                                                                   │  Bucket  Inbox
@@ -43,8 +44,7 @@
                                                                   │
                                                                   │
                                                                   │
-                                                                  │
-                                                                  │
                                                                   │ ▌ Actions
-                                                                  │  c capture   / filter   s s…
-                                                                  │  g r refresh TAB expand ? h…
+                                                                  │  c capture  / filter
+                                                                  │  s source   g r refresh
+                                                                  │  TAB expand ? help

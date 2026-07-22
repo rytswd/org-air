@@ -12,6 +12,7 @@
   +---- UNKNO Eta notes                 ~ 2026-05-01  #notes          |
   +---- ... 1 dropped — TAB to show                                   | | Filter
                                                                       |  none
+                                                                      |
                                                                       | | Source
                                                                       |  all items ∙ 7 loaded
                                                                       |
@@ -25,6 +26,8 @@
                                                                       | | Inspector
                                                                       |
                                                                       | | Actions
-                                                                      |  RET open  ( flip      / ...
-                                                                      |  o sort    s/d/t group | ...
-                                                                      |  g refresh ? help      q ...
+                                                                      |  RET open    ( flip
+                                                                      |  / filter    o sort
+                                                                      |  s/d/t group | rail
+                                                                      |  g refresh   ? help
+                                                                      |  q quit

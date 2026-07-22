@@ -28,6 +28,16 @@
 ;; the ERTs below (T1–T4, T6–T7 revert-RED against the pre-R69 tree;
 ;; T5 is the consolidation parity guard, green today BY DESIGN).
 ;;
+;; TEST-SEAT GAP ERTs (round-69 audit): four seams the impl's 16 left
+;; uncovered — the reflow ladder's n=1 FLOOR (only 3→2 was driven);
+;; the REVISIT emitter's routing through the shared row emitter (the
+;; one collapsed call site with neither an ERT nor a golden); the
+;; BANNER SCOPE segment straggler (the impl-found ninth tag-name
+;; surface — the exact screenshot scenario `board scoped to #nix');
+;; and the board/project INSPECTOR + project by-tag section-title
+;; surfaces.  All four verified revert-RED against the pre-R69 tree
+;; (the revisit 32w parity leg green there BY DESIGN, like T5).
+;;
 ;; GUI-confirm residue (per spec, NOT ERT-able): the live side-window
 ;; repaint on the actual M-/ keypress, the spacer's visual rhythm, svg
 ;; pill rendering of deduped chips, the reflowed Actions block at
@@ -294,6 +304,113 @@ the regression pin) — case-insensitively; a non-member still misses."
   (should (org-air-view--filter-token-match-p "#Nix" "" '("#nix")))
   (should (org-air-view--filter-token-match-p "#Nix" "" '("nix")))
   (should-not (org-air-view--filter-token-match-p "#Nix" "" '("other"))))
+
+(ert-deftest org-air-r69-4-actions-single-column-floor ()
+  "R69-4 (test-seat gap ERT): the reflow ladder's n=1 rung is real.
+At 20w (fallback keys; 2 columns need 23: inset 1 + colw 10 + gap 1 +
+colw 11) the board Actions block reflows all the way to ONE column —
+six rows, one whole verb per row, nothing truncated, every line fits.
+Revert-RED: the pre-R69 emitter ellipsized both 3-column rows here."
+  (let ((more (org-air-view--glyph 'more))
+        (lines (org-air-r69--actions-lines 20)))
+    ;; header + exactly six single-cell rows.
+    (should (= 7 (length lines)))
+    (dolist (line lines)
+      (should-not (string-search more line))
+      (should (<= (string-width line) 20)))
+    ;; each verb rides its OWN row (one cell per line at n=1).
+    (let ((rows (cdr lines)))
+      (dolist (verb '("capture" "filter" "source" "refresh" "expand" "help"))
+        (should (= 1 (seq-count (lambda (l) (string-search verb l)) rows)))))))
+
+(ert-deftest org-air-r69-4-revisit-actions-parity-and-reflow ()
+  "R69-4 (test-seat gap ERT): the REVISIT emitter routes through the shared
+row emitter — the one collapsed call site no other pin covered (board:
+T4/T5, review: T5, project: the regenerated 28-col goldens).  At 32w the
+block is byte-identical to the pre-consolidation 3×3 emitter (exact-
+string pin, probed on the pre-R69 tree — parity where 3 columns fit);
+at 24w it reflows to 2 columns — no `more' glyph, all NINE verbs whole,
+every line fits (revert-RED: the old emitter ellipsized rows there)."
+  ;; wide parity: byte-identical to the historical 3×3 layout.
+  (should (equal '("| Actions                       "
+                   "   RET open  m mode / filter    "
+                   "   o sort    | rail g refresh   "
+                   "   P project ? help q quit      ")
+                 (with-temp-buffer
+                   (org-air-revisit--insert-actions 32)
+                   (butlast (split-string (buffer-substring-no-properties
+                                           (point-min) (point-max))
+                                          "\n")))))
+  ;; narrow reflow: 2 columns, nothing truncated.
+  (let ((more (org-air-view--glyph 'more))
+        (lines (with-temp-buffer
+                 (org-air-revisit--insert-actions 24)
+                 (butlast (split-string (buffer-substring-no-properties
+                                         (point-min) (point-max))
+                                        "\n")))))
+    (dolist (line lines)
+      (should-not (string-search more line))
+      (should (<= (string-width line) 24)))
+    (let ((text (string-join lines "\n")))
+      (dolist (verb '("open" "mode" "filter" "sort" "rail" "refresh"
+                      "project" "help" "quit"))
+        (should (string-search verb text))))))
+
+(ert-deftest org-air-r69-5-banner-scope-segment-dedup ()
+  "R69-5 (test-seat gap ERT): the BANNER scope segment — the straggler the
+impl seat found beyond the spec's eight surfaces, and the exact
+screenshot scenario (`board scoped to #nix') — renders a `#nix' tag
+scope with ONE `#' (never `##nix'), and a plain `nix' tag scope is
+byte-unchanged (`#nix' — the zero-shift leg)."
+  (with-temp-buffer
+    (org-air-view-mode)
+    (setq buffer-read-only nil)
+    (let ((org-air-view--scope '(:tag "#nix")))
+      (org-air-view--insert-banner nil))
+    (let ((text (buffer-substring-no-properties (point-min) (point-max))))
+      (should (= 1 (org-air-r69--count-matches "#nix" text)))
+      (should-not (string-search "##" text))))
+  (with-temp-buffer
+    (org-air-view-mode)
+    (setq buffer-read-only nil)
+    (let ((org-air-view--scope '(:tag "nix")))
+      (org-air-view--insert-banner nil))
+    (should (= 1 (org-air-r69--count-matches
+                  "#nix" (buffer-substring-no-properties (point-min)
+                                                         (point-max)))))))
+
+(ert-deftest org-air-r69-5-inspector-and-project-surface-dedup ()
+  "R69-5 (test-seat gap ERT): the remaining specced tag-NAME surfaces —
+the BOARD inspector tags line, the PROJECT inspector tags line and the
+project BY-TAG section titles — render a `#nix' tag with ONE `#' while
+a plain tag still gains its prefix (`#plain')."
+  ;; board inspector tags line.
+  (let ((text (string-join
+               (mapcar #'substring-no-properties
+                       (org-air-view--inspector-item-fields
+                        (org-air-item-create :title "x" :tags '("#nix" "plain"))
+                        " " 30 (current-time)))
+               "\n")))
+    (should (= 1 (org-air-r69--count-matches "#nix" text)))
+    (should (string-search "#plain" text))
+    (should-not (string-search "##" text)))
+  (let ((doc (org-air-doc-create :name "Alpha" :file "/tmp/a.org"
+                                 :state "ready" :tags '("#nix" "plain")
+                                 :relpath "v0.1/a.org")))
+    ;; project inspector tags line.
+    (let ((text (string-join
+                 (mapcar #'substring-no-properties
+                         (org-air-project--inspector-doc-fields
+                          doc " " 30 (current-time)))
+                 "\n")))
+      (should (= 1 (org-air-r69--count-matches "#nix" text)))
+      (should (string-search "#plain" text))
+      (should-not (string-search "##" text)))
+    ;; project by-tag section titles.
+    (should (equal '("#nix" "#plain")
+                   (mapcar (lambda (s)
+                             (substring-no-properties (plist-get s :title)))
+                           (org-air-project--sections-by-tag (list doc)))))))
 
 (ert-deftest org-air-r69-5-combinator-fold-untouched ()
   "R69-5 regression pin: `--tokens-pass-filter-p' under `all' with tokens

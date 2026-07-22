@@ -2503,33 +2503,85 @@
     ;;       segments now route through `--filter-token-label', so a
     ;;       BARE token reads quoted (`"work"'), no longer falsely
     ;;       tag-dressed (`#work'); `#tag' tokens are unchanged.
-    ;; Byte-golden comparisons (classes a+b):
-    (org-air-layout-mockup-120
-      . "R69-1/4: spacer line + mid-tier Actions reflow (was `s sou…' truncated) — regen + re-bless")
-     (org-air-layout-mockup-160
-      . "R69-1: spacer line before `▌ Source' — regen + re-bless")
-     (org-air-layout-mockup-heights
-      . "R69-1/4: spacer + reflow across the x24/x50 height variants — regen + re-bless")
-     (org-air-layout-mockup-thresholds
-      . "R69-1/4: spacer + reflow across the 90/96/100/104/110 tiers — regen + re-bless")
-     (org-air-f5-project-view-byte-mockups
-      . "R69-1/4: spacer + 28-col project Actions reflow (was `( flip / ...' truncated) — regen + re-bless")
-     (org-air-r17-denote-origin-byte-mockup
-      . "R69-1: spacer line in the denote-origin-120 rail — regen + re-bless")
-     (org-air-r63-12-review-mockup-golden
-      . "R69-1: spacer line in the review rail (review-mockup-170) — regen + re-bless")
-     (org-air-r49-5-batch-placement-blind
-      . "R69-1: compares a live render against the (stale) 120 mockup — green once the golden is re-blessed")
-     ;; Assertion ERTs (class c — the R69-5 token-label switch):
-     (org-air-r18-dp2-banner-shows-combinator
-      . "R69-5: BARE tokens ('(\"work\" \"home\")) now read quoted in the banner (`\"work\" AND \"home\"'), not `#work AND #home' — re-bless to the R24-6 token contract")
-     (org-air-r18-dp3-project-filter-narrows
-      . "R69-5: the project header's bare `ui'/`core' tokens now read quoted, not `#ui'/`#core' — re-bless to the R24-6 token contract")
-     (org-air-r19-4-clear-hint-shows-clear-key-when-filter-active
-      . "R69-5: asserts `#work AND #client' from the banner's hand-prepended `#' on BARE tokens; the rail already read them quoted — re-bless to the token contract")
-     ;; Assertion ERT (classes a+b at a pathologically short rail):
-     (org-air-r26-3-legend-on-screen-popped
-      . "R69-1/4: at the 24-line clamped side rail the inspector had ALREADY given way (nothing left to absorb), so the spacer lands the first verb row one line below the fold (Actions header on the last visible line); rows 2-3 were below the fold BEFORE R69 too — test seat re-blesses the fold assertion (or sizes the frame +1) with the regenerated goldens"))
+    ;;
+    ;; 2026-07-22: ROUND-69 CLOSEOUT (impl tip zxrxlzyo/25d4a0ca + test
+    ;; seat <this commit>).  ALL 12 grind entries CLOSED — the goldens
+    ;; regenerated from impl's render via the FROZEN-CLOCK renderer
+    ;; (`make clean' FIRST — the standing R48/R51/R53/R54/R62/R63/R64
+    ;; stale-.elc lesson — then `make regen-mockups', anti-tautology
+    ;; guards active; NO HANG, exit 0).  AUDIT: jj diff = EXACTLY 27
+    ;; fixtures, every hunk inside the blessed classes and NOTHING else:
+    ;;   (a) R69-1 spacer — ONE blank line between the Filter block and
+    ;;       the `▌ Source' header in every side-rail golden (incl. the
+    ;;       90-tier stacked top-band's Filter column and the review/
+    ;;       denote rails); fixed-height x50 goldens absorb it in the
+    ;;       blank tail (total height constant), natural-height goldens
+    ;;       grow by exactly the extra line(s).
+    ;;   (b) R69-4 reflow — Actions reflow 3→2 columns EXACTLY where the
+    ;;       old goldens truncated: the mid-tier board rails' `s s…'/
+    ;;       `s sou…'/`? h…' become 3×2 rows with all six verbs whole,
+    ;;       and the 28-col project rails' `/ ...'/`| ...'/`q ...' become
+    ;;       5×2 rows with all NINE verbs whole; the wide 160-tier
+    ;;       Actions block is byte-identical (the T5 parity law).
+    ;;   (c) NO fixture renders an active filter, so classes R69-2/R69-5
+    ;;       move zero golden bytes — confirmed zero ✕/token drift.
+    ;; The 8 byte-golden tests (layout-mockup-120/-160/-heights/
+    ;; -thresholds, f5-project-view-byte-mockups, r17-denote-origin,
+    ;; r63-12-review-mockup-golden, r49-5-batch-placement-blind) pass on
+    ;; the regen'd fixtures with NO assertion edit.  The 4 assertion ERTs
+    ;; re-blessed HONESTLY to the design-blessed R69 contracts
+    ;; (air/v0.1/org-air-round69-design.org), none weakened:
+    ;;   org-air-r18-dp2-banner-shows-combinator — bare tokens now read
+    ;;     QUOTED in the banner (`"work" AND "home"' / `"work" OR
+    ;;     "home"' / single `"work"') per the R24-6 token contract;
+    ;;     GAINED the anti-dressing pin (`#work' ABSENT from the
+    ;;     banner); the combinator-word + single-token-no-combinator
+    ;;     conjuncts carry over verbatim.
+    ;;   org-air-r18-dp3-project-filter-narrows — the project header's
+    ;;     bare `ui'/`core' tokens read quoted (`"ui" AND "core"',
+    ;;     `"ui" OR "core"'); GAINED the `#ui AND #core' ABSENT pin;
+    ;;     every narrowing/membership/fold-bypass conjunct verbatim.
+    ;;   org-air-r19-4-clear-hint-shows-clear-key-when-filter-active —
+    ;;     the `#work AND #client' conjunct (the banner's hand-prepended
+    ;;     `#' on BARE tokens; the rail already read them quoted)
+    ;;     re-blessed to `"work" AND "client"' + the dressed join pinned
+    ;;     ABSENT; both hint-verb conjuncts verbatim.
+    ;;   org-air-r26-3-legend-on-screen-popped — the impl FINDING
+    ;;     honoured: at the 24-line CLAMPED side rail the inspector had
+    ;;     ALREADY reached zero, so the spacer pushes the first verb row
+    ;;     one line below the fold (verb rows 2+ were below the fold
+    ;;     pre-R69 too).  The guarantee SPLITS, never weakens: body 24
+    ;;     still keeps the Actions HEADER within the fold, and body 25
+    ;;     (frame +1) carries the ORIGINAL header+`RET open' law at the
+    ;;     minimum height where it is now structurally achievable.
+    ;; The 16 new R69 ERTs (tests/org-air-round69-test.el, T1–T7)
+    ;; independently audited on the test seat: all 16 green, and the
+    ;; T1–T4/T6–T7 seams verified REVERT-RED against the pre-impl trunk
+    ;; nwptkmykkoxz in a scratch workspace (13 RED; the 3 green are
+    ;; exactly the by-design pins — T5's two parity byte-pins + the
+    ;; T7 fold regression pin).  The audit found FOUR uncovered seams;
+    ;; the test seat added gap ERTs for each (all verified revert-RED,
+    ;; the revisit parity leg green there by design):
+    ;;   r69-4-actions-single-column-floor — the reflow ladder's n=1
+    ;;     rung (only 3→2 was driven): board Actions at 20w = six
+    ;;     single-cell rows, nothing truncated.
+    ;;   r69-4-revisit-actions-parity-and-reflow — the REVISIT emitter
+    ;;     (the one collapsed call site with neither an ERT nor a
+    ;;     golden): 32w byte-identical to the pre-consolidation 3×3
+    ;;     (pinned from the pre-R69 tree's actual bytes), 24w reflows
+    ;;     to 2 cols with all nine verbs whole.
+    ;;   r69-5-banner-scope-segment-dedup — the impl-found BANNER
+    ;;     scope straggler (the exact screenshot scenario `board
+    ;;     scoped to #nix'): `#nix' once, plain `nix' zero-shift.
+    ;;   r69-5-inspector-and-project-surface-dedup — the board
+    ;;     inspector tags line, project inspector tags line and
+    ;;     project by-tag section titles: `#nix' once, `#plain'
+    ;;     still prefixed.
+    ;; No .el SOURCE touched on the test track (impl landed
+    ;; R69-1..5 in zxrxlzyo).  Round-69 manifest is EMPTY; the tests
+    ;; stay as permanent regression guards.
+    ;; =================================================================
+    )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 
 (defun org-air-test-apply-known-failures ()

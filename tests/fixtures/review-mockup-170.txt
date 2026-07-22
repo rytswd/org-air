@@ -12,7 +12,8 @@
       Prototype the range ladder                                                   Jul 16 ⚠  #code             ▤ ladder-notes │
                                                                                                                               │ ▌ Filter
   ↻ Carried over 1                                                                                                            │    none
-      Fix flaky rail test                                                          Jul 17    #code               ▤ rail-flake │ ▌ Source
+      Fix flaky rail test                                                          Jul 17    #code               ▤ rail-flake │
+                                                                                                                              │ ▌ Source
                                                                                                                               │    all items ∙ 10 loaded
                                                                                                                               │
                                                                                                                               │ ▌ Summary

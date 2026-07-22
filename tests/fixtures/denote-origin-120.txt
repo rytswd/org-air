@@ -13,9 +13,10 @@
                                                                                       │
   ★ High priority 0                                                                   │ ▌ Filter
       No #A items.                                                                    │    none
-                                                                                      │ ▌ Source
-  ○ Stale 0                                                                           │    all items ∙ 2 loaded
-      Nothing has gone stale.                                                         │
+                                                                                      │
+  ○ Stale 0                                                                           │ ▌ Source
+      Nothing has gone stale.                                                         │    all items ∙ 2 loaded
+                                                                                      │
                                                                                       │ ▌ Summary
                                                                                       │      1   Inbox
                                                                                       │      0   Needs attention
@@ -28,5 +29,6 @@
                                                                                       │ ▌ Inspector
                                                                                       │
                                                                                       │ ▌ Actions
-                                                                                      │    c capture   / filter   s sou…
-                                                                                      │    g r refresh TAB expand ? help
+                                                                                      │    c capture  / filter
+                                                                                      │    s source   g r refresh
+                                                                                      │    TAB expand ? help

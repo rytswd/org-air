@@ -13,26 +13,26 @@
       TODO   Dust off old archive project                                       no date       #projects   #archive  │
       TODO   Untracked idea with no dates                                       no date       #projects   #someday  │ ▌ Filter
       TODO   Learn lute                                                         no date       #someday   #hobby     │    none
-      …and 1 more — press TAB on the title to expand                                                                │ ▌ Source
-                                                                                                                    │    all items ∙ 23 loaded
-  ◆ Upcoming 8                                                                                                      │
-      TODO   Renew library card                                                 Today         #personal   #admin    │ ▌ Summary
-      TODO   Water the garden                                                   Today         #projects   #home     │      3   Inbox
-      TODO ■ Prep client presentation                                           Tomorrow      #work   #client       │      7   Needs attention
-      TODO   Prepare standup notes                                              Tomorrow      #projects   #work     │      8   Upcoming
-      TODO   Email finance about budget                                         Tomorrow      #work                 │      3   High priority
-      …and 3 more — press TAB on the title to expand                                                                │      0   Stale
-                                                                                                                    │    ────
-  ★ High priority 3                                                                                                 │     23   total
-      TODO ■ Ship quarterly report                                              Wed           #projects   #work  …  │
-      TODO ■ Fix production outage runbook                                      OVERDUE 5d    #projects   #work  …  │ ▌ Inspector
-      TODO ■ Prep client presentation                                           Tomorrow      #work   #client       │    Quick note about org-air idea
-                                                                                                                    │    #inbox
-  ○ Stale 0                                                                                                         │
-      Nothing has gone stale.                                                                                       │    ▤ inbox.org
+      …and 1 more — press TAB on the title to expand                                                                │
+                                                                                                                    │ ▌ Source
+  ◆ Upcoming 8                                                                                                      │    all items ∙ 23 loaded
+      TODO   Renew library card                                                 Today         #personal   #admin    │
+      TODO   Water the garden                                                   Today         #projects   #home     │ ▌ Summary
+      TODO ■ Prep client presentation                                           Tomorrow      #work   #client       │      3   Inbox
+      TODO   Prepare standup notes                                              Tomorrow      #projects   #work     │      7   Needs attention
+      TODO   Email finance about budget                                         Tomorrow      #work                 │      8   Upcoming
+      …and 3 more — press TAB on the title to expand                                                                │      3   High priority
+                                                                                                                    │      0   Stale
+  ★ High priority 3                                                                                                 │    ────
+      TODO ■ Ship quarterly report                                              Wed           #projects   #work  …  │     23   total
+      TODO ■ Fix production outage runbook                                      OVERDUE 5d    #projects   #work  …  │
+      TODO ■ Prep client presentation                                           Tomorrow      #work   #client       │ ▌ Inspector
+                                                                                                                    │    Quick note about org-air idea
+  ○ Stale 0                                                                                                         │    #inbox
+      Nothing has gone stale.                                                                                       │
+                                                                                                                    │    ▤ inbox.org
                                                                                                                     │
                                                                                                                     │    Bucket  Inbox
-                                                                                                                    │
                                                                                                                     │
                                                                                                                     │
                                                                                                                     │

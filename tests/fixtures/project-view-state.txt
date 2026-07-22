@@ -12,12 +12,13 @@
                                                                       |
   | COMP  Complete 1                                                  | | Filter
       COMP  Beta CLI                    ~ 2026-05-01  #core           |  none
-                                                                      | | Source
-  | DROP  Dropped 1                                                   |  all items ∙ 7 loaded
-      ... 1 dropped — TAB to show                                     |
-                                                                      | | Summary
-  | UNKNO Unknown 1                                                   |    2  Draft
-      UNKNO Eta notes                   ~ 2026-05-01  #notes          |    1  Ready
+                                                                      |
+  | DROP  Dropped 1                                                   | | Source
+      ... 1 dropped — TAB to show                                     |  all items ∙ 7 loaded
+                                                                      |
+  | UNKNO Unknown 1                                                   | | Summary
+      UNKNO Eta notes                   ~ 2026-05-01  #notes          |    2  Draft
+                                                                      |    1  Ready
                                                                       |    1  Work In Progress
                                                                       |    1  Complete
                                                                       |    1  Dropped
@@ -25,6 +26,8 @@
                                                                       | | Inspector
                                                                       |
                                                                       | | Actions
-                                                                      |  RET open  ( flip      / ...
-                                                                      |  o sort    s/d/t group | ...
-                                                                      |  g refresh ? help      q ...
+                                                                      |  RET open    ( flip
+                                                                      |  / filter    o sort
+                                                                      |  s/d/t group | rail
+                                                                      |  g refresh   ? help
+                                                                      |  q quit

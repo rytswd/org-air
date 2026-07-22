@@ -13,10 +13,11 @@
   ★ High priority 0                                                                   │
       No #A items.                                                                    │ ▌ Filter
                                                                                       │    none
-  ○ Stale 0                                                                           │ ▌ Source
-      Nothing has gone stale.                                                         │    all items ∙ 0 loaded
-                                                                                      │
-      Nothing here yet. Press c to capture your first note.                           │ ▌ Summary
+  ○ Stale 0                                                                           │
+      Nothing has gone stale.                                                         │ ▌ Source
+                                                                                      │    all items ∙ 0 loaded
+      Nothing here yet. Press c to capture your first note.                           │
+                                                                                      │ ▌ Summary
                                                                                       │      0   Inbox
                                                                                       │      0   Needs attention
                                                                                       │      0   Upcoming
@@ -43,8 +44,7 @@
                                                                                       │
                                                                                       │
                                                                                       │
-                                                                                      │
-                                                                                      │
                                                                                       │ ▌ Actions
-                                                                                      │    c capture   / filter   s sou…
-                                                                                      │    g r refresh TAB expand ? help
+                                                                                      │    c capture  / filter
+                                                                                      │    s source   g r refresh
+                                                                                      │    TAB expand ? help

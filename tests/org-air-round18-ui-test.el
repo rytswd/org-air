@@ -84,28 +84,34 @@ so the user continues narrowing instead of restarting."
     (should (eq (key-binding (kbd "\\")) 'org-air-filter-clear))))
 
 (ert-deftest org-air-r18-dp2-banner-shows-combinator ()
-  "The banner joins >=2 filter tags with the active combinator word.
-`#work AND #home' under `all'; `#work OR #home' under `any'; a single tag
-shows no combinator (checked on the banner line, the rail keeps its
-discoverability `Match:' cue).  `org-air-filter-match' is `let'-bound so
-the test never leaks the global default."
+  "The banner joins >=2 filter tokens with the active combinator word.
+R69-5 re-bless (air/v0.1/org-air-round69-design.org): the banner segment
+now routes through the R24-6 `org-air-view--filter-token-label', so BARE
+tokens read QUOTED (`\"work\" AND \"home\"'), never falsely tag-dressed
+as `#work AND #home' (the banner used to hand-prepend `#').  `\"work\"
+AND \"home\"' under `all'; `\"work\" OR \"home\"' under `any'; a single
+token shows no combinator (checked on the banner line, the rail keeps
+its discoverability `Match:' cue).  `org-air-filter-match' is
+`let'-bound so the test never leaks the global default."
   (org-air-viewport-test-with-dashboard 140
     (let ((org-air-filter-match 'all))
       (setq org-air-view--tag-filter '("work" "home"))
       (org-air-view--render-current)
       (let ((banner (car (split-string (buffer-string) "\n"))))
-        (should (string-match-p "#work AND #home" banner))
-        (should-not (string-match-p "#work OR #home" banner)))
+        (should (string-match-p "\"work\" AND \"home\"" banner))
+        (should-not (string-match-p "\"work\" OR \"home\"" banner))
+        ;; the false tag-dressing is gone from the banner.
+        (should-not (string-match-p "#work" banner)))
       ;; OR
       (setq org-air-filter-match 'any)
       (org-air-view--render-current)
       (let ((banner (car (split-string (buffer-string) "\n"))))
-        (should (string-match-p "#work OR #home" banner)))
-      ;; single tag -> the BANNER shows no combinator word
+        (should (string-match-p "\"work\" OR \"home\"" banner)))
+      ;; single token -> the BANNER shows no combinator word
       (setq org-air-view--tag-filter '("work"))
       (org-air-view--render-current)
       (let ((banner (car (split-string (buffer-string) "\n"))))
-        (should (string-match-p "#work" banner))
+        (should (string-match-p "\"work\"" banner))
         (should-not (string-match-p " AND " banner))
         (should-not (string-match-p " OR " banner))))))
 

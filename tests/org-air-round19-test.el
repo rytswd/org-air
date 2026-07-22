@@ -389,7 +389,13 @@ Filter and Summary.  R22-4 re-bless: that block's header is `Source' now
 (ert-deftest org-air-r19-4-clear-hint-shows-clear-key-when-filter-active ()
   "R19-4b: with a filter active the Filter block teaches BOTH verbs —
 `M-/ toggles' AND the literal `\\ clears' — alongside the AND-combined
-chips (the clear key was previously undiscoverable)."
+chips (the clear key was previously undiscoverable).
+R69-5 re-bless (air/v0.1/org-air-round69-design.org): the old `#work AND
+#client' conjunct rode the BANNER's hand-prepended `#' on these BARE
+tokens (the rail already read them quoted); the banner now routes
+through the R24-6 `org-air-view--filter-token-label', so both surfaces
+read the tokens QUOTED — `\"work\" AND \"client\"' — and the falsely
+tag-dressed join never renders."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-dashboard 160
@@ -399,8 +405,11 @@ chips (the clear key was previously undiscoverable)."
       (let ((text (substring-no-properties (buffer-string))))
         (should (string-match-p "M-/ toggles" text))
         (should (string-match-p (regexp-quote "\\ clears") text))
-        ;; the chips are AND-combined (R18 D-P2.3 combinator word).
-        (should (string-match-p "#work AND #client" text))))))
+        ;; the chips are AND-combined (R18 D-P2.3 combinator word),
+        ;; the bare tokens quoted per R24-6/R69-5.
+        (should (string-match-p "\"work\" AND \"client\"" text))
+        ;; the old hand-prepended tag-dressing is gone.
+        (should-not (string-match-p "#work AND #client" text))))))
 
 (ert-deftest org-air-r19-4-scope-candidates-have-no-tag-option ()
   "R19-4d crisp split: `org-air-scope''s candidates are a purely STRUCTURAL

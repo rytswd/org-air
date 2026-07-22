@@ -12,11 +12,12 @@
   | #notes 1                                                          |
       UNKNO Eta notes                   ~ 2026-05-01  #notes          | | Filter
                                                                       |  none
-  | #ui 4                                                             | | Source
-      READY Alpha feature               ~ 2026-05-01  #ui   #core     |  all items ∙ 7 loaded
-      WIP   Zeta work in progress       ~ 2026-05-01  #core   #ui     |
-      DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  | | Summary
-      ... 1 dropped — TAB to show                                     |    2  Draft
+  | #ui 4                                                             |
+      READY Alpha feature               ~ 2026-05-01  #ui   #core     | | Source
+      WIP   Zeta work in progress       ~ 2026-05-01  #core   #ui     |  all items ∙ 7 loaded
+      DRAFT Epsilon plan                ~ 2026-05-01  #context   #ui  |
+      ... 1 dropped — TAB to show                                     | | Summary
+                                                                      |    2  Draft
                                                                       |    1  Ready
                                                                       |    1  Work In Progress
                                                                       |    1  Complete
@@ -25,6 +26,8 @@
                                                                       | | Inspector
                                                                       |
                                                                       | | Actions
-                                                                      |  RET open  ( flip      / ...
-                                                                      |  o sort    s/d/t group | ...
-                                                                      |  g refresh ? help      q ...
+                                                                      |  RET open    ( flip
+                                                                      |  / filter    o sort
+                                                                      |  s/d/t group | rail
+                                                                      |  g refresh   ? help
+                                                                      |  q quit

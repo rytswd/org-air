@@ -418,6 +418,12 @@ count as two rows (the follow change-guard keys on the doc object)."
 AND shows only docs carrying ALL active tags; OR shows any; clearing
 restores every doc.  Driven through the shared filter STATE + the doc-aware
 `org-air-view--tags-pass-filter-p' (set the state, refresh, read the docs).
+R69-5 re-bless (air/v0.1/org-air-round69-design.org): the project header
+filter segment now routes through the R24-6
+`org-air-view--filter-token-label', so the BARE `ui'/`core' tokens read
+QUOTED (`\"ui\" AND \"core\"'), never falsely tag-dressed (`#ui AND
+#core' — the header used to hand-prepend `#').  The NARROWING semantics
+are untouched — every membership conjunct carries over verbatim.
 R48-3 re-bless: with NO filter live the dropped doc is FOLDED by default
 (`org-air-project-collapse-dropped' t), so the baseline and the
 clear-restores conjuncts assert every NON-dropped title + the fold row
@@ -454,13 +460,17 @@ Delta doc VISIBLE — the R48-3 filter bypass
        ;; the non-ui docs are gone.
        (should-not (string-match-p "Beta CLI" text))
        (should-not (string-match-p "Gamma context" text))
-       ;; the header surfaces the active filter.
-       (should (string-match-p "#ui" text)))
+       ;; the header surfaces the active filter — the bare token QUOTED
+       ;; (R69-5: `--filter-token-label', never hand-prepended `#').
+       (should (string-match-p "\"ui\"" text)))
      ;; AND #ui #core -> only docs carrying BOTH (alpha, zeta).
      (setq org-air-view--tag-filter '("ui" "core") org-air-filter-match 'all)
      (org-air-project-refresh)
      (let ((text (buffer-string)))
-       (should (string-match-p "#ui AND #core" text))
+       (should (string-match-p "\"ui\" AND \"core\"" text))
+       ;; the old false tag-dressing never renders (the doc rows' own
+       ;; `#ui'/`#core' pills are separate cells, never AND-joined).
+       (should-not (string-match-p "#ui AND #core" text))
        (should (string-match-p "Alpha feature" text))
        (should (string-match-p "Zeta work in progress" text))
        (should-not (string-match-p "Delta UI exploration" text)) ; ui only
@@ -469,7 +479,7 @@ Delta doc VISIBLE — the R48-3 filter bypass
      (setq org-air-filter-match 'any)
      (org-air-project-refresh)
      (let ((text (buffer-string)))
-       (should (string-match-p "#ui OR #core" text))
+       (should (string-match-p "\"ui\" OR \"core\"" text))
        (should (string-match-p "Beta CLI" text))            ; core
        (should (string-match-p "Delta UI exploration" text)) ; ui
        (should-not (string-match-p "Gamma context" text)))  ; neither

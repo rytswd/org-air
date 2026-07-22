@@ -1,0 +1,462 @@
+#+title: org-air Round 71 — The comment becomes a form FIELD: `n' drafts the note, ONE RET confirms edit + note together (the R70 S-RET action retires)
+#+state: ready
+#+tags: board editor transient field notes logbook ux
+
+* Summary
+
+USER CLARIFICATION on R70-2: the R70 spec made S-RET a SEPARATE
+note-only action (write now, keep editing).  The user actually wants
+the comment to be part of ONE confirm — =RET= applies the edit AND
+the note together — and prefers it as a transient FIELD (like =t=
+tags / =c= category / =s= schedule / =k= todo / =,= priority / =d=
+deadline), NOT an S-RET action.  This round revises exactly that
+delivery UX; the R70 note WRITER (the probed synchronous
+=org-add-log-setup= + pre-filled =org-store-log-note= emulation) is
+kept verbatim and re-plumbed.
+
+Two work packages:
+
+- *R71-1 (the field)* — the ="S-<return>"= row is REMOVED from
+  =org-air-refile-transient= (S-RET is no longer a transient action;
+  the key is left UNBOUND in the transient — Decision 1).
+  =org-air-refile-form-note= keeps its NAME (the =refile-form-*=
+  family no-rename rule) but is REPURPOSED action → FIELD: key =n=,
+  the LAST row of the Metadata group (=t/c/s/d/k/,/n=; audited free —
+  probe table below), =:transient t=.  It reads the comment text from
+  the minibuffer (multi-line ok — yank, =C-q C-j=) PRE-FILLED with the
+  pending value (re-press = re-edit; empty input CLEARS — Decision 2)
+  and stores it in the form state as the DIRTY field =:note= — NO
+  write happens at read time (the R64-2 prompt-time no-mutation
+  contract now covers the note; R70's action was the form's ONLY
+  immediate write, and its removal makes the prefix docstring's
+  "every write is deferred to execute" claim TRUE again —
+  Decision 6).  The field row renders like every sibling
+  (=note     <first line>…=, =–= when unset) and the live Preview
+  gains a =note: <first line>…= segment on its extras line.
+- *R71-2 (the application)* — on EXECUTE (=RET=) the =:note= dirty
+  field is APPLIED along with the other metadata + the optional
+  refile, inside the SAME atomic application, one save, one undo:
+  - /in-place leg (no destination)/: =:note= becomes a first-class
+    EDITS field of =org-air-inbox--apply-item-edits= — applied via
+    =org-air-inbox--append-log-note= as the change group's LAST form,
+    AFTER the R68 flush (the probed globals-overwrite hazard,
+    Decision 4), inside the ONE =atomic-change-group= + ONE
+    =save-buffer= + the triage-undo recording the applier already
+    owns; ='note= joins the applied-fields message.
+  - /refile leg (destination set)/: =org-air-refile-item= gains a
+    trailing additive NOTE parameter (the R67-3 DEADLINE precedent —
+    every pre-R71 caller passes unchanged), applied at the MOVED
+    heading in the TARGET buffer after the metadata block —
+    flush-first, inside the engine's existing transaction, before its
+    ONE transactional save; the drawer decision is the WRITE TARGET
+    file's own =org-log-into-drawer= (the R67-4 write-target law,
+    Decision 5).
+  So =RET= = confirm edit + note in one action; the note lands in
+  BOTH legs.  Empty/absent =:note= = no note written.  The R70
+  standalone wrapper =org-air-inbox--add-item-note= FOLDS INTO the
+  applier's =:note= leg and retires (Decision 3) — its whole body was
+  the one-field special case of what =--apply-item-edits= already
+  does.
+
+Measured this round (probes under =/tmp/org-air-r71/=, batch Emacs
+30.2 / Org 9.7.11 / bundled transient, against the R70 tree):
+
+| Probe                                                                | Result                                                        |
+|----------------------------------------------------------------------+---------------------------------------------------------------|
+| =transient-get-suffix 'org-air-refile-transient '("n")=              | nil — =n= is FREE                                             |
+| the transient's own suffix keys (layout walk)                        | =f p l t c s d k , RET S-<return> q= — no =n=                 |
+| =lookup-key transient-map (kbd "n")= / =transient-base-map=          | nil / nil — no transient common command shadows =n=           |
+| a pending DOWNGRADED reschedule record (=org-log-reschedule 'time=, the R68 shape), then =--append-log-note= BEFORE the flush | the ="- Rescheduled from"= line is SILENTLY LOST — =org-add-log-setup 'note= overwrites the shared =org-log-note-*= globals (=how= time→note) and dequeues the hook |
+| same, flush FIRST then the note                                      | BOTH lines land — the new stamp, the reschedule record, the full note |
+| ONE =atomic-change-group= around mutators + flush + note, then a signal | byte-exact rollback — metadata, record and note all gone together |
+| same group, no signal                                                | all three land — the composed apply is one transaction        |
+
+SPEC ONLY — no =.el= or test edits in this change.  org/org-ql only:
+no new dependency, no new query path; the note machinery stays the
+R70 org-core seam (=org-add-log-setup= / =org-store-log-note= /
+=org-log-beginning=).
+
+* Decision 1 — S-RET: removed, freed, left unbound
+
+The ="S-<return>"= group row is deleted; NOTHING replaces it in the
+transient.  S-RET inside an open editor now gets transient's own
+undefined-key feedback — loud, like R70's dropped =r= (active
+retraining; the requester's own muscle memory is the one being
+retrained, and the request is the move).  No alias, no
+"S-RET now lives on n" courtesy binding: a second key for the same
+suffix would put TWO rows in the menu (the transient renders every
+binding — R70 Non-goals refused a duplicate row for exactly this
+reason) and the field's home is the Metadata group where its
+siblings live.  The BOARD's own S-RET visit (=org-air-visit-item=)
+is untouched — it was never the transient's binding; the modal
+shadowing that made R70's reuse safe simply ends.
+
+* Decision 2 — the field: key `n', minibuffer pre-fill, empty clears
+
+** The key
+
+=n=, the last Metadata row (=t/c/s/d/k/,/n=).  Audited free three
+ways (probe table): no layout suffix uses it, and neither
+=transient-map= nor =transient-base-map= carries it (no common
+command is shadowed).  The BOARD map's =n= (=org-air-next-item=) is
+irrelevant while the transient is open — the modal keymap shadows the
+board, the same argument R70 used for S-RET, now in the harmless
+direction.  Mnemonic: =n=ote.
+
+** The reader
+
+#+begin_src emacs-lisp
+(read-string "Note (empty clears): " (org-air-inbox--form-get :note))
+#+end_src
+
+- INITIAL-INPUT (the pre-fill), deliberately NOT a DEFAULT: the field
+  must be RE-EDITABLE (press =n= again, the pending text is sitting
+  in the minibuffer to amend) and CLEARABLE (kill the text, =RET= ⇒
+  =:note= nil).  A DEFAULT would invert the second half — an empty
+  =RET= re-asserts the default instead of clearing, leaving the field
+  no way out.  The =k= todo field's empty-clears shape, applied to
+  free text.
+- Multi-line still travels (yank, =C-q C-j=) — the R70 Decision-4
+  reader, unchanged; org indents continuation lines at apply time
+  (probed in R70).
+- Store: =(org-air-inbox--form-put :note (unless (string-empty-p
+  text) text))= — the form never holds ""; empty IS nil IS "no note".
+- NO write, NO message about writing — the read stores a field.
+  =C-g= at the prompt leaves the previous value (the sibling fields'
+  behaviour).
+
+** The rendering
+
+A tiny pure helper =org-air-inbox--form-note-label (note)= — the
+FIRST line of NOTE, truncated to width 24 via
+=truncate-string-to-width= with an ="…"= ellipsis, the ellipsis also
+appended when further lines follow (a short first line must not
+masquerade as the whole note).  Used twice, WYSIWYG by construction:
+
+- the field row: =(org-air-inbox--form-field "note" …)= — =–= when
+  unset, like every sibling;
+- the Preview extras line (line 2), a new trailing segment after
+  SCHEDULED / DEADLINE / =:CATEGORY:=: =note: <label>= — the
+  =  ·  =-joined list the extras already use.
+
+** The semantics shift: field REPLACES, not journals
+
+R70's "two S-RETs = two dated notes" journaling law dies WITH the
+action — a field has ONE pending value per confirm; pressing =n=
+twice EDITS the same draft (the second read pre-filled with the
+first).  One =RET= ⇒ at most ONE dated note.  Journaling is still
+two keystrokes away — =RET=, then =e= again — and the field model
+buys what the action could not: the note is PREVIEWABLE before any
+byte moves, and =C-g=/=q= ABANDON a drafted note (R70's immediate
+write was irrevocable-by-design; the user's one-confirm framing
+says the note belongs inside the confirm, so abandon must cover it).
+
+* Decision 3 — the wrapper folds: `--add-item-note' retires
+
+=org-air-inbox--add-item-note= existed to give the R70 ACTION a
+one-field atomic write path.  Its duties — stale guard, R26-8
+marker-or-=(FILE . POS)= position, =org-back-to-heading= under
+=org-with-wide-buffer=, ONE =atomic-change-group=, ONE =save-buffer=,
+triage-undo recording — are =org-air-inbox--apply-item-edits='s
+duties, verbatim (R70 called it "the apply-side twin").  With =:note=
+a first-class EDITS field, the twin IS the applier: a note-only
+=RET= is =--apply-item-edits item '(:note "…")= — same path, same
+discipline, one code shape for every in-place confirm.  The
+standalone symbol is REMOVED, not kept as a delegator: no UI calls
+it, and a function whose only callers would be tests is a test-only
+API — a maintenance lie the r70 pins should not prop up (they flip
+to the real executed path; table in the reframe section).
+=org-air-inbox--append-log-note= — the actual writer — is kept
+byte-for-byte and gains its second caller (the engine).
+
+* Decision 4 — application order: flush FIRST, note LAST (the probed hazard)
+
+The R68 flush and the note's =org-add-log-setup= share org's
+=org-log-note-*= GLOBALS.  If the metadata mutators queued a
+downgraded ='time=/='state= record (a =lognotereschedule= config
+under the R68 discipline, say) and the note setup runs BEFORE the
+flush, the setup OVERWRITES the shared globals (=how= time→note) and
+=--append-log-note='s own =remove-hook= dequeues the pending record —
+the reschedule line is SILENTLY LOST (probed, table above; the exact
+overwrite R68's flush was built to prevent, re-entered through the
+new side door).  So in BOTH legs the order is pinned:
+
+  mutators (under the R68 discipline) → =--flush-pending-log-note= →
+  =:note= via =--append-log-note= → the ONE save
+
+all inside the ONE transaction.  In =--apply-item-edits= the note
+displaces the flush as the change group's LAST form (the R68-2
+comment updates; rollback covers metadata + record + note together —
+probed byte-exact).  Point is re-anchored with =org-back-to-heading
+t= before the append (the mutators may drift it).  R68 disjointness
+is UNCHANGED: the explicit note neither consults
+=org-inhibit-logging= nor leaves anything for the flush (the R70
+probes carry over) — the discipline downgrades implicit records, the
+explicit note is applied, and now their ORDER inside one transaction
+is part of the contract.
+
+* Decision 5 — the engine: a trailing NOTE parameter, applied at the moved heading
+
+=org-air-refile-item (&optional item target-file target-heading tags
+scheduled category todo priority deadline note)= — the R67-3
+precedent replayed: a trailing ADDITIVE parameter, every pre-R71
+caller passes unchanged, nil/"" = no note.  Inside the engine the
+note is applied where the marker is still alive — in the inner
+=unwind-protect=, after the metadata let-block:
+
+#+begin_src emacs-lisp
+;; still inside the atomic-change-group, insert-pos still a marker:
+(org-air-inbox--flush-pending-log-note)   ; FIRST — Decision 4
+(when (and note (not (string-empty-p note)))
+  (goto-char insert-pos)
+  (org-back-to-heading t)
+  (org-air-inbox--append-log-note note))
+#+end_src
+
+with the engine's existing pre-save flush call MOVED here (from
+between the group's paste block and its =save-buffer=) — a
+behaviour-neutral relocation: same transaction, still before the ONE
+transactional save, and now provably ordered before the note.
+
+The note lands at the MOVED heading in the TARGET buffer, so the
+drawer decision is the WRITE TARGET file's own =org-log-into-drawer=
+/ =#+STARTUP: logdrawer= — the R67-4 write-target law (=k='s
+vocabulary and =,='s range already read the file the write lands
+in), and exactly how every other metadata field behaves in this leg.
+Writing at the SOURCE before the cut was considered and rejected: a
+post-cut failure restores TEXT with the note already inside — a
+half-applied confirm surviving a failed edit breaks the
+all-or-nothing contract; at the target, the signal path rolls the
+note back with everything else and the source restore is
+byte-identical (the R64 discipline untouched).
+
+* Decision 6 — the execute leg + the restored R64-2 claim
+
+=org-air-refile-form-execute= changes minimally:
+
+- /refile leg/: the engine call grows the tenth argument —
+  =(org-air-refile-item item file olp (or (cdr eff) :none) scheduled
+  category todo priority deadline (org-air-inbox--form-get :note))=.
+  =--refile-last= recording unchanged — the note is per-confirm
+  payload, never part of the =l= recall.
+- /in-place leg/: =(when note (setq edits (plist-put edits :note
+  note)))= — a note-only form is a REAL edit (edits non-null ⇒ the
+  applier runs; the "Nothing to change" no-op now fires only when
+  the form is truly untouched).  The completion message enumerates
+  ='note= like any field ("Edited \"…\" — priority, note").
+
+The transient prefix docstring updates: the field list gains the
+note, and its "every write is deferred to execute (R64-2)" sentence
+— which R70's immediate-write action quietly contradicted — is
+STRENGTHENED to name the note as deferred too.  =RET='s dynamic
+label ("refile" / "edit in place") is untouched: the note rides
+whichever leg the label already announces.
+
+* The reframe — every surface that says S-RET / the action
+
+- =org-air-refile-transient= layout: the ="S-<return>"= row deleted;
+  =("n" org-air-refile-form-note)= appended to the Metadata group.
+- =org-air-refile-form-note= docstring rewritten (field, not
+  action); =org-air-inbox--refile-form= defvar + =--form-init= gain
+  =:note= (seeded nil); =--form-preview= docstring notes the extras
+  segment.
+- README.org:251 =| e | Edit the item — metadata / refile / ~S-RET~
+  note |= → =… metadata / note / refile= (no key names in the cell —
+  the transient itself is the legend).
+- README.org:342: "… or ~S-RET~ to add a dated LOGBOOK note — one
+  ~RET~ confirms" → "… todo / priority / a dated LOGBOOK note (~n~),
+  optionally pick a destination to refile … — one ~RET~ confirms
+  everything".
+- The board =?= help: AUDITED — the Triage =e= row ("edit item (a
+  destination refiles)") never mentioned S-RET or the note; no help
+  change.  No Actions-rail cell exists (R26-6, re-confirmed R70).
+- =org-air.el=: no autoload names the suffix — nothing to do.
+
+Existing pins that FLIP (tests/org-air-round70-test.el — each is an
+exact pin of the R70 action shape; the impl seat edits them
+alongside, none weakened, each re-pointed at the REAL executed path):
+
+| Pin                                        | New assertion                                                            |
+|---------------------------------------------+--------------------------------------------------------------------------|
+| r70-4 transient layout                     | ="n"= → =org-air-refile-form-note= (=:transient= t) in the METADATA group; =transient-get-suffix '("S-<return>")= is NIL; RET/=q= unchanged |
+| r70-6 wrapper drawer leg                   | =--apply-item-edits item '(:note "file setting")= on the =logdrawer= fixture — same saved-bytes drawer assert |
+| r70-7 wrapper in-place/saved/undo/R26-8    | =--apply-item-edits item '(:note "quick thought")= returns ='(note)= — same byte-splice, no-move, unmodified-buffer, undo-source and cache-cold asserts |
+| r70-8 R68 disjointness                     | the composed applier call under =(org-inhibit-logging 'note)= inside =--at-item-source= — same in-full/one-line/clean-hook asserts |
+| r70-9 atomicity                            | the failing-store stub under =--apply-item-edits '(:note "doomed")= — same byte-identical rollback assert |
+| r70-10 the suffix                          | full flip: =n= STORES without writing (bytes identical at read time), empty read CLEARS, then execute-with-destination refiles AND lands the note at the TARGET |
+| r70-11 note + in-place compose             | =n= draft + =:priority= then ONE =RET= — both in the source's saved bytes, one note line, ONE save |
+| r70-12 two S-RETs = two notes              | INVERTED to the field law: two =n= reads = ONE =:note= (the second text), execute writes exactly ONE dated note |
+
+r70-1/2/3 (the rebind, =where-is= determinism, help row) and r70-5
+(the note core's exact dated shape) stand UNTOUCHED — the R70 rebind
+and writer survive this round byte-for-byte.
+
+* ERT seams — batch, tests/org-air-round71-test.el (each reverts to RED against the R70 tree)
+
+Fixture: the r70 temp-dir corpus verbatim — =inbox.org= (=* TODO
+Capture me :inbox:=), =drawer.org= (=#+STARTUP: logdrawer=),
+=projects.org= (titled target); form suffixes driven via
+=--form-init= + =--form-put= + =call-interactively= (the r19/r64/r67
+idiom — no transient event loop); reads stubbed via =cl-letf=.
+
+- *r71-1 /S-RET gone, n present/*: =transient-get-suffix
+  'org-air-refile-transient '("S-<return>")= is NIL; ='("n")= is
+  =org-air-refile-form-note= with prototype slot =transient= t; the
+  layout walk finds =n= inside the METADATA group (keys
+  =t c s d k , n=); ="RET"= still =org-air-refile-form-execute=,
+  ="q"= still quits.  RED today (S-RET bound, no =n=).
+- *r71-2 /the read stores, nothing writes/*: form-init;
+  =read-string= → ="hi"= ⇒ =call-interactively= puts =:note "hi"= and
+  the DISK bytes are IDENTICAL (prompt-time no-mutation now covers
+  the note — RED against the R70 immediate write); a second press
+  receives ="hi"= as the reader's INITIAL argument (spied) and its
+  ="hi again"= REPLACES the field; an empty read CLEARS ⇒ =:note=
+  nil.
+- *r71-3 /the rendering/*: with =:note "hi"= the suffix description
+  renders =note     hi= and =--form-preview= contains =note: hi=;
+  with a multi-line/long note both carry the first line + ="…"=;
+  with =:note= nil the row shows =–= and the preview carries NO
+  =note:= segment.  RED today (no row, no segment).
+- *r71-4 /note-only RET, in place/*: form-init + =n= draft ⇒ execute
+  (no destination) ⇒ the dated =- Note taken on [ts] \\= + indented
+  text in the SOURCE's saved bytes, heading byte-identical, no move,
+  exactly ONE note line, ='(note)= the applied list, the form
+  cleared, =--refile-last= still nil.  RED today (execute ignores
+  =:note=).
+- *r71-5 /note + fields, ONE save, flush-first/*: =:note= +
+  =:priority ?A= + a reschedule under a let-bound
+  =(org-log-reschedule 'note)= on a SCHEDULED fixture item ⇒ ONE
+  =RET= ⇒ the new stamp, the downgraded ="- Rescheduled from"=
+  record AND the full note all in the SAME saved bytes;
+  =save-buffer= spied to exactly ONE call.  RED against
+  note-before-flush (the record vanishes — probed) and against a
+  second save.
+- *r71-6 /atomicity of the composed apply/*: =cl-letf=
+  =org-store-log-note= to insert-junk-then-signal under a
+  note+priority =RET= ⇒ the store's own error propagates and disk +
+  buffer are byte-identical — the METADATA rolls back WITH the note
+  (one group), no save.  RED against a split transaction.
+- *r71-7 /refile leg carries the note/*: =:file projects.org= +
+  =:note= ⇒ ONE =RET= ⇒ the item is AT the target with the dated
+  note under the moved heading, the source clean (no residue, no
+  note line), =--refile-last= recorded; the engine spied to ONE call
+  receiving the note as its tenth argument.  RED today (no
+  parameter).
+- *r71-8 /drawer per write target/*: refile INTO a =#+STARTUP:
+  logdrawer= target ⇒ the note inside =:LOGBOOK:=…=:END:= in the
+  TARGET's saved bytes with the GLOBAL knob nil (anti-tautology
+  pinned); the in-place leg on =drawer.org= likewise (the r70-6
+  relocation).  RED against source-side placement.
+- *r71-9 /R68 disjointness holds through RET/*: the composed
+  note+todo =RET= under =(org-inhibit-logging 'note)= and from
+  within an =--at-item-source= body ⇒ the note IN FULL, exactly one
+  note line, hook clean at the macro's post-body flush (spied
+  no-op).  RED against a downgrade-routed note.
+- *r71-10 /empty = no-op note/*: execute with =:note= nil and no
+  other field ⇒ the gentle "Nothing to change" message, zero bytes
+  moved; with =:note= nil + =:todo= ⇒ the todo applies and NO note
+  line appears.  RED against an unconditional note write.
+- *r71-11 /the engine parameter is additive/*: a direct
+  nine-argument =org-air-refile-item= call (the pre-R71 shape)
+  refiles with NO note line; the ten-argument call lands the note —
+  the trailing-parameter compatibility law, pinned.
+- *r71-12 /the fold/*: =(fboundp 'org-air-inbox--add-item-note)= is
+  NIL — the wrapper retired, its duties absorbed (revert-RED against
+  a kept symbol); companion: =--apply-item-edits '(:note "x")= alone
+  reproduces the r70-7 byte contract (the absorption is lossless).
+
+GUI residue (screenshot-confirm, not ERT-able): the live =n=
+keypress inside the real transient event loop; the rendered
+=note     …= field row + the preview segment; S-RET's undefined-key
+feedback in an open editor.  Goldens: ZERO shifts expected — no
+fixture renders the transient (re-confirmed R70); =make
+regen-mockups= must come back byte-clean, anything else is a spec
+violation to investigate.  Known-failures manifest stays EMPTY.
+
+* Non-goals
+
+- No S-RET rebinding or alias inside the transient (Decision 1);
+  the BOARD's S-RET visit untouched.
+- No multi-note journaling per session — the field REPLACES
+  (Decision 2); =RET= + =e= again journals.
+- No rename of ANY =org-air-refile-*= symbol —
+  =org-air-refile-form-note= keeps its name across the
+  action→field repurpose; the engine keeps its name and its
+  parameter ORDER (the note strictly trailing).
+- No =:note= in the =l= recall / =--refile-last= (per-confirm
+  payload, never a destination default).
+- No note rendering on board rows/inspector (unchanged R70
+  non-goal); no full =*Org Note*= interactive UI from board context
+  (the R68 Decision-2 boundary stands).
+- No walk (=process-inbox=) change — the =?r= char row stays
+  (R70 Decision 2).
+- No dedicated multi-line note-composition buffer — the minibuffer
+  read is the field idiom; long-form writing lives at the source
+  via =RET= visit.
+
+* Compatibility
+
+- *R53 (never-hang / never-error)*: one minibuffer read, no new
+  buffers, no scans; the trap-prone org note UI still only ever
+  entered through its synchronous finishing path; empty input is a
+  cleared field, not an error.
+- *R57*: untouched (no vocabulary surface).
+- *R64 (one-confirm, prompt-time no-mutation)*: STRENGTHENED — the
+  R70 action was the form's one immediate-write exception; with the
+  note deferred, EVERY field is collect-then-execute again and
+  =C-g=/=q= abandon everything including a drafted note.  The
+  refile leg stays ONE engine call.
+- *R66*: the engine change is a trailing additive parameter; step 0
+  (directory + frontmatter) and the transactional shape are
+  byte-for-byte.
+- *R67 (the editor)*: both legs extended SYMMETRICALLY; the
+  write-target law (R67-4) now governs the note's drawer placement
+  exactly as it governs =k='s vocabulary; the in-place applier
+  remains the single in-place seam (the wrapper fold removes its
+  only sibling).
+- *R68 (logging discipline)*: disjointness preserved and the
+  intra-transaction ORDER now pinned — flush before note (the
+  probed globals-overwrite hazard, Decision 4); the flush helper
+  itself unchanged; the engine's flush call relocated
+  behaviour-neutrally inside the same transaction.
+- *R70*: the rebind (=e=), the help row, and the note WRITER
+  (=--append-log-note=, exact dated shape, drawer honouring,
+  batch-safe emulation) all survive byte-for-byte — this round
+  changes the note's DELIVERY (action → field), not its mechanics;
+  r70-1/2/3/5 stand, the action-shaped pins flip (table above).
+- Cache: no schema change; the one save bumps mtime and the
+  ordinary refresh pipeline repaints as with every board write.
+
+* Implementation History
+
+- 2026-07-22: Round 71 spec (design seat, Fable).  User
+  clarification on R70: the comment must ride the ONE confirm —
+  =RET= applies edit AND note together — as a transient FIELD, not
+  an S-RET action.  Decisions: S-RET row removed, key freed and
+  left unbound in the transient (loud, no alias — the R70 =r=
+  precedent); =org-air-refile-form-note= repurposed action→field on
+  =n= (audited free: layout keys =f p l t c s d k , RET S-<return>
+  q=; =transient-map=/=transient-base-map= clean; the board's =n=
+  shadowed by the modal transient), last Metadata row, =:transient=
+  t, minibuffer read PRE-FILLED for re-edit, empty clears, stores
+  dirty =:note= with ZERO writes at read time; field row + Preview
+  =note: <first line>…= via a shared pure label helper; field
+  REPLACES (journaling law inverted — one confirm, at most one
+  note; drafts previewable and abandonable).  Application: =:note=
+  a first-class EDITS field of =--apply-item-edits= (note applied
+  LAST, after the R68 flush — the globals-overwrite hazard probed:
+  note-before-flush silently LOSES a pending downgraded record;
+  flush-first lands both; one group, one save, one undo, ='note= in
+  the applied message); the engine gains a trailing additive NOTE
+  parameter applied at the MOVED heading inside its transaction
+  (drawer per the WRITE TARGET's =org-log-into-drawer= — the R67-4
+  law; source-side pre-cut write rejected on all-or-nothing
+  grounds; the engine's flush call relocated behaviour-neutrally);
+  =--add-item-note= folds into the applier and retires (its duties
+  were the applier's, a kept delegator would be test-only API).
+  Probes under =/tmp/org-air-r71/= (table in Summary).  Reframe:
+  layout, docstrings, README rows; =?= help audited — no S-RET
+  wording existed, no change.  Eight r70 action-shaped pins flip
+  (table), r70-1/2/3/5 stand.  Twelve batch seams r71-1..r71-12,
+  each revert-RED against the R70 tree; goldens expected
+  byte-clean; manifest stays EMPTY.  State: ready.

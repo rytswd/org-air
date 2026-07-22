@@ -2663,6 +2663,32 @@
     ;; Round-70 manifest is EMPTY; the tests stay as permanent
     ;; regression guards.
     ;; =================================================================
+    ;; v0.1 ROUND-72 impl grind (air/v0.1/org-air-round72-design.org).
+    ;; R72 Decision 4 MEMO-KEY EXTENSION: the classify memo key
+    ;; `org-air-view--classify-cache-day' grows from the bare
+    ;; `time-to-days' integer to the pair (DAY . EFFECTIVE-HORIZON) — an
+    ;; active `due:Nd/Nw' window filter token WIDENS the Upcoming
+    ;; horizon, so the key must carry the horizon dimension (toggling a
+    ;; window filter rebuilds the memo instead of serving stale buckets;
+    ;; a NO-OP when the horizon is unchanged — `due:7d' at defaults keys
+    ;; identically to no filter, pinned by r72-9).  The ONE pre-R72 ERT
+    ;; below hardcodes the old integer shape at both ends of its
+    ;; midnight-rollover walk: it stamps the cache day with the bare
+    ;; integer `yesterday' and asserts `(eql --classify-cache-day
+    ;; today)' after the repaint.  The rollover CONTRACT itself survives
+    ;; byte-exact (an `equal' mismatch on the old integer still rebuilds
+    ;; — day change detection carries; the repaint tick conjunct is
+    ;; untouched); only the key-SHAPE assert moved.  NOT hand-blessed on
+    ;; the impl track per the brief — the test seat re-blesses the final
+    ;; assert to the (DAY . HORIZON) pair (cdr = the default horizon 7
+    ;; on an unfiltered board) and deletes this entry as closeout.  ZERO
+    ;; byte goldens moved (`make regen-mockups' byte-clean — no fixture
+    ;; renders an active filter, exactly as the spec predicts).
+    (org-air-r42-f2-no-change-repaints
+     . "R72 Decision 4: the classify memo key is now the pair (DAY .
+EFFECTIVE-HORIZON); this ERT pins the pre-R72 bare-integer shape
+(`(eql org-air-view--classify-cache-day today)').  Test seat re-blesses
+the key-shape conjunct; the rollover/repaint contract is unchanged.")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

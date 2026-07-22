@@ -800,7 +800,10 @@ and hydrated from the persisted `:mtimes' by `org-air-view--cache-load'.")
 An `eq' hash (R18 D-P1c).  Auto-invalidates because a re-query yields new
 item objects; explicitly cleared on day-rollover and refresh.")
 (defvar-local org-air-view--classify-cache-day nil
-  "`time-to-days' the classify cache was built for; a rollover clears it.")
+  "Key the classify cache was built for; a mismatch clears it.
+R72: the pair (DAY . EFFECTIVE-HORIZON) — `time-to-days' of the render's
+now consed with `org-air-view--filter-effective-horizon' — so both a day
+rollover and an active-window horizon change rebuild the memo.")
 (defvar org-air-view--render-partition nil
   "Per-render compute-once memo (ITEMS VISIBLE . TABLE) (R20-6).
 VISIBLE is the scope+filter visible subset of ITEMS computed ONCE; TABLE is
@@ -2051,19 +2054,136 @@ the bounded 4KB read survives only for files the scan has not met."
                              leaf))
         (_ (or (org-air-view--denote-title file) leaf))))))
 
+(defvar org-air-view--filter-now nil
+  "The ONE instant the R72 date/status filter tokens evaluate against.
+nil (the off-partition default) means `current-time'.
+`org-air-view--compute-partition' binds it to the SAME now it classifies
+with, so within one render the filter and the buckets read a single
+instant; ERT freezes time by let-binding it.  Day-granular predicates,
+same as classify.")
+
 (defun org-air-view--filter-tags ()
   "Return active filter tokens as a list (R24-6: tokens stored VERBATIM).
-Each token is either a `#tag' (a tag match) or a bare substring token."
+Each token is either a `#tag' (a tag match), an R72 date/status token
+\(`is:overdue', `due:7d', … — `org-air-view--filter-token-parse') or a
+bare substring token."
   (cond
    ((null org-air-view--tag-filter) nil)
    ((listp org-air-view--tag-filter) org-air-view--tag-filter)
    ((stringp org-air-view--tag-filter) (list org-air-view--tag-filter))))
 
+(defconst org-air-view--filter-is-values
+  '("overdue" "upcoming" "stale" "nodate" "hipri")
+  "The closed value set of the R72 `is:' status-token family.")
+
+(defun org-air-view--filter-token-parse (token)
+  "Parse TOKEN as an R72 date/status filter token, or return nil.
+The closed `qualifier:value' grammar (case-insensitive throughout):
+  is:overdue / is:upcoming / is:stale / is:nodate / is:hipri
+    => (is . SYMBOL)
+  due:Nd / due:Nw (and the scheduled:/deadline: slot twins; the unit is
+  REQUIRED, `w' = 7×N days)
+    => (SLOT . DAYS) with SLOT one of `due' / `scheduled' / `deadline'.
+A `#'-prefixed token is refused outright (the `#' branch of the matcher
+stays first, so `#overdue' — and any `#'-spelled literal tag that \"looks
+like\" a keyword — is a tag match forever).  Anything else returns nil
+and falls through to the existing #tag/substring rules VERBATIM (never
+errors; the label quoting is the tell —
+`org-air-view--filter-token-label')."
+  (when (and (stringp token) (not (string-prefix-p "#" token)))
+    (let ((case-fold-search t))
+      (cond
+       ((string-match
+         (concat "\\`is:\\("
+                 (mapconcat #'regexp-quote org-air-view--filter-is-values
+                            "\\|")
+                 "\\)\\'")
+         token)
+        (cons 'is (intern (downcase (match-string 1 token)))))
+       ((string-match
+         "\\`\\(due\\|scheduled\\|deadline\\):\\([0-9]+\\)\\([dw]\\)\\'"
+         token)
+        (cons (intern (downcase (match-string 1 token)))
+              (* (string-to-number (match-string 2 token))
+                 (if (string-equal-ignore-case (match-string 3 token) "w")
+                     7
+                   1))))))))
+
+(defun org-air-view--filter-date-token-match-p (parsed item now)
+  "Non-nil when PARSED (a date/status token) matches ITEM as of NOW.
+PARSED is `org-air-view--filter-token-parse' output.  Dispatches onto the
+buckets' OWN hoisted classify predicates — the filter contains NO date
+arithmetic of its own, so filter⇔bucket agreement holds by construction
+\(R72 Decision 3).  Every token conjoins the buckets' top gate
+\(`org-air-classify--board-active-p': not done, not archived) — the
+filter never resurrects what the board buries."
+  (and (org-air-classify--board-active-p item)
+       (pcase parsed
+         (`(is . overdue) (org-air-classify--overdue-p item now))
+         (`(is . upcoming)
+          ;; `is:upcoming' means the KNOB horizon (it widens nothing).
+          (org-air-classify--due-within-p item now org-air-upcoming-days))
+         (`(is . stale) (org-air-classify--stale-p item now))
+         (`(is . nodate)
+          ;; Deliberately the R54-1 eligibility NEGATION, not the attention
+          ;; bucket's narrower (null sched)(null dl): an item whose only
+          ;; date is a body <ts> is dated (it feeds the calendar and the
+          ;; stale clock) and must not answer "nodate".
+          (not (org-air-classify--stale-eligible-p item)))
+         (`(is . hipri) (org-air-classify--hipri-p item))
+         (`(due . ,days) (org-air-classify--due-within-p item now days))
+         (`(scheduled . ,days)
+          (org-air-classify--due-within-p item now days 'scheduled))
+         (`(deadline . ,days)
+          (org-air-classify--due-within-p item now days 'deadline)))
+       t))
+
+(defun org-air-view--filter-window-days ()
+  "Return the MAX days over the active filter's parsed window tokens.
+nil when no `due:'/`scheduled:'/`deadline:' window token is active (R72
+Decision 4 — the Upcoming-horizon widening input)."
+  (let ((days nil))
+    (dolist (tok (org-air-view--filter-tags))
+      (pcase (org-air-view--filter-token-parse tok)
+        (`(,(or 'due 'scheduled 'deadline) . ,n)
+         (setq days (max n (or days 0))))))
+    days))
+
+(defun org-air-view--filter-effective-horizon ()
+  "Return the effective Upcoming horizon in days (R72 Decision 4).
+\(max `org-air-upcoming-days' ACTIVE-WINDOW-DAYS) — widening only, never
+narrowing: `due:2d' still renders the full knob-wide Upcoming section
+\(the FILTER does the narrowing, the bucket keeps its shape), while
+`due:2w' widens the horizon so every item the window selects has a home
+row (the probed +8d bucketless hole)."
+  (max org-air-upcoming-days (or (org-air-view--filter-window-days) 0)))
+
+(defun org-air-view--filter-vocabulary ()
+  "Return the R72 date/status token offer list for the `/' completion.
+The five `is:' tokens plus knob-tracking window examples
+\(`due:7d' / `scheduled:7d' / `deadline:7d' where 7 is the LIVE
+`org-air-upcoming-days') — the examples track the knob, teach the value
+grammar by example, and (for `due:') are the exact Upcoming-bucket twin
+at any setting.  Offered by the board and the review view; project and
+revisit pass nothing (their records carry no planning slots — R72
+Decision 8)."
+  (append
+   (mapcar (lambda (v) (concat "is:" v)) org-air-view--filter-is-values)
+   (mapcar (lambda (q) (format "%s:%dd" q org-air-upcoming-days))
+           '("due" "scheduled" "deadline"))))
+
 (defun org-air-view--filter-token-label (token)
   "Return TOKEN as it should appear in the filter lens display (R24-6).
 A `#tag' token reads verbatim; a bare substring token reads quoted
-\(`\"git\"') so the lens presents it as text, not a tag."
-  (if (string-prefix-p "#" token) token (format "%S" token)))
+\(`\"git\"') so the lens presents it as text, not a tag.  R72: a token
+that PARSES as a date/status token renders verbatim-unquoted (like a
+`#tag'), while an unparsed near-miss keeps its quotes — the rail/banner/
+mode-line read `is:overdue' for the real thing but `\"is:urgent\"' for
+the typo, so the quoting is the tell."
+  (if (or (string-prefix-p "#" token)
+          (org-air-view--filter-token-parse token))
+      token
+    (format "%S" token)))
 
 (defun org-air-view--tag-chip-label (tag)
   "Return TAG's chip label: the `#'-prefixed tag name, prefix-DEDUPED (R69-5).
@@ -2076,12 +2196,17 @@ never rewritten).  The ONE label primitive for every tag-NAME chip surface
 rollups); filter-TOKEN surfaces use `org-air-view--filter-token-label'."
   (if (string-prefix-p "#" tag) tag (concat "#" tag)))
 
-(defun org-air-view--filter-token-match-p (token text tags)
+(defun org-air-view--filter-token-match-p (token text tags &optional item)
   "Non-nil when TOKEN matches TEXT/TAGS (R24-6 filter mini-language).
 A `#tag' token = exact TAG membership of the STRIPPED name OR of the
 VERBATIM token (R69-5: a literal `#'-named org tag like `:#Nix:' is hit
 by the `#Nix' token its own chip toggles, so deduped chips stay
 clickable/filterable — a strict superset of the old stripped-only rule);
+an R72 date/status token (`is:overdue', `due:7d', … — the `#' branch
+stays FIRST, so `#'-spelled tags can never be stolen) = the bucket
+predicate over ITEM's cached planning slots, evaluated against
+`org-air-view--filter-now' (one NOW per render) — vacuously FALSE when
+no ITEM is threaded (project/revisit: no slots, no claim);
 a BARE token = case-insensitive SUBSTRING of TEXT (the caller builds it
 from the title + origin/path) plus the tag NAMES (so a bare tag name
 still finds its tagged items, the legacy behaviour as a subset).
@@ -2091,22 +2216,30 @@ Case-insensitive throughout."
         (and (or (member (downcase (substring token 1)) names)
                  (member (downcase token) names))
              t))
-    (and (string-search (downcase token)
-                        (downcase (concat (or text "") " "
-                                          (string-join tags " "))))
-         t)))
+    (if-let* ((parsed (org-air-view--filter-token-parse token)))
+        (and item
+             (org-air-view--filter-date-token-match-p
+              parsed item (or org-air-view--filter-now (current-time))))
+      (and (string-search (downcase token)
+                          (downcase (concat (or text "") " "
+                                            (string-join tags " "))))
+           t))))
 
-(defun org-air-view--tokens-pass-filter-p (text tags)
+(defun org-air-view--tokens-pass-filter-p (text tags &optional item)
   "Return non-nil when TEXT/TAGS satisfy the active filter tokens + combinator.
-SHARED by the board (item title+origin+tags) and the project (doc
-name+relpath+tags) — the one matcher both views call (R24-6, generalising
-R18 D-P3).  Empty filter passes everything; `org-air-filter-match' selects
-`all' (AND) or `any' (OR) and spans MIXED #tag / bare-substring tokens."
+SHARED by the board (item title+origin+tags), the review view and the
+project (doc name+relpath+tags) — the one matcher every view calls
+\(R24-6, generalising R18 D-P3).  Empty filter passes everything;
+`org-air-filter-match' selects `all' (AND) or `any' (OR) and spans MIXED
+#tag / date-status / bare-substring tokens.  ITEM, when non-nil, is the
+`org-air-item' the R72 date/status tokens read their planning slots from
+\(board + review thread it; project/revisit pass none — there a date
+token is vacuously false, Decision 8)."
   (let ((tokens (org-air-view--filter-tags)))
     (or (null tokens)
         (and (funcall (if (eq org-air-filter-match 'all) #'seq-every-p #'seq-some)
                       (lambda (tok)
-                        (org-air-view--filter-token-match-p tok text tags))
+                        (org-air-view--filter-token-match-p tok text tags item))
                       tokens)
              t))))
 
@@ -2121,10 +2254,13 @@ caller still tag-matches; the real call sites pass the title/path text."
 (defun org-air-view--passes-filter-p (item)
   "Return non-nil when ITEM passes the active filter (R24-6).
 Passes the item's title + origin breadcrumb as the searchable TEXT so a
-bare token substring-matches the title; `#tag' tokens still tag-match."
+bare token substring-matches the title; `#tag' tokens still tag-match;
+the ITEM itself is threaded so R72 date/status tokens read its planning
+slots."
   (org-air-view--tokens-pass-filter-p
    (concat (org-air-item-title item) " " (org-air-view--origin item))
-   (org-air-item-tags item)))
+   (org-air-item-tags item)
+   item))
 
 (defun org-air-view--passes-scope-p (item)
   "Return non-nil when ITEM passes the active scope."
@@ -2154,8 +2290,12 @@ instead of 21x; falls back to a fresh scan off-render."
 Returns (ITEMS VISIBLE . TABLE): VISIBLE is `org-air-view--visible-items'
 in source order; TABLE is an `eq' hash mapping each classify bucket to its
 visible members in SOURCE order, byte-identical to what repeated
-`org-air-view--items-for-bucket' calls produced, in ONE classify pass."
+`org-air-view--items-for-bucket' calls produced, in ONE classify pass.
+R72: binds `org-air-view--filter-now' to the SAME now it classifies with,
+so the date/status filter tokens and the buckets evaluate against a
+single instant within one render."
   (let* ((now (or now (current-time)))
+         (org-air-view--filter-now now)
          (org-air-view--render-partition nil) ; force a true scan, not self
          (visible (org-air-view--visible-items items))
          (table (make-hash-table :test 'eq)))
@@ -2170,24 +2310,37 @@ visible members in SOURCE order, byte-identical to what repeated
 Called once in the MAIN board buffer at the start of a render so the temp
 pane buffers (`org-air-view--render-lines') can bind the cache var to the
 SAME table object; `puthash' there then persists back to this buffer.  A
-day rollover (or a missing table) rebuilds it."
-  (let ((day (time-to-days (or now (current-time)))))
+day rollover (or a missing table) rebuilds it.  R72: the memo key is the
+pair (DAY . EFFECTIVE-HORIZON), so toggling a window filter token that
+widens the Upcoming horizon rebuilds the memo instead of serving stale
+buckets — a pure slot-fold rebuild — and is a NO-OP when the horizon is
+unchanged (`due:7d' at defaults keys identically to no filter)."
+  (let ((key (cons (time-to-days (or now (current-time)))
+                   (org-air-view--filter-effective-horizon))))
     (unless (and org-air-view--classify-cache
-                 (eql org-air-view--classify-cache-day day))
+                 (equal org-air-view--classify-cache-day key))
       (setq org-air-view--classify-cache (make-hash-table :test 'eq :size 700)
-            org-air-view--classify-cache-day day))))
+            org-air-view--classify-cache-day key))))
 
 (defun org-air-view--classify-cached (item &optional now)
   "Return ITEM's bucket list, memoised per board (R18 D-P1c).
 Delegates to the pure `org-air-classify-item'; caches the result keyed on
 the item object (`eq').  Classify is DAY-granular (every predicate is a
 day-window comparison), so the cache key is the day of NOW: a render later
-the same day is a pure cache hit; a render after midnight rebuilds."
+the same day is a pure cache hit; a render after midnight rebuilds.
+R72 Decision 4: `org-air-upcoming-days' is bound to the effective horizon
+\(`org-air-view--filter-effective-horizon' — widened by an active window
+filter token, never narrowed) around the ONE classify choke point, so an
+item `due:2w' selects always has a home row; the memo key carries the
+horizon (`org-air-view--classify-cache-ensure')."
   (let ((now (or now (current-time))))
     (org-air-view--classify-cache-ensure now)
     (let ((hit (gethash item org-air-view--classify-cache 'miss)))
       (if (eq hit 'miss)
-          (puthash item (org-air-classify-item item now)
+          (puthash item
+                   (let ((org-air-upcoming-days
+                          (org-air-view--filter-effective-horizon)))
+                     (org-air-classify-item item now))
                    org-air-view--classify-cache)
         hit))))
 
@@ -2565,8 +2718,12 @@ column (`usable - 1') and never overshoots past `usable'."
             "\n")))
 
 (defun org-air-view--empty-upcoming ()
-  "Return upcoming empty state."
-  (format "Nothing scheduled in the next %d days." org-air-upcoming-days))
+  "Return upcoming empty state.
+R72: reads the EFFECTIVE horizon (`org-air-view--filter-effective-horizon'
+— the knob, widened by an active window filter token), so it can never
+announce \"next 7 days\" under a 14-day lens."
+  (format "Nothing scheduled in the next %d days."
+          (org-air-view--filter-effective-horizon)))
 
 (defun org-air-view--empty-message (message)
   "Resolve MESSAGE as a string or function."
@@ -8997,14 +9154,19 @@ filters are preserved by `org-air-refresh'."
   (goto-char (point-max))
   (org-air-prev-item))
 
-(defun org-air-view--read-filter (candidate-tags)
+(defun org-air-view--read-filter (candidate-tags &optional vocab)
   "Prompt for a tag filter PRE-FILLED with the active one (R18 D-P2/D-P3).
 CANDIDATE-TAGS is the completion vocabulary (board item tags, or project
-doc tags).  View-agnostic: shared by `org-air-filter' and
-`org-air-project-filter' so the pre-fill + AND default + `M-/' toggle are
-coded once."
+doc tags).  VOCAB, when non-nil, is the R72 date/status token offer list
+\(`org-air-view--filter-vocabulary'), appended after the tag candidates;
+the prompt then names the shapes.  REQUIRE-MATCH stays nil, so `due:12d'
+types freely.  View-agnostic: shared by `org-air-filter',
+`org-air-review-filter' and `org-air-project-filter' so the pre-fill +
+AND default + `M-/' toggle are coded once (project/revisit pass no VOCAB
+— their records carry no planning slots, R72 Decision 8)."
   (completing-read-multiple
-   "Filter (#tag or text): " candidate-tags nil nil
+   (if vocab "Filter (#tag, text, is:/due:): " "Filter (#tag or text): ")
+   (append candidate-tags vocab) nil nil
    (when (org-air-view--filter-tags)
      (mapconcat #'identity (org-air-view--filter-tags) ","))))
 
@@ -9038,7 +9200,8 @@ pre-filled value, or clear it to drop the filter."
      (org-air-view--loading-guard)
      (list (org-air-view--read-filter
             (delete-dups (sort (seq-mapcat #'org-air-item-tags org-air-view--items)
-                               #'string<))))))
+                               #'string<))
+            (org-air-view--filter-vocabulary)))))
   (setq org-air-view--tag-filter (unless (null tags) tags))
   (org-air-view--render-current))
 
@@ -9781,7 +9944,7 @@ read by the bookmark record producer.")
      (org-air-toggle-mark . "mark/unmark item")
      (org-air-process-inbox . "process inbox (guided walk)"))
     ("Filter & sort"
-     (org-air-filter . "filter by tags (live)")
+     (org-air-filter . "filter by tag / text / date (is:overdue, due:7d…)")
      (org-air-filter-clear . "clear filter")
      (org-air-filter-toggle-match . "toggle AND/OR combinator")
      (org-air-view-sort-cycle . "cycle sort key")

@@ -2292,7 +2292,10 @@ Board TAB-safety parity — never errors, never hangs:
 The prompt is PRE-FILLED with the active filter and the chosen terms
 combine with the shared `org-air-filter-match' combinator (AND by default,
 `M-/' toggles) — the same filter core the board uses, applied to
-`org-air-doc-tags'."
+`org-air-doc-tags'.
+R72: the date/status tokens (`is:overdue', `due:7d', …) are board/review
+vocabulary — docs carry no planning slots, so here they are vacuously
+false (loud: `0 of N shown') and the vocabulary is not offered."
   (interactive
    (list (org-air-view--read-filter
           (delete-dups

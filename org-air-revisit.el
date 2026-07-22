@@ -839,7 +839,11 @@ renderer, same paging (reset to page 1), zero per-row file opens."
 
 (defun org-air-revisit-filter (tags)
   "Filter the Revisit view to TAGS (the shared filter core, key `/').
-Matches title/tags/origin in memory; resets the paging."
+Matches title/tags/origin in memory; resets the paging.
+R72: the date/status tokens (`is:overdue', `due:7d', …) are board/review
+vocabulary — file-meta entries carry no planning slots (knowledge notes
+are dateless BY the R54-2 model), so here they are vacuously false and
+the vocabulary is not offered."
   (interactive
    (list (org-air-view--read-filter
           (delete-dups

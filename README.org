@@ -61,7 +61,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 - Five semantic buckets: *Inbox* (~:inbox:~ capture queue), *Needs attention* (overdue, or active with no schedule/deadline), *Upcoming* (within ~org-air-upcoming-days~), *High priority* (~[#A]~ etc.), *Stale* (untouched for ~org-air-stale-days~).
 - A month *calendar* marking scheduled/deadline/created days, with today highlighted — navigate months without leaving the board.
-- *Filtering* by tag /and/ free text: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
+- *Filtering* by tag /and/ free text /and/ date/status: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:stale~ / ~is:nodate~ / ~is:hipri~ and ~due:7d~-style windows (with ~scheduled:~/~deadline:~ twins) match the planning slots; multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
 - *Scope* the whole dataset to one tag, group, or file.
 - *Sort* within each bucket (date / priority / title / recency).
 - One-keystroke *capture* to the inbox, a guided *refile / process* flow, and an *inbox walk* that dispositions items one at a time.
@@ -254,7 +254,7 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~t~ / ~T~               | Set tag / cycle TODO keyword                                           |
 | ~d~ / ~D~               | Set deadline / mark done                                               |
 | ~a~ / ~x~ / ~u~         | Archive / kill (guarded) / undo triage                                 |
-| ~/~                     | Filter by tag or free text                                             |
+| ~/~                     | Filter by tag, free text, or date/status (~is:overdue~, ~due:7d~)      |
 | ~\~                     | Clear the filter                                                       |
 | ~M-/~                   | Toggle filter combinator (AND ↔ OR)                                    |
 | ~s~ / ~S~               | Scope / clear scope                                                    |

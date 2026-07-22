@@ -779,6 +779,9 @@ synchronously (batch only — deterministic ERT)."
 The `/' filter matches title + file leaf + group + tags through the
 shared `org-air-view--tokens-pass-filter-p' (the R24-6 mini-language);
 `s' is the board's structural lens (`org-air-view--passes-scope-p').
+R72: the ITEM is threaded, so the date/status tokens (`is:overdue',
+`due:7d', …) read its planning slots — \"time spent on overdue items\"
+is one filter away, and filter-before-fold keeps totals honest (R61-4).
 Pure slot/string work — zero file opens."
   (seq-filter
    (lambda (item)
@@ -787,7 +790,8 @@ Pure slot/string work — zero file opens."
            (concat (org-air-item-title item) " "
                    (file-name-nondirectory (or (org-air-item-file item) ""))
                    " " (or (org-air-item-group item) ""))
-           (org-air-item-tags item))))
+           (org-air-item-tags item)
+           item)))
    org-air-review--items))
 
 ;;;; ---------------------------------------------------------------------
@@ -1473,15 +1477,17 @@ always safe, it never toggles blindly or hangs."
 (defun org-air-review-filter (tags)
   "Filter the Review view to TAGS (the shared filter core, key `/').
 Matches title/tags/origin in memory through the R24-6 `#tag'/free-text
-mini-language; filter applies BEFORE the fold, so totals honestly
-describe what is shown."
+mini-language — plus the R72 date/status tokens (`is:overdue', `due:7d',
+…), which read the real item snapshots' planning slots; filter applies
+BEFORE the fold, so totals honestly describe what is shown."
   (interactive
    (list (org-air-view--read-filter
           (delete-dups
            (sort (seq-mapcat (lambda (item)
                                (copy-sequence (org-air-item-tags item)))
                              org-air-review--items)
-                 #'string<)))))
+                 #'string<))
+          (org-air-view--filter-vocabulary))))
   (setq org-air-view--tag-filter (unless (null tags) tags))
   (org-air-review--render-current))
 
@@ -1596,7 +1602,7 @@ rail and quits back to the previous view (the shared quit convention)."
      (org-air-view-sort-cycle . "cycle sort key (date/title)")
      (org-air-view-sort-reverse . "reverse sort"))
     ("Filter"
-     (org-air-review-filter . "filter by tags/text (live)")
+     (org-air-review-filter . "filter by tag / text / date (is:overdue, due:7d…)")
      (org-air-filter-clear . "clear filter")
      (org-air-filter-toggle-match . "toggle AND/OR combinator")
      (org-air-review-scope . "source lens (file/group/all)")

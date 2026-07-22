@@ -76,11 +76,16 @@ access; items built outside the scan fall back to
       (when-let* ((todo (org-air-item-todo item)))
         (member todo (org-air-classify--done-keywords item)))))
 
-(defun org-air-classify--future-or-today-p (timestamp now)
-  "Return non-nil when TIMESTAMP is within the upcoming window from NOW."
+(defun org-air-classify--future-or-today-p (timestamp now &optional days)
+  "Return non-nil when TIMESTAMP is within the upcoming window from NOW.
+DAYS is the window horizon in calendar days, defaulting to
+`org-air-upcoming-days' (every pre-R72 caller unchanged).  The window is
+0 <= d <= DAYS: today is in, the past is out — the ONE inequality shared
+by the Upcoming bucket and the R72 `due:Nd' filter windows, so they agree
+by construction."
   (when-let* ((time (org-air-classify--time timestamp)))
-    (let ((days (org-air-classify--days-between now time)))
-      (and (>= days 0) (<= days org-air-upcoming-days)))))
+    (let ((d (org-air-classify--days-between now time)))
+      (and (>= d 0) (<= d (or days org-air-upcoming-days))))))
 
 (defun org-air-classify--past-p (timestamp now)
   "Return non-nil when TIMESTAMP is before today relative to NOW."
@@ -185,6 +190,68 @@ The memoised-truename inbox test, hoisted so the R54-2 routing layer in
   (or (org-air-classify--inbox-file-p item)
       (member "inbox" (mapcar #'downcase (org-air-item-tags item)))))
 
+(defun org-air-classify--board-active-p (item)
+  "Non-nil when ITEM is live board material: not done, not archived (R72).
+The factored top gate of `org-air-classify--heading-buckets' — a DONE or
+`org-archive-tag'-tagged item classifies into ZERO task buckets, so it
+renders nowhere on the board.  Also the GATE every R72 date/status filter
+token conjoins (`org-air-view--filter-date-token-match-p'): the filter
+never resurrects what the board buries."
+  (not (or (org-air-classify--done-p item)
+           ;; R57-1 audit #5: an ARCHIVED heading (`org-archive-tag',
+           ;; already inherited into `tags' per the user's tag-inheritance
+           ;; settings, so whole ARCHIVE trees drop with default Org
+           ;; config) is history, never board material — mirrors
+           ;; `org-agenda-skip-archived-trees''s default.
+           (member org-archive-tag (org-air-item-tags item)))))
+
+(defun org-air-classify--overdue-p (item now)
+  "Non-nil when ITEM's scheduled or deadline lies before today (NOW).
+The Needs-attention bucket's overdue disjunct, hoisted (R72) — also the
+board filter's `is:overdue' predicate, so filter and bucket share ONE
+definition of \"overdue\"."
+  (or (org-air-classify--past-p (org-air-item-scheduled item) now)
+      (org-air-classify--past-p (org-air-item-deadline item) now)))
+
+(defun org-air-classify--due-within-p (item now days &optional slot)
+  "Non-nil when ITEM has a date within [NOW .. NOW+DAYS] in SLOT.
+SLOT is `due' (the default: scheduled OR deadline), `scheduled' or
+`deadline'.  Overdue never counts (0 <= d <= DAYS — the Upcoming bucket's
+own inequality via `org-air-classify--future-or-today-p').  The Upcoming
+bucket IS (org-air-classify--due-within-p ITEM NOW `org-air-upcoming-days')
+— also the board filter's `is:upcoming' / `due:Nd' / `scheduled:Nd' /
+`deadline:Nd' predicate (R72), so filter and bucket agree by construction."
+  (pcase (or slot 'due)
+    ('scheduled (org-air-classify--future-or-today-p
+                 (org-air-item-scheduled item) now days))
+    ('deadline (org-air-classify--future-or-today-p
+                (org-air-item-deadline item) now days))
+    (_ (or (org-air-classify--future-or-today-p
+            (org-air-item-scheduled item) now days)
+           (org-air-classify--future-or-today-p
+            (org-air-item-deadline item) now days)))))
+
+(defun org-air-classify--stale-p (item now)
+  "Non-nil when ITEM is stale as of NOW: R54-1 eligibility + the clock.
+The Stale bucket body hoisted whole (R72): eligible (scheduled ∨ deadline
+∨ active <ts> — `org-air-classify--stale-eligible-p') AND the activity gap
+\(`org-air-classify--last-activity') is >= `org-air-stale-days'.  Also the
+board filter's `is:stale' predicate."
+  (and (org-air-classify--stale-eligible-p item)
+       (when-let* ((activity (org-air-classify--last-activity item)))
+         (>= (org-air-classify--days-between activity now)
+             org-air-stale-days))
+       t))
+
+(defun org-air-classify--hipri-p (item)
+  "Non-nil when ITEM carries the highest priority (R72).
+The High-priority bucket test hoisted (priority >= `org-priority-highest')
+— also the board filter's `is:hipri' predicate."
+  (and (org-air-item-priority item)
+       (>= (org-air-item-priority item)
+           (org-get-priority (format "[#%c]" org-priority-highest)))
+       t))
+
 (defun org-air-classify--container-p (item)
   "Non-nil when ITEM is a pure CONTAINER heading (R59).
 A thin alias over `org-air-query-container-item-p' (layer symmetry with
@@ -227,35 +294,31 @@ treatment."
    (t (org-air-classify--heading-buckets item now))))
 
 (defun org-air-classify--heading-buckets (item now)
-  "Return the task-bucket symbols for a heading ITEM relative to NOW."
+  "Return the task-bucket symbols for a heading ITEM relative to NOW.
+R72: rewritten onto the hoisted named predicates — the top gate
+\(`org-air-classify--board-active-p'), Upcoming
+\(`org-air-classify--due-within-p'), overdue
+\(`org-air-classify--overdue-p'), high priority
+\(`org-air-classify--hipri-p') and Stale (`org-air-classify--stale-p') —
+behaviour-neutral, so the buckets and the R72 date/status filter tokens
+share ONE definition of every date word (agreement by construction)."
   (let* ((now (or now (current-time)))
          (buckets nil)
          (scheduled (org-air-item-scheduled item))
          (deadline (org-air-item-deadline item))
          (inbox-p (org-air-classify--inbox-dweller-p item)))
-    (unless (or (org-air-classify--done-p item)
-                ;; R57-1 audit #5: an ARCHIVED heading (`org-archive-tag',
-                ;; already inherited into `tags' per the user's
-                ;; tag-inheritance settings, so whole ARCHIVE trees drop
-                ;; with default Org config) is history, never board
-                ;; material — mirrors `org-agenda-skip-archived-trees''s
-                ;; default.
-                (member org-archive-tag (org-air-item-tags item)))
-      (when (or (org-air-classify--future-or-today-p scheduled now)
-                (org-air-classify--future-or-today-p deadline now))
+    (when (org-air-classify--board-active-p item)
+      (when (org-air-classify--due-within-p item now org-air-upcoming-days)
         (push 'upcoming buckets))
       ;; Real-signal membership ruling (xsqrnoyn): an overdue item needs
       ;; attention, but the NO-DATE attention default is suppressed for
       ;; inbox-dwellers — a schedule-less inbox capture is unfiled, not
       ;; "needs attention" (it stays in Inbox).  Real scheduled/deadline/
       ;; priority membership is still honoured everywhere.
-      (when (or (org-air-classify--past-p scheduled now)
-                (org-air-classify--past-p deadline now)
+      (when (or (org-air-classify--overdue-p item now)
                 (and (null scheduled) (null deadline) (not inbox-p)))
         (push 'attention buckets))
-      (when (and (org-air-item-priority item)
-                 (>= (org-air-item-priority item)
-                     (org-get-priority (format "[#%c]" org-priority-highest))))
+      (when (org-air-classify--hipri-p item)
         (push 'high-priority buckets))
       (when inbox-p
         (push 'inbox buckets))
@@ -263,11 +326,8 @@ treatment."
       ;; with no actionable date is not a task and can never go Stale.
       ;; The stale CLOCK (`org-air-classify--last-activity') is unchanged,
       ;; so a dated-but-quiet item classifies byte-identically to before.
-      (when (org-air-classify--stale-eligible-p item)
-        (when-let* ((activity (org-air-classify--last-activity item)))
-          (when (>= (org-air-classify--days-between activity now)
-                    org-air-stale-days)
-            (push 'stale buckets)))))
+      (when (org-air-classify--stale-p item now)
+        (push 'stale buckets)))
     (nreverse buckets)))
 
 (provide 'org-air-classify)

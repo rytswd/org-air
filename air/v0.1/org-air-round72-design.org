@@ -520,3 +520,54 @@ stays EMPTY.
   fold).  Twelve batch seams r72-1..r72-12, each revert-RED;
   goldens expected byte-clean; known-failures manifest stays
   EMPTY.  State: ready.
+- 2026-07-22: Round 72 IMPLEMENTED (impl seat, fresh child of
+  mvutqotu).  All three packages landed exactly as specced:
+  - R72-1: =org-air-view--filter-token-parse= — the closed
+    anchored =qualifier:value= grammar (the =is:= five →
+    =(is . SYMBOL)=; =(due|scheduled|deadline):[0-9]+[dw]= →
+    =(SLOT . DAYS)=, =w= = 7×N; case-insensitive; =#=-prefixed
+    tokens refused outright so the matcher's =#= branch stays
+    first).  =--filter-token-match-p= gained the optional ITEM arg
+    and dispatches a parsed token through the new
+    =--filter-date-token-match-p=; unparsed tokens fall through to
+    the #tag/substring branches byte-for-byte.
+    =--filter-token-label= renders a parsing token
+    verbatim-unquoted (the quoting is the tell) — rail/banner/
+    mode-line inherit with zero further changes.
+  - R72-2: classify hoist, behaviour-neutral —
+    =org-air-classify--board-active-p= / =--overdue-p= /
+    =--due-within-p= (SLOT-scoped) / =--stale-p= / =--hipri-p=,
+    plus the optional DAYS horizon on =--future-or-today-p=;
+    =--heading-buckets= rewritten onto exactly these symbols, so
+    every filter predicate IS the bucket body (gated
+    not-done/not-archived).  One NOW: the new defvar
+    =org-air-view--filter-now=, bound by =--compute-partition= to
+    the same instant it classifies with.  Decision 4:
+    =--filter-window-days= / =--filter-effective-horizon=
+    (widening-only); =--classify-cached= binds
+    =org-air-upcoming-days= to the effective horizon around the one
+    classify choke point; the memo key grew to (DAY . HORIZON)
+    (=--classify-cache-ensure=, =equal= compare — =due:7d= at
+    defaults keys identically to no filter); the Upcoming
+    empty-state string reads the effective horizon.
+  - R72-3: =--filter-vocabulary= (the =is:= five + knob-tracking
+    =due:/scheduled:/deadline:Nd= examples formatted live);
+    =--read-filter= VOCAB arg + the =Filter (#tag, text, is:/due:)=
+    prompt; board =org-air-filter= and review
+    =org-air-review-filter= pass the vocabulary; review's
+    =--visible-items= threads the item (filter-before-fold intact);
+    project/revisit unchanged in code (no item, no vocab — date
+    tokens vacuously false), one docstring line each; help rows +
+    README.org Filtering bullet and =/= key-table row updated.
+  Zero new knobs, zero keymap change, zero cache schema change.
+  Twelve batch seams green (tests/org-air-round72-test.el,
+  r72-1..r72-12, the probe corpus verbatim with (FILE . POS) cons
+  markers).  =make clean && make check= green (909 tests, 0
+  unexpected) with ONE flagged shift:
+  =org-air-r42-f2-no-change-repaints= pins the pre-R72 bare-integer
+  memo-key shape (=eql …cache-day today=) — flagged in
+  tests/org-air-known-failures.el for the test seat to re-bless to
+  the (DAY . HORIZON) pair (the rollover/repaint contract itself is
+  unchanged).  =make regen-mockups= byte-clean — zero golden
+  fixtures moved, exactly as predicted (no mockup renders an active
+  filter).

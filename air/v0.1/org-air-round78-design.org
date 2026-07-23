@@ -1,0 +1,383 @@
+#+title: org-air Round 78 — org-air-goto-date: jump to a given date's items (org-read-date prompt → the R55-1 owner-routed day view), bound at g d
+#+state: ready
+#+tags: board day-view calendar keybinding command autoload ux
+
+* Summary
+
+REAL USER ASK (verbatim intent): /"a command to check a given date's
+items, rather than just going through the calendar on the sidebar."/
+
+Today the ONLY ways into the single-day view (R6) are positional:
+
+- =RET= / =mouse-1= on a CALENDAR CELL (rail or inline) — you must
+  page the calendar with =<= / =>= until the month containing the date
+  is visible, then hunt the cell;
+- =M-x org-air-view-day= away from a cell — which silently means
+  TODAY (the =(or date cell org-air-view--day (current-time))=
+  fallback at org-air-view.el ~10410); there is NO date prompt
+  anywhere;
+- =<= / =>= day-stepping once a day view is already open.
+
+A date three months out is a dozen keypresses of calendar paging.  This
+round adds ONE new autoloaded command:
+
+- =org-air-goto-date= — PROMPTS via =org-read-date= (the full Org date
+  vocabulary: absolute =2026-07-25=, relative =+3d= / =fri= / =+2w=,
+  weekday names, org's own calendar popup with =M-v=/=C-v= paging) and
+  delegates the chosen time STRAIGHT to the existing
+  =org-air-view-day= — whose DATE argument wins outright over any cell
+  at point, and whose R55-1 owner routing (resolve the owner board,
+  render from the owner's CACHED items, land focus in a MAIN window)
+  is reused byte-unchanged.  The jump queries NOTHING (R53).
+- Bound at =g d= on the board's existing g-prefix ("go to date" —
+  audit below: the flat board namespace is near-saturated and the
+  prompt's own =j= suggestion is TAKEN by the R29-2 vim-ish
+  =org-air-next-line=), registered through the R35-1 default-key
+  registry so =org-air-use-default-keybindings= nil strips it like
+  every other default.
+- =;;;###autoload= cookie so =M-x org-air-goto-date= works standalone;
+  with NO live board anywhere it first opens the entry point
+  (=org-air-view=, the =org-air-process-inbox= precedent) and then
+  jumps — the command never dead-ends exactly when the user reaches
+  for it.
+- The =?= help (R50-2) gains one Navigation row; key text derives live
+  from the keymaps as always — the help cannot lie.
+- Composes with everything already there: =<= / =>= day-nav from the
+  landed date, =q= (R28-2 layer 2) returns to the board, and under the
+  R77 knob a demoted keyword-less routine STILL shows on its day (the
+  day pane groups by PLANNING SLOTS, not note types — R77's explicit
+  contract).
+
+SPEC ONLY: no =.el= or test edits in this change.  org/org-ql stay the
+only engines; R53 (no rescan — cached items), R55-1 (owner routing),
+R28-2 (quit layering), R35-1 (keybinding knob), R50-2 (live-derived
+help), R77 (day view not task-gated) all respected — this round is one
+thin prompting wrapper over existing law.
+
+* Investigation
+
+** The current entry surface — why "just M-x" is not enough
+
+=org-air-view-day= (org-air-view.el ~10380) is =(interactive)= with an
+optional DATE arg nothing interactive ever fills:
+
+#+begin_example
+(let ((cell (get-text-property (point) 'org-air-day))   ; step 1: cell at point
+      (owner (org-air-view--day-owner)))                ; R55-1 owner resolve
+  (with-current-buffer owner
+    (let ((day (or date cell org-air-view--day (current-time))))  ; DATE wins
+      ...
+#+end_example
+
+- DATE (non-nil) beats the cell, beats the sticky =org-air-view--day=,
+  beats today — so a prompting wrapper that PASSES the chosen time
+  gets the right day even when point happens to sit on some other
+  calendar cell.  Nothing in =org-air-view-day= needs to change.
+- The R55-1 tail is all there: =org-air-view--day-owner= (identity →
+  rail back-pointer → =*org-air*=; =user-error= otherwise),
+  render-in-owner from the owner's CACHED =org-air-view--items= (zero
+  queries — locked by the R55 spy tests), =org-air-view--day-focus-owner=
+  (main-window landing, =noninteractive= batch gate).
+- The day pane (=org-air-view--insert-day-pane=, ~5168) already has the
+  empty state: header shows =0 items= and the body prints "Nothing on
+  this day." — a no-item date is a rendered state, not an error.
+- Day groups (=org-air-view--day-groups=, ~5134) key on planning slots
+  (deadline / scheduled / logged-created), never on =ntype= — the R77
+  demotion explicitly leaves the day view alone ("a routine still
+  shows on its day").  Confirmed in code: =org-air-task-requires-todo=
+  (org-air-query.el:90) touches only =org-air-query--note-type= and the
+  R72 routing predicate; nothing in the =--day-groups= path reads it.
+
+** org-read-date probe (the argument choice)
+
+=(org-read-date WITH-TIME TO-TIME FROM-STRING PROMPT DEFAULT-TIME ...)=
+— already in the codebase twice (org-air-inbox.el:1088 via
+=org-time-string-to-time=; the board quick-date =?.= at
+org-air-view.el:9884 returns the string form).  For this command:
+
+- WITH-TIME nil — a DAY jump; no clock reading, and the returned time
+  sits at midnight, which is exactly what the =%Y-%m-%d=
+  =org-air-view--day-key= comparisons want.
+- TO-TIME t — return an INTERNAL TIME directly (no string round-trip;
+  =org-air-view-day= takes a time).
+- DEFAULT-TIME = the owner board's =org-air-view--day= when a day view
+  is already focused (re-prompting nudges from the SHOWN day — "+2d"
+  relative entry composes with the current position), else nil
+  (org-read-date's own today default).
+- PROMPT ="Jump to date: "=.
+
+** Board key audit (the collision table)
+
+Flat keys on =org-air-view-mode-map= + its =org-air-view-core-map=
+parent, from the R35-1 registry blocks (org-air-view.el 1583–1641,
+1568–1580):
+
+| taken | RET mouse-1 S-RET SPC TAB backtab M-TAB M-n M-p M-/           |
+| taken | n p c m s d e f t T a D x u U I v V o O j k G P N W S q ? / \ pipe < > . |
+| prefix | =g= (g-prefix) =z= (columns)                                  |
+| parent | =h= (describe-mode via special-mode) — kept reachable         |
+| free  | b i l r w y  (lowercase)  A B C E F H J K L M Q R X Y Z (upper) |
+
+- The prompt's example =j= is TAKEN: =j= / =k= are the R29-2 vim-ish
+  line motions on the SHARED view-core map — rebinding =j= would break
+  muscle memory across board AND project.
+- The g-prefix (=org-air-g-prefix-map=, :1309) holds =r g R RET o= —
+  =d= is FREE there, and the prefix's charter is exactly this family:
+  "go" verbs (=g g= top, =g RET= visit).  =g d= = "go to date" reads
+  itself, sits beside vim's g-goto idiom, and follows the R30-3
+  precedent that a prefix "keeps the flat board namespace clean" —
+  the six remaining bare letters stay banked for future single-key
+  triage verbs.  The g-prefix is bound ONLY on the board map (grep:
+  revisit/review/project bind bare =g= to their refresh), so no other
+  surface changes.
+
+** Help / goldens blast radius
+
+- =org-air-help--board-groups= (:10484) is data; key text derives at
+  render time via =org-air-view--legend-key= (R50-2) — adding a row
+  cannot desync.  The R50 ERT asserts presence of SPECIFIC rows, never
+  exhaustive counts (checked round50-test.el:194–213) — no churn.
+- No board render changes at defaults → ZERO golden / demo /
+  screenshot churn.  The footer legend (=org-air-show-footer=, default
+  nil) is untouched.
+
+* Decisions
+
+** Decision 1 — name + shape: =org-air-goto-date DATE=, prompt in the interactive spec
+
+=org-air-goto-date= (the =org-air-goto-top= / =-goto-bottom= family
+name; no symbol collision — grep clean).  DATE is a REQUIRED internal
+time; the PROMPT lives in the =interactive= form, not the body:
+
+- a Lisp/ERT call =(org-air-goto-date TIME)= NEVER prompts (firm batch
+  seam, no mock needed for the core path);
+- =call-interactively= runs the reader — mockable at ONE seam
+  (=org-read-date=) for the interactive-path tests;
+- the body stays three lines: ensure a board exists, delegate.
+
+Rejected: =&optional date= with an in-body prompt-on-nil — a nil from
+Lisp would hang batch; honest arity beats a convenience default.
+
+** Decision 2 — the reader: =org-read-date= nil t, day-view-aware default
+
+New helper =org-air-goto-date--read-date= (beside the command):
+resolve the owner leniently (=ignore-errors= around
+=org-air-view--day-owner= — the reader must not error when the
+Decision 4 fallback is about to OPEN a board), take
+=(buffer-local-value 'org-air-view--day owner)= as DEFAULT-TIME (nil →
+today), then =(org-read-date nil t nil "Jump to date: " default)=.
+Full Org date entry for free: absolute, relative (=+3d=, =fri=,
+=+2w=), the interactive calendar popup.  Returns midnight internal
+time — exactly the =org-air-view--day-key= granularity.
+
+** Decision 3 — delegate to =org-air-view-day=; zero changes to it
+
+The body calls =(org-air-view-day date)= and nothing else.  DATE wins
+the =(or date cell ...)= by construction, so the command is
+point-independent (invoking with point parked on a rail calendar cell
+still lands on the PROMPTED date).  R55-1 owner routing, cached-items
+render (R53: no query), main-window focus landing, rail single-writer
+law — all inherited byte-unchanged.  No fork, no second day-open path.
+
+** Decision 4 — no live board: open the entry point, then jump
+
+=org-air-view--day-owner= signals =user-error= when no board lives
+anywhere.  For =org-air-view-day= that stays RIGHT (it is a cell/owner
+verb).  But =org-air-goto-date= is a USER-FACING ENTRY ("check a given
+date's items") reachable from any buffer via =M-x= — failing exactly
+when no board is open yet would be hostile.  Precedent:
+=org-air-process-inbox= opens the board when invoked cold.  So:
+
+#+begin_example
+(unless (ignore-errors (org-air-view--day-owner)) (org-air-view))
+(org-air-view-day date)
+#+end_example
+
+The cold =org-air-view= does its normal open (R20-1 skeleton + scan) —
+that scan belongs to the BOARD OPEN, not to the jump; the R53
+no-rescan law is scoped to a live board and the spy seam (E4) runs
+against one.  Prompt-then-open ordering is deliberate: the reader runs
+first (interactive spec), so a =C-g= at the prompt opens nothing.
+
+** Decision 5 — key =g d= via the R35-1 registry; =;;;###autoload=
+
+Add ="d" #'org-air-goto-date= to the EXISTING
+=(org-air--register-default-keys 'org-air-g-prefix-map ...)= block
+(:1319) — installer-owned, so =org-air-use-default-keybindings= nil
+strips it with everything else and the evil overriding-map coverage is
+inherited (same map object).  Justification over the alternatives is
+the audit table above: =j= collides (R29-2), bare letters are scarcer
+than prefix slots, and "go to date" is the g-prefix's own charter.
+Cookie =;;;###autoload= on the command (the =org-air-view-day= /
+=org-air-process-inbox= precedent in the same file) so =M-x= resolves
+it before org-air is loaded.  The reader helper is NOT autoloaded (it
+loads with the file).
+
+** Decision 6 — help row (R50-2), no legend fork
+
+=org-air-help--board-groups= "Navigation" group gains
+=(org-air-goto-date . "jump to a date's items (day view)")=, placed
+with the calendar cluster (after =org-air-calendar-today=).  Key text
+derives live (=g d=, or the truth after any user rebind).  Nothing
+else advertises keys for this surface at defaults (footer legend off).
+
+** Decision 7 — composition is inherited, stated as law
+
+- =<= / =>= from the landed day step ±1 day (they read
+  =org-air-view--day=, which the jump set).
+- =q= returns to the full board (R28-2 layer 2 → =org-air-view-board=);
+  a live bottom pane still peels first (layer 1) — unchanged.
+- R77: a keyword-less scheduled routine demoted off the task buckets
+  by =org-air-task-requires-todo= t STILL renders under Scheduled on
+  its day — the day pane is planning-slot keyed, per R77's explicit
+  day-view carve-out.  The jump makes that carve-out REACHABLE by
+  date, which is half the point of the user ask.
+- R58 bookmarks: a bookmarked day view already round-trips
+  =org-air-view--day=; a jumped-to day is state-identical to a
+  cell-opened one.  Nothing new to store.
+
+* Interface sketch (org-air-view.el, beside the day-view cluster ~10417)
+
+#+begin_src emacs-lisp
+(defun org-air-goto-date--read-date ()
+  "Read a target date for `org-air-goto-date' via `org-read-date'.
+Full Org date entry (absolute, relative like \"+3d\"/\"fri\", the
+calendar popup); returns an internal time at midnight.  DEFAULT-TIME is
+the owner board's focused day when a day view is up (so a re-jump
+nudges from the SHOWN day), else today.  Owner resolution is LENIENT
+here (no board yet -> today): `org-air-goto-date' opens the board
+itself (Decision 4), so the reader must not pre-empt it with the R55-1
+`user-error'."
+  (let* ((owner (ignore-errors (org-air-view--day-owner)))
+         (default (and owner
+                       (buffer-local-value 'org-air-view--day owner))))
+    (org-read-date nil t nil "Jump to date: " default)))
+
+;;;###autoload
+(defun org-air-goto-date (date)
+  "Jump the org-air board to DATE's single-day view (R78).
+Interactively, prompt with the full `org-read-date' vocabulary.  DATE
+is an internal time.  Delegates to `org-air-view-day', so the R55-1
+owner routing applies unchanged: the day renders in the OWNER board
+from its CACHED items (no rescan — R53) and focus lands in a MAIN
+window.  With no live board anywhere, opens `org-air-view' first (the
+`org-air-process-inbox' precedent), then jumps.  `<'/`>' step days
+from the landed date; `q' returns to the full board (R28-2)."
+  (interactive (list (org-air-goto-date--read-date)))
+  (unless (ignore-errors (org-air-view--day-owner))
+    (org-air-view))
+  (org-air-view-day date))
+#+end_src
+
+Registry edit (:1319 block gains one pair):
+
+#+begin_src emacs-lisp
+(org-air--register-default-keys 'org-air-g-prefix-map
+  "r" #'org-air-refresh
+  "g" #'org-air-goto-top
+  "R" #'org-air-refresh-all
+  "RET" #'org-air-visit-item
+  "o" #'org-air-visit-item-stay
+  "d" #'org-air-goto-date)   ; R78: "go to date" — the prompted day jump
+#+end_src
+
+Help row (=org-air-help--board-groups= "Navigation", after
+=org-air-calendar-today=):
+
+#+begin_src emacs-lisp
+(org-air-goto-date . "jump to a date's items (day view)")
+#+end_src
+
+Total: one command + one reader + one registry pair + one help row.
+=org-air-view-day= and everything beneath it: ZERO bytes changed.
+
+* Test plan — tests/org-air-round78-test.el (ALL BATCH ERT)
+
+Harness: the standard batch board over a round-78 fixture (items with
+=DEADLINE:= / =SCHEDULED:= / =:CREATED:= on a fixed target date, e.g.
+=<2026-07-25 Sat>=); the window-routing seam reuses the
+=org-air-r55--with-live-board= pattern; the no-query spy reuses the
+=org-air-r55--counting-queries= shape (count real =org-air-query-items=
+calls, assert 0).
+
+- E1 =org-air-r78-1-jump-lands-on-that-date=: live board, call
+  =(org-air-goto-date TARGET)= NON-interactively (no prompt fires —
+  Decision 1's arity seam).  Assert: the board's buffer-local
+  =org-air-view--day= day-key equals ="2026-07-25"=; the buffer text
+  contains the day header =(format-time-string "%A %-d %B %Y" TARGET)=;
+  the fixture's deadline item titles under "Deadline", scheduled under
+  "Scheduled", created under "Logged / created" — the grouped day pane
+  for THAT date, not today's.
+- E2 =org-air-r78-2-empty-day-is-a-state-not-an-error=: jump to a far
+  date with zero fixture items (e.g. =2031-01-01=).  Assert: no error
+  signalled; header shows =0 items=; "Nothing on this day." present;
+  =org-air-view--day= set to that date (the view really moved).
+- E3 =org-air-r78-3-owner-routing-from-mx=: with the board live, make
+  an UNRELATED temp buffer current; =cl-letf= mock =org-read-date= to
+  return TARGET; =call-interactively #'org-air-goto-date=.  Assert:
+  day state landed in the BOARD's buffer-locals
+  (=buffer-local-value=), NOT the invoking buffer; the board's text
+  carries the day header.  (Window focus assertions ride the R55
+  harness variant; the =noninteractive= gate keeps pure-batch runs
+  window-free.)
+- E4 =org-air-r78-4-no-rescan-spy=: wrap E1's jump in the query
+  counter.  Assert count = 0 — the jump rendered from cached items
+  (R53/R55-1).
+- E5 =org-air-r78-5-key-bound-and-autoloaded=:
+  =(lookup-key org-air-g-prefix-map "d")= and
+  =(lookup-key org-air-view-mode-map (kbd "g d"))= both resolve to
+  =org-air-goto-date=; =(commandp 'org-air-goto-date)=; the source
+  scrape finds =;;;###autoload= immediately above the defun in
+  org-air-view.el (the cookie assert used by prior rounds).  Knob leg:
+  with =org-air-use-default-keybindings= nil (sync run), =g d= no
+  longer resolves; restore + re-sync after.
+- E6 =org-air-r78-6-reader-args-and-day-default=: =cl-letf= capture
+  =org-read-date='s args.  From a board FOCUSED on day X (day view
+  up), =call-interactively= → assert WITH-TIME nil, TO-TIME t,
+  DEFAULT-TIME day-keys to X (the Decision 2 nudge default); from the
+  plain board → DEFAULT-TIME nil.  Command lands on the mocked return
+  either way.
+- E7 =org-air-r78-7-r77-routine-reachable-by-date=: fixture gains a
+  keyword-less =SCHEDULED: <2026-07-20 Mon ++2w>= routine; scan with
+  =org-air-task-requires-todo= t.  Assert: the routine is absent from
+  every board task section (the R77 demotion, re-asserted as the
+  precondition), then =(org-air-goto-date <2026-07-20>)= shows it
+  under "Scheduled" in the day pane — the day view is not task-gated.
+- E8 =org-air-r78-8-day-nav-and-return-compose=: after E1's jump,
+  =org-air-calendar-next= → day-key TARGET+1d; then the return path
+  (=org-air-view-board= / the =q= layer) → =org-air-view--day= nil,
+  day header gone, full board back.
+
+NOT tested here (already locked elsewhere): the R55-1 window-landing
+matrix (round55-test E1–E5 own it — E3 only proves the NEW command
+enters that path), the R28-2 pane-peel ordering, R58 bookmark
+round-trips.
+
+* Non-goals
+
+- No change to =org-air-view-day=, the day pane renderer, the day
+  groups, or the calendar cells — the jump is a caller, not a fork.
+- No date HISTORY / recent-jumps ring; no week/range jump (=W= review
+  owns periods).
+- No revisit/review/project bindings — the day view is a BOARD
+  surface; those maps keep bare =g= as refresh.
+- No footer-legend change (default off; derived help covers discovery).
+
+* Risks / edges
+
+- =org-read-date= inside the interactive spec: a =C-g= aborts before
+  ANY side effect (no board open, no state touch) — the desired shape.
+- Point on a foreign calendar cell at invoke time: DATE wins the =or=
+  — asserted implicitly by E3's temp-buffer invoke; a rail-cell invoke
+  is the same code path (cell read happens, then loses).
+- Midnight vs. DST: =org-read-date= returns encoded midnight local
+  time; every consumer compares via =%Y-%m-%d= day-keys, so a DST
+  shift cannot skew the landed day.
+- Decision 4's cold open runs a scan — deliberately attributed to the
+  board open, not the jump; E4's no-rescan spy runs against a live
+  board, matching the R53 law's scope.
+
+* Implementation History
+
+- 2026-07-25: Round 78 spec drafted (Fable). State: ready — awaiting
+  impl + test seats. No code changes in this commit.

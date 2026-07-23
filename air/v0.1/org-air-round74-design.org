@@ -1,0 +1,369 @@
+#+title: org-air Round 74 — the inspector "Updated" line: last activity from the cached R61 LOGBOOK slots, with a bounded file-mtime fallback
+#+state: ready
+#+tags: board inspector rail metadata logbook ux
+
+* Summary
+
+USER NEED: the rail INSPECTOR (D-P7) shows WHEN an item was created
+("Created 2026-06-01 (14d ago)") but never when it was last TOUCHED —
+the user wants a last-updated / last-activity line, sourced from the
+LOGBOOK (a note or a state change), falling back to a retrievable
+last-modified time when no logbook exists.
+
+GOOD NEWS (verified in-tree): the R61 harvest ALREADY caches everything
+needed on each =org-air-item= — no new harvest, no query.el change:
+
+- =logs= — LOGBOOK stamps, newest-first =(EPOCH . KIND)=; the harvest
+  regexp (=org-air-query--log-line-regexp=, org-air-query.el ~447)
+  matches BOTH =- State "KW" … [TS]= AND =- Note taken on [TS]=, so the
+  R71 =n=-field notes are already in (KIND nil = note; ='done= /
+  ='todo= = a state change classified against the file's own vocabulary
+  under the R57-1 merged default, at scan time).
+- =clocks= — closed CLOCK intervals, newest-first =(START . END)=
+  integer epochs.
+- =created= — the =:CREATED:= property epoch.
+- =rtrunc= — set when either list hit =org-air-log-cap=; crucially the
+  cap keeps the NEWEST entries, so the list HEADS — the only thing this
+  round reads — are cap-invariant.
+
+Two work packages, ONE file (org-air-view.el; this is a DOC-ONLY round —
+the sibling R73 round is editing view.el in parallel, see Decision 5):
+
+- *R74-1 (the Updated line)* — a pure, slot-only helper
+  =org-air-view--item-updated= returns the NEWEST epoch across
+  =logs[0]=, the newest clock's END, and =created=, plus a SOURCE label
+  derived from the winning candidate (='note= / ='done= / ='state= /
+  ='clock= / ='created=).  Rendered as one KV line in
+  =org-air-view--inspector-item-fields=, directly AFTER the Created
+  line: ="Updated  2026-07-21  (2d ago · note)"= — same =%F= + relative
+  shape as Created, same faded face, key fits the 8-column
+  =org-air-inspector-key-w=.
+- *R74-2 (the fallback)* — when ALL three slots are empty (no LOGBOOK,
+  no closed clock, no =:CREATED:= — including items built outside the
+  scan), ONE bounded =file-attributes= stat on the item's file supplies
+  a last-modified time, rendered with an honesty marker: ="Updated
+  2026-06-10  (5d ago · ~file)"= — the =~= says file-level, not
+  heading-precise.  Always-on (no knob), FUTURE-CLAMPED (an mtime after
+  the render clock renders nothing — Decision 3, which is also exactly
+  what keeps every frozen-clock golden byte-clean), and never a stat
+  storm: the stat fires only for a slotless item, once per debounced
+  inspector render, never in the classify/paint loop (R53).
+
+Zero new defcustoms, zero schema/cache changes, query.el byte-untouched.
+
+* Decision 1 — the value: MAX over the cached R61 slot heads, slot-only
+
+=org-air-view--item-updated (item)= → =(EPOCH . SOURCE)= or nil.  Pure
+and I/O-free — three slot reads, no file access, no marker hydration:
+
+- candidate A: =(car (org-air-item-logs item))= → its EPOCH; SOURCE
+  from its KIND — nil → ='note=, ='done= → ='done=, ='todo= →
+  ='state=.  (The keyword STRING is deliberately not cached by R61 —
+  only the done/not-done class — so the label names the CLASS, never a
+  guessed keyword.)
+- candidate B: the newest clock's END — =(cdr (car (org-air-item-clocks
+  item)))=; SOURCE ='clock=.  The head's END, O(1), NOT a fold over the
+  list: clocks are newest-first by START, and for well-formed sequential
+  clocking newest-START is newest-END (an older-started interval that
+  ends later means OVERLAPPING clocks — the pathology Org itself makes
+  the user resolve via =org-resolve-clocks=; at the line's day
+  granularity the difference is invisible anyway).  O(1) keeps the
+  helper slot-access-shaped like every other inspector field.
+- candidate C: =(org-air-item-created item)=; SOURCE ='created= — the
+  floor: an item never touched since capture was last "updated" when it
+  was created.
+
+The winner is the strict MAX; ties resolve A ≻ B ≻ C (fold in that
+order, replace only on strictly-greater — a note stamped the same
+second as a clock-out gets the more descriptive label).  All three nil
+→ nil (the Decision 3 fallback takes over at render).
+
+/Rejected — reusing =org-air-classify--last-activity=/: its chain is
+closed ‖ scheduled ‖ deadline ‖ subtree-ts ‖ mtime — scheduled and
+deadline are commonly FUTURE dates, so it answers "when is/was this
+RELEVANT", not "when was this last TOUCHED"; an "Updated: in 30d" line
+is nonsense.  The classify slot and the stale bucket are byte-untouched
+(Compatibility).
+
+/Rejected — folding =closed= in as a fourth candidate/: the inspector
+already renders Closed as its own line, and under =org-log-done= a
+completion normally ALSO writes the =- State "DONE"= drawer stamp the
+harvest catches — folding closed in would double-render one fact.  A
+done item whose file logs no drawer states still shows its Closed line;
+Updated then reports the honest drawer/created answer (Non-goals).
+
+/The rtrunc lemma/: =org-air-log-cap= truncation keeps the NEWEST
+entries (org-air-query.el, =seq-take= after the newest-first sort), so
+a truncated item's heads are EXACTLY the untruncated heads — the
+Updated line is cap-invariant and needs NO =⚠=/=~= marker on rtrunc
+items (pinned r74-7).  The R61 precedent even blesses the direction:
+"the Started fallback (earliest LOGBOOK stamp) is derived at RENDER
+time from the retained stamps — never baked"; Updated is the same
+derive-at-render shape at the other end of the list.
+
+* Decision 2 — the line: key "Updated", Created's byte-shape, placed after Created
+
+In =org-air-view--inspector-item-fields= (org-air-view.el ~4625), inside
+the existing dates =delq nil (list …)= block, a new entry directly
+AFTER the Created =when-let*= entry and BEFORE the Closed line — the
+rendered order becomes Sched / Deadln / Created / *Updated* / Closed
+(the line renders whether or not Created did — the fallback case is
+precisely a Created-less item):
+
+- key ="Updated"= (7 chars — fits =org-air-inspector-key-w= 8, same
+  register as Created/Closed; rejected "Last activity": it does not fit
+  the fixed key column and breaks the one-word key register);
+- value =(concat (%F of EPOCH) "  " "(REL · LABEL)")=, whole value in
+  =org-air-face-faded= — byte-parallel to the Created line's value
+  shape, REL from the existing =org-air-view--inspector-relative=
+  against the fields function's NOW (the frozen render clock), so
+  "today" / "Nd ago" phrasing is shared, not re-derived;
+- LABEL: ='note= → ="note"=, ='done= → ="done"=, ='state= → ="state"=,
+  ='clock= → ="clock"=, ='created= → ="created"=, fallback →
+  ="~file"=.  The =" · "= separator is already on the inspector surface
+  (the bucket line's name join) — no new glyph vocabulary.
+- Date-only =%F=, like Created: the stamps carry time-of-day but the
+  inspector's date register is day-granular; the relative term carries
+  the useful precision.
+
+A forged FUTURE logbook stamp (hand-written) renders honestly as
+="(in Nd · note)"= — the slot path trusts the drawer and is NOT
+clamped; only the machine-derived mtime fallback gets the Decision 3
+clamp (a machine signal with a machine failure mode).
+
+* Decision 3 — the fallback: one bounded live stat, marked "~file", future-clamped
+
+When =org-air-view--item-updated= returns nil, the line helper performs
+ONE =file-attributes= call on =(org-air-item-file item)= and uses its
+modification time.  Rulings, each firm:
+
+- /Always-on, no knob/.  Zero new defcustoms (the R72/R73 discipline).
+  The cost ceiling is one stat per debounced inspector render
+  (=org-air-inspector-debounce= 0.1s), only for an item with EMPTY
+  R61 slots, only while inspected — strictly cheaper than the
+  already-sanctioned D-P7 Created hydration in the SAME fields pass
+  (=org-air-view--item-created= does =find-file-noselect=).  An opt-in
+  knob would buy nothing but a dead branch.
+- /A LIVE stat, not the scan-time mtime alist/.  Rejected
+  =org-air-view--items-mtimes=: it is buffer-local to the BOARD buffer,
+  unreachable when the fields function runs for the popped-out rail
+  host (R15 D-P2), and absent entirely for items built outside the scan
+  — exactly the items most likely to need the fallback.  Rejected a new
+  mtime item slot: a cache v7 bump + schema migration to serve a
+  fallback that real headings (any LOGBOOK, any =:CREATED:=) never hit.
+  The live stat is buffer-independent, always current, and its
+  file-level imprecision is exactly what the marker admits.
+- /The honesty marker/: the label is ="~file"= — file-level, not
+  heading-precise (ANY save of the file moves it).  For a =kind 'file=
+  item (the R53 P3 headingless note) the mtime is actually
+  item-precise, but the marker stays — one rendering rule, no
+  special case (pinned r74-10).
+- /The FUTURE-CLAMP/: when the mtime is AFTER the render clock NOW, the
+  line is OMITTED entirely.  A file cannot have been modified after
+  "now"; an apparent future mtime means the signal is untrustworthy
+  (clock skew, NFS drift, a restored backup — or a frozen test clock),
+  and "Updated (in 3d · ~file)" would be nonsense.  The corollary is
+  what keeps the goldens deterministic: the ONLY inspector-bearing
+  mockups (=layout-mockup-*x50.txt=) inspect "Quick note about org-air
+  idea" — no LOGBOOK, no clocks, no =:CREATED:= (tests/fixtures/
+  inbox.org), so the fallback WOULD fire; but the mockup clock is
+  frozen at Mon 2026-06-15 (=org-air-test-now=) while the fixture
+  file's mtime at regen is the real wall clock — permanently AFTER the
+  frozen NOW — so the clamp suppresses the line and every golden stays
+  byte-clean, forever, by construction (pinned r74-6; Goldens below).
+- /Never-error/: file nil, missing, or unreadable → nil → no line, no
+  signal (the R53 degrade register).
+
+* Decision 4 — the no-rescan / no-storm law (R53)
+
+- The pure helper does ZERO I/O — pinned with spies (r74-8): no
+  =org-air-query--scan-file=, no =find-file-noselect=, no
+  =file-attributes= for any slot-answered item.
+- The fallback stat is reachable ONLY from the inspector line renderer
+  — never from classify, never from the board paint loop, never per-row.
+  One item, one stat, user-driven and debounced: the same boundedness
+  argument D-P7 already carries for the Created hydration, at lower
+  cost.
+- No rescan is ever triggered: the slots are the R61 cache, hydrated
+  boards render them directly (R53 P2's data-pure law), and this round
+  adds no scan-time work at all — org-air-query.el is byte-untouched
+  (the prompt's "no new harvest" holds by construction).
+
+* Decision 5 — composition with R73 (in flight, same inspector, same file)
+
+R73 (sibling round, editing org-air-view.el in parallel) forces a
+pane/inspector resync at the refresh swap tails: after any board edit
+=org-air-view--inspector-update-now= re-renders the inspector for the
+(possibly fresh) struct at point.  The Updated line is JUST ANOTHER
+inspector line rendered by the fields function, so it composes with
+R73 for free — after the user adds a note through the R71 =n= field,
+the flush writes =- Note taken on [now]=, the file rescans (fresh
+struct, =logs[0]= = the new note), the R73 resync re-renders, and the
+Updated line reads ="(today · note)"= immediately, no cursor nudge.
+No R74 code calls into R73 machinery and vice versa.
+
+/Merge discipline/ (both rounds touch org-air-view.el): R74's entire
+footprint is the D-P7 fields region — two new helpers + one entry in
+the dates list of =--inspector-item-fields= — disjoint from R73's
+resync (refresh tails), ring, and =u= regions.  Whichever lands second
+rebases trivially.  The r74-9 compose seam is written MERGE-ORDER-PROOF:
+it drives =org-air-view--inspector-update-now= directly (exists today)
+and only additionally asserts through =org-air-view--panes-resync-now=
+when =fboundp= (i.e. once R73 has landed).
+
+* The reframe — every surface touched
+
+- org-air-view.el ONLY (impl round; nothing in this doc round):
+  - NEW =org-air-view--item-updated= — the Decision 1 pure helper.
+  - NEW =org-air-view--item-updated-line= (item inset now) — renders
+    the KV line: pure helper first, else the Decision 3 bounded stat +
+    clamp; nil when nothing trustworthy.  Split from the pure helper
+    exactly so the slot logic is testable with zero files.
+  - =org-air-view--inspector-item-fields=: the one new entry in the
+    dates list, after Created.
+- The board is the only consumer: the project view supplies its own doc
+  fields function (org-air-project.el ~1632) and the review surface has
+  no inspector — both byte-untouched.
+- README.org: NO change — it never enumerates the board inspector's
+  lines.
+- No keymap change, no defcustom, no face, no cache/schema change, no
+  query.el change.
+
+* ERT seams — batch, tests/org-air-round74-test.el (each revert-RED against the pre-R74 tree)
+
+Fixtures: temp org files scanned through the real pipeline (the R61
+slots must come from the harvest, not hand-built structs — except where
+a seam says slot-injected); NOW frozen to =org-air-test-now= (Mon
+2026-06-15 10:00); mtimes set deterministically via =set-file-times=;
+spies via =cl-letf= on =org-air-query--scan-file= /
+=find-file-noselect= / =file-attributes=.
+
+- *r74-1 /a recent note wins/*: heading with =- Note taken on
+  [2026-06-14 Sun 18:00]= over an older state change — the pure helper
+  returns the note's epoch + ='note=; the rendered line reads exactly
+  ="2026-06-14  (1d ago · note)"= against frozen NOW.  Revert-RED:
+  no Updated line exists today.
+- *r74-2 /state kinds via the file's vocabulary/*: a =- State "DONE"=
+  newest → label ="done"=; a =- State "WAITING"= newest (declared
+  not-done in the file's own =#+TODO:=) → label ="state"= — the KIND
+  came classified from the scan (R57-1), the renderer never guesses.
+- *r74-3 /the MAX + the head-END clock contract/*: logs head 06-10,
+  clocks head =(06-12 09:00 . 06-12 11:30)=, created 06-01 → clock
+  wins, label ="clock"=, date 06-12 (the END, not the START); a
+  created-only heading → ="created"=; equal-epoch note vs clock-end →
+  the note label (tie order A ≻ B ≻ C).
+- *r74-4 /placement + shape on the real surface/*: full board render,
+  inspector active, item with =:CREATED:= + a note — the inspector
+  region contains Sched/Deadln-less lines ordered Created THEN Updated
+  THEN (if any) Closed; the Updated key is padded to
+  =org-air-inspector-key-w=; the value carries the faded face.
+- *r74-5 /the fallback/*: heading with NO logbook/clock/=:CREATED:=,
+  its file =set-file-times= to 2026-06-10 → ="2026-06-10  (5d ago ·
+  ~file)"=; exactly ONE =file-attributes= call from the line helper,
+  zero scans, zero =find-file-noselect=.
+- *r74-6 /the future clamp — the golden lemma/*: same slotless heading,
+  mtime set AFTER frozen NOW (e.g. 2026-06-20, the regen reality) → NO
+  Updated line, no error.  This is the exact configuration of every
+  =layout-mockup-*x50= golden, pinned as a test so a future regen
+  surprise has a named cause.
+- *r74-7 /rtrunc invariance/*: =org-air-log-cap= let-bound to 3, a
+  heading with 6 state stamps → =rtrunc= t AND the Updated line shows
+  the true newest stamp (the cap keeps NEWEST); no extra marker on the
+  line.
+- *r74-8 /the no-I/O law/*: for a slot-answered item, the pure helper
+  AND the line helper under spies make ZERO =file-attributes= /
+  =find-file-noselect= / scan calls.  (Scoped to the R74 helpers, not
+  the whole fields pass — the Created line's own sanctioned hydration
+  is out of frame and unchanged.)
+- *r74-9 /R71 + R73 compose, merge-order-proof/*: add a note through
+  =org-air-inbox--apply-item-edits= (the R71 =:note= leg), rescan,
+  drive =org-air-view--inspector-update-now= for the row — the
+  inspector region contains ="(today · note)"=.  When
+  =org-air-view--panes-resync-now= is =fboundp= (R73 landed), the same
+  assert additionally rides the refresh tail with a stationary cursor.
+- *r74-10 /uniform degrade/*: a =kind 'file= item (nil review slots) →
+  the fallback line renders with the =~file= marker (mtime is
+  item-precise there; the rule stays uniform); a slotless item whose
+  file is DELETED → no line, no signal.
+
+/Goldens/: ZERO shifts predicted — the only inspector-bearing mockups
+(=layout-mockup-{96,100,104,110,120,160}x50.txt=) inspect the slotless
+"Quick note about org-air idea", whose working-tree fixture mtime at
+regen post-dates the frozen 2026-06-15 clock, so the Decision 3 clamp
+suppresses the line (r74-6 is this exact lemma as an ERT).  =make
+regen-mockups= must come back byte-clean; any diff is a design-routed
+surprise, not a re-bless.
+
+/GUI residue/ (not ERT-able): the line visible in the live rail and its
+repaint on the R73 resync after an =n= note — flag for the impl round's
+user confirm alongside R73's own GUI checklist.
+
+* Non-goals
+
+- No new harvest, no query.el change, no cache-version bump — the R61
+  slots are the contract (the prompt's confirmed premise).
+- No heading-precise mtime (Org has no per-heading stamp to stat; the
+  =~file= marker is the honest admission, not a TODO).
+- No folding of =closed= / =scheduled= / =deadline= into the Updated
+  candidates (Decision 1's rejected alternatives; Closed keeps its own
+  line).
+- No board-row Updated column, no sort change (=recency= sort already
+  exists on the R22-3 activity key), no filter token (=is:stale= covers
+  the query-shaped need, R72).
+- No running-clock awareness: R61 drops an open CLOCK at scan by rule;
+  a heading being clocked right now shows its previous activity —
+  accepted, the user is literally looking at the live clock.
+- No change to the Created line's live hydration (its slot-vs-probe
+  duality is pre-existing; unifying it onto the R61 =created= slot is a
+  separate cleanup with golden implications).
+- No new knob, key, face, or transient.
+
+* Compatibility
+
+- *R53 (never-hang / never-error / cache-first)*: slot-only value, one
+  bounded user-driven stat on the fallback path only, every failure
+  degrades to "no line" — no rescan, no timers, no prompts (pinned
+  r74-5/6/8/10).
+- *R54*: =activity= / stale eligibility byte-untouched — Updated is a
+  DISPLAY derivation, =org-air-classify--last-activity= keeps its
+  distinct meaning (Decision 1's rejection explains why they must
+  differ).
+- *R57-1*: the done/not-done labelling rides the scan-time KIND, which
+  already honours the file's own vocabulary under the merged default.
+- *R61*: consumes the slots exactly as designed (heads only, newest
+  kept under the cap — r74-7); the derive-at-render precedent (the
+  Started fallback) is followed, nothing re-baked.
+- *R71*: the =n=-field note is a first-class Updated source ('note is
+  expected to be the most common label on a curated board).
+- *R73 (in flight)*: pure composition — the Updated line re-renders
+  whenever R73 resyncs the inspector; disjoint code regions in the
+  shared file; the compose seam is merge-order-proof (Decision 5).
+- *D-P7 / R14 D-P1.B*: board fields function only; the content-agnostic
+  inspector core, the project view's fields function, and the review
+  surface are untouched.
+
+* Implementation History
+
+- 2026-07-23: Round 74 spec (design seat, Fable; DOC-ONLY round — impl
+  follows, sibling R73 edits view.el in parallel).  User need: a
+  last-updated line in the rail inspector, LOGBOOK-sourced with a
+  last-modified fallback.  Confirmed premise: the R61 harvest already
+  caches logs/clocks/created (notes AND state changes — the ~447
+  regexp), so the value is a render-time derivation, no new harvest.
+  Decisions: (1) pure slot-only MAX over logs[0] / newest clock END
+  (head's END, O(1), overlap pathology accepted at day granularity) /
+  created, tie order logs ≻ clocks ≻ created, labels
+  note/done/state/clock/created (class, never a guessed keyword);
+  (2) one KV line after Created — "Updated  %F  (REL · LABEL)", faded,
+  Created's byte-shape, 8-col key; (3) fallback = ONE bounded live
+  =file-attributes= stat, always-on (no knob), marked "~file",
+  FUTURE-CLAMPED (untrustworthy signal omitted — and precisely what
+  keeps the frozen-clock x50 goldens byte-clean, since the only
+  golden-inspected item is slotless with a regen-time mtime after the
+  frozen NOW); rejected the buffer-local mtimes alist (unreachable
+  from the rail host) and a new mtime slot (schema churn for a rare
+  fallback); (4) no-rescan/no-storm law pinned; (5) R73 composition
+  free + disjoint-region merge discipline, compose seam
+  merge-order-proof.  Ten batch seams r74-1..r74-10, revert-RED where
+  marked; goldens: ZERO shifts predicted with the clamp lemma pinned
+  as r74-6.  State: ready.

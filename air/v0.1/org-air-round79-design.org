@@ -1,5 +1,5 @@
 #+title: org-air Round 79 — day-view repair: distinct keyword-badge colours, fixed badge column (title alignment), the / filter + a keyword token, and o/O sorting wired through the shared sort machinery
-#+state: ready
+#+state: complete
 #+tags: board day-view filter sort faces ux
 
 * Summary
@@ -573,3 +573,4 @@ prove the day pane inherits the filter + the new axis.
 
 * History
 - 2026-07-23: State: draft → ready.
+- 2026-07-23: State: ready → complete.

@@ -835,6 +835,28 @@ byte-for-byte as-is, and a failed refile still creates no file."
                   (save-buffer))))
             (set-marker src-beg nil)
             (when (car-safe parent) (set-marker (car parent) nil)))))
+      ;; R73-2/-3: the STRUCTURAL ring record — after the transaction
+      ;; landed (an error above propagates before this line), before the
+      ;; echo.  `u' after a refile now SAYS what happened instead of
+      ;; silently undoing an unrelated older disposition; the record is
+      ;; observability only, never a second mutation path (Decision 6:
+      ;; a source-side undo beside the moved copy would be a silent
+      ;; duplicate).  fboundp-guarded: the ring lives in org-air-view.el
+      ;; (the exact shape of the triage-source recording).
+      (when (and (fboundp 'org-air-view--edit-ring-push)
+                 (buffer-live-p src-buf))
+        (org-air-view--edit-ring-push
+         (format "refile \"%s\" → %s%s"
+                 (org-air-item-title item)
+                 (file-name-nondirectory target-file)
+                 (cond ((consp target-heading)
+                        (concat " › "
+                                (mapconcat #'identity target-heading " › ")))
+                       ((and (stringp target-heading)
+                             (not (string-empty-p target-heading)))
+                        (concat " › " target-heading))
+                       (t "")))
+         src-buf 'refile))
       (message "Refiled → %s%s"
                (file-name-nondirectory target-file)
                (cond ((consp target-heading)
@@ -1506,9 +1528,21 @@ record and note together (probed byte-exact)."
              (org-air-inbox--append-log-note note)
              (push 'note applied)))))
       (save-buffer)
+      (setq applied (nreverse applied))
+      ;; R73-2: the in-place ring record — after the save (a signalled
+      ;; edit above rolled back and recorded nothing), desc from the
+      ;; applied-fields list.  fboundp-guarded: the ring lives in
+      ;; org-air-view.el (the exact shape the triage-source recording
+      ;; below already uses).
+      (when (fboundp 'org-air-view--edit-ring-push)
+        (org-air-view--edit-ring-push
+         (format "edit \"%s\": %s"
+                 (org-air-item-title item)
+                 (mapconcat #'symbol-name applied ", "))
+         buf))
       (when (boundp 'org-air-view--triage-source-buffer)
         (setq org-air-view--triage-source-buffer buf)))
-    (nreverse applied)))
+    applied))
 
 (transient-define-suffix org-air-refile-form-note ()
   "Draft the dated log-note FIELD — the R71-1 action→field repurpose.

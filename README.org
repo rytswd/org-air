@@ -253,7 +253,7 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~m~                     | Toggle mark                                                            |
 | ~t~ / ~T~               | Set tag / cycle TODO keyword                                           |
 | ~d~ / ~D~               | Set deadline / mark done                                               |
-| ~a~ / ~x~ / ~u~         | Archive / kill (guarded) / undo triage                                 |
+| ~a~ / ~x~ / ~u~         | Archive / kill (guarded) / undo the most recent board edit             |
 | ~/~                     | Filter by tag, free text, or date/status (~is:overdue~, ~due:7d~)      |
 | ~\~                     | Clear the filter                                                       |
 | ~M-/~                   | Toggle filter combinator (AND ↔ OR)                                    |
@@ -268,6 +268,8 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~?~                     | Help                                                                   |
 | ~q~                     | Quit (progressively closes one surface per press)                      |
 | ~C-c C-a~               | Leader: ~\vert~ rail · ~o~ outline jump · ~s~ sort · ~/~ filter        |
+
+~u~ undoes the most recent board edit (a bounded recent-edits ring — ~?~ lists what ~u~ will undo; refiles and archives are named but not auto-reverted, since a source-side undo beside the moved copy would leave a duplicate).
 
 **** Project viewer (~org-air-project~)
 

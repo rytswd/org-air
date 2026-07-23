@@ -35,6 +35,8 @@
 (declare-function svg-polygon "svg")
 (declare-function svg-text "svg")
 (declare-function svg-image "svg")
+;; R73-2: the archive verb's ring-record desc names the archive file.
+(declare-function org-archive--compute-location "org-archive" (location))
 
 (defvar org-air-files)
 (defvar org-air-inbox-file)
@@ -1606,7 +1608,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "a" #'org-air-item-archive
   "D" #'org-air-item-done
   "x" #'org-air-item-kill
-  "u" #'org-air-triage-undo
+  "u" #'org-air-edit-undo
   "I" #'org-air-process-inbox
   "/" #'org-air-filter
   "S" #'org-air-scope-clear
@@ -7359,6 +7361,82 @@ does not run synchronously on every command (responsive on large files)."
                                #'org-air-view--view-pane-update-now
                                (current-buffer)))))
 
+(defun org-air-view--panes-resync-now ()
+  "Force a pane/inspector resync for the item NOW at point (R73-1).
+Called from the board's TWO swap tails — the `org-air-view--refresh-repaint'
+tail (which covers the machine's `--refresh-finish' swap, the ≤budget
+sync fast path, the no-change path, and every failure/cancel repaint)
+and the fully-synchronous `org-air-refresh' else-branch tail — AFTER
+`org-air-view--restore-position', so the resync reads the FINAL landing.
+Position tracking (`post-command-hook') answers \"did the cursor move?\",
+never \"did the board change under the cursor?\" — this is the missing
+half: direct, timer-free calls (batch visible, no idle wait) to
+`org-air-view--inspector-update-now' and
+`org-air-view--view-pane-update-now', SELF-LIMITED by struct
+identity (Decision 1): a rescanned file's items are FRESH structs (the `eq'
+guards redraw — the content-changed case), a retained file's items are
+the very same `eq' structs (skip — provably current, no FORCE churn),
+and a removed item leaves a DIFFERENT struct at point (redraw to the
+new item — the done/drop case).  First both pending debounce timers are
+cancelled (a pre-refresh debounce must not fire later against
+superseded state) and the R20-3b `--view-pane-last-pos' bookkeeping is
+re-stamped (the pane is now correct FOR this position).
+
+Decision 2 — the empty degrade, RESYNC-SCOPED only: when NO context
+resolves at-or-after point (`org-air-view-pane--context-at-point' with
+its R24-4 fall-forward — the last item graduated, the board is empty)
+and the pane window is live, the pane is CLOSED via
+`org-air-view-pane--hide' (the R20-3 teardown — base buffer and its
+unsaved state survive) and the inspector renders its nil placeholder —
+never a stale/dead-item pane.  Deliberately NOT folded into
+`--view-pane-update-now' itself: in normal FOLLOW motion a nil-thing
+row keeping the last item visible is long-standing, harmless behaviour.
+The same keep-last scoping bounds the INSPECTOR here: a nil-thing
+CHROME row (the banner after a cold scan, a parked section heading)
+with items still resolvable below skips the inspector nudge — the
+region keeps its render instead of degrading to the placeholder on
+every refresh (and the swap goldens stay byte-clean); the placeholder
+is reserved for the true empty degrade, where it is the honest render.
+
+Never signals, arms NO timers, re-queries NOTHING (R53 — the renders
+work from cached structs; the pane's own source visit is its existing
+R16 render path, unchanged).  The post-command trackers and their
+debounces are byte-untouched — this is an ADDITIONAL synchronous nudge
+at the two swap tails only."
+  (condition-case nil
+      (when (derived-mode-p 'org-air-view-mode)
+        (let ((buf (current-buffer)))
+          ;; Cancel superseded pre-refresh debounces + keep the R20-3b
+          ;; early-out's bookkeeping truthful.
+          (when (timerp org-air-view--inspector-timer)
+            (cancel-timer org-air-view--inspector-timer)
+            (setq org-air-view--inspector-timer nil))
+          (when (timerp org-air-view--view-pane-timer)
+            (cancel-timer org-air-view--view-pane-timer))
+          (setq-local org-air-view--view-pane-timer nil)
+          (setq-local org-air-view--view-pane-last-pos (point))
+          ;; Direct, identity-limited updates for the item NOW at point.
+          (let ((thing (get-text-property (point)
+                                          org-air-view--inspector-property))
+                (ctx (org-air-view-pane--context-at-point)))
+            ;; The inspector nudge: for a real thing (the eq guard decides
+            ;; redraw-vs-skip) or the true empty degrade (nil thing, no
+            ;; context anywhere at-or-after — the nil placeholder is the
+            ;; honest render).  A nil-thing CHROME row with items below
+            ;; keeps the last render (Decision 2's keep-last scoping).
+            (when (or thing (null ctx))
+              (org-air-view--inspector-update-now buf))
+            (org-air-view--view-pane-update-now buf)
+            ;; Decision 2: the empty degrade — nothing resolves at or
+            ;; after point, so the board really has nothing under point
+            ;; after the swap: close the pane rather than paint a
+            ;; removed item.
+            (when (and (null ctx)
+                       (org-air-view-pane--window-live-p))
+              (setq-local org-air-view--view-pane-item nil)
+              (org-air-view-pane--hide)))))
+    (error nil)))
+
 (defun org-air-view--two-pane-body (items width)
   "Return (BODY-LINES . FILL-ROW) for ITEMS in the two-pane layout at WIDTH.
 FILL-ROW is a full-width blank row carrying the divider, so the divider
@@ -8139,7 +8217,13 @@ places point instead."
                     (org-air-view--save-position))))
     (org-air-view--render org-air-view--items org-air-view--tag-filter)
     (when token
-      (org-air-view--restore-position token))))
+      (org-air-view--restore-position token))
+    ;; R73-1: the swap-tail resync — point is FINAL here (restored above,
+    ;; or bookmark-consumed inside the render), so the pane/inspector are
+    ;; nudged onto the item NOW at point.  Identity-limited: a repaint
+    ;; that changed nothing (failure/cancel/mid-machine marker paint)
+    ;; no-ops via the `eq' guards.
+    (org-air-view--panes-resync-now)))
 
 (defconst org-air-view--refresh-pace 0.05
   "Bounded idle interval (seconds) pacing the chunked refresh slices (R34-3).
@@ -9106,7 +9190,11 @@ exact synchronous re-query it always was."
             org-air-view--items-mtimes
             (org-air-view--mtimes-snapshot (org-air-query-files)))
       (org-air-view--render org-air-view--items filter)
-      (org-air-view--restore-position token))))
+      (org-air-view--restore-position token)
+      ;; R73-1: the second swap tail — the fully-synchronous (batch /
+      ;; byte-gate) re-query rebuilt every struct, so the resync redraws
+      ;; the panes for the restored point in the same motion.
+      (org-air-view--panes-resync-now))))
 
 (defun org-air--relevant-file-p (file)
   "Return non-nil when FILE is one of the configured org-air files."
@@ -9429,27 +9517,82 @@ header and never toggles or hangs."
       (delete-char 1)
       (insert (if marked " " "•")))))
 
-(defun org-air-set-tag ()
-  "Add TAG to the item at point.
-R68-3 audit: SAFE — the `read-string' prompt runs BEFORE the buffer
-switch (against the displayed board) and `org-toggle-tag' is
-prompt-free; NOT converted to `org-air-view--at-item-source' this
-round (uniformity churn with no bug behind it)."
-  (interactive)
-  (let* ((item (org-air-view--item-at-point))
-         (tag (read-string "Tag: ")))
-    (org-air-view--refresh-stale-item-guard item)
-    (with-current-buffer (find-file-noselect (org-air-item-file item))
-      (goto-char (org-air-view--item-pos item))
-      (org-back-to-heading t)
-      (org-toggle-tag tag 'on)
-      (save-buffer)))
-  (org-air-refresh))
-
 ;;;; Inbox triage — inline dispositions + process-inbox (org-air-triage.org)
 
 (defvar org-air-view--triage-source-buffer nil
-  "Source buffer of the most recent triage disposition (for `u' undo).")
+  "Source buffer of the most recent triage disposition.
+R73: a compatibility shadow — still SET by every recording path, but no
+longer read by `u' (`org-air-edit-undo' dispatches on the bounded
+`org-air-view--edit-ring' instead).")
+
+(defconst org-air-view--edit-ring-max 20
+  "Depth bound of the recent-edits undo ring (R73 Decision 7).
+An internal bound like `org-air-view--refresh-pace' — never a
+defcustom; 20 covers a whole process-inbox sitting, and the payload per
+record is a short string + a buffer ref + ints.")
+
+(defvar org-air-view--edit-ring nil
+  "The bounded recent-edits ring: a plain NEWEST-FIRST list (R73).
+Each record is a plist (:desc :buffer :file :kind :tick :time) — small
+pure data plus a LIVE buffer reference (no markers — nothing to
+re-locate, `undo-only' operates on the buffer's own undo list — and no
+retained content; a killed buffer degrades its records to the dead
+branch of `org-air-edit-undo', and the ref never keeps a buffer alive
+or blocks `find-file-noselect' reuse).  GLOBAL, not buffer-local:
+edits are global facts about the user's org files, and history
+survives a board kill/recreate (`q' + \\[org-air]).  `u' consumes from
+the head; `org-air-view--edit-ring-push' truncates the tail at
+`org-air-view--edit-ring-max' — no `make-ring' wraparound semantics
+wanted.")
+
+(defun org-air-view--edit-ring-push (desc buffer &optional kind)
+  "Push an undo record for the DESC edit made in BUFFER (R73 Decision 3).
+KIND defaults to `in-place' (single-buffer, honestly undoable via the
+buffer's own undo list); `refile' / `archive' mark the record
+STRUCTURAL — named by `u' but never auto-reverted (Decision 6: a
+source-side undo beside the moved copy would make a silent duplicate).
+The tick is `buffer-chars-modified-tick' (never `buffer-modified-tick')
+so fontification/text-property churn can never trip the `u' guard.
+Older same-buffer records are NOT re-stamped here — only a successful
+ring UNDO re-stamps (`org-air-view--edit-ring-restamp'): an in-place
+chain never needs it (undoing the newer record first restores the
+older record's expected state and re-stamps then), while re-stamping
+under a STRUCTURAL push would arm the exact duplicate-maker Decision 6
+forbids — the consumed-without-undo refile/archive record would leave
+its source-side cut as the buffer's newest undo step, and a
+guard-passing `u' on the older in-place record would `undo-only' THAT
+cut, resurrecting the item beside its moved copy.  Letting the tick
+guard trip there (\"changed since\") is the honest degrade.  Bounded
+push-and-truncate to `org-air-view--edit-ring-max'.  Never signals."
+  (condition-case nil
+      (when (buffer-live-p buffer)
+        (push (list :desc desc
+                    :buffer buffer
+                    :file (buffer-file-name buffer)
+                    :kind (or kind 'in-place)
+                    :tick (buffer-chars-modified-tick buffer)
+                    :time (current-time))
+              org-air-view--edit-ring)
+        (when (> (length org-air-view--edit-ring)
+                 org-air-view--edit-ring-max)
+          (setcdr (nthcdr (1- org-air-view--edit-ring-max)
+                          org-air-view--edit-ring)
+                  nil)))
+    (error nil)))
+
+(defun org-air-view--edit-ring-restamp (buffer)
+  "Re-stamp BUFFER's ring records with its current chars tick (R73).
+Run after a successful ring UNDO in BUFFER: the undo restored exactly
+the content state the next-in-line record was stamped against, so the
+tick guard keeps meaning \"no NON-ring change intervened\" — while a
+real user edit still trips it (the tick bumps with no re-stamp).
+Deliberately NOT run on push — see `org-air-view--edit-ring-push' (the
+structural same-buffer duplicate hazard)."
+  (when (buffer-live-p buffer)
+    (let ((tick (buffer-chars-modified-tick buffer)))
+      (dolist (rec org-air-view--edit-ring)
+        (when (eq (plist-get rec :buffer) buffer)
+          (plist-put rec :tick tick))))))
 
 (defun org-air-view--item-at-point ()
   "Return the org-air item at point, or signal a `user-error'.
@@ -9478,26 +9621,75 @@ pending record is flushed synchronously
 state line lands in the same saved bytes.  Dynamic bindings only —
 the user's logging customs are never modified, and a normally-visited
 org buffer still takes notes exactly as configured.  Every macro user
-— current and future — is covered by construction."
+— current and future — is covered by construction.
+
+R73 (Decisions 3 + 4): BODY may be preceded by TWO optional leading
+forms, parsed at expansion (the docstring idiom — fully backwards
+compatible, every pre-R73 call records a generic desc):
+
+- a DESC form — a string literal or a `format'/`concat' call — the
+  recent-edits record's `:desc' (callers pass the same human phrasing
+  their echo message composes), evaluated in the source buffer AFTER
+  the save;
+- the `:structural' keyword — the record's `:kind' becomes `archive'
+  (used ONLY by `org-air-item-archive'; `org-archive-subtree' writes
+  the archive location too, so a source-side undo would leave a
+  duplicate — Decision 6).
+
+The goto + BODY + flush now run under an `undo-boundary' + ONE
+`atomic-change-group': one edit = one undo group (the recorded edit
+never merges with a preceding same-command change), and a mid-BODY
+signal rolls back every in-buffer change and propagates — the file is
+never saved and NO ring record is pushed (the push sits after the
+save), bytes identical.  After the successful save the record is
+pushed onto `org-air-view--edit-ring' — recording BY CONSTRUCTION for
+every macro user, current and future."
   (declare (indent 1) (debug t))
-  (let ((buf (make-symbol "buf")) (it (make-symbol "it")))
-    `(let* ((,it ,item))
-       (org-air-view--refresh-stale-item-guard ,it)
-       (let ((,buf (find-file-noselect (org-air-item-file ,it))))
-         (with-current-buffer ,buf
-           (save-excursion
-             (goto-char (org-air-view--item-pos ,it))
-             (org-back-to-heading t)
-             (let ((org-inhibit-logging (or org-inhibit-logging 'note))
-                   (org-log-reschedule (if (eq org-log-reschedule 'note) 'time
-                                         org-log-reschedule))
-                   (org-log-redeadline (if (eq org-log-redeadline 'note) 'time
-                                         org-log-redeadline)))
-               ,@body))
-           (org-air-inbox--flush-pending-log-note)
-           (save-buffer))
-         (setq org-air-view--triage-source-buffer ,buf)
-         ,buf))))
+  ;; R73 Decision 3: parse the optional leading DESC / `:structural'
+  ;; forms at expansion (either order; both optional).
+  (let ((desc nil) (structural nil) (parsing t))
+    (while (and parsing body)
+      (let ((head (car body)))
+        (cond
+         ((eq head :structural) (setq structural t) (pop body))
+         ((and (null desc)
+               (or (stringp head)
+                   (and (consp head) (memq (car head) '(format concat)))))
+          (setq desc (pop body)))
+         (t (setq parsing nil)))))
+    (let ((buf (make-symbol "buf")) (it (make-symbol "it")))
+      `(let* ((,it ,item))
+         (org-air-view--refresh-stale-item-guard ,it)
+         (let ((,buf (find-file-noselect (org-air-item-file ,it))))
+           (with-current-buffer ,buf
+             ;; R73 Decision 4: one edit = one atomic undo group.  The
+             ;; boundary FIRST (never merge with a preceding change);
+             ;; body + the R68 flush INSIDE the group (a signal rolls
+             ;; back everything — metadata and log line together); the
+             ;; save after (the R64 discipline `--apply-item-edits'
+             ;; already proves at this exact shape).
+             (undo-boundary)
+             (atomic-change-group
+               (save-excursion
+                 (goto-char (org-air-view--item-pos ,it))
+                 (org-back-to-heading t)
+                 (let ((org-inhibit-logging (or org-inhibit-logging 'note))
+                       (org-log-reschedule (if (eq org-log-reschedule 'note) 'time
+                                             org-log-reschedule))
+                       (org-log-redeadline (if (eq org-log-redeadline 'note) 'time
+                                             org-log-redeadline)))
+                   ,@body))
+               (org-air-inbox--flush-pending-log-note))
+             (save-buffer)
+             ;; R73 Decision 3: the ring push AFTER the successful save
+             ;; — a signalled edit records nothing.  DESC evaluates in
+             ;; the source buffer (buffer-local context available).
+             (org-air-view--edit-ring-push
+              ,(or desc `(format "edit \"%s\"" (org-air-item-title ,it)))
+              ,buf
+              ,(and structural ''archive)))
+           (setq org-air-view--triage-source-buffer ,buf)
+           ,buf)))))
 
 (defun org-air-view--next-dow (target)
   "Return YYYY-MM-DD of the next day-of-week TARGET (0=Sun..6=Sat)."
@@ -9539,6 +9731,10 @@ logging discipline."
          (clearp (eq date 'clear))
          (setter (if (eq kind 'deadline) #'org-deadline #'org-schedule)))
     (org-air-view--at-item-source item
+      (format "%s \"%s\"%s"
+              (if (eq kind 'deadline) "deadline" "schedule")
+              (org-air-item-title item)
+              (if clearp " cleared" (format " → %s" date)))
       (if clearp (funcall setter '(4)) (funcall setter nil date)))
     (org-air-refresh)
     (message "%s \"%s\"%s"
@@ -9577,8 +9773,30 @@ silently losing the logging discipline (the round-68 Fable blocker)."
   (interactive "sSchedule (empty clears): ")
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item
+      (format "schedule \"%s\"%s" (org-air-item-title item)
+              (if (string-empty-p date) " cleared" (format " → %s" date)))
       (org-schedule nil (unless (string-empty-p date) date))))
   (org-air-refresh))
+
+(defun org-air-set-tag ()
+  "Add TAG to the item at point.
+The R68-3 audit left this raw (the `read-string' prompt runs BEFORE
+the buffer switch — against the displayed board — and `org-toggle-tag'
+is prompt-free; uniformity alone had no bug behind it).  R73-2
+converts it onto `org-air-view--at-item-source' after all: an
+unrecorded tag edit would be invisible to the recent-edits
+ring (`u'), and the conversion brings the R68 logging discipline for free.
+The prompt STAYS before the macro — the R68-3 safety shape.
+Relocated BELOW the defmacro (the R68fix source-order law: a call
+above the definition byte-compiles against whatever macro a stale
+`.elc' carries on an incremental build)."
+  (interactive)
+  (let* ((item (org-air-view--item-at-point))
+         (tag (read-string "Tag: ")))
+    (org-air-view--at-item-source item
+      (format "tag \"%s\" +%s" (org-air-item-title item) tag)
+      (org-toggle-tag tag 'on))
+    (org-air-refresh)))
 
 ;;;###autoload
 (defun org-air-item-file-group ()
@@ -9609,7 +9827,9 @@ triage spec's `T' key maps here."
                   (org-air-item-file item) old)))
     (if (or (null choice) (equal choice old))
         (message "Todo unchanged")
-      (org-air-view--at-item-source item (org-todo choice))
+      (org-air-view--at-item-source item
+        (format "todo \"%s\" → %s" (org-air-item-title item) choice)
+        (org-todo choice))
       (org-air-refresh)
       (message "Todo \"%s\": %s → %s"
                (org-air-item-title item) old choice))))
@@ -9618,10 +9838,22 @@ triage spec's `T' key maps here."
 (defun org-air-item-archive ()
   "Archive the item at point's subtree (graduates it out of Inbox).
 R68-3 audit: SAFE — `org-archive-subtree' performs no interactive
-reads and its archive-buffer writes are non-interactive."
+reads and its archive-buffer writes are non-interactive.
+R73 Decision 6: the record is `:structural' — `org-archive-subtree'
+writes the archive location too, so a source-side undo would leave the
+archived COPY (the duplicate shape); `u' consumes the record with a
+message naming the archive file instead."
   (interactive)
   (let ((item (org-air-view--item-at-point)))
-    (org-air-view--at-item-source item (org-archive-subtree))
+    (org-air-view--at-item-source item
+      (format "archive \"%s\" → %s" (org-air-item-title item)
+              (or (ignore-errors
+                    (file-name-nondirectory
+                     (car (org-archive--compute-location
+                           org-archive-location))))
+                  "the archive file"))
+      :structural
+      (org-archive-subtree))
     (org-air-refresh)
     (message "Archived \"%s\"" (org-air-item-title item))))
 
@@ -9635,7 +9867,9 @@ downgraded to its timestamp — is flushed into the same save by the
 against the undisplayed source buffer."
   (interactive)
   (let ((item (org-air-view--item-at-point)))
-    (org-air-view--at-item-source item (org-todo 'done))
+    (org-air-view--at-item-source item
+      (format "done \"%s\"" (org-air-item-title item))
+      (org-todo 'done))
     (org-air-refresh)
     (message "Marked DONE \"%s\"" (org-air-item-title item))))
 
@@ -9647,21 +9881,90 @@ against the displayed board; `org-cut-subtree' is prompt-free."
   (interactive)
   (let ((item (org-air-view--item-at-point)))
     (when (yes-or-no-p (format "Delete \"%s\"? " (org-air-item-title item)))
-      (org-air-view--at-item-source item (org-cut-subtree))
+      (org-air-view--at-item-source item
+        (format "kill \"%s\"" (org-air-item-title item))
+        (org-cut-subtree))
       (org-air-refresh)
       (message "Deleted \"%s\"" (org-air-item-title item)))))
 
-(defun org-air-triage-undo ()
-  "Undo the last triage disposition in its source buffer."
+(defun org-air-edit-undo ()
+  "Undo the MOST RECENT recorded board edit (R73 Decisions 5 + 6).
+Pops the newest record off the bounded recent-edits ring
+`org-air-view--edit-ring' and dispatches on its kind — one press, one
+record, never a cascade:
+
+- an IN-PLACE record (done / todo / tag / priority / schedule /
+  deadline / category / note / kill — all single-buffer) is undone via
+  `undo-only' in ITS OWN buffer — NEVER plain `undo', whose second
+  non-consecutive press REDOES the first undo; `undo-only' skips redo
+  entries by construction, so successive presses WALK BACK — guarded
+  by a `buffer-chars-modified-tick' check (a manual/external change
+  since the edit consumes the record with a message instead of eating
+  the WRONG change; after a successful undo the same-buffer records
+  are re-stamped, so the ring's own steps never trip it), then saved +
+  refreshed — the R73-1 resync rides the refresh tail, so the row AND
+  the pane/inspector revert in the same motion;
+- a STRUCTURAL record (refile / archive — a cross-buffer
+  delete+insert) is honestly NOT undone: consumed with a message
+  naming the manual path (a source-side undo would resurrect the item
+  beside its moved copy — a silent duplicate, worse than no undo);
+- a DEAD record (source buffer killed) is consumed with a message.
+
+`?' shows the ring (the Recent edits block); `u' undoes the top.
+Named `org-air-edit-undo' — `u' now covers every board edit, not just
+triage dispositions; `org-air-triage-undo' stays as a defalias."
   (interactive)
-  (if (buffer-live-p org-air-view--triage-source-buffer)
-      (progn
-        (with-current-buffer org-air-view--triage-source-buffer
-          (undo)
-          (save-buffer))
-        (org-air-refresh)
-        (message "Undid last disposition"))
-    (user-error "No triage disposition to undo")))
+  (unless org-air-view--edit-ring
+    (user-error "Nothing to undo"))
+  (let* ((rec (pop org-air-view--edit-ring))
+         (desc (plist-get rec :desc))
+         (buf (plist-get rec :buffer))
+         (kind (plist-get rec :kind))
+         (tick (plist-get rec :tick))
+         (next (car org-air-view--edit-ring)))
+    (cond
+     ;; Decision 6: structural honesty — named, never a duplicate-making
+     ;; partial undo.
+     ((memq kind '(refile archive))
+      (message "Not simply undoable: %s — it moved; %s%s"
+               desc
+               (if (eq kind 'refile)
+                   "refile it back (e) from there."
+                 "restore it from the archive file.")
+               (if next
+                   (format "  Next u: %s" (plist-get next :desc))
+                 "")))
+     ;; Decision 5 step 1: liveness — consumed, the press ENDS.
+     ((not (buffer-live-p buf))
+      (message "Cannot undo: %s — source buffer gone" desc))
+     ;; Decision 5 step 2: the tick guard — the buffer changed since the
+     ;; edit (manual user edit, external revert); blind undo would eat
+     ;; the WRONG change.
+     ((not (eql tick (buffer-chars-modified-tick buf)))
+      (message "Cannot undo: %s — %s changed since" desc (buffer-name buf)))
+     (t
+      ;; Decision 5 steps 3 + 4: `undo-only' in the record's OWN buffer,
+      ;; re-stamp the survivors, save, refresh — the R73-1 resync rides
+      ;; the refresh tail for free.  The explicit `undo-boundary' first:
+      ;; the command loop normally closes the edit's group before an
+      ;; interactive `u' press (making this a no-op), but the board's
+      ;; edits land from Lisp against an UNDISPLAYED buffer whose head
+      ;; boundary nobody closed — without it, `undo's own drop-the-
+      ;; initial-boundary step would consume the real change group.
+      (with-current-buffer buf
+        (undo-boundary)
+        (undo-only)
+        (save-buffer))
+      (org-air-view--edit-ring-restamp buf)
+      (org-air-refresh)
+      (message "Undid: %s (%d more)" desc
+               (length org-air-view--edit-ring))))))
+
+(defalias 'org-air-triage-undo #'org-air-edit-undo
+  "Renamed to `org-air-edit-undo' (R73) — `u' now undoes every board
+edit through the bounded recent-edits ring, not just the last triage
+disposition.  Kept as an alias for muscle memory, the process-inbox
+`?u' route, and test pins.")
 
 (defun org-air-view--goto-first-inbox-item ()
   "Move point to the first Inbox item row, if any."
@@ -9940,7 +10243,7 @@ read by the bookmark record producer.")
      (org-air-item-archive . "archive item")
      (org-air-item-done . "mark done")
      (org-air-item-kill . "kill item")
-     (org-air-triage-undo . "undo last triage action")
+     (org-air-edit-undo . "undo last edit (ring; ? shows recent)")
      (org-air-toggle-mark . "mark/unmark item")
      (org-air-process-inbox . "process inbox (guided walk)"))
     ("Filter & sort"
@@ -10136,6 +10439,34 @@ BUFFER."
                       "  "
                       (propertize desc 'face 'org-air-face-faded)
                       "\n"))))
+        ;; R73 Decision 8: the Recent-edits block — newest first, at most
+        ;; 5 rows, `u' undoes the top.  Rendered ONLY when the ring is
+        ;; non-empty, so every help golden/mockup (rendered with a fresh
+        ;; ring) stays byte-clean.  No transient, no new key: `?' is
+        ;; already the \"what just happened / what can I do\" surface.
+        (when (and (boundp 'org-air-view--edit-ring)
+                   org-air-view--edit-ring)
+          (insert "\n")
+          (org-air-help--insert-header "Recent edits")
+          (insert "  "
+                  (propertize "u undoes the top" 'face 'org-air-face-faded)
+                  "\n")
+          (let ((n 0))
+            (dolist (rec (seq-take org-air-view--edit-ring 5))
+              (setq n (1+ n))
+              (let* ((kind (plist-get rec :kind))
+                     (rbuf (plist-get rec :buffer))
+                     (suffix (cond ((memq kind '(refile archive))
+                                    " [not simply undoable]")
+                                   ((not (buffer-live-p rbuf)) " [gone]")
+                                   (t ""))))
+                (insert "  "
+                        (propertize (format "%d." n)
+                                    'face 'org-air-face-rail-key)
+                        " "
+                        (propertize (concat (plist-get rec :desc) suffix)
+                                    'face 'org-air-face-faded)
+                        "\n")))))
         (goto-char (point-min))))
     buffer))
 

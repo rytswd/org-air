@@ -548,3 +548,72 @@ row.
   r73-1..r73-13, revert-RED where marked; GUI residue flagged for
   user confirm (live pane repaint, pane close on empty, rail
   region timing).  State: ready.
+- 2026-07-23: Round 73 IMPLEMENTED (impl seat, fresh child of
+  mwzwuyol).  Both packages landed as specced, with two
+  implementation rulings inside the spec's own laws:
+  - R73-1: NEW =org-air-view--panes-resync-now= (never-error,
+    timer-free, board-scoped) called from the two swap tails — the
+    =--refresh-repaint= tail and the fully-sync =org-air-refresh=
+    else-branch tail, both AFTER =--restore-position=.  Cancels the
+    two pending debounce timers, re-stamps
+    =--view-pane-last-pos=, then calls =--inspector-update-now= +
+    =--view-pane-update-now= directly — self-limited by struct
+    identity exactly as Decision 1 rules (the warm sync fast path's
+    retained structs stay =eq=; pinned r73-2).  Decision 2 empty
+    degrade: no context at-or-after point + live pane window ⇒
+    =org-air-view-pane--hide= + nil'd pane item; the inspector
+    renders its nil placeholder.  RULING (within Decision 2's own
+    keep-last rationale): the inspector nudge is SKIPPED on a
+    nil-thing CHROME row while items still resolve below (banner
+    after a cold scan, parked section heading) — without this the
+    machine-finish repaint degraded the inline inspector region to
+    the placeholder and broke the r26-8 cache-round-trip byte
+    identity; with it, ZERO goldens and ZERO legacy pins moved
+    (the spec's own prediction).  The placeholder remains the
+    honest render for the true empty degrade (pinned r73-4).
+  - R73-2/-3: =org-air-view--edit-ring= (global newest-first list)
+    + =--edit-ring-max= (defconst 20) + =--edit-ring-push= +
+    =--edit-ring-restamp=.  =--at-item-source= gained the
+    expansion-parsed leading DESC form (string literal or
+    =format=/=concat= call — descs carry runtime titles/dates) +
+    =:structural= keyword, an =undo-boundary= + ONE
+    =atomic-change-group= around goto+BODY+flush (save after, push
+    after save — a signalled edit records nothing, r73-12), and
+    the ring push evaluated in the source buffer.  Callers gained
+    descs (=--apply-date=, =set-schedule=, =cycle-todo=, done,
+    kill, archive+=:structural= naming the archive file via
+    =org-archive--compute-location=); =org-air-set-tag= converted
+    AND relocated below the defmacro (the R68fix source-order
+    law).  =--apply-item-edits= and =org-air-refile-item= push
+    directly (fboundp-guarded).  =u= → =org-air-edit-undo=
+    (=org-air-triage-undo= a kept defalias; process-inbox =?u=
+    routes through it): pop → structural-consume / dead / tick
+    dispatch; the in-place branch runs =undo-boundary= +
+    =undo-only= in the record's OWN buffer (the explicit boundary:
+    board edits land from Lisp against an undisplayed buffer whose
+    head boundary the command loop never closed — without it,
+    =undo='s drop-the-initial-boundary step ate the real change
+    group in batch AND in the board flow), then save + refresh
+    (the resync rides the tail).  RULING: the re-stamp runs after
+    a successful UNDO only, NOT on push — re-stamping under a
+    STRUCTURAL push would let a guard-passing =u= on the older
+    in-place record =undo-only= the refile/archive's source-side
+    cut, resurrecting the item beside its moved copy (the exact
+    duplicate Decision 6 forbids); the tick guard tripping
+    ("changed since") is the honest degrade there, pinned in
+    r73-10 alongside the spec's dead/stale/re-stamp seams.
+    Recent-edits block in =?= help (newest-first, ≤5 rows,
+    =[not simply undoable]=/=[gone]= suffixes, empty-suppressed);
+    the =u= row re-worded; README updated.
+  Zero new defcustoms, no keymap growth (=u= retargets to the new
+  name), no cache/schema/face change.  Thirteen batch seams green
+  (tests/org-air-round73-test.el; the deadline verb driven through
+  =--apply-date= in tests — the =org-air-item-deadline= command
+  name collides with the struct accessor at macro-expansion, the
+  known R68 =-cycle-todo= collision class).  =make clean && make
+  check= green (926 tests, 0 unexpected, 8 GUI skips), NO flagged
+  goldens — known-failures manifest untouched; =make
+  regen-mockups= byte-clean (zero fixtures moved, as predicted).
+  GUI residue for user confirm: the live pane repaint after an
+  edit, the pane closing on the last graduation, the rail region
+  repaint timing.

@@ -1,0 +1,497 @@
+#+title: org-air Round 75 — REDO for the recent-edits ring: `U' re-applies the edit `u' just reverted (undo/redo pair; a fresh edit clears the redo side)
+#+state: ready
+#+tags: board undo redo ring ux robustness
+
+* Summary
+
+USER REQUEST: /"There should be redo as well."/
+
+R73 gave =u= (=org-air-edit-undo=) a bounded depth-20 recent-edits
+UNDO ring: every board mutation records at one of three choke points
+(the =org-air-view--at-item-source= macro, =--apply-item-edits=, the
+refile engine), each edit is ONE atomic undo group
+(=undo-boundary= + =atomic-change-group=), and =u= pops the newest
+record and reverts it via =undo-only= in the record's OWN buffer +
+save + refresh (+ the R73-1 forced resync riding the refresh tail).
+Refile/archive =:structural= records are honestly named
+not-undoable.  R73 walked BACK only — "No redo" was an explicit R73
+non-goal, now user-requested.
+
+R75 extends the ring into an UNDO/REDO PAIR:
+
+- Undoing an in-place edit PUSHES the reverted record onto a new
+  REDO ring (=org-air-view--edit-redo-ring= — same record shape,
+  same global newest-first-list discipline).
+- A new key =U= (=org-air-edit-redo= — Decision 2: free in the board
+  map, the shift-pair inverse of =u=, the board's own v/V s/S o/O
+  idiom) pops the newest redo record and RE-APPLIES it: one
+  buffer-level =undo-redo= step in the record's own buffer + save +
+  refresh + resync, then moves the record BACK onto the undo ring —
+  repeated =u=/=U= walk the ring both ways.
+- A NEW edit (any fresh board mutation — not a ring op) CLEARS the
+  redo ring — standard undo/redo semantics, enforced BY CONSTRUCTION
+  at the one push choke point every verb already routes through
+  (Decision 1), with the buffer's own =undo-redo= refusal as an
+  independent second layer beneath it (Decision 3).
+- Refile/archive stay honestly not-redoable — BY CONSTRUCTION, not
+  by dispatch: a structural record is consumed by =u= WITHOUT any
+  buffer reversal, so it NEVER enters the redo ring; there exists no
+  code path on which =U= can touch a refile/archive, and the R64
+  data-loss/duplicate class cannot resurface via redo (Decision 4).
+- The R73 guards extend to redo: liveness (killed source buffer) and
+  the chars-modified-tick guard (manual/external change since the
+  undo) both degrade with a named message, record consumed, never an
+  error; the R73 restamp becomes TWO-SIDED so the ring's own steps
+  never trip the guard in either direction (Decision 5).
+
+The MECHANISM is argued and BATCH-VERIFIED (Decision 3): the
+atomic-change-group + undo-boundary discipline R73/R73fix
+established makes each edit ONE undo group and each =u= ONE undo
+step registered in =undo-equiv-table= — so Emacs' own =undo-redo=
+(Emacs 28.1+; our floor is 29.1) re-applies EXACTLY that edit in one
+step, byte-equal to the post-edit state, and LINEARIZES the undo
+list so a later =u= walks back through the same edit again.  A probe
+on the exact R73 shape (Lisp-landed edits in an undisplayed buffer,
+save between every step) confirms deep walks both ways, the mixed
+=u,u,U,u= interleave, and the fresh-edit refusal, all byte-exact.
+
+ONE new key (=U=), ONE new command, ZERO new defcustoms (the
+existing =org-air-view--edit-ring-max= defconst bounds BOTH sides —
+the redo ring is bounded by conservation, Decision 6).  org/org-ql
+only — the redo ring stores the same small pure records, no markers,
+no retained content; redo rides each buffer's OWN undo list.
+
+* Decision 1 — the pair: undo feeds the redo ring; a fresh edit clears it
+
+/The redo ring/: =org-air-view--edit-redo-ring= — a global defvar, a
+plain NEWEST-FIRST list of the SAME record plists =(:desc :buffer
+:file :kind :tick :time)=.  Global for the R73 Decision 7 reasons
+verbatim (edits are global facts; history survives a board
+kill/recreate; the single-board model gives per-buffer no meaning).
+
+/Feeding it/: in =org-air-edit-undo='s SUCCESS branch only — after
+=undo-only= + =save-buffer= + the restamp — the popped record is
+pushed onto the redo ring with its =:tick= RE-STAMPED to the
+buffer's post-undo chars tick (the redo guard's meaning: "no
+non-ring change since the undo").  The consumed-without-revert
+branches feed NOTHING: a structural record reverted no buffer
+(Decision 4), a dead record has no buffer, a tick-tripped record was
+refused — in every case there is no reverted edit to re-apply, so
+pushing would advertise a redo that does not exist.
+
+/Clearing it/: =org-air-view--edit-ring-push= — the ONE function
+every fresh mutation already routes through (the macro's post-save
+push, =--apply-item-edits=, =org-air-refile-item=; R73 Decision 3's
+recording-by-construction law) — now ALSO resets
+=org-air-view--edit-redo-ring= to nil.  Standard semantics: a fresh
+edit forks history and discards the redone branch.  By construction
+every FUTURE verb inherits the clear the same way it inherits the
+recording.  The ring operations themselves never clear: =u= pushes
+records onto the redo side directly, and =U= re-pushes onto the undo
+side directly (below) — neither calls =--edit-ring-push=, so
+undo/redo walks never eat their own future.
+
+/The clear is GLOBAL, not per-buffer/ — rejected alternative: an
+Emacs-style per-buffer redo would keep another file's redo entries
+alive across a fresh edit.  But this ring is ONE global timeline
+(the =?= help shows it as such), and a =U= that re-applied an edit
+from BEFORE the newest recorded mutation would lie about that
+timeline.  The buffer-level backstop (Decision 3) additionally
+refuses stale same-buffer redo even if this rule were ever loosened.
+
+/=org-air-edit-redo= (the =U= command)/, mirroring Decision 5 of R73
+step for step:
+
+1. Empty redo ring → =user-error "Nothing to redo"= (the =u= shape).
+2. Pop the newest record; /liveness/: dead buffer → ="Cannot redo:
+   DESC — source buffer gone"=, consumed, the press ENDS.
+3. /Tick guard/: record =:tick= vs =buffer-chars-modified-tick= —
+   mismatch → ="Cannot redo: DESC — BUF changed since"=, consumed,
+   stop (a manual/external edit after the undo bumps the tick with
+   no restamp; ring ops restamp — Decision 5).
+4. /The redo/: in the record's own buffer, =undo-boundary= +
+   =undo-redo= (inside =condition-case= — Decision 3's caught
+   backstop) + =save-buffer=.
+5. /The tail/: two-sided restamp (Decision 5) → re-push the record
+   onto the UNDO ring head DIRECTLY (=:tick= re-stamped to the
+   post-redo tick; truncated to =org-air-view--edit-ring-max= — the
+   same push-and-truncate discipline, but NOT via
+   =--edit-ring-push=, which would clear the redo remainder) →
+   =org-air-refresh= (the R73-1 resync rides the tail — row, pane
+   and inspector re-apply in the same motion) → echo ="Redid: DESC
+   (N more redoable)"=.
+
+So =u= then =U= is a byte-exact round trip, and repeated =u=/=U=
+walk the ring both ways (pinned r75-1/r75-3).  =u='s existing
+semantics are byte-untouched on every R73 seam — R75 only ADDS the
+success-branch redo push and widens the restamp.
+
+* Decision 2 — the key: `U' (audited free; the board's shift-pair idiom)
+
+Board keymap audit (core map + board map + prefixes, R35-1 installer
+tables): taken are RET =mouse-1= v V =\= M-/ o O =|= j k (core);
+S-RET n p TAB backtab M-TAB M-n M-p SPC c m s d e f t T a D x u I /
+S g G P < > . z N W ? q (board); r g R RET o live under the
+=g=-prefix and the columns keys under =z= — =U= is FREE in every
+map and every prefix.
+
+/Why =U=/: the shift-pair INVERSE of =u= — the board's own
+established idiom (=v=/=V= pane open/close, =s=/=S= scope
+set/clear, =o=/=O= sort cycle/reverse).  Redo is a panic-adjacent
+verb: it must sit in muscle range of the =u= it reverses.  Under
+evil the R27-4 overriding-map setup makes the board's =U= win in
+motion state (and evil motion state leaves =U= unbound anyway).
+
+/Rejected/:
+- =C-r= — vi/undo-tree muscle memory, but it shadows
+  =isearch-backward= in a read-only board where isearch is a real
+  navigation path; =U= costs nothing.
+- An M-x-only command (no key) — a redo you must type out is not a
+  companion to a one-key undo.
+
+/process-inbox/: the guided loop gains =(?U → org-air-edit-redo)= in
+its pcase and the prompt token =[u]ndo= grows to =[u]ndo [U]redo= —
+an accidental =u= mid-walk must be recoverable without quitting the
+loop.  (=?u= keeps routing via the =org-air-triage-undo= alias,
+unchanged.)
+
+* Decision 3 — the mechanism: one buffer-level `undo-redo' step, batch-verified
+
+/The argument/: R73 Decision 4 (+ the R73fix boundary in
+=--apply-item-edits=) makes every board edit ONE undo group — an
+=undo-boundary= then ONE =atomic-change-group= around body+flush.
+R73 Decision 5 makes every =u= ONE undo step: an explicit
+=undo-boundary= + =undo-only=, whose reversal records land at the
+head of the buffer's undo list and are registered in Emacs'
+=undo-equiv-table=.  Therefore =undo-redo= (the purpose-built
+partner of =undo-only=; Emacs 28.1+, our floor is 29.1) re-applies
+EXACTLY that edit in ONE step — including its flushed log line/note,
+since the group carried both — and it LINEARIZES: the undo group is
+consumed off the undo list and the ORIGINAL edit group returns to
+the head, so a later =u= walks back through the same edit again with
+no special-casing.
+
+/Batch-verified/ (probe on this round's design seat, Emacs 30.2, the
+exact R73 shape — Lisp-landed edits in an undisplayed
+=find-file-noselect= buffer, =save-buffer= between every step):
+
+- =u= then =U= round trip: buffer AND file byte-equal the post-edit
+  state.
+- Deep walks: edits A,B → =u,u= (original) → =U,U= (A then B
+  re-applied, byte-exact) → =u= again (B reverted) → =U= (back) —
+  the equiv-chain composes =undo-only= and =undo-redo= across
+  arbitrary interleavings, including the mixed =u,u,U,u= (undo A
+  again while B stays undone — lands on the original, no
+  corruption).
+- The fresh-edit refusal: after a NEW edit, =undo-redo= itself
+  signals ="No undone changes to redo"= with ZERO bytes moved — a
+  buffer-level BACKSTOP independently beneath the Decision 1 ring
+  clear.  Two layers, same answer.
+- The leading =undo-boundary= before =undo-redo= is harmless (the
+  last-change-was-undo lookup skips leading boundaries —
+  probe-confirmed) and kept for symmetry with the undo side's R73
+  impl ruling (Lisp-landed steps in an undisplayed buffer never get
+  the command loop's closing boundary).
+
+/The caught backstop/: the =undo-redo= call sits in a
+=condition-case=.  If it refuses despite a PASSING tick guard — the
+theoretical chain break with no char change: =undo-limit= GC
+truncating an old buffer's undo list in a long session — the press
+degrades to ="Cannot redo: DESC — no redo step left in BUF"=,
+record consumed, never an error surface (R53).
+
+/Rejected mechanisms/:
+- Plain =undo= as redo — the last-command-dependent toggle R73
+  Decision 5 exiled from the undo side; its redo leg is exactly as
+  fragile (any intervening command flips its direction).
+- Replaying recorded content — the ring stores NO content (R73
+  Decision 7 data purity); a replay layer would be a second source
+  of truth for buffer bytes that can drift from the buffer's own
+  undo list, and would need markers (the relocation class R73
+  deliberately avoided).
+- Extending records with diffs — the same drift class, plus a
+  duplicate of what =buffer-undo-list= already holds exactly.
+
+* Decision 4 — structural honesty holds on the redo side, by construction
+
+A =:structural= record (refile / archive) is consumed by =u=
+WITHOUT any buffer reversal (R73 Decision 6) — so per Decision 1 it
+NEVER enters the redo ring.  Not-redoable BY CONSTRUCTION, not by a
+dispatch branch: there is no reachable state in which =U= holds a
+refile/archive record, so redo can never re-run a cross-buffer
+delete+insert, and the R64 duplicate/data-loss class cannot
+resurface through the new key (the user-prompt's hard requirement).
+The =u=-side message (="Not simply undoable: … refile it back (e)
+from there"=) remains the ONE honest surface naming the manual
+path.
+
+Rejected: pushing structural records to the redo side "for history
+symmetry" with a named not-redoable message on =U= — that would
+make =U= a message-only press consuming a record that was never
+undone, implying a redo relationship that never existed, and would
+block a genuinely redoable record beneath it.  The dead and
+tick-tripped consumes stay out for the same reason: nothing was
+reverted, nothing is re-appliable.
+
+Kill stays fully round-trippable: ='in-place= (single-buffer
+delete), so =x= → =u= (subtree restored) → =U= (deleted again) all
+ride the buffer's own undo list — pinned in the r75-3 walk class.
+
+* Decision 5 — guards mirror R73; the restamp becomes two-sided
+
+The redo guards are Decision 5 of R73, verbatim in shape:
+
+- /liveness/ — killed source buffer → consumed + ="… source buffer
+  gone"=; one press, one record, no cascade.
+- /tick guard/ — =:tick= ≠ =buffer-chars-modified-tick= → consumed +
+  ="… changed since"=, zero bytes touched.  A manual or external
+  edit after the undo bumps the tick with no restamp — exactly the
+  degrade the user-prompt requires ("a redo whose buffer was killed
+  / further edited degrades with a message").
+
+/The two-sided restamp/: =org-air-view--edit-ring-restamp= now
+iterates BOTH lists (undo ring + redo ring) and runs after every
+successful ring op (=u= success, =U= success) in that buffer.  Why:
+in a same-buffer deep walk (edits A,B → =u,u= → =U,U=) each ring op
+changes the buffer's tick, so the OTHER side's remaining records for
+that buffer would trip the guard on pure ring-internal history — the
+restamp keeps the guard meaning "no NON-ring change intervened",
+now in both directions (revert-RED against a one-sided restamp,
+r75-3).  The R73 impl RULING stands unchanged: NO restamp on push —
+and the push now also CLEARS the redo ring, so the structural
+same-buffer duplicate hazard R73 documented has no redo-side twin
+at all.
+
+* Decision 6 — bounded by conservation; same purity; zero new knobs
+
+Records only ENTER the redo ring from successful =u= pops out of an
+undo ring bounded at =org-air-view--edit-ring-max= (20), and every
+fresh edit zeroes the redo side — so undo + redo together can never
+exceed the ONE existing bound (conservation: the pair only ever
+shuffles the same ≤20 records between sides until a fresh edit
+truncates history).  The =U= re-push onto the undo side applies the
+same defensive truncate; the redo side gets the same defensive
+truncate on its push — the invariant is enforced, not merely
+argued (pinned r75-6).  No new defconst, no defcustom.
+
+Data purity is R73 Decision 7 verbatim: strings, symbols, ints,
+times, live buffer references; no markers, no retained content, no
+persistence; a killed buffer's records degrade to the dead branch
+on either side and never keep the buffer alive.
+
+* Decision 7 — surfaces: the help block grows a redo sub-list; one new help row
+
+- /=?= help (the R73 Recent-edits block)/: the block's gate widens
+  to "EITHER ring non-empty" (undoing the only edit leaves undo
+  empty + redo populated — the block must still render).  Layout:
+  the ="u undoes the top"= lead + undo rows as today; then, when
+  the redo ring is non-empty, a ="U redoes the top"= lead + up to 5
+  redo rows in the same ="1. DESC"= shape (=[gone]= suffix applies;
+  =[not simply undoable]= CANNOT occur on the redo side — Decision
+  4).  Both sub-lists independently empty-suppressed → every help
+  golden/mockup rendered with fresh rings stays byte-clean.
+- /Help groups (the always-rendered Triage table)/: ONE new row
+  directly after the undo row — =(org-air-edit-redo . "redo last
+  undo (a new edit clears redo)")=.  This row ALWAYS renders: if
+  any golden/mockup pins the board help buffer, exactly that one
+  Triage row shifts — =make regen-mockups= must come back clean or
+  show exactly it (the R73 wording-row precedent).  The =u= row's
+  wording is untouched.
+- /process-inbox/: the =?U= dispatch + the =[U]redo= prompt token
+  (Decision 2).
+- /README.org/: the triage table's =~a~ / ~x~ / ~u~= row gains
+  =~U~= ("… / redo"), and the undo paragraph gains one sentence:
+  "=U= re-applies the edit =u= just reverted; a fresh edit clears
+  the redo side (refiles and archives are never redoable)."
+
+* The reframe — every surface touched
+
+- org-air-view.el:
+  - NEW =org-air-view--edit-redo-ring= (global defvar, same record
+    shape, same-bound truncation).
+  - =org-air-view--edit-ring-push=: + clear the redo ring (the
+    by-construction choke point — every current and future verb).
+  - =org-air-view--edit-ring-restamp=: iterates both rings.
+  - =org-air-edit-undo=: success branch pushes the popped record
+    (tick re-stamped post-undo) onto the redo ring.  No other
+    branch changes.
+  - NEW =org-air-edit-redo= (the Decision 1 step list; the caught
+    =undo-redo= backstop; the direct undo-ring re-push).
+  - Board keys: ="U" #'org-air-edit-redo= in the R35-1 installer
+    table (installer-owned like every default key — the knob turns
+    it off with the rest).
+  - =org-air-help--board-groups=: the new Triage row.
+  - =org-air-help--render=: the block gate widens + the redo
+    sub-list.
+  - =org-air-process-inbox=: =?U= dispatch + prompt token.
+- README.org: the table row + the undo paragraph sentence.
+- NO changes to org-air-inbox.el (its two pushes route through
+  =--edit-ring-push= and inherit the clear), no cache/schema
+  change, no face, no new defcustom, no floor bump (=undo-redo= is
+  Emacs 28.1; Package-Requires is 29.1).
+
+* ERT seams — batch, tests/org-air-round75-test.el (revert-RED against the R74 tree)
+
+Fixture: the R73 corpus shape — temp org files, board built
+noninteractively, file bytes snapshotted at each station; spies via
+=cl-letf= where named.
+
+- *r75-1 /the round trip/*: schedule an item (snapshot the
+  post-edit bytes), =u= (bytes = pre-edit), =U= — buffer AND disk
+  byte-equal the post-edit snapshot (including the flushed log
+  line); the record is back on the undo ring head; the echo names
+  the desc; the R73-1 resync spies fire from the redo's refresh
+  tail with a stationary point.  Revert-RED: no =U= binding, no
+  command.
+- *r75-2 /a fresh edit clears/*: edit A, =u=, fresh edit B ⇒
+  =org-air-view--edit-redo-ring= is nil; =U= ⇒ =user-error
+  "Nothing to redo"=, zero bytes moved anywhere.  All three push
+  sites clear (macro verb, a transient-leg =--apply-item-edits=, a
+  refile) — the choke-point law.
+- *r75-3 /walk both ways + the two-sided restamp/*: three
+  same-buffer edits (schedule, deadline, the converted tag), =u=×3
+  (bytes = original at each station), =U=×3 (bytes = final), then
+  =u=,=U= once more (the probe's mixed interleave class) —
+  byte-exact at EVERY station, ring/redo lengths correct
+  throughout.  The =U=×2/×3 legs are the two-sided-restamp teeth:
+  revert-RED with a one-sided (undo-ring-only) restamp.
+- *r75-4 /structural never enters redo/*: in-place edit, then
+  refile; =u= (refile consumed with the R73 message, both files
+  byte-untouched) ⇒ the redo ring is EMPTY; =u= again (the in-place
+  edit reverts), =U= re-applies IT; at no station does either file
+  gain a duplicate heading (occurrence-counted).  Archive same
+  shape.  Revert-RED against a push-structural-to-redo variant.
+- *r75-5 /dead + stale degrades/*: undo, kill the source buffer,
+  =U= ⇒ ="source buffer gone"= message, consumed, no error;
+  separately undo, a manual insertion in the source buffer, =U= ⇒
+  the tick-guard message, consumed, bytes untouched.
+- *r75-6 /bounded by conservation/*: edits×(max+5) (undo ring
+  capped at max), =u=×5 → redo ring exactly 5, =U=×5 → undo ring
+  back to its exact pre-dance head-20 content (same records, same
+  order), redo empty; at NO step does either ring exceed
+  =org-air-view--edit-ring-max=.
+- *r75-7 /the caught backstop/*: forge a redo record whose =:tick=
+  matches the buffer's current tick but whose buffer's last change
+  was a fresh edit (not an undo) — =U= degrades with the "no redo
+  step left" message, consumed, zero bytes, no signal escapes
+  (R53).
+- *r75-8 /empty redo/*: fresh state ⇒ =U= is a gentle =user-error
+  "Nothing to redo"=, zero bytes (the r73-14 shape).
+- *r75-9 /key + loop surface/*: the board map resolves ="U"= to
+  =org-air-edit-redo= and ="u"= stays =org-air-edit-undo=
+  (=lookup-key= / =where-is=); =org-air-process-inbox= driven with
+  =read-char-exclusive= stubbed to =[?U ?q]= reaches a spied
+  =org-air-edit-redo= exactly once; the prompt string contains
+  =[U]redo=.
+- *r75-10 /help surfaces/*: undo+redo both populated ⇒ the
+  Recent-edits block shows BOTH sub-lists (="u undoes the top"= +
+  ="U redoes the top"= + the redo desc rows); BOTH empty ⇒ the
+  block is absent (goldens clean); redo-only (the single edit
+  undone) ⇒ the block still renders with the redo sub-list; the
+  Triage group always contains the new =U= row.
+- *r75-11 /cross-buffer both ways/*: edits in two files, =u=×2
+  (reverse chronological, each in its own buffer — the r73-8
+  shape), =U=×2 re-applies in redo-stack order (forward
+  chronological — the opposite walk), bytes exact in both files at
+  every station.
+
+All 16 R73 seams must stay green untouched — R75 adds to =u='s
+success branch only.  GUI residue (not ERT-able, flag for the impl
+round's user confirm): the visible board/pane repaint after =U=
+(the same R73-1 resync class already under GUI confirm) and the
+process-inbox prompt readability with the new token.  Goldens: the
+ONE possible shift is a board-help mockup pinning the Triage table
+(the new =U= row); =make regen-mockups= must come back clean or
+show exactly that.
+
+* Non-goals
+
+- No redo of refile/archive — Decision 4 is by-construction; a true
+  inverse refile remains a separate design (R73's non-goal stands).
+- No branching history / undo-tree: the ring stays LINEAR — a fresh
+  edit discards the redone branch (standard semantics).
+- No redo-N prefix; one press, one record.
+- No persistence across sessions; no per-buffer redo; no transient
+  history UI; no new defcustom; no Emacs floor change.
+- No recording/redo of edits made outside the board (the tick guard
+  keeps =U= out of the user's own =C-/= domain, exactly as =u=).
+
+* Compatibility
+
+- *R53 (never-hang / never-error / cache-first)*: every redo
+  failure mode degrades to a message (the one deliberate signal is
+  the empty-ring =user-error=, =u='s exact shape); the =undo-redo=
+  call is condition-case-caught; timer-free, no re-query — the
+  refresh/resync tail is the existing R73-1 path.
+- *R73 (the ring)*: =u= is byte-identical on every existing seam —
+  pop order, =undo-only=, guards, structural message, restamp
+  timing; R75 ADDS the success-branch redo push and widens the
+  restamp to both lists.  The push choke point gains only the redo
+  clear.  All 16 r73 ERTs must stay green.
+- *R73fix*: the =--apply-item-edits= leading boundary is exactly
+  what makes a transient-leg edit ONE redoable step — untouched.
+- *R64/R66 (refile safety)*: the transaction is byte-untouched;
+  structural records cannot reach =U= (Decision 4) — the duplicate
+  class is closed on BOTH sides of the pair now.
+- *R67/R71 (the transient editor)*: untouched; its push inherits
+  the redo clear via the choke point.
+- *R68 (logging)*: redo re-applies the SAVED bytes including the
+  flushed log line — the byte-equal pin (r75-1) covers the
+  discipline without touching it.
+- *R65 / R26-8 / R42 (panes + refresh machine)*: unchanged; the
+  redo tail rides the same =org-air-refresh= → resync path as undo.
+- *R35-1 (keys)*: =U= is installer-owned like every default key —
+  =org-air-use-default-keybindings= nil strips it with the rest;
+  evil overriding-map coverage is automatic (R27-4).
+- Muscle memory / pins: =u=, =org-air-triage-undo= (alias),
+  =org-air-view--triage-source-buffer= (shadow), the process-inbox
+  =?u= route — all untouched.
+
+* Implementation History
+
+- 2026-07-24: Round 75 spec (design seat, Fable).  USER REQUEST:
+  "There should be redo as well" — R73's =u= walks back only
+  (=undo-only= by construction; redo was an explicit R73 non-goal).
+  Decisions: (1) the ring becomes an UNDO/REDO pair — a new global
+  =org-air-view--edit-redo-ring= (same record shape); =u='s SUCCESS
+  branch pushes the reverted record onto it (tick re-stamped
+  post-undo); consumed-without-revert branches feed nothing; every
+  fresh edit CLEARS it by construction inside
+  =--edit-ring-push= (the one choke point all verbs route
+  through), globally not per-buffer (one global timeline); =U=
+  pops → guards → one =undo-redo= step + save → two-sided restamp
+  → direct re-push onto the undo ring → refresh (the R73-1 resync
+  rides the tail) — repeated =u=/=U= walk both ways.  (2) Key =U=
+  — audited free in every board map/prefix; the board's own
+  shift-pair inverse idiom (v/V, s/S, o/O); C-r rejected (shadows
+  isearch-backward in a read-only board); process-inbox gains =?U=
+  + the =[U]redo= prompt token.  (3) Mechanism = buffer-level
+  =undo-redo=, ONE step — argued from R73/R73fix's
+  one-edit-one-group + one-undo-one-step discipline and
+  BATCH-VERIFIED on the exact shape (undisplayed Lisp-landed
+  buffer, saves between steps): round trip, deep walks, the mixed
+  u,u,U,u interleave all byte-exact; a fresh edit makes =undo-redo=
+  itself refuse with zero bytes — an independent backstop under
+  the ring clear; the call is condition-case-caught (R53).
+  Rejected: plain-=undo= toggle, content replay, diff records
+  (drift classes).  (4) Structural honesty BY CONSTRUCTION:
+  refile/archive records never enter the redo ring (consumed
+  without reversal), so no code path lets =U= duplicate — the R64
+  class closed on both sides; kill stays fully round-trippable.
+  (5) Redo guards mirror R73 (liveness, chars-tick; consumed +
+  message, never error); the restamp becomes TWO-SIDED (both
+  rings, after every successful ring op) so ring-internal walks
+  never trip the guard; the R73 no-restamp-on-push ruling stands.
+  (6) Bounded by CONSERVATION under the ONE existing defconst
+  (records only shuffle between sides; fresh edits truncate);
+  defensive truncate both sides; same data purity.  (7) Surfaces:
+  the =?= Recent-edits block gates on either-ring-non-empty and
+  gains a "U redoes the top" sub-list (both sub-lists
+  empty-suppressed — goldens clean); ONE always-rendered new
+  Triage help row (the one predicted mockup shift); README row +
+  sentence.  ONE new key, ONE new command, zero new knobs,
+  org/org-ql only.  Eleven batch seams r75-1..r75-11 (revert-RED
+  where marked; the two-sided restamp and the structural-empty
+  redo ring carry explicit mutation expectations); all 16 r73
+  seams must stay green; GUI residue flagged (visible repaint
+  after =U=, prompt readability).  State: ready.

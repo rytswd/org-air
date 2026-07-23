@@ -1,5 +1,5 @@
 #+title: org-air Round 77 — org-air-task-requires-todo: optionally require a TODO keyword for board tasks (keyword-less scheduled routines stop flooding the buckets)
-#+state: ready
+#+state: complete
 #+tags: board classify note-types knowledge routines filter defcustom cache
 
 * Summary
@@ -337,12 +337,13 @@ WANTED, with eyes open (the round ask requires "not lost"):
   note; a routines file the user edits stays fresh, an untouched one
   drifts dusty-ward — acceptable: Revisit is exactly the "do I still
   want these?" surface, and quarterly "is this routine still real?" is
-  a feature, not noise.  A user who objects sets =#+type: task= on the
-  routines file (it then votes =task=, out of Revisit — its headings
-  STILL demote per-heading unless individually overridden, so the board
-  stays clean; the file-level override only re-types the FILE for the
-  note surfaces... note the asymmetry and its utility: file-level
-  override curates Revisit, heading-level override curates the board).
+  a feature, not noise.  A user who objects sets =#+type: task= (the
+  R54-2 heading-chain override, step 2): its headings then vote =task=
+  and appear on the board even under the knob, AND the file votes
+  =task= (out of Revisit) — the explicit override wins on BOTH surfaces,
+  per Decision 2 (no file-vs-heading asymmetry).  A single routine is
+  instead force-backed with a per-heading =ORG_AIR_TYPE: task= property
+  or a =:task:= tag.
 - MIXED files (keyworded tasks + routines): F7's every-heading rule
   means one demoted routine flips the FILE vote to =knowledge= ⇒ the
   file enters Revisit even though it is mostly GTD.  This is F7 working
@@ -571,3 +572,6 @@ mints new item objects, so the =eq=-keyed memo repopulates naturally.
   regen-mockups= byte-clean (zero fixture/golden churn — the diff is
   four test files + the manifest).  No .el SOURCE touched on the test
   track.
+
+* History
+- 2026-07-23: State: ready → complete.

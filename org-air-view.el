@@ -1609,6 +1609,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "D" #'org-air-item-done
   "x" #'org-air-item-kill
   "u" #'org-air-edit-undo
+  "U" #'org-air-edit-redo
   "I" #'org-air-process-inbox
   "/" #'org-air-filter
   "S" #'org-air-scope-clear
@@ -9647,6 +9648,26 @@ the head; `org-air-view--edit-ring-push' truncates the tail at
 `org-air-view--edit-ring-max' — no `make-ring' wraparound semantics
 wanted.")
 
+(defvar org-air-view--edit-redo-ring nil
+  "The REDO side of the recent-edits ring (R75): a NEWEST-FIRST list.
+Same record shape as `org-air-view--edit-ring' (:desc :buffer :file
+:kind :tick :time — small pure data, no markers, no retained content)
+and the same GLOBAL single-timeline discipline (Decision 1).  Fed ONLY
+by `org-air-edit-undo''s SUCCESS branch — the popped record, tick
+re-stamped to the buffer's post-undo chars tick; the
+consumed-without-revert branches (structural, dead, tick-tripped) feed
+NOTHING, so a refile/archive record can never sit here and `U' can
+never re-run a cross-buffer delete+insert (Decision 4 — not-redoable
+BY CONSTRUCTION, the R64 duplicate class closed on both sides).
+CLEARED by every FRESH edit inside `org-air-view--edit-ring-push' (the
+one choke point every verb routes through — a fresh edit forks history
+and discards the redone branch); the ring ops themselves push/re-push
+DIRECTLY (`org-air-view--edit-ring-requeue') and never clear, so
+undo/redo walks never eat their own future.  Bounded by CONSERVATION
+under the one `org-air-view--edit-ring-max' defconst (Decision 6:
+records only ever shuffle between the two sides until a fresh edit
+truncates history), with the same defensive truncate on every push.")
+
 (defun org-air-view--edit-ring-push (desc buffer &optional kind)
   "Push an undo record for the DESC edit made in BUFFER (R73 Decision 3).
 KIND defaults to `in-place' (single-buffer, honestly undoable via the
@@ -9665,9 +9686,20 @@ its source-side cut as the buffer's newest undo step, and a
 guard-passing `u' on the older in-place record would `undo-only' THAT
 cut, resurrecting the item beside its moved copy.  Letting the tick
 guard trip there (\"changed since\") is the honest degrade.  Bounded
-push-and-truncate to `org-air-view--edit-ring-max'.  Never signals."
+push-and-truncate to `org-air-view--edit-ring-max'.  Never signals.
+
+R75 Decision 1: the SAME push CLEARS `org-air-view--edit-redo-ring' —
+a fresh edit forks history and discards the redone branch (standard
+undo/redo semantics), enforced BY CONSTRUCTION at this one choke point
+every current and future verb already routes through.  The clear is
+GLOBAL, not per-buffer: the ring is ONE timeline, and a `U' that
+re-applied an edit from before the newest recorded mutation would lie
+about it (the buffer-level `undo-redo' refusal backstops independently
+beneath this — Decision 3).  The ring ops themselves never come
+through here (`org-air-view--edit-ring-requeue' pushes directly)."
   (condition-case nil
       (when (buffer-live-p buffer)
+        (setq org-air-view--edit-redo-ring nil)
         (push (list :desc desc
                     :buffer buffer
                     :file (buffer-file-name buffer)
@@ -9683,18 +9715,44 @@ push-and-truncate to `org-air-view--edit-ring-max'.  Never signals."
     (error nil)))
 
 (defun org-air-view--edit-ring-restamp (buffer)
-  "Re-stamp BUFFER's ring records with its current chars tick (R73).
-Run after a successful ring UNDO in BUFFER: the undo restored exactly
-the content state the next-in-line record was stamped against, so the
-tick guard keeps meaning \"no NON-ring change intervened\" — while a
-real user edit still trips it (the tick bumps with no re-stamp).
+  "Re-stamp BUFFER's ring records with its current chars tick (R73/R75).
+Run after every successful ring op in BUFFER (`u' undo, `U' redo): the
+op restored exactly the content state the neighbouring records were
+stamped against, so the tick guard keeps meaning \"no NON-ring change
+intervened\" — while a real user edit still trips it (the tick bumps
+with no re-stamp).  R75 Decision 5: TWO-SIDED — iterates BOTH
+`org-air-view--edit-ring' AND `org-air-view--edit-redo-ring', because
+in a same-buffer deep walk (edits A,B → u,u → U,U) each ring op
+changes the buffer's tick, so the OTHER side's remaining records for
+that buffer would trip the guard on pure ring-internal history.
 Deliberately NOT run on push — see `org-air-view--edit-ring-push' (the
-structural same-buffer duplicate hazard)."
+structural same-buffer duplicate hazard; the push clears the redo side
+outright, so the hazard has no redo-side twin at all)."
   (when (buffer-live-p buffer)
     (let ((tick (buffer-chars-modified-tick buffer)))
-      (dolist (rec org-air-view--edit-ring)
+      (dolist (rec (append org-air-view--edit-ring
+                           org-air-view--edit-redo-ring))
         (when (eq (plist-get rec :buffer) buffer)
           (plist-put rec :tick tick))))))
+
+(defun org-air-view--edit-ring-requeue (rec buffer ring)
+  "Re-stamp REC to BUFFER's current chars tick and push it onto RING.
+RING is the SYMBOL of one ring side (`org-air-view--edit-ring' /
+`org-air-view--edit-redo-ring').  The DIRECT ring-op push (R75
+Decision 1): `org-air-edit-undo''s success branch moves the reverted
+record onto the redo side, `org-air-edit-redo''s success branch moves
+it back onto the undo side — deliberately NOT via
+`org-air-view--edit-ring-push', which would clear the redo remainder
+\(undo/redo walks must never eat their own future).  The re-stamp
+makes the record's tick guard mean \"no non-ring change since the
+ring op\" on its new side; the same defensive push-and-truncate to
+`org-air-view--edit-ring-max' applies (Decision 6: the bound is
+enforced on BOTH sides, not merely argued by conservation)."
+  (plist-put rec :tick (buffer-chars-modified-tick buffer))
+  (set ring (cons rec (symbol-value ring)))
+  (let ((lst (symbol-value ring)))
+    (when (> (length lst) org-air-view--edit-ring-max)
+      (setcdr (nthcdr (1- org-air-view--edit-ring-max) lst) nil))))
 
 (defun org-air-view--item-at-point ()
   "Return the org-air item at point, or signal a `user-error'.
@@ -10003,14 +10061,22 @@ record, never a cascade:
   by a `buffer-chars-modified-tick' check (a manual/external change
   since the edit consumes the record with a message instead of eating
   the WRONG change; after a successful undo the same-buffer records
-  are re-stamped, so the ring's own steps never trip it), then saved +
-  refreshed — the R73-1 resync rides the refresh tail, so the row AND
-  the pane/inspector revert in the same motion;
+  are re-stamped — two-sided since R75 — so the ring's own steps never
+  trip it), then saved + refreshed — the R73-1 resync rides the
+  refresh tail, so the row AND the pane/inspector revert in the same
+  motion — and the reverted record moves onto the REDO ring
+  \(`org-air-view--edit-redo-ring', tick re-stamped post-undo), so `U'
+  \(`org-air-edit-redo') can re-apply it (R75 Decision 1);
 - a STRUCTURAL record (refile / archive — a cross-buffer
   delete+insert) is honestly NOT undone: consumed with a message
   naming the manual path (a source-side undo would resurrect the item
   beside its moved copy — a silent duplicate, worse than no undo);
 - a DEAD record (source buffer killed) is consumed with a message.
+
+Only the SUCCESS branch feeds the redo ring — the consumed-without-
+revert branches (structural, dead, tick-tripped) reverted nothing, so
+pushing would advertise a redo that does not exist (R75 Decision 1;
+structural records are therefore not-redoable BY CONSTRUCTION).
 
 `?' shows the ring (the Recent edits block); `u' undoes the top.
 Named `org-air-edit-undo' — `u' now covers every board edit, not just
@@ -10058,6 +10124,12 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
         (undo-only)
         (save-buffer))
       (org-air-view--edit-ring-restamp buf)
+      ;; R75 Decision 1: the success branch feeds the REDO ring — the
+      ;; reverted record moves across (tick re-stamped post-undo by the
+      ;; requeue), so `U' re-applies exactly this edit.  A DIRECT push:
+      ;; never `--edit-ring-push', whose fresh-edit clear would eat the
+      ;; redo remainder mid-walk.
+      (org-air-view--edit-ring-requeue rec buf 'org-air-view--edit-redo-ring)
       (org-air-refresh)
       (message "Undid: %s (%d more)" desc
                (length org-air-view--edit-ring))))))
@@ -10067,6 +10139,78 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
 edit through the bounded recent-edits ring, not just the last triage
 disposition.  Kept as an alias for muscle memory, the process-inbox
 `?u' route, and test pins.")
+
+(defun org-air-edit-redo ()
+  "Re-apply the edit `u' just reverted (R75 Decisions 1–5).
+Pops the newest record off the redo ring
+`org-air-view--edit-redo-ring' — fed exclusively by
+`org-air-edit-undo''s success branch, so a refile/archive record can
+NEVER be here (consumed without reversal, structural records are
+not-redoable BY CONSTRUCTION — Decision 4, the R64 duplicate class
+closed on both sides) — and re-applies it via ONE buffer-level
+`undo-redo' step in the record's OWN buffer.  The R73/R73fix
+one-edit-one-group + one-undo-one-step discipline makes `undo-redo'
+\(the purpose-built partner of `undo-only'; Emacs 28.1+, our floor is
+29.1) re-apply EXACTLY the reverted edit in one step — including its
+flushed log line, since the group carried both — byte-identical to
+the post-edit state, and LINEARISE the undo list so a later `u'
+walks back through the same edit again (Decision 3, batch-verified).
+
+Guards mirror `u' (Decision 5): a dead source buffer or a
+manual/external change since the undo (the chars-tick guard — ring ops
+re-stamp two-sided, a real edit does not) consumes the record with a
+message, never an error; the `undo-redo' call itself is
+condition-case-caught (the theoretical `undo-limit' GC chain break
+with no char change — R53's never-error law), degrading to a named
+message with zero bytes moved.  On success: save, two-sided restamp,
+the record moves BACK onto the undo ring head DIRECTLY
+\(`org-air-view--edit-ring-requeue' — never the push choke point,
+which would clear the redo remainder), and the refresh tail carries
+the R73-1 pane/inspector resync — so repeated `u'/`U' walk the ring
+both ways, byte-exact.  A FRESH edit clears the redo ring at the push
+choke point (standard undo/redo semantics — Decision 1); the explicit
+`undo-boundary' before `undo-redo' is harmless (the
+last-change-was-undo lookup skips leading boundaries) and kept for
+symmetry with the undo side's Lisp-landed-buffer ruling.
+
+Bound to `U' — the board's own shift-pair inverse idiom (v/V, s/S,
+o/O); `C-r' was rejected (it shadows `isearch-backward' in a
+read-only board where isearch is a real navigation path)."
+  (interactive)
+  (unless org-air-view--edit-redo-ring
+    (user-error "Nothing to redo"))
+  (let* ((rec (pop org-air-view--edit-redo-ring))
+         (desc (plist-get rec :desc))
+         (buf (plist-get rec :buffer))
+         (tick (plist-get rec :tick)))
+    (cond
+     ;; Decision 5 step 2: liveness — consumed, the press ENDS.
+     ((not (buffer-live-p buf))
+      (message "Cannot redo: %s — source buffer gone" desc))
+     ;; Decision 5 step 3: the tick guard — a manual/external edit after
+     ;; the undo bumped the tick with no re-stamp (ring ops re-stamp).
+     ((not (eql tick (buffer-chars-modified-tick buf)))
+      (message "Cannot redo: %s — %s changed since" desc (buffer-name buf)))
+     (t
+      ;; Decision 5 steps 4 + 5: one `undo-redo' step in the record's
+      ;; own buffer (caught — the Decision 3 backstop), save, two-sided
+      ;; restamp, direct undo-ring re-push, refresh (the R73-1 resync
+      ;; rides the tail).
+      (let ((ok t))
+        (with-current-buffer buf
+          (undo-boundary)
+          (condition-case nil
+              (undo-redo)
+            (error (setq ok nil)))
+          (when ok (save-buffer)))
+        (if (not ok)
+            (message "Cannot redo: %s — no redo step left in %s"
+                     desc (buffer-name buf))
+          (org-air-view--edit-ring-restamp buf)
+          (org-air-view--edit-ring-requeue rec buf 'org-air-view--edit-ring)
+          (org-air-refresh)
+          (message "Redid: %s (%d more redoable)" desc
+                   (length org-air-view--edit-redo-ring))))))))
 
 (defun org-air-view--goto-first-inbox-item ()
   "Move point to the first Inbox item row, if any."
@@ -10105,7 +10249,8 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
           (let ((key (read-char-exclusive
                       (format (concat "Inbox %d ┆ [s]chedule [d]eadline [r]efile "
                                       "[f]ile [t]ag [T]odo [a]rchive [D]one [k]ill "
-                                      "┆ [SPC]skip [p]rev [u]ndo [g]refresh [q]uit ")
+                                      "┆ [SPC]skip [p]rev [u]ndo [U]redo "
+                                      "[g]refresh [q]uit ")
                               n))))
             (pcase key
               (?s (call-interactively #'org-air-item-schedule))
@@ -10118,6 +10263,7 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
               (?D (org-air-item-done))
               (?k (org-air-item-kill))
               (?u (org-air-triage-undo))
+              (?U (org-air-edit-redo))
               (?g nil)
               ((or ?\s ?n) (org-air-next-item))
               (?p (org-air-prev-item))
@@ -10346,6 +10492,7 @@ read by the bookmark record producer.")
      (org-air-item-done . "mark done")
      (org-air-item-kill . "kill item")
      (org-air-edit-undo . "undo last edit (ring; ? shows recent)")
+     (org-air-edit-redo . "redo last undo (a new edit clears redo)")
      (org-air-toggle-mark . "mark/unmark item")
      (org-air-process-inbox . "process inbox (guided walk)"))
     ("Filter & sort"
@@ -10541,34 +10688,61 @@ BUFFER."
                       "  "
                       (propertize desc 'face 'org-air-face-faded)
                       "\n"))))
-        ;; R73 Decision 8: the Recent-edits block — newest first, at most
-        ;; 5 rows, `u' undoes the top.  Rendered ONLY when the ring is
-        ;; non-empty, so every help golden/mockup (rendered with a fresh
-        ;; ring) stays byte-clean.  No transient, no new key: `?' is
-        ;; already the \"what just happened / what can I do\" surface.
-        (when (and (boundp 'org-air-view--edit-ring)
-                   org-air-view--edit-ring)
+        ;; R73 Decision 8 + R75 Decision 7: the Recent-edits block —
+        ;; newest first, at most 5 rows per side, `u' undoes the top /
+        ;; `U' redoes the top.  The gate is EITHER-ring-non-empty
+        ;; (undoing the only edit leaves undo empty + redo populated —
+        ;; the block must still render); each sub-list is independently
+        ;; empty-suppressed, so every help golden/mockup (rendered with
+        ;; fresh rings) stays byte-clean.  No transient, no new key: `?'
+        ;; is already the \"what just happened / what can I do\" surface.
+        (when (or (and (boundp 'org-air-view--edit-ring)
+                       org-air-view--edit-ring)
+                  (and (boundp 'org-air-view--edit-redo-ring)
+                       org-air-view--edit-redo-ring))
           (insert "\n")
           (org-air-help--insert-header "Recent edits")
-          (insert "  "
-                  (propertize "u undoes the top" 'face 'org-air-face-faded)
-                  "\n")
-          (let ((n 0))
-            (dolist (rec (seq-take org-air-view--edit-ring 5))
-              (setq n (1+ n))
-              (let* ((kind (plist-get rec :kind))
-                     (rbuf (plist-get rec :buffer))
-                     (suffix (cond ((memq kind '(refile archive))
-                                    " [not simply undoable]")
-                                   ((not (buffer-live-p rbuf)) " [gone]")
-                                   (t ""))))
-                (insert "  "
-                        (propertize (format "%d." n)
-                                    'face 'org-air-face-rail-key)
-                        " "
-                        (propertize (concat (plist-get rec :desc) suffix)
-                                    'face 'org-air-face-faded)
-                        "\n")))))
+          (when (and (boundp 'org-air-view--edit-ring)
+                     org-air-view--edit-ring)
+            (insert "  "
+                    (propertize "u undoes the top" 'face 'org-air-face-faded)
+                    "\n")
+            (let ((n 0))
+              (dolist (rec (seq-take org-air-view--edit-ring 5))
+                (setq n (1+ n))
+                (let* ((kind (plist-get rec :kind))
+                       (rbuf (plist-get rec :buffer))
+                       (suffix (cond ((memq kind '(refile archive))
+                                      " [not simply undoable]")
+                                     ((not (buffer-live-p rbuf)) " [gone]")
+                                     (t ""))))
+                  (insert "  "
+                          (propertize (format "%d." n)
+                                      'face 'org-air-face-rail-key)
+                          " "
+                          (propertize (concat (plist-get rec :desc) suffix)
+                                      'face 'org-air-face-faded)
+                          "\n")))))
+          ;; R75: the redo sub-list — `[not simply undoable]' CANNOT
+          ;; occur here (structural records never enter the redo ring,
+          ;; Decision 4); only the `[gone]' suffix applies.
+          (when (and (boundp 'org-air-view--edit-redo-ring)
+                     org-air-view--edit-redo-ring)
+            (insert "  "
+                    (propertize "U redoes the top" 'face 'org-air-face-faded)
+                    "\n")
+            (let ((n 0))
+              (dolist (rec (seq-take org-air-view--edit-redo-ring 5))
+                (setq n (1+ n))
+                (let* ((rbuf (plist-get rec :buffer))
+                       (suffix (if (buffer-live-p rbuf) "" " [gone]")))
+                  (insert "  "
+                          (propertize (format "%d." n)
+                                      'face 'org-air-face-rail-key)
+                          " "
+                          (propertize (concat (plist-get rec :desc) suffix)
+                                      'face 'org-air-face-faded)
+                          "\n"))))))
         (goto-char (point-min))))
     buffer))
 

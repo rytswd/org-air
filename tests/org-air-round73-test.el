@@ -89,6 +89,11 @@ deletes the directory afterwards."
                   (expand-file-name ".cache/board.eld" org-air-r73--dir))
                  (org-air-view-buffer-name "*org-air-r73*")
                  (org-air-view--edit-ring nil)
+                 ;; R75: the redo side is global too — bound for the same
+                 ;; test isolation (a leaked redo record from another
+                 ;; suite must never render the Recent-edits block into
+                 ;; r73-13's fresh-ring help assert).
+                 (org-air-view--edit-redo-ring nil)
                  (org-air-view--triage-source-buffer nil)
                  (org-air-plain-heading-type 'task)
                  (org-tags-column 0)

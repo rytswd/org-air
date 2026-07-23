@@ -2749,6 +2749,30 @@
     ;; churn).  No .el SOURCE touched on the test track (impl landed
     ;; R72-1..3 in skvpxswu).  Round-72 manifest is EMPTY; the tests
     ;; stay as permanent regression guards.
+    ;; =================================================================
+    ;; v0.1 ROUND-75 impl note (air/v0.1/org-air-round75-design.org) —
+    ;; REDO for the recent-edits ring: `U' (`org-air-edit-redo', the
+    ;; shift-pair inverse of `u') + the global
+    ;; `org-air-view--edit-redo-ring' fed by `u''s success branch,
+    ;; cleared by every fresh edit inside `--edit-ring-push'.  The
+    ;; spec's ONE predicted golden/mockup shift — a board-help mockup
+    ;; pinning the Triage table gaining the always-rendered
+    ;; `U  redo last undo (a new edit clears redo)' row (+ the
+    ;; process-inbox `[U]redo' prompt token) — did NOT materialise:
+    ;; NO golden and NO pre-R75 ERT renders the board help buffer's
+    ;; full Triage table or the process-inbox prompt (`make
+    ;; regen-mockups' byte-clean, zero fixture churn — the R74
+    ;; header-✕ precedent verbatim).  Flagging a passing test would
+    ;; itself fail the binary gate (a listed test PASSING is
+    ;; unexpected), so the manifest carries this NOTE and no entry;
+    ;; the round's coverage is the eleven executing r75 seams
+    ;; (tests/org-air-round75-test.el) + the 16 preserved r73 seams
+    ;; (the r73 fixture gained ONLY an `org-air-view--edit-redo-ring'
+    ;; nil isolation binding — no assertion touched).  GUI residue
+    ;; (not ERT-able, flag for user confirm): the visible board/pane
+    ;; repaint right after `U' (the R73-1 resync class) and the
+    ;; process-inbox prompt readability with the new token.
+    ;; Round-75 manifest is EMPTY.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

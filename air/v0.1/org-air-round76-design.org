@@ -1,5 +1,5 @@
 #+title: org-air Round 76 — The edit-form `,' priority field is a one-way cycle: full-range one-key picker (org's own read idiom), SPC clears
-#+state: work-in-progress
+#+state: complete
 #+tags: bug transient refile inbox ux
 
 * Summary
@@ -493,3 +493,6 @@ and the field-row repaint after a pick/clear.
   file in the diff).  State: work-in-progress → done pending user
   GUI confirm (echo-area prompt readability under the open
   transient; field-row repaint after pick/clear).
+
+* History
+- 2026-07-23: State: work-in-progress → complete.

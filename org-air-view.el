@@ -1321,7 +1321,8 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "g" #'org-air-goto-top
   "R" #'org-air-refresh-all
   "RET" #'org-air-visit-item
-  "o" #'org-air-visit-item-stay)
+  "o" #'org-air-visit-item-stay
+  "d" #'org-air-goto-date)   ; R78: "go to date" — the prompted day jump
 
 ;;;; =====================================================================
 ;;;; R30-2 — a main-window C-c LEADER for the rail actions.  The rail/
@@ -10414,6 +10415,35 @@ synchronous `org-air-query-items' re-scan on a keypress)."
     ;; Steps 3/4: window routing — hop to the owner's MAIN window.
     (org-air-view--day-focus-owner owner)))
 
+(defun org-air-goto-date--read-date ()
+  "Read a target date for `org-air-goto-date' via `org-read-date'.
+Full Org date entry (absolute, relative like \"+3d\"/\"fri\", the
+calendar popup); returns an internal time at midnight.  DEFAULT-TIME is
+the owner board's focused day when a day view is up (so a re-jump
+nudges from the SHOWN day), else today.  Owner resolution is LENIENT
+here (no board yet -> today): `org-air-goto-date' opens the board
+itself (R78 Decision 4), so the reader must not pre-empt it with the
+R55-1 `user-error'."
+  (let* ((owner (ignore-errors (org-air-view--day-owner)))
+         (default (and owner
+                       (buffer-local-value 'org-air-view--day owner))))
+    (org-read-date nil t nil "Jump to date: " default)))
+
+;;;###autoload
+(defun org-air-goto-date (date)
+  "Jump the org-air board to DATE's single-day view (R78).
+Interactively, prompt with the full `org-read-date' vocabulary.  DATE
+is an internal time.  Delegates to `org-air-view-day', so the R55-1
+owner routing applies unchanged: the day renders in the OWNER board
+from its CACHED items (no rescan — R53) and focus lands in a MAIN
+window.  With no live board anywhere, opens `org-air-view' first (the
+`org-air-process-inbox' precedent), then jumps.  `<'/`>' step days
+from the landed date; `q' returns to the full board (R28-2)."
+  (interactive (list (org-air-goto-date--read-date)))
+  (unless (ignore-errors (org-air-view--day-owner))
+    (org-air-view))
+  (org-air-view-day date))
+
 (defun org-air-view-board ()
   "Leave the single-day view and return to the full board (R6)."
   (interactive)
@@ -10495,7 +10525,8 @@ read by the bookmark record producer.")
      (org-air-visit-item-stay . "visit item, stay on board")
      (org-air-calendar-prev . "calendar: previous month")
      (org-air-calendar-next . "calendar: next month")
-     (org-air-calendar-today . "calendar: today"))
+     (org-air-calendar-today . "calendar: today")
+     (org-air-goto-date . "jump to a date's items (day view)"))
     ("Triage"
      (org-air-capture . "capture")
      (org-air-refile-item . "edit item (a destination refiles)")

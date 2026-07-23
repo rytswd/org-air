@@ -544,3 +544,30 @@ mints new item objects, so the =eq=-keyed memo repopulates naturally.
   =make clean && make check= green (0 unexpected, 3 expected failures =
   the flagged goldens); every layout/screenshot golden byte-identical at
   the nil default (zero fixture churn).
+- 2026-07-23: R77 CLOSEOUT (test seat).  ALL THREE grind entries CLOSED
+  — the flagged cache-key ERTs (r59-13, r60-6, r61-8) re-blessed
+  HONESTLY to the 7-element-key contract, no conjunct weakened: each
+  still detects its own element at its old seat (R59 knob nth 3,
+  exclude set nth 4, log cap nth 5) and GAINED the seventh-element
+  conjuncts (live =org-air-task-requires-todo= at nth 6, let-bound flip
+  detection, the knob hydrate fence in r59-13/r61-8) plus the pre-R77
+  6-element crafted-key length miss (r60-6 now covers all three legacy
+  shapes, r61-8 both of its two).  All three verified revert-RED
+  against the pre-impl trunk pqqypyxm (and, accidentally but honestly,
+  against stale pre-R77 bytecode — the standing =make clean= FIRST
+  lesson bit again).  The 12 impl seams independently audited green;
+  the audit found THREE uncovered seams and added gap ERTs: r77-13
+  (the step-4 DEADLINE disjunct + the D2 step-5 journal flavour + the
+  routed gate's journal leg — revert-RED), r77-14 (the ask's
+  "archived unaffected" half, a by-design lock green pre-R77), r77-15
+  (Revisit reachability at the ACTUAL surface + the D7 mixed-file
+  wrinkle pinned as specced — revert-RED).  AUDIT NOTE for crosstalk:
+  D7's parenthetical ("#+type: task on the routines file … its
+  headings STILL demote") contradicts both the code (=#+type:= is
+  step 2 of the heading chain — it forces headings back to task) and
+  the spec's own D2, which lists =#+type: task= among the per-item
+  force-backs; flagged, not re-ruled.  =make clean && make check=
+  green (982 tests, 0 unexpected, manifest EMPTY), =make
+  regen-mockups= byte-clean (zero fixture/golden churn — the diff is
+  four test files + the manifest).  No .el SOURCE touched on the test
+  track.

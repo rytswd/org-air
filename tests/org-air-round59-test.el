@@ -733,7 +733,17 @@ cap both ways (the default and a let-bound value) and DETECT a flip
 default cap must NOT hydrate under a changed cap (the cap shapes the
 scanned-and-persisted clocks/logs slots — reverting the R61 key
 extension hydrates it and FAILS).  The exclude-set conjuncts above are
-all KEPT: exclude is still detected, at the same (fifth) seat."
+all KEPT: exclude is still detected, at the same (fifth) seat.
+R77 re-bless (air/v0.1/org-air-round77-design.org, honest — no
+conjunct weakened): the key is SEVEN elements now —
+`org-air-task-requires-todo' is the SEVENTH.  The seventh element must
+TRACK the live knob both ways (the nil default and a let-bound t) and
+DETECT a flip (different knob values compare un-`equal'), and a cache
+written under the nil default must NOT hydrate under the knob (the
+knob shapes scan-time `ntype' and the baked file-meta `:ntype' —
+reverting the R77 key extension hydrates it and FAILS).  The R59-knob,
+exclude-set and log-cap conjuncts above are all KEPT, each at its same
+\(fourth/fifth/sixth) seat."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       (append org-air-r59--inbox-specs
@@ -743,11 +753,12 @@ Kickoff <2026-08-01 Sat>.\n\
 ** Prose child\n\
 Body.\n")))
     ;; The version and the key shape (R60: the exclude set is the FIFTH
-    ;; element; R61: `org-air-log-cap' is the SIXTH; this corpus runs at
-    ;; the nil-exclude / default-cap baseline).
+    ;; element; R61: `org-air-log-cap' is the SIXTH; R77:
+    ;; `org-air-task-requires-todo' is the SEVENTH; this corpus runs at
+    ;; the nil-exclude / default-cap / nil-knob baseline).
     (should (= org-air-view--cache-version 6))
     (let ((key (org-air-view--cache-key)))
-      (should (= (length key) 6))
+      (should (= (length key) 7))
       (should (eq (nth 3 key) t))
       ;; The fifth element IS the live exclude set (nil here)…
       (should (eq (nth 4 key) org-air-exclude-regexps))
@@ -762,6 +773,14 @@ Body.\n")))
       ;; …tracks a let-bound cap, and DETECTS the flip the same way.
       (let ((org-air-log-cap 123))
         (should (equal (nth 5 (org-air-view--cache-key)) 123))
+        (should-not (equal (org-air-view--cache-key) key)))
+      ;; R77: the seventh element IS the live `org-air-task-requires-todo'
+      ;; (nil here — the default)…
+      (should (eq (nth 6 key) org-air-task-requires-todo))
+      (should (null (nth 6 key)))
+      ;; …tracks a let-bound knob, and DETECTS the flip the same way.
+      (let ((org-air-task-requires-todo t))
+        (should (eq (nth 6 (org-air-view--cache-key)) t))
         (should-not (equal (org-air-view--cache-key) key))))
     (let ((org-air-skip-container-headings nil))
       (should (eq (nth 3 (org-air-view--cache-key)) nil)))
@@ -815,6 +834,15 @@ Body.\n")))
         (should-not (org-air-view--cache-read))
         (should-not (org-air-view--cache-load)))
       ;; …while the original cap still hydrates.
+      (should (org-air-view--cache-read))
+      ;; R77: `org-air-task-requires-todo' detects the same way — this
+      ;; cache was written under the nil default, so it never hydrates
+      ;; under the knob (the baked ntype/file-meta :ntype task/knowledge
+      ;; split would go stale across a flip)…
+      (let ((org-air-task-requires-todo t))
+        (should-not (org-air-view--cache-read))
+        (should-not (org-air-view--cache-load)))
+      ;; …while the original (nil) knob still hydrates.
       (should (org-air-view--cache-read))
       ;; A v4 cache (the pre-R59 struct shape) is a clean cold miss even
       ;; with the CURRENT key: no hydration, no error, no hang.

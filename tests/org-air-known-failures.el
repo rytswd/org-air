@@ -2787,12 +2787,83 @@
     ;; element/`nth 5' positional claims are UNCHANGED since R77
     ;; appends).  TEST SEAT: re-bless the length assertion in each to 7
     ;; (and r59-13's element-count prose), then delete these entries.
-    (org-air-r59-13-cache-v5-and-key
-     . "R77: cache key gained the seventh element (org-air-task-requires-todo); test pins (= (length key) 6) — re-bless to 7")
-    (org-air-r60-6-exclude-set-is-fifth-cache-key-element
-     . "R77: cache key gained the seventh element (org-air-task-requires-todo); test pins (= (length key-a) 6) — re-bless to 7")
-    (org-air-r61-8-cache-v6-and-no-rescan-nav
-     . "R77: cache key gained the seventh element (org-air-task-requires-todo); test pins (= (length key) 6) — re-bless to 7")
+    ;;
+    ;; 2026-07-23: ROUND-77 CLOSEOUT (impl tip qrlkzkro/529f45c1 + test
+    ;; seat <this commit>).  ALL THREE grind entries CLOSED — no
+    ;; fixture/golden moved (`make clean && make check' green with zero
+    ;; fixture churn — `make clean' FIRST: the standing R48/R51/R53/
+    ;; R54/R62/R63/R64 stale-.elc lesson bit AGAIN; the first probe of
+    ;; this round ran pre-R77 bytecode and all three re-blessed ERTs
+    ;; failed with (= 6 7) on the FIXED tree — which doubled as a
+    ;; genuine revert-RED check: each re-blessed test fails against the
+    ;; pre-R77 key).  Each flagged ERT re-blessed HONESTLY to the
+    ;; design-blessed R77 7-element-key contract
+    ;; (air/v0.1/org-air-round77-design.org, Cache coherence), no
+    ;; conjunct weakened — each still DETECTS its own element AT ITS
+    ;; OLD SEAT and GAINED the seventh-element conjuncts:
+    ;;   org-air-r59-13-cache-v5-and-key — key length 6 -> 7; the
+    ;;     R59-knob (nth 3), exclude-set (nth 4) and log-cap (nth 5)
+    ;;     detection + hydrate/miss + v4-cold-miss conjuncts kept
+    ;;     verbatim; GAINED the seventh-element conjuncts (the live
+    ;;     `org-air-task-requires-todo' is (nth 6), nil at the default,
+    ;;     tracks a let-bound t, detects a flip as a different key) and
+    ;;     the knob hydrate fence (a cache written under the nil
+    ;;     default never hydrates under the knob — the baked
+    ;;     ntype/file-meta :ntype split — while nil still does).
+    ;;   org-air-r60-6-exclude-set-is-fifth-cache-key-element — key
+    ;;     length 6 -> 7 with the exclude set asserted UNMOVED at
+    ;;     (nth 4) and the cap at (nth 5); every pairwise-distinct /
+    ;;     hydrates-under-A / never-under-B-or-nil conjunct kept;
+    ;;     GAINED the (nth 6) knob tracking + flip detection, and the
+    ;;     crafted short-key misses now cover ALL THREE legacy shapes
+    ;;     (pre-R60 4-element, pre-R61 5-element, pre-R77 6-element),
+    ;;     each missing on length alone.
+    ;;   org-air-r61-8-cache-v6-and-no-rescan-nav — key length 6 -> 7
+    ;;     with the cap asserted UNMOVED at (nth 5); every cache-v6 /
+    ;;     v5-cold-miss / zero-rescan-nav / warm-byte-parity conjunct
+    ;;     kept verbatim; GAINED the (nth 6) knob tracking + flip
+    ;;     detection + the knob hydrate fence, and the crafted
+    ;;     short-key misses now cover BOTH legacy shapes (pre-R61
+    ;;     5-element AND pre-R77 6-element).
+    ;; The 12 R77 acceptance ERTs (tests/org-air-round77-test.el,
+    ;; r77-1..r77-12) independently audited on the test seat: all 12
+    ;; green against impl tip qrlkzkro.  The audit found THREE
+    ;; uncovered seams; the test seat added gap ERTs for each (same
+    ;; file, all green on the fixed tree, the knob-sensitive ones RED
+    ;; by construction on pre-R77 bytecode):
+    ;;   r77-13-deadline-routine-and-journal-flavour — the step-4
+    ;;     gate's DEADLINE disjunct (r77-1 drove only SCHEDULED —
+    ;;     reverting the deadline half alone was uncaught) + the D2
+    ;;     step-5 journal flavour (a keyword-less routine in a
+    ;;     journal-typed file demotes to `journal', not knowledge —
+    ;;     off Revisit under the default `org-air-revisit-types') +
+    ;;     the routed filter gate's JOURNAL leg (r77-4/5 drove only
+    ;;     knowledge).
+    ;;   r77-14-archived-unaffected — the round ask's "donep/archived
+    ;;     unaffected" ARCHIVED half (r77-6 drove only donep): an
+    ;;     `org-archive-tag'-tagged keyworded heading types task and
+    ;;     classifies into ZERO buckets under the knob ON and OFF
+    ;;     alike, and never matches is:overdue either way.
+    ;;   r77-15-revisit-surface-renders-demoted-file — the r77-8
+    ;;     reachability claim driven at the actual SURFACE (r77-8
+    ;;     stopped at `org-air-revisit--scope-entries'): under the knob
+    ;;     the REAL `org-air-revisit' view renders the pure-routines
+    ;;     file as a row (the rail notes count includes it) — the
+    ;;     routine is demoted, NOT lost; also pins the D7 MIXED-file
+    ;;     wrinkle as specced (one demoted routine flips a mixed file's
+    ;;     F7 vote to knowledge — the standing R54 F7 fork, flagged
+    ;;     not re-ruled).
+    ;; AUDIT NOTE (spec prose, no code/test impact): D7's parenthetical
+    ;; claims a `#+type: task' FILE keyword re-types only the FILE
+    ;; ("its headings STILL demote per-heading") — but `#+type:' is
+    ;; step 2 of the R54-2 heading chain, so it forces every heading
+    ;; in the file back to task (exactly what the spec's OWN D2 lists
+    ;; among the per-item force-backs, and what r77-5 exercises in the
+    ;; note direction).  The code follows D2/R54-2; the D7 asymmetry
+    ;; sentence is unimplementable as written — flagged for crosstalk,
+    ;; not re-ruled here.  No .el SOURCE touched on the test track
+    ;; (impl landed R77 in qrlkzkro).  Round-77 manifest is EMPTY; the
+    ;; tests stay as permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

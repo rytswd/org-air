@@ -474,18 +474,27 @@ the FIFTH (every detection/hydrate/miss conjunct above holds verbatim)
 and `org-air-log-cap' follows as the SIXTH (tracked live, a flip is a
 different key); the crafted short-`:key' misses now cover BOTH legacy
 shapes — the pre-R60 4-element and the pre-R61 5-element key — each on
-length inequality alone."
+length inequality alone.
+R77 re-bless (air/v0.1/org-air-round77-design.org, honest — no
+conjunct weakened): the key is SEVEN elements now — the exclude set
+STAYS the FIFTH (every detection/hydrate/miss conjunct above holds
+verbatim, the log-cap stays the SIXTH) and `org-air-task-requires-todo'
+follows as the SEVENTH (tracked live, a flip is a different key); the
+crafted short-`:key' misses now cover ALL THREE legacy shapes — the
+pre-R60 4-element, the pre-R61 5-element AND the pre-R77 6-element
+key — each on length inequality alone."
   (skip-unless (locate-library "org-air"))
   (org-air-r60--with-tree org-air-r60--tree-specs
     ;; The key detects: pairwise distinct, fifth element = the live set
-    ;; (R61: six elements total — `org-air-log-cap' is the sixth, and
-    ;; the exclude set KEEPS its fifth seat).
+    ;; (R61: `org-air-log-cap' is the sixth; R77: seven elements total —
+    ;; `org-air-task-requires-todo' is the seventh, and the exclude set
+    ;; KEEPS its fifth seat).
     (let ((key-nil (org-air-view--cache-key))
           (key-a (let ((org-air-exclude-regexps '("/archive/")))
                    (org-air-view--cache-key)))
           (key-b (let ((org-air-exclude-regexps '("noise\\.org\\'")))
                    (org-air-view--cache-key))))
-      (should (= (length key-a) 6))
+      (should (= (length key-a) 7))
       (should (equal (nth 4 key-a) '("/archive/")))
       (should (equal (nth 4 key-nil) nil))
       (should-not (equal key-a key-b))
@@ -495,6 +504,12 @@ length inequality alone."
       (should (eq (nth 5 key-a) org-air-log-cap))
       (let ((org-air-log-cap 123))
         (should (equal (nth 5 (org-air-view--cache-key)) 123))
+        (should-not (equal (org-air-view--cache-key) key-nil)))
+      ;; R77: the seventh element is the live knob; a flip is a new key.
+      (should (eq (nth 6 key-a) org-air-task-requires-todo))
+      (should (null (nth 6 key-nil)))
+      (let ((org-air-task-requires-todo t))
+        (should (eq (nth 6 (org-air-view--cache-key)) t))
         (should-not (equal (org-air-view--cache-key) key-nil))))
     ;; A cache written under exclude set A…
     (let ((org-air-exclude-regexps '("/archive/")))
@@ -509,11 +524,11 @@ length inequality alone."
       (should-not (org-air-view--cache-load)))
     (should-not (org-air-view--cache-read))
     (should-not (org-air-view--cache-load))
-    ;; A pre-R60 4-element :key — and a pre-R61 5-element :key — miss
-    ;; on length even with the CURRENT version and the CURRENT leading
-    ;; elements (no version bump needed for either).
+    ;; A pre-R60 4-element :key — and a pre-R61 5-element and pre-R77
+    ;; 6-element :key — miss on length even with the CURRENT version and
+    ;; the CURRENT leading elements (no version bump needed for any).
     (let ((org-air-exclude-regexps '("/archive/")))
-      (dolist (drop '(2 1))
+      (dolist (drop '(3 2 1))
         (let ((print-length nil) (print-level nil))
           (write-region
            (prin1-to-string

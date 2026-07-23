@@ -974,6 +974,14 @@ preserves clocks/logs/created/rtrunc `equal'; `org-air-log-cap' is the
 SIXTH `org-air-view--cache-key' element (tracks the live value, a
 let-bound flip makes the written cache MISS — the R57 key-IS-detector
 discipline) and a crafted pre-R61 5-element `:key' misses on length;
+R77 re-bless (air/v0.1/org-air-round77-design.org, honest — no
+conjunct weakened): the key is SEVEN elements now — the cap STAYS the
+SIXTH (every detection/hydrate/miss conjunct holds verbatim) and
+`org-air-task-requires-todo' follows as the SEVENTH (tracks the live
+knob, a let-bound flip makes the written cache MISS the same way — the
+knob shapes the persisted ntype/file-meta split), and the crafted
+short-`:key' misses cover BOTH legacy shapes — the pre-R61 5-element
+AND the pre-R77 6-element key — each on length inequality alone;
 twelve `<' presses plus the R62-3 ladder walk (`m' cycles
 week→fortnight→…, `+' widens — the re-blessed burst covers all five
 rungs) plus `>'/`.'/`f' on the live surface under
@@ -1066,15 +1074,26 @@ CLOCK: [2026-06-17 Wed 09:00]--[2026-06-17 Wed 11:00] =>  2:00
                    (org-air-r61--item "Weekly habit" hydrated))))
         ;; The cap is the SIXTH key element and the key detects a flip.
         (let ((key (org-air-view--cache-key)))
-          (should (= (length key) 6))
+          (should (= (length key) 7))
           (should (eq (nth 5 key) org-air-log-cap))
           (let ((org-air-log-cap 123))
             (should (equal (nth 5 (org-air-view--cache-key)) 123))
             (should-not (equal (org-air-view--cache-key) key))
             ;; The written cache never hydrates under the flipped cap…
             (should-not (org-air-view--cache-read))
+            (should-not (org-air-view--cache-load)))
+          ;; R77: the knob is the SEVENTH element and detects the same
+          ;; way — tracked live (nil default here), a flip is a new key
+          ;; and the written cache never hydrates under it…
+          (should (eq (nth 6 key) org-air-task-requires-todo))
+          (should (null (nth 6 key)))
+          (let ((org-air-task-requires-todo t))
+            (should (eq (nth 6 (org-air-view--cache-key)) t))
+            (should-not (equal (org-air-view--cache-key) key))
+            (should-not (org-air-view--cache-read))
             (should-not (org-air-view--cache-load))))
-        ;; …while the original cap still hydrates (the miss is the KEY).
+        ;; …while the original cap/knob still hydrate (the miss is the
+        ;; KEY).
         (should (org-air-view--cache-read))
         ;; T13 warm parity: a fresh surface hydrates cache-first (zero
         ;; scans) and paints the SAME bytes.
@@ -1087,8 +1106,9 @@ CLOCK: [2026-06-17 Wed 09:00]--[2026-06-17 Wed 11:00] =>  2:00
         (with-current-buffer org-air-review-buffer-name
           (should org-air-review--items)
           (should (equal (org-air-r61--buffer-text) scan-render)))
-        ;; A crafted v5 cache — and a pre-R61 5-element key — are clean
-        ;; cold misses (nil, no signal, no hang).
+        ;; A crafted v5 cache — and a pre-R61 5-element / pre-R77
+        ;; 6-element key — are clean cold misses (nil, no signal, no
+        ;; hang).
         (let ((print-length nil) (print-level nil))
           (write-region
            (prin1-to-string
@@ -1097,15 +1117,16 @@ CLOCK: [2026-06-17 Wed 09:00]--[2026-06-17 Wed 11:00] =>  2:00
            nil (expand-file-name org-air-cache-file) nil 'silent))
         (should-not (org-air-view--cache-read))
         (should-not (org-air-view--cache-load))
-        (let ((print-length nil) (print-level nil))
-          (write-region
-           (prin1-to-string
-            (list :version org-air-view--cache-version
-                  :key (butlast (org-air-view--cache-key))
-                  :mtimes nil :file-meta nil :visits nil :items nil))
-           nil (expand-file-name org-air-cache-file) nil 'silent))
-        (should-not (org-air-view--cache-read))
-        (should-not (org-air-view--cache-load))))))
+        (dolist (drop '(2 1))
+          (let ((print-length nil) (print-level nil))
+            (write-region
+             (prin1-to-string
+              (list :version org-air-view--cache-version
+                    :key (butlast (org-air-view--cache-key) drop)
+                    :mtimes nil :file-meta nil :visits nil :items nil))
+             nil (expand-file-name org-air-cache-file) nil 'silent))
+          (should-not (org-air-view--cache-read))
+          (should-not (org-air-view--cache-load)))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r61-9 — T6: the Started and Carried-over predicates

@@ -40,6 +40,20 @@
 ;;   r77-12  the knob is the SEVENTH `org-air-view--cache-key' element;
 ;;           a cache written under nil is a clean cold miss under t,
 ;;           and a pre-R77 6-element key misses on length.
+;;
+;; Test-seat AUDIT GAPS (round-77 closeout — seams the twelve above
+;; left undriven):
+;;
+;;   r77-13  the step-4 gate's DEADLINE disjunct (r77-1 drove only
+;;           SCHEDULED) + the D2 step-5 journal flavour (a routine in
+;;           a journal-typed file demotes to `journal', off Revisit)
+;;           + the routed filter gate's JOURNAL leg.
+;;   r77-14  "donep/archived unaffected" — the ARCHIVED half (r77-6
+;;           drove only donep): an archived keyworded heading is
+;;           buried identically under the knob ON and OFF.
+;;   r77-15  the r77-8 reachability at the actual SURFACE: the real
+;;           `org-air-revisit' view renders the demoted routines file
+;;           as a row; the D7 mixed-file wrinkle pinned as specced.
 
 ;;; Code:
 
@@ -495,6 +509,133 @@ still hydrates (the miss is the KEY); and a crafted pre-R77 6-element
          nil (expand-file-name org-air-cache-file) nil 'silent))
       (should-not (org-air-view--cache-read))
       (should-not (org-air-view--cache-load)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r77-13 — AUDIT GAP: the deadline disjunct + the journal flavour.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r77-13-deadline-routine-and-journal-flavour ()
+  "Knob ON: DEADLINE-only routines demote too; journal files flavour it.
+Test-seat audit gap: r77-1 drove the step-4 gate's SCHEDULED disjunct
+only — reverting the DEADLINE half alone went uncaught.  A keyword-less
+DEADLINE heading demotes to `knowledge' exactly like the scheduled
+routine (and fails `due:7d'/`is:upcoming' through the routed gate).
+And per D2 step 5, a keyword-less routine in a JOURNAL-typed file falls
+through to `journal' — equally off-board, the right flavour — whose
+FILE stays OUT of the Revisit scope under the default
+`org-air-revisit-types' '(knowledge) (the R54 F3 consistency in D7);
+the routed filter gate covers the journal leg too (r77-4/5 drove only
+knowledge)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r77--with-corpus
+      '(("chores.org" .
+         "* Quarterly: file taxes\nDEADLINE: <2026-06-16 Tue ++3m>\n")
+        ("journal/routines.org" .
+         "* Morning pages\nSCHEDULED: <2026-06-16 Tue ++1d>\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((org-air-task-requires-todo t)
+           (items (org-air-query-items))
+           (taxes (org-air-r77--item "file taxes" items))
+           (pages (org-air-r77--item "Morning pages" items)))
+      ;; The DEADLINE disjunct is gated exactly like SCHEDULED.
+      (should (eq (org-air-item-ntype taxes) 'knowledge))
+      (should (equal (org-air-classify-item taxes org-air-test-now)
+                     '(knowledge)))
+      (should-not (org-air-r77--passes-p taxes '("is:upcoming")))
+      (should-not (org-air-r77--passes-p taxes '("due:7d")))
+      ;; The journal-file routine takes the step-5 flavour…
+      (should (eq (org-air-item-ntype pages) 'journal))
+      (should (equal (org-air-classify-item pages org-air-test-now)
+                     '(journal)))
+      ;; …the routed gate's JOURNAL leg agrees on the token side…
+      (should-not (org-air-r77--passes-p pages '("is:upcoming")))
+      (should-not (org-air-r77--passes-p pages '("due:7d")))
+      ;; …and the journal FILE stays out of the (knowledge-only)
+      ;; Revisit scope — D7's third bullet.
+      (let ((journal (expand-file-name "journal/routines.org"
+                                       org-air-r77--dir)))
+        (should (eq (plist-get (org-air-query-file-meta journal) :ntype)
+                    'journal))
+        (should-not (assoc journal (org-air-revisit--scope-entries)))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r77-14 — AUDIT GAP: ARCHIVED handling is knob-immune.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r77-14-archived-unaffected ()
+  "Archived items are buried identically under the knob ON and OFF.
+Test-seat audit gap: the round ask's \"donep/archived unaffected\" —
+r77-6 locked the donep half only.  An `org-archive-tag'-tagged
+keyworded heading types `task' under BOTH knob values (the keyword is
+the signal either way), classifies into ZERO buckets both ways (the
+`org-air-classify--board-active-p' archive gate, untouched by R77) and
+never matches `is:overdue' either way — the knob neither resurrects
+nor re-types history."
+  (skip-unless (locate-library "org-air"))
+  (dolist (knob '(t nil))
+    (org-air-r77--with-corpus
+        '(("history.org" .
+           "* TODO Old idea :ARCHIVE:\nSCHEDULED: <2026-06-01 Mon>\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      (let* ((org-air-task-requires-todo knob)
+             (items (org-air-query-items))
+             (old (org-air-r77--item "Old idea" items)))
+        (should (member org-archive-tag (org-air-item-tags old)))
+        (should (eq (org-air-item-ntype old) 'task))
+        (should (equal (org-air-classify-item old org-air-test-now) '()))
+        (should-not (org-air-r77--passes-p old '("is:overdue")))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r77-15 — AUDIT GAP: the Revisit SURFACE renders the demoted file.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r77-15-revisit-surface-renders-demoted-file ()
+  "Knob ON: the REAL Revisit view renders the pure-routines file (r77-8+).
+Test-seat audit gap: r77-8 stopped at `org-air-revisit--scope-entries';
+the \"not lost\" claim deserves the actual surface.  Under the knob the
+real `org-air-revisit' entry point renders the routines FILE as a row
+\(the `org-air-revisit' row property carries its path — RET would open
+it).  The D7 MIXED-file wrinkle is pinned as SPECCED, eyes open: ONE
+demoted routine among keyworded tasks flips the file's F7 every-heading
+vote to `knowledge', so the mixed file enters Revisit too — the
+standing R54 F7 fork, flagged in D7, deliberately NOT re-ruled by R77."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r77--with-corpus
+      `(("routines.org" . ,org-air-r77--routine)
+        ("mixed.org" .
+         "* TODO Real work\nSCHEDULED: <2026-06-16 Tue>\n\
+* Weekly: Review Goals\nSCHEDULED: <2026-06-21 Sun ++1w>\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((org-air-task-requires-todo t)
+           (org-air-view-width 120)
+           (org-air-view-height 50)
+           (routines (expand-file-name "routines.org" org-air-r77--dir))
+           (mixed (expand-file-name "mixed.org" org-air-r77--dir)))
+      (unwind-protect
+          (save-window-excursion
+            (org-air-revisit)
+            (with-current-buffer org-air-revisit-buffer-name
+              ;; The rendered rows carry both files' identities — the
+              ;; demoted routine is reachable ON the surface.
+              (let ((row-files nil)
+                    (pos (point-min)))
+                (while (setq pos (text-property-not-all
+                                  pos (point-max) 'org-air-revisit nil))
+                  (push (car (get-text-property pos 'org-air-revisit))
+                        row-files)
+                  (setq pos (next-single-property-change
+                             pos 'org-air-revisit nil (point-max))))
+                (should (member routines row-files))
+                ;; The D7 mixed-file wrinkle, as specced (F7 standing).
+                (should (member mixed row-files)))))
+        (let ((kill-buffer-query-functions nil))
+          (when (get-buffer org-air-revisit-buffer-name)
+            (kill-buffer org-air-revisit-buffer-name))))
+      ;; The F7 votes behind the surface, for the record.
+      (should (eq (plist-get (org-air-query-file-meta routines) :ntype)
+                  'knowledge))
+      (should (eq (plist-get (org-air-query-file-meta mixed) :ntype)
+                  'knowledge)))))
 
 (provide 'org-air-round77-test)
 ;;; org-air-round77-test.el ends here

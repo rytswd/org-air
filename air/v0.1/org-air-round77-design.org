@@ -1,0 +1,527 @@
+#+title: org-air Round 77 — org-air-task-requires-todo: optionally require a TODO keyword for board tasks (keyword-less scheduled routines stop flooding the buckets)
+#+state: ready
+#+tags: board classify note-types knowledge routines filter defcustom cache
+
+* Summary
+
+REAL USER ASK (verbatim intent): "only show TODO keyworded items —
+otherwise every routine will be on by default."  The user's routines are
+headings with a SCHEDULED (usually a repeater =++Nw=) and NO TODO
+keyword:
+
+#+begin_example
+* Bi-weekly: Water plants
+  SCHEDULED: <2026-07-20 Mon ++2w>
+* Weekly: Review Goals
+  SCHEDULED: <2026-07-19 Sun ++1w>
+#+end_example
+
+Under the R54-2 note-type model (USER-RULED D1: task = TODO keyword OR
+scheduled/deadline) these type =task= and camp in Upcoming — and, once
+overdue between repeats, in Needs attention — burying the deliberate
+keyworded work.  This round adds ONE knob:
+
+- =org-air-task-requires-todo= (defcustom, boolean, DEFAULT nil).  When
+  non-nil, the R54-2 task signal narrows to the TODO KEYWORD ALONE: a
+  scheduled/deadline heading WITHOUT a keyword is no longer a task — it
+  falls through the rest of the R54 chain (journal heuristic, else
+  knowledge) and leaves every board task section
+  (Upcoming/Needs-attention/High-priority/Stale), while staying
+  reachable as a NOTE (the F7 file vote follows, so a routines file
+  enters the Notes row count and the Revisit scope — demoted, never
+  lost) and keeping its DAY-VIEW row and CALENDAR day mark (those
+  surfaces read planning slots, not types — a routine still shows on
+  its day, it just stops camping in the GTD buckets).
+- "Not-done" is delivered BY COMPOSITION, not by a second vocabulary
+  check: a DONE-keyword heading still types =task= (R54: a done task is
+  a task) and classifies into ZERO buckets via the existing
+  =org-air-classify--board-active-p= top gate (R57 merged vocabulary
+  decides done-ness, unchanged).  Net board contract with the knob ON: a
+  heading renders in a task section IFF it carries a NOT-DONE keyword —
+  exactly the user's sentence — without flipping DONE archives into
+  Revisit knowledge.
+- The R72 filter⇔bucket agreement law extends through the routing
+  layer: a new hoisted predicate =org-air-classify--task-routed-p= joins
+  the date/status tokens' gate, so a demoted routine also stops
+  matching =is:upcoming= / =due:Nd= (and, as a bonus, a pre-existing
+  latent disagreement closes: a =#+type: note=-overridden scheduled
+  heading matched =is:upcoming= today while classifying =knowledge=).
+- DEFAULT nil (argued below): R54 D1 was a USER-RULED vocabulary
+  decision and the whole R54–R76 behaviour tower stands on it; nil is
+  byte-identical everywhere (zero golden/demo/ERT churn), and the
+  requesting user's setup is one line: =(setq org-air-task-requires-todo t)=.
+- Baked into scan-time =ntype= / file-meta =:ntype=, so the knob joins
+  =org-air-view--cache-key= as the SEVENTH element (the R59/R60/R61
+  precedent): a flip takes the documented cold re-derive, never a
+  half-old board.
+
+SPEC ONLY: no =.el= or test edits in this change.  org/org-ql stay the
+only engines; R53 (never-hang, data-pure render), R54 (note-type model),
+R57 (merged vocabulary), R59 (container skip), R60 (exclusion), R72
+(filter agreement) are all respected — this round narrows ONE signal
+behind one knob and re-derives everything else from existing law.
+
+* Investigation
+
+** Why the routines flood — the exact predicate
+
+=org-air-query--note-type= (org-air-query.el ~747), step 4 of the R54-2
+precedence chain, is the whole story:
+
+#+begin_example
+(or (org-air-query--parse-type (org-entry-get (point) "ORG_AIR_TYPE" t))  ; 1
+    (plist-get org-air-query--scan-file-signals :override)               ; 2
+    (org-air-query--tag-type tags)                                       ; 3
+    (and (or todo scheduled deadline) 'task)                             ; 4  <-- here
+    (and (plist-get org-air-query--scan-file-signals :journal) 'journal) ; 5
+    org-air-plain-heading-type)                                          ; 6
+#+end_example
+
+A keyword-less =SCHEDULED: <… ++2w>= heading hits step 4 through the
+=scheduled= disjunct ⇒ =ntype 'task= ⇒ =org-air-classify-item= routes it
+to =org-air-classify--heading-buckets= ⇒ Upcoming while the repeat is
+within =org-air-upcoming-days=, Needs attention once the stamp slips
+past today (the =--overdue-p= disjunct — exactly what a repeater does
+between completions, since without a keyword nothing ever "closes" it),
+Stale once quiet past =org-air-stale-days= (it is stale-ELIGIBLE per
+R54-1: it carries a date).  Multiply by every routine the user keeps and
+the board is a chore ledger.
+
+Corrective note on the round ask's phrasing: a bare active =<ts>= does
+NOT type a task today — R54 D1 ruled it a note fact, and the code
+implements exactly =todo ∨ scheduled ∨ deadline=.  The knob therefore
+only narrows the =scheduled=/=deadline= disjuncts away; active-ts
+handling is already the desired shape and is untouched.
+
+** Where the demoted routine must land (the R54 routing layer)
+
+=org-air-classify-item= (org-air-classify.el) routes =ntype 'knowledge=
+to the ='(knowledge)= bucket, which has NO board section — off the
+board, counted by the note surfaces.  Per-FILE reachability is the F7
+vote (=org-air-query--file-ntype=): =task= iff EVERY non-container
+heading item is =task=; under the knob a pure-routines file's voters all
+demote, so the FILE becomes =knowledge= ⇒ it enters the board's Notes
+row count and the Revisit scope (=org-air-revisit-types '(knowledge)=).
+Nothing new to build: the routing layer and the F7 vote do the right
+thing the moment step 4 changes.
+
+** What must NOT change — five verified invariants
+
+1. *Day view / calendar*: =org-air-view--day-groups= groups on the
+   =scheduled=/=deadline= SLOTS (no ntype test), and
+   =org-air-calendar--marked-days= marks days from the same slots.  A
+   demoted routine keeps its "Scheduled" row on its day and its calendar
+   dot — verified in code (org-air-view.el ~5120, org-air-calendar.el
+   ~113).  This is the right UX: routines remain date-context facts,
+   they just stop being backlog.
+2. *Inbox bypass*: an inbox-dweller bypasses the type signals into the
+   task buckets (R54-2, xsqrnoyn semantics).  A dated keyword-less
+   CAPTURE stays a triage unit in Inbox — the knob must not reach it.
+3. *DONE/archive handling*: =donep= is scan-time truth under the file's
+   own vocabulary as merged by R57-1; the =--board-active-p= gate
+   already keeps done/archived items off the board.  The knob must not
+   re-type DONE headings (see D3 — the Revisit-flood trap).
+4. *R59 containers*: =org-air-query-container-item-p= requires =(null
+   scheduled)= ∧ =(null deadline)= ∧ =(null own-active-ts)=, so no
+   routine is ever a container; and the F7 container abstention is
+   independent of the knob.  No interaction beyond the =ntype= conjunct
+   already being knowledge-friendly.
+5. *Items built outside the scan* (capture buffers, unit tests): nil
+   =ntype= ⇒ full task treatment (R54's conservative "when in doubt,
+   render"; same philosophy as R59's nil-slot containers).  The knob
+   does not change this — the R72 fixture items (nil ntype, =:todo
+   "TODO"=) stay green untouched.
+
+** The filter hole (pre-existing, widened by the knob)
+
+=org-air-view--filter-date-token-match-p= (R72) conjoins ONLY
+=--board-active-p= before dispatching onto the classify predicates over
+planning SLOTS.  It never consults the ROUTING layer — so an
+=ntype 'knowledge= item with a scheduled slot matches =is:upcoming=
+while classifying into no task bucket.  Today that mismatch is only
+reachable via overrides (=#+type: note= on a scheduled heading — no test
+or golden covers it); with the knob ON it would be the COMMON case
+(every demoted routine).  The round's agreement requirement ("a
+filtered-out routine also stops matching is:upcoming") therefore needs
+one gate predicate hoisted, not new date logic (D5).
+
+** Quantified corpus / golden measurement (drives the default decision)
+
+Measured against the committed tree (yywvpttkktyy):
+
+- =tests/fixtures/*.org= (5 files) + =examples/demo/*.org= (7 files):
+  EVERY heading carrying SCHEDULED/DEADLINE also carries a keyword (34
+  dated headings, 34 keyworded — awk-verified).  ⇒ the 34 committed
+  layout/screenshot goldens and the demo are byte-identical under
+  EITHER default.
+- ERT seams that pin "scheduled/deadline alone ⇒ task" and would flip
+  under a =t= default: =org-air-r54-2g-note-type-derivation= ("Sched-only
+  errand", "Deadline-only errand" ⇒ =ntype 'task=) and
+  =org-air-r59-4-dated-parent-kept= (keyword-less SCHEDULED parent ⇒
+  task/upcoming/renders).  The synthetic perf corpus
+  (=org-air-perf--heading=) generates ~1/6 keyword-less dated headings —
+  bucket distribution would shift, no count assertion breaks.  The
+  viewport/data-variation alt corpus carries =:todo "TODO"= on every
+  dated item — unaffected.
+- Net: default =t= ⇒ 0 golden re-blesses, 2 test files re-seated + the
+  R54 semantics tables annotated; default =nil= ⇒ 0 changes anywhere.
+
+* Proposal
+
+** D1 — the knob
+
+#+begin_example
+(defcustom org-air-task-requires-todo nil
+  "When non-nil, only a TODO-keyworded heading types `task' (R77).
+The R54-2 task signal narrows from \"TODO keyword OR scheduled/deadline\"
+to the keyword alone: a scheduled/deadline heading WITHOUT a keyword — a
+routine like \"* Water plants  SCHEDULED: <… ++2w>\" — types through the
+rest of the R54 chain (journal heuristic, else knowledge) instead of
+camping in the board's task sections.  It keeps its day-view row and
+calendar mark (those surfaces read planning slots, not types) and stays
+reachable through the note surfaces (Notes row / Revisit) via the F7
+file vote.  The R54-2 overrides (`ORG_AIR_TYPE', `#+type:', the tag
+alist) still outrank the knob, so any single routine can be forced back
+onto the board.  \"Not-done\" is by composition: a DONE-keyword heading
+still types `task' (a done task is a task) and is buried by
+`org-air-classify--board-active-p' — never re-typed into Revisit
+knowledge.  The knob shapes scan-time `ntype'/file-meta, so it is an
+`org-air-view--cache-key' element: a flip takes the documented cold
+re-derive, exactly like a vocabulary change.  Default nil — the R54 D1
+USER-RULED signal, byte-identical behaviour."
+  :type 'boolean
+  :group 'org-air)
+#+end_example
+
+Lives in org-air-query.el beside =org-air-plain-heading-type= (it is a
+type-derivation knob, and the scan is where it is read).  Name follows
+the ask's own phrasing; rejected spellings: =org-air-todo-only-tasks=
+(reads like a filter), =org-air-scheduled-types-task= (inverted sense).
+
+** D2 — the exact predicate change (org-air-query--note-type)
+
+Steps 4 and 6 of the R54-2 chain change; 1–3 and 5 are untouched:
+
+#+begin_example
+;; step 4 — the task signal (R54 D1, now knob-gated):
+(and (or todo
+         (and (not org-air-task-requires-todo)
+              (or scheduled deadline)))
+     'task)
+;; step 6 — the fall-through:
+(if org-air-task-requires-todo 'knowledge org-air-plain-heading-type)
+#+end_example
+
+- Knob nil: both expressions are byte-equivalent to today — R54
+  behaviour EXACTLY, every existing test green untouched.
+- Knob t: =todo= alone types task (done or not — see D3).  A
+  keyword-less scheduled routine falls to step 5 — a routine in a
+  journal-typed file becomes =journal= (equally off-board, and the
+  right flavour) — else step 6 ⇒ =knowledge=.
+- Step 6 subsumption (deliberate ruling): with the knob ON the
+  fall-through is =knowledge= even when =org-air-plain-heading-type= is
+  the legacy ='task=.  "Task requires a keyword" and "every keyword-less
+  heading is a task" are flatly contradictory; the newer, explicit knob
+  wins so its headline contract ("no keyword ⇒ never a board task,
+  overrides excepted") is TOTAL, not corner-cased.  Both docstrings
+  cross-reference.  Per-item force-backs go through the overrides
+  (steps 1–3): =ORG_AIR_TYPE: task=, =#+type: task=, or a =:task:= tag
+  puts one chosen routine back on the board — the right granularity.
+- =org-air-query--file-ntype= (F7) needs NO edit: it votes over the
+  heading =ntype= values, so the file vote follows the knob at the same
+  scan.  =org-air-query-container-item-p= needs NO edit (Investigation
+  invariant 4).
+
+** D3 — "not-done" by composition, never by re-typing DONE
+
+The ask says "a board TASK only if it carries a not-done TODO keyword".
+The trap: making =ntype= itself require a NOT-DONE keyword would demote
+every DONE/CLOSED/DROPPED heading to =knowledge=, and the F7 vote would
+then flip whole done-task archives into =knowledge= FILES — flooding
+Revisit with GTD history, the exact R54 flood in a new coat.
+
+Ruling: the =ntype= rule under the knob is "carries a keyword" (the scan
+recognises keywords under the R57-1 MERGED vocabulary — the =todo= slot
+is non-nil exactly when the merged vocabulary parsed one, so CLOSED /
+DROPPED / COMP / DROP all count as keywords).  Not-done-ness is then
+enforced where it already lives: =org-air-classify--board-active-p=
+(scan-time =donep= under the file's own =org-done-keywords=, R57)
+classifies done items into ZERO buckets.  Composition delivers the
+user-visible contract verbatim — a task SECTION row implies a not-done
+keyword — while DONE headings keep =ntype 'task= and archives stay out
+of Revisit.  Seam r77-6 locks both halves.
+
+** D4 — flow to the buckets (no routing-layer edit)
+
+With the knob ON, a demoted routine takes the EXISTING R54-2 route:
+
+#+begin_example
+kind 'file            -> (notes)              ; unchanged
+container             -> (container)          ; unchanged (never a routine)
+inbox-dweller         -> heading-buckets      ; unchanged — capture bypass,
+                                              ;   dated inbox routines still triage
+ntype 'journal        -> (journal)            ; routine in a journal file
+ntype 'knowledge      -> (knowledge)          ; the demoted routine — NO board section
+ntype 'task           -> heading-buckets      ; keyworded work, exactly as today
+#+end_example
+
+So it exits Upcoming / Needs-attention / High-priority / Stale in one
+move (those are all =heading-buckets= products), and the board totals /
+rail Summary follow the section descriptors automatically.  Nil-ntype
+items (built outside the scan) keep full task treatment — R54's
+conservative default, unchanged (Investigation invariant 5).
+
+** D5 — filter agreement (R72): hoist the routing gate
+
+New pure predicate in org-air-classify.el:
+
+#+begin_example
+(defun org-air-classify--task-routed-p (item)
+  "Non-nil when ITEM routes to the task buckets (the R54-2 routing layer).
+The routing half of the R72 agreement law: date/status filter tokens are
+TASK vocabulary, so they must not match an item the routing layer sends
+to a note bucket (`knowledge'/`journal'/`container'/`notes').  Mirrors
+`org-air-classify-item' order exactly; nil-ntype items (built outside
+the scan) pass — they take the full task treatment there too."
+  (and (not (eq (org-air-item-kind item) 'file))
+       (not (org-air-classify--container-p item))
+       (or (org-air-classify--inbox-dweller-p item)
+           (not (memq (org-air-item-ntype item) '(journal knowledge))))))
+#+end_example
+
+=org-air-view--filter-date-token-match-p= conjoins it beside
+=--board-active-p= (its only caller change).  Consequences:
+
+- With the knob ON, a demoted routine fails =is:upcoming= / =due:Nd= /
+  =is:overdue= / =is:stale= / =is:nodate= / =is:hipri= — filter and
+  gated bucket agree by construction, extending the R72 theorem through
+  the routing layer.  (The bucket side needs nothing: routing already
+  precedes the bucket predicates.)
+- At knob nil this closes the pre-existing override hole (a
+  =#+type: note= scheduled heading no longer matches =is:upcoming=) and
+  tightens =is:nodate= to dateless TASKS (the Attention no-date
+  population) — knowledge prose no longer answers a task token it never
+  rendered under anyway.  No committed test or golden observes either
+  edge (verified); flagged for the test seat regardless.
+- =#tag= and bare-substring tokens are NOT gated — note surfaces stay
+  filterable; only the date/status family is task vocabulary.
+- The R72 memo key (day . effective-horizon) and Decision-4 horizon
+  widening are untouched — the gate is per-item, not per-window.
+
+** D6 — the DEFAULT: nil (preserve R54), argued
+
+| Default | For                                                          | Against                                            |
+|---------+--------------------------------------------------------------+----------------------------------------------------|
+| nil     | R54 D1 was USER-RULED; 22 rounds of behaviour, docs and seams stand on it; zero churn (goldens, demo, ERT, semantics tables all byte-identical); no silent upgrade surprise (a =t= default would cold re-derive every existing cache AND quietly evaporate scheduled-no-keyword items other users rely on — "where did my dentist appointment go"); the asking user's fix is one line | GTD purity: stock =org-agenda= todo lists also require keywords; scheduled-no-keyword reads as "appointment", arguably never backlog |
+| t       | Matches THIS user's corpus out of the box; arguably the better GTD default for new users; measured churn is small (0 goldens, 2 test files) | Reverses a USER-RULED contract for everyone; upgrade-time silent reclassification of live boards; the R54 docs/semantics tables all state the wider signal |
+
+RECOMMENDATION: *nil*.  The measured golden impact of =t= is small (0
+golden re-blesses, 2 ERT files re-seated — see Investigation), so cost
+is not the decider; CONTRACT STABILITY is.  R54 D1 is a standing user
+ruling and a default flip silently reclassifies live corpora at
+upgrade, which violates the house law that behaviour changes ride knobs
+whose defaults preserve the current contract.  The requesting user's
+setup is documented in the knob's docstring and README:
+=(setq org-air-task-requires-todo t)=.  If crosstalk later rules the
+GTD-purist reading should win for everyone, the flip is a one-line
+default change plus exactly the churn quantified above — deliberately
+cheap to revisit.
+
+** D7 — Revisit / Notes membership of a demoted routine (specced)
+
+WANTED, with eyes open (the round ask requires "not lost"):
+
+- A pure-routines file (every non-container heading demoted) votes
+  =knowledge= under F7 ⇒ ONE Notes-row count entry and ONE Revisit row
+  (per-FILE, the denote unit).  In Revisit it ages by mtime like any
+  note; a routines file the user edits stays fresh, an untouched one
+  drifts dusty-ward — acceptable: Revisit is exactly the "do I still
+  want these?" surface, and quarterly "is this routine still real?" is
+  a feature, not noise.  A user who objects sets =#+type: task= on the
+  routines file (it then votes =task=, out of Revisit — its headings
+  STILL demote per-heading unless individually overridden, so the board
+  stays clean; the file-level override only re-types the FILE for the
+  note surfaces... note the asymmetry and its utility: file-level
+  override curates Revisit, heading-level override curates the board).
+- MIXED files (keyworded tasks + routines): F7's every-heading rule
+  means one demoted routine flips the FILE vote to =knowledge= ⇒ the
+  file enters Revisit even though it is mostly GTD.  This is F7 working
+  as designed ("a KB note containing one TODO stays a knowledge FILE")
+  but reads odd in the GTD direction; it is ALREADY an open fork
+  (R54 F7) and stays one — remedy today is the =#+type: task= file
+  keyword.  Flagged to the user; NOT re-ruled this round.
+- The =journal= flavour: routines living in journal-typed files enter
+  the =journal= bucket and stay out of Revisit under the default
+  =org-air-revisit-types '(knowledge)= — consistent with R54 F3.
+
+** D8 — day view and calendar keep the routines (specced, seam-locked)
+
+The user asked the routines OFF the board's task sections, not out of
+time: =org-air-view--day-groups= and =org-air-calendar--marked-days=
+read planning slots and are deliberately NOT gated on
+=--task-routed-p=.  "Water plants" still shows under Scheduled on its
+day and dots its calendar cell; it simply never camps in Upcoming for a
+week beforehand nor rots in Needs attention after.  Locked by seam
+r77-7 so a future "consistency" refactor cannot quietly gate these
+surfaces.
+
+** D9 — the repeater angle: CONSIDERED, REJECTED
+
+Alternative: treat a REPEATER (=++= / =+= / =.+=) as the routine marker
+— e.g. "scheduled-with-repeater and no keyword ⇒ not a task" — leaving
+plain scheduled-no-keyword headings as tasks.  Rejected:
+
+1. It fails the stated need: the user said "only show TODO keyworded
+   items" — keyword-presence IS their mental model, and their
+   non-repeating keyword-less appointments would still flood.
+2. It splits the date vocabulary into a THIRD class (dated,
+   dated-repeating, dateless) that every surface — buckets, R72 tokens,
+   F7 vote, Revisit — would have to learn; the knob reuses the existing
+   two-class model untouched.
+3. The valuable repeater case is already right under the knob: a
+   habit-style =* TODO Water plants SCHEDULED: <… ++2w>= carries a
+   keyword and STAYS a board task.
+4. If a repeater-aware treatment is ever wanted (e.g. a dedicated
+   Routines section), that is a new SURFACE, not a classify knob — a
+   future round with its own design; nothing here forecloses it.
+
+** Cache coherence — the SEVENTH key element
+
+=org-air-view--cache-key= gains =org-air-task-requires-todo= after
+=org-air-log-cap= (R59/R60/R61 precedent): =ntype= and file-meta
+=:ntype= are scanned-and-persisted under the knob, so a flip must
+invalidate exactly like a vocabulary change — key mismatch ⇒ documented
+cold re-derive (skeleton + paced rescan, never a hang, never a
+half-reclassified board).  A pre-R77 6-element key misses on length
+inequality; NO =org-air-view--cache-version= bump (no serialisation
+shape changes).  The render-side classify memo needs nothing: re-derive
+mints new item objects, so the =eq=-keyed memo repopulates naturally.
+
+* Interaction ledger (the round's named rounds, one line each)
+
+- *R53*: no new render-time file access anywhere (every predicate is
+  slot-only); the knob flip rides the existing cold re-derive machine.
+- *R54*: step 4/6 of the ONE precedence chain gated; routing layer,
+  active-ts semantics, R54-1 stale gate, inbox bypass all untouched;
+  knob nil is byte-identical.
+- *R57*: keyword recognition and done-ness stay the merged vocabulary's
+  — the knob adds zero keyword parsing (D3's composition).
+- *R59*: containers unaffected (a routine is never a container; the F7
+  abstention is knob-independent); the cache-key precedent reused.
+- *R60*: orthogonal (exclusion is discovery-time); the key ordering
+  note (seventh element, after R61's sixth) is the only touch-point.
+- *R72*: agreement law EXTENDED through the routing layer via
+  =--task-routed-p= (D5); token grammar, vocabulary offer, horizon
+  widening, memo key all unchanged.
+- *Revisit (R54-3)*: demoted routines enter its scope per-FILE via the
+  F7 vote — specced as wanted, with the mixed-file wrinkle flagged (D7).
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+1. *r77-1 knob ON demotes the routine*: scanned corpus with
+   =* Bi-weekly: Water plants= SCHEDULED tomorrow (=++2w= repeater) and
+   no keyword, =org-air-task-requires-todo t= → =ntype 'knowledge=;
+   =org-air-classify-item= ⇒ ='(knowledge)= — no =upcoming=, no
+   =attention=, no =stale=, no =high-priority=; the board render lacks
+   the row.  Reverting the step-4 gate fails.
+2. *r77-2 keyworded twin stays*: same corpus, =* TODO Weekly review=
+   SCHEDULED tomorrow, knob t → =ntype 'task=, ='upcoming= present,
+   renders.  Guards against over-gating.
+3. *r77-3 knob OFF is R54 verbatim*: same corpus, knob nil (the
+   DEFAULT) → the routine types =task= and is ='upcoming= — plus the
+   existing r54-2g / r59-4 / r72-3 tests run green UNTOUCHED (the
+   default's byte-identity is the whole suite).
+4. *r77-4 filter agrees with the gated bucket*: knob t, the scanned
+   demoted routine fails =is:upcoming= AND =due:7d= through the real
+   =org-air-view--passes-filter-p= fold; the keyworded twin passes
+   both; the r72-3 agreement theorem re-asserted over the knob-on
+   corpus (token ⟺ bucket for every item).  Reverting the
+   =--task-routed-p= conjunct fails.
+5. *r77-5 override hole closed at knob nil*: a =#+type: note= file with
+   a scheduled heading, knob nil → classifies =knowledge= and now ALSO
+   fails =is:upcoming=.  Reverting D5 fails (today it matches).
+6. *r77-6 not-done by composition*: knob t, =* DONE Old chore=
+   SCHEDULED past → =ntype 'task= (NOT knowledge), zero buckets
+   (board-active gate); a pure done-archive file votes =:ntype 'task=
+   and stays OUT of Revisit scope.  Re-typing DONE to knowledge fails
+   the Revisit half — the D3 trap, locked.
+7. *r77-7 date surfaces keep the routine*: knob t, the demoted routine
+   still files under the day view's "Scheduled" group on its day and
+   its day key is present in =org-air-calendar--marked-days=.
+   Gating those surfaces fails.
+8. *r77-8 Notes/Revisit reachability*: knob t, a pure-routines file →
+   file-meta =:ntype 'knowledge=, present in the Revisit scope entries
+   and counted by the board Notes row; the routine is NOT lost.
+   Reverting the F7 follow-through (e.g. freezing the file vote to the
+   un-gated signal) fails.
+9. *r77-9 inbox bypass survives*: knob t, keyword-less SCHEDULED
+   capture in =org-air-inbox-file= → ='inbox= (+ =upcoming=) via the
+   bypass, never =knowledge=.  Capture triage is knob-immune.
+10. *r77-10 overrides outrank the knob*: knob t, =ORG_AIR_TYPE: task=
+    property (and separately a =:task:= tag) on a keyword-less routine
+    → =ntype 'task=, ='upcoming=.  The per-item force-back works.
+11. *r77-11 step-6 subsumption*: knob t + =org-air-plain-heading-type
+    'task= → the keyword-less scheduled routine STILL types
+    =knowledge= (the knob wins the fall-through).  Reverting the step-6
+    change fails.
+12. *r77-12 cache key flips*: =org-air-view--cache-key= differs between
+    knob nil/t (seventh element); a cache written under nil is a clean
+    cold miss under t (no error, no hydrate — the R53 skeleton + paced
+    rescan law).  Omitting the key element fails the second half.
+
+* Byte-golden / fixture impact
+
+- *Chosen default (nil)*: ZERO — no golden, demo, fixture or existing
+  ERT changes; the whole round is additive (one defcustom, one gated
+  disjunct, one hoisted predicate + conjunct, one key element, new
+  tests).  The D5 gate at knob nil changes NO committed expectation
+  (verified: no test/golden exercises date tokens against
+  ntype-knowledge or kind-file items) — flagged to the test seat as a
+  semantic tightening all the same.
+- *Had =t= been chosen* (recorded for the possible future flip): 0
+  golden re-blesses (all 34 dated fixture/demo headings carry
+  keywords); r54-2g + r59-4 re-seated; perf-corpus bucket distribution
+  shifts within existing bounds; R54 doc tables annotated.
+- New goldens: none needed (no new surface; the board without a row it
+  already can lack is not a new shape).
+
+* Design details / seams
+
+- org-air-query.el: the =org-air-task-requires-todo= defcustom (beside
+  =org-air-plain-heading-type=, whose docstring gains the subsumption
+  note); =org-air-query--note-type= steps 4/6 per D2.  Nothing else —
+  the F7 vote and container predicate follow untouched.
+- org-air-classify.el: =org-air-classify--task-routed-p= (D5), placed
+  beside the other hoisted R72 predicates.  =org-air-classify-item=
+  UNTOUCHED (the predicate mirrors it; a comment on the routing layer
+  cross-references so the two cannot drift silently — and seam r77-4's
+  theorem re-assertion is the real drift fence).
+- org-air-view.el: =--filter-date-token-match-p= conjoins
+  =--task-routed-p=; =org-air-view--cache-key= gains the seventh
+  element + docstring paragraph (the R59-worded flip-takes-cold-re-derive
+  note).  No descriptor, renderer or vocabulary changes.
+- README/demo: one paragraph under the note-type model documenting the
+  knob and the routines use case (the user-facing one-liner).
+- NO changes: org-air-revisit.el (scope follows file-meta),
+  org-air-calendar.el, org-air-inbox.el, org-air-project.el,
+  org-air-review.el, cache version.
+- Suggested land order: D2+D1 (the knob and gate, with r77-1/2/3/9/10/11)
+  → D5 (the filter gate, r77-4/5) → cache key (r77-12) → the
+  surface-lock seams (r77-6/7/8).  One change, but the order keeps each
+  seam attributable.
+
+* Implementation History
+
+- 2026-07-15: R77 design (this doc) — =org-air-task-requires-todo=
+  defcustom specced (default nil = R54 D1 preserved, zero churn; the
+  requesting user sets t): R54-2 step-4 task signal knob-gated to the
+  keyword alone with step-6 fall-through subsumption, not-done by
+  composition with the R57/board-active gate (DONE stays ntype task —
+  the Revisit-flood trap locked), routing/F7 follow-through gives
+  Notes/Revisit reachability, day-view/calendar presence preserved by
+  design, R72 agreement extended via the hoisted
+  =org-air-classify--task-routed-p= filter gate (also closing the
+  pre-existing override hole), cache-key seventh element for the flip.
+  Repeater-specific treatment considered and rejected.  Golden impact
+  quantified for BOTH defaults (nil: zero; t: 0 goldens + 2 test files).
+  12 batch ERT seams defined.

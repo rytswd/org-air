@@ -409,3 +409,34 @@ user confirm alongside R73's own GUI checklist.
   itself fail the binary gate).  GUI residue for the user-confirm
   checklist: the Updated line visible in the live rail + its repaint
   on the R73 resync after an =n= note.
+- 2026-07-23: Round 74 TEST/AUDIT (test seat, Fable; independent).
+  All 10 impl seams EXECUTE green in isolation and 10/10 revert-RED
+  against the pre-R74 tree (after =make clean= — the stale-.elc
+  lesson honoured).  Mutation battery (9 mutations, each RED at its
+  named seam ONLY, then reverted — no vacuity): tie order =>= → =>==
+  ⇒ r74-3; clock END → START ⇒ r74-3 (the midnight-spanning interval
+  earns its keep); ='todo= mislabelled ='done= ⇒ r74-2; future clamp
+  stripped ⇒ r74-6 (the golden lemma has teeth); =~file= marker
+  degraded ⇒ r74-5 + r74-10; unconditional stat ⇒ r74-8; Updated
+  moved BEFORE Created ⇒ r74-4; header ✕ RESTORED ⇒ **the full 941
+  gate stayed GREEN — the audit gap**; slot path clamped too ⇒ the
+  new r74-12 exactly.  TWO audit-gap ERTs added (12 total):
+  - *r74-11* — the header/banner ✕: with an active two-token filter
+    the banner line ends EXACTLY at the token join (suffix pin,
+    glyph-tier-immune — a bare "no ✕" grep is VACUOUS in batch where
+    the tier renders =x=; the r69-2 exact-shape idiom), the rail
+    chips line asserted clean in the same shape (BOTH surfaces) and
+    the =\ clears= hint stays.  Verified revert-RED against the
+    glyph-restored banner AND the pre-R74 tree.
+  - *r74-12* — the slot path is NOT clamped (Decision 2's forged
+    future stamp): a =- Note taken on [2026-06-20]= against frozen
+    2026-06-15 reads exactly ="(in 5d · note)"= — pinned so a
+    well-meaning clamp-everything cleanup goes RED instead of
+    silently hiding user-written data.  Revert-RED both ways.
+  Composition re-verified: =org-air-view--panes-resync-now= is
+  fboundp on this base, so r74-9's R73 leg genuinely rides the
+  refresh tail (stationary cursor held).  query.el byte-untouched
+  confirmed at the jj diff level; manifest EMPTY of r74;
+  =make regen-mockups= byte-clean (the r74-6 clamp lemma held).
+  =make clean && make check= GREEN — 941 tests, 0 unexpected, 8 GUI
+  skips, lint 0.

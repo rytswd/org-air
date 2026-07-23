@@ -478,5 +478,77 @@ renders no line and signals nothing."
       (let ((nofile (org-air-item-create :title "nofile" :file nil)))
         (should-not (org-air-r74--line nofile))))))
 
+;;;; -------------------------------------------------------------------
+;;;; r74-11 — AUDIT GAP: the header/banner ✕ clear glyph is GONE
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r74-11-header-banner-clear-glyph-gone ()
+  "The R69-2 sibling site: the banner filter segment ends at the token
+join — NO trailing ✕ clear glyph (it carried no keymap/button action).
+With no scope and the default sort the filter segment is the LAST
+status segment, so the banner line must end EXACTLY with the joined
+tokens; a restored `(org-air-view--glyph \='clear)' would trail as
+\" ✕\" (GUI tier) or \" x\" (batch tier) and break the suffix — the pin
+is glyph-tier-immune, like r69-2's exact-line idiom (a bare \"no ✕\"
+grep would be VACUOUS in batch, where the tier renders `x').  The rail
+chips line (R69-2) is asserted clean in the same shape — BOTH surfaces
+— and the `\\ clears' hint stays (the teaching surface).  Revert-RED:
+verified against the glyph-restored banner (the pre-R74 site)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r74--with-board
+      '(("inbox.org" . "#+title: inbox\n\n* TODO Tagged task :work:home:\n  body\n"))
+    (let ((org-air-filter-match 'all))
+      (setq org-air-view--tag-filter '("#work" "#home"))
+      (org-air-view--render-current)
+      (let* ((banner (buffer-substring-no-properties
+                      (point-min) (progn (goto-char (point-min))
+                                         (line-end-position))))
+             (banner (string-trim-right banner)))
+        ;; the segment renders at all (anti-vacuity: 160w never sheds it) …
+        (should (string-match-p "#work AND #home" banner))
+        ;; … and the line ENDS at the token join: no trailing clear glyph
+        ;; in EITHER tier, no trailing spacer.
+        (should (string-suffix-p "#work AND #home" banner))
+        ;; belt: neither tier's glyph trails the join anywhere on the line.
+        (should-not (string-match-p "#home [✕x×]" banner)))
+      ;; the teaching surface survives: the rail's hint names the verb.
+      (should (string-match-p (regexp-quote "\\ clears") (buffer-string))))
+    ;; the rail chips line (the R69-2 site) is clean in the same shape.
+    (with-temp-buffer
+      (let ((org-air-show-rail-filters t)
+            (org-air-view--tag-filter '("#work" "#home"))
+            (org-air-view--scope nil)
+            (org-air-filter-match 'all))
+        (org-air-view--insert-rail-filters 32)
+        (let* ((lines (split-string (buffer-substring-no-properties
+                                     (point-min) (point-max))
+                       "\n"))
+               (chips (string-trim-right (nth 1 lines))))
+          (should (string-suffix-p "#work AND #home" chips))
+          (should (string-match-p "M-/ toggles" (nth 2 lines))))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r74-12 — AUDIT GAP: the SLOT path is NOT clamped (Decision 2)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r74-12-slot-path-not-clamped ()
+  "A forged FUTURE logbook stamp renders HONESTLY as \"(in Nd · note)\"
+— the Decision 3 future-clamp applies ONLY to the machine-derived mtime
+fallback (a machine signal with a machine failure mode); the slot path
+trusts the drawer.  Pinned so a well-meaning `clamp everything' cleanup
+goes RED here instead of silently hiding user-written data."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r74--with-corpus
+      '(("inbox.org" . "#+title: inbox\n\n* TODO Forged :inbox:\n- Note taken on [2026-06-20 Sat 09:00] \\\\\n  a stamp after the frozen NOW\n  body\n"))
+    (let* ((items (org-air-query-items))
+           (item (org-air-r74--item "Forged" items))
+           (u (org-air-view--item-updated item)))
+      (should u)
+      (should (= (car u) (org-air-r74--epoch 2026 6 20 9 0)))
+      (should (eq (cdr u) 'note))
+      ;; frozen NOW is Mon 2026-06-15 → the stamp is 5d in the future.
+      (should (equal "Updated 2026-06-20  (in 5d · note)"
+                     (org-air-r74--line item))))))
+
 (provide 'org-air-round74-test)
 ;;; org-air-round74-test.el ends here

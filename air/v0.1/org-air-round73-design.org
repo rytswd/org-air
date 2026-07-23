@@ -617,3 +617,65 @@ row.
   GUI residue for user confirm: the live pane repaint after an
   edit, the pane closing on the last graduation, the rail region
   repaint timing.
+- 2026-07-23: Round 73 TEST/AUDIT (test seat, Fable — fixtures/
+  tests/gate only; audit-added ERTs, no =.el= source touched).
+  Independent audit of impl qoqpnmwm:
+  - EXECUTE: all thirteen impl seams r73-1..r73-13 run + pass on
+    the impl tree — after =make clean= (the standing stale-.elc
+    lesson bit FIRST again: the pre-R73 bytecode in the tree made
+    all 13 fail as void-function/behaviour ghosts until recompile).
+  - REVERT-RED: sources restored to the R72 tree (mwzwuyol) with
+    the r73 tests kept ⇒ 13/13 RED (mostly void-symbol coarse
+    red — expected pre-impl shape).
+  - MUTATION audit (each applied to the impl tree, the named seam
+    RED for its CONTRACT reason, then reverted — no vacuity):
+    M1 resync dropped from the =--refresh-repaint= tail ⇒ r73-1;
+    M2 resync dropped from the sync =org-air-refresh= tail ⇒
+    r73-1 + r73-3 + r73-4 + r73-6; M3 =undo-only= → plain =undo=
+    ⇒ r73-7 + r73-10 (and r73-16); M4 =atomic-change-group=
+    stripped ⇒ r73-12; M5 re-stamp ON PUSH (the impl RULING's
+    forbidden duplicate-maker) ⇒ r73-10; M6 tick guard disabled ⇒
+    r73-10; M7 empty degrade removed ⇒ r73-4; M8 debounce
+    cancellation removed ⇒ r73-5; M9 refile push dropped ⇒ r73-9
+    + r73-11; M10 help empty-suppression broken ⇒ r73-13; M11
+    ring bound off-by-one ⇒ r73-11; M12a inspector nudge made
+    unconditional ⇒ r73-15 (chrome leg, exactly); M12b over-eager
+    pane close ⇒ r73-15; M13a empty-ring =user-error= removed ⇒
+    r73-14; M13b push-side live check removed ⇒ r73-14 (dead-push
+    leg, exactly).  r73-2's identity invariant and r73-8's
+    cross-buffer order are pinned by construction (retention =eq=
+    probes / byte comparisons — no cheap honest mutation exists
+    that they would miss and another seam would not catch).
+  - THREE audit-gap ERTs added (tests/org-air-round73-test.el,
+    16 total):
+    r73-14 /empty ring + dead PUSH/ — =u= on an empty ring is a
+    gentle =user-error= "Nothing to undo" (alias too, zero bytes
+    moved) — the spec's Decision 5 sentence no prior ERT pinned;
+    and =--edit-ring-push= with a KILLED buffer records nothing,
+    never signals (r73-10 covered only the pop side).
+    r73-15 /bucket graduates EMPTY on a still-populated board/ —
+    the seam BETWEEN r73-3 (neighbour in the same bucket) and
+    r73-4 (whole board empty): done on the only dated item lands
+    point on a neighbour from ANOTHER bucket, context resolves,
+    the pane is NOT closed (hide spy + faked window-live), the
+    inspector converges on the survivor; PLUS the first pin of the
+    impl RULING nothing else covered — a nil-thing CHROME row with
+    items below SKIPS the inspector nudge (keep-last, no
+    placeholder downgrade).
+    r73-16 /compose/ — undo → FRESH edit → undo (the post-undo
+    re-stamp and a fresh push compose; no guard trip, byte-exact),
+    then THREE same-buffer edits (schedule + deadline + the
+    converted tag) walked fully back down the ring across three
+    =u= presses — the re-stamp chain holds at depth 3, bytes =
+    original, ring empty.
+  - GUI-confirm-only residue (unchanged from the impl flag, not
+    ERT-able): the LIVE pane window visibly repainting right after
+    an edit with no cursor nudge; the pane window actually closing
+    when the last item graduates; the rail inspector region
+    repaint timing.  The r73-15 bucket-graduation repaint is
+    ERT-pinned at the call/identity level only — its visible
+    timing rides the same GUI confirm.
+  - Gate: known-failures manifest EMPTY of r73 entries (untouched);
+    =make regen-mockups= byte-clean (zero fixtures moved); =make
+    clean && make check= GREEN — 929 tests (926 + 3 audit ERTs),
+    0 unexpected, 8 GUI skips, lint 0 findings.

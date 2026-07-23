@@ -793,5 +793,138 @@ and is definition-wise `org-air-edit-undo'."
       (when (get-buffer "*r73-help*")
         (kill-buffer "*r73-help*")))))
 
+;;;; -------------------------------------------------------------------
+;;;; r73-14 — AUDIT gap: the empty ring + the dead-buffer PUSH side
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r73-14-empty-ring-and-dead-push ()
+  "AUDIT gap seams: `u' with an EMPTY ring is a gentle `user-error'
+\(never a crash, never a stray undo in some buffer) — through the kept
+alias too; and `org-air-view--edit-ring-push' with a KILLED buffer
+records nothing and never signals (the push-side dead-buffer guard —
+r73-10 covers the POP side, where the buffer dies after the record)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r73--with-corpus nil
+    ;; empty ring: user-error, nothing consumed, no stray undo anywhere.
+    (should (null org-air-view--edit-ring))
+    (let ((before (org-air-r73--text "inbox.org"))
+          (err (should-error (org-air-edit-undo) :type 'user-error)))
+      (should (string-match-p "Nothing to undo" (cadr err)))
+      (should-error (org-air-triage-undo) :type 'user-error)
+      (should (null org-air-view--edit-ring))
+      (should (equal before (org-air-r73--text "inbox.org"))))
+    ;; dead-buffer PUSH: no record, no signal (the ring never holds a
+    ;; born-dead tombstone).
+    (let ((dead (generate-new-buffer "r73-dead-push")))
+      (kill-buffer dead)
+      (org-air-view--edit-ring-push "never recorded" dead)
+      (should (null org-air-view--edit-ring)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r73-15 — AUDIT gap: a bucket graduates EMPTY on a still-populated
+;;;;          board (+ the chrome keep-last RULING pin)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r73-15-bucket-graduates-empty-board-still-populated ()
+  "AUDIT gap seam between r73-3 (neighbour in the SAME bucket) and
+r73-4 (whole board empty): the LAST item of one bucket graduates while
+OTHER buckets still hold items — context resolves onto a neighbour
+from another bucket, the pane is NOT closed (the Decision 2 degrade is
+reserved for a truly empty board), and the inspector converges on the
+survivor.  Plus the impl-RULING pin nothing else covers: a nil-thing
+CHROME row with items still resolvable below SKIPS the inspector nudge
+\(keep-last) — the region keeps its render instead of degrading to the
+placeholder on every refresh."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r73--with-board nil
+    ;; Gamma is the ONLY dated item in the corpus — done empties its
+    ;; bucket while the inbox items (and the plain heading) remain.
+    (let ((gamma (org-air-r73--goto-row "Gamma chore"))
+          (hide-calls 0))
+      (cl-letf (((symbol-function 'org-air-view-pane--window-live-p)
+                 (lambda () t))
+                ((symbol-function 'org-air-view-pane--hide)
+                 (lambda () (cl-incf hide-calls))))
+        (org-air-item-done))
+      ;; NOT the r73-4 degrade: the board still has items, so the pane
+      ;; stays (hide would have fired — the window-live guard is faked).
+      (should (zerop hide-calls))
+      (let ((survivor (org-air-view--row-property 'org-air-item)))
+        ;; point landed on a NEIGHBOUR item row from another bucket.
+        (should survivor)
+        (should-not (eq gamma survivor))
+        (should-not (equal "Gamma chore" (org-air-item-title survivor)))
+        (should (org-air-view-pane--context-at-point))
+        ;; the inspector converges on the survivor through the real helper.
+        (let ((rendered nil))
+          (org-air-r73--fake-inspector gamma)
+          (cl-letf (((symbol-function 'org-air-view--render-inspector-region)
+                     (lambda (thing _target) (push thing rendered))))
+            (org-air-view--panes-resync-now))
+          (should rendered)
+          (should (eq survivor (car rendered)))
+          (should (eq survivor org-air-view--inspector-item))))
+      ;; the CHROME keep-last ruling: a nil-thing row (the banner) with
+      ;; items below — the inspector nudge is SKIPPED, the seed kept.
+      (goto-char (point-min))
+      (should-not (get-text-property (point)
+                                     org-air-view--inspector-property))
+      (should (org-air-view-pane--context-at-point))
+      (let ((rendered 'unset))
+        (org-air-r73--fake-inspector gamma)
+        (cl-letf (((symbol-function 'org-air-view--render-inspector-region)
+                   (lambda (thing _target) (setq rendered thing))))
+          (org-air-view--panes-resync-now))
+        (should (eq rendered 'unset))
+        (should (eq gamma org-air-view--inspector-item))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r73-16 — AUDIT compose: undo → fresh edit → undo; a depth-3 walk
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r73-16-compose-undo-fresh-edit-and-deep-walk ()
+  "AUDIT compose seams: (a) undo → FRESH edit → undo — the new record
+is stamped against the post-undo state and undoes byte-exact (no guard
+trip: the undo-side re-stamp and the fresh push compose); (b) THREE
+same-buffer edits (schedule, deadline, the converted tag) walk fully
+back down the ring across three `u' presses — the re-stamp chain holds
+at depth 3 — ending byte-identical with an empty ring and never a
+`Cannot undo'."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r73--with-board nil
+    (let ((before (org-air-r73--text "inbox.org")))
+      ;; (a) undo, then a fresh edit, then undo.
+      (org-air-r73--goto-row "Alpha task")
+      (org-air-item-schedule "2026-08-01")
+      (org-air-edit-undo)
+      (should (equal before (org-air-r73--text "inbox.org")))
+      (org-air-r73--goto-row "Alpha task")
+      (org-air-view--apply-date (quote deadline) "2026-09-01")
+      (should (= 1 (length org-air-view--edit-ring)))
+      (setq last-command 'ignore)
+      (org-air-r73--recording-messages msgs
+        (org-air-edit-undo)
+        (should-not (seq-find (lambda (m) (string-match-p "Cannot undo" m))
+                              msgs)))
+      (should (equal before (org-air-r73--text "inbox.org")))
+      (should (null org-air-view--edit-ring))
+      ;; (b) three same-buffer edits; three presses walk the whole ring.
+      (org-air-r73--goto-row "Alpha task")
+      (org-air-item-schedule "2026-08-01")
+      (org-air-r73--goto-row "Beta task")
+      (org-air-view--apply-date (quote deadline) "2026-09-01")
+      (org-air-r73--goto-row "Alpha task")
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "later")))
+        (org-air-set-tag))
+      (should (= 3 (length org-air-view--edit-ring)))
+      (org-air-r73--recording-messages msgs
+        (dotimes (_ 3)
+          (setq last-command 'ignore)
+          (org-air-edit-undo))
+        (should-not (seq-find (lambda (m) (string-match-p "Cannot undo" m))
+                              msgs)))
+      (should (equal before (org-air-r73--text "inbox.org")))
+      (should (null org-air-view--edit-ring)))))
+
 (provide 'org-air-round73-test)
 ;;; org-air-round73-test.el ends here

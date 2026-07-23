@@ -1,5 +1,5 @@
 #+title: org-air Round 75 — REDO for the recent-edits ring: `U' re-applies the edit `u' just reverted (undo/redo pair; a fresh edit clears the redo side)
-#+state: ready
+#+state: complete
 #+tags: board undo redo ring ux robustness
 
 * Summary
@@ -495,3 +495,6 @@ show exactly that.
   redo ring carry explicit mutation expectations); all 16 r73
   seams must stay green; GUI residue flagged (visible repaint
   after =U=, prompt readability).  State: ready.
+
+* History
+- 2026-07-23: State: ready → complete.

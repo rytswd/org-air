@@ -1,5 +1,5 @@
 #+title: org-air Round 74 — the inspector "Updated" line: last activity from the cached R61 LOGBOOK slots, with a bounded file-mtime fallback
-#+state: ready
+#+state: complete
 #+tags: board inspector rail metadata logbook ux
 
 * Summary
@@ -440,3 +440,6 @@ user confirm alongside R73's own GUI checklist.
   =make regen-mockups= byte-clean (the r74-6 clamp lemma held).
   =make clean && make check= GREEN — 941 tests, 0 unexpected, 8 GUI
   skips, lint 0.
+
+* History
+- 2026-07-23: State: ready → complete.

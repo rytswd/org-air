@@ -1,0 +1,547 @@
+#+title: org-air Round 79 — day-view repair: distinct keyword-badge colours, fixed badge column (title alignment), the / filter + a keyword token, and o/O sorting wired through the shared sort machinery
+#+state: ready
+#+tags: board day-view filter sort faces ux
+
+* Summary
+
+The single-day view (=org-air-view-day=, R6 / the R55-1 owner-routed
+pane reached by =g d= / calendar =RET=) has four screenshot-confirmed
+defects, all on the SAME screen — a 49-item "Logged / created" group of
+=COMP= / =DROPPED= headings under Thursday 23 July.  Root-caused below,
+each is the day pane RE-USING a board primitive at the WRONG setting (or
+not at all), never a new subsystem:
+
+1. *Keyword-badge colour is uniform.*  The day pane DOES route its
+   keyword badge through the board's =org-air-view--todo-face= (via
+   =org-air-view--todo-cell= → =org-air-view--svg-keyword-badge=), but
+   that mapping COLLAPSES the whole DONE family — =DONE=, =COMP=,
+   =CANCELLED= and any unknown done keyword — onto the SINGLE faded face
+   =org-air-face-done= (inherits =org-air-face-faded=: the reported
+   "muted blue").  Worse, the user's real spelling =DROPPED= is not even
+   in =org-air-todo-keyword-faces= (only =DROP= is), so it takes the
+   =donep= fallback → =org-air-face-done= too.  Every badge paints
+   identically.  FIX in the SHARED mapping so BOTH surfaces gain the
+   distinction: split the done family (a new =org-air-face-dropped= for
+   the cancelled/abandoned set), cover the user's spellings, and resolve
+   unknown keywords through the R57 MERGED SCAN VOCABULARY instead of the
+   blanket done fallback — plus an opt-in to take the user's OWN
+   =org-todo-keyword-faces= colours verbatim.
+
+2. *Titles don't align.*  =org-air-view--insert-day-pane= deliberately
+   binds =org-air-view--meta-todo-w= (and the tags/origin widths) to
+   =nil= (a stale "single-row, no cross-row align" assumption — 49 rows
+   is not one row), so each row falls back to ITS OWN keyword width:
+   =COMP= (4) and =DROPPED= (7) start their titles at different columns.
+   FIX: compute the day pane's meta widths over the day's SHOWN items —
+   the widest keyword / tags / origin, exactly the board's
+   =org-air-view--compute-meta-widths= rule — and bind them, so the
+   badge column is padded to one fixed width and titles / tags / origin
+   line up like board rows.
+
+3. *No keyword filter.*  The =/= filter's tag / text / R72 =is:= / =due:=
+   tokens ALREADY apply to the day view (=--day-groups= filters through
+   =org-air-view--visible-items=, which honours scope + filter), but
+   there is NO keyword axis: the R72 =is:= family all conjoins
+   =org-air-classify--board-active-p= (not-done), so no token can select
+   the day's DONE / DROPPED rows.  FIX: extend the SHARED filter grammar
+   with a keyword-identity axis — =todo:KEYWORD= and =is:done= — that
+   reads the item's own keyword / done flag WITHOUT the board-active
+   gate, so it works over done items (the day pane's staple) and, being
+   shared, is consistent on the board / review too.
+
+4. *o/O sorting is dead.*  =--day-groups= returns each group in scan/file
+   order (=nreverse=) and =--insert-day-pane= never calls the sort core,
+   so =o= / =O= change =org-air-view--sort-key= / =-direction= and
+   re-render into an UNSORTED pane.  FIX: wire each group through the
+   SAME sort core (=org-air-view--sort-by= + the =o=/=O= commands + the
+   R22-3 banner indicator), with a DAY-VIEW key vocabulary
+   (=time keyword priority title=) swapped in at the day↔board boundary
+   and a sane default (=time= — chronological within the group).
+
+SPEC ONLY: no =.el= or test edits in this change.  org / org-ql stay the
+only engines.  Respected: R53 (no rescan — cached items), R55-1 (owner
+routing — the day pane renders in the owner board buffer, unchanged),
+R57-1 (merged scan vocabulary; its "don't import user faces" ruling is
+DEFAULT-preserved and only overridden behind an explicit opt-in), R72
+(=is:=/=due:= agreement law kept for the date/status axis; the keyword
+axis is orthogonal by construction), R77 (the day pane stays
+planning-slot keyed — a demoted routine still shows on its day), R22-3
+(one sort core, no fork).  GUI-confirm-only bits flagged inline: the
+exact =org-air-face-dropped= hex + the badge SVG border colours.
+
+* Investigation
+
+** The day pane render path (org-air-view.el)
+
+=org-air-view--insert-day-pane= (~5167) is the whole surface:
+
+#+begin_example
+(let* ((org-air-view--line-width width)
+       (org-air-view--meta-date-w nil)     ; date column dropped (R6)
+       (org-air-view--meta-tags-w nil)     ; ← unset: per-row tags width
+       (org-air-view--meta-origin-w nil)   ; ← unset: per-row origin width
+       (org-air-view--meta-todo-w nil)     ; ← R15 D-P1 "single-row" — the BUG
+       (day org-air-view--day)
+       (groups (org-air-view--day-groups items day)) ...)
+  ...
+  (dolist (g groups)
+    (when (cdr g)
+      (insert (org-air-view--margin) (propertize (car g) ...) "\n")
+      (dolist (item (cdr g))
+        (org-air-view--insert-item item 'upcoming t))   ; omit-date = t
+      (insert "\n"))))
+#+end_example
+
+- =org-air-view--day-groups= (~5135) buckets the day's =--visible-items=
+  by planning slot into =("Deadline" …) ("Scheduled" …)
+  ("Logged / created" …)=, each list =nreverse='d — i.e. SCAN ORDER.
+  There is no sort call anywhere in the day path.  (R77's carve-out lives
+  here: the grouping keys on slots, never on =ntype=, so a demoted
+  routine keeps its row — E7 re-asserts it survives R79.)
+- =org-air-view--insert-item item 'upcoming t= (~3661) maps the item to
+  =org-air-view--insert-row=.  With =org-air-view--meta-todo-w= nil it
+  computes =todo-w = (string-width (or todo ""))= — THIS row's keyword
+  width — and passes =:own-fence omit-date= (t), so every day row anchors
+  its cluster to ITS OWN width.  That is defect #2 by construction:
+  mixed-width keywords ⇒ mixed title columns.
+
+** Defect 1 — the keyword→face collapse (why every badge is one blue)
+
+The badge colour chain is entirely REUSED from the board; nothing in the
+day path picks a face of its own:
+
+#+begin_example
+org-air-view--todo-cell (~3419)
+  → (org-air-view--svg-keyword-badge TEXT (org-air-view--todo-face todo donep))
+       → colour = (face-foreground FACE) as the svg :border-color   (~3401)
+org-air-view--todo-face (~2777)
+  → (or (cdr (assoc keyword org-air-todo-keyword-faces))
+        (if donep 'org-air-face-done 'org-air-face-todo))
+#+end_example
+
+The default =org-air-todo-keyword-faces= (~725) maps the ENTIRE done
+family to one face:
+
+| DONE | COMP | CANCELLED | CANCELED | KILL | DROP | → =org-air-face-done= |
+
+and =org-air-face-done= is =(:inherit org-air-face-faded)= — the muted
+blue.  So on a "Logged / created" group of =COMP= and =DROPPED=:
+
+- =COMP= → =org-air-face-done= (faded blue);
+- =DROPPED= → ABSENT from the alist (only =DROP= is listed) → =donep=
+  branch → =org-air-face-done= (faded blue).
+
+Identical face ⇒ identical =face-foreground= ⇒ identical svg border ⇒
+the reported uniform blue.  The routing is already correct; the MAPPING
+is too coarse.  R57-1's ruling ("the user's =org-todo-keyword-faces= is
+deliberately NOT imported; org-air keeps its own calm V6 palette") is the
+reason the collapse exists — and is what this round revisits, carefully.
+
+** Defect 3 — the filter DOES apply; only the keyword axis is missing
+
+=--day-groups= walks =org-air-view--visible-items items= (~5147), which
+(under the render partition, or a fresh scan off-render) applies BOTH
+=org-air-view--passes-scope-p= AND =org-air-view--passes-filter-p=.  So:
+
+- =/= tag tokens (=#work=), bare-text tokens, AND the R72 =is:overdue=,
+  =due:7d=, =scheduled:Nd= tokens ALREADY narrow the day pane — proven by
+  re-rendering with =org-air-view--tag-filter= set (E5a below asserts the
+  pre-existing behaviour so the "extend" is not mistaken for "add").
+- The banner (=org-air-view--insert-banner=) renders on EVERY board
+  render — day view included — so the active-filter LENS is already
+  visible over the day pane.
+
+What is genuinely absent is a KEYWORD axis.  The R72 tokens are
+=org-air-view--filter-date-token-match-p= (~2124): every one conjoins
+=org-air-classify--board-active-p= (not done, not archived) — the
+deliberate R72 Decision-3 filter⇔bucket agreement.  A =COMP= / =DROPPED=
+row is done, so NO existing token can pick it.  The vocabulary
+(=org-air-view--filter-token-parse= ~2091, =--filter-is-values= ~2089) is
+a closed grammar of =is:overdue|upcoming|stale|nodate|hipri= +
+=due:/scheduled:/deadline:Nd= — no =todo:= / =is:done=.
+
+** Defect 4 — the sort core exists and is wired for the board, not the day
+
+The R22-3 core is complete and generic:
+=org-air-view-sort-cycle= (=o=) / =org-air-view-sort-reverse= (=O=) cycle
+=org-air-view--sort-key= over =org-air-view--sort-keys= and call
+=org-air-view--sort-refresh= (=--render-current=);
+=org-air-view--sort-by= (~3831) is a stable key-sort; the banner shows
+=org-air-view--sort-indicator-text= gated by
+=org-air-view--sort-default-p= (~3814).  =org-air-view-mode= seeds the
+BOARD spec: =org-air-view--sort-keys '(date priority title recency)=
+(~1741), default key from =org-air-sort-key= (=date=).
+
+But =--insert-day-pane= / =--day-groups= call NONE of it — the groups are
+=nreverse='d scan order.  So =o=/=O= flip the buffer-locals and
+re-render, and the day pane ignores them: "sorting seems broken."  The
+day view and the board share ONE buffer (R55-1 renders the day pane in
+the owner board), so they share the ONE set of sort buffer-locals — the
+wiring must be view-aware, not a second buffer's state.
+
+* Decisions
+
+** Decision 1 — distinct keyword-badge colours, fixed in the SHARED mapping
+
+The day pane keeps routing through =org-air-view--todo-face= (Decision:
+do NOT fork a day-only face path — "route it through the keyword→face
+mapping the board uses").  The fix is upstream, so the board gains the
+same clarity:
+
+1. *Split the done family.*  New face =org-air-face-dropped= — a muted
+   RED-grey, visibly distinct from =org-air-face-done='s faded blue
+   (exact hex GUI-CONFIRM-ONLY; proposal below).  Extend the default
+   =org-air-todo-keyword-faces=:
+   - completed → =org-air-face-done=: =DONE=, =COMP=, =COMPLETED=;
+   - cancelled/abandoned → =org-air-face-dropped=: =DROPPED=, =DROP=,
+     =CANCELLED=, =CANCELED=, =KILL=, =KILLED=.
+   This alone satisfies the firm seam — =COMP= and =DROPPED= now carry
+   DIFFERENT faces (E1).
+
+2. *Generalise the fallback through the R57 merged vocabulary.*  Replace
+   =org-air-view--todo-face='s blanket =(if donep 'org-air-face-done …)=
+   tail with a resolve over =org-air-query--scan-todo-keywords= (the
+   merged user+supplement sequence, already the cache-key vocabulary):
+   an unknown keyword is placed in a family by its POSITION in its
+   sequence — not-done keywords → active family (=org-air-face-todo=,
+   or =org-air-face-todo-next= / =-wait= if the alist names them), done
+   keywords → =org-air-face-done= unless its bare name matches the
+   cancelled set (→ =org-air-face-dropped=).  So an arbitrary user
+   keyword (=WIP=, =READY=, =DELEGATED=) reads in a sensible family
+   colour instead of the flat blue.  Pure over cached data; no rescan.
+
+3. *Opt-in to the user's OWN org faces.*  New defcustom
+   =org-air-keyword-face-source= — =own= (default) | =org=.  At =org=,
+   =org-air-view--todo-face= resolves the badge colour from the user's
+   =org-todo-keyword-faces= (the same table Org fontifies headings with;
+   =org-get-todo-face=-style lookup), falling back to the =own= mapping
+   when the user names no face.  This is the literal "SAME ORG KEYWORD
+   COLOURS as elsewhere."  DEFAULT =own= keeps R57-1 and the V6 board
+   goldens byte-identical (no golden churn at defaults); a user who wants
+   their exact palette flips ONE knob.
+
+   Rationale for the split: the reported defect ("uniform blue") is fully
+   cured by (1)+(2) inside org-air's own calm palette — no golden churn,
+   no dependence on the user's config being sane — while (3) honours the
+   user's literal words for those who want it, without forcing a
+   palette-wide reversal of R57-1 on everyone.
+
+   GUI-CONFIRM-ONLY: =org-air-face-dropped= proposed
+   =#B5432B= (light) / =#E07A5F= (dark) — a warm terracotta, clearly
+   apart from =org-air-face-faded= blue and from =org-air-face-todo-wait='s
+   amber.  The svg badge border is =face-foreground= of the resolved
+   face (existing =--svg-keyword-badge= path — no new svg code); its
+   exact rendered tint is GUI-confirm-only.  The TTY/byte layer carries
+   the coloured keyword TEXT either way (the mandatory fallback), so the
+   ERT layer asserts the FACE, never the pixels.
+
+** Decision 2 — fixed badge column: compute day-pane meta widths over the day's items
+
+Stop unsetting the widths.  =org-air-view--insert-day-pane= computes its
+own V6 columns over the day's SHOWN items and binds them for the row
+loop — the board's rule (=--compute-meta-widths=: widest SHOWN keyword /
+tags / origin), applied to the day groups instead of board buckets:
+
+- =org-air-view--meta-todo-w= = the widest =org-air-item-todo= width
+  across all groups' items (=COMP=/=DROPPED= ⇒ 7), so
+  =org-air-view--todo-cell= pads every badge to ONE column and all titles
+  share one left edge (E2).
+- =org-air-view--meta-tags-w= / =-origin-w= = the widest tag string /
+  origin over the day's items, so those columns align too ("titles / dots
+  / tags / origin … like the board rows").
+- =org-air-view--meta-date-w= stays nil (R6 drops the date column).
+
+Factor the width scan the board and day share into a small helper
+(=org-air-view--compute-day-meta-widths=, or generalise
+=--compute-meta-widths= to take an item-lists provider) so the two do not
+drift.  With uniform widths every day row's cluster width is identical,
+so =:own-fence= t still lands the fence at ONE column — kept as-is (the
+day pane owns its focused cluster; no board-wide fence to share).  Chosen
+over "widest keyword in the whole vocabulary" / "a fixed max" because
+"like the board rows" IS the widest-shown rule, it wastes no columns on
+short-keyword days, and it stays byte-deterministic per day.
+
+** Decision 3 — keyword filter: a keyword-identity axis in the SHARED grammar
+
+Extend the ONE filter grammar (so board / review / day all gain it — "make
+it consistent with the board filter"):
+
+- Grammar (=org-air-view--filter-token-parse=): add
+  =todo:NAME= → =(todo . "NAME")= (case-insensitive keyword identity) and
+  =is:done= → =(status . done)= (any done keyword).  The =#=-prefixed and
+  date/status branches stay FIRST/unchanged, so no tag or R72 token is
+  stolen.
+- Matcher: a NEW sibling to =--filter-date-token-match-p=, say
+  =org-air-view--filter-keyword-token-match-p=, dispatched from
+  =--filter-token-match-p= on the parsed head.  It reads the item's OWN
+  slots — =(todo . NAME)= ⇒ =(equal-ignore-case (org-air-item-todo item)
+  NAME)=; =(status . done)= ⇒ =(org-air-item-donep item)= — with NO
+  =board-active-p= gate.  That is the whole point: the keyword axis is
+  ORTHOGONAL to the date/status axis (which keeps its R72 agreement law
+  intact) and MUST match done items, which the day pane is full of.
+- Vocabulary / completion (=org-air-view--filter-vocabulary=): offer
+  =is:done= plus =todo:<KW>= for each bare name in the merged scan
+  vocabulary (=org-air-query--scan-todo-keywords= flattened) so =/=
+  completion teaches the axis by real keywords.  Empty-item threading
+  (project/revisit, no keyword slot) → vacuously false, exactly like the
+  R72 tokens (Decision 8 there).
+- The label (=--filter-token-label=) renders a parsed keyword token
+  verbatim-unquoted (like =#tag=/=is:overdue=), so the lens reads
+  =todo:DROPPED= for the real thing but ="todo:xyz"= for a typo — the
+  quoting-is-the-tell rule, unchanged.
+
+No new day-only command: =/= (=org-air-filter=) already prompts, sets
+=org-air-view--tag-filter=, and =--render-current='s day pane already
+filters through =--visible-items= (E5).  This round only widens what a
+token can SAY.
+
+** Decision 4 — o/O sorting: the shared core, day-view key vocabulary, chronological default
+
+Reuse the R22-3 core and state vars verbatim ("the SAME sort machinery
+(=org-air-view--sort-key/direction=)"); add a day vocabulary + a day
+dispatcher + a view-aware boundary swap:
+
+- Day key list =org-air-view--day-sort-keys= = =(time keyword priority
+  title)=; default =time=, ascending — chronological within each group,
+  the sane day default.
+- Sort each GROUP's items (never reorder the Deadline > Scheduled >
+  Logged order) via =org-air-view--sort-day-items GROUP-LABEL ITEMS=,
+  dispatching the active key through =org-air-view--sort-by=:
+  - =time= — the group's OWN planning time-of-day: Deadline → deadline
+    slot time, Scheduled → scheduled slot time, Logged/created → the live
+    marker stamp else =subtree-ts= (the same signals =--day-groups= keyed
+    on).  Earliest first; whole-day / stampless items last, stable.
+  - =keyword= — =org-air-item-todo= (case-insensitive), so a mixed
+    Logged group clusters all =COMP= then all =DROPPED=; secondary by
+    =time=.
+  - =priority= — reuse =org-air-view--item-priority-rank= (=#A= first).
+  - =title= — reuse the downcased-title key.
+  - =O= reverses (=desc= arg of =--sort-by=).
+- View-aware wiring, NO fork of =o=/=O= or the indicator:
+  - =org-air-view-day= (entering): set =org-air-view--sort-keys= to
+    =org-air-view--day-sort-keys=; COERCE =org-air-view--sort-key= into
+    it — keep it if a member (so the SHARED =priority=/=title= carry
+    across the board→day boundary unchanged), else default to =time=
+    (=date= naturally lands on =time=; both are the chronological
+    default).  Direction carries unchanged.
+  - =org-air-view-board= (returning): restore
+    =org-air-view--sort-keys= to =(date priority title recency)= and
+    coerce =--sort-key= back (=time=→=date=, =keyword=→=date=; the shared
+    =priority=/=title= survive).
+  - =org-air-view--insert-day-pane= applies =org-air-view--sort-day-items=
+    to each group before rendering rows.
+- The indicator: make =org-air-view--sort-default-p= day-aware — the
+  default key is =time= when =org-air-view--day= is set, else =date=
+  (one-line change).  Then the EXISTING banner segment (which already
+  renders over the day view) shows =↕ time ↑= hidden at the day default
+  and appears/updates the moment =o=/=O= deviates — the indicator "works"
+  with zero new render code.
+
+Coercion rule keeps the two views' sorts independent where their
+vocabularies diverge and shared where they overlap — a clean, testable
+boundary (E6) that needs no save/restore state.
+
+** Decision 5 — help / discovery, no churn at defaults
+
+=?= help (R50-2) is data-driven and derives key text live; the =o=/=O=
+rows already exist and now legitimately act in the day view — no new row
+needed.  The =/= prompt string already reads "Filter (#tag, text,
+is:/due:)"; extend it to name the keyword shapes ("…, is:/due:/todo:") so
+discovery matches the grammar.  Footer legend is default-off — untouched.
+At defaults (=org-air-keyword-face-source= =own=, board sort =date=, no
+filter) the BOARD render is byte-identical — zero golden / demo /
+screenshot churn on the board; the day pane's goldens (if any) re-freeze
+to the aligned + coloured + sorted shape.
+
+* Interface sketch (org-air-view.el / org-air-faces.el)
+
+#+begin_src emacs-lisp
+;; --- Decision 1: faces + resolver ------------------------------------
+(custom-declare-face 'org-air-face-dropped
+  '((((class color) (min-colors 256) (background light)) (:foreground "#B5432B"))
+    (((class color) (min-colors 256) (background dark))  (:foreground "#E07A5F"))
+    (t (:inherit org-air-face-faded)))
+  "Face for a cancelled/abandoned keyword (DROPPED/CANCELLED/KILL) — muted terracotta."
+  :group 'org-air-faces)
+
+(defcustom org-air-keyword-face-source 'own
+  "Where a keyword badge takes its colour (R79).
+`own' (default): org-air's `org-air-todo-keyword-faces' + the R57 merged
+vocabulary — the calm V6 palette (R57-1), board goldens byte-identical.
+`org': the user's own `org-todo-keyword-faces' (the SAME colours Org
+fontifies headings with), falling back to `own' where unnamed."
+  :type '(choice (const own) (const org)) :group 'org-air)
+
+;; org-air-todo-keyword-faces default gains:
+;;   ("COMPLETED" . org-air-face-done)
+;;   ("DROPPED" . org-air-face-dropped) ("DROP" . org-air-face-dropped)
+;;   ("CANCELLED" . org-air-face-dropped) ("CANCELED" . org-air-face-dropped)
+;;   ("KILL" . org-air-face-dropped) ("KILLED" . org-air-face-dropped)
+
+(defun org-air-view--todo-face (keyword &optional donep)
+  "Return the face for TODO KEYWORD (R79 supersedes R57-1 fallback).
+`org-air-keyword-face-source' `org' first consults the user's
+`org-todo-keyword-faces'; else / on miss, the alist, then the R57 merged
+vocabulary family (not-done→active, done→done unless cancelled-named→
+dropped), then DONEP → done / else todo."
+  (or (and (eq org-air-keyword-face-source 'org)
+           (org-air-view--org-keyword-face keyword))
+      (cdr (assoc keyword org-air-todo-keyword-faces))
+      (org-air-view--merged-vocab-face keyword donep)))
+
+;; --- Decision 2: day-pane meta widths --------------------------------
+(defun org-air-view--compute-day-meta-widths (groups)
+  "Set --meta-todo-w / -tags-w / -origin-w over the day GROUPS' items (R79).
+Widest SHOWN keyword/tags/origin — the board rule (`--compute-meta-widths')
+over the day list; date column stays nil (R6)."
+  ...)
+;; --insert-day-pane: replace the four `nil' width binds with a
+;; (org-air-view--compute-day-meta-widths groups) call AFTER (groups …),
+;; then sort each group (Decision 4) before the row loop.
+
+;; --- Decision 3: keyword filter axis ---------------------------------
+;; --filter-token-parse gains, AFTER the is:/due: branches:
+;;   ((string-match "\\`todo:\\(.+\\)\\'" token)
+;;    (cons 'todo (match-string 1 token)))
+;;   ((string-equal-ignore-case token "is:done") (cons 'status 'done))
+(defun org-air-view--filter-keyword-token-match-p (parsed item)
+  "Non-nil when PARSED keyword token matches ITEM's own keyword/done slot.
+No board-active gate — the keyword axis is orthogonal to R72 and MUST
+select done items (the day pane's staple)."
+  (pcase parsed
+    (`(todo . ,name) (and (org-air-item-todo item)
+                          (string-equal-ignore-case (org-air-item-todo item) name)))
+    (`(status . done) (and (org-air-item-donep item) t))))
+;; --filter-token-match-p dispatches (todo . _)/(status . done) here,
+;; the (is|due|scheduled|deadline . _) family to --filter-date-token-match-p.
+
+;; --- Decision 4: day sort ---------------------------------------------
+(defconst org-air-view--day-sort-keys '(time keyword priority title))
+(defun org-air-view--sort-day-items (group-label items) ...)  ; per-group
+;; org-air-view-day (enter): sort-keys ← day list; coerce --sort-key.
+;; org-air-view-board (return): sort-keys ← board list; coerce back.
+(defun org-air-view--sort-default-p ()
+  (and (eq (org-air-view--sort-active-key) (if org-air-view--day 'time 'date))
+       (eq (org-air-view--sort-active-direction) 'ascending)))
+#+end_src
+
+* Test plan — tests/org-air-round79-test.el (ALL BATCH ERT)
+
+Harness: the R55 =org-air-r55--with-live-board= (a live owner board so
+=org-air-view-day= routes correctly) and/or the R77 pattern
+(=with-temp-buffer= + direct =org-air-view--day-groups= / a text render at
+a fixed =org-air-view-width=).  Fixture: a fixed day (=<2026-07-23 Thu>=)
+carrying =COMP= and =DROPPED= headings under =:CREATED:= stamps (the
+Logged group), a =WIP= scheduled item, a =TODO= deadline item, mixed
+priorities/tags, plus an R77 keyword-less scheduled routine.
+
+- E1 =org-air-r79-1-comp-vs-dropped-distinct-face=: assert
+  =(org-air-view--todo-face "COMP" t)= and =(… "DROPPED" t)= are DIFFERENT
+  faces, and =DROPPED= resolves to =org-air-face-dropped= (not
+  =org-air-face-done=).  Render the day pane; scan the "Logged / created"
+  rows and assert the keyword cell of a =COMP= row carries a DIFFERENT
+  face from a =DROPPED= row.  Revert (collapse both to =org-air-face-done=)
+  reddens.  Anti-vacuity: assert the faces are BOTH non-nil first.
+- E2 =org-air-r79-2-titles-align-fixed-badge-column=: render the day
+  pane; find the title start column of a =COMP= row and a =DROPPED= row
+  (the first char after the padded badge cell) — assert EQUAL, and equal
+  to the widest-keyword-derived column (=--meta-todo-w= = 7).  Assert the
+  tags/origin cells right-anchor to one column too.  Revert (=--meta-todo-w=
+  nil) reddens (columns differ by 3).
+- E3 =org-air-r79-3-merged-vocab-fallback=: with a scanned keyword absent
+  from the alist (=DELEGATED= not-done, =ARCHIVED= done in the fixture's
+  =#+TODO:=), assert =--todo-face= places =DELEGATED= in the active family
+  (not =org-air-face-done=) and =ARCHIVED= in the done/dropped family —
+  via the R57 merged vocabulary, not the blanket =donep= fallback.
+- E4 =org-air-r79-4-org-face-source-optin=: =cl-letf= a user
+  =org-todo-keyword-faces= giving =COMP= a distinctive face; with
+  =org-air-keyword-face-source= =own= assert the badge face is org-air's;
+  with =org= assert it is the USER's face.  Default (=own=) leg proves no
+  import at defaults.
+- E5 =org-air-r79-5-day-filter-tag-text-is-due= (extend, not add): set
+  =org-air-view--tag-filter '("#work")= then a bare text token then
+  =is:overdue=; re-render the day pane; assert each narrows the groups
+  (pre-existing behaviour, asserted so E6 is a genuine ADD, not a
+  duplicate).
+- E6 =org-air-r79-6-day-filter-keyword-token=:
+  =(org-air-view--filter-token-parse "todo:DROPPED")= = =(todo . "DROPPED")=;
+  =(… "is:done")= = =(status . done)=.  With filter =("todo:DROPPED")=
+  the day pane shows ONLY the =DROPPED= rows (=COMP= gone) — proving the
+  keyword axis has NO board-active gate (a done item is selected).  With
+  =("is:done")= all done rows show, non-done (=WIP=/=TODO=) drop.
+  Consistency leg: the SAME token narrows the BOARD.  =--filter-token-label=
+  renders =todo:DROPPED= unquoted, ="todo:zzz"= quoted.
+- E7 =org-air-r79-7-day-sort-o-cycles-and-reorders=: default day sort =time=
+  → Logged group is chronological by stamp.  =org-air-view-sort-cycle= to
+  =keyword= → the group clusters all =COMP= before all =DROPPED= (assert
+  the row order); to =priority= → =#A= first; =org-air-view-sort-reverse=
+  → order reverses.  Assert the row order actually changes vs the
+  =nreverse= baseline (anti-tautology: the baseline is asserted first).
+- E8 =org-air-r79-8-sort-indicator-and-keys-view-aware=: on the board,
+  =org-air-view--sort-keys= = board list, =--sort-default-p= keys on =date=.
+  Enter the day view (=org-air-view-day=): =--sort-keys= = day list,
+  =--sort-default-p= keys on =time= (default → indicator hidden); after
+  =o=, the banner text carries the R22-3 indicator segment.  Coercion
+  legs: board =priority= carries INTO the day unchanged; board =date=
+  coerces to day =time=; returning to the board, day =time= coerces back
+  to =date=, day =keyword= coerces to =date=.
+- E9 =org-air-r79-9-r77-routine-still-shown=: knob
+  =org-air-task-requires-todo= t; the keyword-less scheduled routine is
+  absent from board task buckets (R77 precondition) yet STILL appears
+  under "Scheduled" in the day pane after all four fixes (grouping stays
+  planning-slot keyed).  Its badge cell is BLANK (no keyword) and it pads
+  to the same badge column (alignment holds with a keyword-less row).
+- E10 =org-air-r79-10-no-rescan-and-defaults-byte-identical=: wrap the
+  day render in the R55 query counter — 0 =org-air-query-items= calls
+  (R53).  Board render at defaults (=own=, sort =date=, no filter) is
+  byte-identical to pre-R79 (golden guard) — the four fixes are day-view
+  or opt-in scoped.
+
+NOT re-tested here (locked elsewhere): R55-1 window routing
+(round55-test), R72 =is:=/=due:= agreement (round72-test) — E5/E6 only
+prove the day pane inherits the filter + the new axis.
+
+* Non-goals
+
+- No new day-only command, face-path fork, or second sort system — every
+  fix reuses a board primitive at the right setting.
+- No import of the user's =org-todo-keyword-faces= by DEFAULT (R57-1
+  preserved; opt-in only) — no board palette churn.
+- No change to =org-air-view-day= owner routing (R55-1), the day-groups'
+  planning-slot keying (R77), or the calendar marks.
+- No reordering of the Deadline > Scheduled > Logged group order — sort
+  is WITHIN each group only.
+- No week/range filter or sort; =W= review owns periods.
+
+* Risks / edges
+
+- =org-air-face-dropped= exact hex + the svg badge tints are
+  GUI-confirm-only; the ERT layer asserts FACES, not pixels, so a colour
+  tweak never reddens tests.
+- =org-air-keyword-face-source= =org= depends on the user's org config;
+  the resolver must degrade to =own= on any miss/nil (never signal) — the
+  same never-signal discipline as =--scan-todo-keywords=.
+- Coercion at the day↔board boundary must not lose a SHARED key: E8 pins
+  =priority=/=title= carrying both ways; =date=↔=time= is the intended
+  chronological-default hand-off, not a loss.
+- The keyword filter axis is deliberately NOT board-active-gated; E6's
+  "board also narrows" leg confirms it stays consistent and does not
+  resurrect done items into ACTIVE buckets (buckets are unchanged — the
+  token only filters what a section already shows).
+- Day meta widths are per-day (widest shown), so the badge column width
+  can differ between days — intended (byte-deterministic per day, no
+  wasted columns), and =:own-fence= keeps each day self-consistent.
+
+* Implementation History
+
+- 2026-07-23: Round 79 spec drafted (design seat). State: ready —
+  awaiting impl + test seats.  No code changes in this commit.  Four
+  day-view defects root-caused in org-air-view.el (badge face collapse
+  ~2777/725, unset meta widths ~5180, missing keyword filter axis
+  ~2091/2124, unsorted day groups ~5135); all fixes reuse board
+  primitives (=--todo-face=, =--compute-meta-widths=, the R24-6/R72
+  filter grammar, the R22-3 sort core).  Defaults byte-identical; exact
+  =org-air-face-dropped= hex + svg tints flagged GUI-confirm-only.
+
+* History
+- 2026-07-23: State: draft → ready.

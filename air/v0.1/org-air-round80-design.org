@@ -1,5 +1,5 @@
 #+title: org-air Round 80 — first-class OUT / OFF Air states: distinct standing-out faces on the project state chip AND a normalized keyword-badge min-width so a short OUT / OFF pill is the SAME size as DRAFT
-#+state: ready
+#+state: complete
 #+tags: project-view board faces state keyword ux
 
 * Summary
@@ -480,3 +480,4 @@ prove OUT/OFF join those SAME mechanisms.
   the test seat re-blesses.  Colours / emoji / nerd glyphs are
   GUI-confirm-only; lifecycle position (parked, after complete) +
   "default state" + airctl vocabulary stay PRODUCT-CONFIRM.
+- 2026-07-23: State: ready → complete.

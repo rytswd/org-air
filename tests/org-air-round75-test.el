@@ -19,7 +19,10 @@
 ;; All BATCH/headless: the board renders over a temp corpus (the r73
 ;; house idiom); spies via `cl-letf'; file bytes compared before/after
 ;; at every station.  The spec's eleven seams r75-1..r75-11 map onto
-;; the ERTs below (revert-RED where the spec marks them).
+;; the ERTs below (revert-RED where the spec marks them), plus one
+;; round-75 audit-hardening seam: r75-12 pins the spec probe's EXACT
+;; mixed u,u,U,u interleave (r75-3's mixed leg only walks top-of-ring
+;; u,U — the walk back through a just-redone edit was unpinned).
 ;;
 ;; GUI residue (screenshot/user-confirm, not ERT-able): the visible
 ;; board/pane repaint right after `U' (the same R73-1 resync class) and
@@ -338,6 +341,53 @@ legs are the two-sided-restamp teeth: revert-RED with a one-sided
                            (lambda (m)
                              (string-match-p "\\`Cannot \\(un\\|re\\)do" m))
                            msgs)))))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r75-12 — the mixed u,u,U,u interleave (audit hardening, round-75)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r75-12-mixed-interleave-uuUu ()
+  "The spec probe's EXACT mixed interleave, pinned as an ERT: edits
+A,B (same buffer) → `u' (revert B), `u' (revert A), `U' (re-apply A
+while B stays undone), `u' (revert A AGAIN) — lands on the ORIGINAL
+bytes, no corruption; then `U',`U' walks forward to the final state.
+The equiv-chain must compose `undo-only' and `undo-redo' across the
+interleave (linearisation); r75-3's mixed leg only exercises top-of-
+ring u,U — this walks back through a JUST-REDONE edit.  Revert-RED:
+no `org-air-edit-redo'; also RED when the redo success branch skips
+the undo-ring requeue (the final `u' would have nothing to pop)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r75--with-board nil
+    (let ((s0 (org-air-r75--text "inbox.org")))
+      (org-air-r75--goto-row "Alpha task")
+      (org-air-item-schedule "2026-08-01")               ; edit A
+      (let ((s1 (org-air-r75--text "inbox.org")))
+        (org-air-r75--goto-row "Beta task")
+        (org-air-view--apply-date 'deadline "2026-09-01") ; edit B
+        (let ((s2 (org-air-r75--text "inbox.org")))
+          (org-air-r75--recording-messages msgs
+            (setq last-command 'ignore) (org-air-edit-undo)  ; u: revert B
+            (should (equal s1 (org-air-r75--text "inbox.org")))
+            (setq last-command 'ignore) (org-air-edit-undo)  ; u: revert A
+            (should (equal s0 (org-air-r75--text "inbox.org")))
+            (setq last-command 'ignore) (org-air-edit-redo)  ; U: re-apply A
+            (should (equal s1 (org-air-r75--text "inbox.org")))
+            (setq last-command 'ignore) (org-air-edit-undo)  ; u: revert A AGAIN
+            (should (equal s0 (org-air-r75--text "inbox.org")))
+            (should (= 0 (length org-air-view--edit-ring)))
+            (should (= 2 (length org-air-view--edit-redo-ring)))
+            ;; forward again: U,U → the final state, linearised.
+            (setq last-command 'ignore) (org-air-edit-redo)
+            (should (equal s1 (org-air-r75--text "inbox.org")))
+            (setq last-command 'ignore) (org-air-edit-redo)
+            (should (equal s2 (org-air-r75--text "inbox.org")))
+            (should (= 2 (length org-air-view--edit-ring)))
+            (should (null org-air-view--edit-redo-ring))
+            ;; every press succeeded — ring-internal walks never trip a guard.
+            (should-not (seq-find
+                         (lambda (m)
+                           (string-match-p "\\`Cannot \\(un\\|re\\)do" m))
+                         msgs))))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r75-4 — structural never enters redo (revert-RED)

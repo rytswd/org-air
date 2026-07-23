@@ -261,6 +261,19 @@ the scan carry nil signal slots and are never containers — the safe
 answer for an unknown is \"render it\"."
   (org-air-query-container-item-p item))
 
+(defun org-air-classify--task-routed-p (item)
+  "Non-nil when ITEM routes to the task buckets (the R54-2 routing layer).
+The routing half of the R72 agreement law (R77): date/status filter
+tokens are TASK vocabulary, so they must not match an item the routing
+layer sends to a note bucket (`knowledge'/`journal'/`container'/
+`notes').  Mirrors `org-air-classify-item' order exactly — keep the two
+in lockstep; nil-ntype items (built outside the scan) pass — they take
+the full task treatment there too."
+  (and (not (eq (org-air-item-kind item) 'file))
+       (not (org-air-classify--container-p item))
+       (or (org-air-classify--inbox-dweller-p item)
+           (not (memq (org-air-item-ntype item) '(journal knowledge))))))
+
 ;;;###autoload
 (defun org-air-classify-item (item &optional now)
   "Return bucket symbols for ITEM relative to NOW.
@@ -283,7 +296,10 @@ task-to-be — the xsqrnoyn inbox semantics are unchanged); a `journal' /
 `knowledge' `ntype' item lands in its own bucket, which has NO board
 section — invisible on the GTD board, countable by the note surfaces.
 A nil `ntype' (an item built outside the scan) keeps the full task
-treatment."
+treatment.
+R77: `org-air-classify--task-routed-p' MIRRORS this routing order for
+the R72 date/status filter gate — any change here must land there too
+\(seam r77-4's agreement theorem is the drift fence)."
   (cond
    ((eq (org-air-item-kind item) 'file) (list 'notes))
    ((org-air-classify--container-p item) (list 'container))

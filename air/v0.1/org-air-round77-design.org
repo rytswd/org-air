@@ -525,3 +525,22 @@ mints new item objects, so the =eq=-keyed memo repopulates naturally.
   Repeater-specific treatment considered and rejected.  Golden impact
   quantified for BOTH defaults (nil: zero; t: 0 goldens + 2 test files).
   12 batch ERT seams defined.
+- 2026-07-23: R77 IMPLEMENTED (impl seat).  D1+D2: the
+  =org-air-task-requires-todo= defcustom (org-air-query.el, beside
+  =org-air-plain-heading-type=, whose docstring gained the subsumption
+  note) with the exact step-4/step-6 change in
+  =org-air-query--note-type= — knob nil byte-equivalent, no F7/container
+  edits.  D5: =org-air-classify--task-routed-p= hoisted in
+  org-air-classify.el (mirrors =org-air-classify-item=, cross-referenced
+  both ways) and conjoined in =org-air-view--filter-date-token-match-p=.
+  Cache: the knob is the SEVENTH =org-air-view--cache-key= element (+
+  docstring paragraph; no version bump).  README: one user-facing
+  paragraph under the note-type bullet.  Tests: 12 executing batch ERT
+  seams r77-1..r77-12 (tests/org-air-round77-test.el), all green.
+  Shifted goldens exactly as the R59/R60/R61 precedent predicts: the
+  three prior-round cache-key ERTs pinning =(= (length key) 6)=
+  (r59-13, r60-6, r61-8) fail on ONLY that assertion — flagged in
+  tests/org-air-known-failures.el for the test seat to re-bless to 7.
+  =make clean && make check= green (0 unexpected, 3 expected failures =
+  the flagged goldens); every layout/screenshot golden byte-identical at
+  the nil default (zero fixture churn).

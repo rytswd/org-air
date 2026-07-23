@@ -783,12 +783,20 @@ a pre-R61 5-element key also misses, on length).  The review's
 RENDER-time knobs (period kind/anchor, rollup basis,
 `org-air-review-suspect-clock-hours') are deliberately NOT key
 elements — they fold over cached data and take effect on repaint.
+R77: `org-air-task-requires-todo' joins as the SEVENTH element — the
+knob shapes scan-time `ntype' and the baked file-meta `:ntype' (the
+task signal narrows to the keyword alone), so a flip must invalidate
+exactly like a vocabulary change: key mismatch ⇒ the documented cold
+re-derive (skeleton + paced rescan), never a half-reclassified board.
+A pre-R77 6-element key misses on length inequality (no
+`org-air-view--cache-version' bump — no serialisation shape changed).
 Plain printable list data: serialises as-is, compares with `equal'."
   (list org-air-files org-air-inbox-file
         (org-air-query--scan-todo-keywords)
         org-air-skip-container-headings
         org-air-exclude-regexps
-        org-air-log-cap))
+        org-air-log-cap
+        org-air-task-requires-todo))
 (defvar-local org-air-view--items-mtimes nil
   "Alist FILE -> mtime of the last COMPLETED full scan (R42-1).
 The in-memory baseline `org-air-view--refresh-start' diffs against so a
@@ -2119,8 +2127,14 @@ buckets' OWN hoisted classify predicates — the filter contains NO date
 arithmetic of its own, so filter⇔bucket agreement holds by construction
 \(R72 Decision 3).  Every token conjoins the buckets' top gate
 \(`org-air-classify--board-active-p': not done, not archived) — the
-filter never resurrects what the board buries."
+filter never resurrects what the board buries — AND the routing gate
+\(`org-air-classify--task-routed-p', R77): date/status tokens are TASK
+vocabulary, so an item the R54-2 routing layer sends to a note bucket
+\(a demoted routine under `org-air-task-requires-todo', a `#+type: note'
+overridden scheduled heading) never matches them, extending the R72
+agreement law through the routing layer."
   (and (org-air-classify--board-active-p item)
+       (org-air-classify--task-routed-p item)
        (pcase parsed
          (`(is . overdue) (org-air-classify--overdue-p item now))
          (`(is . upcoming)

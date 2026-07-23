@@ -79,8 +79,33 @@ The USER-RULED default `knowledge' keeps dateless prose off the GTD board
 \(everything else is a KNOWLEDGE note).  The legacy value `task'
 restores the pre-R54 behaviour where every dateless heading was board
 material (Needs attention by default) — for GTD purists whose bare
-section headings must stay tasks."
+section headings must stay tasks.  R77: when
+`org-air-task-requires-todo' is non-nil the fall-through is `knowledge'
+regardless of this value — \"task requires a keyword\" and \"every
+keyword-less heading is a task\" are contradictory, and the explicit
+knob wins so its contract is total (see its docstring)."
   :type '(choice (const knowledge) (const task))
+  :group 'org-air)
+
+(defcustom org-air-task-requires-todo nil
+  "When non-nil, only a TODO-keyworded heading types `task' (R77).
+The R54-2 task signal narrows from \"TODO keyword OR scheduled/deadline\"
+to the keyword alone: a scheduled/deadline heading WITHOUT a keyword — a
+routine like \"* Water plants  SCHEDULED: <… ++2w>\" — types through the
+rest of the R54 chain (journal heuristic, else knowledge) instead of
+camping in the board's task sections.  It keeps its day-view row and
+calendar mark (those surfaces read planning slots, not types) and stays
+reachable through the note surfaces (Notes row / Revisit) via the F7
+file vote.  The R54-2 overrides (`ORG_AIR_TYPE', `#+type:', the tag
+alist) still outrank the knob, so any single routine can be forced back
+onto the board.  \"Not-done\" is by composition: a DONE-keyword heading
+still types `task' (a done task is a task) and is buried by
+`org-air-classify--board-active-p' — never re-typed into Revisit
+knowledge.  The knob shapes scan-time `ntype'/file-meta, so it is an
+`org-air-view--cache-key' element: a flip takes the documented cold
+re-derive, exactly like a vocabulary change.  Default nil — the R54 D1
+USER-RULED signal, byte-identical behaviour."
+  :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-skip-container-headings t
@@ -751,14 +776,25 @@ override, an override tag (`org-air-note-type-tag-alist'), the TASK
 signal (a TODO keyword — done or not — OR scheduled OR deadline;
 nothing else — a bare active <ts> is a note fact, not a task), the
 journal file heuristic, else `org-air-plain-heading-type'.  TODO,
-SCHEDULED, DEADLINE and TAGS are the already-parsed heading signals."
+SCHEDULED, DEADLINE and TAGS are the already-parsed heading signals.
+R77: under `org-air-task-requires-todo' the task signal narrows to the
+keyword ALONE (step 4) and the fall-through is `knowledge' (step 6 —
+the knob's total contract subsumes `org-air-plain-heading-type')."
   (or (org-air-query--parse-type
        (org-entry-get (point) "ORG_AIR_TYPE" t))
       (plist-get org-air-query--scan-file-signals :override)
       (org-air-query--tag-type tags)
-      (and (or todo scheduled deadline) 'task)
+      ;; R77 step 4: the task signal — knob-gated to the keyword alone.
+      ;; Knob nil is byte-equivalent to the R54 disjunction.
+      (and (or todo
+               (and (not org-air-task-requires-todo)
+                    (or scheduled deadline)))
+           'task)
       (and (plist-get org-air-query--scan-file-signals :journal) 'journal)
-      org-air-plain-heading-type))
+      ;; R77 step 6: with the knob ON the fall-through is `knowledge'
+      ;; even under the legacy `org-air-plain-heading-type' 'task —
+      ;; "task requires a keyword" wins the contradiction (D2).
+      (if org-air-task-requires-todo 'knowledge org-air-plain-heading-type)))
 
 (defun org-air-query--file-ntype (signals items)
   "Return the FILE-level type from SIGNALS and its heading ITEMS (R54-2).

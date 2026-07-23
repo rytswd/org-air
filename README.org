@@ -65,7 +65,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 - *Scope* the whole dataset to one tag, group, or file.
 - *Sort* within each bucket (date / priority / title / recency).
 - One-keystroke *capture* to the inbox, a guided *refile / process* flow, and an *inbox walk* that dispositions items one at a time.
-- *Note types*, derived from content: an item with a TODO keyword or a schedule/deadline is a *task* and fills the board; prose *knowledge* notes and date-titled *journal* entries stay off it. Your ~org-todo-keywords~ (custom states, fast keys, logging) are respected — org-air reads your Org exactly as Org does.
+- *Note types*, derived from content: an item with a TODO keyword or a schedule/deadline is a *task* and fills the board; prose *knowledge* notes and date-titled *journal* entries stay off it. Your ~org-todo-keywords~ (custom states, fast keys, logging) are respected — org-air reads your Org exactly as Org does. Prefer keyword-only tasks? ~(setq org-air-task-requires-todo t)~ narrows the task signal to the TODO keyword alone, so keyword-less scheduled routines (~* Water plants  SCHEDULED: <… ++2w>~) leave the task sections — they keep their day-view row and calendar mark, stay reachable via Notes/Revisit, and any single one comes back with a ~:task:~ tag or ~ORG_AIR_TYPE~ override.
 - *Staleness* flags only *dated* work that has gone quiet; dateless notes are never “stale”.
 - Toggleable *columns* — filename (origin), date/schedule, tags — that reflow and stay aligned.
 

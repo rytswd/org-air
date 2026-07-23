@@ -2773,6 +2773,26 @@
     ;; repaint right after `U' (the R73-1 resync class) and the
     ;; process-inbox prompt readability with the new token.
     ;; Round-75 manifest is EMPTY.
+    ;; =================================================================
+    ;; v0.1 ROUND-77 impl grind (air/v0.1/org-air-round77-design.org):
+    ;; `org-air-task-requires-todo' (default nil — R54 D1 preserved,
+    ;; knob-off byte-identical) joins `org-air-view--cache-key' as the
+    ;; SEVENTH element (the R59/R60/R61 precedent — the knob shapes
+    ;; scan-time `ntype'/file-meta `:ntype', so a flip must invalidate
+    ;; like a vocabulary change).  The THREE prior-round cache-key
+    ;; goldens below pin the pre-R77 key LENGTH literally (`(= (length
+    ;; key) 6)`) and fail on exactly that assertion — the spec's
+    ;; predicted shifted-golden class (every OTHER assertion in each
+    ;; still passes; the r60-6 five-element/`nth 4' and r61-8 sixth-
+    ;; element/`nth 5' positional claims are UNCHANGED since R77
+    ;; appends).  TEST SEAT: re-bless the length assertion in each to 7
+    ;; (and r59-13's element-count prose), then delete these entries.
+    (org-air-r59-13-cache-v5-and-key
+     . "R77: cache key gained the seventh element (org-air-task-requires-todo); test pins (= (length key) 6) — re-bless to 7")
+    (org-air-r60-6-exclude-set-is-fifth-cache-key-element
+     . "R77: cache key gained the seventh element (org-air-task-requires-todo); test pins (= (length key-a) 6) — re-bless to 7")
+    (org-air-r61-8-cache-v6-and-no-rescan-nav
+     . "R77: cache key gained the seventh element (org-air-task-requires-todo); test pins (= (length key) 6) — re-bless to 7")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

@@ -832,19 +832,17 @@ two can be customised independently."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-out
-  '((((class color) (min-colors 256) (background light))
-     (:foreground "#00838F" :weight bold))
-    (((class color) (min-colors 256) (background dark))
-     (:foreground "#88C0D0" :weight bold))
-    (t (:inherit org-air-face-salient :weight bold)))
-  "Air doc state badge: Out (\N{OUTBOX TRAY}) \N{EM DASH} a muted teal, first-class (R80).
-DISTINCT and STANDING OUT (NOT `org-air-face-faded'): out/off are
-first-class parked/inactive Air states, so their chip reads salient, not
-muted-unknown.  A single source shared by the project STATE chip
-\(`org-air-project--state-face') and the heading KEYWORD badge
-\(the OUT entry of `org-air-todo-keyword-faces'), so the two surfaces
-never drift.  GUI-confirm-only: the exact hex; the TTY tier degrades to
-`org-air-face-salient'."
+  '((t :inherit org-air-face-dropped))
+  "Air doc state badge: Out (\N{OUTBOX TRAY}) \N{EM DASH} matches the DROPPED colour (R80.1).
+First-class, STANDING OUT (NOT `org-air-face-faded'): out is a
+parked/inactive Air state that reads like a dropped outcome, so per the
+user's request its chip/badge takes the SAME terracotta as a dropped
+keyword (`org-air-face-dropped') rather than a bright teal.  A single
+source shared by the project STATE chip (`org-air-project--state-face')
+and the heading KEYWORD badge (the OUT entry of
+`org-air-todo-keyword-faces'), so the two surfaces never drift.  The exact
+hex is GUI-confirm-only; the TTY tier follows `org-air-face-dropped'
+\(degrades to `org-air-face-faded')."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-off

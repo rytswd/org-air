@@ -660,7 +660,9 @@ them); CATEGORY sets the moved heading's `:CATEGORY:' property;
 SCHEDULED is an Org timestamp/shift string (empty clears the schedule);
 TODO (a keyword string) and PRIORITY (a character, or string of one)
 are applied via `org-todo' / `org-priority' — nil leaves each
-untouched.  DEADLINE (R67-3) mirrors SCHEDULED via `org-deadline':
+untouched; a ?\\s PRIORITY removes the carried cookie at the moved
+heading (org's own remove vocabulary, R76).  DEADLINE (R67-3)
+mirrors SCHEDULED via `org-deadline':
 an Org timestamp/shift string stamps a deadline, the empty string
 clears one, nil leaves it untouched — a trailing additive parameter,
 so every pre-R67 caller passes unchanged.  NOTE (R71-2) replays that
@@ -885,7 +887,10 @@ place) and `:tags-stripped' (the recorded `inbox' strip, re-attached by
 the in-place leg so an in-place edit never graduates an inbox item),
 and the dirty-only fields `:category', `:scheduled'
 \(+ `:schedule-label'), `:deadline' (+ `:deadline-label'), `:todo',
-`:priority' \(nil = leave the item's own value untouched), and
+`:priority' \(an honest TRI-STATE, R76: nil = leave the item's own
+value untouched — writes nothing; a CHAR = set that priority; ?\\s =
+CLEAR — remove the cookie at apply, org's own remove vocabulary,
+armed only when the item factually has a cookie), and
 `:note' (R71-1 — the drafted dated-log-note text; nil = no note,
 the form never holds \"\").")
 
@@ -974,6 +979,56 @@ declares is rejected by `org-todo' itself with an honest `user-error'
       (with-current-buffer (find-file-noselect (expand-file-name file))
         (cons org-priority-highest org-priority-lowest))
     (cons org-priority-highest org-priority-lowest)))
+
+(defun org-air-inbox--priority-normalize (key range)
+  "Map raw KEY to a priority verb over RANGE — PURE (R76 Decision 3).
+RANGE is a (HIGHEST . LOWEST) char pair (the
+`org-air-inbox--target-priority-range' shape).  Returns: the symbol
+`clear' for SPC (org's own remove key) or `-' (the field's unset
+glyph \"–\" made typeable; ?- is 45, below every alphanumeric cookie
+char, so it can never collide with the range); the symbol `keep' for
+RET (`C-g' never reaches here — `read-char-exclusive' quits first);
+KEY itself, UPCASED when both range ends are uppercase (org's own
+rule in `org-priority', probed: ?a → [#A]), when its upcase lies
+within RANGE; nil for anything else (the caller rejects honestly —
+never clamped).  The stub-free batch seam: no buffer, no state, no
+read."
+  (let ((high (car range))
+        (low (cdr range)))
+    (cond
+     ((memq key '(?\s ?-)) 'clear)
+     ((memq key '(?\r ?\n)) 'keep)
+     ((and (integerp key) (<= high (upcase key) low))
+      (if (and (= (upcase high) high) (= (upcase low) low))
+          (upcase key)
+        key))
+     (t nil))))
+
+(defun org-air-inbox--read-priority-char (file &optional current)
+  "Read ONE priority key over FILE's own full range (R76, the R68 chooser law).
+The `,' field's reader, beside `org-air-inbox--read-todo-keyword' —
+the range is FILE's OWN (`org-air-inbox--target-priority-range', read
+in the buffer the apply-time `org-priority' will run in, so a
+per-file `#+PRIORITIES:' line governs both by construction — R57).
+The prompt SHOWS the whole range, the clear option, and CURRENT (the
+pre-filled value RET keeps) when non-nil — org's own `org-priority'
+prompt idiom extended, so every choice is visible before the
+keystroke; a single `read-char-exclusive' then sets ANY in-range
+priority directly, up or down.  Returns an in-range CHAR (lowercase
+upcased per org's rule), the symbol `clear' (SPC or -), or the
+symbol `keep' (RET); out-of-range input signals org's own
+`user-error' wording — rejected honestly, never clamped, single-shot
+\(no re-prompt loop, R53 never-hang)."
+  (let* ((range (org-air-inbox--target-priority-range file))
+         (high (car range))
+         (low (cdr range))
+         (key (read-char-exclusive
+               (format "Priority %c-%c, SPC clears%s: " high low
+                       (if current (format ", RET keeps %c" current) ""))))
+         (choice (org-air-inbox--priority-normalize key range)))
+    (or choice
+        (user-error "Priority must be between `%c' and `%c' (SPC clears)"
+                    high low))))
 
 (defconst org-air-inbox--schedule-options
   '(("today" . ".") ("tomorrow" . "+1d") ("this week" . "+1w")
@@ -1097,8 +1152,13 @@ and this segment render the same label by construction)."
              (tags (cdr (org-air-inbox--form-effective-tags)))
              (todo (or (org-air-inbox--form-get :todo)
                        (org-air-item-todo item)))
-             (pri (or (org-air-inbox--form-get :priority)
-                      (org-air-inbox--item-priority-char item)))
+             ;; R76 tri-state: the ?\s CLEAR sentinel previews as
+             ;; no-cookie — exactly what RET will write (WYSIWYG),
+             ;; never a raw "[# ]".
+             (pri (let ((p (org-air-inbox--form-get :priority)))
+                    (cond ((eq p ?\s) nil)
+                          (p p)
+                          (t (org-air-inbox--item-priority-char item)))))
              (sched (org-air-inbox--form-get :schedule-label))
              (dead (org-air-inbox--form-get :deadline-label))
              (cat (org-air-inbox--form-get :category))
@@ -1335,30 +1395,44 @@ file the write will land in, so completion and the apply-time
                 (org-air-item-todo item))))))
 
 (transient-define-suffix org-air-refile-form-priority ()
-  "Cycle the priority: – → A → … → lowest → – (the WRITE TARGET's range).
+  "Pick a priority over the WRITE TARGET's FULL range — one key (R76).
 The destination file when one is set, else the item's OWN file
-\(R67-4)."
+\(R67-4).  The prompt shows the whole range + the current value; one
+`read-char-exclusive' sets ANY priority directly (up or down —
+never a cycle); SPC or - CLEARS (a real removal when the item has a
+cookie — the ?\\s sentinel rides RET's apply; on a cookie-less item
+it drops the pending pick back to untouched); RET keeps the field as
+it was; out-of-range input is rejected honestly."
   :transient t
   :description (lambda ()
                  (org-air-inbox--form-field
                   "priority"
-                  (when-let* ((c (or (org-air-inbox--form-get :priority)
-                                     (let ((item (org-air-inbox--form-get
-                                                  :item)))
-                                       (and item
-                                            (org-air-inbox--item-priority-char
-                                             item))))))
-                    (string c))))
+                  (let ((c (or (org-air-inbox--form-get :priority)
+                               (let ((item (org-air-inbox--form-get :item)))
+                                 (and item
+                                      (org-air-inbox--item-priority-char
+                                       item))))))
+                    (cond ((eq c ?\s) "clear")
+                          (c (string c))))))
   (interactive)
-  (let* ((range (org-air-inbox--target-priority-range
-                 (org-air-inbox--form-write-target)))
-         (current (or (org-air-inbox--form-get :priority)
-                      (let ((item (org-air-inbox--form-get :item)))
-                        (and item (org-air-inbox--item-priority-char item)))))
-         (next (cond ((null current) (car range))
-                     ((>= current (cdr range)) nil)
-                     (t (1+ current)))))
-    (org-air-inbox--form-put :priority next)))
+  (let* ((item (org-air-inbox--form-get :item))
+         (own (and item (org-air-inbox--item-priority-char item)))
+         (pending (org-air-inbox--form-get :priority))
+         ;; a pending CLEAR shows no "current" to keep — the prompt
+         ;; then omits its "RET keeps" token.
+         (current (if (eq pending ?\s) nil (or pending own)))
+         (choice (org-air-inbox--read-priority-char
+                  (org-air-inbox--form-write-target) current)))
+    (pcase choice
+      ;; RET: an untouched field stays untouched (the R67 dirty-only
+      ;; law — no `form-put' at all), a pending pick/clear survives.
+      ('keep nil)
+      ;; SPC/-: state-aware arming (R76 Decision 4) — the ?\s sentinel
+      ;; only when the item factually HAS a cookie to remove
+      ;; (`(org-priority ?\s)' on a cookie-less heading user-errors);
+      ;; otherwise "back to untouched", which writes nothing.
+      ('clear (org-air-inbox--form-put :priority (and own ?\s)))
+      (_ (org-air-inbox--form-put :priority choice)))))
 
 (defun org-air-inbox--flush-pending-log-note ()
   "Synchronously store a pending timestamp-style Org log record (R68-2).
@@ -1428,7 +1502,9 @@ downgraded or suppressed."
 (defun org-air-inbox--apply-item-edits (item edits)
   "Apply EDITS to ITEM's source heading IN PLACE — the R67-1 editor leg.
 EDITS is a plist of exactly the CHANGED fields: `:todo', `:priority'
-\(char or one-char string), `:tags' (guarded by `:tags-p' t — the
+\(char or one-char string; ?\\s removes the cookie — org's own remove
+vocabulary, passed through byte-unchanged, R76), `:tags' (guarded by
+`:tags-p' t — the
 value may be nil, which CLEARS), `:scheduled' / `:deadline' (Org
 date/shift strings; \"\" clears via the \='(4) prefix), `:category',
 and `:note' (R71-2 — a dated Org log note appended at the heading via

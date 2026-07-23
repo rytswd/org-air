@@ -1,5 +1,5 @@
 #+title: org-air Round 76 — The edit-form `,' priority field is a one-way cycle: full-range one-key picker (org's own read idiom), SPC clears
-#+state: ready
+#+state: work-in-progress
 #+tags: bug transient refile inbox ux
 
 * Summary
@@ -436,3 +436,29 @@ and the field-row repaint after a pick/clear.
   existing priority seams stay green (they =--form-put= directly);
   zero golden shifts expected.  One file touched, no new
   key/defcustom, org/org-ql only.  State: ready.
+- 2026-07-24: Round 76 implementation (impl seat, Fable).  Delivered
+  exactly as specced, org-air-inbox.el the ONLY source file touched:
+  NEW pure =org-air-inbox--priority-normalize= (char-in-range upcased
+  per org's rule / SPC,=-=→='clear= / CR,LF→='keep= / else nil) and
+  NEW =org-air-inbox--read-priority-char= (range via the untouched
+  =--target-priority-range=, prompt ="Priority %c-%c, SPC clears[,
+  RET keeps %c]: "= passed as =read-char-exclusive='s capturable
+  PROMPT arg, invalid → org's =user-error= wording + "(SPC clears)"),
+  both beside the R68-1 todo reader; =org-air-refile-form-priority=
+  body swapped cycle → picker (name, =,= binding, =:transient t=
+  kept; ='keep= never dirties; ='clear= armed state-aware — =?\s=
+  only when the item factually has a cookie, else nil = back to
+  untouched); field row renders the tri-state ("clear" label) and
+  the preview's =pri= binding treats =?\s= as no-cookie (never
+  "[# ]"); docstrings updated per Decision 5 (form defvar tri-state,
+  =--apply-item-edits= EDITS paragraph, engine PRIORITY sentence).
+  ZERO apply-leg code changes — the sentinel rides both legs
+  byte-unchanged.  Ten batch seams in tests/org-air-round76-test.el
+  (r76-1..r76-10, all green; r76-1 additionally asserts the reader
+  IS consulted — the revert tell).  =make clean && make check=
+  green: 963 tests, 0 unexpected, lint 0 findings; =make
+  regen-mockups= byte-clean (ZERO golden shifts, exactly as
+  predicted — known-failures manifest stays EMPTY).  GUI residue for
+  user confirm: prompt readability in the echo area under the open
+  transient; field-row repaint after a pick/clear.  State:
+  work-in-progress → awaiting test-seat audit.

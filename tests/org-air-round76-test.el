@@ -70,6 +70,30 @@
 ;;          "clear"; the broken "[# ]" NEVER renders.  Revert-RED
 ;;          against a preview that formats ?\s raw.
 ;;
+;; Audit-hardening seams (test seat, round-76 — gaps the ten spec
+;; seams left open):
+;;
+;;   r76-11 DIRECT PATHS FROM FRESH FORMS — r76-1's second press (?B
+;;          from pending ?A) is coincidentally the cycle's own A→B
+;;          step; here every press starts from a FRESH form so the
+;;          pre-press state is exactly the item's own: C→B and C→E in
+;;          one press (the cycle yields ?D for both — revert-RED),
+;;          and none→A on the cookie-less item.
+;;   r76-12 SAME-VALUE PICK IS SAFE — ?C on the `[#C]' item stores
+;;          ?C (a dirty field), execute applies without error, the
+;;          saved bytes are BYTE-IDENTICAL, and the ring recorded
+;;          the (no-op) edit — `u' covers it like any other.
+;;   r76-13 ONE-PRIORITY RANGE — `#+PRIORITIES: B B B' ⇒ range
+;;          (B . B): the prompt says "B-B", ?B (and ?b upcased)
+;;          lands, ?A and ?C are rejected, SPC still arms the
+;;          sentinel; pure normalize over (?B . ?B) incl. a
+;;          non-integer function-key event → nil (no crash).
+;;   r76-14 PENDING CLEAR × KEEP — after SPC the prompt omits its
+;;          "RET keeps" token (a pending clear shows no current);
+;;          RET keeps the PENDING CLEAR (?\s survives `keep'); a
+;;          following ?A replaces the clear (the picker is never
+;;          sticky); a second SPC leaves the sentinel armed.
+;;
 ;; GUI residue (screenshot-confirm, not ERT-able): the prompt's
 ;; readability in the echo area while the transient window is
 ;; showing, and the field-row repaint after a pick/clear.  Goldens:
@@ -491,6 +515,138 @@ against a preview that formats ?\\s raw."
                                 (org-air-inbox--form-preview)))
     (should-not (string-match-p (regexp-quote "[# ]")
                                 (org-air-inbox--form-preview)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r76-11 — direct paths from FRESH forms (audit hardening)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r76-11-direct-paths-fresh-forms ()
+  "Every press starts from a FRESH `--form-init' so the pre-press
+state is exactly the item's own cookie: C→B and C→E are each ONE
+press (the old cycle yields ?D from C for BOTH — revert-RED where
+r76-1's second press coincided with the cycle's A→B step), and
+none→A is one press on the cookie-less item.  The reader is
+consulted every time (the prompt captured non-nil)."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r76--with-corpus nil
+    ;; C→B, fresh: the cycle would yield ?D.
+    (org-air-inbox--form-init (org-air-r76--item "own.org" "Widget"))
+    (org-air-r76--press ?B)
+    (should org-air-r76--prompt)
+    (should (equal (org-air-inbox--form-get :priority) ?B))
+    ;; C→E, fresh: the cycle would yield ?D.
+    (org-air-inbox--form-init (org-air-r76--item "own.org" "Widget"))
+    (org-air-r76--press ?E)
+    (should org-air-r76--prompt)
+    (should (equal (org-air-inbox--form-get :priority) ?E))
+    ;; none→A, fresh, on the cookie-less item: one press.
+    (org-air-inbox--form-init (org-air-r76--item "bare.org" "Jot"))
+    (org-air-r76--press ?A)
+    (should org-air-r76--prompt)
+    (should (equal (org-air-inbox--form-get :priority) ?A))))
+
+;;;; -------------------------------------------------------------------
+;;;; r76-12 — picking the SAME value is safe (audit hardening)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r76-12-same-value-pick-safe ()
+  "?C on the `[#C]' item stores ?C — a dirty field like any other
+pick (the picker never second-guesses the user); execute applies
+without error, the saved bytes come back BYTE-IDENTICAL (org
+rewrites the same cookie), the completion message names the field,
+and the R73 ring recorded the edit (`u' covers it).  Under the old
+cycle a ?C press from C yields ?D — revert-RED."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r76--with-corpus nil
+    (let ((old (org-air-r76--text "own.org"))
+          (msgs (list nil)))
+      (org-air-inbox--form-init (org-air-r76--item "own.org" "Widget"))
+      (org-air-r76--press ?C)
+      (should (equal (org-air-inbox--form-get :priority) ?C))
+      (should (string-match-p (regexp-quote "[#C]")
+                              (org-air-inbox--form-preview)))
+      (org-air-r76--execute msgs)
+      (should (seq-some (lambda (m) (string-match-p "Edited.*priority" m))
+                        (car msgs)))
+      (should (equal (org-air-r76--text "own.org") old))
+      (should (= 1 (length org-air-view--edit-ring))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r76-13 — a one-priority range (audit hardening)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r76-13-one-priority-range ()
+  "`#+PRIORITIES: B B B' collapses the range to (B . B): the prompt
+discloses \"B-B\", ?B lands (and ?b upcases to ?B), ?A and ?C are
+honestly rejected naming B twice, and SPC still arms the ?\\s
+sentinel on the cookie'd item.  Pure: `--priority-normalize' over
+\(?B . ?B) maps ?B→?B, ?b→?B, ?A/?C→nil, SPC→`clear', RET→`keep',
+and a NON-INTEGER function-key event (e.g. `f5') → nil without
+crashing.  Under the old cycle a ?B press from B on a B-B range
+yields nil (the unset step) — revert-RED."
+  (skip-unless (locate-library "org-air"))
+  ;; pure domain first — no corpus, no stub.
+  (let ((range '(?B . ?B)))
+    (should (equal (org-air-inbox--priority-normalize ?B range) ?B))
+    (should (equal (org-air-inbox--priority-normalize ?b range) ?B))
+    (should-not (org-air-inbox--priority-normalize ?A range))
+    (should-not (org-air-inbox--priority-normalize ?C range))
+    (should (eq (org-air-inbox--priority-normalize ?\s range) 'clear))
+    (should (eq (org-air-inbox--priority-normalize ?\r range) 'keep))
+    (should-not (org-air-inbox--priority-normalize 'f5 range)))
+  (org-air-r76--with-corpus
+      '(("own.org" . "#+PRIORITIES: A E C\n\n* TODO [#C] Widget :inbox:\n  body\n")
+        ("one.org" . "#+PRIORITIES: B B B\n\n* TODO [#B] Solo :inbox:\n  body\n"))
+    (org-air-inbox--form-init (org-air-r76--item "one.org" "Solo"))
+    ;; ?B lands over the one-letter range (the cycle's unset step
+    ;; would store nil here — the revert tell).
+    (org-air-r76--press ?B)
+    (should (string-match-p "B-B" org-air-r76--prompt))
+    (should (equal (org-air-inbox--form-get :priority) ?B))
+    ;; lowercase upcases.
+    (org-air-inbox--form-init (org-air-r76--item "one.org" "Solo"))
+    (org-air-r76--press ?b)
+    (should (equal (org-air-inbox--form-get :priority) ?B))
+    ;; out-of-range on BOTH sides rejected, naming B twice.
+    (let ((err (should-error (org-air-r76--press ?A) :type 'user-error)))
+      (should (string-match-p "must be between" (cadr err)))
+      (should (string-match-p "B.*B" (cadr err))))
+    (should-error (org-air-r76--press ?C) :type 'user-error)
+    (should (equal (org-air-inbox--form-get :priority) ?B))
+    ;; SPC still clears (the item factually has a cookie).
+    (org-air-r76--press ?\s)
+    (should (equal (org-air-inbox--form-get :priority) ?\s))))
+
+;;;; -------------------------------------------------------------------
+;;;; r76-14 — pending clear × keep (audit hardening)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r76-14-pending-clear-keep-and-replace ()
+  "After SPC on the `[#C]' item the NEXT prompt omits its \"RET
+keeps\" token (a pending clear shows no current to keep) while the
+range and clear tokens still show; RET keeps the PENDING CLEAR —
+`:priority' stays ?\\s, not reverted; a following ?A replaces the
+clear (the picker is never sticky); a second SPC leaves the sentinel
+armed (idempotent).  Under the old cycle none of these states exist
+— revert-RED."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r76--with-corpus nil
+    (org-air-inbox--form-init (org-air-r76--item "own.org" "Widget"))
+    (org-air-r76--press ?\s)
+    (should (equal (org-air-inbox--form-get :priority) ?\s))
+    ;; the pending clear shows no current: RET keeps the CLEAR.
+    (org-air-r76--press ?\r)
+    (should (string-match-p "A-E" org-air-r76--prompt))
+    (should (string-match-p "SPC clears" org-air-r76--prompt))
+    (should-not (string-match-p "RET keeps" org-air-r76--prompt))
+    (should (equal (org-air-inbox--form-get :priority) ?\s))
+    ;; a pick replaces the pending clear.
+    (org-air-r76--press ?A)
+    (should (equal (org-air-inbox--form-get :priority) ?A))
+    ;; SPC again re-arms; a second SPC is idempotent.
+    (org-air-r76--press ?\s)
+    (org-air-r76--press ?\s)
+    (should (equal (org-air-inbox--form-get :priority) ?\s))))
 
 (provide 'org-air-round76-test)
 ;;; org-air-round76-test.el ends here

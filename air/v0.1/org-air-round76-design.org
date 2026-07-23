@@ -462,3 +462,34 @@ and the field-row repaint after a pick/clear.
   user confirm: prompt readability in the echo area under the open
   transient; field-row repaint after a pick/clear.  State:
   work-in-progress → awaiting test-seat audit.
+- 2026-07-23: Round 76 test-seat audit (Fable).  INDEPENDENT verify
+  + harden.  (1) r76-1..r76-10 all EXECUTE (0 skipped) and pass;
+  full-revert to the pre-R76 tree ⇒ all ten RED; vacuity probed with
+  a HYBRID (new helpers loaded, suffix re-defined back to the old
+  cycle body) ⇒ 9/10 still RED behaviourally (r76-2 stays green — it
+  pins the pure helper itself, correct); r76-1's first failing
+  assertion under the cycle is the reader-consulted tell (prompt
+  nil), with the C→?D value assertion behind it — the anchor holds.
+  (2) Audit finding: r76-1's SECOND press (?B from pending ?A)
+  coincides with the cycle's own A→B step — the C→B direct path was
+  not pinned from a fresh C state.  Hardened with FOUR new seams
+  (r76-11..r76-14, all revert-RED against both the full pre-R76 tree
+  and the hybrid): r76-11 direct paths from FRESH forms — C→B and
+  C→E one press (cycle yields ?D for both) + none→A on the bare
+  item; r76-12 same-value pick (?C on [#C]) is safe — stored, applied
+  without error, saved bytes BYTE-IDENTICAL, ring recorded; r76-13
+  one-priority range (#+PRIORITIES: B B B ⇒ (B . B), probed) —
+  prompt "B-B", ?B/?b land, ?A and ?C rejected, SPC still arms, plus
+  pure normalize over (?B . ?B) incl. a non-integer `f5' event → nil
+  (no crash); r76-14 pending clear × keep — the post-SPC prompt
+  omits "RET keeps", RET keeps the PENDING CLEAR (?\s survives), a
+  pick replaces it, double-SPC idempotent.  (3) Range/clear/keep,
+  R67-4 write-target law, and both apply legs re-verified through
+  the existing seams; apply-leg code confirmed untouched
+  (`--apply-item-edits' :1578 and the engine :784 pass the value
+  through byte-unchanged).  (4) `make clean && make check' GREEN:
+  967 tests (963 + 4), 0 unexpected, lint 0 findings, manifest EMPTY
+  (zero r76 entries); `make regen-mockups' byte-clean (only the test
+  file in the diff).  State: work-in-progress → done pending user
+  GUI confirm (echo-area prompt readability under the open
+  transient; field-row repaint after pick/clear).

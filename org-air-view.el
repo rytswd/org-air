@@ -734,14 +734,35 @@ always shows the keyword/token text either way (`NEXT', `[R]')."
     ("BLOCKED" . org-air-face-todo-wait)
     ("DONE" . org-air-face-done)
     ("COMP" . org-air-face-done)
-    ("CANCELLED" . org-air-face-done)
-    ("CANCELED" . org-air-face-done)
-    ("KILL" . org-air-face-done)
-    ("DROP" . org-air-face-done))
+    ("COMPLETED" . org-air-face-done)
+    ("DROPPED" . org-air-face-dropped)
+    ("DROP" . org-air-face-dropped)
+    ("CANCELLED" . org-air-face-dropped)
+    ("CANCELED" . org-air-face-dropped)
+    ("KILL" . org-air-face-dropped)
+    ("KILLED" . org-air-face-dropped))
   "Map TODO keyword strings to faces for coloured rendering (T1a).
-Unknown keywords fall back to `org-air-face-todo' — or, when the item is
-DONE, to `org-air-face-done' (R57-1; see `org-air-view--todo-face')."
+R79: the DONE family splits — completions (DONE/COMP/COMPLETED) keep
+`org-air-face-done' (faded blue) while the cancelled/abandoned set
+\(DROPPED/DROP/CANCELLED/CANCELED/KILL/KILLED) reads `org-air-face-dropped'
+\(muted terracotta), so a completion and an abandonment are distinct.
+Unknown keywords fall back through the R57 merged scan vocabulary — a
+not-done keyword to `org-air-face-todo', a done keyword to
+`org-air-face-done' (or `org-air-face-dropped' when cancelled-named), else
+by the item's DONE flag (see `org-air-view--todo-face')."
   :type '(alist :key-type string :value-type face)
+  :group 'org-air)
+
+(defcustom org-air-keyword-face-source 'own
+  "Where a TODO-keyword badge takes its colour (R79).
+`own' (default): org-air's own `org-air-todo-keyword-faces' plus the R57
+merged scan vocabulary — the calm V6 palette (R57-1), so the board
+goldens stay byte-identical out of the box.
+`org': the user's own `org-todo-keyword-faces' (the SAME table Org
+fontifies headings with), falling back to the `own' mapping wherever the
+user names no face.  Flip this one knob to read your exact keyword
+palette on the board and in the day view."
+  :type '(choice (const own) (const org))
   :group 'org-air)
 
 (defcustom org-air-filter-match 'all
@@ -2119,7 +2140,33 @@ errors; the label quoting is the tell —
               (* (string-to-number (match-string 2 token))
                  (if (string-equal-ignore-case (match-string 3 token) "w")
                      7
-                   1))))))))
+                   1))))
+       ;; R79 keyword-identity axis, AFTER the date/status branches so no
+       ;; #tag or R72 token is stolen: `is:done' (any done keyword) and
+       ;; `todo:KEYWORD' (case-insensitive keyword identity).  Read the
+       ;; item's OWN keyword/done slot with NO board-active gate.
+       ((string-equal-ignore-case token "is:done")
+        (cons 'status 'done))
+       ((string-match "\\`todo:\\(.+\\)\\'" token)
+        (cons 'todo (match-string 1 token)))))))
+
+(defun org-air-view--filter-keyword-token-match-p (parsed item)
+  "Non-nil when PARSED keyword token matches ITEM's own keyword/done slot (R79).
+PARSED is a `(todo . NAME)' or `(status . done)' cell from
+`org-air-view--filter-token-parse'.  Reads the item's OWN slots with NO
+`org-air-classify--board-active-p' gate — the keyword axis is orthogonal
+to the R72 date/status axis and MUST select done items (the day pane's
+staple).  `(todo . NAME)' is a case-insensitive keyword-identity match;
+`(status . done)' is the item's done flag.  Vacuously false when ITEM
+carries no keyword slot (empty project/revisit records), like the R72
+tokens."
+  (pcase parsed
+    (`(todo . ,name)
+     (and (org-air-item-todo item)
+          (string-equal-ignore-case (org-air-item-todo item) name)
+          t))
+    (`(status . done)
+     (and (org-air-item-donep item) t))))
 
 (defun org-air-view--filter-date-token-match-p (parsed item now)
   "Non-nil when PARSED (a date/status token) matches ITEM as of NOW.
@@ -2177,18 +2224,22 @@ row (the probed +8d bucketless hole)."
   (max org-air-upcoming-days (or (org-air-view--filter-window-days) 0)))
 
 (defun org-air-view--filter-vocabulary ()
-  "Return the R72 date/status token offer list for the `/' completion.
+  "Return the date/status + R79 keyword token offer list for `/' completion.
 The five `is:' tokens plus knob-tracking window examples
 \(`due:7d' / `scheduled:7d' / `deadline:7d' where 7 is the LIVE
-`org-air-upcoming-days') — the examples track the knob, teach the value
-grammar by example, and (for `due:') are the exact Upcoming-bucket twin
-at any setting.  Offered by the board and the review view; project and
-revisit pass nothing (their records carry no planning slots — R72
-Decision 8)."
+`org-air-upcoming-days'), plus the R79 keyword axis: `is:done' and a
+`todo:<KW>' for each bare name in the merged scan vocabulary
+\(`org-air-view--scan-keyword-names') so `/' completion teaches the
+axis by the user's real keywords.  Offered by the board and the review
+view; project and revisit pass nothing (their records carry no planning
+slots — R72 Decision 8; the keyword axis is vacuously false there too)."
   (append
    (mapcar (lambda (v) (concat "is:" v)) org-air-view--filter-is-values)
    (mapcar (lambda (q) (format "%s:%dd" q org-air-upcoming-days))
-           '("due" "scheduled" "deadline"))))
+           '("due" "scheduled" "deadline"))
+   (list "is:done")
+   (mapcar (lambda (kw) (concat "todo:" kw))
+           (org-air-view--scan-keyword-names))))
 
 (defun org-air-view--filter-token-label (token)
   "Return TOKEN as it should appear in the filter lens display (R24-6).
@@ -2236,8 +2287,14 @@ Case-insensitive throughout."
              t))
     (if-let* ((parsed (org-air-view--filter-token-parse token)))
         (and item
-             (org-air-view--filter-date-token-match-p
-              parsed item (or org-air-view--filter-now (current-time))))
+             (pcase parsed
+               ;; R79 keyword axis: read the item's OWN keyword/done slot,
+               ;; NO board-active gate (must select done items).
+               ((or `(todo . ,_) `(status . done))
+                (org-air-view--filter-keyword-token-match-p parsed item))
+               ;; R72 date/status axis: the bucket predicate under one NOW.
+               (_ (org-air-view--filter-date-token-match-p
+                   parsed item (or org-air-view--filter-now (current-time))))))
       (and (string-search (downcase token)
                           (downcase (concat (or text "") " "
                                             (string-join tags " "))))
@@ -2774,18 +2831,80 @@ ATTENTIONP means the count should use the attention badge face."
     (when org-air-section-rule
       (org-air-view--insert-rule))))
 
+(defconst org-air-view--dropped-keyword-names
+  '("DROPPED" "DROP" "CANCELLED" "CANCELED" "KILL" "KILLED" "ABANDONED")
+  "Bare (upcased) keyword names that read as cancelled/abandoned (R79).
+An unknown keyword whose bare name is here resolves to
+`org-air-face-dropped' even when it is not declared in the scan
+vocabulary, so the user's real spelling paints terracotta, not blue.")
+
+(defun org-air-view--scan-keyword-names ()
+  "Return the flat list of bare keyword names in the merged scan vocabulary (R79).
+Flattens `org-air-query--scan-todo-keywords' (the R57 merged
+user+supplement sequence) to bare names, dropping the `|' separators;
+never signals (a nil/malformed scan yields nil)."
+  (delete-dups
+   (cl-loop for seq in (ignore-errors (org-air-query--scan-todo-keywords))
+            append (cl-loop for kw in (cdr seq)
+                            unless (equal kw "|")
+                            collect (org-air-query--todo-keyword-name kw)))))
+
+(defun org-air-view--merged-vocab-face (keyword &optional donep)
+  "Return a family face for KEYWORD via the R57 merged scan vocabulary (R79).
+An unknown KEYWORD is placed in a family by its POSITION in its scan
+sequence: a cancelled/abandoned spelling (`org-air-view--dropped-keyword-
+names') is `org-air-face-dropped'; a scan-DONE keyword is
+`org-air-face-done'; a scan not-done keyword is `org-air-face-todo'.  A
+keyword absent from the whole vocabulary falls back on DONEP — done items
+still never wear an active badge (R57-1).  Pure over cached list data; no
+rescan, never signals."
+  (let* ((name (and keyword (org-air-query--todo-keyword-name keyword)))
+         (in-vocab (and name (member name (org-air-view--scan-keyword-names))))
+         (scan-done (and name (member name
+                                      (ignore-errors
+                                        (org-air-query-merged-done-keywords)))))
+         (cancelled (and name (member (upcase name)
+                                      org-air-view--dropped-keyword-names))))
+    (cond
+     (cancelled 'org-air-face-dropped)
+     ((and in-vocab scan-done) 'org-air-face-done)
+     (in-vocab 'org-air-face-todo)
+     (donep 'org-air-face-done)
+     (t 'org-air-face-todo))))
+
+(defun org-air-view--org-keyword-face (keyword)
+  "Return the user's own `org-todo-keyword-faces' face for KEYWORD, or nil (R79).
+Consulted only when `org-air-keyword-face-source' is `org' — the literal
+\"same colours Org fontifies headings with\".  A face symbol passes
+through; a colour string wraps to `(:foreground COLOR)'; an anonymous
+face plist passes through; anything unnamed/malformed returns nil so the
+caller degrades to the `own' mapping.  Never signals."
+  (when (and keyword (boundp 'org-todo-keyword-faces))
+    (ignore-errors
+      (let ((spec (cdr (assoc keyword org-todo-keyword-faces))))
+        (cond
+         ((null spec) nil)
+         ((and (symbolp spec) (facep spec)) spec)
+         ((stringp spec) (list :foreground spec))
+         ((and (listp spec) (keywordp (car-safe spec))) spec)
+         (t nil))))))
+
 (defun org-air-view--todo-face (keyword &optional donep)
-  "Return the face for TODO KEYWORD (T1a), DONEP for the done fallback.
-A KEYWORD absent from `org-air-todo-keyword-faces' falls back to
-`org-air-face-done' when DONEP is non-nil, else `org-air-face-todo'
-\(R57-1: a user's custom DONE keyword — CLOSED, DROPPED — must never
-wear an active-looking badge where done items render).  Ruling: the
-user's `org-todo-keyword-faces' is deliberately NOT imported — the board
-is a rendered view with its own calm, design-locked palette (V6
-pixel-lock); org-air respects the user's faces where the user owns the
-buffer and keeps its own chrome coherent."
-  (or (cdr (assoc keyword org-air-todo-keyword-faces))
-      (if donep 'org-air-face-done 'org-air-face-todo)))
+  "Return the face for TODO KEYWORD (T1a; R79 supersedes the R57-1 fallback).
+Resolution order: when `org-air-keyword-face-source' is `org', the user's
+own `org-todo-keyword-faces' first; then org-air's own
+`org-air-todo-keyword-faces' alist; then the R57 merged scan-vocabulary
+family (`org-air-view--merged-vocab-face': not-done→active, done→done
+unless a cancelled spelling→dropped), finally DONEP→done / else→todo.
+R79 splits the DONE family so a completion (DONE/COMP) and an abandonment
+\(DROPPED/CANCELLED/KILL) read as DIFFERENT faces, and resolves unknown
+keywords through the merged vocabulary instead of the blanket done
+fallback — so COMP/DROPPED/READY/WIP each read distinctly.  DEFAULT
+\(`own') keeps R57-1 and the board goldens byte-identical."
+  (or (and (eq org-air-keyword-face-source 'org)
+           (org-air-view--org-keyword-face keyword))
+      (cdr (assoc keyword org-air-todo-keyword-faces))
+      (org-air-view--merged-vocab-face keyword donep)))
 
 (defun org-air-view--priority-face (char)
   "Return the boxed-pill face for priority CHAR (T1b; R22-1 covers D/E)."
@@ -3812,8 +3931,13 @@ face-identical, so the default goldens hold)."
   (or org-air-view--sort-direction org-air-sort-direction))
 
 (defun org-air-view--sort-default-p ()
-  "Return non-nil when the board sort is the byte-identical default (R22-3)."
-  (and (eq (org-air-view--sort-active-key) 'date)
+  "Return non-nil when the sort is this view's byte-identical default (R22-3).
+R79: the default key is view-aware — `time' in the single-day view
+\(chronological within each group), else the board `date'.  So the R22-3
+banner indicator stays hidden at each view's own default and appears the
+moment `o'/`O' deviates, with zero new render code."
+  (and (eq (org-air-view--sort-active-key)
+           (if org-air-view--day 'time 'date))
        (eq (org-air-view--sort-active-direction) 'ascending)))
 
 (defun org-air-view--item-priority-rank (item)
@@ -3876,6 +4000,92 @@ so the board byte goldens are byte-identical by default."
       ('recency
        (org-air-view--sort-by items #'time-less-p #'org-air-view--item-activity desc))
       (_ items))))
+
+;;;; ---------------------------------------------------------------------
+;;;; Day-view sort (R79) — the SAME sort core, a day key vocabulary, and a
+;;;; per-group dispatcher; the day↔board boundary swaps the key list and
+;;;; coerces the active key (`org-air-view-day' / `org-air-view-board').
+;;;; ---------------------------------------------------------------------
+
+(defconst org-air-view--day-sort-keys '(time keyword priority title)
+  "The single-day view's sort key vocabulary (R79).
+Swapped into `org-air-view--sort-keys' at the day↔board boundary; default
+`time' (chronological within each group).  `priority'/`title' are shared
+with the board list and carry across the boundary unchanged.")
+
+(defconst org-air-view--day-time-never
+  (encode-time 0 0 0 1 1 9999)
+  "Far-future sentinel time for stampless day items (R79).
+A whole-day / stampless item sorts LAST under the `time' key by taking
+this sentinel; `O' reverses the whole order, so it moves first there.")
+
+(defun org-air-view--day-item-sort-time (group-label item)
+  "Return ITEM's within-group planning time for GROUP-LABEL (R79 `time' sort).
+The SAME signals `org-air-view--day-groups' keyed on: Deadline reads the
+deadline slot, Scheduled the scheduled slot, Logged/created the live
+marker stamp else the `subtree-ts' slot.  A whole-day / stampless item
+returns `org-air-view--day-time-never' so it sorts last (stable).  Pure
+over cached data; a (FILE . POS) item answers data-pure (no file open)."
+  (or (pcase group-label
+        ("Deadline" (org-air-view--timestamp-time (org-air-item-deadline item)))
+        ("Scheduled" (org-air-view--timestamp-time (org-air-item-scheduled item)))
+        (_ (or (org-air-view--marker-timestamp-time item)
+               (let ((ts (org-air-item-subtree-ts item)))
+                 (and ts (seconds-to-time ts))))))
+      org-air-view--day-time-never))
+
+(defun org-air-view--sort-day-items (group-label items)
+  "Order a day GROUP-LABEL's ITEMS by the active day sort key/direction (R79).
+Dispatches the shared `org-air-view--sort-active-key' through the R22-3
+`org-air-view--sort-by' core — no fork:
+  `time'     the group's own planning time-of-day, earliest first,
+             stampless last;
+  `keyword'  `org-air-item-todo' (case-insensitive), clustering e.g. all
+             COMP before all DROPPED;
+  `priority' `org-air-view--item-priority-rank' (#A first);
+  `title'    the downcased title.
+`O' reverses via the DESC arg.  Groups themselves are NEVER reordered
+\(Deadline > Scheduled > Logged/created); only the items inside each."
+  (let ((desc (eq (org-air-view--sort-active-direction) 'descending)))
+    (pcase (org-air-view--sort-active-key)
+      ('time
+       (org-air-view--sort-by
+        items #'time-less-p
+        (lambda (it) (org-air-view--day-item-sort-time group-label it))
+        desc))
+      ('keyword
+       (org-air-view--sort-by
+        items #'string-lessp
+        (lambda (it) (downcase (or (org-air-item-todo it) "")))
+        desc))
+      ('priority
+       (org-air-view--sort-by items #'> #'org-air-view--item-priority-rank desc))
+      ('title
+       (org-air-view--sort-by items #'string-lessp
+                              (lambda (it) (downcase (or (org-air-item-title it) "")))
+                              desc))
+      (_ items))))
+
+(defun org-air-view--enter-day-sort ()
+  "Swap the sort key vocabulary to the day view's on ENTERING it (R79).
+Sets `org-air-view--sort-keys' to `org-air-view--day-sort-keys' and
+coerces the active key: keep it when it is a day key (so the shared
+`priority'/`title' carry across the board→day boundary), else default to
+`time' (`date'→`time', both the chronological default).  Direction
+carries unchanged.  Idempotent, so day nav (`<'/`>') re-entry is safe."
+  (setq-local org-air-view--sort-keys org-air-view--day-sort-keys)
+  (unless (memq (org-air-view--sort-active-key) org-air-view--day-sort-keys)
+    (setq-local org-air-view--sort-key 'time)))
+
+(defun org-air-view--leave-day-sort ()
+  "Restore the board sort key vocabulary on LEAVING the day view (R79).
+Sets `org-air-view--sort-keys' back to the board list and coerces the
+active key: keep it when it is a board key (shared `priority'/`title'
+survive), else `date' (day-only `time'/`keyword' hand back to the
+chronological board default).  Direction carries unchanged."
+  (setq-local org-air-view--sort-keys '(date priority title recency))
+  (unless (memq (org-air-view--sort-active-key) org-air-view--sort-keys)
+    (setq-local org-air-view--sort-key 'date)))
 
 (defun org-air-view--insert-section (descriptor items)
   "Insert section DESCRIPTOR from ITEMS."
@@ -5164,22 +5374,71 @@ Logged/created; the structural parent no longer duplicates it."
           (cons "Scheduled" (nreverse scheduled))
           (cons "Logged / created" (nreverse created)))))
 
+(defun org-air-view--day-meta-widths (groups width)
+  "Return (TODO-W TAGS-W ORIGIN-W) for the day pane over GROUPS at WIDTH (R79).
+The widest SHOWN keyword / tags / origin across ALL day groups' items —
+the board's `org-air-view--compute-meta-widths' rule applied to the day
+list, minus the date column (R6).  The origin is capped at
+`org-air-origin-max-width' and a title-min fit pass shrinks origin then
+tags toward their floors so the flex title keeps `org-air-title-min-width'
+columns, exactly like the board.  Order-independent (measures the SET),
+so it may be called before the per-group sort."
+  (let ((tw 0) (ow 0) (tw-todo 0))
+    (dolist (g groups)
+      (dolist (item (cdr g))
+        (setq tw-todo (max tw-todo
+                           (string-width (or (org-air-item-todo item) ""))))
+        (let* ((tags (org-air-item-tags item))
+               (n (length tags))
+               (ts (org-air-view--item-tagstr
+                    tags (min org-air-tags-inline-max n) n)))
+          (when org-air-show-tags
+            (setq tw (max tw (string-width ts))))
+          (when org-air-show-origin
+            (setq ow (max ow (string-width
+                              (org-air-view--item-origin-raw item))))))))
+    (setq ow (min ow org-air-origin-max-width))
+    ;; title-min fit pass (no date column; mirrors --compute-meta-widths).
+    (let* ((gap 2)
+           (left-reserve (+ (string-width (org-air-view--item-margin))
+                            (if (> tw-todo 0) (1+ tw-todo) 0)
+                            (if (eq org-air-priority-style 'square) 2 0)))
+           (cluster (lambda (o)
+                      (let ((cells (delq nil (list (and (> tw 0) tw)
+                                                   (and (> o  0) o)))))
+                        (+ (apply #'+ cells) (max 0 (1- (length cells)))))))
+           (budget (lambda (o) (- width left-reserve gap (funcall cluster o)))))
+      (while (and (> ow org-air-origin-min)
+                  (< (funcall budget ow) org-air-title-min-width))
+        (setq ow (1- ow)))
+      (let ((tw-floor (if (> tw 0) 1 0)))
+        (while (and (> tw tw-floor)
+                    (< (funcall budget ow) org-air-title-min-width))
+          (setq tw (1- tw)))))
+    (list tw-todo tw ow)))
+
 (defun org-air-view--insert-day-pane (items width)
   "Insert the single-day focus view (R6) of ITEMS, fitted to WIDTH.
 The day is `org-air-view--day'; its items are grouped Deadline >
 Scheduled > Logged/created and rendered with the R10 item line minus its
-now-redundant date."
+now-redundant date.
+R79: the meta-badge/tags/origin COLUMNS are sized to the widest SHOWN
+value across the whole day (`org-air-view--day-meta-widths', the board
+rule) so mixed-width keywords like COMP/DROPPED align their titles / dots
+\/ tags / origin like board rows; and each group's items are ordered by
+the shared sort core (`org-air-view--sort-day-items') so `o'/`O' act."
   (let* ((org-air-view--line-width width)
-         ;; Day view omits the date column; let the tags/origin columns
-         ;; size to this focused list rather than the (stale) board.
+         ;; Day view omits the date column (R6).
          (org-air-view--meta-date-w nil)
-         (org-air-view--meta-tags-w nil)
-         (org-air-view--meta-origin-w nil)
-         ;; R15 D-P1: unset the board keyword width so each day row falls
-         ;; back to its own keyword width (single-row, no cross-row align).
-         (org-air-view--meta-todo-w nil)
          (day org-air-view--day)
          (groups (org-air-view--day-groups items day))
+         ;; R79 D2: fix the badge/tags/origin columns to the day's widest
+         ;; SHOWN value so titles align across mixed-width keywords — drop
+         ;; the stale R15 single-row nil assumption (49 rows is not one).
+         (dw (org-air-view--day-meta-widths groups width))
+         (org-air-view--meta-todo-w (nth 0 dw))
+         (org-air-view--meta-tags-w (nth 1 dw))
+         (org-air-view--meta-origin-w (nth 2 dw))
          (total (apply #'+ (mapcar (lambda (g) (length (cdr g))) groups))))
     (insert (org-air-view--justify
              (concat (org-air-view--margin)
@@ -5195,7 +5454,9 @@ now-redundant date."
       (when (cdr g)
         (insert (org-air-view--margin)
                 (propertize (car g) 'face 'org-air-face-section) "\n")
-        (dolist (item (cdr g))
+        ;; R79 D4: order each group through the shared sort core before the
+        ;; row loop (never reorder the Deadline > Scheduled > Logged order).
+        (dolist (item (org-air-view--sort-day-items (car g) (cdr g)))
           (org-air-view--insert-item item 'upcoming t))
         (insert "\n")))
     (when (zerop total)
@@ -9371,7 +9632,7 @@ types freely.  View-agnostic: shared by `org-air-filter',
 AND default + `M-/' toggle are coded once (project/revisit pass no VOCAB
 — their records carry no planning slots, R72 Decision 8)."
   (completing-read-multiple
-   (if vocab "Filter (#tag, text, is:/due:): " "Filter (#tag or text): ")
+   (if vocab "Filter (#tag, text, is:/due:/todo:): " "Filter (#tag or text): ")
    (append candidate-tags vocab) nil nil
    (when (org-air-view--filter-tags)
      (mapconcat #'identity (org-air-view--filter-tags) ","))))
@@ -10411,6 +10672,9 @@ synchronous `org-air-query-items' re-scan on a keypress)."
       (let ((day (or date cell org-air-view--day (current-time))))
         (setq org-air-view--day day
               org-air-view--cal-month day)
+        ;; R79 D4: swap the sort key vocabulary to the day view's and
+        ;; coerce the active key (shared priority/title carry across).
+        (org-air-view--enter-day-sort)
         (org-air-view--render-current)))
     ;; Steps 3/4: window routing — hop to the owner's MAIN window.
     (org-air-view--day-focus-owner owner)))
@@ -10449,6 +10713,8 @@ from the landed date; `q' returns to the full board (R28-2)."
   (interactive)
   (when org-air-view--day
     (setq org-air-view--day nil)
+    ;; R79 D4: restore the board sort key vocabulary and coerce back.
+    (org-air-view--leave-day-sort)
     (org-air-view--render-current)))
 
 (defun org-air-quit ()

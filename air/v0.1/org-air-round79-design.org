@@ -534,6 +534,34 @@ prove the day pane inherits the filter + the new axis.
 
 * Implementation History
 
+- 2026-07-23: Round 79 IMPL landed (impl seat; fresh child of
+  mnnunppoqlmw).  All four defects fixed by REUSING board primitives, no
+  fork:
+  - D1 (org-air-faces.el + org-air-view.el ~725/2777): new
+    =org-air-face-dropped= (terracotta); default =org-air-todo-keyword-
+    faces= splits the DONE family (completions→=org-air-face-done=,
+    cancelled/abandoned→=org-air-face-dropped=); =org-air-view--todo-face=
+    rewritten as a resolver (opt-in user =org= source → alist → R57
+    merged-vocabulary family via =--merged-vocab-face= → donep), plus the
+    =org-air-keyword-face-source= defcustom (default =own=, board goldens
+    byte-identical).  COMP/DONE read blue, DROPPED/CANCELLED/KILL read
+    terracotta, READY/WIP stay their alist faces.
+  - D2 (=--insert-day-pane= + new =--day-meta-widths=): dropped the stale
+    nil width binds; badge/tags/origin columns sized to the day's widest
+    SHOWN value (the board rule) so mixed-width keyword titles align.
+  - D3 (=--filter-token-parse= / =--filter-token-match-p= /
+    =--filter-keyword-token-match-p= / =--filter-vocabulary=): added the
+    keyword-identity axis =todo:KEYWORD= + =is:done= (no board-active
+    gate), offered in =/= completion; prompt names =todo:=.
+  - D4 (=--day-sort-keys= / =--sort-day-items= / =--enter-day-sort= /
+    =--leave-day-sort=, wired into =org-air-view-day='board' and
+    =--insert-day-pane=; =--sort-default-p= made day-aware): each day
+    group flows through the shared R22-3 sort core; day keys
+    =(time keyword priority title)=, default =time=; =o=/=O= now act.
+  make clean && make check GREEN (0 unexpected).  ONE existing golden
+  flagged for the test seat to re-bless: =org-air-r57-9-donep-aware-todo-
+  face= (pre-R79 DROPPED/DROP→done collapse).  =org-air-face-dropped= hex
+  + svg badge tints remain GUI-confirm-only.
 - 2026-07-23: Round 79 spec drafted (design seat). State: ready —
   awaiting impl + test seats.  No code changes in this commit.  Four
   day-view defects root-caused in org-air-view.el (badge face collapse

@@ -368,6 +368,19 @@ path runs ZERO org-air Lisp; the highlight is pure redisplay)."
   "Face for a DONE keyword and completed items."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-dropped
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#B5432B"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#E07A5F"))
+    (t (:inherit org-air-face-faded)))
+  "Face for a cancelled/abandoned keyword (DROPPED/CANCELLED/KILL) (R79).
+A muted terracotta, visibly distinct from `org-air-face-done''s faded
+blue, so a DONE completion and a DROPPED abandonment read as different
+outcomes on the board and in the day view.  The exact hex is
+GUI-confirm-only; the TTY tier degrades to `org-air-face-faded'."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-todo-next
   '((t :inherit org-air-face-popout :weight bold))
   "Face for a hot active keyword (NEXT/STARTED) — modern coloured look."

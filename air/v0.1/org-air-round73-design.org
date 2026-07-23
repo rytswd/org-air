@@ -1,0 +1,550 @@
+#+title: org-air Round 73 — Post-edit UX: the refresh FORCES a pane/inspector resync (no cursor-nudge), and `u' becomes a described, bounded RECENT-EDITS undo ring
+#+state: ready
+#+tags: board view-pane inspector undo refresh ux robustness
+
+* Summary
+
+USER REPORT (three items, two root causes):
+
+1. After an edit the board refreshes, but the PREVIEW PANE (the =v=
+   view pane, R65) and/or the rail INSPECTOR keep showing the OLD
+   content — the user must nudge the cursor up/down to force a
+   re-focus.
+2. There is no edit history: =u= only knows "the last triage
+   disposition", silently, in one remembered buffer.
+3. When an item is COMPLETED/DROPPED it leaves the board, point lands
+   on a NEW item — yet the pane/inspector still show the REMOVED one.
+
+Items 1 + 3 share ROOT CAUSE A: both panes sync exclusively via
+=post-command-hook= point-TRACKING —
+=org-air-view--view-pane-post-command= (org-air-view.el ~7341, with
+the R20-3b early-out =(not (eql (point) …view-pane-last-pos))=) and
+=org-air-view--inspector-post-command= (~4886, debounce-armed per
+command).  After =org-air-refresh= (~9077) the item CONTENT changed
+and/or a DIFFERENT item now sits at the same position — but no
+command moved point, so the trackers never fire (and the hook does
+not even run after a hook-driven auto-refresh).  Position tracking
+answers "did the cursor move?", never "did the board change under
+the cursor?".
+
+Item 2 is ROOT CAUSE B: =org-air-triage-undo= (~9654) is a single
+remembered buffer (=org-air-view--triage-source-buffer=) + a bare
+=(undo)=.  Three defects live in that shape: (a) the R64/R66 refile
+engine never records, so =u= after a refile silently undoes an
+UNRELATED older disposition; (b) two =u= presses with any command
+between them REDO the first undo (plain =undo= toggles); (c) the
+user cannot see WHAT =u= will undo before pressing it.
+
+Two work packages:
+
+- *R73-1 (forced post-refresh resync)* — one new never-error helper,
+  =org-air-view--panes-resync-now=, called from the board's TWO swap
+  tails: the tail of =org-air-view--refresh-repaint= (~8129 — this
+  covers the machine's =--refresh-finish= swap ~8648, the ≤budget
+  sync fast path ~8559, the no-change path, and every failure/cancel
+  repaint) and the tail of the fully-synchronous =org-air-refresh=
+  else-branch (~9109).  It cancels both pending debounce timers,
+  then calls =org-air-view--view-pane-update-now= AND
+  =org-air-view--inspector-update-now= DIRECTLY (no timer — batch
+  visible, no idle wait) for the item NOW at point.  The calls are
+  SELF-LIMITING by struct identity (Decision 1): a rescanned file's
+  items are fresh structs (redraw — the content-changed case), a
+  retained file's items are the same =eq= structs (skip — nothing
+  changed), a removed item leaves a DIFFERENT struct at point
+  (redraw to the new item — the done/drop case).  When NO item
+  resolves at (or after) point — the last item graduated, the board
+  is empty — the pane degrades by CLOSING and the inspector renders
+  its nil placeholder (Decision 2): never a stale/dead-item pane.
+  R65's pane-local reveal and R53's cache-first law are untouched:
+  the resync re-renders through the existing =--show= / =--renarrow=
+  path and never re-queries.
+- *R73-2 + R73-3 (the recent-edits ring + the generalised =u=)* —
+  every board mutation pushes an UNDO RECORD =(:desc :buffer :file
+  :kind :tick :time)= onto the bounded =org-air-view--edit-ring=
+  (depth 20, a plain newest-first list — Decision 7).  Recording is
+  BY CONSTRUCTION at the two write choke points plus the engine:
+  =org-air-view--at-item-source= (~9464) gains an optional leading
+  DESC string + =:structural= flag and pushes after its save — done
+  / kill / archive / schedule / deadline / todo (and =org-air-set-tag=,
+  converted onto the macro this round — Decision 3) are covered
+  without per-verb plumbing; =org-air-inbox--apply-item-edits=
+  (org-air-inbox.el:1406 — the R67/R71 in-place editor leg incl. the
+  note) and =org-air-refile-item= (~:683, a STRUCTURAL record) push
+  directly.  The macro also gains an =undo-boundary= + ONE
+  =atomic-change-group= around body+flush (Decision 4): each edit is
+  one undo group and a signalled edit records nothing, file unsaved.
+  =u= (renamed =org-air-edit-undo=; =org-air-triage-undo= stays a
+  defalias) pops the newest record and dispatches: an IN-PLACE
+  record is undone via =undo-only= in ITS OWN buffer (never plain
+  =undo= — Decision 5) guarded by a chars-modified-tick check, then
+  saved + refreshed (+ the R73-1 resync rides the refresh tail for
+  free); a STRUCTURAL record (refile/archive — cross-buffer
+  delete+insert) is honestly NOT undone: consumed with a message
+  naming the manual path (Decision 6); a dead/stale record is
+  skipped with a message.  The =?= help gains a "Recent edits" block
+  (newest first, =u= undoes the top) — no transient, no new key
+  (Decision 8).
+
+Zero new defcustoms.  org/org-ql only — no new dependency; the
+resync re-renders cached structs, the ring stores small pure data +
+live buffer references (no retained content, no markers needed —
+undo rides each buffer's OWN =buffer-undo-list=).
+
+* Decision 1 — the resync lives at the swap tails, direct + identity-limited
+
+/Where/: exactly the places the board's ITEMS can change under a
+stationary cursor.  Every swap funnels through TWO tails:
+
+- =org-air-view--refresh-repaint= (~8129) — the machine finish
+  (~8648), the ≤ =org-air-view--refresh-sync-budget= fast path
+  (~8559: the typical single-file EDIT refresh), the no-change
+  short-circuit, and every failure/cancel repaint all end here, and
+  it already restores point (=--restore-position=, ~7746) BEFORE the
+  new tail call, so the resync reads the FINAL landing.
+- the fully-synchronous =org-air-refresh= else-branch tail (~9109) —
+  the batch/byte-gate path, same ordering (after
+  =--restore-position=).
+
+Rejected alternative — calling from each verb after its
+=org-air-refresh=: the interactive branch is ASYNCHRONOUS (the R26-8
+machine may still be slicing when the verb returns), so a verb-side
+call would resync against pre-swap items; and the after-save
+auto-refresh path (~9127) has no verb at all.  The swap tail is the
+one honest moment.
+
+/How/: =org-air-view--panes-resync-now= (board-buffer context,
+never-error, batch-safe — NO timers armed):
+
+1. Cancel a pending =org-air-view--inspector-timer= and
+   =org-air-view--view-pane-timer= (a pre-refresh debounce must not
+   fire later against superseded state), then set
+   =org-air-view--view-pane-last-pos= to =(point)= (the R20-3b
+   early-out's bookkeeping stays truthful: the pane is now correct
+   FOR this position).
+2. Call =org-air-view--inspector-update-now= (~4880) with the board
+   buffer — its =--maybe-update-inspector= guard (~4858) compares
+   the THING at point against the stored
+   =org-air-view--inspector-item= by =eq=.
+3. Call =org-air-view--view-pane-update-now= (~7324) with the board
+   buffer — its guard compares =--view-pane-thing-at-point= against
+   =org-air-view--view-pane-item= by =eq= (follow knob + host +
+   window-live guards unchanged).
+4. The Decision 2 empty degrade (below).
+
+/Why identity, not FORCE/: the refresh machinery gives the exact
+change signal for free.  A CHANGED file is rescanned and its items
+are FRESH structs; an UNCHANGED file's items are RETAINED — the very
+same =eq= objects (the sync fast path's =retained= seq-remove ~8577,
+the machine's accumulator, and R42's no-change path all preserve
+identity; the fully-sync branch rebuilds everything — a redraw we
+cannot cheaply avoid and might need).  So the =eq= guards skip
+exactly when the pane content is provably current, and redraw
+exactly when the item at point changed content (priority/schedule
+edit — same row, fresh struct) or changed IDENTITY (done/drop —
+point restored onto a neighbour).  A FORCE flag would instead
+snapshot+fontify the pane on EVERY auto-refresh (any relevant file
+save) — churn with no information.  The invariant "a rescanned
+file's items are never =eq= to their predecessors" is pinned
+(r73-2).
+
+Non-goals here: the =post-command-hook= trackers, their debounces
+and early-outs are byte-untouched — motion keeps its R16/D-P7
+behaviour; the resync is an ADDITIONAL synchronous nudge at the two
+tails only.
+
+* Decision 2 — the empty/removed degrade: close the pane, nil the inspector
+
+After the LAST item graduates (done/kill/archive/refile of the final
+row, or Inbox zero), =--restore-position= lands point on empty-state
+text: =--view-pane-thing-at-point= is nil AND
+=org-air-view-pane--context-at-point= (~6786, with its R24-4
+fall-forward) resolves NOTHING.  Today =--view-pane-update-now=
+bails at =(when ctx …)= — the pane keeps painting the REMOVED item
+(the reported item 3; for a KILLED item the marker even points into
+re-flowed text).
+
+Ruling: /in the RESYNC path only/, when no context resolves anywhere
+at-or-after point and the pane window is live, the pane is CLOSED
+via =org-air-view-pane--hide= (the R20-3 teardown — base buffer and
+its unsaved state survive), and the inspector renders its nil
+placeholder (=--maybe-update-inspector= already passes a nil thing
+through =--render-inspector-region= — supported today).  A follow
+pane exists to mirror the selection; when there is no selection
+left, showing nothing IS the honest render, and =v= / RET rebuild it
+in one keypress later.
+
+Deliberately NOT folded into =--view-pane-update-now= itself: in
+normal FOLLOW motion a nil-thing row (M-> onto the pad tail, a
+heading with no items below) keeping the last item visible is
+long-standing, harmless behaviour — changing it would make scrolling
+close the pane.  The degrade is scoped to the resync helper, where
+"no item" means "the board really has nothing under point after a
+swap".
+
+* Decision 3 — recording by construction: the macro seam + two explicit pushes
+
+The ring must cover every mutation without trusting each future verb
+to remember.  The write paths are already funnelled:
+
+- =org-air-view--at-item-source= (~9464) — schedule, deadline, todo,
+  done, archive, kill, legacy set-schedule.  The macro gains TWO
+  optional leading forms before BODY, parsed at expansion (the
+  docstring idiom — fully backwards compatible, every existing call
+  works unchanged with a generic desc):
+  - a leading STRING = the record's =:desc= (callers pass the same
+    human phrasing their echo message already composes:
+    ="done \"Title\""=, ="schedule \"Title\" → 2026-07-30"=…);
+  - a leading =:structural= keyword = the record's =:kind= is
+    ='archive= (used ONLY by =org-air-item-archive= — see Decision 6
+    for why archive is structural and kill is not).
+  After the successful =save-buffer= the macro pushes the record
+  (and keeps setting =org-air-view--triage-source-buffer= — a
+  compatibility shadow, no longer read by =u=).
+- =org-air-inbox--apply-item-edits= (:1406) — the R67/R71 transient
+  in-place leg (priority lives here, plus todo/tags/category/
+  schedule/deadline/=:note=).  It inlines the macro's semantics, so
+  it pushes directly after its save: desc ="edit \"Title\": todo,
+  priority, note"= from its applied-fields list, kind ='in-place=.
+  Cross-file: the ring lives in org-air-view.el; inbox.el guards
+  with =(when (fboundp 'org-air-view--edit-ring-push) …)= — the
+  exact boundp shape the triage-source recording already uses.
+- =org-air-refile-item= (:~683) — pushes a STRUCTURAL record after
+  the transaction lands (=landed t=), before its echo message: desc
+  ="refile \"Title\" → file › heading"=, =:kind 'refile=,
+  =:buffer= the SOURCE buffer.  This closes defect (a): =u= after a
+  refile now SAYS what happened instead of silently undoing an
+  older edit.
+- =org-air-set-tag= (~9432) — CONVERTED onto
+  =org-air-view--at-item-source= this round.  The R68-3 audit left
+  it raw because uniformity had "no bug behind it"; the ring is the
+  bug-shaped reason (an unrecorded tag edit would be invisible to
+  =u=), and the conversion also brings the R68 logging discipline
+  for free.  Its =read-string= prompt stays BEFORE the macro,
+  against the displayed board — the R68-3 safety shape.
+
+The push helper: =org-air-view--edit-ring-push (desc buffer &optional
+kind)= — records =(:desc DESC :buffer BUFFER :file (buffer-file-name
+BUFFER) :kind (or KIND 'in-place) :tick (buffer-chars-modified-tick
+BUFFER) :time (current-time))=, conses onto
+=org-air-view--edit-ring=, truncates to
+=org-air-view--edit-ring-max=.  =buffer-chars-modified-tick= (not
+=buffer-modified-tick=) so fontification/text-property churn never
+trips the Decision 5 guard.
+
+* Decision 4 — one edit = one atomic undo group (the macro upgrade)
+
+=org-air-view--at-item-source= today runs BODY + flush + save with
+no grouping: the undo extent of a board verb depends on command-loop
+boundary timing, and a mid-BODY signal can leave a half-applied
+heading (saved never, but buffer-dirty).  R73 wraps the goto +
+BODY + flush in the macro with:
+
+- =(undo-boundary)= FIRST in the source buffer — the recorded edit
+  can never merge with a preceding same-command change; and
+- ONE =atomic-change-group= around BODY + the R68 flush — the R64
+  discipline =org-air-inbox--apply-item-edits= already proves at
+  this exact shape (mutators → flush inside the group, save after):
+  any signal rolls back every in-buffer change and propagates; the
+  file is never saved, NO ring record is pushed (the push sits after
+  the save), bytes identical.
+
+So "u undoes the most recent edit" has a precise meaning: one
+=undo-only= step in the record's buffer restores the pre-edit bytes
+of THAT edit, including its flushed log line/note — pinned byte-exact
+(r73-6).  Behaviour-neutral otherwise: the mutator order, the R68-3
+logging bindings, and the flush-before-save contract are untouched.
+
+* Decision 5 — =u= undoes via `undo-only' + a tick guard, never plain `undo'
+
+=org-air-edit-undo= (the =u= binding retargets; =org-air-triage-undo=
+becomes a defalias — muscle memory, process-inbox's =?u=, and test
+pins all keep working) pops the newest record and, for an in-place
+record:
+
+1. /Liveness/: =(buffer-live-p (:buffer))= else the record is dead —
+   message ="Cannot undo: DESC — source buffer gone"=, record
+   consumed, the press ENDS (no cascade — one press, one action,
+   predictable; the next =u= proceeds to the next record).
+2. /The tick guard/: =(buffer-chars-modified-tick buf)= must equal
+   the record's =:tick= — otherwise the buffer changed since the
+   edit (a manual user edit, an external revert) and blind undo
+   would eat the WRONG change: message ="Cannot undo: DESC — BUF
+   changed since"=, consumed, stop.  After a SUCCESSFUL undo (or any
+   ring push) in buffer B, the remaining records for B are
+   RE-STAMPED with B's new tick: the undo restored exactly the
+   content state the next-in-line record was stamped against, so the
+   guard keeps meaning "no NON-ring change intervened" — while a
+   real user edit still trips it (tick bumps with no re-stamp).
+3. /The undo/: =(undo-only)= in the record's buffer — NEVER plain
+   =undo=.  Plain =undo= on a second non-consecutive press REDOES
+   the first undo (defect (b), the today-toggle: =u n u= re-applies
+   the disposition it just reverted — pinned revert-RED, r73-7);
+   =undo-only= skips redo entries by construction, so successive =u=
+   presses WALK BACK through a buffer's edits in reverse order, and
+   records in different buffers undo independently (each buffer's
+   own undo list, no cross-buffer state).
+4. /The tail/: =save-buffer= → =org-air-refresh= → the R73-1 resync
+   rides the refresh tail (the undone item's row AND its pane/
+   inspector views revert in the same motion — no nudge, closing the
+   loop with package A).  Echo: ="Undid: DESC (N more)"=.
+
+Empty ring → =user-error "Nothing to undo"=.
+
+* Decision 6 — structural honesty: refile + archive are named, not faked
+
+- *refile* (='refile=): a delete in the source buffer + an insert in
+  the TARGET buffer, both saved, plus possible R66 frontmatter
+  synthesis and OLP creation in the target.  A source-side
+  =undo-only= would RESURRECT the item while the moved copy lives on
+  in the target — a silent DUPLICATE, worse than no undo.  A true
+  inverse (cut back from the target) is a second refile with its own
+  edge set (level re-mapping, stripped =inbox= tag, frontmatter
+  residue) — out of scope (Non-goals).  =u= on a refile record:
+  consumed + ="Not simply undoable: refile \"Title\" → proj.org — it
+  moved; refile it back (e) from there.  Next u: DESC-BELOW"=.
+- *archive* (='archive=, via the macro's =:structural= flag):
+  =org-archive-subtree= writes the archive location too; source-side
+  undo would leave the archived COPY — the same duplicate shape.
+  Same consumed-with-message treatment, naming the archive file.
+- *kill* stays ='in-place= — =org-cut-subtree= is a SINGLE-buffer
+  delete; buffer undo restores the subtree byte-exact.  =u= after an
+  accidental =x= is precisely the rescue the ring exists for.
+- *done / todo / tag / priority / schedule / deadline / category /
+  note* — all single-buffer in-place, all ='in-place=.
+
+The kind decides the dispatch; the DESC keeps the user oriented
+either way.  Records of every kind enter the ring (the history block
+shows the true recent past, including moves).
+
+* Decision 7 — the ring is bounded, plain, data-pure
+
+- =org-air-view--edit-ring= — a defvar-local? NO: global defvar.
+  Edits are global facts about the user's org files, the board
+  buffer can be killed and recreated (=q= + =M-x org-air=) without
+  forgetting history, and the single-board model (one
+  =org-air-view-buffer-name=) gives no per-buffer meaning anyway.
+- Depth: =org-air-view--edit-ring-max= = 20, a defconst (an internal
+  bound like =--refresh-pace=, NOT a defcustom — zero new knobs; 20
+  covers a whole process-inbox sitting, and the payload per record
+  is a short string + a buffer ref + ints).
+- A plain newest-first LIST with push-and-truncate — not =make-ring=
+  (no wraparound semantics wanted: =u= consumes from the head;
+  truncation drops the tail).
+- Data-pure: strings, symbols, ints, times, and LIVE buffer
+  references.  No markers (nothing to re-locate — =undo-only=
+  operates on the buffer's own undo list), no buffer-content
+  retention (a killed buffer's record degrades to the Decision 5
+  dead branch; the ref itself is a tombstone-cheap object).  The
+  ring never keeps a buffer alive that the user killed and never
+  prevents =find-file-noselect= reuse.
+
+* Decision 8 — history surface: a help block, no transient, no new key
+
+The =?= help (=org-air-help=, R50-2 groups ~9935) gains a "Recent
+edits" block — newest first, at most 5 rows, each ="1. DESC"= with a
+=[not simply undoable]= suffix on structural records and =[gone]= on
+dead ones, headed ="u undoes the top"=.  Rendered ONLY when the ring
+is non-empty, so every help golden/mockup (rendered with a fresh
+ring) stays byte-clean.  Rejected: a transient (a whole new surface
+for a read-only list) and a dedicated key (the board map is dense;
+=?= is already the "what just happened / what can I do" surface).
+The =u= help row re-words: =(org-air-edit-undo . "undo last edit
+(ring; ? shows recent)")= — the ONE wording shift, and the
+process-inbox prompt string keeps =[u]ndo= unchanged.
+
+* The reframe — every surface touched
+
+- org-air-view.el:
+  - NEW =org-air-view--panes-resync-now= + calls at the
+    =--refresh-repaint= tail and the sync =org-air-refresh= tail;
+    the Decision 2 empty degrade inside the helper;
+    =--view-pane-last-pos= bookkeeping.
+  - NEW =org-air-view--edit-ring= / =--edit-ring-max= /
+    =--edit-ring-push= (+ the same-buffer tick re-stamp helper).
+  - =org-air-view--at-item-source=: optional leading DESC string +
+    =:structural= flag; =undo-boundary= + =atomic-change-group=
+    around body+flush; ring push after save.  Callers gain DESC
+    strings: =--apply-date= (schedule/deadline), =org-air-set-schedule=,
+    =org-air-item-cycle-todo=, =org-air-item-archive= (+
+    =:structural=), =org-air-item-done=, =org-air-item-kill=.
+  - =org-air-set-tag= converted onto the macro (desc ="tag \"Title\"
+    +tag"=).
+  - =org-air-triage-undo= → =org-air-edit-undo= (defalias kept);
+    the Decision 5/6 dispatch; =u= binding + process-inbox =?u=
+    route via the alias unchanged.
+  - =org-air-help=: the Recent-edits block + the =u= row wording.
+- org-air-inbox.el: =--apply-item-edits= pushes (fboundp-guarded);
+  =org-air-refile-item= pushes the ='refile= record on success.
+- README.org: the triage bullet's undo sentence becomes "=u= undoes
+  the most recent board edit (a bounded recent-edits ring; refiles
+  and archives are named but not auto-reverted)".
+- No keymap change, no new defcustom, no cache/schema change, no
+  face change.
+
+* ERT seams — batch, tests/org-air-round73-test.el (each revert-RED against the R72 tree)
+
+Fixture: a temp org corpus (inbox + one filed target), the board
+built noninteractively; spies via =cl-letf= on
+=org-air-view--view-pane-update-now= /
+=org-air-view--inspector-update-now= /
+=org-air-view-pane--hide= / =org-air-query--scan-file=; file bytes
+compared before/after.
+
+- *r73-1 /the resync fires/*: after a non-interactive
+  =org-air-item-schedule= on the board, the spies record BOTH
+  update-now calls from the refresh tail with point on the SAME row
+  (no cursor motion in the test) — revert-RED: today neither fires.
+  Same assert through the =--refresh-repaint= tail driven directly
+  (the machine-path shape).
+- *r73-2 /identity is the signal/*: after the edit, the item struct
+  at point is NOT =eq= to the pre-edit struct (rescanned file ⇒
+  fresh structs — the Decision 1 invariant) while an item from an
+  untouched file IS =eq= to its predecessor; with the inspector
+  active, =org-air-view--inspector-item= ends =eq= to the FRESH
+  struct at point, never the stale one.
+- *r73-3 /done lands on the neighbour/*: two-item fixture,
+  =org-air-item-done= on the first — after the refresh the
+  pane/inspector update-now calls fired and the inspector item is
+  the SURVIVING item now at point, not the completed struct.
+- *r73-4 /the empty degrade/*: single-item fixture, done — the
+  resync detects no context: =org-air-view-pane--hide= spy fired
+  (window-live faked), inspector rendered the nil placeholder; no
+  error, no dead-item render.
+- *r73-5 /no rescan, no timers/*: the resync helper with
+  =org-air-query--scan-file= + =find-file-noselect= +
+  =run-with-idle-timer= spied ⇒ zero scan calls, zero timers armed
+  (batch-safe direct calls; R53); dummy pending debounce timers are
+  CANCELLED by the helper.
+- *r73-6 /u undoes the last in-place edit/*: schedule an item, =u= —
+  source file bytes byte-equal the pre-edit snapshot (including the
+  flushed log line), buffer saved, board refreshed (slot reverted),
+  ring popped, echo names the desc; the resync spies fired from the
+  undo's refresh tail.
+- *r73-7 /undo-only, never toggle/*: two edits, then =u=, an
+  unrelated command, =u= — BOTH edits reverted (bytes = original);
+  revert-RED against today's plain-=undo= (which would re-apply
+  edit 2).
+- *r73-8 /cross-buffer order/*: edits in two different files undo in
+  reverse chronological order across two =u= presses, each in its
+  own buffer.
+- *r73-9 /structural honesty/*: refile then =u= — BOTH files'
+  bytes unchanged by the press, record consumed, message names the
+  refile + target; the NEXT =u= undoes the in-place edit beneath.
+  Archive record (via the macro's =:structural=) behaves
+  identically.  Revert-RED: today =u= after a refile silently
+  undoes the older disposition.
+- *r73-10 /dead + stale guards/*: kill the source buffer → =u=
+  degrades with the gone-message, consumed, no error; separately, a
+  manual post-edit insertion in the source buffer trips the tick
+  guard (consumed, bytes untouched); a successful ring undo does NOT
+  trip the guard for the next same-buffer record (the re-stamp).
+- *r73-11 /coverage + bound/*: each verb — schedule, deadline, todo,
+  tag (the converted =org-air-set-tag=), done, kill, archive,
+  refile, and a transient-leg =--apply-item-edits= with priority +
+  note — leaves exactly ONE record with the right =:kind= and a desc
+  naming verb + title; pushing =max=+5 records leaves exactly
+  =org-air-view--edit-ring-max=.
+- *r73-12 /the atomic macro/*: a signalling BODY through
+  =org-air-view--at-item-source= leaves the source bytes identical,
+  the buffer unmodified, and NO ring record — revert-RED (today's
+  macro has no change group).  The R68 flush still lands INSIDE the
+  group on the success path (order pinned).
+- *r73-13 /help + wording/*: with a non-empty ring the help buffer
+  contains the Recent-edits block (newest first, structural suffix);
+  with an EMPTY ring the block is absent (help goldens stay clean);
+  the =u= row reads the new wording; =org-air-triage-undo= remains
+  =fboundp= and =eq='s definition-wise to =org-air-edit-undo=.
+
+GUI residue (screenshot/user-confirm, not ERT-able): the LIVE pane
+window visibly repainting right after an edit with no cursor nudge
+(items 1+3 as experienced); the pane window closing when the last
+item graduates; the rail inspector region repaint timing.  Flag
+these for a user GUI confirm on the impl round.  Goldens: ZERO
+mockup shifts expected (the resync renders through existing
+renderers; the help block is empty-ring-suppressed); the ONE
+possible shift is a help-fixture =u= row wording if any mockup pins
+it — =make regen-mockups= must come back clean or show exactly that
+row.
+
+* Non-goals
+
+- No auto-revert of refile/archive (Decision 6 is an honesty rule;
+  a true inverse-refile is a separate design if ever wanted).
+- No redo (=u= walks back only; =undo-only= by construction).
+- No persistence of the ring across Emacs sessions.
+- No per-item history view, no transient, no new key (Decision 8).
+- No change to the follow/debounce trackers or their knobs; a
+  follow-off pane still refreshes only on =v= (pre-existing).
+- No multi-step "undo N" prefix; one press, one record.
+- No recording of edits made OUTSIDE the board (a manual edit in a
+  visited org file is the user's own =C-/= domain — the tick guard
+  exists precisely to keep =u= out of it).
+- No new defcustom (depth is a defconst bound).
+
+* Compatibility
+
+- *R53 (never-hang / never-error / cache-first)*: the resync is
+  direct, timer-free, never-error, and re-renders CACHED structs —
+  zero re-query (pinned r73-5); the pane's own source visit is its
+  existing R16 render path, unchanged.  =u= failure modes all
+  degrade to messages.
+- *R65 (pane reveal, no source-fold leak)*: the resync enters
+  through =--show= → =--renarrow=/=--render-editable=, which own the
+  reveal discipline — untouched, still pane-local.
+- *R26-8 / R42 / R56 (the refresh machine)*: no machine state is
+  touched; the resync is a pure tail observer after each existing
+  repaint/swap; failure/cancel repaints no-op via identity.
+- *R67/R71 (the transient editor)*: =--apply-item-edits= keeps its
+  atomic group, mutator order, flush-then-note contract; it gains
+  only the ring push after its save.  The refile leg's engine
+  transaction is untouched; the push happens on success only.
+- *R68 (logging discipline)*: the macro's bindings + flush move
+  INSIDE the new change group but keep their relative order
+  (mutators → flush → save); =org-air-set-tag='s conversion EXTENDS
+  R68 coverage to the tag verb.
+- *R64/R66 (refile safety)*: byte-untouched transaction; the
+  structural record adds observability, never a second mutation
+  path.
+- *R21/R29 (point preservation)*: =--restore-position= and the
+  normalize tail run BEFORE the resync — the resync reads, never
+  moves, point.
+- Muscle memory / pins: =u= key, =org-air-triage-undo= name
+  (defalias), =org-air-view--triage-source-buffer= (still set,
+  no longer read), process-inbox prompt — all preserved.
+
+* Implementation History
+
+- 2026-07-23: Round 73 spec (design seat, Fable).  User report:
+  stale pane/inspector after edits (cursor-nudge needed; removed
+  items linger) + no edit history behind =u=.  Root causes: (A)
+  both panes sync ONLY via post-command point-tracking, which never
+  fires when a refresh changes the board under a stationary cursor;
+  (B) single-buffer =org-air-view--triage-source-buffer= + plain
+  =(undo)= — refile unrecorded (u undoes the wrong thing),
+  non-consecutive u toggles, nothing names what u will do.
+  Decisions: (1) forced resync at the TWO swap tails
+  (=--refresh-repaint= tail + sync =org-air-refresh= tail), direct
+  timer-free calls to =--view-pane-update-now= +
+  =--inspector-update-now=, self-limited by struct IDENTITY
+  (rescanned files mint fresh structs, retained files keep =eq=
+  ones — no FORCE, no churn); (2) empty degrade: no resolvable
+  context after a swap ⇒ pane closes, inspector renders nil —
+  resync-scoped, follow motion untouched; (3) recording by
+  construction: =--at-item-source= gains leading DESC string +
+  =:structural= flag + ring push; =--apply-item-edits= and the
+  refile engine push directly; =org-air-set-tag= converted onto the
+  macro; (4) the macro gains =undo-boundary= + ONE
+  atomic-change-group (one edit = one undo group; failed edit
+  records nothing); (5) =u= → =org-air-edit-undo= (alias kept):
+  pop + =undo-only= in the record's OWN buffer +
+  chars-modified-tick guard with post-undo re-stamp + save +
+  refresh (resync rides the tail); (6) refile/archive are
+  STRUCTURAL — consumed with an honest message, never a
+  duplicate-making partial undo; kill stays in-place-undoable; (7)
+  ring = plain bounded list, depth 20 defconst, data-pure (no
+  markers, no retained content); (8) history = a Recent-edits block
+  in =?= help, empty-ring-suppressed (goldens clean), no new key.
+  Zero new knobs, org/org-ql only.  Thirteen batch seams
+  r73-1..r73-13, revert-RED where marked; GUI residue flagged for
+  user confirm (live pane repaint, pane close on empty, rail
+  region timing).  State: ready.

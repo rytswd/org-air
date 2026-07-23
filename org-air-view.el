@@ -7384,8 +7384,12 @@ re-stamped (the pane is now correct FOR this position).
 
 Decision 2 — the empty degrade, RESYNC-SCOPED only: when NO context
 resolves at-or-after point (`org-air-view-pane--context-at-point' with
-its R24-4 fall-forward — the last item graduated, the board is empty)
-and the pane window is live, the pane is CLOSED via
+its R24-4 fall-forward) AND the board is TRULY empty — no item rows
+anywhere (the fall-forward never looks BACKWARD, so a nil context
+alone also covers point merely parked below the last row of a
+POPULATED board, where keep-last must hold instead) — the last item
+graduated, the board is empty: with the pane window live, the pane is
+CLOSED via
 `org-air-view-pane--hide' (the R20-3 teardown — base buffer and its
 unsaved state survive) and the inspector renders its nil placeholder —
 never a stale/dead-item pane.  Deliberately NOT folded into
@@ -7416,22 +7420,32 @@ at the two swap tails only."
           (setq-local org-air-view--view-pane-timer nil)
           (setq-local org-air-view--view-pane-last-pos (point))
           ;; Direct, identity-limited updates for the item NOW at point.
-          (let ((thing (get-text-property (point)
-                                          org-air-view--inspector-property))
-                (ctx (org-air-view-pane--context-at-point)))
+          (let* ((thing (get-text-property (point)
+                                           org-air-view--inspector-property))
+                 (ctx (org-air-view-pane--context-at-point))
+                 ;; R73fix: the degrade legs below require the board
+                 ;; TRULY empty — the R24-4 fall-forward never looks
+                 ;; BACKWARD, so a nil ctx alone also matches point
+                 ;; parked BELOW the last row of a populated board (the
+                 ;; pad tail), where keep-last must hold.
+                 (board-empty
+                  (and (null ctx)
+                       (not (text-property-not-all
+                             (point-min) (point-max)
+                             org-air-view--inspector-property nil)))))
             ;; The inspector nudge: for a real thing (the eq guard decides
-            ;; redraw-vs-skip) or the true empty degrade (nil thing, no
-            ;; context anywhere at-or-after — the nil placeholder is the
-            ;; honest render).  A nil-thing CHROME row with items below
-            ;; keeps the last render (Decision 2's keep-last scoping).
-            (when (or thing (null ctx))
+            ;; redraw-vs-skip) or the true empty degrade (nil thing, board
+            ;; truly empty — the nil placeholder is the honest render).
+            ;; A nil-thing CHROME row or the pad tail with items still
+            ;; on the board keeps the last render (Decision 2's keep-last
+            ;; scoping).
+            (when (or thing board-empty)
               (org-air-view--inspector-update-now buf))
             (org-air-view--view-pane-update-now buf)
-            ;; Decision 2: the empty degrade — nothing resolves at or
-            ;; after point, so the board really has nothing under point
+            ;; Decision 2: the empty degrade — no items remain anywhere
             ;; after the swap: close the pane rather than paint a
             ;; removed item.
-            (when (and (null ctx)
+            (when (and board-empty
                        (org-air-view-pane--window-live-p))
               (setq-local org-air-view--view-pane-item nil)
               (org-air-view-pane--hide)))))

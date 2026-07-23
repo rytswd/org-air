@@ -383,7 +383,12 @@ CANCELLED by the helper."
   "Schedule an item, `u': the source file bytes byte-equal the
 pre-edit snapshot, the buffer is saved, the board refreshed, the ring
 popped, the echo names the desc — and the resync spies fire from the
-undo's refresh tail."
+undo's refresh tail.  Plus the R73fix Minor-2 pin:
+`org-air-inbox--apply-item-edits' places the macro's LEADING
+`undo-boundary', so a preceding UNBOUNDARIED same-buffer Lisp edit
+\(the batch/API shape) never merges into the apply's undo group — `u'
+reverts EXACTLY the apply edit and the preceding edit survives,
+byte-exact (revert-RED: without the boundary `undo-only' eats both)."
   (skip-unless (locate-library "org-air"))
   (org-air-r73--with-board nil
     (org-air-r73--goto-row "Alpha task")
@@ -415,7 +420,31 @@ undo's refresh tail."
                     m))
                  msgs))
         ;; the R73-1 resync rode the undo's refresh tail.
-        (should pane-calls)))))
+        (should pane-calls))))
+  ;; the R73fix Minor-2 pin: an unboundaried preceding Lisp edit must
+  ;; NOT ride the apply's undo group.
+  (org-air-r73--with-board nil
+    (let ((before (org-air-r73--text "inbox.org"))
+          (item (org-air-r73--item "inbox.org" "Alpha task"))
+          (buf (find-file-noselect (org-air-r73--file "inbox.org"))))
+      (with-current-buffer buf
+        ;; the unboundaried same-buffer Lisp edit immediately before
+        ;; the apply — no command loop closes its group in batch.
+        (save-excursion (goto-char (point-max)) (insert "manual line\n")))
+      (org-air-inbox--apply-item-edits item '(:priority "A"))
+      (should (= 1 (length org-air-view--edit-ring)))
+      (should (string-match-p "\\[#A\\]" (org-air-r73--text "inbox.org")))
+      (should (string-match-p "manual line" (org-air-r73--text "inbox.org")))
+      (setq last-command 'ignore)
+      (org-air-r73--recording-messages msgs
+        (org-air-edit-undo)
+        (should-not (seq-find (lambda (m) (string-match-p "Cannot undo" m))
+                              msgs)))
+      ;; EXACTLY the apply edit reverted: the priority is gone, the
+      ;; preceding manual edit survives — byte-exact on disk.
+      (should (equal (concat before "manual line\n")
+                     (org-air-r73--text "inbox.org")))
+      (should (null org-air-view--edit-ring)))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r73-7 — undo-only, never toggle (revert-RED)
@@ -834,7 +863,12 @@ reserved for a truly empty board), and the inspector converges on the
 survivor.  Plus the impl-RULING pin nothing else covers: a nil-thing
 CHROME row with items still resolvable below SKIPS the inspector nudge
 \(keep-last) — the region keeps its render instead of degrading to the
-placeholder on every refresh."
+placeholder on every refresh.  Plus the R73fix Minor-1 pin: point
+parked BELOW the last row (the pad tail, `M->') on a still-populated
+board — ctx is nil (the R24-4 fall-forward never looks backward) but
+the board is NOT empty, so the Decision 2 degrade must NOT fire: the
+pane stays open (no hide) and the inspector keeps its render, never
+the nil placeholder (revert-RED against the bare `(null ctx)' gate)."
   (skip-unless (locate-library "org-air"))
   (org-air-r73--with-board nil
     ;; Gamma is the ONLY dated item in the corpus — done empties its
@@ -875,6 +909,29 @@ placeholder on every refresh."
         (cl-letf (((symbol-function 'org-air-view--render-inspector-region)
                    (lambda (thing _target) (setq rendered thing))))
           (org-air-view--panes-resync-now))
+        (should (eq rendered 'unset))
+        (should (eq gamma org-air-view--inspector-item)))
+      ;; the R73fix Minor-1 pin: point parked BELOW the last row — the
+      ;; pad tail (`M->').  ctx is nil, but the board still has items:
+      ;; the resync must keep the pane OPEN (no hide) and skip the
+      ;; inspector nudge (keep-last), never the empty degrade.
+      (goto-char (point-max))
+      (should-not (get-text-property (point)
+                                     org-air-view--inspector-property))
+      (should-not (org-air-view-pane--context-at-point))
+      ;; the board is NOT empty — item rows remain above point.
+      (should (text-property-not-all (point-min) (point-max)
+                                     'org-air-item nil))
+      (let ((tail-hides 0) (rendered 'unset))
+        (org-air-r73--fake-inspector gamma)
+        (cl-letf (((symbol-function 'org-air-view-pane--window-live-p)
+                   (lambda () t))
+                  ((symbol-function 'org-air-view-pane--hide)
+                   (lambda () (cl-incf tail-hides)))
+                  ((symbol-function 'org-air-view--render-inspector-region)
+                   (lambda (thing _target) (setq rendered thing))))
+          (org-air-view--panes-resync-now))
+        (should (zerop tail-hides))
         (should (eq rendered 'unset))
         (should (eq gamma org-air-view--inspector-item))))))
 

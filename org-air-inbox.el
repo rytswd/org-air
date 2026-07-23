@@ -1478,6 +1478,11 @@ record and note together (probed byte-exact)."
        (goto-char (let ((m (org-air-item-marker item)))
                     (if (markerp m) (marker-position m) (or (cdr-safe m) 1))))
        (org-back-to-heading t)
+       ;; R73fix (Decision 4 symmetry with `org-air-view--at-item-source'):
+       ;; the LEADING boundary — a preceding unboundaried same-buffer
+       ;; Lisp/batch change must never merge into this edit's undo
+       ;; group, so `u' reverts EXACTLY this edit.
+       (undo-boundary)
        (atomic-change-group
          ;; R68-3: the logging discipline around the mutator block —
          ;; `(or … 'note)' preserves an outer t (full inhibition stays

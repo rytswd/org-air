@@ -381,3 +381,23 @@ round-trips.
 
 - 2026-07-25: Round 78 spec drafted (Fable). State: ready — awaiting
   impl + test seats. No code changes in this commit.
+- 2026-07-23: Round 78 TEST/AUDIT seat (Fable). Independently verified
+  the impl's r78-1..8: all EXECUTE green and revert-RED against the
+  pre-R78 org-air-view.el (8/8 RED); nine targeted mutations pinned the
+  anchors — date-dropped delegate reddens 7/8, DEFAULT-TIME-nil reddens
+  r78-6 alone, registry-bypass + cookie-strip redden r78-5, a
+  query-in-the-jump reddens r78-4 (the spy really counts), a flipped
+  or-chain reddens the new r78-10. TWO structural gaps found (both
+  mutations passed 8/8 GREEN pre-hardening): the Decision-4 cold-open
+  branch and the R50-2 help Navigation row were entirely untested.
+  Hardened with three audit ERTs: r78-9 (cold open from Lisp AND
+  interactive — the reader's lenient owner resolve, cold DEFAULT-TIME
+  nil, quit-at-the-prompt opens NOTHING), r78-10 (DATE beats a
+  propertized org-air-day cell at point AND the sticky day, with the
+  cell-binds precondition anti-vacuity leg; `<' composes to -1d),
+  r78-11 (help Navigation row in the data + the LIVE-derived `g d' row
+  text in *org-air-help*; collision audit — `j' still
+  org-air-next-line). Impl byte-identical throughout (zero .el churn
+  outside tests/). make clean && make check GREEN — 993 tests
+  (990 + 3), 0 unexpected, 8 GUI skips; known-failures manifest EMPTY;
+  make regen-mockups byte-clean (zero golden churn).

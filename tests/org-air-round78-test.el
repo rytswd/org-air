@@ -40,6 +40,18 @@
 ;;          (`org-air-calendar-next' reads the jump-set day); the `q'
 ;;          layer (R28-2 layer 2) returns to the full board — day state
 ;;          nil, day header gone, the board rows back.
+;;   r78-9  (audit round) the Decision-4 cold open: with NO live board
+;;          anywhere the command opens `org-air-view' FIRST and then
+;;          jumps — from Lisp and interactively (the reader's LENIENT
+;;          owner resolve must not pre-empt the open with the R55-1
+;;          `user-error'); a quit AT the prompt opens nothing.
+;;   r78-10 (audit round) DATE beats a calendar CELL at point AND the
+;;          sticky day: invoking over a propertized `org-air-day' cell
+;;          still lands on the PASSED date; `<' steps -1d from it.
+;;   r78-11 (audit round) the R50-2 help surface: the Navigation group
+;;          carries the `org-air-goto-date' row and the LIVE-derived
+;;          key text `g d' renders in `*org-air-help*'; the collision
+;;          audit holds — `j' is still the R29-2 vim-ish next-line.
 ;;
 ;; Harness: the standard batch board (pure batch — `noninteractive'
 ;; stays t, so the R55-1 focus hop is gated off and no windows are
@@ -447,6 +459,145 @@ day header is gone and the full board's rows are back."
                        text))
           ;; the FULL board is back: the inbox row renders again.
           (should (string-match-p "Sort receipts" text)))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r78-9 (audit) — the Decision-4 cold open: no live board anywhere.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r78-9-cold-open-then-jump ()
+  "With NO live board the command opens `org-air-view' FIRST, then jumps.
+Leg 1 (Lisp arity): `(org-air-goto-date TARGET)' from cold creates the
+`*org-air*' board (org-air-view-mode) and lands its day state on
+TARGET.  Leg 2 (interactive): the reader's owner resolve is LENIENT
+\(`ignore-errors' — without it the R55-1 `user-error' fires before the
+body can open anything), DEFAULT-TIME is nil from cold, and the
+command still opens + lands.  Leg 3: a quit AT the prompt opens
+NOTHING — the reader runs first, so `C-g' leaves no board behind.
+Revert of the `(unless … (org-air-view))' branch fails legs 1 and 2."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r78--with-corpus org-air-r78--corpus
+    (org-air-viewport-test--with-frozen-now
+      (unwind-protect
+          (org-air-viewport-test--with-render-guards
+            (let ((org-air-view-width 120)
+                  (org-air-rail-min-width 200)
+                  (kill-buffer-query-functions nil))
+              ;; leg 1: Lisp call from cold — the board opens, then jumps.
+              (should-not (get-buffer org-air-view-buffer-name))
+              (org-air-goto-date org-air-r78--target)
+              (let ((board (get-buffer org-air-view-buffer-name)))
+                (should board)
+                (with-current-buffer board
+                  (should (derived-mode-p 'org-air-view-mode)))
+                (should (equal (org-air-r78--board-day-key board)
+                               "2026-07-25"))
+                (should (string-match-p
+                         (regexp-quote
+                          (org-air-r78--day-header org-air-r78--target))
+                         (org-air-r78--text board)))
+                (kill-buffer board))
+              ;; leg 2: interactive from cold — the lenient reader must not
+              ;; pre-empt the open; DEFAULT-TIME is nil (no owner to read).
+              (should-not (get-buffer org-air-view-buffer-name))
+              (let ((captured 'unset))
+                (with-temp-buffer
+                  (cl-letf (((symbol-function 'org-read-date)
+                             (lambda (&rest args)
+                               (setq captured args)
+                               org-air-r78--target)))
+                    (call-interactively #'org-air-goto-date)))
+                (should (consp captured))
+                (should (null (nth 4 captured))))   ; cold DEFAULT-TIME nil
+              (let ((board (get-buffer org-air-view-buffer-name)))
+                (should board)
+                (should (equal (org-air-r78--board-day-key board)
+                               "2026-07-25"))
+                (kill-buffer board))
+              ;; leg 3: quit AT the prompt — nothing opens.
+              (should-not (get-buffer org-air-view-buffer-name))
+              (with-temp-buffer
+                (cl-letf (((symbol-function 'org-read-date)
+                           (lambda (&rest _) (signal 'quit nil))))
+                  ;; ERT's `should-error' handler does not trap `quit';
+                  ;; catch it explicitly — the quit MUST fire (anti-vacuity)
+                  ;; and the body must never have run.
+                  (let ((quit-fired nil))
+                    (condition-case nil
+                        (call-interactively #'org-air-goto-date)
+                      (quit (setq quit-fired t)))
+                    (should quit-fired))))
+              (should-not (get-buffer org-air-view-buffer-name))))
+        (when (get-buffer org-air-view-buffer-name)
+          (let ((kill-buffer-query-functions nil))
+            (kill-buffer org-air-view-buffer-name)))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r78-10 (audit) — DATE beats the cell at point + the sticky day.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r78-10-date-beats-cell-at-point ()
+  "The PASSED date wins over an `org-air-day' cell at point AND the
+sticky `org-air-view--day'.  Precondition (anti-vacuity): from a
+foreign buffer with point ON a propertized cell, the bare
+`org-air-view-day' DOES land on the cell's day — the cell genuinely
+binds through this code path (the rail-cell invoke shape).  Then
+`org-air-goto-date' from the SAME point lands on the passed TARGET —
+DATE beat both the cell (2026-07-20) and the now-sticky day.  `<'
+composes: `org-air-calendar-prev' steps to TARGET-1d."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r78--with-board
+    (let ((board (current-buffer)))
+      (with-temp-buffer
+        (insert (propertize "x" 'org-air-day org-air-r78--routine-day))
+        (goto-char (point-min))
+        ;; precondition: the cell at point binds for the bare cell verb.
+        (org-air-view-day)
+        (should (equal (org-air-r78--board-day-key board) "2026-07-20"))
+        ;; DATE beats the cell AND the sticky day.
+        (org-air-goto-date org-air-r78--target)
+        (should (equal (org-air-r78--board-day-key board) "2026-07-25")))
+      (should (string-match-p
+               (regexp-quote (org-air-r78--day-header org-air-r78--target))
+               (org-air-r78--text board)))
+      ;; `<' composes from the landed date: Fri 2026-07-24.
+      (with-current-buffer board
+        (org-air-calendar-prev))
+      (should (equal (org-air-r78--board-day-key board) "2026-07-24")))))
+
+;;;; -------------------------------------------------------------------
+;;;; r78-11 (audit) — the help Navigation row + the collision audit.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r78-11-help-row-and-key-audit ()
+  "The R50-2 help carries the goto-date Navigation row; `j' is untouched.
+Data leg: `org-air-help--board-groups' \"Navigation\" holds the
+`org-air-goto-date' pair.  Render leg: `org-air-help' from the live
+board derives the LIVE key text — the `*org-air-help*' buffer shows
+`g d' beside the row wording (the help cannot lie).  Collision audit:
+`j' still resolves to the R29-2 `org-air-next-line' and `g d' to the
+new command on the live board."
+  (skip-unless (locate-library "org-air"))
+  ;; data leg: the pair sits in the Navigation group.
+  (let ((nav (cdr (assoc "Navigation" org-air-help--board-groups))))
+    (should nav)
+    (should (assq 'org-air-goto-date nav)))
+  (org-air-r78--with-board
+    ;; collision audit on the LIVE board maps.
+    (should (eq (key-binding "j") 'org-air-next-line))
+    (should (eq (key-binding (kbd "g d")) 'org-air-goto-date))
+    (should (eq (key-binding (kbd "?")) 'org-air-help))
+    ;; render leg: the row derives to `g d' live.
+    (unwind-protect
+        (progn
+          (org-air-help)
+          (let ((help (get-buffer org-air-help-buffer-name)))
+            (should help)
+            (let ((text (org-air-r78--text help)))
+              (should (string-match-p
+                       "^  g d +jump to a date's items (day view)" text)))))
+      (when (get-buffer org-air-help-buffer-name)
+        (let ((kill-buffer-query-functions nil))
+          (kill-buffer org-air-help-buffer-name))))))
 
 (provide 'org-air-round78-test)
 ;;; org-air-round78-test.el ends here

@@ -2627,8 +2627,15 @@ optional segments (after filter, scope and count)."
                                    ;; R69-5: route through the R24-6 token
                                    ;; primitive (verbatim `#…', quoted bare)
                                    ;; instead of hand-prepending `#'.
-                                   (mapconcat #'org-air-view--filter-token-label filters sep)
-                                   " " (org-air-view--glyph 'clear))
+                                   ;; R74 (the R69-2 sibling site): the
+                                   ;; trailing ✕ clear glyph is DROPPED —
+                                   ;; it carried no keymap/button action (a
+                                   ;; promise the banner could not honour);
+                                   ;; the rail's `\\ clears' hint is the
+                                   ;; teaching surface.  The glyph table
+                                   ;; entry stays (the project header still
+                                   ;; renders it).
+                                   (mapconcat #'org-air-view--filter-token-label filters sep))
                            'face 'org-air-face-faded))))
          (scope-text (pcase org-air-view--scope
                        ;; R69-5: prefix-deduped chip label (a `#Nix' tag
@@ -4599,6 +4606,81 @@ and user-driven), not in the per-item classify path, which is data-pure."
               (org-air-view--timestamp-time
                (org-timestamp-from-string v)))))))))
 
+(defun org-air-view--item-updated (item)
+  "Return ITEM's last activity as (EPOCH . SOURCE), or nil (R74-1).
+Pure and I/O-free — three cached R61 slot reads, no file access, no
+marker hydration.  Candidates: the newest LOGBOOK stamp (`logs' head;
+SOURCE from its KIND — nil -> `note', `done' -> `done', `todo' ->
+`state' — the CLASS the scan cached, never a guessed keyword), the
+newest clock's END (`clocks' head's cdr, O(1); SOURCE `clock') and the
+`created' slot (SOURCE `created' — the floor: an item never touched
+since capture was last updated when it was created).  The winner is the
+strict MAX; ties resolve logs > clocks > created (replace only on
+strictly greater), so an equal-second note outranks a clock-out with
+the more descriptive label.  Cap-invariant: `org-air-log-cap'
+truncation keeps the NEWEST entries, so a `rtrunc' item's heads are
+exactly the untruncated heads.  All three slots empty -> nil (the
+Decision 3 fallback takes over in `org-air-view--item-updated-line')."
+  (let* ((log (car (org-air-item-logs item)))
+         (clock-end (cdr (car (org-air-item-clocks item))))
+         (created (org-air-item-created item))
+         (best (when log
+                 (cons (car log)
+                       (pcase (cdr log)
+                         ('done 'done)
+                         ('todo 'state)
+                         (_ 'note))))))
+    (when (and clock-end (or (null best) (> clock-end (car best))))
+      (setq best (cons clock-end 'clock)))
+    (when (and created (or (null best) (> created (car best))))
+      (setq best (cons created 'created)))
+    best))
+
+(defun org-air-view--item-updated-line (item inset now)
+  "Return the inspector Updated KV line for ITEM at INSET, or nil (R74).
+Slot path first: `org-air-view--item-updated' (pure, zero I/O) supplies
+the epoch and the class label.  When ALL three R61 slots are empty (no
+LOGBOOK, no closed clock, no `:CREATED:' — including items built
+outside the scan), ONE bounded `file-attributes' stat on the item's
+file supplies a last-modified time labelled \"~file\" (file-level, not
+heading-precise — one uniform rule, `kind' `file' items included).
+Always-on and FUTURE-CLAMPED: a fallback mtime AFTER the render clock
+NOW renders NOTHING (clock skew, NFS drift, a restored backup — an
+untrustworthy signal; the clamp is also exactly what keeps the
+frozen-clock goldens byte-clean, their fixture mtimes post-dating the
+frozen NOW).  The SLOT path is NOT clamped — a forged future LOGBOOK
+stamp renders honestly as \"(in Nd · note)\".  A nil, missing or
+unreadable file degrades to nil — no line, no signal (R53).  The stat
+is reachable only from HERE (the inspector line render): one item, once
+per debounced render, never in the classify/paint loop."
+  (let* ((slot (org-air-view--item-updated item))
+         (time (car slot))
+         (label (pcase (cdr slot)
+                  ('note "note") ('done "done") ('state "state")
+                  ('clock "clock") ('created "created"))))
+    (unless slot
+      ;; Decision 3: ONE bounded live stat, marked, future-clamped.
+      (let* ((file (org-air-item-file item))
+             (mtime (and (stringp file)
+                         (ignore-errors
+                           (file-attribute-modification-time
+                            (file-attributes file))))))
+        (when (and mtime (not (time-less-p now mtime)))
+          (setq time mtime
+                label "~file"))))
+    (when time
+      (org-air-view--inspector-kv
+       "Updated"
+       (concat (propertize (format-time-string "%F" time)
+                           'face 'org-air-face-faded)
+               "  "
+               (propertize
+                (format "(%s · %s)"
+                        (org-air-view--inspector-relative time now)
+                        label)
+                'face 'org-air-face-faded))
+       inset))))
+
 (defun org-air-view--inspector-bucket-name (bucket)
   "Return a compact display name for classify BUCKET (D-P7)."
   (pcase bucket
@@ -4713,6 +4795,12 @@ fields function while the core stays content-agnostic."
                                              (org-air-view--inspector-relative c now))
                                      'face 'org-air-face-faded))
                             inset))
+                         ;; R74: last activity from the cached R61 slot
+                         ;; heads (else the bounded ~file fallback),
+                         ;; directly AFTER Created — and rendered whether
+                         ;; or not Created did (the fallback case is
+                         ;; precisely a Created-less item).
+                         (org-air-view--item-updated-line item inset now)
                          (org-air-view--inspector-date-line
                           "Closed" (org-air-item-closed item)
                           'org-air-face-faded inset now))))

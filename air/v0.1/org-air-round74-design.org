@@ -367,3 +367,45 @@ user confirm alongside R73's own GUI checklist.
   merge-order-proof.  Ten batch seams r74-1..r74-10, revert-RED where
   marked; goldens: ZERO shifts predicted with the clamp lemma pinned
   as r74-6.  State: ready.
+- 2026-07-23: Round 74 IMPLEMENTED (impl seat, Fable; fresh child of
+  kxknsvtk — the R74 design on R73-integrated main).  Delivered
+  exactly as specced, org-air-view.el only:
+  - NEW =org-air-view--item-updated= — the Decision 1 pure helper:
+    strict MAX over =logs[0]= / newest clock's END (the head's cdr,
+    O(1)) / =created=, fold order A ≻ B ≻ C replacing only on
+    strictly-greater; SOURCE labels =note=/=done=/=state=/=clock=/
+    =created= from the scan-cached KIND class, never a keyword guess.
+  - NEW =org-air-view--item-updated-line= — renders the KV line (key
+    ="Updated"= in the 8-col register, value date =%F= + ="  (REL ·
+    LABEL)"= whole-faded, Created's byte-shape); slot path first,
+    else the Decision 3 fallback: ONE bounded =file-attributes= stat
+    (stringp-guarded + =ignore-errors=, nil/missing/unreadable → no
+    line), label ="~file"= uniform (=kind 'file= included, r74-10),
+    FUTURE-CLAMPED via =(time-less-p now mtime)= → omit.  The slot
+    path is NOT clamped (a forged future stamp reads ="(in Nd ·
+    note)"= honestly).
+  - =org-air-view--inspector-item-fields=: the one new entry in the
+    dates =delq nil= list, directly after the Created =when-let*= —
+    order Sched / Deadln / Created / Updated / Closed.
+  - PLUS the folded-in R69-2 sibling site: the dead ✕ clear glyph
+    DROPPED from the HEADER/BANNER filter segment (the trailing
+    =(org-air-view--glyph 'clear)= after the token join, ~2629) —
+    same rationale as the R69-2 rail drop (no keymap/button action);
+    the rail's =\ clears= hint stays, the glyph table entry stays
+    (the project header still renders it).
+  query.el byte-untouched; zero new defcustoms/keys/faces; no cache
+  or schema change.  Ten seams green in
+  tests/org-air-round74-test.el, ALL TEN verified revert-RED against
+  the pre-R74 tree (after =make clean= — the standing stale-.elc
+  lesson bit the first revert probe); the r74-9 compose seam runs
+  merge-order-proof and, with R73 landed on this base, additionally
+  rides the refresh-tail resync with a stationary cursor — both legs
+  green.  =make clean && make check= GREEN — 939 tests, 0 unexpected,
+  8 GUI skips, lint 0.  =make regen-mockups= byte-clean (the r74-6
+  clamp lemma held exactly as predicted).  The prompt's predicted
+  header-✕ golden shifts did NOT materialise: no fixture golden and
+  no ERT renders a banner with an active filter, so the
+  known-failures manifest is UNTOUCHED (flagging a passing test would
+  itself fail the binary gate).  GUI residue for the user-confirm
+  checklist: the Updated line visible in the live rail + its repaint
+  on the R73 resync after an =n= note.

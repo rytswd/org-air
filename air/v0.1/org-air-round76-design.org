@@ -1,0 +1,438 @@
+#+title: org-air Round 76 — The edit-form `,' priority field is a one-way cycle: full-range one-key picker (org's own read idiom), SPC clears
+#+state: ready
+#+tags: bug transient refile inbox ux
+
+* Summary
+
+USER BUG (verbatim intent): in the edit transient (=e=), the =,=
+priority field only walks DOWN — /"when an item starts from C, I can
+only choose from C, D, and E"/.  Root cause is by construction:
+=org-air-refile-form-priority= (org-air-inbox.el:1337, the cycle at
+:1353–:1361) computes =next = (1+ current)= — a ONE-WAY cycle
+– → A → … → lowest → – .  From C the only route UP to A is FOUR more
+presses through D, E and the unset step; the available range is never
+shown; and the unset step doesn't even mean "clear" — =:priority nil=
+means UNTOUCHED (both execute legs skip nil), so the form cannot
+REMOVE an existing cookie at all today.  Three defects in one field:
+no direct up, no visible range, no real clear.
+
+FIX — the R68 law applied to =,=: a chooser, not a blind cycle
+(exactly as R68-1 turned the board's =T= from a silent cycle into
+select-over-the-vocabulary).  Pressing =,= reads ONE character over
+the write target's WHOLE priority range:
+
+- prompt ="Priority %c-%c, SPC clears[, RET keeps %c]: "= — org's own
+  =org-priority= idiom (source-read: ="Priority %c-%c, SPC to
+  remove: "=), extended with the pre-filled current value, so the
+  user SEES every choice;
+- ANY in-range letter sets it — A from C is ONE keystroke, up or
+  down; lowercase is upcased (org's own rule, source-read + probed);
+- SPC (or =-=, the field's own "–" unset glyph) CLEARS — a REAL
+  clear: the new =?\s= sentinel in =:priority= flows through BOTH
+  existing apply legs byte-unchanged and =(org-priority ?\s)= itself
+  removes the cookie (probed, org 9.7.11);
+- RET keeps (the field stays as it was; C-g likewise);
+- out-of-range input is REJECTED honestly with org's own wording —
+  never clamped, never a hang;
+- the range is the WRITE TARGET's (=org-air-inbox--target-priority-range=
+  over =org-air-inbox--form-write-target= — destination file when
+  set, else the item's own file; the R67-4 law byte-kept), read in
+  the same buffer the apply-time =org-priority= runs in, so the
+  picker and the apply agree by construction;
+- =:transient t= stays — the form stays open; the field row and the
+  live Preview reflect the pick (WYSIWYG: a cleared pick drops the
+  =[#C]= from the previewed heading exactly as RET will write it).
+
+Measured this round (probes under =/tmp/org-air-r76/=, batch Emacs
+30.2 / Org 9.7.11):
+
+| Probe                                                        | Result                                                                     |
+|--------------------------------------------------------------+----------------------------------------------------------------------------|
+| =(org-priority ?A)= on =[#C]=, batch Lisp                    | cookie → =[#A]=                                                            |
+| =(org-priority ?\s)= on =[#C]=                               | cookie REMOVED ("Priority removed") — the sentinel rides the existing legs |
+| =(org-priority 'remove)=                                     | ditto (the rejected-alternative sentinel also works)                       |
+| =(org-priority ?a)= lowercase, range A–C                     | upcased → =[#A]= (source: upcase when both range ends are uppercase)       |
+| =(org-priority ?F)=, range A–C                               | =user-error "Priority must be between ‘A’ and ‘C’"=                        |
+| =(org-priority ?\s)= on a heading with NO cookie             | =user-error "No priority cookie found in line"= — forces Decision 4's state-aware arming |
+| buffer-local =#+PRIORITIES: A C B=                           | =org-priority='s range check honours it (A–C; ?E rejected) — apply-time symmetry |
+| org.el 9.7.11 source read                                    | the =set= branch reads ONE char after ="Priority %c-%c, SPC to remove: "=; upcases; =(equal new ?\s)= → remove fires for a PASSED integer action too |
+
+ZERO apply-leg changes: =org-air-inbox--apply-item-edits= (:1501)
+and the =org-air-refile-item= engine (:781) pass the value through
+=(if (stringp p) (aref p 0) p)= untouched — the sentinel is org's own
+remove vocabulary end-to-end.  One new reader helper + one pure
+normalizer (the honest batch seam), the suffix body swapped, the
+field/preview renderers taught the sentinel.  No new key, no new
+defcustom, org/org-ql only.  NO one-way cycle survives anywhere.
+
+* Decision 1 — the field becomes a one-key FULL-RANGE picker (the R68 chooser law)
+
+The R68 ruling transfers verbatim: /"the user's expectation is
+explicit ('give me the list'); a silent cycle is invisible … which
+state comes next is undiscoverable"/.  For priority the "list" is a
+contiguous char range — small enough to show IN the prompt, so the
+chooser is a single =read-char=, not a completion buffer.
+
+New reader in org-air-inbox.el, next to
+=org-air-inbox--read-todo-keyword= (the R68-1 shared-reader shape):
+
+- =org-air-inbox--read-priority-char (file &optional current)=:
+  1. =range ← (org-air-inbox--target-priority-range file)= — the
+     EXISTING helper, untouched: (HIGHEST . LOWEST) read inside
+     FILE's own buffer (R57-class: a per-file =#+PRIORITIES:= line
+     wins; probe row 7 shows apply-time =org-priority= honours the
+     same buffer-local range — reader and apply agree by
+     construction).
+  2. prompt =(format "Priority %c-%c, SPC clears%s: " high low
+     (if current (format ", RET keeps %c" current) ""))= — the range
+     (the user-asked "Priority A-E, SPC clears:" surface, org's own
+     idiom), the clear option, AND the pre-filled current value, all
+     visible before the keystroke.
+  3. =read-char-exclusive= with the prompt passed as its PROMPT
+     argument (not a separate =message= — the ERT stub then captures
+     the prompt as its arg; org's alphabetic branch reads exactly
+     this way, source-read).
+  4. normalize via Decision 3; invalid → the honest reject; returns
+     an in-range CHAR, or ='clear=, or ='keep=.
+
+- The suffix =org-air-refile-form-priority= (name, =,= binding,
+  =:transient t=, the description lambda's slot all KEPT — muscle
+  memory; nothing pins the cycle) becomes:
+  1. =current ← (or (form-get :priority) (item's own char))= — the
+     same effective-current expression the cycle uses today, minus
+     the =?\s= sentinel (a pending clear shows no "current" to keep:
+     =current= is nil then, the prompt omits the RET token).
+  2. =choice ← (org-air-inbox--read-priority-char
+     (org-air-inbox--form-write-target) current)=.
+  3. ='keep= → no =form-put= at all (an untouched field stays
+     untouched — the R67 dirty-only law; RET on a virgin field
+     leaves =:priority= nil and execute's "Nothing to change" gentle
+     no-op intact).
+  4. ='clear= → Decision 4's state-aware arming.
+  5. a char → =(form-put :priority CHAR)=.
+
+Note (standing class, unchanged): a char picked over one write
+target's range is NOT re-validated when the user then changes the
+destination — exactly the =k= field's free-typed-keyword class,
+which R68 ruled acceptable: apply-time org rejects with an honest
+=user-error= inside the transaction (rollback, no partial state),
+and re-pressing the field after choosing the destination reads the
+NEW range (the R67-4 law does that for free).  Cross-field
+revalidation is a Non-goal.
+
+* Decision 2 — reader = single `read-char', argued
+
+- /ADOPTED: one =read-char-exclusive= over the prompt-shown range/.
+  Closest to org: =org-priority='s own set branch is exactly this
+  read (source table row 8).  Fastest: the user's complaint is
+  press-count — every priority, up, down or clear, becomes ONE
+  keystroke.  The domain is tiny, contiguous and fully disclosed in
+  the prompt, so a selection UI adds nothing.
+- /Rejected: =completing-read= over the range letters + "clear"/ —
+  minimum two keystrokes (type + RET), minibuffer churn for a
+  ≤26-element single-char domain the prompt already shows in three
+  characters ("A-E"), and it abandons org's own priority-entry
+  muscle memory.  Completion earns its keep where the domain is
+  open-ended (files, todo vocabularies) — not here.
+- /Rejected: repairing the cycle (two-way — =C-u ,= or a second key
+  to go up)/ — still hides the range, still O(distance) presses,
+  adds an undiscoverable modifier, and R68 already settled
+  chooser-over-blind-cycle as the board's answer to exactly this
+  complaint shape.
+- /Rejected: delegating to org's own interactive =org-priority=
+  (action ='set=) in the target buffer/ — it MUTATES at read time,
+  violating the form's R64-2 prompt-time no-mutation contract
+  (every field collects; only RET writes), and it would write to the
+  item's buffer even when the pick belongs to a refile destination.
+
+* Decision 3 — the pure normalizer; reject over clamp
+
+=org-air-inbox--priority-normalize (key range)= — PURE (no buffer,
+no state, no read): maps a raw key to the verb.  The honest
+non-interactive seam the batch tests drive WITHOUT any stub:
+
+- =?\s= or =?-= → ='clear= (SPC is org's own remove key; =-= is the
+  field's unset glyph "–" made typeable; =?-= (45) can never collide
+  with a range char — org cookie chars are alphanumeric, all ≥ =?0=
+  (48)).
+- =?\r= / =?\n= → ='keep= (RET; C-g never reaches the normalizer —
+  =read-char-exclusive= quits first, the suffix is skipped, the
+  field keeps its previous value: the R71 note-field C-g shape).
+- a char whose upcase lies in [HIGH..LOW] → that char, UPCASED when
+  both range ends are uppercase — org's own rule, source-read and
+  probed (=?a= → =[#A]=); a lowercase press must not cost a shift.
+- anything else → nil.
+
+The reader turns nil into =(user-error "Priority must be between
+`%c' and `%c' (SPC clears)")= — org's exact wording (probe row 5)
+plus the clear hint.  Under the =:transient t= suffix a =user-error=
+surfaces in the echo area and the form STAYS OPEN — one honest line,
+press =,= again.
+
+/Reject over clamp, argued/: a clamp writes a priority the user
+never pressed — silent wrong data in a field whose entire bug report
+is about control; org itself rejects (probe row 5); and R53's
+never-error discipline is about not SIGNALLING from background
+machinery — a =user-error= on a bad interactive keystroke is the
+honest surface (the R68 free-typed-keyword precedent verbatim).
+/No re-prompt loop/: single-shot read; a retry loop over invalid
+keys is a batch hang risk (R53 never-hang) for zero UX gain.
+
+* Decision 4 — the clear: `?\s' sentinel, org's own vocabulary, armed state-aware
+
+=:priority= becomes an honest TRI-STATE (the defvar doc at :888
+updated): nil = untouched (writes nothing — unchanged), CHAR = set,
+=?\s= = CLEAR (remove the cookie at apply).
+
+/Why =?\s=/: it is org's own remove vocabulary end-to-end — probed:
+=(org-priority ?\s)= removes the cookie, and the source shows the
+=(equal new ?\s)= remove branch fires for a PASSED integer action,
+not just the interactive read.  Both apply legs —
+=--apply-item-edits= =(org-priority (if (stringp p) (aref p 0) p))=
+and the engine's identical form at :781 — therefore pass the
+sentinel through BYTE-UNCHANGED and org does the removal: ZERO
+apply-leg edits, the refile leg strips the cut heading's carried
+cookie at the destination, the in-place leg strips it at the source,
+and both stay inside their existing transactions (atomic group /
+engine transaction, one save — R64/R67 discipline untouched).  The
+=(when priority …)= / =(when-let* ((p …)))= gates pass (32 is
+truthy).
+
+/Rejected sentinels/:
+- ='remove= (also works, probed) — but then =:priority= sometimes
+  holds a non-char and every consumer (preview, field row, execute,
+  any future reader) needs symbol-awareness; =?\s= keeps the slot
+  "a char, in org's own extended alphabet".
+- ="" = (the =:scheduled= clear idiom) — =(aref "" 0)= ERRORS in both
+  legs; adopting it forces exactly the apply-leg edits this design
+  avoids.
+
+/State-aware arming (probe row 6 forces it)/: =(org-priority ?\s)=
+on a heading with NO cookie signals =user-error "No priority cookie
+found in line"= — inside the in-place atomic group that would roll
+back EVERY collected field and error at the user.  So the suffix
+arms the sentinel only when there is factually a cookie to remove:
+
+- item HAS a cookie → ='clear= stores =?\s= (a real removal rides
+  RET);
+- item has NO cookie → ='clear= stores nil — "back to untouched":
+  the honest meaning of SPC after picking =?B= on a cookie-less item
+  is "drop my pick", and untouched writes nothing.  The field row
+  falls back to "–", truthfully identical to never-touched.
+
+Either way SPC means "no priority on the written heading", and the
+sentinel can only ever reach an apply leg when the cookie exists —
+the user-error class is unreachable BY CONSTRUCTION, not caught.
+
+This also closes the hidden second bug: today the form has NO way to
+remove a priority at all (the cycle's unset step is =:priority nil=
+= untouched).  R76 gives removal a key, a preview, and a seam.
+
+* Decision 5 — surfaces: field row tri-state + WYSIWYG preview
+
+- /Field row/ (the description lambda at :1343): =?\s= renders
+  ="clear"= — the =s=/=d= fields' clear-label idiom (:1265, :1305);
+  a char renders as today (=(string c)=); nil falls back to the
+  item's own char, else "–".  Three states, three honest labels.
+- /Preview/ (:1100): the =pri= binding treats =?\s= as
+  no-cookie — the previewed heading drops =[#C]= exactly as RET
+  will write it (today it would render the broken ="[# ] "=).
+  Untouched keeps showing the item's own cookie; a picked char shows
+  =[#A]=.  WYSIWYG by the same one-expression rule the R67-2 tags
+  preview established.
+- /Docstrings/: the suffix reframed ("pick a priority over the write
+  target's full range; SPC clears, RET keeps"); the form-state
+  defvar's =:priority= line (:888) documents the tri-state; the
+  =--apply-item-edits= EDITS paragraph (:1430) and the engine's
+  PRIORITY sentence (:662) gain "=?\s= removes the cookie (org's
+  own remove vocabulary)".
+- README.org: untouched — grepped, no sentence pins the cycle; the
+  transient feature line (:344) already just says "priority".
+
+* The reframe — every surface touched
+
+- org-air-inbox.el (the ONLY file):
+  - NEW =org-air-inbox--priority-normalize (key range)= — pure.
+  - NEW =org-air-inbox--read-priority-char (file &optional current)=
+    — prompt + =read-char-exclusive= + normalize + the honest
+    reject; next to =--read-todo-keyword= (the R68-1 shape).
+  - =org-air-refile-form-priority= — body swapped cycle → picker
+    (Decision 1's five steps); =,= binding, name, =:transient t=
+    kept; description lambda gains the ="clear"= arm.
+  - =org-air-inbox--form-preview= — the =pri= binding's sentinel
+    arm.
+  - Docstrings per Decision 5.
+  - NO change to =--target-priority-range=, =--form-write-target=,
+    =--apply-item-edits= code, the engine code, =--form-execute=,
+    =--form-init=.
+- No keymap change, no defcustom, no cache/schema change, no golden
+  surface (the transient renders in no mockup/golden), no README
+  change, no Emacs floor change.
+
+* ERT seams — batch, tests/org-air-round76-test.el (revert-RED against the R75 tree)
+
+Fixture (the r67 harness idiom): a temp dir; =own.org= with
+=#+PRIORITIES: A E C= + =* TODO [#C] Widget :inbox:= (C mid-range —
+room BOTH ways, the user's exact shape); =bare.org= with a
+cookie-less =* TODO Jot :inbox:=; =narrow.org= (a refile target)
+with =#+PRIORITIES: A C B=.  Form seeded via
+=org-air-inbox--form-init= on the scanned item; the suffix invoked
+via =call-interactively= (its body touches only form state + the
+reader — the same reason today's cycle body is batch-callable);
+=read-char-exclusive= stubbed via =cl-letf= where a press is
+simulated, the stub CAPTURING its PROMPT argument.
+
+- *r76-1 /THE REPRO — the revert-RED anchor/*: form on the =[#C]=
+  item; stub → =?A=; press the suffix ⇒ =:priority= is =?A= — ONE
+  press, straight UP.  Again with =?B= ⇒ =?B=.  RED on revert: the
+  cycle never consults the reader (stub uncalled) and one press from
+  C yields =?D= — C→A in one press is IMPOSSIBLE pre-fix, the
+  user's literal complaint.
+- *r76-2 /the full domain, pure — no stub/*:
+  =--priority-normalize= over =(?A . ?E)=: each of A..E → itself;
+  a..e → upcased; =?\s= and =?-= → ='clear=; =?\r= → ='keep=; =?F=,
+  =?1=, =?q= → nil.  The honest non-interactive path that "picks any
+  in-range priority".
+- *r76-3 /the prompt discloses range + pre-fill/*: on the C item the
+  captured prompt contains ="A-E"=, ="SPC clears"= and ="RET keeps
+  C"=; on the bare item, no ="RET keeps"= token (no stale current).
+- *r76-4 /clear end-to-end/*: stub =?\s= on the C item ⇒ =:priority=
+  = =?\s=; field row renders ="clear"=; preview heading contains NO
+  ="[#"=; execute (in place) ⇒ SAVED bytes lose =[#C]= (heading
+  otherwise intact) and the R73 ring recorded the edit (=u= covers
+  it).  Same with =?-=.  RED today: no clear exists at all — the
+  cycle's nil step writes nothing.
+- *r76-5 /clear on a cookie-less item is safe/*: on the bare item,
+  first stub =?B= (⇒ =?B=), then stub =?\s= ⇒ =:priority= is NIL
+  (back to untouched), execute ⇒ gentle "Nothing to change", bytes
+  identical, NO error.  Revert-RED against blind =?\s= storage: the
+  apply leg user-errors ("No priority cookie found in line") and
+  rolls back — probe row 6.
+- *r76-6 /keep/*: stub =?\r= on the virgin C-item form ⇒ =:priority=
+  stays nil (untouched, not materialised) — execute is the gentle
+  no-op; after a stubbed =?B= pick, a =?\r= press keeps =?B=.
+- *r76-7 /out-of-range honestly rejected/*: stub =?F= (range A–E)
+  ⇒ =user-error= matching "must be between" naming A and E;
+  =:priority= untouched; zero bytes anywhere.  Also =?q= (the
+  reflex quit key) rejects rather than silently setting.
+- *r76-8 /the write-target range governs (R67-4)/*: with =:file= set
+  to narrow.org the captured prompt says ="A-C"= and =?E= is
+  rejected while =?B= lands; =:file= back to nil ⇒ ="A-E"= again —
+  the SAME press reads the destination's range when one is chosen,
+  the item's own when not.
+- *r76-9 /apply on RET, both legs/*: in place — =?A= from C ⇒ saved
+  bytes carry =[#A]= (the R67/R71 path, one save); refile leg —
+  =:priority ?A= + narrow.org destination ⇒ the MOVED heading in the
+  TARGET's saved bytes carries =[#A]=; refile leg with the armed
+  clear ⇒ the moved heading carries NO cookie (the engine's
+  =(org-priority ?\s)= strips the carried =[#C]= inside the
+  transaction).
+- *r76-10 /preview + field tri-state (WYSIWYG)/*: untouched ⇒
+  preview shows the item's own =[#C]=, row shows ="C"=; picked =?A=
+  ⇒ =[#A]= / ="A"=; cleared ⇒ no cookie / ="clear"= — and at no
+  point does the broken ="[# ]"= render.  Revert-RED for the
+  sentinel arms against a preview that formats =?\s= raw.
+
+All r67/r70/r71 priority-touching seams stay green untouched (they
+drive =--form-put :priority= with chars directly; the tri-state only
+ADDS a value).  Goldens/mockups: ZERO shifts expected (the transient
+renders in none) — =make regen-mockups= must come back byte-clean.
+GUI residue (flag for the impl round's user confirm): the prompt's
+readability in the echo area while the transient window is showing,
+and the field-row repaint after a pick/clear.
+
+* Non-goals
+
+- No numeric =#+PRIORITIES= support (e.g. =1 64 32=): a multi-digit
+  range needs org's =read-string= branch and the board's entire
+  priority model is single-char (=--item-priority-char=,
+  =org-air-priority-show=, the badge renderer); the range helper's
+  char assumption predates this round.  Alphabetic and single-char
+  ranges — the board's documented domain — are covered.
+- No board-level priority KEY: the board has no priority verb (the
+  R68 audit table confirmed it); adding one — presumably over this
+  same reader — is a separate round.
+- No cross-field revalidation when the destination changes after a
+  pick (the standing =k=-field class; apply-time org rejects
+  honestly inside the transaction; re-pressing reads the new range).
+- No re-prompt loop on invalid input; no clamping.
+- No change to the apply legs, the engine signature, the range
+  helper, or =--form-execute='s dirty-only gates.
+- No new key, no new defcustom, no transient layout change.
+
+* Compatibility
+
+- *R53 (never-hang / never-error / cache-first)*: the reader opens
+  at most ONE =find-file-noselect= on the write target — the exact
+  class (and the exact helper) today's cycle and the =k= field
+  already use; single-shot read, no loop, no scan; the one
+  deliberate signal is the bad-keystroke =user-error= (the R68
+  precedent — an error message, not a trap).
+- *R57 (per-file vocabulary)*: a destination's =#+PRIORITIES:= line
+  governs the picker exactly as its =#+TODO:= line governs the =k=
+  field — read in the file's own buffer; probe row 7 shows the
+  apply-time check reads the same buffer-local range, so picker and
+  apply agree by construction.
+- *R64-2 (prompt-time no-mutation)*: the picker collects; only RET
+  writes; C-g at the prompt keeps the previous value; abandoning
+  the form abandons the pick.
+- *R67 (the editor)*: the dirty-only discipline is untouched (nil
+  still writes nothing; ='keep= never dirties); R67-4's write-target
+  law is byte-kept (the same =--form-write-target= call); the
+  in-place leg's transaction, order and single save are untouched.
+- *R68 (chooser law + shared readers)*: this IS the =T= reframe
+  applied to =,= — a reader helper beside =--read-todo-keyword=,
+  completion/selection over the target's own vocabulary, honest
+  apply-time rejection for anything the target refuses.  (Priority
+  writes never log — the R68 note discipline is not in play.)
+- *R71 (one RET confirms)*: the pick/clear rides the same single
+  execute, with the note and every other field.
+- *R73/R75 (undo/redo ring)*: an in-place set or clear records
+  through =--apply-item-edits='s existing push — =u=/=U= cover it
+  automatically (r76-4 pins the recording).
+- Muscle memory / pins: the =,= binding, the suffix name, the field
+  slot, =:transient t= — all untouched; no test pins the cycle
+  (grepped: every existing seam drives =:priority= via =--form-put=
+  directly).
+
+* Implementation History
+
+- 2026-07-24: Round 76 spec (design seat, Fable).  USER BUG: the
+  edit transient's =,= priority field is a ONE-WAY cycle
+  (=next = (1+ current)= at org-air-inbox.el:1353–:1361) — from C
+  only C→D→E→–→A→B; no direct up, no visible range, and the unset
+  step means UNTOUCHED, so the form cannot remove a cookie at all.
+  Decisions: (1) full-range ONE-KEY picker (the R68 chooser law):
+  new =org-air-inbox--read-priority-char= beside the R68-1 todo
+  reader — range via the EXISTING =--target-priority-range= over
+  =--form-write-target= (R67-4 byte-kept), prompt ="Priority %c-%c,
+  SPC clears[, RET keeps %c]: "= (org's own idiom + the pre-fill),
+  =read-char-exclusive= with the prompt as its capturable arg;
+  suffix name/binding/=:transient t= kept.  (2) =read-char= over
+  =completing-read= argued (org's own set-branch read, one
+  keystroke, tiny fully-disclosed domain; two-way cycle and
+  interactive =org-priority= delegation rejected — the latter
+  mutates at read time, violating R64-2).  (3) a PURE
+  =--priority-normalize= (char-in-range upcased per org's own rule /
+  SPC,=-=→clear / RET→keep / else invalid) — the stub-free batch
+  seam; invalid → org's exact =user-error= wording + "(SPC clears)";
+  reject over clamp argued (a clamp writes what the user never
+  pressed; R68 precedent).  (4) clear sentinel = =?\s= in
+  =:priority= (tri-state: nil untouched / char set / =?\s= clear) —
+  org's OWN remove vocabulary: probed, =(org-priority ?\s)= removes
+  and the source's remove branch fires for passed ints, so BOTH
+  apply legs pass it through byte-unchanged (ZERO apply-leg edits;
+  ='remove= and ="" = sentinels rejected); armed STATE-AWARE because
+  probe row 6 shows no-cookie removal user-errors — SPC on a
+  cookie-less item stores nil (back to untouched), the error class
+  unreachable by construction; closes the hidden cannot-remove bug.
+  (5) surfaces: field row tri-state ("clear" label, the s/d idiom),
+  preview drops the cookie on clear (never ="[# ]"=), docstrings;
+  README untouched.  Probes under =/tmp/org-air-r76/= (8-row table
+  in Summary; org 9.7.11 source read for the prompt/upcase/remove
+  branches).  Ten batch seams r76-1..r76-10 (r76-1 the C→A
+  one-press revert-RED anchor; r76-5 revert-RED against blind
+  sentinel storage; r76-10 against a raw-=?\s= preview); all
+  existing priority seams stay green (they =--form-put= directly);
+  zero golden shifts expected.  One file touched, no new
+  key/defcustom, org/org-ql only.  State: ready.

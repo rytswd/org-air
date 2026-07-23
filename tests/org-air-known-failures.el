@@ -2866,29 +2866,17 @@
     ;; tests stay as permanent regression guards.
     ;;
     ;; ===================================================================
-    ;; v0.5 ROUND-79 IMPL GRIND (day-view repair; impl landed on a fresh
-    ;; child of mnnunppoqlmw — D1 badge face split, D2 fixed badge column
-    ;; alignment, D3 keyword filter axis, D4 o/O day sorting).  ONE
-    ;; existing golden shifts under D1 and is flagged for the test seat to
-    ;; RE-BLESS (do NOT hand-bless here):
-    ;;
-    ;;   R79-D1 KEYWORD-BADGE FACE SPLIT: `org-air-view--todo-face' now
-    ;;     routes each keyword through its OWN face.  The DONE family
-    ;;     splits — completions (DONE/COMP/COMPLETED) keep
-    ;;     `org-air-face-done' (faded blue) while the cancelled/abandoned
-    ;;     set (DROPPED/DROP/CANCELLED/CANCELED/KILL/KILLED) reads the new
-    ;;     `org-air-face-dropped' (muted terracotta), and unknown keywords
-    ;;     resolve through the R57 merged scan vocabulary instead of the
-    ;;     blanket donep fallback — so COMP/DROPPED/READY/WIP each read
-    ;;     distinctly (defect D1).  The default `own' source keeps R57-1
-    ;;     and the BOARD goldens byte-identical (faces don't move the byte
-    ;;     layer); the ERT below hard-wired the pre-R79 collapse
-    ;;     (DROPPED/DROP => `org-air-face-done') and must re-bless to the
-    ;;     R79 split (DROPPED/DROP => `org-air-face-dropped'; COMP/DONE
-    ;;     stay `org-air-face-done'):
-    (org-air-r57-9-donep-aware-todo-face
-     . "R79-D1: DROPPED/DROP now => org-air-face-dropped (done family split); \
-re-bless the pre-R79 face-collapse assertions on the test seat.")
+    ;; v0.5 ROUND-79 CLOSEOUT (day-view repair; impl `orrtuvtlqsvl' — D1
+    ;; badge face split, D2 fixed badge column, D3 keyword filter axis,
+    ;; D4 o/O day sort + test re-bless <this commit>).  The single
+    ;; flagged golden RE-BLESSED HONESTLY: `org-air-r57-9-donep-aware-
+    ;; todo-face' now asserts the R79 done-family split (DROPPED/DROP =>
+    ;; `org-air-face-dropped'; COMP/DONE stay `org-air-face-done'), so its
+    ;; entry is DELETED here (a passing listed test is itself a gate
+    ;; failure).  The board byte goldens are byte-identical at defaults
+    ;; (`own' face source, sort `date') — `make regen-mockups' churn = 0.
+    ;; New executing/audit ERTs land in tests/org-air-round79-test.el
+    ;; (r79-1..r79-10); the R79 manifest is EMPTY.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

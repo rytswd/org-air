@@ -442,23 +442,37 @@ fallback — off the board.  Reverting to the pre-R57 hard-wired
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r57-9-donep-aware-todo-face ()
-  "T10: a keyword absent from `org-air-todo-keyword-faces' falls back to
-`org-air-face-done' when DONEP, else `org-air-face-todo' — the user's
-CLOSED/DROPPED never wear an active-looking badge where done items
-render.  The R57-2 table maps READY/WIP to `org-air-face-todo-next' and
-COMP/DROP to `org-air-face-done'.  Reverting the DONEP thread or the
-face-table additions FAILS."
+  "T10: a keyword absent from `org-air-todo-keyword-faces' falls back
+donep-aware — `org-air-face-done' when DONEP, else `org-air-face-todo'
+\(the user's CLOSED never wears an active-looking badge where done items
+render).  The R57-2 table maps READY/WIP to `org-air-face-todo-next'.
+
+R79 RE-BLESS (test seat; impl `orrtuvtlqsvl'): the DONE family SPLITS —
+the cancelled/abandoned set now carries the new `org-air-face-dropped'
+\(terracotta) instead of collapsing onto `org-air-face-done' (faded
+blue).  So the two pre-R79 assertions that hard-wired the collapse move:
+DROPPED (donep) and DROP now resolve to `org-air-face-dropped', while
+COMP/DONE stay `org-air-face-done' and the donep-aware fallback for a
+keyword OUTSIDE both the alist and the merged scan vocabulary (CLOSED)
+is unchanged.  Reverting the DONEP thread, the R57-2 face-table
+additions, or the R79 done-family split FAILS."
   (skip-unless (locate-library "org-air"))
-  ;; the donep-aware fallback for keywords the table does not know.
+  ;; the donep-aware fallback for keywords neither the table NOR the
+  ;; merged scan vocabulary knows (CLOSED is not in either at defaults).
   (should (eq (org-air-view--todo-face "CLOSED" t) 'org-air-face-done))
   (should (eq (org-air-view--todo-face "CLOSED" nil) 'org-air-face-todo))
   (should (eq (org-air-view--todo-face "CLOSED") 'org-air-face-todo))
-  (should (eq (org-air-view--todo-face "DROPPED" t) 'org-air-face-done))
-  ;; the R57-2 face-table entries.
+  ;; R79: the cancelled/abandoned family now reads `org-air-face-dropped'
+  ;; (was `org-air-face-done' pre-R79 — the collapse this round cures).
+  (should (eq (org-air-view--todo-face "DROPPED" t) 'org-air-face-dropped))
+  (should (eq (org-air-view--todo-face "DROP") 'org-air-face-dropped))
+  ;; the R57-2 face-table entries (unchanged by R79).
   (should (eq (org-air-view--todo-face "READY") 'org-air-face-todo-next))
   (should (eq (org-air-view--todo-face "WIP") 'org-air-face-todo-next))
+  ;; the completion family stays `org-air-face-done' — distinct from
+  ;; DROPPED/DROP above (that distinction is the R79 point).
   (should (eq (org-air-view--todo-face "COMP") 'org-air-face-done))
-  (should (eq (org-air-view--todo-face "DROP") 'org-air-face-done))
+  (should (eq (org-air-view--todo-face "DONE") 'org-air-face-done))
   ;; a KNOWN keyword keeps its table face regardless of DONEP.
   (should (eq (org-air-view--todo-face "TODO" t) 'org-air-face-todo)))
 

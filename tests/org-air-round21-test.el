@@ -358,21 +358,39 @@ column moved right by 2 with it)."
 ;;;; ---------------------------------------------------------------------
 
 (ert-deftest org-air-r21-4-keyword-badge-text-fallback ()
-  "R21-4: the shared svg keyword/state badge has a MANDATORY text fallback
-— with svg unavailable (always true under --batch) it returns its TEXT
-argument `eq'-unchanged, so the byte/TTY layer always keeps the keyword
-text.  The `org-air-keyword-style' = `text' opt-out is likewise a no-op."
+  "R21-4/R80: the shared svg keyword/state badge has a MANDATORY text
+fallback — with svg unavailable (always true under --batch) it returns a
+plain-TEXT token carrying NO `display' image, so the byte/TTY layer always
+keeps the keyword text.  R80: that fallback is now the MIN-WIDTH-PADDED
+token (`org-air-keyword-badge-min-cols', default 5), so a SHORT keyword
+reserves the SAME width as a 5-col state token — it is no longer `eq' the
+raw input, but its stripped text still carries the keyword.  A keyword
+already >= the floor keeps its natural width; the `text' opt-out and a
+blank cell are likewise padded, never chipped."
   (skip-unless (locate-library "org-air"))
   (let ((txt (propertize "NEXT" 'face 'org-air-face-popout)))
-    ;; batch (no svg) -> unchanged.
-    (should (eq (org-air-view--svg-keyword-badge txt 'org-air-face-popout) txt))
-    ;; explicit `text' opt-out -> unchanged.
+    ;; batch (no svg) -> the min-width padded token (5 cols), text kept,
+    ;; no svg image leaked into the byte/TTY layer.
+    (let ((out (org-air-view--svg-keyword-badge txt 'org-air-face-popout)))
+      (should (equal (substring-no-properties out) "NEXT "))
+      (should (= (string-width out) org-air-keyword-badge-min-cols))
+      (should (string-match-p "NEXT" (substring-no-properties out)))
+      (should-not (get-text-property 0 'display out)))
+    ;; explicit `text' opt-out -> likewise the padded token.
     (let ((org-air-keyword-style 'text))
-      (should (eq (org-air-view--svg-keyword-badge txt 'org-air-face-popout) txt)))
-    ;; a blank cell is returned unchanged (no chip over nothing).
-    (let ((blank "   "))
-      (should (eq (org-air-view--svg-keyword-badge blank 'org-air-face-popout)
-                  blank)))))
+      (should (equal (substring-no-properties
+                      (org-air-view--svg-keyword-badge txt 'org-air-face-popout))
+                     "NEXT ")))
+    ;; a keyword already >= the floor keeps its natural width (no over-pad).
+    (let ((wide (propertize "WAITING" 'face 'org-air-face-popout)))
+      (should (equal (substring-no-properties
+                      (org-air-view--svg-keyword-badge wide 'org-air-face-popout))
+                     "WAITING")))
+    ;; a blank cell is padded to the floor but stays blank (no chip, no image).
+    (let* ((blank "   ")
+           (out (org-air-view--svg-keyword-badge blank 'org-air-face-popout)))
+      (should (equal (string-trim (substring-no-properties out)) ""))
+      (should-not (get-text-property 0 'display out)))))
 
 (ert-deftest org-air-r21-4-keyword-and-state-cells-keep-text-contract ()
   "R21-4: the badge is OVERLAY-only and SHARED — the board keyword cell and

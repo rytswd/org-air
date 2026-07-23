@@ -126,17 +126,21 @@ proving the nesting is driven by the actual files, not hard-coded."
 (ert-deftest org-air-r20-5-state-display-order-matches-airctl ()
   "`org-air-project--state-display-order' is the airctl `-Da' state order
 for the COUNT surfaces — the per-dir LETTER summaries: Ready ·
-Work-In-Progress · Complete · Dropped · Draft.  R25-3 re-bless: the
-phantom `review' state is gone (5 canonical states only).  R51-2
-re-bless: the constant is counts-only now — `--state-display-rank' (its
-only caller retargeted) is DELETED and doc ROWS rank via
+Work-In-Progress · Complete · Out · Off · Dropped · Draft.  R25-3
+re-bless: the phantom `review' state is gone.  R51-2 re-bless: the
+constant is counts-only now — `--state-display-rank' (its only caller
+retargeted) is DELETED and doc ROWS rank via
 `org-air-project--state-sort-rank', under which dropped sorts AFTER
 draft (the group bottom), not before; the letter order above stays the
-airctl byte-parity contract, untouched."
+airctl byte-parity contract, untouched.  R80 re-bless: the parked pair
+`out'/`off' joins the rollup after `complete', before `dropped' — a
+DELIBERATE forward divergence from airctl's Rust enum (which does not yet
+know out/off), flagged PRODUCT-CONFIRM in the R80 spec; org-air renders
+what the user writes and airctl is expected to follow."
   (skip-unless (locate-library "org-air"))
   (should (equal org-air-project--state-display-order
                  '("ready" "work-in-progress"
-                   "complete" "dropped" "draft")))
+                   "complete" "out" "off" "dropped" "draft")))
   ;; R25-3: `review' is absent from the canonical order.
   (should-not (member "review" org-air-project--state-display-order))
   ;; the R51-2 row-rank fn orders the live states ahead of draft…

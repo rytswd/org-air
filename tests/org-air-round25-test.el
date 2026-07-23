@@ -331,13 +331,18 @@ back-ptr intact."
   (should (eq (org-air-project--state-face "review") 'org-air-face-faded)))
 
 (ert-deftest org-air-r25-3-five-real-states-ordered ()
-  "The canonical 5 states remain, in the brief's lifecycle order; both
-`work-in-progress' (real, just 0 here) survives in BOTH lists."
+  "The canonical states remain, in the brief's lifecycle order;
+`work-in-progress' (real, just 0 here) survives in BOTH lists.  R80
+re-bless: the parked/inactive pair `out'/`off' now joins both lists after
+`complete' (before `dropped'), so the canonical order is 7 states — the
+lifecycle draft->ready->wip->complete->out->off->dropped."
   (skip-unless (locate-library "org-air"))
   (should (equal org-air-project-states
-                 '("draft" "ready" "work-in-progress" "complete" "dropped")))
+                 '("draft" "ready" "work-in-progress" "complete"
+                   "out" "off" "dropped")))
   (should (equal org-air-project-sections
-                 '("draft" "ready" "work-in-progress" "complete" "dropped")))
+                 '("draft" "ready" "work-in-progress" "complete"
+                   "out" "off" "dropped")))
   (should (member "work-in-progress" org-air-project-states))
   (should (member "work-in-progress" org-air-project-sections)))
 
@@ -346,10 +351,14 @@ back-ptr intact."
 still orders ready BEFORE draft.  R51-2 re-bless: `--state-display-rank'
 is DELETED (the constant is counts-only now); the rank conjunct
 retargets to `org-air-project--state-sort-rank' — the one row-rank
-source in both comparators."
+source in both comparators.  R80 re-bless: the parked pair `out'/`off'
+joins the order after `complete' (before `dropped'), so `review' is still
+absent but the rollup order is now 7 entries."
   (skip-unless (locate-library "org-air"))
   (should (equal org-air-project--state-display-order
-                 '("ready" "work-in-progress" "complete" "dropped" "draft")))
+                 '("ready" "work-in-progress" "complete"
+                   "out" "off" "dropped" "draft")))
+  (should-not (member "review" org-air-project--state-display-order))
   (should (< (org-air-project--state-sort-rank "ready")
              (org-air-project--state-sort-rank "draft"))))
 

@@ -447,5 +447,148 @@ R80), so an OUT/OFF-free wide board is byte-identical."
       (should (org-air-view--todo-face "OUT"))
       (should (= n 0)))))
 
+;;;; ===================================================================
+;;;; R80 AUDIT ADD 1 / r80-10 — EVERY state list + badges + nerd glyphs +
+;;;;   lifecycle ORDER (the seam r80-6 leaves partly uncovered)
+;;;; ===================================================================
+
+(ert-deftest org-air-r80-10-out-off-in-every-state-list-and-order ()
+  "Audit gap: r80-1/-6 cover the FACE, section, rank and letter, but the
+spec's Decision 1 registers out/off in EVERY list, incl. the count/word
+/badge/nerd-glyph surfaces, at a concrete LIFECYCLE position (parked pair,
+after `complete', before `dropped').  Pin all of them so a partial
+registration (e.g. face but not badges, or wrong order) is caught:
+  - membership in `org-air-project-states' / `-sections' /
+    `--state-display-order' / `--state-sort-order' / `--state-words';
+  - a `-state-badges' entry whose BYTE-layer TTY token is OUT/OFF (the
+    emoji itself is GUI-confirm-only, so only asserted non-empty);
+  - a `-state-nerd-glyphs' entry that is a non-empty 1-col glyph (exact
+    codepoint GUI-confirm-only);
+  - LIFECYCLE ORDER: in states / sections / display-order, out & off sit
+    AFTER complete and BEFORE dropped, with out before off.
+Anti-vacuity: a genuinely unknown state (`zzz-nope') is a member of NONE
+of the lists, has NO badge / glyph / word entry, resolves to the faded
+UNKNOWN face (proving `org-air-face-air-state-out' != faded is meaningful,
+not vacuous), and its letter is the bare upcased initial `Z' (so `off'
+without its explicit `F' would collide with `out' on `O').  Reverting
+(dropping out/off from the lists) reddens on membership + order."
+  (skip-unless (locate-library "org-air"))
+  (dolist (st '("out" "off"))
+    (should (member st org-air-project-states))
+    (should (member st org-air-project-sections))
+    (should (member st org-air-project--state-display-order))
+    (should (member st org-air-project--state-sort-order))
+    (should (assoc st org-air-project--state-words))
+    ;; byte-layer word token is OUT/OFF (5-col cell aside, the WORD is 3).
+    (should (equal (cdr (assoc st org-air-project--state-words))
+                   (upcase st)))
+    ;; badge entry present; TTY fallback is the byte-safe word; emoji only
+    ;; asserted non-empty (exact glyph GUI-confirm-only).
+    (let ((badge (assoc st org-air-project-state-badges)))
+      (should badge)
+      (should (equal (cddr badge) (upcase st)))
+      (should (stringp (cadr badge)))
+      (should (> (length (cadr badge)) 0)))
+    ;; nerd glyph entry present + a non-empty glyph (codepoint GUI-confirm).
+    (let ((glyph (cdr (assoc st org-air-project-state-nerd-glyphs))))
+      (should (stringp glyph))
+      (should (= (string-width glyph) 1))))
+  ;; lifecycle ORDER: complete < out < off < dropped in each ordered list.
+  (dolist (lst (list org-air-project-states
+                     org-air-project-sections
+                     org-air-project--state-display-order))
+    (let ((c (seq-position lst "complete"))
+          (o (seq-position lst "out"))
+          (f (seq-position lst "off"))
+          (d (seq-position lst "dropped")))
+      (should c) (should o) (should f) (should d)
+      (should (< c o))
+      (should (< o f))
+      (should (< f d))))
+  ;; anti-vacuity: an unknown state is registered NOWHERE and stays faded.
+  (let ((zzz "zzz-nope"))
+    (should-not (member zzz org-air-project-states))
+    (should-not (member zzz org-air-project-sections))
+    (should-not (member zzz org-air-project--state-display-order))
+    (should-not (member zzz org-air-project--state-sort-order))
+    (should-not (assoc zzz org-air-project--state-words))
+    (should-not (assoc zzz org-air-project-state-badges))
+    (should-not (assoc zzz org-air-project-state-nerd-glyphs))
+    (should (eq (org-air-project--state-face zzz) 'org-air-face-faded))
+    ;; off's explicit `F' is load-bearing: an unknown state upcases its
+    ;; initial, so a bare `off' would collide with `out' on `O'.
+    (should (equal (org-air-project--state-letter zzz) "Z"))
+    (should-not (equal (org-air-project--state-letter "out")
+                       (org-air-project--state-letter "off")))))
+
+;;;; ===================================================================
+;;;; R80 AUDIT ADD 2 / r80-11 — the DAY pane keyword column floors too
+;;;;   (seam 2 says "board/day"; r80-5 only pinned the BOARD helper)
+;;;; ===================================================================
+
+(ert-deftest org-air-r80-11-day-pane-keyword-column-floored ()
+  "Audit gap: Decision 2 mirrors the keyword-column floor into the R79
+day-pane meta-width helper (`org-air-view--day-meta-widths'), but r80-5
+only pinned the BOARD helper (`--compute-meta-widths').  Pin the day pane:
+over a day whose widest SHOWN keyword is OUT/OFF (3 cols) the day TODO
+column floors to >= `org-air-keyword-badge-min-cols'; over a WAITING (7)
+day it is a no-op (stays 7).  Anti-tautology: with the floor let-bound to
+1 the short day's column drops back to the raw 3 — proving the assertion
+is the MIN-WIDTH mirror, not a tautology."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r80--with-board org-air-r80--board-short
+    (let ((groups (list (cons "Scheduled" org-air-r80--items))))
+      (should (>= (car (org-air-view--day-meta-widths groups 120))
+                  org-air-keyword-badge-min-cols))
+      (let ((org-air-keyword-badge-min-cols 1))
+        (should (= (car (org-air-view--day-meta-widths groups 120)) 3)))))
+  (org-air-r80--with-board org-air-r80--board-wide
+    (let ((groups (list (cons "Scheduled" org-air-r80--items))))
+      ;; WAITING (7) >= floor -> no-op, byte-identical to pre-R80.
+      (should (= (car (org-air-view--day-meta-widths groups 120)) 7)))))
+
+;;;; ===================================================================
+;;;; R80 AUDIT ADD 3 / r80-12 — pixel-lock: the floored PILL fits the
+;;;;   floored CELL exactly (seam 4 title-left-edge alignment guarantee)
+;;;; ===================================================================
+
+(ert-deftest org-air-r80-12-floored-pill-fits-floored-cell ()
+  "Audit gap (seam 4): the min-width floors BOTH the keyword CELL
+(`--meta-todo-w') and the pill BOX (`--svg-keyword-badge'), and the
+pixel-lock contract requires box <= cell so the pill never overflows and
+every title left edge stays pinned at the SAME floored column.  Over the
+short OUT/OFF board, under the gui seam: the OUT/OFF pill box == the
+floored cell width == `org-air-keyword-badge-min-cols' * char-px (box ==
+cell, a perfect fit — no overflow, uniform title column).  Over the wide
+WAITING board the cell is the natural 7 and the box still fits (box <=
+cell).  Anti-tautology: with the floor let-bound to 1 the short board's
+cell drops to 3 while the OUT pill (also un-floored) drops to 3 too, so
+box == cell degenerates to the pre-R80 tiny pill — the DRAFT-parity is the
+floor, not a constant."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r80--with-gui-metrics
+    ;; short board: cell floors to 5, pill floors to 5, box == cell.
+    (org-air-r80--with-board org-air-r80--board-short
+      (let* ((cell (org-air-r80--meta-todo-w org-air-r80--items 120))
+             (cell-px (* cell org-air-r80--char-px))
+             (f 'org-air-face-air-state-out)
+             (box (org-air-r80--box-w
+                   (org-air-view--svg-keyword-badge
+                    (propertize "OUT" 'face f) f))))
+        (should (= cell org-air-keyword-badge-min-cols))
+        (should (= box (* org-air-keyword-badge-min-cols org-air-r80--char-px)))
+        (should (= box cell-px))                 ; perfect pixel-lock fit
+        (should (<= box cell-px))))              ; pill never overflows
+    ;; wide board: cell is the natural 7, the OUT pill (floored 5) fits.
+    (org-air-r80--with-board org-air-r80--board-wide
+      (let* ((cell (org-air-r80--meta-todo-w org-air-r80--items 120))
+             (cell-px (* cell org-air-r80--char-px))
+             (f 'org-air-face-air-state-out)
+             (box (org-air-r80--box-w
+                   (org-air-view--svg-keyword-badge
+                    (propertize "OUT" 'face f) f))))
+        (should (= cell 7))
+        (should (<= box cell-px))))))            ; box (5) <= cell (7)
+
 (provide 'org-air-round80-test)
 ;;; org-air-round80-test.el ends here

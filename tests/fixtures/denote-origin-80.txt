@@ -2,14 +2,14 @@
 ────────────────────────────────────────────────────────────────────────────────
 
   □ Inbox 1
-      TODO   File the receipts         Tomorrow      #inbox          ▤ inbox.org
+      TODO    File the receipts         Tomorrow      #inbox         ▤ inbox.org
 
   ▲ Needs attention 0
       Nothing overdue. Nice.
 
   ◆ Upcoming 2
-      TODO   Reconcile the quarterly…  Tomorrow      #work   #admi… ▤ weekly-in…
-      TODO   File the receipts         Tomorrow      #inbox          ▤ inbox.org
+      TODO    Reconcile the quarterly…  Tomorrow      #work   #adm… ▤ weekly-in…
+      TODO    File the receipts         Tomorrow      #inbox         ▤ inbox.org
 
   ★ High priority 0
       No #A items.

@@ -96,11 +96,15 @@ nothing truncates."
              (plain (org-air-r13--row-for-title "Chase missing invoice")))
         (should prio)
         (should plain)
-        ;; The priority row carries the square in its slot after `TODO '.
-        (should (string-match-p (concat "TODO " (regexp-quote sq) " ") prio))
-        ;; The plain row reserves the slot as two blanks: `TODO ' + `  '
-        ;; (keyword space + 2-col blank slot = 3 spaces before the title).
-        (should (string-match-p "TODO   [A-Za-z]" plain))
+        ;; The priority row carries the square in its slot after the
+        ;; keyword cell.  R80: the keyword cell floors to 5 cols
+        ;; (`org-air-keyword-badge-min-cols'), so `TODO' pads to `TODO '
+        ;; and the square sits two columns after the token (`TODO  ■ ').
+        (should (string-match-p (concat "TODO  " (regexp-quote sq) " ") prio))
+        ;; The plain row reserves the slot as two blanks: the 5-col
+        ;; keyword cell (`TODO ') + 2-col blank slot = 4 spaces before the
+        ;; title (R80: one wider than the pre-floor 3).
+        (should (string-match-p "TODO    [A-Za-z]" plain))
         ;; …and it does NOT carry the square (the slot is blank there).
         (should-not (string-match-p (regexp-quote sq) plain))
         ;; Titles start at the SAME column on both rows (slot is uniform).

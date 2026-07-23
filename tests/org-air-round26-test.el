@@ -128,18 +128,22 @@ height so the fold-line assertions are deterministic."
 (ert-deftest org-air-r26-3-legend-on-screen-popped ()
   "The popped project rail keeps the Actions legend reachable when short.
 R69-1 re-bless (air/v0.1/org-air-round69-design.org): the rail gained the
-Filter→Source spacer, and at this test's pathological 24-line CLAMPED
-side window the inspector region had ALREADY reached zero — no tail left
-to absorb the extra line — so the first verb row now sits one line below
-the fold there (verb rows 2+ were below the fold BEFORE R69 too).  The
-guarantee splits: at body height 24 the Actions HEADER is still within
-the fold (the legend never vanishes from a short rail), and one line
-taller (body 25) the header AND the `RET open' first verb row are both
-on screen — the original R26-3 law at the minimum height where it is now
-structurally achievable."
+Filter→Source spacer, and at this test's pathological CLAMPED side window
+the inspector region had ALREADY reached zero — no tail left to absorb
+the extra line — so the first verb row sits one line below the fold there
+(verb rows 2+ were below the fold BEFORE R69 too).  R80 re-bless: the
+project rail Summary lists every `org-air-project-states' entry, so the
+parked pair Out/Off added TWO count lines, pushing the Actions block down
+two more rows; the pathological minimum heights bump +2 accordingly
+(structurally probed: header first fits at body 26, header + verb row at
+body 27).  The guarantee splits: at body height 26 the Actions HEADER is
+still within the fold (the legend never vanishes from a short rail), and
+one line taller (body 27) the header AND the `RET open' first verb row
+are both on screen — the original R26-3 law at the minimum height where
+it is now structurally achievable."
   (skip-unless (locate-library "org-air"))
-  ;; body 24: the Actions header itself still lands within the fold.
-  (org-air-r26--with-frame-lines 26      ; side window body-height = 24
+  ;; body 26: the Actions header itself still lands within the fold.
+  (org-air-r26--with-frame-lines 28      ; side window body-height = 26
     (org-air-r26--with-live-project
       (org-air-r26--pop-rail)
       (let ((side (org-air-rail--side-window)))
@@ -151,8 +155,8 @@ structurally achievable."
                 (start-line (line-number-at-pos (window-start side)))
                 (h (window-body-height side)))
             (should (<= (1+ (- actions-line start-line)) h)))))))
-  ;; body 25 (one taller): header + first verb row inside the fold.
-  (org-air-r26--with-frame-lines 27      ; side window body-height = 25
+  ;; body 27 (one taller): header + first verb row inside the fold.
+  (org-air-r26--with-frame-lines 29      ; side window body-height = 27
     (org-air-r26--with-live-project
       (org-air-r26--pop-rail)
       (let ((side (org-air-rail--side-window)))

@@ -21,6 +21,8 @@
                                                                       |    1  Ready
                                                                       |    1  Work In Progress
                                                                       |    1  Complete
+                                                                      |    0  Out
+                                                                      |    0  Off
                                                                       |    1  Dropped
                                                                       |
                                                                       | | Inspector

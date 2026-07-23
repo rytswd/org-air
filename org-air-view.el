@@ -722,6 +722,17 @@ always shows the keyword/token text either way (`NEXT', `[R]')."
   :type '(choice (const badge) (const text))
   :group 'org-air)
 
+(defcustom org-air-keyword-badge-min-cols 5
+  "Minimum column width of a keyword svg pill (R80).
+A short keyword (OUT/OFF, 3 cols) pads its capsule to at least this many
+columns, centring the label, so it renders at the SAME size as a DRAFT
+state chip (`org-air-project--state-cell-w', also 5) instead of a tiny
+pill.  The pad is symmetric-looking (the label centres); the extra
+spacing on both sides is intended.  A longer keyword (WAITING, 7 cols) is
+already >= this floor, so it is byte-identical.  The widening is COLUMNS
+only, never a `:height' (svg-never-grows-line)."
+  :type 'integer :group 'org-air)
+
 (defcustom org-air-todo-keyword-faces
   '(("TODO" . org-air-face-todo)
     ("NEXT" . org-air-face-todo-next)
@@ -732,6 +743,8 @@ always shows the keyword/token text either way (`NEXT', `[R]')."
     ("WAITING" . org-air-face-todo-wait)
     ("HOLD" . org-air-face-todo-wait)
     ("BLOCKED" . org-air-face-todo-wait)
+    ("OUT" . org-air-face-air-state-out)
+    ("OFF" . org-air-face-air-state-off)
     ("DONE" . org-air-face-done)
     ("COMP" . org-air-face-done)
     ("COMPLETED" . org-air-face-done)
@@ -746,6 +759,10 @@ R79: the DONE family splits — completions (DONE/COMP/COMPLETED) keep
 `org-air-face-done' (faded blue) while the cancelled/abandoned set
 \(DROPPED/DROP/CANCELLED/CANCELED/KILL/KILLED) reads `org-air-face-dropped'
 \(muted terracotta), so a completion and an abandonment are distinct.
+R80: OUT/OFF map to the NEW distinct standing-out faces
+\(`org-air-face-air-state-out' / `org-air-face-air-state-off') — the SAME
+faces the project STATE chip uses, so a heading keyword OUT/OFF and a
+`#+state: out'/`off' doc chip wear ONE colour (R80 Decision 3).
 Unknown keywords fall back through the R57 merged scan vocabulary — a
 not-done keyword to `org-air-face-todo', a done keyword to
 `org-air-face-done' (or `org-air-face-dropped' when cancelled-named), else
@@ -3475,6 +3492,15 @@ first."
             (when org-air-show-origin
               (setq ow (max ow (string-width
                                 (org-air-view--item-origin-raw item)))))))))
+    ;; R80: floor the keyword column so a SHORT keyword (OUT/OFF, 3 cols)
+    ;; reserves a cell the SAME width as a 5-col DRAFT state chip -- the
+    ;; keyword badge (`org-air-view--svg-keyword-badge') pads its pill to
+    ;; the same floor, so box <= cell and the pill never overflows.  Only
+    ;; when the badge style is on AND some row HAS a keyword (tw-todo>0);
+    ;; a keyword already >= the floor (WAITING, 7) is a no-op (byte-
+    ;; identical), and an all-keywordless board reserves no column.
+    (when (and (eq org-air-keyword-style 'badge) (> tw-todo 0))
+      (setq tw-todo (max tw-todo org-air-keyword-badge-min-cols)))
     ;; R17 piece C: the per-item origin TEXT is already capped at the
     ;; source (`org-air-view--origin-capped'), so OW is inherently <= the
     ;; cap; clamp anyway (belt-and-braces -- width and rendered cell agree).
@@ -3522,16 +3548,27 @@ first."
 Reuses `org-air-view--svg-pillify' with FACE's foreground as the salient
 \(full-strength) border, so the chip reads as a coloured BADGE -- distinct
 from the calm monochrome tag/date pills.  Shared by the board keyword
-cell and the project state cell.  Returns TEXT unchanged (the plain
-coloured keyword/token text) when `org-air-keyword-style' is `text', when
-svg is unavailable, or when TEXT is blank -- the mandatory fallback, so
-the byte/TTY layer always keeps the keyword text."
-  (if (or (not (eq org-air-keyword-style 'badge))
-          (not (org-air-view--svg-available-p))
-          (string-empty-p (string-trim text)))
-      text
-    (let ((color (face-foreground face nil t)))
-      (org-air-view--svg-pillify text face :border-color color))))
+cell and the project state cell.
+
+R80: TEXT is first padded to at least `org-air-keyword-badge-min-cols'
+columns (default 5 = `org-air-project--state-cell-w'), the label centring,
+so a SHORT keyword (OUT/OFF, 3 cols) renders a pill the SAME size as a
+5-col DRAFT state chip instead of a tiny capsule -- the widening is
+COLUMNS only (never a `:height').  A keyword already >= the floor
+\(WAITING, 7) keeps its natural width (the pad is a no-op).  Returns the
+PADDED token unchanged (the mandatory text fallback) when
+`org-air-keyword-style' is `text', when svg is unavailable, or when TEXT
+is blank, so the byte/TTY layer reserves the SAME min width as a state
+token."
+  (let ((padded (org-air-view--pad-to
+                 text (max (string-width text)
+                           org-air-keyword-badge-min-cols))))
+    (if (or (not (eq org-air-keyword-style 'badge))
+            (not (org-air-view--svg-available-p))
+            (string-empty-p (string-trim text)))
+        padded
+      (let ((color (face-foreground face nil t)))
+        (org-air-view--svg-pillify padded face :border-color color)))))
 
 (defun org-air-view--todo-cell (todo width &optional donep)
   "Return a fixed-width reserved TODO-keyword cell (R15 D-P1).
@@ -5397,6 +5434,10 @@ so it may be called before the per-group sort."
           (when org-air-show-origin
             (setq ow (max ow (string-width
                               (org-air-view--item-origin-raw item))))))))
+    ;; R80: mirror the board keyword-column floor so a short keyword
+    ;; (OUT/OFF) day badge is DRAFT-sized, not a tiny pill.
+    (when (and (eq org-air-keyword-style 'badge) (> tw-todo 0))
+      (setq tw-todo (max tw-todo org-air-keyword-badge-min-cols)))
     (setq ow (min ow org-air-origin-max-width))
     ;; title-min fit pass (no date column; mirrors --compute-meta-widths).
     (let* ((gap 2)

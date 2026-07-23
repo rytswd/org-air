@@ -831,6 +831,37 @@ row's title band takes `org-air-face-project-dropped' (R48-2), so the
 two can be customised independently."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-air-state-out
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#00838F" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#88C0D0" :weight bold))
+    (t (:inherit org-air-face-salient :weight bold)))
+  "Air doc state badge: Out (\N{OUTBOX TRAY}) \N{EM DASH} a muted teal, first-class (R80).
+DISTINCT and STANDING OUT (NOT `org-air-face-faded'): out/off are
+first-class parked/inactive Air states, so their chip reads salient, not
+muted-unknown.  A single source shared by the project STATE chip
+\(`org-air-project--state-face') and the heading KEYWORD badge
+\(the OUT entry of `org-air-todo-keyword-faces'), so the two surfaces
+never drift.  GUI-confirm-only: the exact hex; the TTY tier degrades to
+`org-air-face-salient'."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-air-state-off
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#8E4585" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#B48EAD" :weight bold))
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Air doc state badge: Off (\N{DOUBLE VERTICAL BAR}) \N{EM DASH} a muted plum, first-class (R80).
+DISTINCT and STANDING OUT (NOT `org-air-face-faded'), apart from WIP's
+salient blue-violet and WAIT's amber.  Shared by the project STATE chip
+and the heading KEYWORD badge (the OFF entry of
+`org-air-todo-keyword-faces') so the two can never drift.
+GUI-confirm-only: the exact hex; the TTY tier degrades to
+`org-air-face-popout'."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-project-dropped
   '((t :inherit org-air-face-faded))
   "Face for a DROPPED doc's row in the Air project view (R48-2).

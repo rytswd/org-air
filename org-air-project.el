@@ -123,15 +123,21 @@ so they never shadow the shared board keys s / d / t."
   :group 'org-air)
 
 (defconst org-air-project--state-display-order
-  '("ready" "work-in-progress" "complete" "dropped" "draft")
+  '("ready" "work-in-progress" "complete" "out" "off" "dropped" "draft")
   "Canonical airctl `-Da' state order for the COUNT surfaces (R20-5).
+R80: out/off join the rollup after complete, before dropped.  NOTE:
+airctl's Rust state enum does not yet know out/off, so INCLUDING them here
+makes org-air's per-dir rollup RICHER than `airctl status -Da' until
+airctl gains the vocabulary (a documented forward divergence,
+PRODUCT-CONFIRM in the R80 spec).
 Drives the per-dir letter-count summaries (`--dir-count-summary') ONLY —
 the LETTER order is the `airctl status -Da' byte-parity contract
 \(`R4(+1) C14(+14) X1(+9) D2(+8)', re-verified and pinned at the R48
 closeout).  R51-2 split the doc ROW ordering OUT deliberately: rows rank
 via `org-air-project--state-sort-rank' (dropped LAST) — the two orders
 serve different contracts and may differ.  R25-3 dropped the phantom
-`review' state (Air has no such state).")
+`review' state (Air has no such state).  R80 registers `out'/`off' as
+first-class parked states.")
 
 (defcustom org-air-project-sort-key 'name
   "INITIAL sort key for the Air project view (R16 D-P4).
@@ -149,17 +155,20 @@ the byte contract."
   :group 'org-air)
 
 (defcustom org-air-project-states
-  '("draft" "ready" "work-in-progress" "complete" "dropped")
+  '("draft" "ready" "work-in-progress" "complete" "out" "off" "dropped")
   "Air doc states in display order.
 The canonical Air lifecycle: draft -> ready -> work-in-progress ->
-complete -> dropped.  R25-3 dropped the phantom `review' state (Air has no
-such state; a doc that writes a non-canonical state ranks as Unknown)."
+complete -> out -> off -> dropped.  R80 adds the parked/inactive pair
+\(out/off) after complete, before dropped.  R25-3 dropped the phantom
+`review' state (Air has no such state; a doc that writes a non-canonical
+state ranks as Unknown)."
   :type '(repeat string)
   :group 'org-air)
 
 (defcustom org-air-project-sections
-  '("draft" "ready" "work-in-progress" "complete" "dropped")
+  '("draft" "ready" "work-in-progress" "complete" "out" "off" "dropped")
   "State buckets, in order, rendered as project-view SECTIONS (D-P5.C).
+R80 adds the out/off sections after complete.
 Each present bucket becomes a section heading (badge icon + title + count
 badge) with its doc rows beneath; empty buckets are omitted, exactly like
 the board's empty sections."
@@ -171,6 +180,8 @@ the board's empty sections."
     ("ready"            . ("\N{DIRECT HIT}\N{VARIATION SELECTOR-16}"         . "READY"))
     ("work-in-progress" . ("\N{GEAR}\N{VARIATION SELECTOR-16}"               . "WIP"))
     ("complete"         . ("\N{WHITE HEAVY CHECK MARK}\N{VARIATION SELECTOR-16}" . "COMP"))
+    ("out"              . ("\N{OUTBOX TRAY}\N{VARIATION SELECTOR-16}"        . "OUT"))
+    ("off"              . ("\N{DOUBLE VERTICAL BAR}\N{VARIATION SELECTOR-16}" . "OFF"))
     ("dropped"          . ("\N{WASTEBASKET}\N{VARIATION SELECTOR-16}"        . "DROP")))
   "Per-state badge as (STATE . (EMOJI . TTY)).
 The GUI shows EMOJI (R23-4) when `org-air-project-state-style' is `emoji';
@@ -206,6 +217,8 @@ unchanged and the cell never grows past `org-air-project--state-cell-w'."
     ("ready"            . "\uf192")   ; nf-fa-dot_circle_o  (target)
     ("work-in-progress" . "\uf013")   ; nf-fa-cog
     ("complete"         . "\uf058")   ; nf-fa-check_circle
+    ("out"              . "\uf08b")   ; nf-fa-sign_out    (R80)
+    ("off"              . "\uf011")   ; nf-fa-power_off   (R80)
     ("dropped"          . "\uf014"))  ; nf-fa-trash
   "Per-state nerd-font glyph for `org-air-project-state-style' = `nerd' (R24-3).
 Used only on a graphical frame whose font can display the glyph; otherwise
@@ -354,6 +367,8 @@ with the stateless directory-summary bodies."
     ("ready" 'org-air-face-air-state-ready)
     ("work-in-progress" 'org-air-face-air-state-wip)
     ("complete" 'org-air-face-air-state-complete)
+    ("out" 'org-air-face-air-state-out)     ; R80: first-class, standing out
+    ("off" 'org-air-face-air-state-off)     ; R80: first-class, standing out
     ("dropped" 'org-air-face-air-state-dropped)
     (_ 'org-air-face-faded)))
 
@@ -407,7 +422,7 @@ columns line up exactly down the project list (board parity)."
 
 (defconst org-air-project--state-words
   '(("draft" . "DRAFT") ("ready" . "READY") ("work-in-progress" . "WIP")
-    ("complete" . "COMP") ("dropped" . "DROP"))
+    ("complete" . "COMP") ("out" . "OUT") ("off" . "OFF") ("dropped" . "DROP"))
   "Canonical short-word state labels (R26-2).  Longest = 5 cols.
 The single source for BOTH the TTY token (`--state-token', padded to the
 uniform 5-col cell) and the GUI pill label (`--state-svg-badge', the bare
@@ -645,8 +660,10 @@ Buckets with zero docs are omitted; any state not listed is appended."
     (and dir (split-string (directory-file-name dir) "/" t))))
 
 (defconst org-air-project--state-sort-order
-  '("ready" "work-in-progress" "complete" "draft")
+  '("ready" "work-in-progress" "complete" "out" "off" "draft")
   "The R51-2 within-group ROW ordering for the canonical LIVE states.
+R80: out/off rank after complete (parked/inactive), still ABOVE
+unknown/dropped.
 Dropped is deliberately NOT a member: `org-air-project--state-sort-rank'
 pins it to the absolute LAST rank (past unknown) — ready →
 work-in-progress → complete → draft → (unknown) → dropped.  Distinct
@@ -657,7 +674,8 @@ order for the count summaries — a different contract).")
   "Return STATE's within-group row rank (R51-2) — dropped LAST.
 The ONE rank source BOTH comparators (`org-air-project--state-first-lessp'
 and `org-air-project--doc-compare') call, so the collapsed fold row and
-the expanded/revealed dropped rows share one bottom-of-group ordering:
+the expanded/revealed dropped rows share one bottom-of-group ordering
+\(R80 added out/off at ranks 3/4, still above unknown/dropped):
 a member of `org-air-project--state-sort-order' gets its position (0–3);
 \"dropped\" ranks 5 — absolutely last, PAST unknown (an unknown state is
 a metadata bug on a LIVE doc; dropped is deliberately dead — dead sorts
@@ -784,11 +802,14 @@ docs with no directory fold into a leading node with an empty :path."
     ("ready"            . "R")    ; 🎯  airctl Ready
     ("work-in-progress" . "W")    ;      Work-In-Progress (W = Work/WIP)
     ("complete"         . "C")    ; ✅  airctl Complete
+    ("out"              . "O")    ; 📤  R80 Out (O for Out)
+    ("off"              . "F")    ; ⏸  R80 Off (F, NOT O — no O/O collision)
     ("dropped"          . "X"))   ; 🗑️  airctl Dropped (token is already [X])
   "Canonical per-state single LETTER (R25-4): airctl-aligned + DISTINCT.
 Draft=D and Dropped=X never collide; `work-in-progress'=W is distinct from
-all.  The single source for BOTH the per-doc badge glyph and the per-dir
-rollup letter, so the two can never drift.")
+all.  R80: out=O, off=F (F, NOT O, so out/off never collide in the per-dir
+rollup).  The single source for BOTH the per-doc badge glyph and the
+per-dir rollup letter, so the two can never drift.")
 
 (defun org-air-project--state-letter (state)
   "Return STATE's DISTINCT single-letter badge glyph (R25-4).

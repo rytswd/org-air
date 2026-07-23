@@ -2877,6 +2877,51 @@
     ;; (`own' face source, sort `date') — `make regen-mockups' churn = 0.
     ;; New executing/audit ERTs land in tests/org-air-round79-test.el
     ;; (r79-1..r79-10); the R79 manifest is EMPTY.
+    ;;
+    ;; ===================================================================
+    ;; v0.5 ROUND-80 GRIND (impl <this change>; test seat re-blesses).
+    ;; First-class OUT/OFF Air states across TWO surfaces, REUSING the
+    ;; pill/badge machinery (air/v0.1/org-air-round80-design.org):
+    ;;   D1 register out/off as first-class states in EVERY project state
+    ;;      list (--state-words/-face/-letters/-display-order/-sort-order +
+    ;;      org-air-project-states/-sections/-state-badges/-state-nerd-
+    ;;      glyphs) with NEW distinct standing-out faces
+    ;;      `org-air-face-air-state-out' / `-off' (NOT faded);
+    ;;   D2 new `org-air-keyword-badge-min-cols' (default 5 = the state
+    ;;      cell) floors `org-air-view--svg-keyword-badge' + the
+    ;;      `--compute-meta-widths' / `--day-meta-widths' keyword column so a
+    ;;      SHORT keyword (OUT/OFF, 3 cols) renders a pill the SAME size as a
+    ;;      5-col DRAFT (COLUMNS only, never a `:height');
+    ;;   D3 OUT/OFF plug into the SAME `org-air-todo-keyword-faces' alist.
+    ;; New executing ERTs land in tests/org-air-round80-test.el (r80-1..
+    ;; r80-9), all GREEN.  The goldens/assertions below shift as the spec
+    ;; flags ("Goldens WILL shift"); DO NOT hand-bless — the test seat
+    ;; re-blesses (make regen-mockups + assertion updates) and DELETES each
+    ;; entry here (a passing listed test is itself a gate failure).
+    ;;
+    ;; (a) KEYWORD-BADGE MIN-WIDTH churn — a board whose widest SHOWN
+    ;;     keyword was < 5 cols (all TODO/DONE, 4) re-freezes its keyword
+    ;;     column ONE cell wider (floored to 5), so every board title/pill
+    ;;     shifts +1 col.  Byte mockups + the two board assertions:
+    (org-air-layout-mockup-80 . "R80 D2: keyword column floored to 5 — the 80-col board mockup shifts; test seat re-blesses via make regen-mockups")
+    (org-air-layout-mockup-120 . "R80 D2: keyword column floored to 5 — the 120-col board mockup shifts; test seat re-blesses")
+    (org-air-layout-mockup-160 . "R80 D2: keyword column floored to 5 — the 160-col board mockup shifts; test seat re-blesses")
+    (org-air-layout-mockup-heights . "R80 D2: keyword column floored to 5 — the height-tier board mockups shift; test seat re-blesses")
+    (org-air-layout-mockup-thresholds . "R80 D2: keyword column floored to 5 — the threshold-tier board mockups shift; test seat re-blesses")
+    (org-air-r13-board-only-byte-mockup . "R80 D2: keyword column floored to 5 — the board-only byte mockup shifts; test seat re-blesses")
+    (org-air-r17-denote-origin-byte-mockup . "R80 D2: keyword column floored to 5 — the denote-origin byte mockups shift; test seat re-blesses")
+    (org-air-r49-5-batch-placement-blind . "R80 D2: keyword column floored to 5 — the batch render diverges from the (pre-R80) 120 mockup at the shifted title column; test seat re-blesses")
+    (org-air-r13-priority-slot-fixed-two-col . "R80 D2: the row lead is now `TODO  ' (5-col keyword cell) not `TODO ' — the fixed 2-col priority slot follows the widened keyword cell; test seat re-blesses the literal")
+    (org-air-r21-4-keyword-badge-text-fallback . "R80 D2: `--svg-keyword-badge' now returns the MIN-WIDTH-PADDED token (`NEXT ') as its mandatory text fallback, no longer eq the raw input; test seat re-blesses to the padded fallback")
+    ;;
+    ;; (b) STATE-REGISTRATION churn — out/off join the project state lists,
+    ;;     so display-order / states literals grow and the project rail
+    ;;     Summary gains an Out + Off count line (pushing content down).
+    (org-air-r20-5-state-display-order-matches-airctl . "R80 D1: `--state-display-order' gains out/off (parked pair) — a DELIBERATE forward divergence from airctl's Rust enum (spec PRODUCT-CONFIRM); test seat re-blesses the airctl-parity assertion")
+    (org-air-r25-3-display-order-minus-review . "R80 D1: `--state-display-order' now has 7 entries (out/off added after complete); test seat re-blesses the literal")
+    (org-air-r25-3-five-real-states-ordered . "R80 D1: `org-air-project-states' now lists 7 states (out/off added after complete, before dropped); test seat re-blesses the literal")
+    (org-air-f5-project-view-byte-mockups . "R80 D1: the project rail Summary lists every `org-air-project-states' entry — now +Out/+Off count lines; the project byte mockups shift; test seat re-blesses via make regen-mockups")
+    (org-air-r26-3-legend-on-screen-popped . "R80 D1: the project rail Summary gained 2 lines (Out/Off), pushing the Actions header below this test's pathological 24-line clamped fold; test seat re-blesses the fold-height law")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

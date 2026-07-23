@@ -455,3 +455,28 @@ prove OUT/OFF join those SAME mechanisms.
 
 * History
 - 2026-07-23: State: draft → ready.
+- 2026-07-23: Round 80 IMPLEMENTED (impl seat, child of ytsywxylxvqu).
+  D1 landed in =org-air-project.el= — new =org-air-face-air-state-out= /
+  =-off= (org-air-faces.el, distinct standing-out teal / plum, NOT faded);
+  out/off registered in =--state-words= (OUT/OFF), =--state-face=
+  \(→ the new faces), =--state-letters= (O / F — no collision),
+  =--state-display-order= / =--state-sort-order= (after complete),
+  =org-air-project-states= / =-sections= / =-state-badges= (📤 / ⏸) /
+  =-state-nerd-glyphs= (nf-fa-sign_out / power_off).  D2 landed in
+  =org-air-view.el= — new =org-air-keyword-badge-min-cols= (default 5 =
+  =org-air-project--state-cell-w=) floors =org-air-view--svg-keyword-badge=
+  \(pads TEXT then pillifies; padded token is the off-GUI fallback) AND the
+  keyword column in =--compute-meta-widths= + =--day-meta-widths= (badge
+  style, tw-todo>0), so a short OUT/OFF pill == a 5-col DRAFT (columns
+  only, never =:height=).  D3 landed in =org-air-view.el= — OUT/OFF added
+  to =org-air-todo-keyword-faces= pointing at the D1 faces (=--todo-face=
+  already consults the alist first, no resolver edit).  Tests:
+  tests/org-air-round80-test.el (r80-1..r80-9) all GREEN.  =make check=
+  green EXCEPT 15 flagged goldens in tests/org-air-known-failures.el —
+  board keyword-column +1 (mockup-80/120/160/heights/thresholds,
+  r13-board-only/priority-slot, r17-denote-origin, r49-5, r21-4-fallback)
+  and the state-list churn (r20-5 airctl-parity divergence, r25-3 x2,
+  f5-project-mockups, r26-3 rail-Summary +Out/+Off) — DO NOT hand-bless;
+  the test seat re-blesses.  Colours / emoji / nerd glyphs are
+  GUI-confirm-only; lifecycle position (parked, after complete) +
+  "default state" + airctl vocabulary stay PRODUCT-CONFIRM.

@@ -1,5 +1,5 @@
 #+title: org-air Round 78 — org-air-goto-date: jump to a given date's items (org-read-date prompt → the R55-1 owner-routed day view), bound at g d
-#+state: ready
+#+state: complete
 #+tags: board day-view calendar keybinding command autoload ux
 
 * Summary
@@ -401,3 +401,6 @@ round-trips.
   outside tests/). make clean && make check GREEN — 993 tests
   (990 + 3), 0 unexpected, 8 GUI skips; known-failures manifest EMPTY;
   make regen-mockups byte-clean (zero golden churn).
+
+* History
+- 2026-07-23: State: ready → complete.

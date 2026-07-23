@@ -1,0 +1,457 @@
+#+title: org-air Round 80 — first-class OUT / OFF Air states: distinct standing-out faces on the project state chip AND a normalized keyword-badge min-width so a short OUT / OFF pill is the SAME size as DRAFT
+#+state: ready
+#+tags: project-view board faces state keyword ux
+
+* Summary
+
+New user request (verbatim): "Can you also support 'OUT' and 'OFF' as the
+keyword, which may become the default for Air docs.  When written as OUT,
+it renders really small right now, it should stand out, and be the same
+size as 'DRAFT' (it's fine to have extra spacing on both sides)."
+
+Root-caused against the REAL renderer (batch, svg seam forced, char-px =
+8×16 — the R26 =--with-gui-metrics= harness; numbers reproduced below).
+The report actually spans TWO surfaces with TWO DIFFERENT defects, not
+one:
+
+1. *Where OUT renders "really small" — the board / day KEYWORD badge.*
+   =org-air-view--svg-keyword-badge= (~3401) pixel-locks the pill box to
+   the RAW keyword text (=box-w = ncols × char-px=), so a 3-col =OUT=
+   draws a *24 px (3-col)* capsule while a =DRAFT= state chip draws a
+   *40 px (5-col)* one.  A short keyword ⇒ a tiny pill, by construction.
+   This is the surface the user is looking at.
+
+2. *Where OUT "doesn't stand out" — the project STATE chip.*
+   =org-air-project--state-svg-badge= (~492) ALREADY pads its token to
+   the uniform =org-air-project--state-cell-w= = 5, so =#+state: out=
+   renders at *40 px (5-col)* — the SAME box as DRAFT, NOT small.  Its
+   defect is COLOUR: =out= / =off= are not recognized states, so
+   =org-air-project--state-face= (~350) hits its =_= tail →
+   =org-air-face-faded= (the dim UNKNOWN face).  The chip is the right
+   size but reads muted, and the doc ranks / sections / rollup-letters as
+   Unknown, i.e. NOT first-class.
+
+So "same size as DRAFT" is a KEYWORD-badge fix (a normalized min-width),
+and "stand out / first-class" is a STATE-registration fix (new distinct
+faces + every state list).  This round does both, reusing the existing
+pill/badge machinery — no fork, no new svg code.
+
+SPEC ONLY: no =.el= or test edits in this change.  org / org-ql stay the
+only engines.  Respected: R53 (no rescan — the faces / widths are pure
+over cached items), R55-1 (owner routing unchanged), R57-1 (the calm V6
+palette; OUT/OFF join it as NAMED faces, they are not an import of the
+user's =org-todo-keyword-faces=), R79 (the keyword badge keeps routing
+through =org-air-view--todo-face= / =org-air-todo-keyword-faces= — R80
+plugs OUT/OFF into that SAME alist, so both the R57-1 code and R79's
+opt-in resolver pick them up unchanged), R26-2 (5-col word-pill state
+cell — the keyword min-width is deliberately the SAME 5), svg-never-grows-
+line (the widening is COLUMNS only, never a =:height= face).
+GUI-CONFIRM-ONLY flagged inline: the exact =org-air-face-air-state-out= /
+=-off= hexes + their emoji / nerd glyphs.  PRODUCT-CONFIRM flagged
+inline: OUT/OFF's lifecycle POSITION + whether they become the doc
+DEFAULT + the airctl-vocabulary implication.
+
+* Investigation
+
+** The two render paths, measured (batch, char-px 8×16)
+
+Reproduced with the R26 =--with-gui-metrics= idiom (=display-graphic-p=
+stubbed → t; =org-air-view--pill-char-w= 8 / =-h= 16); box width read off
+the =display= image via =(image-property IMG :width)=:
+
+#+begin_example
+KEYWORD badge  OUT      box-w = 24 px  = 3 cols     ← "renders really small"
+KEYWORD badge  WAITING  box-w = 56 px  = 7 cols     (sized to text, fine)
+STATE  badge   out      box-w = 40 px  = 5 cols     face = org-air-face-faded  ← faded, not small
+STATE  badge   draft    box-w = 40 px  = 5 cols
+#+end_example
+
+The smoking gun: the KEYWORD box for OUT is 24 px, the STATE / DRAFT box
+is 40 px.  The two surfaces disagree because ONE pixel-locks to the token
+CELL (5-col, uniform — R26-2) and the OTHER pixel-locks to the keyword
+TEXT (variable).
+
+** Surface 1 — the keyword badge sizes to the text (org-air-view.el)
+
+=org-air-view--svg-keyword-badge= (~3401):
+
+#+begin_example
+(let ((color (face-foreground face nil t)))
+  (org-air-view--svg-pillify text face :border-color color))
+#+end_example
+
+=--svg-pillify= (~2950) sets =box-w = (* (string-width text) char-px)=.
+=text= arrives from =org-air-view--todo-cell= (~3417) as the BARE
+keyword (=(propertize todo 'face …)=) — unpadded — so =OUT= ⇒ 3 cols,
+=OFF= ⇒ 3 cols, =WAITING= ⇒ 7 cols.  The cell is padded to
+=org-air-view--meta-todo-w= AFTER the badge, so alignment is fine, but the
+CAPSULE itself is whatever the keyword's own width is.  There is no floor:
+a short keyword is a small pill.  (=org-air-view--compute-meta-widths=
+~3304 sets =meta-todo-w= to the widest SHOWN keyword — line ~3399 =(setq
+org-air-view--meta-todo-w tw-todo)= — with no minimum either.)
+
+Contrast the STATE chip (=org-air-project--state-svg-badge= ~492): it pads
+the token to =--state-cell-w= (5) FIRST and passes the bare word as
+=:label=, so every state capsule is 5 cols and the label centres.  That is
+exactly the trick the keyword badge is missing.
+
+** Surface 2 — out / off fall through as UNKNOWN (org-air-project.el)
+
+=out= / =off= are absent from EVERY state list, so:
+
+- =org-air-project--state-face= (~350) — pcase =_= → =org-air-face-faded=
+  (dim).  Verified: =(org-air-project--state-face "out")= →
+  =org-air-face-faded=, same as =off=.
+- =org-air-project--state-words= (~408) — no entry, so
+  =org-air-project--state-token= (~460) takes its =(upcase (truncate-
+  string-to-width state 5))= tail → =OUT= padded to =OUT  = (5 cols; the
+  chip IS 5-col, confirming "not small") but with the faded face.
+- =org-air-project--state-letter= (~793) — no entry, so it upcases the
+  first char → *both* =out= and =off= collapse to ="O"= (a COLLISION in
+  the per-dir rollup =R4(+1) …= summary).
+- =org-air-project--state-sort-rank= (~656) / =--state-display-order=
+  (~125) / =org-air-project-sections= (~161) — non-member → ranks / renders
+  as Unknown, so an OUT doc sorts with metadata-bug docs and never gets
+  its own section.
+- =org-air-project-state-badges= (~169, emoji/TTY) and
+  =org-air-project-state-nerd-glyphs= (~204) — no entry, so the emoji /
+  nerd styles fall back to the terse token.
+
+None of this is "small" — it is "unknown".  The state chip's SIZE is
+already correct (R26-2); only its FACE and its list-membership are wrong.
+
+** What R79 already did, and how R80 rides it
+
+R79 (now complete, in this base) split the done family and, at its =org=
+opt-in, routes the keyword face through the user's
+=org-todo-keyword-faces=; DEFAULT (=own=) still consults
+=org-air-todo-keyword-faces= first (=org-air-view--todo-face= ~2777:
+=(or (cdr (assoc keyword org-air-todo-keyword-faces)) …)=).  So R80 needs
+only to ADD =OUT= / =OFF= to that alist — no resolver edit — and both the
+default path and R79's =org= opt-in pick them up.
+
+* Decisions
+
+** Decision 1 — register out / off as first-class Air states (org-air-project.el)
+
+Add =out= and =off= to EVERY state list so a =#+state: out= / =#+state:
+off= doc reads first-class — its own face, its own section, its own
+rollup letter, its own rank — never Unknown:
+
+| list (line)                                   | add                                   |
+|-----------------------------------------------+---------------------------------------|
+| =--state-words= (~408)                        | ="out"→"OUT"=, ="off"→"OFF"=          |
+| =--state-face= (~350)                         | =out→air-state-out=, =off→air-state-off= |
+| =--state-letters= (~782)                      | ="out"→"O"=, ="off"→"F"= (NO collision) |
+| =--state-display-order= (~125)                | =out=, =off= (see PRODUCT-CONFIRM)    |
+| =--state-sort-order= (~647)                   | =out=, =off= (explicit ranks)         |
+| =org-air-project-states= (~152)               | =out=, =off=                          |
+| =org-air-project-sections= (~161)             | =out=, =off=                          |
+| =org-air-project-state-badges= (~169)         | =out→(📤 . "OUT")=, =off→(⏸ . "OFF")= |
+| =org-air-project-state-nerd-glyphs= (~204)    | =out→\uf08b=, =off→\uf011=            |
+
+- *New faces* (org-air-faces.el), DISTINCT and standing out — NOT
+  =org-air-face-faded=: =org-air-face-air-state-out= and
+  =org-air-face-air-state-off=.  Rougier-consistent (explicit light+dark,
+  TTY :inherit fallback, weight bold like the other salient state chips).
+  PROPOSED, *GUI-CONFIRM-ONLY*:
+  - =out= — a muted teal (Nord-frost family), clearly apart from every
+    existing state hue: =#00838F= (light) / =#88C0D0= (dark).
+  - =off= — a muted plum (Nord-aurora family), apart from WIP's salient
+    blue-violet and WAIT's amber: =#8E4585= (light) / =#B48EAD= (dark).
+  These are the ONE source of the OUT / OFF colour, reused by Decision 3
+  (the keyword badge) so OUT looks identical whether it is a doc STATE or
+  a heading KEYWORD.
+
+- *Letters* =O= / =F=: WITHOUT explicit entries both =out= and =off=
+  upcase to ="O"= and collide in the per-dir rollup.  =F= for =off= is
+  the tell (like =W= for work-in-progress, =X= for dropped) — a distinct,
+  memorable letter, no collision with =D/R/W/C/X/O=.
+
+- *Lifecycle position* — PRODUCT-CONFIRM.  The rendering fix is
+  position-independent, but the SPEC must place them concretely.  Chosen
+  default: OUT / OFF are a "parked / inactive" pair — after =complete=,
+  before =dropped= — in =--state-display-order=, =org-air-project-states=,
+  =org-air-project-sections= and =--state-sort-order= (so =--state-sort-
+  rank= gives them ranks past the live states but ABOVE unknown/dropped).
+  The user's "may become the default for Air docs" is deliberately NOT
+  actioned here (it would make new docs OUT/OFF by default — a workflow
+  change well beyond rendering); flagged for the user to confirm the
+  order + the default-state question separately.
+
+- *airctl vocabulary* — PRODUCT-CONFIRM.  =--state-display-order= drives
+  the =R4(+1) C14(+14) …= per-dir rollup, documented as byte-parity with
+  =airctl status -Da=.  airctl's Rust state enum does NOT yet know
+  =out= / =off= (it would count them Unknown), so INCLUDING them in the
+  rollup makes org-air's summary RICHER than airctl's — a forward
+  divergence.  Recommended: include them (org-air renders what the user
+  writes; the user says these "may become the default", i.e. airctl is
+  expected to follow), and flag the temporary divergence.  Alternative if
+  strict parity must hold today: register out/off EVERYWHERE except
+  =--state-display-order= (per-doc chips + sections + sort are first-class;
+  the rollup keeps airctl-parity until airctl gains the vocabulary).
+
+** Decision 2 — keyword badge: a normalized min-width = the DRAFT size
+
+Give the keyword badge the SAME floor the state chip has, so a short
+keyword is never a tiny pill — reusing the state-chip trick verbatim
+(pad the pill text to a min cell, centre the label), no new svg code:
+
+- New knob =org-air-keyword-badge-min-cols=, DEFAULT 5 — deliberately the
+  SAME as =org-air-project--state-cell-w= so an =OUT= keyword pill and an
+  =OUT= state pill and a =DRAFT= state pill are all 5-col / 40 px.
+- =org-air-view--svg-keyword-badge= pads =text= to =(max (string-width
+  text) org-air-keyword-badge-min-cols)= before =--svg-pillify=; the label
+  centres (=--svg-pillify= default =align 'center= + D-P1.FIT), giving the
+  "extra spacing on both sides" the user explicitly OK'd.  A long keyword
+  (=WAITING=, 7) is already ≥ min, so it is byte-identical (56 px).  Off-
+  GUI / svg-unavailable it returns the PADDED token (the mandatory text
+  fallback), so =OUT= reserves the same 5 cols at the byte/TTY layer as a
+  state token does — consistent.
+- =org-air-view--compute-meta-widths= floors the keyword column: after
+  =tw-todo= is the widest shown keyword, when =org-air-keyword-style= is
+  =badge= AND =tw-todo > 0=, set =tw-todo = (max tw-todo org-air-keyword-
+  badge-min-cols)=.  This keeps the widened pill BOX ≤ its text CELL
+  (pixel-lock preserved — the image never overflows) and titles stay
+  aligned.  Mirror the floor in the day-pane and project widths ONLY where
+  those surfaces draw keyword badges (the project state cell already uses
+  the 5-col =--state-cell-w=, so it needs no change).
+
+Chosen "min-width floor" over "fill the whole cell" (pad every keyword
+pill to =meta-todo-w=): the user asked for OUT to reach DRAFT size, not
+for every keyword to inflate to the widest — the floor is the minimal
+change (only short-keyword boards move) and keeps the existing "pill
+tracks its keyword" look for keywords already ≥ 5.
+
+** Decision 3 — OUT / OFF keyword face parity (org-air-view.el)
+
+So a heading =* OUT Foo= badge wears the SAME distinct hue as the
+=#+state: out= chip (one colour for the concept, both surfaces):
+
+- =org-air-todo-keyword-faces= (~725) gains ="OUT" → org-air-face-air-
+  state-out= and ="OFF" → org-air-face-air-state-off=.  =org-air-view--
+  todo-face= (~2777) already consults this alist FIRST (both the R57-1
+  default and R79's =own= leg), so NO resolver edit — the badge picks up
+  the new face on the board / day view, and Decision 2 gives it the 5-col
+  size.  (Under R79's =org= opt-in the user's own =org-todo-keyword-faces=
+  still wins for OUT/OFF if the user names one — R79's ruling, unchanged.)
+- Referencing the =air-state= faces from the keyword alist is deliberate:
+  it makes the OUT / OFF colour a SINGLE source shared by the state chip
+  and the keyword chip, so they can never drift.
+
+** Decision 4 — no height growth, scoped byte churn, defaults elsewhere intact
+
+- svg-never-grows-line: the min-width widening is a wider =display= IMAGE
+  over wider CELL TEXT — columns, never a =:height= face.  The line height
+  is untouched (E7).
+- Byte / TTY: OUT / OFF states and keywords carry a 5-col padded token at
+  the byte layer (matching the state-token contract).  A board whose
+  widest keyword was < 5 (e.g. all =TODO= / =WIP=) re-freezes its keyword
+  column ONE cell wider — scoped, expected golden churn, flagged for the
+  impl seat to re-bless.  A board whose widest keyword is ≥ 5 is
+  byte-identical (the floor is a no-op).  The project view's state cell is
+  already 5-col (R26-2), so its byte layer is unchanged; only the two new
+  FACES + list entries move (and those are GUI colour / rank, not width).
+- Exact colours (=air-state-out= / =-off= hex, the emoji, the nerd glyphs)
+  are GUI-CONFIRM-ONLY; the ERT layer asserts FACES / box-widths / list
+  membership, never pixels, so a colour tweak never reddens tests.
+
+* Interface sketch (org-air-faces.el / org-air-project.el / org-air-view.el)
+
+#+begin_src emacs-lisp
+;; --- Decision 1: new distinct standing-out faces (org-air-faces.el) ----
+(custom-declare-face 'org-air-face-air-state-out          ; GUI-CONFIRM hex
+  '((((class color) (min-colors 256) (background light)) (:foreground "#00838F" :weight bold))
+    (((class color) (min-colors 256) (background dark))  (:foreground "#88C0D0" :weight bold))
+    (t (:inherit org-air-face-salient :weight bold)))
+  "Air doc state badge: Out (📤) — a muted teal, first-class (NOT faded)."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-air-state-off          ; GUI-CONFIRM hex
+  '((((class color) (min-colors 256) (background light)) (:foreground "#8E4585" :weight bold))
+    (((class color) (min-colors 256) (background dark))  (:foreground "#B48EAD" :weight bold))
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Air doc state badge: Off (⏸) — a muted plum, first-class (NOT faded)."
+  :group 'org-air-faces)
+
+;; --- Decision 1: every state list (org-air-project.el) -----------------
+;; --state-words:      ("out" . "OUT") ("off" . "OFF")
+;; --state-face pcase: ("out" 'org-air-face-air-state-out)
+;;                     ("off" 'org-air-face-air-state-off)
+;; --state-letters:    ("out" . "O") ("off" . "F")      ; NO O/O collision
+;; --state-display-order / --state-sort-order / org-air-project-states /
+;;   org-air-project-sections: … "complete" "out" "off" "dropped" …
+;; state-badges:  ("out" . ("📤\N{VARIATION SELECTOR-16}" . "OUT"))
+;;                ("off" . ("⏸\N{VARIATION SELECTOR-16}"  . "OFF"))   ; GUI-CONFIRM
+;; state-nerd-glyphs: ("out" . "\uf08b")  ; nf-fa-sign_out
+;;                    ("off" . "\uf011")  ; nf-fa-power_off          ; GUI-CONFIRM
+
+;; --- Decision 2: keyword-badge min-width (org-air-view.el) -------------
+(defcustom org-air-keyword-badge-min-cols 5
+  "Minimum column width of a keyword svg pill (R80).
+A short keyword (OUT/OFF, 3 cols) pads its capsule to at least this many
+columns, centring the label, so it renders at the SAME size as a DRAFT
+state chip (`org-air-project--state-cell-w', also 5) instead of a tiny
+pill.  The pad is symmetric-looking (the label centres); extra spacing on
+both sides is intended."
+  :type 'integer :group 'org-air)
+
+(defun org-air-view--svg-keyword-badge (text face)
+  "…R80: pad TEXT to `org-air-keyword-badge-min-cols' before pillify so a
+short keyword is not a tiny pill; the label centres.  Returns the padded
+token unchanged off-GUI (the mandatory text fallback)."
+  (if (or (not (eq org-air-keyword-style 'badge))
+          (not (org-air-view--svg-available-p))
+          (string-empty-p (string-trim text)))
+      (org-air-view--pad-to text (max (string-width text)
+                                      org-air-keyword-badge-min-cols))
+    (let ((color  (face-foreground face nil t))
+          (padded (org-air-view--pad-to
+                   text (max (string-width text)
+                             org-air-keyword-badge-min-cols))))
+      (org-air-view--svg-pillify padded face :border-color color))))
+
+;; --compute-meta-widths tail (after tw-todo is the widest shown keyword):
+;;   (when (and (eq org-air-keyword-style 'badge) (> tw-todo 0))
+;;     (setq tw-todo (max tw-todo org-air-keyword-badge-min-cols)))
+;;   … (setq org-air-view--meta-todo-w tw-todo)
+;; (mirror the same floor in the R79 day-pane meta-width helper.)
+
+;; --- Decision 3: keyword face parity (org-air-view.el) -----------------
+;; org-air-todo-keyword-faces gains:
+;;   ("OUT" . org-air-face-air-state-out) ("OFF" . org-air-face-air-state-off)
+;; org-air-view--todo-face already consults the alist first -> no edit.
+#+end_src
+
+* Test plan — tests/org-air-round80-test.el (ALL BATCH ERT)
+
+Harness: the R25/R26 =--with-gui-metrics= idiom (=cl-letf=
+=display-graphic-p= → t; bind =org-air-view--pill-char-w= 8 / =-h= 16),
+box width read via =(image-property (get-text-property 0 'display S)
+:width)=; the raw SVG via =(image-property IMG :data)= for the drawn
+label; plus a tiny fixture Air dir carrying =#+state: out= / =#+state:
+off= docs and a board fixture with =OUT= / =OFF= headings.
+
+- E1 =org-air-r80-1-out-off-are-first-class-states-not-unknown=:
+  =(org-air-project--state-face "out")= = =org-air-face-air-state-out= and
+  =(… "off")= = =org-air-face-air-state-off= — BOTH ≠ =org-air-face-faded=
+  (anti-vacuity: assert both non-nil AND ≠ the unknown face).  Revert
+  (drop the pcase arms) reddens (both collapse to faded).
+- E2 =org-air-r80-2-state-token-and-box-equal-draft=: =(org-air-project--
+  state-token "out")= = ="OUT  "= and =(… "off")= = ="OFF  "= (5 cols);
+  under the gui seam =(image-property … :width)= of =--state-svg-badge=
+  for =out= / =off= = =(* org-air-project--state-cell-w 8)= = the DRAFT
+  badge box (40) — SAME size as DRAFT.  The drawn label is the bare word
+  (=>OUT<= / =>OFF<= in the svg), bold.
+- E3 =org-air-r80-3-keyword-badge-min-width-equals-draft= (the headline
+  fix): under the gui seam, =(box-w (org-air-view--svg-keyword-badge
+  (propertize "OUT" 'face F) F))= = 40 = the =draft= state badge box =
+  =(box-w (… "OFF" …))=; a long keyword (=WAITING=) stays =(* 7 8)= = 56
+  (the floor is a no-op above min).  Anti-regression: with
+  =org-air-keyword-badge-min-cols= let-bound to 1 (the pre-R80 behaviour)
+  the OUT box drops to 24 — proving the assertion is the min-width, not a
+  tautology.
+- E4 =org-air-r80-4-keyword-face-parity-with-state=: =(org-air-view--todo-
+  face "OUT")= = =org-air-face-air-state-out= (NOT =org-air-face-todo=),
+  =(… "OFF")= = =org-air-face-air-state-off=, and each EQ the face the
+  state chip uses (=org-air-project--state-face "out"/"off") — one colour,
+  two surfaces.  (Guard: with R79's =org-air-keyword-face-source= at its
+  default the alist face wins; a =cl-letf='d user =org-todo-keyword-faces=
+  under the =org= opt-in wins for OUT — R79 leg, asserted unchanged.)
+- E5 =org-air-r80-5-meta-todo-w-floored-and-pill-fits-cell=: over a board
+  whose widest SHOWN keyword is =OUT= (3), =org-air-view--compute-meta-
+  widths= sets =org-air-view--meta-todo-w= ≥ =org-air-keyword-badge-min-
+  cols= (badge style), so the 5-col pill fits its cell and the rendered
+  title left edge is uniform across an =OUT= row and a longer-keyword row.
+  Byte guard: a board whose widest keyword is ≥ 5 (=WAITING=) leaves
+  =--meta-todo-w= unchanged (the floor is a no-op — no golden churn).
+- E6 =org-air-r80-6-out-off-render-in-own-section-and-rank=: an Air dir
+  with an =out= doc and an =off= doc renders an OUT section and an OFF
+  section (not folded into Unknown); =org-air-project--state-sort-rank
+  "out"= and =(… "off")= are DISTINCT, membership in =--state-sort-order=,
+  and rank between =complete= and =dropped=/unknown per Decision 1;
+  =org-air-project--state-letter= "out"=="O", "off"=="F" (distinct — no
+  collision).  Revert (drop from the lists) reddens (both rank Unknown,
+  letters collide on "O").
+- E7 =org-air-r80-7-no-line-height-growth=: the OUT keyword badge and the
+  OUT state chip carry a =display= IMAGE (=imagep=), never a =:height=
+  face; assert no =:height= anywhere on the badge string (svg-never-grows-
+  line).
+- E8 =org-air-r80-8-byte-tty-fallback-reserves-min-width=: with svg
+  unavailable (=display-graphic-p= → nil), =(org-air-view--svg-keyword-
+  badge (propertize "OUT" 'face F) F)= returns the 5-col padded token
+  =OUT  = (no =display= image) — the mandatory text fallback reserving the
+  same width as a state token; and =org-air-project--state-token "out"= is
+  =OUT  = at the byte layer too.
+- E9 =org-air-r80-9-no-rescan-and-unrelated-defaults-byte-identical=: wrap
+  a project + board render in the R55 query counter — 0 =org-air-query-
+  items= calls (R53; the faces/widths are pure over cached data).  A board
+  whose widest keyword is already ≥ 5 AND has no OUT/OFF is byte-identical
+  to pre-R80 (golden guard — the change is scoped to short-keyword pills +
+  the OUT/OFF vocabulary).
+
+NOT re-tested here (locked elsewhere): R26-2 uniform state pills
+(round26-test), R79 keyword-face routing (round79-test) — E2/E4 only
+prove OUT/OFF join those SAME mechanisms.
+
+* Non-goals
+
+- No new svg code, no keyword-badge fork, no second state system — the
+  keyword badge reuses the state chip's pad-then-centre trick; OUT/OFF
+  reuse every existing state list + the =--todo-face= alist.
+- No "fill every keyword pill to the widest cell" — only a MIN-WIDTH
+  floor, so keywords already ≥ 5 are untouched (byte-identical).
+- No change to =org-air-view-day= owner routing (R55-1), the day-groups'
+  planning-slot keying (R77), or the R79 filter / sort axes.
+- No action on "may become the DEFAULT for Air docs" — that is a workflow
+  change (new docs' initial state), flagged PRODUCT-CONFIRM, not a
+  rendering fix.
+- No import of the user's =org-todo-keyword-faces= by default (R57-1 /
+  R79 preserved) — OUT/OFF are NAMED org-air faces, an opt-in still flips
+  to the user's palette.
+
+* Risks / edges
+
+- =org-air-face-air-state-out= / =-off= exact hexes + the emoji / nerd
+  glyphs are GUI-CONFIRM-ONLY; the ERT layer asserts faces / box-widths /
+  membership, never pixels — a colour tweak never reddens tests.
+- airctl-vocabulary divergence (Decision 1): including out/off in
+  =--state-display-order= makes the per-dir rollup RICHER than =airctl
+  status -Da= until airctl gains the states.  Flagged; the strict-parity
+  alternative (register everywhere except the rollup) is specified.
+- Lifecycle POSITION of out/off (parked, after complete) is a concrete
+  SPEC default, flagged PRODUCT-CONFIRM — the rendering fix is
+  position-independent, so a reorder never touches the size/colour code.
+- Golden churn is scoped to boards whose widest keyword was < 5 (they
+  gain one keyword-column cell); boards with a ≥ 5 widest keyword and the
+  whole project state cell (already 5-col) are byte-identical.
+- The min-width floors the keyword CELL as well as the BOX (pixel-lock
+  requires box ≤ cell); E5 pins that the floored =meta-todo-w= keeps the
+  pill inside its cell and titles aligned — the pill can never overflow.
+- =OFF= letter =F= (not =O=) is load-bearing: without it the rollup
+  collides =out= / =off= on =O=; E6 asserts the distinct letters.
+
+* Implementation History
+
+- 2026-07-23: Round 80 spec drafted (design seat).  State: ready —
+  awaiting impl + test seats.  No code changes in this commit.
+  Root-caused against the REAL renderer (R26 =--with-gui-metrics=; char-px
+  8×16): "renders really small" is the board/day KEYWORD badge
+  (=org-air-view--svg-keyword-badge= ~3401 pixel-locks the pill to the raw
+  keyword text — OUT = 24 px / 3 cols vs DRAFT = 40 px / 5 cols); the
+  project STATE chip (=--state-svg-badge= ~492) is ALREADY 40 px / 5 cols
+  but faded (=--state-face= ~350 =_= → =org-air-face-faded=) because
+  out/off are absent from every state list.  Fix: (1) register out/off as
+  first-class states across =--state-words/-face/-letters/-display-order/
+  -sort-order= + =org-air-project-states/-sections/-state-badges/-state-
+  nerd-glyphs= with NEW distinct =org-air-face-air-state-out= / =-off=
+  faces; (2) new =org-air-keyword-badge-min-cols= (default 5 =
+  =--state-cell-w=) floors the keyword pill + =--compute-meta-widths=
+  =tw-todo= so a short pill is DRAFT-sized; (3) plug OUT/OFF into
+  =org-air-todo-keyword-faces= so the heading badge shares the state
+  colour.  Defaults elsewhere byte-identical; colours + glyphs flagged
+  GUI-confirm-only; lifecycle position + "default state" + airctl
+  vocabulary flagged product-confirm.
+
+* History
+- 2026-07-23: State: draft → ready.

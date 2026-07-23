@@ -1,5 +1,5 @@
 #+title: org-air Round 73 — Post-edit UX: the refresh FORCES a pane/inspector resync (no cursor-nudge), and `u' becomes a described, bounded RECENT-EDITS undo ring
-#+state: ready
+#+state: complete
 #+tags: board view-pane inspector undo refresh ux robustness
 
 * Summary
@@ -679,3 +679,6 @@ row.
     =make regen-mockups= byte-clean (zero fixtures moved); =make
     clean && make check= GREEN — 929 tests (926 + 3 audit ERTs),
     0 unexpected, 8 GUI skips, lint 0 findings.
+
+* History
+- 2026-07-23: State: ready → complete.

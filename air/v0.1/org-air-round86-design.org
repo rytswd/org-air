@@ -710,5 +710,44 @@ ERT seams; segment/relative rulings flagged for confirmation.
   segment-aware, B org-root-relative) ship as specified, each isolated
   behind a single helper for a one-predicate pivot.
 
+- 2026-07-24: R86 TEST/AUDIT closeout (test seat; fixtures/tests/gate ONLY
+  — NO =.el= source touched, verified byte-identical to the impl tip).
+  CONFIRMED the manifest EMPTY + goldens byte-identical: =make regen-mockups=
+  is a NO-OP (=jj diff --stat= = 0 fixtures before the test edits, and ONLY
+  =tests/org-air-round86-test.el= after).  AUDITED the impl's 16 seams by
+  REVERT-RED vs the pre-R86 =org-air-view.el=: 14/16 reddened outright; the
+  two that HELD are INHERITED invariants R86 preserves rather than
+  introduces — r86-14 (the R53 no-rescan property: a bare-substring =path:=
+  also never re-queries) and r86-16 (the =#=-first precedence: STRUCTURAL,
+  guarded by three layers — parser =#=-refusal + matcher =#=-first +
+  anchored =path:= regex).  Each seam ALSO reddened under its OWN targeted
+  mutation: substring-instead-of-segment (M1 → r86-2/3/4), relative→absolute
+  (M2 → r86-5), case-sensitive =--path-segments= (M3 → r86-7), a board-active
+  gate on the path arm (M4 → r86-11), and — for the two structural holders —
+  r86-16 proven non-vacuous (the location axis WOULD match a =path/x=
+  directory item; the =#= routing correctly wins) and r86-18 reddened by a
+  version-bump + filter-in-key mutation (M6).  STRENGTHENED r86-14 in place:
+  the no-rescan spy now PINS the narrowed SET to the SEGMENT-AWARE
+  membership (Alpha/Beta/Epsilon under =tasks/re=, NOT the =restore=
+  sibling) so it can no longer pass VACUOUSLY with a =path:= that matches
+  nothing (it now reddens under full revert AND the substring mutation).
+  ADDED four gap-closing seams (now r86-1..r86-20, all revert-red-driven):
+  r86-17 =path:= composes under =all= with =todo:= / =is:backlog= / =due:=
+  (the axes r86-9/r86-10 leave uncovered) and under =any= a sibling rides
+  the =todo:= disjunct — the THREE axes coexist first-class; r86-18 NO
+  =cache-version= bump (stays 6) + the coherence key stays a SEVEN-element
+  list INDEPENDENT of =org-air-view--tag-filter= / =org-air-filter-match=
+  (a =path:= flip repaints, never invalidates the scan cache — R53), with
+  an anti-inertness check that a real source change STILL moves the key;
+  r86-19 EDGE cases never-error (a leading/trailing slash, a slashes-only
+  value, a value matching the org ROOT itself, an INBOX-origin item, a
+  nil-file item — all sane); r86-20 the segment boundary at the DIRECTORY
+  level (=path:re= excludes a sibling =rest/= directory, of which =re= is a
+  strict PREFIX — r86-3 only pinned a =restore.org= LEAF + a =research/=
+  dir).  Full-revert audit after the additions: 18/20 redden.  =make clean
+  && make check= GREEN: 1076 tests (1072 + 4 new), 0 unexpected, 8 skipped
+  (GUI-only), lint clean; known-failures manifest EMPTY; =make regen-mockups=
+  byte-clean (zero golden churn).
+
 * History
 - 2026-07-24: State: draft → ready.

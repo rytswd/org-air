@@ -57,6 +57,43 @@
 ;;   r86-15  (label) a `path:' token reads verbatim; the empty near-miss
 ;;           keeps its quotes (the quoting is the tell).
 ;;   r86-16  (`#' precedence) `#path:x' stays a TAG, never a location token.
+;;
+;; AUDIT ADDITIONS (test seat — revert-RED / gap-closing over the impl's
+;; 16 seams; the impl's `.el' is UNTOUCHED):
+;;
+;;   r86-14  STRENGTHENED in place: the no-rescan spy also pins the
+;;           narrowed SET to the SEGMENT-AWARE membership (Alpha/Beta/
+;;           Epsilon under tasks/re, NOT the restore sibling) so it can no
+;;           longer pass VACUOUSLY with a `path:' that matches nothing (the
+;;           pre-R86 bare-substring reading narrows to the empty set —
+;;           `> full 0' would still hold; the membership assert reddens it).
+;;   r86-17  (compose, the OTHER axes) `path:' also composes under `all'
+;;           with `todo:' / `is:backlog' / `due:' (r86-9/r86-10 only cover
+;;           `#tag' + `is:overdue'); and under `any' a sibling rides the
+;;           `todo:' disjunct — the three axes coexist, first-class.
+;;   r86-18  (no scan-key / no cache-version bump, R53) the serialisation
+;;           version stays 6, the coherence key stays a SEVEN-element list,
+;;           and the key is INDEPENDENT of `org-air-view--tag-filter' (a
+;;           `path:' flip repaints, never invalidates the scan cache).
+;;   r86-19  (edge cases, never-error) a leading/trailing slash, a value
+;;           matching the org ROOT itself, an INBOX-origin item and a
+;;           nil-file item are all SANE (segment-aware, vacuously false,
+;;           never signalling).
+;;   r86-20  (segment boundary at the DIRECTORY level) `path:re' excludes a
+;;           SIBLING `rest/' DIRECTORY (`re' is a strict PREFIX of the dir
+;;           segment `rest') — r86-3 only pinned a `restore.org' LEAF and a
+;;           `research/' dir; this pins the prefix-of-a-dir-component case.
+;;
+;; Full-revert audit vs pre-R86 `org-air-view.el': 14/16 reddened.  Two
+;; correctly HELD, both INHERITED invariants R86 preserves (not introduces):
+;;   * r86-14 — the R53 no-rescan property predates R86 (a bare-substring
+;;     `path:' also never re-queries); STRENGTHENED above so its NARROWING
+;;     claim is now genuinely R86-driven, and it reddens under a targeted
+;;     substring/gate mutation.
+;;   * r86-16 — the `#'-first precedence is STRUCTURAL, protected by three
+;;     layers (parser `#'-refusal + matcher `#'-first + anchored `path:'
+;;     regex); proven non-vacuous — the location axis WOULD match a
+;;     `path/x' directory item, the `#' routing correctly wins.
 
 ;;; Code:
 
@@ -559,7 +596,14 @@ surfaces (ITEM=nil) treat `path:' as vacuously false (unchanged)."
   "Setting / composing / clearing `path:' never re-queries (r86-14, R53).
 A spy on `org-air-query-items' stays at ZERO across setting, composing
 and clearing a `path:' filter while the VISIBLE set changes — the token
-is a pure slot/string predicate.  Any accidental rescan fails."
+is a pure slot/string predicate.  Any accidental rescan fails.
+
+AUDIT STRENGTHEN (test seat): the narrowed SET is pinned to the
+SEGMENT-AWARE membership (Alpha/Beta/Epsilon under tasks/re, NOT the
+restore sibling Gamma), so the seam can no longer pass VACUOUSLY with a
+`path:' that matches nothing — the pre-R86 bare-substring reading of
+`path:tasks/re' narrows to the EMPTY set (`> full 0' still holds), which
+the membership + `> 0' asserts below now redden."
   (skip-unless (locate-library "org-air"))
   (org-air-r86--with-board org-air-r86--compose-corpus
     (let* ((items org-air-view--items)
@@ -567,6 +611,10 @@ is a pure slot/string predicate.  Any accidental rescan fails."
            (org-air-view--render-partition nil)
            (org-air-view--filter-now org-air-test-now)
            (org-air-filter-match 'all)
+           (alpha (org-air-r86--item "Alpha work" items))
+           (beta (org-air-r86--item "Beta work" items))
+           (gamma (org-air-r86--item "Gamma work" items))
+           (epsilon (org-air-r86--item "Epsilon plain" items))
            (queries 0)
            (full nil) (narrowed nil) (composed nil) (cleared nil))
       (cl-letf* ((orig (symbol-function 'org-air-query-items))
@@ -574,22 +622,33 @@ is a pure slot/string predicate.  Any accidental rescan fails."
                   (lambda (&rest a) (cl-incf queries) (apply orig a))))
         ;; baseline: no filter.
         (let ((org-air-view--tag-filter nil))
-          (setq full (length (org-air-view--visible-items items))))
+          (setq full (org-air-view--visible-items items)))
         ;; set a path: filter — the set narrows.
         (let ((org-air-view--tag-filter '("path:tasks/re")))
-          (setq narrowed (length (org-air-view--visible-items items))))
+          (setq narrowed (org-air-view--visible-items items)))
         ;; compose it with #work — narrows further.
         (let ((org-air-view--tag-filter '("path:tasks/re" "#work")))
-          (setq composed (length (org-air-view--visible-items items))))
+          (setq composed (org-air-view--visible-items items)))
         ;; clear it — back to the full set.
         (let ((org-air-view--tag-filter nil))
-          (setq cleared (length (org-air-view--visible-items items)))))
+          (setq cleared (org-air-view--visible-items items))))
       ;; NOT ONE re-query fired across the whole dance.
       (should (= 0 queries))
-      ;; …yet the visible set genuinely moved.
-      (should (> full narrowed))
-      (should (>= narrowed composed))
-      (should (= full cleared)))))
+      ;; …yet the visible set genuinely moved — by MONOTONE COUNT…
+      (should (> (length full) (length narrowed)))
+      (should (>= (length narrowed) (length composed)))
+      (should (= (length full) (length cleared)))
+      ;; …and — the anti-vacuity teeth — to the SEGMENT-AWARE membership,
+      ;; not merely "something smaller" (a broken path: matches nothing).
+      (should (> (length narrowed) 0))
+      (should (memq alpha narrowed))
+      (should (memq beta narrowed))
+      (should (memq epsilon narrowed))
+      (should-not (memq gamma narrowed))
+      ;; the #work conjunct keeps the tagged tasks/re items, drops the
+      ;; untagged Epsilon — composition still runs rescan-free.
+      (should (memq alpha composed))
+      (should-not (memq epsilon composed)))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r86-15 — the lens label reads verbatim; the near-miss keeps quotes.
@@ -638,6 +697,170 @@ invariant)."
                                        :title "U")))
       (should-not (org-air-view--filter-token-match-p
                    "#path:x" "" (org-air-item-tags untagged) untagged)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r86-17 (AUDIT gap) — `path:' composes with `todo:' / `is:backlog' /
+;;;; `due:' too (the axes r86-9/r86-10 leave uncovered).
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r86-17-compose-todo-backlog-due ()
+  "`path:' composes with `todo:' / `is:backlog' / `due:' too (r86-17).
+The drive brief names FIVE axes `path:' must coexist with — r86-9/r86-10
+cover `#tag' + `is:overdue'; this seam closes the gap on the remaining
+THREE.  Over a tasks/re-vs-sibling-tasks/restore corpus, under `all':
+  * `path:tasks/re' AND `todo:TODO' selects the TODO items under tasks/re
+    (Keyword/Deferred/Soon) and EXCLUDES the restore sibling (Sibling kw);
+  * `path:tasks/re' AND `is:backlog' selects ONLY the :backlog:-tagged
+    item under tasks/re (Deferred), excluding the untagged siblings AND
+    the restore backlog item (Sib defer — the path conjunct);
+  * `path:tasks/re' AND `due:7d' selects ONLY the soon-deadline item
+    (Soon), excluding the dateless ones (Keyword).
+Under `any', the restore sibling still appears via the `todo:' disjunct
+even though `path:notes' misses it — the three axes coexist, first-class
+in BOTH folds.  (`org-timestamp'-slot dates need a real scan, so this
+seam uses the live corpus, not the synthetic-item helper.)"
+  (skip-unless (locate-library "org-air"))
+  (org-air-r86--with-corpus
+      '(("tasks/re/kw.org" . "* TODO Keyword task :work:\n")
+        ("tasks/re/back.org" . "* TODO Deferred item :backlog:\n")
+        ("tasks/re/soon.org" . "* TODO Soon thing\nDEADLINE: <2026-06-17 Wed>\n")
+        ("tasks/restore/kwx.org" . "* TODO Sibling kw :work:\n")
+        ("tasks/restore/backx.org" . "* TODO Sib defer :backlog:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (org-air-viewport-test--with-frozen-now
+      (let* ((items (org-air-query-items))
+             (root (list org-air-r86--dir))
+             (kw (org-air-r86--item "Keyword task" items))
+             (back (org-air-r86--item "Deferred item" items))
+             (soon (org-air-r86--item "Soon thing" items))
+             (kwx (org-air-r86--item "Sibling kw" items))
+             (backx (org-air-r86--item "Sib defer" items)))
+        ;; sanity: the corpus dates/tags are as intended.
+        (should (org-air-classify--backlog-p back))
+        (should (org-air-classify--due-within-p soon org-air-test-now 7))
+        ;; path: AND todo:  (keyword axis)
+        (should (org-air-r86--passes kw '("path:tasks/re" "todo:TODO") 'all root))
+        (should (org-air-r86--passes back '("path:tasks/re" "todo:TODO") 'all root))
+        (should (org-air-r86--passes soon '("path:tasks/re" "todo:TODO") 'all root))
+        (should-not (org-air-r86--passes kwx '("path:tasks/re" "todo:TODO") 'all root))
+        ;; path: AND is:backlog  (R83 backlog axis)
+        (should (org-air-r86--passes back '("path:tasks/re" "is:backlog") 'all root))
+        (should-not (org-air-r86--passes backx '("path:tasks/re" "is:backlog") 'all root))
+        (should-not (org-air-r86--passes kw '("path:tasks/re" "is:backlog") 'all root))
+        ;; path: AND due:  (R72 date axis)
+        (should (org-air-r86--passes soon '("path:tasks/re" "due:7d") 'all root))
+        (should-not (org-air-r86--passes kw '("path:tasks/re" "due:7d") 'all root))
+        ;; OR: the restore sibling rides the todo: disjunct; neither
+        ;; disjunct hits it when both miss (path:notes + is:backlog).
+        (should (org-air-r86--passes kwx '("path:notes" "todo:TODO") 'any root))
+        (should-not (org-air-r86--passes kwx '("path:notes" "is:backlog") 'any root))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r86-18 (AUDIT gap) — NO scan-key element, NO cache-version bump (R53).
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r86-18-no-cache-version-bump ()
+  "`path:' adds NO scan-key element and NO cache-version bump (r86-18, R53).
+The spec forbids a rescan slot or an `org-air-view--cache-version' bump:
+`path:' reads the ALREADY-cached `org-air-item-file' slot + the ALREADY-
+keyed `org-air-files' knob.  So (a) the serialisation version stays at
+its pre-R86 value 6; (b) `org-air-view--cache-key' stays a SEVEN-element
+list (the R77 element count — R86 added none); (c) the key is INDEPENDENT
+of `org-air-view--tag-filter' AND `org-air-filter-match' — setting or
+composing a `path:' token does NOT change the coherence key (a `path:'
+flip repaints, it never invalidates the scan cache).  Bumping the version
+or keying the filter into the scan key fails; the closing check confirms
+the key is NOT inert (a real source change DOES move it)."
+  (skip-unless (locate-library "org-air"))
+  ;; (a) no version bump.
+  (should (= 6 org-air-view--cache-version))
+  (let ((org-air-files '("/home/u/org"))
+        (org-air-inbox-file "/home/u/org/inbox.org"))
+    ;; (b) still a SEVEN-element key (no path element added).
+    (should (= 7 (length (org-air-view--cache-key))))
+    (let ((base (org-air-view--cache-key)))
+      ;; (c) a path: token in the live filter must not perturb the key…
+      (let ((org-air-view--tag-filter '("path:tasks/re")))
+        (should (equal base (org-air-view--cache-key))))
+      ;; …nor a composed filter, nor the AND/OR combinator.
+      (let ((org-air-view--tag-filter '("path:tasks/re" "#work"))
+            (org-air-filter-match 'any))
+        (should (equal base (org-air-view--cache-key))))
+      ;; anti-inertness: a genuine scan input (the source set) STILL moves
+      ;; the key — so the equalities above are a real invariance, not a
+      ;; constant-key artefact.
+      (let ((org-air-files '("/home/u/org" "/home/u/other")))
+        (should-not (equal base (org-air-view--cache-key)))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r86-19 (AUDIT gap) — edge cases: leading/trailing slash, the org root
+;;;; itself, an INBOX-origin item, a nil-file item — sane, never-error.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r86-19-edge-cases-never-error ()
+  "`path:' edge cases are all sane and never signal (r86-19).
+The drive brief's edge list: a LEADING/TRAILING slash, a MULTI-segment
+value, a value matching the org ROOT itself, an item whose origin is the
+INBOX, and (defensively) a nil-file item.  `--path-segments' drops empty
+runs (`split-string' OMIT-NULLS), so surrounding/duplicated slashes are
+inert; the root basename is a typeable segment; an inbox item scopes by
+its leaf/`path:org' and never by a task dir; a nil-file item is
+vacuously false via the `when-let*' guard — all WITHOUT error."
+  (skip-unless (locate-library "org-air"))
+  (let ((org-air-files '("/home/u/org"))
+        (org-air-inbox-file "/home/u/org/inbox.org"))
+    (let ((it (org-air-r86--make "/home/u/org/tasks/re/air/foo.org")))
+      ;; a LEADING slash is inert.
+      (should (org-air-r86--passes it '("path:/tasks/re")))
+      ;; a TRAILING slash is inert.
+      (should (org-air-r86--passes it '("path:tasks/re/")))
+      ;; both at once, multi-segment.
+      (should (org-air-r86--passes it '("path:/tasks/re/air/")))
+      ;; a value matching the org ROOT itself (its basename segment).
+      (should (org-air-r86--passes it '("path:org")))
+      (should (org-air-r86--passes it '("path:org/tasks/re")))
+      ;; a value that is ONLY slashes: no segments => no match, no error.
+      (should-not (org-air-r86--passes it '("path:/")))
+      (should-not (org-air-r86--passes it '("path:///"))))
+    ;; an INBOX-origin item is sane: matches its leaf + the root, never a
+    ;; task subtree.
+    (let ((inbox (org-air-r86--make "/home/u/org/inbox.org" :title "Captured")))
+      (should (org-air-r86--passes inbox '("path:inbox.org")))
+      (should (org-air-r86--passes inbox '("path:org")))
+      (should-not (org-air-r86--passes inbox '("path:tasks/re")))
+      (should (org-air-view--filter-path-token-match-p "inbox.org" inbox)))
+    ;; a nil-file item never errors and is vacuously false (R72 Decision 8
+    ;; extended to the location axis).
+    (let ((nofile (org-air-r86--make nil :title "No file")))
+      (should-not (org-air-view--filter-path-token-match-p "tasks/re" nofile))
+      (should (org-air-r86--passes nofile nil))
+      (should-not (org-air-r86--passes nofile '("path:tasks/re"))))
+    ;; the pure transform is total (a rooted AND an unrooted path).
+    (should (stringp (org-air-view--path-relative "/home/u/org/a.org")))
+    (should (stringp (org-air-view--path-relative "relative/no/root.org")))))
+
+;;;; -------------------------------------------------------------------
+;;;; r86-20 (AUDIT gap) — segment boundary at the DIRECTORY level: a
+;;;; sibling `rest/' dir (re is a strict PREFIX of the dir segment).
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r86-20-segment-boundary-dir-prefix ()
+  "`path:re' excludes a SIBLING `rest/' DIRECTORY (r86-20).
+r86-3 pinned the boundary against a `restore.org' LEAF and a `research/'
+dir; this pins the remaining case — a directory segment of which `re' is a
+strict PREFIX (`rest').  An item under `tasks/re/…' passes `path:re'; a
+sibling under `tasks/rest/…' FAILS it (the component is `rest', not
+`re'), and `path:tasks/re' likewise excludes `tasks/rest/…' (tasks is
+followed by `rest', not `re').  A substring predicate would leak `rest'."
+  (skip-unless (locate-library "org-air"))
+  (let ((in-re    (org-air-r86--make "/home/u/org/tasks/re/air/foo.org"))
+        (rest-dir (org-air-r86--make "/home/u/org/tasks/rest/bar.org")))
+    (should (org-air-r86--passes in-re '("path:re")))
+    (should-not (org-air-r86--passes rest-dir '("path:re")))
+    (should-not (org-air-r86--passes rest-dir '("path:tasks/re")))
+    ;; and the pure contiguous-run predicate agrees at the list level.
+    (should (org-air-view--path-run-match-p '("re") '("tasks" "re" "air")))
+    (should-not (org-air-view--path-run-match-p '("re") '("tasks" "rest")))))
 
 (provide 'org-air-round86-test)
 ;;; org-air-round86-test.el ends here

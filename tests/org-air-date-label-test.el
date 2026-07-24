@@ -45,7 +45,12 @@
 (ert-deftest org-air-date-future-deadline-is-benign ()
   "A future deadline renders a human date, never OVERDUE.
 \"Prep client presentation\" has DEADLINE 2026-06-16, one day after the
-frozen now."
+frozen now.  R87 (rule A) RE-BLESS: the OVERDUE contract this test
+primarily guards is UNCHANGED (future never reads OVERDUE, the label is
+still exactly \"Tomorrow\"); only its SECONDARY face assertion flips —
+a deadline that falls tomorrow now carries `org-air-face-day-tomorrow'
+(the standout day face reaches the due-date column) instead of the slot
+`org-air-face-deadline'."
   (skip-unless (and (locate-library "org-air")
                     (fboundp 'org-air-view--date-label)))
   (org-air-test-with-fixtures
@@ -53,7 +58,7 @@ frozen now."
                  (org-air-date-test--label "Prep client presentation")))
       (should-not (string-match-p "OVERDUE" label))
       (should (equal label "Tomorrow"))
-      (should (eq face 'org-air-face-deadline)))))
+      (should (eq face 'org-air-face-day-tomorrow)))))
 
 (ert-deftest org-air-date-past-deadline-is-overdue ()
   "A past deadline renders \"OVERDUE Nd\" with the overdue face.
@@ -80,8 +85,12 @@ frozen now."
       (should (eq face 'org-air-face-overdue)))))
 
 (ert-deftest org-air-date-future-scheduled-is-benign ()
-  "A future SCHEDULED renders a human date with the scheduled face.
-\"Prepare standup notes\" is SCHEDULED 2026-06-16."
+  "A future SCHEDULED renders a human date, never OVERDUE.
+\"Prepare standup notes\" is SCHEDULED 2026-06-16.  R87 (rule A) RE-BLESS:
+the OVERDUE contract (future never reads OVERDUE, label still exactly
+\"Tomorrow\") is UNCHANGED; only the SECONDARY face assertion flips — a
+scheduled that falls tomorrow now carries `org-air-face-day-tomorrow'
+instead of the slot `org-air-face-scheduled'."
   (skip-unless (and (locate-library "org-air")
                     (fboundp 'org-air-view--date-label)))
   (org-air-test-with-fixtures
@@ -89,7 +98,7 @@ frozen now."
                  (org-air-date-test--label "Prepare standup notes")))
       (should-not (string-match-p "OVERDUE" label))
       (should (equal label "Tomorrow"))
-      (should (eq face 'org-air-face-scheduled)))))
+      (should (eq face 'org-air-face-day-tomorrow)))))
 
 (ert-deftest org-air-date-dashboard-overdue-rendering ()
   "End-to-end: the dashboard shows OVERDUE only on genuinely past items."

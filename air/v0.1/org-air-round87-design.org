@@ -573,5 +573,35 @@ due-date-today plus the dark-mode Nord8-vs-Nord9 scheduled-today adjacency.
   seams (r87-1..10); exact teal/rose + the dark-mode scheduled-today
   Nord8-vs-Nord9 adjacency are GUI-confirm-only.
 
+- 2026-07-24: R87 TEST-round CLOSEOUT (test/gate seat; NO .el source
+  touched — fixtures/tests/gate only).  FIRST: the retired rule-B seams
+  round85 r85-5/6 (deadline/scheduled-TOMORROW keep slot) + r85-11/12
+  (…-TODAY keep slot) were DELETED from tests/org-air-round85-test.el
+  (their now-unused rule-B slot builders `org-air-r85--org-ts' / `--dated'
+  / `--fixture-label' removed with them, the file's commentary corrected
+  to rule A); the two R3 date-label FACE lines
+  `org-air-date-future-{deadline,scheduled}-is-benign' were RE-BLESSED to
+  `org-air-face-day-tomorrow' (their OVERDUE contract — future ≠ OVERDUE,
+  label still exactly "Tomorrow" — kept and still asserted).  The 6 R87
+  grind entries were then EMPTIED from tests/org-air-known-failures.el
+  (manifest CLOSED).  Text goldens byte-identical — CONFIRMED by a
+  `make regen-mockups' no-op (ZERO fixture/golden .txt changed), proving
+  the face-only change moved no bytes.  THEN landed the 10 design seams
+  r87-1..10 in tests/org-air-round87-test.el (self-contained builders,
+  frozen clock Mon 2026-06-15) + 5 STRENGTHENINGS: r87-11 (scheduled
+  painter twin of r87-5), r87-12 (R53 data-purity — a bogus marker +
+  hard-errored file openers still resolve the day face, no rescan),
+  r87-13 (uniform rule across deadline/scheduled/notes arms), r87-14 (the
+  svg crux headlessly — the day face's declared foreground, which the
+  pill `:fill' draws, differs from the slot face's in both light+dark
+  tiers, deadline AND scheduled), r87-15 (the day face survives the
+  pill-style painter path).  Revert-RED audited: stubbing
+  `--day-relative-face' to nil (rule-B revert) reddens the routing seams
+  (r87-1..5/8/10..13/15) while the invariant/boundary guards (r87-6
+  overdue, r87-7 delta>=2, r87-9 byte-layer, r87-14 face-hex) correctly
+  stay green.  `make clean && make check' GREEN: compile clean, lint 0
+  findings, 1087 tests / 0 unexpected / 8 skipped, manifest EMPTY,
+  goldens byte-consistent.
+
 * History
 - 2026-07-24: State: draft → ready.

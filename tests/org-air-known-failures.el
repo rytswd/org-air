@@ -3002,51 +3002,36 @@
     ;; Round-84 manifest is EMPTY.
     ;;
     ;; ===================================================================
-    ;; v0.1 ROUND-87 (impl tip <this commit>) — the TODAY/TOMORROW standout
-    ;; now REACHES the due-date column: R85's rule (B) NEUTRAL-ONLY is
-    ;; revised to RULE (A) TODAY/TOMORROW-WINS
-    ;; (air/v0.1/org-air-round87-design.org).  The impl routed the SAME
-    ;; `org-air-view--day-relative-face' into the DEADLINE and SCHEDULED
-    ;; arms of `org-air-view--date-label' (org-air-view.el:2076-2077), so a
-    ;; delta-0 (today) / delta-1 (tomorrow) deadline/scheduled date now
-    ;; carries `org-air-face-day-today' / `-day-tomorrow' on EVERY date slot
-    ;; (not just the neutral notes arm) — the pill's `:fill' IS the face
+    ;; v0.1 ROUND-87 CLOSEOUT (impl tip yolrsnpr + test re-bless <this
+    ;; commit>) — the TODAY/TOMORROW standout now REACHES the due-date
+    ;; column: R85's rule (B) NEUTRAL-ONLY revised to RULE (A)
+    ;; TODAY/TOMORROW-WINS (air/v0.1/org-air-round87-design.org).  The impl
+    ;; routed the SAME `org-air-view--day-relative-face' into the DEADLINE
+    ;; and SCHEDULED arms of `org-air-view--date-label'
+    ;; (org-air-view.el:2076-2077), so a delta-0 (today) / delta-1
+    ;; (tomorrow) deadline/scheduled date now carries
+    ;; `org-air-face-day-today' / `-day-tomorrow' on EVERY date slot (not
+    ;; just the neutral notes arm) — the pill's `:fill' IS the face
     ;; foreground, so the standout reaches the plain text AND the svg pill
     ;; in one face-only edit.  An OVERDUE past deadline KEEPS
     ;; `org-air-face-overdue' and a date >=2 days out keeps its slot face,
     ;; both unchanged by construction.  A face is a `display' property, not
-    ;; buffer text, so EVERY text golden is byte-identical (verified: the
-    ;; full suite moved ZERO goldens — only these 6 face-assertion seams
-    ;; reddened).
+    ;; buffer text, so EVERY text golden is byte-identical (re-regen no-op;
+    ;; the full suite moved ZERO goldens).
     ;;
-    ;; The impl brief FLAGS the four R85 rule-B ERTs + the two R3
-    ;; date-future FACE lines as now WRONG under rule A — they pin the
-    ;; retired "a deadline/scheduled today/tomorrow KEEPS its slot face"
-    ;; contract, which rule (A) deliberately supersedes.  They are left for
-    ;; the TEST seat to REPLACE/RE-BLESS (§ERT) and manifested
-    ;; expected-to-fail here (NOT hand-edited on the impl track):
-    ;;   - r85-5/-6 (deadline/scheduled-TOMORROW keep slot) → the fixtures
-    ;;     now carry `org-air-face-day-tomorrow' (label still "Tomorrow");
-    ;;     REPLACE with the rule-A assertion (r87-2 / r87-4's twins).
-    ;;   - r85-11/-12 (deadline/scheduled-TODAY keep slot) → now carry
-    ;;     `org-air-face-day-today'; REPLACE (these are r87-1 / r87-3).
-    ;;   - org-air-date-future-{deadline,scheduled}-is-benign (R3) →
-    ;;     RE-BLESS the FACE line only to `org-air-face-day-tomorrow'; the
+    ;; ALL 6 R87 grind entries CLOSED on the test seat:
+    ;;   - r85-5/6/11/12 (deadline/scheduled today+tomorrow KEEP slot face)
+    ;;     RETIRED from org-air-round85-test.el; their rule-A successors are
+    ;;     org-air-round87-test.el r87-1..4 (deadline/scheduled today+
+    ;;     tomorrow CARRY the day face).
+    ;;   - org-air-date-future-{deadline,scheduled}-is-benign (R3) RE-BLESSED
+    ;;     — the FACE line now asserts `org-air-face-day-tomorrow'; the
     ;;     OVERDUE contract (future ≠ OVERDUE, label "Tomorrow") they
     ;;     primarily guard is UNCHANGED and still asserted.
-    ;; The test-round MUST also land the 10 new r87-1..10 seams.
-    (org-air-r85-5-deadline-tomorrow-keeps-slot-face
-     . "R87 rule A: a deadline-tomorrow now carries org-air-face-day-tomorrow (was slot face); REPLACE per §ERT (r87-2 twin).")
-    (org-air-r85-6-scheduled-tomorrow-keeps-slot-face
-     . "R87 rule A: a scheduled-tomorrow now carries org-air-face-day-tomorrow (was slot face); REPLACE per §ERT (r87-4 twin).")
-    (org-air-r85-11-deadline-today-keeps-slot-face
-     . "R87 rule A: a deadline-today now carries org-air-face-day-today (was slot face); REPLACE per §ERT (this is r87-1).")
-    (org-air-r85-12-scheduled-today-keeps-slot-face
-     . "R87 rule A: a scheduled-today now carries org-air-face-day-today (was slot face); REPLACE per §ERT (this is r87-3).")
-    (org-air-date-future-deadline-is-benign
-     . "R87 rule A: RE-BLESS FACE line only to org-air-face-day-tomorrow; the OVERDUE contract (future≠OVERDUE, label Tomorrow) is unchanged.")
-    (org-air-date-future-scheduled-is-benign
-     . "R87 rule A: RE-BLESS FACE line only to org-air-face-day-tomorrow; the OVERDUE contract (future≠OVERDUE, label Tomorrow) is unchanged.")
+    ;; The 10 r87-1..10 seams (+ strengthenings r87-11..) landed in
+    ;; org-air-round87-test.el as permanent regression guards.  Round-87
+    ;; manifest is EMPTY.
+    ;; ===================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

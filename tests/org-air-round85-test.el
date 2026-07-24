@@ -18,27 +18,35 @@
 ;; is rewired to `(or (--day-relative-face activity now)
 ;; 'org-air-face-date)'.
 ;;
-;; Slot-interplay ruling (§Decision, rule B NEUTRAL-ONLY): a deadline or
-;; scheduled date that falls today/tomorrow KEEPS its slot face (a
-;; deadline-today still reads as a deadline; the R3 date-label tests keep
-;; passing).  The day face replaces the muted neutral face ONLY.
+;; Slot-interplay ruling: R85 shipped rule (B) NEUTRAL-ONLY (a
+;; deadline/scheduled date that falls today/tomorrow KEPT its slot face,
+;; the day face replaced ONLY the muted neutral face).  R87 SUPERSEDES
+;; that with rule (A) TODAY/TOMORROW-WINS: the day face is now routed into
+;; the deadline and scheduled arms too, so a due date today/tomorrow
+;; stands out on EVERY slot (air/v0.1/org-air-round87-design.org).  The
+;; four rule-B seams that pinned "keeps its slot face"
+;; (r85-5/6 TOMORROW, r85-11/12 TODAY) were RETIRED here and their rule-A
+;; successors live in tests/org-air-round87-test.el as r87-1..4 (the R3
+;; date-label `…-is-benign' tests are their fixture-driven twins,
+;; re-blessed to the day face).  Everything below (r85-1..4/7..10/13/14)
+;; is UNCHANGED by R87 — it pins the helper, the two faces'
+;; distinctness/convention, the NEUTRAL notes-arm behaviour and the byte
+;; layer, none of which R87 alters.
 ;;
 ;; All BATCH/headless.  The exact teal/rose HEXES are GUI-confirm-only;
 ;; the seams assert the FACE SYMBOL on the (LABEL . FACE) cons (and, where
 ;; relevant, the LABEL text), never the pixel.  The clock is frozen to
 ;; `org-air-test-now' (Mon 2026-06-15): today = 2026-06-15, tomorrow =
-;; 2026-06-16.  These seams are the permanent regression guards.  r85-1..10
-;; are the design's "ERT seams" ledger (each names what reverting breaks);
-;; r85-11..14 are the R85 TEST-round strengthenings that close audit gaps:
-;;   r85-11/12 pin the DEADLINE-TODAY / SCHEDULED-TODAY slot faces (rule B
-;;     TODAY case) — r85-5/6 pin only the TOMORROW variant, so a PARTIAL
-;;     rule-A leaking ONLY the loud `org-air-face-day-today' onto a slot
-;;     arm passed all 10 original seams; r85-11/12 redden it.
-;;   r85-13 pins the two day faces are DIFFERENT COLOURS (the user's
-;;     verbatim ask), strengthening r85-2's symbol-only distinctness to
-;;     the hue level (inequality only — exact hex stays GUI-confirm-only).
-;;   r85-14 proves the ROSE tomorrow face reaches a RENDERED cell (the
-;;     TOMORROW twin of r85-9's today-only painter path).
+;; 2026-06-16.  These seams are the permanent regression guards.  The
+;; ERT-seams ledger below is what SURVIVES R87: r85-1 (helper), r85-2
+;; (two faces distinct), r85-3/4 (NEUTRAL today/tomorrow + byte layer),
+;; r85-7 (non-relative neutral unchanged), r85-8 (non-emitting neutral
+;; arms), r85-9 (face-only through the painter), r85-10 (R79 convention),
+;; r85-13 (the two day faces are DIFFERENT COLOURS — the user's verbatim
+;; ask, inequality-only), r85-14 (the ROSE tomorrow face reaches a
+;; RENDERED cell).  The retired rule-B seams (r85-5/6/11/12, which pinned
+;; "a deadline/scheduled today/tomorrow KEEPS its slot face") are GONE —
+;; R87 rule A reverses that ruling; see org-air-round87-test.el r87-1..4.
 
 ;;; Code:
 
@@ -81,39 +89,10 @@ as the epoch float the scan would have cached (R53 P3)."
    :kind 'heading
    :activity (and activity (org-air-r85--epoch activity))))
 
-(defun org-air-r85--org-ts (days)
-  "Return an Org timestamp object DAYS calendar days from the frozen now.
-Built from the frozen now's calendar day so `org-air-view--date-label's
-deadline/scheduled arms resolve it as today (DAYS=0) / tomorrow (DAYS=1) —
-exactly the SLOT dates that, under rule B, must KEEP their slot face."
-  (org-timestamp-from-string
-   (format-time-string "<%Y-%m-%d %a>"
-                       (time-add org-air-test-now (days-to-time days)))))
-
-(cl-defun org-air-r85--dated (&key deadline scheduled)
-  "Build an `org-air-item' carrying a DEADLINE and/or SCHEDULED day offset.
-DEADLINE / SCHEDULED are day offsets from the frozen now (0 = today,
-1 = tomorrow) stored as Org timestamp objects, so `--date-label' takes its
-SLOT arm (deadline / scheduled) — the rule-B non-neutral path."
-  (org-air-item-create
-   :title "A dated task"
-   :file "/tmp/org-air-r85-dated.org"
-   :marker (cons "/tmp/org-air-r85-dated.org" 1)
-   :kind 'heading
-   :deadline (and deadline (org-air-r85--org-ts deadline))
-   :scheduled (and scheduled (org-air-r85--org-ts scheduled))))
-
-(defun org-air-r85--fixture-label (title)
-  "Return the (LABEL . FACE) date metadata for fixture item TITLE.
-Frozen clock; the bucket is the classified bucket (mirrors the R3 date-
-label helper) so the deadline/scheduled arms are exercised exactly as in
-production."
-  (let* ((items (org-air-query-items))
-         (item (org-air-test-find-item title items)))
-    (should item)
-    (org-air-r85--frozen
-      (org-air-view--date-label
-       item (car (org-air-classify-item item org-air-test-now))))))
+;; (The rule-B slot builders `org-air-r85--org-ts' / `--dated' and the
+;; fixture helper `--fixture-label' were removed with the retired
+;; r85-5/6/11/12 seams; the rule-A slot seams live in
+;; org-air-round87-test.el with their own self-contained builders.)
 
 ;;;; -------------------------------------------------------------------
 ;;;; r85-1 — the helper maps the two deltas and only those
@@ -208,40 +187,11 @@ the D3 notes-arm rewire (back to `org-air-face-date') FAILS."
                          (org-air-r85--note :activity 0) 'notes))
                    (org-air-view--human-date (org-air-r85--epoch 0))))))
 
-;;;; -------------------------------------------------------------------
-;;;; r85-5 — slot-interplay: a deadline today/tomorrow KEEPS the deadline
-;;;; -------------------------------------------------------------------
-
-(ert-deftest org-air-r85-5-deadline-tomorrow-keeps-slot-face ()
-  "The R3 fixture \"Prep client presentation\" (DEADLINE 2026-06-16) →
-`(cons \"Tomorrow\" 'org-air-face-deadline)' — NOT the day face.  This is
-exactly `org-air-date-future-deadline-is-benign'; pivoting to rule (A)
-(override) FAILS it (rule B keeps the deadline reading as a deadline)."
-  (skip-unless (and (locate-library "org-air")
-                    (fboundp 'org-air-view--date-label)))
-  (org-air-test-with-fixtures
-    (pcase-let ((`(,label . ,face)
-                 (org-air-r85--fixture-label "Prep client presentation")))
-      (should (equal label "Tomorrow"))
-      (should (eq face 'org-air-face-deadline))
-      (should-not (eq face 'org-air-face-day-tomorrow)))))
-
-;;;; -------------------------------------------------------------------
-;;;; r85-6 — slot-interplay: a scheduled today/tomorrow KEEPS scheduled
-;;;; -------------------------------------------------------------------
-
-(ert-deftest org-air-r85-6-scheduled-tomorrow-keeps-slot-face ()
-  "The R3 fixture \"Prepare standup notes\" (SCHEDULED 2026-06-16) →
-`(cons \"Tomorrow\" 'org-air-face-scheduled)' — NOT the day face.  Exactly
-`org-air-date-future-scheduled-is-benign'; rule (A) FAILS it."
-  (skip-unless (and (locate-library "org-air")
-                    (fboundp 'org-air-view--date-label)))
-  (org-air-test-with-fixtures
-    (pcase-let ((`(,label . ,face)
-                 (org-air-r85--fixture-label "Prepare standup notes")))
-      (should (equal label "Tomorrow"))
-      (should (eq face 'org-air-face-scheduled))
-      (should-not (eq face 'org-air-face-day-tomorrow)))))
+;; r85-5 / r85-6 (deadline/scheduled-TOMORROW KEEP their slot face) were
+;; RETIRED by R87 rule A — a deadline/scheduled tomorrow now carries
+;; `org-air-face-day-tomorrow'.  Their rule-A successors are
+;; org-air-round87-test.el r87-2 / r87-4 (with the re-blessed R3
+;; `org-air-date-future-{deadline,scheduled}-is-benign' as fixture twins).
 
 ;;;; -------------------------------------------------------------------
 ;;;; r85-7 — a non-today/tomorrow NEUTRAL date is UNCHANGED
@@ -350,57 +300,10 @@ GUI-confirm-only.)  A face missing the light/dark/TTY tier FAILS."
                       '(org-air-face-salient org-air-face-popout)))
         (should (eq (plist-get tty :weight) 'bold))))))
 
-;;;; -------------------------------------------------------------------
-;;;; r85-11 — slot-interplay: a deadline TODAY KEEPS the deadline face
-;;;;           (the TODAY twin of r85-5; closes the partial rule-A gap)
-;;;; -------------------------------------------------------------------
-
-(ert-deftest org-air-r85-11-deadline-today-keeps-slot-face ()
-  "A DEADLINE that falls TODAY → `(cons \"Today\" 'org-air-face-deadline)' —
-it KEEPS the deadline slot face, it does NOT take `org-air-face-day-today'
-(§Decision rule B: a deadline-today still reads as an urgent deadline).
-
-This is the TODAY companion of r85-5 (which pins only the TOMORROW case
-via the R3 fixture).  It is the strictly stronger guard: a PARTIAL rule-A
-that leaks ONLY the standout `org-air-face-day-today' onto the deadline
-arm (the most tempting mis-fix — the today face is the loud one) passes
-r85-5/-6 verbatim yet FAILS here.  The delta-0 slot date is the single
-row where repainting teal would most destroy the \"this is a deadline\"
-signal, so it is pinned explicitly."
-  (skip-unless (and (locate-library "org-air")
-                    (fboundp 'org-air-view--date-label)))
-  (org-air-r85--frozen
-    (pcase-let ((`(,label . ,face)
-                 (org-air-view--date-label
-                  (org-air-r85--dated :deadline 0) 'notes)))
-      (should (equal label "Today"))
-      (should (eq face 'org-air-face-deadline))
-      (should-not (eq face 'org-air-face-day-today))
-      (should-not (memq face '(org-air-face-day-today
-                               org-air-face-day-tomorrow))))))
-
-;;;; -------------------------------------------------------------------
-;;;; r85-12 — slot-interplay: a scheduled TODAY KEEPS the scheduled face
-;;;;           (the TODAY twin of r85-6; closes the partial rule-A gap)
-;;;; -------------------------------------------------------------------
-
-(ert-deftest org-air-r85-12-scheduled-today-keeps-slot-face ()
-  "A SCHEDULED that falls TODAY → `(cons \"Today\" 'org-air-face-scheduled)'
-— it KEEPS the scheduled slot face, NOT `org-air-face-day-today' (rule B).
-The TODAY companion of r85-6 (which pins only TOMORROW via the R3
-fixture): a partial rule-A leaking the today face onto the scheduled arm
-passes r85-6 yet FAILS here."
-  (skip-unless (and (locate-library "org-air")
-                    (fboundp 'org-air-view--date-label)))
-  (org-air-r85--frozen
-    (pcase-let ((`(,label . ,face)
-                 (org-air-view--date-label
-                  (org-air-r85--dated :scheduled 0) 'notes)))
-      (should (equal label "Today"))
-      (should (eq face 'org-air-face-scheduled))
-      (should-not (eq face 'org-air-face-day-today))
-      (should-not (memq face '(org-air-face-day-today
-                               org-air-face-day-tomorrow))))))
+;; r85-11 / r85-12 (deadline/scheduled-TODAY KEEP their slot face) were
+;; RETIRED by R87 rule A — a deadline/scheduled today now carries
+;; `org-air-face-day-today'.  Their rule-A successors are
+;; org-air-round87-test.el r87-1 / r87-3.
 
 ;;;; -------------------------------------------------------------------
 ;;;; r85-13 — the two day faces stand out in DIFFERENT COLOURS

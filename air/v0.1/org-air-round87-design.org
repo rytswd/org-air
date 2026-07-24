@@ -1,0 +1,577 @@
+#+title: org-air Round 87 — the TODAY / TOMORROW standout now REACHES the due-date column: R85's rule (B) is revised to RULE (A) so a delta-0 / delta-1 date WINS its slot — `org-air-view--day-relative-face' is routed into the DEADLINE and SCHEDULED arms of `org-air-view--date-label' too (not only the neutral notes arm), so a deadline/scheduled that falls today/tomorrow reads teal/rose instead of its slot blue/orange on BOTH the plain text AND the svg pill (the pill's colour IS the face foreground — no separate svg-colour path), while an OVERDUE past deadline KEEPS `org-air-face-overdue' and delta>=2 is unchanged; a face-only change, label bytes and goldens byte-identical (only the GUI pill pixels repaint)
+#+state: ready
+#+tags: faces dates render board ux
+
+* Summary
+
+User feedback on the running board (verbatim):
+
+#+begin_quote
+TODAY and TOMORROW svg for the due date column is still in blue, it
+doesn't stand out too much
+#+end_quote
+
+R85 introduced two standing-out faces — =org-air-face-day-today= (bold
+teal) and =org-air-face-day-tomorrow= (bold rose) — but applied them under
+*rule (B), NEUTRAL-ONLY*: =org-air-view--day-relative-face= was wired into
+ONLY the neutral =notes= arm of =org-air-view--date-label= (org-air-
+view.el:2079), so a date that lands on the =deadline= arm
+(org-air-view.el:2076) or the =scheduled= arm (2077) *kept its slot face*
+(=org-air-face-deadline= / =-scheduled=).  A DEADLINE due *today* therefore
+still reads in its slot colour — the user's "still in blue" — and never
+gets the teal/rose standout.  R85 §Decision was the wrong call for this
+user: they want the standout on the *due date itself*, exactly where rule
+(B) refused to paint it.
+
+R87 revises the ruling to *rule (A): TODAY / TOMORROW WINS*.  The one-line
+change is to route the SAME =org-air-view--day-relative-face= into the
+=deadline= and =scheduled= arms too, so a delta-0 (today) / delta-1
+(tomorrow) date takes =org-air-face-day-today= / =-day-tomorrow= on ALL
+THREE date-emitting arms (deadline + scheduled + neutral), and stands out
+on every slot — *not just the neutral one*.
+
+The user said "*svg*".  The crux, confirmed in code (§Investigation):
+the board date cell's svg PILL is not coloured by a separate hardcoded
+path — =org-air-view--svg-pillify= draws its label with =:fill fg= where
+=fg = (face-foreground FACE nil t)= (org-air-view.el:3342,3416), i.e. the
+pill's colour *IS the text face's foreground*.  So the pill is "blue"
+precisely because =--date-label= hands the deadline/scheduled SLOT face to
+=--item-date-text=, which both propertizes the text AND passes that same
+face to =--svg-pillify=.  Driving the day face into those two arms
+therefore reaches BOTH the plain coloured text AND the svg pill in one
+face-only move — no svg-specific code, no new pill colour parameter.
+
+This stays a *face-only* change (R53): the label BYTES ("Today"/
+"Tomorrow") are untouched, a face is a =display= property not buffer text,
+so every text golden is byte-identical.  The ONLY thing that changes on
+screen is the GUI pill's rendered pixels (teal/rose instead of blue/
+orange) — which is exactly the fix the user asked for.  OVERDUE (a past
+deadline, the =overdue= arms above) still keeps =org-air-face-overdue=,
+and any date two or more days out is unchanged.
+
+SPEC ONLY: no =.el= or test edits in this change.  The R85 rule-B ERTs are
+now WRONG and are called out for replacement (§ERT).
+
+* Decision (stated first — rule A supersedes R85's rule B)
+
+*A delta-0 (today) / delta-1 (tomorrow) date takes the
+=org-air-face-day-today= / =-day-tomorrow= face on EVERY date slot —
+deadline, scheduled AND neutral.  R85's rule (B) NEUTRAL-ONLY is retired.*
+An OVERDUE (past) deadline still keeps =org-air-face-overdue=; a date two
+or more days out keeps its slot face exactly as before.
+
+*Why (A) now, when R85 chose (B):*
+
+1. *The user's ask is explicit and it is about the due date.*  R85
+   reasoned that the slot COLOUR (orange=deadline, purple/blue=scheduled)
+   carries meaning that matters *most* on a today-deadline, so it declined
+   to repaint it.  The user has now told us the opposite: on the due-date
+   column the slot colour "doesn't stand out too much" and they want the
+   TODAY/TOMORROW standout to win *there specifically*.  When the user
+   states the trade-off directly, least-surprise means honouring it —
+   rule (A) is the change R85 explicitly flagged as "a one-line change
+   (drop the neutral-arm gate)" for exactly this pivot.
+
+2. *A today/tomorrow deadline is STILL legible as urgent — teal/rose are
+   accent hues, not the muted grey.*  R85's fear was that recolouring
+   would "destroy the this-is-a-deadline signal".  But (i) the row is
+   *already* flagged as a deadline by its section/heading and by the label
+   text ("Today"/"Tomorrow" on a dated row is unmistakably a due date),
+   and (ii) the day faces are bold, saturated accents — the date does not
+   go quiet, it goes *louder and differently coloured*, which is precisely
+   "stand out more".  The semantic that R85 wanted to protect (this is
+   time-critical) is reinforced, not lost: a bold teal "Today" on the due
+   date reads MORE urgent than a slot-orange "Today", not less.
+
+3. *OVERDUE is untouched — the genuinely critical case keeps its critical
+   face.*  The two =overdue= arms sit BEFORE the deadline/scheduled arms
+   in the cond and fire for PAST dates (=(> (days-between DL now) 0)=),
+   emitting "OVERDUE Nd" in =org-air-face-overdue= (bold critical red).
+   =--day-relative-face= only ever answers non-nil for delta ∈ {0,1}
+   (today/tomorrow) and is consulted ONLY on the deadline/scheduled/notes
+   arms, which a past date never reaches.  So delta<0 (overdue) is
+   confirmed unchanged *by construction* — the standout is a
+   TODAY/TOMORROW affordance, never an overdue one.
+
+4. *Consistency across the three date arms.*  Under (B) the standout was
+   asymmetric — a today NOTE lit up teal but a today DEADLINE did not,
+   which is itself surprising (the more important date stood out less).
+   Rule (A) makes the rule uniform and easy to state: *any* date that is
+   today/tomorrow, on *any* slot, stands out in the day face; every other
+   date keeps its slot face.  One rule, no per-slot exceptions.
+
+*The cost of the pivot (accepted, and small):* the R85 rule-B tests that
+pinned "a deadline/scheduled today/tomorrow KEEPS its slot face"
+(round85 r85-5/6/11/12) and the two R3 date-label face assertions
+(=org-air-date-future-{deadline,scheduled}-is-benign=) are now WRONG and
+must be re-blessed to the rule-A expectation (they carry the day face).
+This is a deliberate contract revision, not a regression — the OVERDUE
+sign-inversion contract those R3 tests primarily guard (future ≠ OVERDUE)
+is *unchanged*; only their secondary face assertion flips.  §ERT
+enumerates every seam to replace.
+
+The *composite* alternative (C) — keep the slot hue but ADD a
+today/tomorrow emphasis (bold+underline), so a deadline-today reads
+"deadline AND today" — is re-examined and re-rejected in §Alternatives:
+it turns the =(LABEL . FACE)= FACE into a face LIST / anonymous merged
+face, ripples into =--item-date-text= and =--svg-pillify= (which take ONE
+face symbol and read ONE =face-foreground= for the pill =:fill=), and
+still would not give the user the clean "the due date is now teal" they
+asked for.  Rule (A) is the direct, contract-simple answer.
+
+* Investigation (read the code)
+
+** The call sites — the exact three arms, and which one R85 wired
+
+=org-air-view--date-label= (org-air-view.el:2064) is the sole chooser of
+the date cell's =(LABEL . FACE)=.  Its cond, in order:
+
+#+begin_example
+(cond
+ ((and deadline  (> (days-between deadline now) 0))              ; OVERDUE (past DL)
+  (cons "OVERDUE Nd" 'org-air-face-overdue))
+ ((and scheduled (> (days-between scheduled now) 0))             ; OVERDUE (past SCHED)
+  (cons "OVERDUE Nd" 'org-air-face-overdue))
+ (deadline  (cons (--human-date deadline now)  'org-air-face-deadline))   ; ← ARM 3
+ (scheduled (cons (--human-date scheduled now) 'org-air-face-scheduled))  ; ← ARM 4
+ ((eq bucket 'attention) (cons "no date" 'org-air-face-date))
+ ((eq bucket 'notes)                                             ; ← ARM 6 (R85 wired)
+  (when-let* ((activity (org-air-item-activity item)))
+    (cons (--human-date activity now)
+          (or (--day-relative-face activity now) 'org-air-face-date))))
+ ((eq bucket 'stale) (cons "· Nd quiet" 'org-air-face-date)))
+```
+
+- *Arm 3 (deadline)* and *Arm 4 (scheduled)* call =--human-date= (so they
+  DO emit "Today"/"Tomorrow" for delta 0/1) but hard-code the SLOT face.
+  These are the arms the user is looking at ("due date column") and the
+  ones R85 left alone.  *These are the two call sites R87 rewires.*
+- *Arm 6 (notes)* is the ONLY arm R85 wired to =--day-relative-face= —
+  the neutral case, already correct and *unchanged* by R87.
+- The two =overdue= arms (past dates), *attention* ("no date") and *stale*
+  ("· Nd quiet") never emit a relative today/tomorrow and are untouched.
+
+So R87 is a two-arm edit (deadline + scheduled), symmetric with what R85
+already did to the notes arm — the same =(or (--day-relative-face … now)
+'org-air-face-SLOT)= idiom, applied to the two remaining human-date arms.
+
+** The svg crux — the pill's colour IS the face foreground (no separate path)
+
+The user said "svg".  Tracing the board date cell:
+
+=org-air-view--item-date-text= (org-air-view.el:3615) takes
+=(LABEL . FACE)= from =--date-label= and builds the cell:
+
+#+begin_example
+(let* ((face (or (cdr date) 'org-air-face-date))
+       (pill (eq org-air-date-style 'pill))
+       (text (propertize (… (car date) …) 'face face)))
+  (concat (if pill
+              (org-air-view--svg-pillify text face :align org-air-date-pill-align)
+            text)
+          …))
+```
+
+Both the plain-text branch AND the pill branch are driven by the SAME
+=face=.  Inside =org-air-view--svg-pillify= (org-air-view.el:3293):
+
+#+begin_example
+(fg (or (face-foreground face nil t) "gray"))
+…
+(svg-text svg label … :fill fg …)          ; the pill LABEL is drawn in FG
+```
+
+The capsule border is the neutral =org-air-pill-border= (a muted hairline;
+=--item-date-text= passes NO =:border-color=), and there is no per-chip
+fill — *the only colour on the pill is the label, and that colour is
+=(face-foreground FACE)=* ("colour lives only in the LABEL via FACE",
+org-air-view.el:3318 D-P1.LOOK).  Therefore:
+
+- The pill reads "blue" *because* =--date-label='s scheduled/deadline arm
+  handed =--svg-pillify= the SLOT face — there is NO hardcoded svg colour
+  and NO svg-only code to change.
+- Driving the day face into arms 3/4 recolours the pill LABEL to teal/rose
+  automatically, in the SAME face-only edit that recolours the plain text.
+  The fix reaches text AND svg with one change; no new pill parameter, no
+  =:border-color=, no svg path edit.
+
+*Which "blue"?*  In the palette (org-air-faces.el:81), =scheduled= inherits
+=salient= = DeepPurple =#673AB7= (light) / *Nord9 =#81A1C1= (dark, a frost
+BLUE)* — the dark-mode scheduled date is literally blue; the light-mode
+one is a blue-leaning indigo.  =deadline= inherits =popout= = DeepOrange
+=#E0631E= / Nord12 =#D08770= (orange/salmon).  A user who treats SCHEDULED
+as their working "due/do date" sees the Nord9 blue; either way rule (A)
+repaints a today/tomorrow such date to the teal/rose day face.
+
+*GUI-confirm flag (dark-mode adjacency).*  =org-air-face-day-today='s dark
+tier is Nord8 =#88C0D0= (frost cyan), ADJACENT to =scheduled='s dark Nord9
+=#81A1C1= (frost blue).  So a *scheduled*-today in DARK mode moves from
+Nord9→Nord8 — a real change, but a subtle one (cyan vs blue).  The
+*deadline*-today (orange→teal) and *every light-mode* case are strong,
+unambiguous standouts.  If GUI review finds the scheduled-today dark
+delta too quiet, the follow-up is a one-line hex nudge on
+=org-air-face-day-today='s dark tier (out of scope here — a face-hex tweak,
+not a routing change); the ROUTING this round is correct regardless.
+
+** Non-surface audit (the deadline/scheduled standout has ONE render surface)
+
+Same conclusion as R85's audit, re-checked for the deadline/scheduled arms:
+
+- *Board date column* — =--date-label= → =--item-date-text= (text + svg
+  pill).  THE surface.  Recoloured (arms 3+4) per §Decision.
+- *Day view (R6)* — =org-air-view--insert-day-pane= binds
+  =(org-air-view--meta-date-w nil)= and groups items under Deadline /
+  Scheduled / Logged headings with a fixed day header; per-item dates are
+  OMITTED — =--human-date= is not called on the day pane.  No relative
+  label, nothing to recolour.
+- *Inspector popup* — =org-air-view--inspector-date-line= (org-air-
+  view.el:5051) renders =%F= ISO dates + a "(in Nd)" relative TERM in its
+  own kv format with =org-air-face-salient= / =-popout= / =-critical=; it
+  never emits the "Today"/"Tomorrow" pill.  A different surface, its own
+  idiom — out of scope, untouched.
+- *Review pane* — =org-air-review--row-date-text= renders =%b %-d= (+ chips)
+  and never calls =--human-date=.  Untouched.
+- *Revisit pane* — =org-air-revisit--date-text= renders age chips; no
+  =--human-date=.  Untouched.
+- *Calendar / rail* — paints day CELLS with its own =org-air-face-calendar-*=
+  family; the calendar's "today" is the filled cell (R7), not a text
+  label.  Untouched.
+
+So arms 3/4 reach exactly ONE rendering surface (the board date cell,
+text + pill), the same single surface R85 recoloured for the notes arm.
+
+* Proposal
+
+** D1 — route the day face into the DEADLINE and SCHEDULED arms (rule A)
+
+In =org-air-view--date-label= (org-air-view.el:2076–2077), arms 3 and 4
+gain the SAME =(or (--day-relative-face … now) 'org-air-face-SLOT)= wrap
+that arm 6 already carries:
+
+#+begin_example
+     (deadline
+      (cons (org-air-view--human-date deadline now)
+            ;; R87: a deadline that falls today/tomorrow WINS its slot — it
+            ;; reads teal/rose (day face) instead of the slot orange, so the
+            ;; standout reaches the due-date column (text AND svg pill); a
+            ;; deadline >=2 days out keeps `org-air-face-deadline'.
+            (or (org-air-view--day-relative-face deadline now)
+                'org-air-face-deadline)))
+     (scheduled
+      (cons (org-air-view--human-date scheduled now)
+            ;; R87: a scheduled today/tomorrow WINS its slot too (consistency).
+            (or (org-air-view--day-relative-face scheduled now)
+                'org-air-face-scheduled)))
+```
+
+That is the WHOLE render change — two arms, mirroring R85's notes arm:
+
+- The LABEL (=car=) is UNCHANGED — still exactly "Today" / "Tomorrow" /
+  "Wed" / "17 Jul" (=--human-date= is untouched).  Byte layer intact.
+- The FACE (=cdr=) becomes the day face for a today/tomorrow date, else
+  the slot face exactly as before.
+- The two =overdue= arms, =attention= and =stale= are UNTOUCHED (they never
+  emit a relative today/tomorrow), so OVERDUE keeps =org-air-face-overdue=.
+- The =notes= arm (R85) is UNCHANGED — it already does this.
+
+No new scan slot, no cache-key element, no =org-air-view--cache-version=
+bump — the deadline/scheduled timestamps and the delta are already
+computed in this function; the day face is chosen from the SAME values
+(R53).  A knob flip (light/dark, date-style) repaints, never rescans.
+
+** D2 — revise the rule-B docstrings to rule A (helper + two faces)
+
+The routing now contradicts three docstrings written under rule B; update
+them (comment-only, no behaviour):
+
+- =org-air-view--day-relative-face= (org-air-view.el:2030) — its docstring
+  says it is "Returned to the NEUTRAL date arms … deadline/scheduled dates
+  keep their own slot face (R85 §Decision, rule B)."  Rewrite to: returned
+  to the deadline / scheduled / notes date arms so ANY date that falls
+  today/tomorrow stands out in the day face on every slot (R87 rule A);
+  keyed on the same =--days-between= delta as =--human-date=.  The
+  *function body is unchanged* — it already maps delta 0/1 → the two faces
+  and nil otherwise; only its caller set widens.
+- =org-air-face-day-today= / =org-air-face-day-tomorrow= (org-air-faces.el:
+  482,499) — both say "Painted … ONLY when the relative label falls under
+  the NEUTRAL date slot (a deadline/scheduled today keeps its own slot
+  face — a deadline-today still reads as a deadline)."  Rewrite to: painted
+  by =org-air-view--date-label= on ANY date slot (deadline, scheduled or
+  neutral) when the date falls today/tomorrow, so a due date today stands
+  out in this colour (R87 rule A supersedes R85's rule B); an OVERDUE past
+  deadline keeps =org-air-face-overdue=.  *The face specs / hexes are
+  unchanged* — the teal/rose values and the R79 light+dark+TTY tiers stay
+  byte-for-byte as R85 shipped; only the prose is corrected.
+
+** D3 — the boundaries are unchanged (confirmations)
+
+- *OVERDUE (delta<0 / past) unchanged.*  The two =overdue= arms precede
+  arms 3/4 and =--day-relative-face= only answers delta 0/1; a past
+  deadline never reaches arms 3/4.  =org-air-face-overdue= holds.
+- *delta>=2 unchanged.*  =--day-relative-face= returns nil for any delta ∉
+  {0,1}, so the =(or … 'org-air-face-SLOT)= falls back to the slot face —
+  a deadline three days out is still =org-air-face-deadline=, byte- and
+  face-identical to pre-R87.
+- *today ≠ tomorrow face.*  Delta 0 → =org-air-face-day-today=, delta 1 →
+  =org-air-face-day-tomorrow= — the two remain distinct on the slot arms
+  exactly as on the notes arm (the SAME helper).
+
+** D4 — width & pill geometry: nothing to reserve, nothing new
+
+The date column width is measured from =(string-width (car date))= (+ the
+pill pad) in =org-air-view--compute-meta-widths= (org-air-view.el:3647) —
+LABEL width only, face-independent.  The label bytes are unchanged, so the
+date column width and every downstream V6 column position are byte-
+identical.  The svg pill box geometry (Ncols × char-px) is label-width-
+driven, so the pill's BOX is unchanged; only the drawn label COLOUR
+(=:fill fg=) changes — a GUI-only pixel swap on the same box.  Its image
+cache key already includes =fg= (org-air-view.el "(list 'pill text label
+font-weight fg border …)"), so a today/tomorrow deadline naturally builds
+a fresh teal/rose pill image without any cache change.  Nothing to
+reserve, nothing to re-fit.
+
+* Alternatives considered
+
+- *Keep rule (B) NEUTRAL-ONLY (the R85 status quo).*  Rejected: it is
+  exactly what the user reported as broken — the standout never reaches
+  the due-date column.
+- *(C) composite (slot hue + today emphasis).*  Keep the slot hue, add a
+  bold/underline today/tomorrow emphasis so a deadline-today reads
+  "deadline AND today".  Re-rejected (as in R85): it turns the =(LABEL .
+  FACE)= FACE into a face LIST / merged anonymous face, which
+  =--item-date-text= and =--svg-pillify= do not accept (they take ONE face
+  symbol and read ONE =face-foreground= for the pill =:fill=); and it does
+  NOT deliver the clean "the due date is now teal" the user asked for —
+  the pill would stay slot-coloured with only a weight change.
+- *A blended hue (mix slot + day colour).*  Rejected: the user asked for
+  the standout to WIN ("stand out more"), not to be diluted; a blend is
+  weaker than either pure hue and needs a new colour-mixing path the
+  restraint budget does not want.  Rule (A) gives the pure, loud day
+  colour.
+- *Recolour ONLY the deadline arm (leave scheduled on its slot face).*
+  Rejected for consistency: it re-introduces the very asymmetry rule (A)
+  removes (a today scheduled would still not stand out).  The brief asks
+  for scheduled too, and one uniform rule is simpler to reason about and
+  to test.
+- *A new pill =:border-color= for today/tomorrow dates.*  Rejected:
+  unnecessary — the pill's LABEL colour already carries the standout via
+  the face foreground, and a coloured border would fight the "one muted
+  neutral border, colour lives in the label" doctrine (D-P1.LOOK).
+
+* Interaction ledger (named rounds, one line each)
+
+- *R3 (date-label / OVERDUE sign)*: the OVERDUE sign-inversion contract
+  (future ≠ OVERDUE) is PRESERVED — arms 3/4 still emit "Today"/"Tomorrow"
+  for future/today dates, never "OVERDUE".  Only the R3 tests' SECONDARY
+  face assertion (slot face on a "Tomorrow") flips to the day face (§ERT).
+- *R6 (single-day focus view)*: the day pane omits per-item dates
+  (=--meta-date-w nil=), so it emits no relative label — untouched.
+- *R7 (calendar today cell)*: "today" in the CALENDAR is the filled cell;
+  the date-LABEL "Today" is a different surface with its own day face —
+  the two today idioms stay per-surface, no fork.
+- *R53 (data-pure render, no rescan)*: the face is chosen from the SAME
+  deadline/scheduled timestamp + =--days-between= delta already computed
+  in =--date-label= — no file access, no re-query, no cache bump; a knob
+  flip repaints.
+- *R79 (DONE-family face convention)*: the day faces are unchanged R79-
+  convention faces (light+dark hex + TTY inherit + GUI-confirm hex); R87
+  only widens WHERE they are painted, not what they are.
+- *R85 (the two day faces, rule B)*: R87 SUPERSEDES R85's §Decision (rule
+  B → rule A).  The faces, the helper body and the notes-arm wiring are
+  all reused verbatim; only the deadline/scheduled arms are added and the
+  rule-B docstrings/tests are corrected.  The R85 doc's own note — "(A) is
+  a one-line change (drop the neutral-arm gate)" — is the pivot executed
+  here.
+- *R87 colour pass (OUT/DROPPED/OFF red)*: orthogonal — that round unified
+  the retired-red keyword/state faces; R87-dates touches only the date-
+  slot faces.  No shared face, no interaction.
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+Exact colours are GUI-confirm-only; the seams assert the FACE SYMBOL on
+the =(LABEL . FACE)= cons (and, where relevant, the rendered TEXT/pill),
+never the pixel.  Clock frozen to =org-air-test-now= (Mon 2026-06-15):
+today = 2026-06-15, tomorrow = 2026-06-16.
+
+*New / revised rule-A seams:*
+
+1. *r87-1 (core, deadline) a DEADLINE due TODAY carries the day face*: a
+   deadline-today item → =--date-label= returns =(cons "Today"
+   'org-air-face-day-today)= — NOT =org-air-face-deadline=.  Reverting the
+   D1 deadline-arm rewire fails.
+2. *r87-2 (core, deadline) a DEADLINE due TOMORROW carries the day face*:
+   deadline-tomorrow → =(cons "Tomorrow" 'org-air-face-day-tomorrow)=.
+3. *r87-3 (core, scheduled) a SCHEDULED TODAY carries the day face*:
+   scheduled-today → =(cons "Today" 'org-air-face-day-today)= — NOT
+   =org-air-face-scheduled=.
+4. *r87-4 (core, scheduled) a SCHEDULED TOMORROW carries the day face*:
+   scheduled-tomorrow → =(cons "Tomorrow" 'org-air-face-day-tomorrow)=.
+5. *r87-5 (rendered cell, deadline) the day face reaches the painter*: the
+   deadline-today cell rendered through =org-air-view--item-date-text=
+   (=org-air-date-style 'text=) carries the TEXT "Today" and the
+   =org-air-face-day-today= =face= property (the plain-text twin of the
+   pill; the pill's =:fill= reads the same =face-foreground=, so the svg
+   is teal by the same face — GUI-confirm-only).  Stubbing
+   =--day-relative-face= to nil yields the pre-R87 =org-air-face-deadline=
+   with byte-identical text — the seam pins the face flip on the RENDERED
+   cell.
+6. *r87-6 (boundary) an OVERDUE past deadline KEEPS the overdue face*: a
+   deadline 5 days in the PAST → =(cons "OVERDUE 5d" 'org-air-face-overdue)=
+   — NOT any day face.  Leaking the day face onto the overdue arm fails.
+7. *r87-7 (boundary) a deadline / scheduled >=2 days out is UNCHANGED*: a
+   deadline 3 days out → =(cons <weekday> 'org-air-face-deadline)=; a
+   scheduled 3 days out → =(cons <weekday> 'org-air-face-scheduled)= —
+   both keep the slot face (helper returns nil for delta 3).  Over-
+   applying the day face fails.
+8. *r87-8 (distinct on the slot arms) today ≠ tomorrow on deadline*: the
+   deadline-today face (r87-1) and the deadline-tomorrow face (r87-2) are
+   NOT =eq= — the two standouts stay distinct on the slot arm, not just on
+   the notes arm.
+9. *r87-9 (byte layer) the deadline/scheduled label bytes are unchanged*:
+   in r87-1..4 the =car= is EXACTLY "Today"/"Tomorrow" (== =--human-date=
+   verbatim); only the =cdr= face changed.  Any label-byte drift fails.
+10. *r87-10 (notes arm unchanged / regression guard)*: a neutral note
+    today/tomorrow still carries the day face (R85 r85-3 behaviour intact)
+    — rule (A) ADDS the slot arms, it does not disturb the notes arm.
+
+*Rule-B seams to REPLACE (now WRONG under rule A):*
+
+- *round85 r85-5 / r85-6* (deadline-TOMORROW / scheduled-TOMORROW KEEP
+  their slot face) — REPLACE the assertions: the fixtures "Prep client
+  presentation" (DEADLINE 2026-06-16) and "Prepare standup notes"
+  (SCHEDULED 2026-06-16) now carry =org-air-face-day-tomorrow= (label
+  still "Tomorrow").  These become r87-2 / r87-4's fixture-driven twins.
+- *round85 r85-11 / r85-12* (deadline-TODAY / scheduled-TODAY KEEP their
+  slot face) — REPLACE: a deadline-today / scheduled-today now carries
+  =org-air-face-day-today= (these are r87-1 / r87-3).  The old "must NOT be
+  the day face" assertions are the exact inverse of the new contract and
+  must be deleted, not merely edited around.
+- *R3 date-label tests* =org-air-date-future-deadline-is-benign= /
+  =org-air-date-future-scheduled-is-benign= (tests/org-air-date-label-
+  test.el:44,80) — RE-BLESS the FACE line only: keep
+  =(should-not (string-match-p "OVERDUE" label))= and
+  =(should (equal label "Tomorrow"))= (the OVERDUE contract, the point of
+  those tests), and change =(should (eq face 'org-air-face-deadline))= →
+  =(should (eq face 'org-air-face-day-tomorrow))= (and the scheduled twin).
+- *round85 r85-1/2/3/4/7/8/9/10/13/14* are UNCHANGED — they pin the helper,
+  the two faces' distinctness/convention, the notes-arm behaviour and the
+  byte layer, none of which R87 alters.
+
+The test-round MUST land r87-1..10 and perform the four replacements above;
+each replacement's OLD assertion is called out so the seat deletes the
+rule-B expectation rather than leaving a stale "keeps slot face" guard that
+would now contradict production.
+
+* Byte-golden / fixture impact
+
+- *No text-golden churn.*  The change is FACE-only on arms 3/4; the label
+  bytes are unchanged and text goldens do not capture =face= — every
+  board / day / review / revisit golden is byte-identical (r87-9).  No
+  re-bless of goldens.
+- *The svg PILL pixels DO change (GUI, intended).*  A today/tomorrow
+  deadline/scheduled pill now draws its label in teal/rose instead of
+  orange/blue — the user-visible fix.  This is a =display= overlay (an
+  image), not buffer text, so it is *not* a byte golden; it is the
+  GUI-confirm deliverable.  *Flagged per the brief: the svg path does NOT
+  change any golden BYTES* (the pill image is not captured by the text
+  golden); only its rendered pixels differ, driven entirely by the face.
+- *Width unchanged.*  The date column measures label WIDTH, unchanged, so
+  every V6 column position holds (D4).
+- *New fixtures.*  A deadline-today / deadline-tomorrow / scheduled-today /
+  scheduled-tomorrow / deadline-3d / deadline-5d-past item shape (the
+  round85 =org-air-r85--dated= builder already constructs deadline/
+  scheduled offsets and can be reused) to freeze r87-1..9; the notes-arm
+  guard r87-10 reuses the R85 note builder.
+- *Cache.*  NO =org-air-view--cache-version= bump — the timestamps and
+  delta are long-standing; the fix is a render-side face choice (R53).
+
+* Design details / seams (files touched — impl seat)
+
+- *org-air-view.el*: the =deadline= and =scheduled= arms of
+  =org-air-view--date-label= (org-air-view.el:2076–2077) rewired to
+  =(or (org-air-view--day-relative-face SLOT now) 'org-air-face-SLOT)=
+  (D1); the =--day-relative-face= docstring corrected from rule B to rule
+  A (D2, comment-only — the body is unchanged).  =--human-date= (label
+  bytes), =--item-date-text=, =--svg-pillify=, =--compute-meta-widths=,
+  the =overdue=/=attention=/=stale=/=notes= arms all UNTOUCHED.
+- *org-air-faces.el*: the =org-air-face-day-today= / =-day-tomorrow=
+  docstrings corrected to rule A (D2, prose-only — the specs/hexes are
+  byte-identical to R85).
+- *README / demo*: one line noting a due date (deadline/scheduled) that
+  falls today/tomorrow now stands out in the day colour (teal/rose) on the
+  date column, text and pill; an overdue date stays critical red.
+- *tests*: land r87-1..10 (new); REPLACE round85 r85-5/6/11/12 with rule-A
+  assertions; RE-BLESS the R3 =…-is-benign= face lines to the day face
+  (§ERT).
+- *NO changes*: =--human-date= (label bytes), the day faces' hexes/specs,
+  the helper body, org-air-query.el / classify / calendar / inbox /
+  project / review / revisit, the cache VERSION.
+- *Suggested land order*: D1 (two-arm rewire — prove r87-1..5) → confirm
+  the boundaries (r87-6 overdue, r87-7 delta>=2) and the notes-arm guard
+  (r87-10) → D2 docstrings → REPLACE the rule-B tests → GUI-confirm the
+  teal/rose pill on a deadline-today (and the dark-mode scheduled-today
+  adjacency note).
+
+* One-line summary (idle)
+
+R87 = the TODAY / TOMORROW standout finally REACHES the due-date column.
+R85 shipped =org-air-face-day-today= (teal) / =-day-tomorrow= (rose) but
+under *rule (B) NEUTRAL-ONLY* — wired into only the neutral =notes= arm of
+=org-air-view--date-label=, so a DEADLINE / SCHEDULED that falls
+today/tomorrow kept its slot face and read "still blue" (the user's
+report).  *Decision (flagged): pivot to RULE (A) — today/tomorrow WINS.*
+Route the SAME =org-air-view--day-relative-face= into the =deadline= and
+=scheduled= arms too, so a delta-0/1 date takes the day face on EVERY slot
+(deadline + scheduled + neutral); an OVERDUE past deadline KEEPS
+=org-air-face-overdue= and delta>=2 is unchanged — confirmed by
+construction (the overdue arms precede, the helper answers only delta 0/1).
+*The svg crux (flagged): there is NO separate svg-colour path* — the pill
+label is drawn =:fill (face-foreground FACE)= in =org-air-view--svg-
+pillify=, so the pill is "blue" only because =--date-label= handed it the
+slot face; the day face reaches the plain text AND the pill in one
+face-only edit (the pill's own cache key already keys on =fg=).  A face is
+a =display= prop, so label bytes and text goldens are byte-identical — only
+the GUI pill PIXELS repaint teal/rose (the intended fix; no golden byte
+change on the svg path).  *R85 test-replacement (flagged): the rule-B seams
+are now WRONG* — round85 r85-5/6 (deadline/scheduled-TOMORROW keep slot)
+and r85-11/12 (…-TODAY keep slot) must be REPLACED with rule-A assertions
+(they now CARRY the day face), and the R3 =org-air-date-future-
+{deadline,scheduled}-is-benign= FACE lines re-blessed to
+=org-air-face-day-tomorrow= (their OVERDUE contract unchanged).  10 new
+batch ERT seams (r87-1..10); GUI-confirm audit = the teal/rose pill on a
+due-date-today plus the dark-mode Nord8-vs-Nord9 scheduled-today adjacency.
+
+* Implementation History
+
+- 2026-07-24: R87 design (this doc) — the TODAY/TOMORROW standout is routed
+  to the due-date column.  *Root cause*: R85 wired
+  =org-air-view--day-relative-face= into ONLY the neutral =notes= arm of
+  =org-air-view--date-label= (rule B), so the =deadline= (org-air-
+  view.el:2076) and =scheduled= (2077) arms kept their slot face — a
+  deadline-today read in slot orange / a scheduled-today in slot
+  purple-blue (Nord9 =#81A1C1= in dark mode = the user's "still in blue"),
+  never the teal/rose standout.  *SVG finding*: the board date pill has NO
+  separate colour path — =org-air-view--svg-pillify= draws its label with
+  =:fill (face-foreground FACE)= (org-air-view.el:3342,3416), so the pill
+  is blue only because =--date-label= handed it the SLOT face; a face-only
+  change reaches text AND pill together (the pill's image cache key already
+  keys on =fg=).  *Fix (rule A supersedes rule B)*: route the same helper
+  into the deadline + scheduled arms — =(or (--day-relative-face SLOT now)
+  'org-air-face-SLOT)= — so a delta-0/1 date wins its slot on EVERY date
+  arm; OVERDUE (the =overdue= arms precede, past dates) keeps
+  =org-air-face-overdue= and delta>=2 keeps its slot face, both unchanged
+  by construction (the helper answers only delta 0/1).  Docstrings on the
+  helper and the two faces corrected from rule B to rule A (comment/prose
+  only — bodies and hexes byte-identical to R85).  Label bytes untouched →
+  text goldens byte-identical (face is a =display= prop); only the GUI pill
+  pixels repaint (teal/rose — the intended fix); no scan slot, no cache-
+  version bump (R53).  *Test impact (flagged)*: rule-B seams now WRONG —
+  round85 r85-5/6/11/12 (deadline/scheduled today+tomorrow KEEP slot face)
+  REPLACED with rule-A assertions (they CARRY the day face); the R3
+  =org-air-date-future-{deadline,scheduled}-is-benign= FACE lines re-blessed
+  to =org-air-face-day-tomorrow= (OVERDUE contract kept).  10 new batch ERT
+  seams (r87-1..10); exact teal/rose + the dark-mode scheduled-today
+  Nord8-vs-Nord9 adjacency are GUI-confirm-only.
+
+* History
+- 2026-07-24: State: draft → ready.

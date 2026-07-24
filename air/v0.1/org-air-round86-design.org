@@ -687,5 +687,28 @@ ERT seams; segment/relative rulings flagged for confirmation.
   prune).  16 batch ERT seams defined; the segment-aware and org-root-
   relative rulings flagged for confirmation.
 
+- 2026-07-24: R86 IMPLEMENTED (impl seat, fresh child of the design commit).
+  Landed EXACTLY the spec in =org-air-view.el=: D1 the =path:VALUE= parse
+  arm → =(path . VALUE)= (case-fold, empty =path:= falls through to
+  bare-substring); D2 four pure helpers =org-air-view--path-segments= /
+  =--path-run-match-p= (contiguous-sublist, segment-aware) /
+  =--path-relative= (org-root-relative, Decision B, shallowest-source
+  tie-break, absolute fallback) / =--filter-path-token-match-p= (vacuously
+  false with no file); D3 the gate-free =(path . value)= =pcase= clause in
+  =--filter-token-match-p= BESIDE the R79 keyword axis (NOT through the
+  gated date matcher); D4 =--filter-path-segments= + the =--filter-
+  vocabulary= append (a =path:SEG= per distinct DIRECTORY segment, leaves
+  dropped, sorted); D5 the verbatim lens label needed no edit.  NO scan
+  slot, NO =cache-version= bump (R53) — reads the cached =org-air-item-file=
+  slot + the already-keyed =org-air-files= knob, zero file access.  16 batch
+  ERT seams (tests/org-air-round86-test.el) r86-1..r86-16 all GREEN, each
+  revert-red-driven.  =make clean && make check= GREEN: 1072 tests, 0
+  unexpected, 8 skipped (GUI-only), lint clean.  NO golden shifted (the
+  completion vocabulary materialises only inside the =/= prompt, not a
+  rendered buffer; an unfiltered board/day/review is byte-identical) — the
+  known-failures manifest stays EMPTY.  The two flagged rulings (A
+  segment-aware, B org-root-relative) ship as specified, each isolated
+  behind a single helper for a one-predicate pivot.
+
 * History
 - 2026-07-24: State: draft → ready.

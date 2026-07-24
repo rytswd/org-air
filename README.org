@@ -62,7 +62,7 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 - Five semantic buckets: *Inbox* (~:inbox:~ capture queue), *Needs attention* (overdue, or active with no schedule/deadline), *Upcoming* (within ~org-air-upcoming-days~), *High priority* (~[#A]~ etc.), *Stale* (untouched for ~org-air-stale-days~).
 - A month *calendar* marking scheduled/deadline/created days, with today highlighted — navigate months without leaving the board.
 - A neutral *Today* / *Tomorrow* date now reads in its own standout colour (teal / rose) instead of muted grey; a deadline or scheduled date that falls today/tomorrow still reads as a deadline / scheduled (its slot colour is kept).
-- *Filtering* by tag /and/ free text /and/ date/status: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:stale~ / ~is:nodate~ / ~is:hipri~ / ~is:backlog~ and ~due:7d~-style windows (with ~scheduled:~/~deadline:~ twins) match the planning slots; multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
+- *Filtering* by tag /and/ free text /and/ date/status /and/ location: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:stale~ / ~is:nodate~ / ~is:hipri~ / ~is:backlog~ and ~due:7d~-style windows (with ~scheduled:~/~deadline:~ twins) match the planning slots; a ~path:tasks/re/air~ token scopes the board/day/review to a directory subtree of your source files (segment-aware — ~path:re~ hits ~…/tasks/re/…~ but not a sibling ~…/tasks/restore~ — and matched relative to your ~org-air-files~ root, no tagging required); multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
 - *Backlog* (~b~): ack-and-defer a not-urgent task off the attention surfaces onto a Backlog lens via an org-native ~:backlog:~ tag — still trackable (Notes, day view, calendar, ~is:backlog~/~#backlog~), never nagging.
 - *Scope* the whole dataset to one tag, group, or file.
 - *Sort* within each bucket (date / priority / title / recency).
@@ -257,7 +257,7 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~b~                     | Backlog / un-backlog: defer the item off the attention surfaces        |
 | ~d~ / ~D~               | Set deadline / mark done                                               |
 | ~a~ / ~x~ / ~u~ / ~U~   | Archive / kill (guarded) / undo the most recent board edit / redo      |
-| ~/~                     | Filter by tag, free text, or date/status (~is:overdue~, ~is:backlog~, ~due:7d~) |
+| ~/~                     | Filter by tag, free text, date/status or location (~is:overdue~, ~is:backlog~, ~due:7d~, ~path:tasks/re~) |
 | ~\~                     | Clear the filter                                                       |
 | ~M-/~                   | Toggle filter combinator (AND ↔ OR)                                    |
 | ~s~ / ~S~               | Scope / clear scope                                                    |

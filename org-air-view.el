@@ -2192,6 +2192,11 @@ The closed `qualifier:value' grammar (case-insensitive throughout):
   due:Nd / due:Nw (and the scheduled:/deadline: slot twins; the unit is
   REQUIRED, `w' = 7×N days)
     => (SLOT . DAYS) with SLOT one of `due' / `scheduled' / `deadline'.
+  is:done / todo:KEYWORD (R79 keyword-identity axis)
+    => (status . done) / (todo . NAME).
+  path:VALUE (R86 LOCATION axis; VALUE a `/'-joined run of whole path
+  components, matched segment-aware + org-root-relative at match time)
+    => (path . VALUE).
 A `#'-prefixed token is refused outright (the `#' branch of the matcher
 stays first, so `#overdue' — and any `#'-spelled literal tag that \"looks
 like\" a keyword — is a tag match forever).  Anything else returns nil
@@ -2223,7 +2228,18 @@ errors; the label quoting is the tell —
        ((string-equal-ignore-case token "is:done")
         (cons 'status 'done))
        ((string-match "\\`todo:\\(.+\\)\\'" token)
-        (cons 'todo (match-string 1 token)))))))
+        (cons 'todo (match-string 1 token)))
+       ;; R86 LOCATION axis: `path:VALUE' — VALUE is a `/'-joined run of
+       ;; whole path components, matched SEGMENT-aware and org-root-
+       ;; RELATIVE at MATCH time (`org-air-view--filter-path-token-match-p').
+       ;; Kept as the RAW VALUE atom here so the token prints back verbatim
+       ;; in the lens (`org-air-view--filter-token-label'); the
+       ;; split/relativise is deferred to the matcher.  An empty value
+       ;; (`path:' alone) does NOT parse (`\(.+\)' requires >=1 char) and
+       ;; falls through to bare-substring VERBATIM.  A `#'-prefixed token is
+       ;; already refused above, so a literal `#path:x' tag is a tag forever.
+       ((string-match "\\`path:\\(.+\\)\\'" token)
+        (cons 'path (match-string 1 token)))))))
 
 (defun org-air-view--filter-keyword-token-match-p (parsed item)
   "Non-nil when PARSED keyword token matches ITEM's own keyword/done slot (R79).
@@ -2242,6 +2258,71 @@ tokens."
           t))
     (`(status . done)
      (and (org-air-item-donep item) t))))
+
+(defun org-air-view--path-segments (path)
+  "Split PATH into a list of lower-cased, non-empty path components (R86).
+`/'-delimited; empty runs (a leading `/', `//', a trailing `/') are
+dropped.  Lower-cased so `path:' matching is case-insensitive (the
+`org-air-view--filter-token-match-p' throughout-rule).  Pure string work
+— no file access."
+  (when path (split-string (downcase path) "/" t)))
+
+(defun org-air-view--path-run-match-p (needle haystack)
+  "Non-nil when the NEEDLE component list is a CONTIGUOUS run in HAYSTACK (R86).
+Both are `org-air-view--path-segments' outputs (already lower-cased).
+Segment-aware, not substring: NEEDLE `(\"re\")' matches HAYSTACK
+`(… \"tasks\" \"re\" \"air\" …)' but NOT `(… \"tasks\" \"restore.org\")';
+NEEDLE `(\"tasks\" \"re\")' matches only where `tasks' is IMMEDIATELY
+followed by `re'.  An empty NEEDLE never matches (an empty `path:' does
+not parse — D1).  Pure list work."
+  (and needle
+       (let ((n (length needle)) (hit nil) (tail haystack))
+         (while (and tail (not hit))
+           (when (and (>= (length tail) n)
+                      (equal needle (seq-take tail n)))
+             (setq hit t))
+           (setq tail (cdr tail)))
+         hit)))
+
+(defun org-air-view--path-relative (file)
+  "Return FILE relative to its `org-air-files' source root, else absolute (R86).
+Decision B: FILE is made relative to the PARENT of the SHALLOWEST
+`org-air-files' source that contains it, so the source's own basename
+survives as the first segment (`~/org' + `…/org/tasks/re/foo.org' =>
+`org/tasks/re/foo.org') while the machine-specific prefix above the root
+is dropped.  A FILE under no configured source is returned ABSOLUTE (still
+segment-matchable).  Reads `org-air-files' LIVE at match time; pure
+`expand-file-name' string arithmetic — NO disk access (the item's file is
+already the scan's truename; sources are `expand-file-name'd, not
+truenamed, to stay I/O-free — a symlinked source degrades to the absolute
+branch, still matchable)."
+  (let* ((exp (expand-file-name (or file "")))
+         (best nil) (best-depth nil))
+    (dolist (src (and (boundp 'org-air-files) org-air-files))
+      (let ((sx (directory-file-name (expand-file-name src))))
+        (when (or (equal sx exp)
+                  (string-prefix-p (file-name-as-directory sx) exp))
+          (let ((depth (length (split-string sx "/" t))))
+            (when (or (null best-depth) (< depth best-depth))
+              (setq best sx best-depth depth))))))
+    (if best
+        (file-relative-name exp (file-name-directory (directory-file-name best)))
+      exp)))
+
+(defun org-air-view--filter-path-token-match-p (value item)
+  "Non-nil when ITEM's source path matches the `path:' VALUE (R86).
+VALUE is the raw `(path . VALUE)' payload; ITEM's `org-air-item-file' is
+made root-RELATIVE (`org-air-view--path-relative', Decision B) and
+SEGMENT-matched against VALUE's component run via
+`org-air-view--path-run-match-p' (Decision A).  Vacuously FALSE when
+ITEM carries no file (empty project/revisit records) — like the R72/R79
+slot tokens.  Reads a cached slot + `org-air-files'; NO file access, NO
+board-active/task-routed gate (a LOCATION is orthogonal to planning
+state — a DONE note under `tasks/re' still lives there)."
+  (when-let* ((file (org-air-item-file item)))
+    (org-air-view--path-run-match-p
+     (org-air-view--path-segments value)
+     (org-air-view--path-segments (org-air-view--path-relative file)))))
 
 (defun org-air-view--filter-date-token-match-p (parsed item now)
   "Non-nil when PARSED (a date/status token) matches ITEM as of NOW.
@@ -2303,6 +2384,26 @@ narrowing: `due:2d' still renders the full knob-wide Upcoming section
 row (the probed +8d bucketless hole)."
   (max org-air-upcoming-days (or (org-air-view--filter-window-days) 0)))
 
+(defun org-air-view--filter-path-segments ()
+  "Return the distinct DIRECTORY segments across the loaded items (R86).
+For each `org-air-view--items' file, `org-air-view--path-relative' then
+`org-air-view--path-segments' MINUS the leaf filename (`butlast'); the
+union, case-insensitively de-duplicated (segments are already lower-cased)
+and sorted for a deterministic `/' completion + byte-stable ordering.
+Pure over cached slots; no file access.  The completion teaches the axis
+by the user's OWN directory names (`tasks', `re', `air', …); deeper
+multi-segment values (`path:tasks/re') are typed freely (the prompt is
+not require-match)."
+  (let ((seen (make-hash-table :test #'equal)) (out nil))
+    (dolist (item org-air-view--items)
+      (when-let* ((file (org-air-item-file item)))
+        (dolist (seg (butlast (org-air-view--path-segments
+                               (org-air-view--path-relative file))))
+          (unless (gethash seg seen)
+            (puthash seg t seen)
+            (push seg out)))))
+    (sort out #'string<)))
+
 (defun org-air-view--filter-vocabulary ()
   "Return the date/status + R79 keyword token offer list for `/' completion.
 The five `is:' tokens plus knob-tracking window examples
@@ -2310,16 +2411,23 @@ The five `is:' tokens plus knob-tracking window examples
 `org-air-upcoming-days'), plus the R79 keyword axis: `is:done' and a
 `todo:<KW>' for each bare name in the merged scan vocabulary
 \(`org-air-view--scan-keyword-names') so `/' completion teaches the
-axis by the user's real keywords.  Offered by the board and the review
-view; project and revisit pass nothing (their records carry no planning
-slots — R72 Decision 8; the keyword axis is vacuously false there too)."
+axis by the user's real keywords, plus the R86 LOCATION axis: a
+`path:SEG' for each distinct DIRECTORY segment across the loaded items'
+root-relative paths (`org-air-view--filter-path-segments').  Offered by
+the board and the review view; project and revisit pass nothing (their
+records carry no planning slots — R72 Decision 8; the keyword and
+location axes are vacuously false there too)."
   (append
    (mapcar (lambda (v) (concat "is:" v)) org-air-view--filter-is-values)
    (mapcar (lambda (q) (format "%s:%dd" q org-air-upcoming-days))
            '("due" "scheduled" "deadline"))
    (list "is:done")
    (mapcar (lambda (kw) (concat "todo:" kw))
-           (org-air-view--scan-keyword-names))))
+           (org-air-view--scan-keyword-names))
+   ;; R86: a `path:SEG' offer per distinct DIRECTORY segment across the
+   ;; loaded items' root-relative paths (the leaf filename dropped).
+   (mapcar (lambda (seg) (concat "path:" seg))
+           (org-air-view--filter-path-segments))))
 
 (defun org-air-view--filter-token-label (token)
   "Return TOKEN as it should appear in the filter lens display (R24-6).
@@ -2372,6 +2480,12 @@ Case-insensitive throughout."
                ;; NO board-active gate (must select done items).
                ((or `(todo . ,_) `(status . done))
                 (org-air-view--filter-keyword-token-match-p parsed item))
+               ;; R86 LOCATION axis (gate-free): the item's source path.
+               ;; Orthogonal to planning state (a DONE note under
+               ;; `tasks/re' still lives there), so routed here beside the
+               ;; keyword axis, NOT through the gated date matcher.
+               (`(path . ,value)
+                (org-air-view--filter-path-token-match-p value item))
                ;; R72 date/status axis: the bucket predicate under one NOW.
                (_ (org-air-view--filter-date-token-match-p
                    parsed item (or org-air-view--filter-now (current-time))))))

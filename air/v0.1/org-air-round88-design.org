@@ -1,5 +1,5 @@
 #+title: org-air Round 88 — the date cell stops using a BINARY today/tomorrow highlight and becomes a PROXIMITY HEAT-RAMP: OVERDUE red → TODAY orange → TOMORROW (a blend) → THIS-WEEK amber → BEYOND the slot default; the two R85/R87 day faces are recoloured (teal→orange today, rose→orange/amber blend tomorrow), a new `org-air-face-day-week' is added, and `org-air-face-overdue' is ALIGNED to red in BOTH tiers so overdue reads hotter than this-week; the 5-level ramp is driven from `org-air-view--day-relative-face' on all three date arms (R87 rule A, svg-pill fill=face-fg mechanism both UNCHANGED), a face-only change with byte-identical text goldens — only the GUI pill pixels repaint
-#+state: ready
+#+state: complete
 #+tags: faces dates render board ux
 
 * Summary
@@ -815,3 +815,4 @@ batch-asserted).
 
 * History
 - 2026-07-24: State: draft → ready.
+- 2026-07-24: State: ready → complete.

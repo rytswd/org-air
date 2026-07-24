@@ -1,0 +1,649 @@
+#+title: org-air Round 83 — a one-key BACKLOG toggle (`b'): ack-and-defer an item off Needs-attention onto a Backlog lens via an org-native :backlog: tag (classify gate + is:backlog twin + in-place repaint, no rescan)
+#+state: ready
+#+tags: board classify triage filter keybindings defcustom ux tags
+
+* Summary
+
+USER ASK (verbatim): /"a quick key binding to 'ack, but move it off to
+backlog' is good enough."/  The user wants a CLEAR SEPARATION between
+NOTES and TASKS, both trackable, and organises by TAGS viewed through the
+dashboard.  The motivating scenario: a document note (e.g. "Btrfs") with
+a PLACEHOLDER heading is a task-to-complete but should NOT surface as
+"Needs attention" — it can be filled in *anytime*.  Today such a heading
+(a keyword-carrying, dateless task) camps forever in Needs-attention via
+the no-date attention default, burying the genuinely-urgent work.
+
+R83 adds a one-key BACKLOG action, reusing existing machinery end to end
+— org/org-ql only, no new engine:
+
+- *Mechanism = a TAG*, not a new state or a new file.  A defcustom
+  =org-air-backlog-tag= (default ="backlog"=) names an org-native tag
+  that fits the user's tag-driven model, is filterable, and round-trips
+  losslessly.  A NEW board/day/review key — proposed =b= (audited FREE,
+  see D2) — TOGGLES it on the item at point (add if absent, REMOVE if
+  present: a reversible "un-backlog"), installer-owned via the R35-1
+  registry (=org-air-use-default-keybindings nil= strips it).
+- *Write* is =org-air-item-backlog=, built on the existing
+  =org-air-view--at-item-source= (org-air-view.el:10082) — the SAME
+  path =org-air-set-tag= (=t=) already uses: the R68 board-context
+  logging discipline (inhibit note-downgrade + pre-save flush), one
+  =atomic-change-group= (one edit = one undo group), an =org-toggle-tag=
+  add/remove that preserves every other tag, and — for free — a
+  recent-edits ring record so =u=/=U= (R73/R75) undo/redo it.  No
+  prompt, no interactive read: a single keystroke.
+- *Classify*: a new hoisted predicate =org-air-classify--backlog-p= gates
+  =org-air-classify--heading-buckets= (mirroring R77's task-demotion
+  gate): a board-active backlog item routes to a SINGLE new =backlog=
+  bucket INSTEAD of Upcoming / Needs-attention / High-priority / Stale /
+  Inbox — off the attention surfaces, still trackable under a Backlog
+  lens (a conditional bottom section + a rail Summary count).  It stays
+  reachable everywhere non-attention: Notes, all-items, the day view and
+  the calendar are untouched (they read planning slots / file votes, not
+  buckets).
+- *Filter*: a first-class =is:backlog= token joins the shared R72/R79
+  grammar (composes under =M-/= with =#tag= / =is:= / =due:= / =todo:=),
+  offered in =/= completion.  =#backlog= already works via R69 tags;
+  =is:backlog= is the bucket-exact twin (the filter⇔bucket agreement law
+  by construction).
+- *No rescan on toggle* (R53): =b= writes the source, mutates the cached
+  item's =tags= slot in place, drops that one item's classify-memo entry,
+  and repaints from cache via =org-air-view--refresh-current= — the row
+  moves from Needs-attention to Backlog with NO org-ql re-query.
+
+SPEC ONLY: no =.el= or test edits in this change.  R53 (never-error,
+data-pure render, no rescan on a toggle), R55-1 (owner routing), R68
+(board-context logging), R72 (filter⇔bucket agreement), R73/R75 (edit
+ring), R77 (compose with =org-air-task-requires-todo=) are all respected.
+
+* Investigation
+
+** Why the placeholder task floods Needs-attention (the exact predicate)
+
+=org-air-classify--heading-buckets= (org-air-classify.el:312) pushes
+=attention= on the NO-DATE default:
+
+#+begin_example
+(when (or (org-air-classify--overdue-p item now)
+          (and (null scheduled) (null deadline) (not inbox-p)))
+  (push 'attention buckets))
+#+end_example
+
+A keyword-carrying, dateless, non-inbox heading — the user's PLACEHOLDER
+task ("* TODO Btrfs partition layout") — hits the second disjunct and
+camps in Needs-attention until it is either dated or completed.  There is
+today no way to say "acknowledged, I'll get to it, stop nagging" WITHOUT
+either dating it (a lie — there is no date) or dropping the keyword (then
+it is not trackable as a task).  R83 is exactly that third verb.
+
+** Where the backlog item must land (reuse the R77 gate shape)
+
+R77 demotes a keyword-less routine OFF all four task sections by ROUTING
+(=ntype 'knowledge= ⇒ no board section) and mirrors the routing in the
+filter via the hoisted =org-air-classify--task-routed-p=.  R83 borrows
+the *shape* but keeps the item a TASK: instead of re-routing the note
+type, it gates the bucket producer on a TAG predicate and sends the item
+to a NEW, reachable =backlog= bucket.  Nothing about the note-type model,
+the F7 file vote, or the R57 vocabulary changes — the tag is a per-item
+overlay read LIVE at classify time over the already-scanned =tags= slot.
+
+** Key-collision audit — `b' is FREE (the maps that must gain it)
+
+The "day view" is NOT a separate mode: =org-air-view-day=
+(org-air-view.el:10683) runs in the OWNER board buffer under
+=org-air-view-mode= (R55-1).  So "board + day + review maps" resolves to
+exactly TWO keymaps: =org-air-view-mode-map= (covers board AND day) and
+=org-air-review-mode-map=.  Audited every register block that reaches
+them (grep-verified, committed tree):
+
+- =org-air-view-core-map= (shared parent): RET =<mouse-1>= v V =\= M-/ o
+  O =|= j k — no =b=.
+- =org-air-view-mode-map= (board+day): S-RET n p TAB =<backtab>= M-TAB
+  M-n M-p SPC c m s d e f t T a D x u U I =/= S g G P =<= =>= =.= z N W ?
+  q — no =b=.
+- =org-air-review-mode-map=: n p TAB M-n M-p S-RET =<= => =.= m + = - f
+  =/= s S g P N ? q — no =b=.
+- The =g=-prefix map (r g R RET o d) and =z=-prefix (f d t) — no =b=.
+
+⇒ =b= is unbound on every relevant map; no evil/leader interaction (a
+bare printable key in a read-only special-mode buffer).  Mnemonic: *b* =
+backlog.  (Rejected: =B= — Shift is reserved for the inverse-idiom pairs
+v/V, s/S, o/O, u/U and for view switches P/N/W; a toggle needs no second
+key since pressing =b= again reverses it.)
+
+** What must NOT change — verified invariants
+
+1. *Day view / calendar*: =org-air-view--day-groups= groups on the
+   scheduled/deadline SLOTS and =org-air-calendar--marked-days= marks
+   from the same slots — NO bucket test.  A dated backlog item keeps its
+   "Scheduled/Deadline" day row and its calendar dot.  This is the R77-D8
+   invariant, reused unchanged: backlog is about the attention buckets,
+   not about time.
+2. *Notes / all-items*: the backlog gate does not touch the F7 file vote
+   nor the =kind 'file= notes route, and it never removes an item from
+   the scan.  Every non-attention surface still holds it.
+3. *DONE / archived*: =org-air-classify--board-active-p= is the FIRST
+   conjunct of =--heading-buckets='s active branch; a done/archived
+   backlog item classifies into ZERO buckets (not even =backlog= —
+   correct: history, not a deferred pile).  The gate composes with,
+   never overrides, the top gate.
+4. *R77 task-demotion*: a knob-demoted routine is =ntype 'knowledge= ⇒
+   =--heading-buckets= is never called for it ⇒ the backlog gate is a
+   no-op there.  Backlog and R77 are orthogonal (both subtractive from
+   the four buckets; they never double-count).
+5. *Items built outside the scan* (capture buffers, unit tests): nil
+   =ntype=, and =org-air-item-tags= is whatever the constructor set — a
+   test item without the tag is never =backlog-p=; the gate is a plain
+   membership test, no slot dependency beyond =tags=.
+
+* Proposal
+
+** D1 — the mechanism: `org-air-backlog-tag' (a tag, argued)
+
+#+begin_example
+(defcustom org-air-backlog-tag "backlog"
+  "Org tag that defers a board item onto the Backlog lens (R83).
+A heading carrying this tag routes OUT of the task sections
+(Upcoming / Needs attention / High priority / Stale) and the Inbox into
+the single `backlog' bucket — off the \"needs attention\" surfaces while
+staying trackable (a Backlog section + a rail Summary count) and fully
+reachable elsewhere (Notes, all-items, the day view, the calendar).  The
+board key `b' (`org-air-item-backlog') toggles the tag on the item at
+point; `is:backlog' filters to exactly the backlog set; `#<tag>' filters
+by raw tag membership (its superset).  The tag is written to the source
+heading and re-scanned like any tag; the NAME is a live classify input
+(the render memo carries it — org-air-view.el), so a mid-session change
+takes effect on the next repaint, never a file rescan."
+  :type 'string
+  :group 'org-air)
+#+end_example
+
+Lives in org-air-classify.el beside =org-air-stale-days= /
+=org-air-upcoming-days= (the classify-tuning knobs).
+
+*Why a TAG* (over a new TODO state, a property, or a separate file):
+
+| Option              | Verdict                                                                                                                                       |
+|---------------------+-----------------------------------------------------------------------------------------------------------------------------------------------|
+| *Tag* (chosen)      | Fits the user's stated tag-driven model; org-native and filterable (=#backlog= already works via R69); reversible with =org-toggle-tag=; visible on the row chip; zero new struct slot (rides =org-air-item-tags='s existing scan) |
+| New TODO keyword    | Pollutes the user's =org-todo-keywords=; a DONE-ish "BACKLOG" would be swept off-board by =--board-active-p= (wrong — must stay trackable); a not-done "BACKLOG" fights the R57 merged vocabulary; forces every file's =#+TODO:= line to learn it |
+| Drawer / property   | Not filterable with =#=; invisible on the row; needs a new scan slot + cache-version bump; no org-native toggle verb |
+| Move to a file      | Contradicts "both trackable in place"; loses the heading's context; a refile, not an ack — the user explicitly said a key toggle "is good enough" |
+
+** D2 — the key: `b' toggles, installer-owned (R35-1)
+
+=b= is registered on the two audited maps through the SAME
+=org-air--register-default-keys= registry every other default key uses,
+so =org-air-use-default-keybindings nil= strips it and a user can
+=define-key= their own:
+
+#+begin_example
+;; org-air-view-mode-map (board + day)      — beside `t' set-tag
+(org-air--register-default-keys 'org-air-view-mode-map
+  ...
+  "b" #'org-air-item-backlog)
+
+;; org-air-review-mode-map
+(org-air--register-default-keys 'org-air-review-mode-map
+  ...
+  "b" #'org-air-item-backlog)
+#+end_example
+
+One command serves all three surfaces (board, day, review) because the
+day view IS the board buffer and the review row carries the same
+=org-air-item= at point.  No new prefix, no leader change; the =?= help
+derives the key live via =where-is= (so it is correct under evil / a
+custom leader / the knob both ways — nothing to hard-code).
+
+** D3 — the write: `org-air-item-backlog' via `--at-item-source'
+
+#+begin_example
+;;;###autoload
+(defun org-air-item-backlog ()
+  "Toggle `org-air-backlog-tag' on the item at point — defer/un-defer (R83).
+Adds the tag when absent, REMOVES it when present (a reversible
+un-backlog).  Writes the source heading via `org-air-view--at-item-source'
+(R68 logging discipline + one atomic undo group + the R73 edit-ring
+record), preserving every other tag, then updates the cached item and
+REPAINTS IN PLACE — no rescan (R53)."
+  (interactive)
+  (let* ((item (org-air-view--item-at-point))          ; soft user-error if none
+         (tag  org-air-backlog-tag)
+         (had  (and (member tag (org-air-item-tags item)) t))
+         (want (if had 'off 'on)))
+    (org-air-view--at-item-source item
+      (format "backlog \"%s\" %s%s" (org-air-item-title item)
+              (if had "-" "+") tag)
+      (org-toggle-tag tag want))                        ; explicit on/off: idempotent
+    ;; R53: update the item + repaint, do NOT `org-air-refresh' (no re-query).
+    (setf (org-air-item-tags item)
+          (if had (remove tag (org-air-item-tags item))
+            (cons tag (org-air-item-tags item))))
+    (when org-air-view--classify-cache
+      (remhash item org-air-view--classify-cache))     ; the one stale eq-entry
+    (org-air-view--refresh-current)                     ; board/day re-classify; review in place
+    (message "%s \"%s\"" (if had "Un-backlogged" "Backlogged")
+             (org-air-item-title item))))
+#+end_example
+
+Notes:
+
+- *Prompt-free.*  Unlike =t= =org-air-set-tag= (a =read-string= for the
+  tag name) and =x= =org-air-item-kill= (a =yes-or-no-p= confirm), =b=
+  reads NOTHING — the tag is the defcustom.  No minibuffer, no GUI
+  confirm, no =read-char=: a single non-interactive keystroke, fully
+  batch-testable.  (This is the flagged "GUI-confirm bits" audit line: NONE.)
+- *Tags preserved.*  =org-toggle-tag= adds/removes only the one tag; the
+  in-memory mutation mirrors exactly that.  =want= is computed from the
+  cached slot so the source and the cache agree deterministically; the
+  next real refresh reconciles any external drift (negligible edge).
+- *R73 ring for free.*  The macro pushes a record after the save (DESC =
+  ="backlog \"…\" +backlog"= / ="-backlog"=), so =u= undoes it via
+  =undo-only= in the source buffer and =U= redoes it — a simple in-place
+  single-buffer tag edit, exactly the ring's IN-PLACE class (never the
+  structural refile/archive class).  See D9.
+- *R68 logging + atomicity inherited.*  The macro binds
+  =org-inhibit-logging= / the reschedule-note downgrades, flushes any
+  pending note before the save, and wraps body in
+  =undo-boundary= + =atomic-change-group= — a mid-body signal rolls back
+  in-buffer changes, the file is never saved, and NO ring record pushes.
+  =org-air-item-backlog= must sit BELOW the defmacro (the R68fix
+  source-order law), beside =org-air-set-tag=.
+
+** D4 — classify: `org-air-classify--backlog-p' gates the bucket producer
+
+New hoisted predicate (org-air-classify.el, beside the other R72
+predicates):
+
+#+begin_example
+(defun org-air-classify--backlog-p (item)
+  "Non-nil when ITEM carries `org-air-backlog-tag' — the deferred flag (R83).
+A live membership test over the already-scanned `tags' slot (the tag NAME
+is a classify input; the tag VALUE is re-scanned).  Consulted by
+`org-air-classify--heading-buckets' (routes off the four task buckets +
+Inbox into `backlog') and by the `is:backlog' filter token — the ONE
+definition both share, so filter⇔bucket agreement holds by construction."
+  (and org-air-backlog-tag
+       (member org-air-backlog-tag (org-air-item-tags item))
+       t))
+#+end_example
+
+The gate sits at the head of =--heading-buckets='s active branch — the
+ONLY change to that function:
+
+#+begin_example
+(when (org-air-classify--board-active-p item)          ; UNCHANGED top gate
+  (if (org-air-classify--backlog-p item)
+      (push 'backlog buckets)                           ; single deferred home
+    ;; ...the existing upcoming / attention / high-priority / inbox /
+    ;;    stale pushes, verbatim...
+    ))
+#+end_example
+
+Rulings:
+
+- *Single home.*  A backlog item lands in =backlog= ONLY — not also in
+  Inbox, not in any of the four task buckets.  This is what makes =b= in
+  the guided inbox walk a real DISPOSITION (it shrinks the Inbox — D9)
+  and keeps the rail Summary honest (no double count).
+- *board-active FIRST.*  A DONE / archived backlog heading is still zero
+  buckets (Investigation invariant 3): the gate is INSIDE the
+  board-active branch, so backlog never resurrects history.
+- *Note-typed headings are inert.*  =--heading-buckets= is only reached
+  for task-routed items (the inbox-dweller branch and the default =t=
+  branch of =org-air-classify-item=); a =journal=/=knowledge= heading
+  keeps its own bucket even with the tag — there is nothing to demote
+  (it was never in a task bucket).  So =backlog= ⟺ "a task-routed heading
+  you deferred", and =is:backlog= (D6) agrees exactly.  The user's
+  placeholder task IS task-routed (it carries a keyword), so it is
+  covered; a pure-prose note that is already off-board needs no backlog.
+- =org-air-classify-item='s cond is UNTOUCHED; the gate lives entirely in
+  =--heading-buckets=, so both call sites (inbox-dweller, default) demote
+  identically.
+
+** D5 — the Backlog section + Summary count (the Notes-section pattern)
+
+The =backlog= bucket needs a home the user can OPEN, plus a Summary
+tally.  Mirror the R53 Notes section (conditional, zero churn when
+empty):
+
+- New descriptor =(backlog "Backlog" "Nothing deferred.")= and a
+  =org-air-view--backlog-descriptor= constant.
+- =org-air-view--section-descriptors= appends it (below the task
+  sections, beside Notes) WHEN =(org-air-view--items-for-bucket 'backlog
+  items)= is non-empty AND a new =org-air-show-backlog-section=
+  defcustom (boolean, default t) is on.  A board with no backlog items —
+  every existing golden — renders byte-identically (no empty "Backlog"
+  section).
+- New glyph =(backlog . ("▽" . "-"))= in =org-air-glyphs= (the section
+  icon; ▽ = deferred, the calm inverse of attention's ▲; degrades by the
+  S5b tier table, user-overridable) so the section header renders like
+  every other.
+- *Summary count*: =org-air-view--section-counts= is extended to append a
+  =backlog= entry ONLY when the bucket is non-empty (a new
+  =org-air-view--summary-buckets= helper = the fixed five + conditional
+  backlog).  Existing goldens (no backlog items) keep the exact five
+  Summary rows; a board with deferred items grows one "Backlog N" row
+  above the ledger rule.  (Notes stays OUT of the Summary, as today — the
+  change is additive and backlog-only.)
+
+** D6 — filter: the `is:backlog' first-class twin (R72/R79 grammar)
+
+- ="backlog"= joins =org-air-view--filter-is-values= (the closed
+  =is:= set), so =org-air-view--filter-token-parse= yields =(is . backlog)=
+  and =--filter-token-label= renders it verbatim-unquoted.
+- =org-air-view--filter-date-token-match-p= gains ONE arm:
+  =(`(is . backlog) (org-air-classify--backlog-p item))=.  It already
+  conjoins =--board-active-p= AND =--task-routed-p=, so the token matches
+  EXACTLY the =backlog= bucket set (board-active ∧ task-routed ∧ tagged)
+  — the R72 agreement law, extended for free.
+- =/= completion offers it: =org-air-view--filter-vocabulary= maps the
+  =is:= values, so ="is:backlog"= appears automatically.
+- =#backlog= (R69 raw-tag membership) still works and is the SUPERSET:
+  it also matches done / archived / note-typed items carrying the tag,
+  which =is:backlog= (the bucket-exact twin) deliberately excludes — the
+  same =is:hipri= vs a priority-shaped =#tag= relationship.  Composes
+  under =M-/= with any other token (e.g. =is:backlog #nix=,
+  =#backlog is:done=).
+
+** D7 — no rescan on toggle: update the item + repaint in place (R53)
+
+The four board triage verbs (=done=/=todo=/=tag=/=deadline=) call
+=org-air-refresh= after the macro — an R26-8 re-query.  =b= deliberately
+does NOT (D3):
+
+1. The macro writes the source and returns.
+2. =(setf (org-air-item-tags item) …)= mutates the CACHED struct — the
+   same =eq= object the render partition and the classify memo key on.
+3. =(remhash item org-air-view--classify-cache)= drops that ONE stale
+   memo entry (the =eq=-hash would otherwise return the pre-toggle bucket
+   list for the unchanged object — the crux); every other item's memo
+   stays warm.
+4. =org-air-view--refresh-current= repaints from =org-air-view--items=
+   (cached), re-classifying the mutated item into =backlog=.  On the
+   board/day this MOVES the row (out of Needs-attention, into Backlog,
+   Summary follows); on the review view it is a data-untouched in-place
+   re-render (review groups by period, not buckets — the tag is written
+   for the board's benefit, review grouping is unaffected).
+
+No =org-ql= call, no file reopen, no R26-8 machine churn — the snappy
+single-keystroke feel the user asked for, and the R53 data-pure repaint
+law honoured.
+
+** D8 — cache-key: NOT the scan key; the classify-memo coherence key
+
+The question (round brief): does =org-air-backlog-tag= need a cache-key
+slot?  *No scan-key slot* — and here is the precise contrast with R77:
+
+- R77's =org-air-task-requires-todo= is BAKED into scan-time =ntype= /
+  file-meta =:ntype=, so a flip must re-open files ⇒ it joined
+  =org-air-view--cache-key= (the SEVENTH element), taking the documented
+  cold re-derive.
+- =org-air-backlog-tag= is read LIVE at classify time over the
+  already-scanned =tags= slot.  The tag VALUE on a heading is re-scanned
+  like any tag (no key needed — a tag edit changes the file, the R42-1
+  mtime baseline reparses it).  The tag NAME changing never requires
+  re-opening a file — the tags are already in the struct.  So it MUST
+  NOT join =org-air-view--cache-key= (that would force a pointless cold
+  rescan of every file on a rename).
+
+It IS a classify input, so the only staleness risk is the RENDER-time
+memo (=org-air-view--classify-cache=, keyed by (DAY . HORIZON)): a
+mid-session =setq org-air-backlog-tag= would otherwise serve stale bucket
+lists.  Fix — extend the memo's coherence key, the R61 "render-time knobs
+fold over cached data and take effect on repaint" precedent:
+
+#+begin_example
+;; org-air-view--classify-cache-ensure: key was (DAY . HORIZON)
+(let ((key (list (time-to-days (or now (current-time)))
+                 (org-air-view--filter-effective-horizon)
+                 org-air-backlog-tag)))            ; R83: name change rebuilds memo
+  ...)
+#+end_example
+
+A name change then self-invalidates the memo on the next repaint (cheap
+slot-fold rebuild), never a cold file re-derive.  NO
+=org-air-view--cache-version= bump (no persisted serialisation shape
+changes; the scan key is untouched).  The single-item =remhash= in D3
+handles the per-toggle case; this key handles the (rare) name-change case.
+
+** D9 — undo/redo ring + never-error + surfaces
+
+- *Edit ring (R73/R75)*: YES — =b= is a simple in-place, single-buffer
+  tag edit, so it is the ring's IN-PLACE class (like =tag=/=todo=/=done=),
+  NEVER the structural refile/archive class.  The macro pushes the record
+  automatically; =u= (=org-air-edit-undo=) reverts it with =undo-only= in
+  the source buffer + save + refresh (the reverted record crosses to the
+  redo ring), and =U= (=org-air-edit-redo=) re-applies it.  So there are
+  TWO ways to reverse a backlog: press =b= again (an in-place toggle, no
+  rescan — D7), or =u= (the ring, standard undo semantics).  Both
+  round-trip the source tag and preserve other tags.
+- *Never-error (R53)*: the toggle degrades gracefully on every dead/stale
+  input WITHOUT a hard error — =org-air-view--item-at-point= soft-errors
+  (=user-error= "No org-air item at point") on a bare margin/rail/pad
+  line; =org-air-view--refresh-stale-item-guard= (inside the macro)
+  soft-errors ("Still refreshing this file…") on a mid-refresh file; and
+  a mid-body signal (e.g. the heading vanished at a stale position)
+  triggers the =atomic-change-group= rollback ⇒ no save, no ring push,
+  bytes identical.  Recommendation: wrap the macro body call in
+  =org-air-item-backlog= in a =condition-case= that downgrades any
+  residual =error= to a =message= (the R53 never-error law, belt-and-
+  suspenders; sibling verbs could later adopt the same — out of scope to
+  retrofit here).
+- *Surfaces*:
+  - =?= help: add =(org-air-item-backlog . "backlog / un-backlog item
+    (defer off attention)")= to the Triage group of
+    =org-air-help--board-groups= and =org-air-help--review-groups= (key
+    derived live via =where-is=).
+  - =process-inbox= action row: add =[b]acklog= to the prompt string and
+    =(?b (org-air-item-backlog))= to the pcase — a DEFER disposition that
+    (via the D4 single-home ruling) drops the item out of the Inbox
+    bucket, so the guided walk's countdown advances like any filing verb.
+  - The rail Actions block is NOT extended (it is a fit-driven reflow of
+    a few verbs; =b= lives in =?= help + the inbox row, matching how the
+    other single-key triage verbs are surfaced).
+
+** D10 — reachability ledger (what a backlog item KEEPS)
+
+| Surface                         | Backlog item present? | Why                                                       |
+|---------------------------------+-----------------------+-----------------------------------------------------------|
+| Needs attention / Upcoming / High priority / Stale / Inbox | NO  | D4 gate replaces them with the single `backlog' bucket    |
+| Backlog section (bottom)        | YES                   | D5 conditional descriptor                                 |
+| Summary rail                    | YES (count row)       | D5 conditional Summary entry                              |
+| Notes row                       | Per file vote (F7) — unchanged | gate never touches the note route or the file vote |
+| all-items (unfiltered) / `#backlog` | YES               | never removed from the scan; raw-tag membership           |
+| `is:backlog`                    | YES (exactly this set)| D6 bucket-exact twin                                      |
+| Day view (dated item)           | YES (its slot group)  | day groups read planning slots, not buckets (invariant 1) |
+| Calendar (dated item)           | YES (its day dot)     | marks read date slots, not buckets (invariant 1)          |
+
+So the placeholder task, once =b='d, is OFF Needs-attention yet reachable
+by date (day view / calendar if dated), by Notes/all-items, by
+=#backlog=/=is:backlog=, and in the Backlog section — "trackable, not
+nagging", exactly the ask.
+
+* Interaction ledger (named rounds, one line each)
+
+- *R35-1*: =b= is installer-owned via =org-air--register-default-keys=;
+  =org-air-use-default-keybindings nil= strips it, maps still exist for
+  a user rebind.
+- *R53*: the toggle adds NO render-time file access (a slot mutation +
+  memo drop + cached repaint); never a re-query; soft-errors only.
+- *R55-1*: the day view is the owner board buffer, so ONE board binding
+  covers board + day; the write + repaint run against the item's own
+  source and the current view.
+- *R57*: keyword/done-ness is untouched — backlog is a tag overlay, not
+  a vocabulary change; =--board-active-p= (R57 done-ness) still fronts
+  the gate.
+- *R68*: the write reuses the board-context logging discipline verbatim
+  via =--at-item-source= (no new logging code).
+- *R69*: =#backlog= raw-tag filtering already works; =is:backlog= is the
+  bucket-exact twin, not a replacement; the R69-5 chip dedup renders the
+  tag chip on the row.
+- *R72*: the agreement law extends to =is:backlog= by construction
+  (token = the same =--backlog-p= the bucket uses, under the existing
+  board-active ∧ task-routed conjunction).
+- *R73/R75*: =b= enters the edit ring as an in-place record; =u=/=U=
+  undo/redo it.
+- *R77*: composes cleanly — a demoted routine (=knowledge=) never reaches
+  =--heading-buckets=, so backlog and task-requires-todo are orthogonal
+  subtractions; neither double-counts.
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+1. *r83-1 `b' defers off attention into Backlog*: scanned corpus with
+   =* TODO Btrfs= (keyword, NO date, not inbox) → classifies =attention=
+   before; run =org-air-item-backlog= at its row → the source heading
+   gains =:backlog:=, the cached item's =tags= slot carries it, and
+   =org-air-classify-item= ⇒ ='(backlog)= — NOT =attention=/=upcoming=/
+   =high-priority=/=stale=/=inbox=.  Reverting the D4 gate fails.
+2. *r83-2 `b' again round-trips, tags preserved*: from r83-1's state,
+   run =org-air-item-backlog= again → =:backlog:= removed from source,
+   the item re-classifies to =attention=, and a pre-existing co-tag
+   (=:nix:=) survives BOTH toggles.  Reverting the explicit on/off
+   direction or the =org-toggle-tag= choice fails.
+3. *r83-3 `is:backlog' = exactly the backlog set*: knob-default corpus,
+   one backlog item + one plain attention item; the real
+   =org-air-view--passes-filter-p= fold over =is:backlog= selects the
+   backlog item and ONLY it; the plain item passes =is:overdue= but NOT
+   =is:backlog=; a DONE heading carrying =:backlog:= fails =is:backlog=
+   (board-active gate) — the R72 token⟺bucket theorem over the tag.
+   Reverting the =(is . backlog)= arm or the =filter-is-values= entry
+   fails.
+4. *r83-4 Summary Backlog count*: a board with two backlog items renders
+   a "  2   Backlog" Summary row (present iff non-empty) and the Backlog
+   section body holds exactly those two; a backlog-free board renders NO
+   Backlog Summary row and NO Backlog section (byte-identical to pre-R83).
+   Reverting the conditional D5 append fails one half or the other.
+5. *r83-5 note placeholder reachable by date/Notes*: a DATED backlog
+   heading (=SCHEDULED= today, =:backlog:=) is absent from =attention=/
+   =upcoming= yet PRESENT in =org-air-view--day-groups= under Scheduled
+   on its day and its day key is in =org-air-calendar--marked-days=; a
+   dateless backlog heading is reachable via all-items and =#backlog=.
+   Gating the day/calendar surfaces on the bucket fails.
+6. *r83-6 board-active precedence*: =* DONE Old placeholder= +
+   =:backlog:= → =--board-active-p= nil ⇒ ='() (zero buckets), NOT
+   ='(backlog).  Moving the gate ABOVE the board-active test fails.
+7. *r83-7 no rescan on toggle (R53)*: instrument =org-air-query-items=
+   with a call counter; =org-air-item-backlog= increments it ZERO times
+   (the repaint reads cached =org-air-view--items=), while the row still
+   moves buckets — proving the D7 in-place path.  Replacing the repaint
+   with =org-air-refresh= (a re-query) fails the counter assertion.
+8. *r83-8 classify-memo drop*: pre-warm =org-air-view--classify-cache=
+   for the item (render once), then =b=; without the D3 =remhash= the
+   memo would serve the stale =attention= list — assert the post-toggle
+   =org-air-classify-cached= for that item is ='(backlog).  Removing the
+   =remhash= fails.
+9. *r83-9 edit ring in-place*: after =b=, =org-air-view--edit-ring='s
+   head is an IN-PLACE record (kind not =refile=/=archive=) with the
+   =backlog= DESC; =org-air-edit-undo= reverts the source tag and
+   =org-air-edit-redo= re-applies it (source round-trips, other tags
+   kept).  Marking the record structural, or bypassing the macro, fails.
+10. *r83-10 never-error on stale/dead*: =org-air-item-backlog= on a
+    no-item line signals a =user-error= (soft, message-only) not a hard
+    error; with =org-air-view--refresh-state 'refreshing= and the file in
+    =cache-stale-files= it soft-errors via the stale guard and writes
+    NOTHING; a stale-position heading rolls back via the
+    =atomic-change-group= with no save and no ring push.  Reverting the
+    guards / condition-case fails the never-error law.
+11. *r83-11 key bound + strippable (R35-1)*: with the defaults ON, =b= in
+    =org-air-view-mode-map= and =org-air-review-mode-map= resolves to
+    =org-air-item-backlog= (and is absent from the core map — inherited);
+    with =org-air-use-default-keybindings nil= =b= is UNBOUND on both.
+    Reverting the registry entries (or hard-binding outside the registry)
+    fails the strip half.
+12. *r83-12 cache-key placement*: =org-air-view--cache-key= is UNCHANGED
+    by R83 (a backlog-tag rename triggers no cold re-derive — assert two
+    keys equal across a =setq org-air-backlog-tag=), while the classify
+    memo's coherence key DIFFERS across the rename (assert
+    =org-air-view--classify-cache-ensure= rebuilds).  Adding the tag to
+    the scan key, or omitting it from the memo key, fails one assertion.
+13. *r83-13 process-inbox defer disposition*: an inbox-file heading; the
+    guided walk's =?b= applies =:backlog:= ⇒ the item leaves the =inbox=
+    bucket (single-home ruling) ⇒ the countdown decrements.  Reverting
+    the pcase entry (or the single-home gate) fails.
+
+* Byte-golden / fixture impact
+
+- *Existing goldens*: ZERO re-blesses.  No committed fixture/demo heading
+  carries =:backlog:= (the tag is new), so every board renders with no
+  Backlog section and the exact five Summary rows — byte-identical.  The
+  new glyph, section descriptor, filter value, and key binding are all
+  inert until a heading is tagged.  (Keymaps are not part of any golden —
+  R35-1.)
+- *Cache*: no =org-air-view--cache-version= bump (scan key and persisted
+  shape unchanged — D8); the classify memo repopulates naturally.
+- *New goldens*: a small fixture with one backlog item, to freeze (a) the
+  Backlog section + its ▽ header, (b) the "Backlog N" Summary row, (c) a
+  =is:backlog= filtered render.  Board-only and rail text (svg is
+  GUI-only, byte-tested via the text layer).
+
+* Design details / seams (files touched — impl seat)
+
+- *org-air-classify.el*: =org-air-backlog-tag= defcustom (beside the
+  stale/upcoming knobs); =org-air-classify--backlog-p= (beside the R72
+  predicates); the ONE gate in =org-air-classify--heading-buckets=
+  (=org-air-classify-item= UNTOUCHED — both call sites demote via
+  =--heading-buckets=).
+- *org-air-view.el*: the =b= registry entries on the board + review maps;
+  =org-air-item-backlog= (below =--at-item-source=, beside
+  =org-air-set-tag= — the R68fix order law); the =backlog= section
+  descriptor + =org-air-show-backlog-section= defcustom +
+  =--section-descriptors= / =--section-counts= (summary) conditional
+  append; ="backlog"= in =--filter-is-values= + the =(is . backlog)= arm
+  in =--filter-date-token-match-p=; the classify-memo coherence key gains
+  =org-air-backlog-tag= (=--classify-cache-ensure=); the Triage help rows
+  (board + review groups); the =[b]= inbox disposition.
+- *org-air-layout.el*: the =(backlog . ("▽" . "-"))= glyph in
+  =org-air-glyphs= (+ optional safe-tier entry).
+- *README / demo*: one paragraph under the tag / triage model documenting
+  =b=, =org-air-backlog-tag=, the Backlog lens and =is:backlog=.
+- *NO changes*: org-air-query.el (no new scan slot; =tags= already
+  carries it), org-air-calendar.el, org-air-inbox.el (the write reuses
+  =--at-item-source= / =org-air-inbox--flush-pending-log-note= unchanged),
+  org-air-project.el, org-air-revisit.el, cache VERSION.
+- *Suggested land order*: D1+D4 (the knob + gate, seams r83-1/2/6) →
+  D5 (section + summary, r83-4) → D6 (filter, r83-3) → D2+D3 (key + write,
+  r83-1 write half / r83-9/10/11) → D7+D8 (in-place repaint + memo key,
+  r83-7/8/12) → D9 surfaces (r83-13).  One feature; the order keeps each
+  seam attributable.
+
+* One-line summary (idle)
+
+R83 = one org-native tag (=org-air-backlog-tag= "backlog"), one FREE key
+(=b=) that toggles it via the existing =--at-item-source= write (R68 log +
+atomic + R73 ring, prompt-free — NO GUI-confirm bits), one hoisted
+=org-air-classify--backlog-p= that routes the item off the four task
+buckets + Inbox into a single reachable =backlog= bucket (Summary count +
+conditional section), an =is:backlog= bucket-exact filter twin of the
+existing =#backlog=, and an R53 in-place repaint (slot mutate + memo drop,
+no rescan).  Key-collision audit: =b= is UNBOUND on the view-core / board
+/ day (same map) / review / g-prefix / z-prefix maps.  Zero golden churn
+(no committed heading is tagged); no cache-version bump (tag NAME is a
+classify-memo input, not a scan-key input).
+
+* Implementation History
+
+- 2026-07-23: R83 design (this doc) — a one-key BACKLOG toggle specced.
+  Mechanism ruled a TAG (=org-air-backlog-tag= "backlog") over a TODO
+  state / property / file move (D1 table).  Key =b= audited FREE on both
+  target maps (board+day = =org-air-view-mode-map=, plus
+  =org-air-review-mode-map=; the day view is the owner board buffer, so
+  no separate day map), installer-owned via R35-1.  Write =org-air-item-
+  backlog= reuses =org-air-view--at-item-source= (R68 log + atomic group
+  + R73 ring), prompt-free, tags preserved, explicit on/off.  Classify:
+  the hoisted =org-air-classify--backlog-p= gates =--heading-buckets=
+  (single =backlog= home, replacing the four task buckets + Inbox, INSIDE
+  the board-active gate).  Backlog surfaced as a conditional bottom
+  section (Notes-pattern, ▽ glyph) + a conditional Summary count.  Filter:
+  =is:backlog= first-class twin joins the R72 grammar (bucket-exact by
+  construction), =#backlog= its raw-tag superset.  R53 in-place repaint
+  (slot mutate + single classify-memo =remhash= + =--refresh-current=,
+  NO re-query).  Cache-key ruling: NOT a scan-key slot (tag re-scanned;
+  NAME never forces a file reopen), but a classify-memo coherence-key
+  element (R61 render-time-knob precedent) — no cache-version bump, zero
+  golden churn.  Undo via the ring (=u=/=U=) OR =b=-again; surfaced in
+  =?= help + the process-inbox =[b]= defer disposition.  GUI-confirm
+  audit: NONE (single non-interactive keystroke).  13 batch ERT seams
+  defined.
+
+* History
+- 2026-07-23: State: draft → ready.

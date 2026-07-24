@@ -1,5 +1,5 @@
 #+title: org-air Round 84 — review-pane repair: (D1) the SAME priority pill on review rows through the board's shared `org-air-view--priority-cell' (no fork), and (D2) a started-then-DROPPED item stops mis-filing as "Started"/"Completed" — a period-honest `org-air-review--abandoned-p' routes abandonment to its own conditional "Dropped" slot
-#+state: ready
+#+state: complete
 #+tags: review priority faces keyword classify bug ux
 
 * Summary
@@ -681,3 +681,4 @@ asserted (14 ERT seams).
 
 * History
 - 2026-07-24: State: draft → ready.
+- 2026-07-24: State: ready → complete.

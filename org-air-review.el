@@ -447,6 +447,22 @@ completed after the period's end correctly reads as carried here."
   (and (org-air-review--activity-p item p0 p1)
        (not (org-air-review--done-at-p item p1 currentp))))
 
+(defun org-air-review--abandoned-p (item p0 p1)
+  "Return ITEM's DROP epoch when ABANDONED within [P0, P1), else nil (R84).
+Non-nil (the newest in-period closing epoch) exactly when ITEM's FINAL
+keyword is a cancelled/abandoned spelling (`org-air-view--dropped-keyword-p'
+over `org-air-item-todo') AND it CLOSED in-period (a done-kind or CLOSED
+stamp via the period-scoped `org-air-review--completed-stamps').  Both
+clauses matter: the keyword gives the OUTCOME (dropped ≠ done), the
+in-period stamp gives period-honesty (a heading dropped AFTER this period
+is not abandoned-here — it reads Started/Carried in its own period,
+exactly as before its later drop).  Reusing `--completed-stamps' is
+deliberate: the drop epoch is the very stamp the old code MIS-credited to
+Completed, so the Dropped row's date cell and the routing can never
+disagree about \"did it close in-period\"."
+  (and (org-air-view--dropped-keyword-p (org-air-item-todo item))
+       (car (org-air-review--completed-stamps item p0 p1))))
+
 (defun org-air-review--section-data (items p0 p1 currentp)
   "Fold ITEMS into the four review sections for [P0, P1) (R61-3).
 CURRENTP marks the shown period as the current one (the live-`donep'
@@ -455,7 +471,7 @@ tier).  One pass, slots only.  Returns a plist:
 \((ITEM . SECS) …) with SECS > 0, `:time-total', `:suspect-count' /
 `:suspect-secs' / `:suspect-items', `:trunc' (rtrunc contributors),
 `:started' and `:carried' ((ITEM EPOCH) …)."
-  (let ((completed nil) (started nil) (carried nil)
+  (let ((completed nil) (started nil) (carried nil) (dropped nil)
         (time-items nil) (time-total 0)
         (suspect-count 0) (suspect-secs 0) (suspect-items nil)
         (trunc 0))
@@ -474,14 +490,21 @@ tier).  One pass, slots only.  Returns a plist:
                 suspect-secs (+ suspect-secs secs))
           (push item suspect-items)))
       (when (org-air-review--fold-item-p item)
-        (when-let* ((stamps (org-air-review--completed-stamps item p0 p1)))
-          (push (list item (car stamps) (length stamps) stamps) completed))
-        (when-let* ((epoch (org-air-review--started-epoch item p0 p1)))
-          (push (list item epoch) started))
-        (when (org-air-review--carried-p item p0 p1 currentp)
-          (push (list item (or (org-air-review--activity-epoch item p0 p1)
-                               p0))
-                carried))))
+        ;; R84 D2c: abandonment routes FIRST — a dropped item lands in
+        ;; `:dropped' ONLY (never Completed/Started/Carried), so the
+        ;; report never double-lies (dropped ≠ done) and the header's
+        ;; "N done" stays honest.  The time fold ABOVE is ungated, so a
+        ;; dropped item's clocked hours still credit Time invested.
+        (if-let* ((drop (org-air-review--abandoned-p item p0 p1)))
+            (push (list item drop) dropped)
+          (when-let* ((stamps (org-air-review--completed-stamps item p0 p1)))
+            (push (list item (car stamps) (length stamps) stamps) completed))
+          (when-let* ((epoch (org-air-review--started-epoch item p0 p1)))
+            (push (list item epoch) started))
+          (when (org-air-review--carried-p item p0 p1 currentp)
+            (push (list item (or (org-air-review--activity-epoch item p0 p1)
+                                 p0))
+                  carried)))))
     (list :completed (nreverse completed)
           :time-items (nreverse time-items)
           :time-total time-total
@@ -490,7 +513,8 @@ tier).  One pass, slots only.  Returns a plist:
           :suspect-items (nreverse suspect-items)
           :trunc trunc
           :started (nreverse started)
-          :carried (nreverse carried))))
+          :carried (nreverse carried)
+          :dropped (nreverse dropped))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Rollup (the lens) — one basis, applied coherently (R61-3).
@@ -657,7 +681,7 @@ describe what is shown).  Time invested is deliberately NOT collapsed:
 time is attributed where it was clocked."
   (if (not org-air-review-collapse-mirrors)
       data
-    (dolist (key '(:completed :started :carried))
+    (dolist (key '(:completed :started :carried :dropped))
       (setq data (plist-put data key
                             (org-air-review--collapse-rows
                              (plist-get data key)))))
@@ -900,14 +924,25 @@ TEXT) or (note TEXT) — every cell a pure slot/string derivation
                                    org-air-review--trunc-marker
                                    n (if (= n 1) "" "s"))))))))
          (started (org-air-review--sort-rows (plist-get data :started)))
-         (carried (org-air-review--sort-rows (plist-get data :carried))))
-    (list (list 'completed "Completed" (length completed) clines)
-          (list 'time "Time invested" (length (plist-get data :time-items))
-                tlines)
-          (list 'started "Started" (length started)
-                (org-air-review--item-lines started))
-          (list 'carried "Carried over" (length carried)
-                (org-air-review--item-lines carried)))))
+         (carried (org-air-review--sort-rows (plist-get data :carried)))
+         (dropped (org-air-review--sort-rows (plist-get data :dropped)))
+         (rows (list (list 'completed "Completed" (length completed) clines)
+                     (list 'time "Time invested"
+                           (length (plist-get data :time-items))
+                           tlines)
+                     (list 'started "Started" (length started)
+                           (org-air-review--item-lines started))
+                     (list 'carried "Carried over" (length carried)
+                           (org-air-review--item-lines carried)))))
+    ;; R84 D2d: the Dropped section appears ONLY when there IS an
+    ;; abandonment to own (the R83-D5 conditional-section precedent) — a
+    ;; drop-free period returns the SAME 4-entry table (byte-identical
+    ;; save the D1 pill); the four core sections are the review's fixed
+    ;; frame, Dropped is the conditional fifth.
+    (if dropped
+        (append rows (list (list 'dropped "Dropped" (length dropped)
+                                 (org-air-review--item-lines dropped))))
+      rows)))
 
 (defun org-air-review--insert-section-heading (section title count)
   "Insert SECTION's heading row through the board's shared treatment.
@@ -938,21 +973,27 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
   ;; their own two-column shape (label + text) with their own fit (aw).
   ;; Folding the agg text ("4:20 · 1 item" = 13 cols) into the item date
   ;; width ("Jul 14" = 6) made every row's date cell carry the slack.
-  (let ((dw 0) (tw 0) (ow 0) (aw 0))
+  (let ((dw 0) (tw 0) (ow 0) (aw 0) (pri 0))
     (dolist (section sections)
       (unless (memq (nth 0 section) collapsed)
         (dolist (line (nth 3 section))
           (pcase line
-            (`(item ,_item ,date ,tags ,origin ,_mirrors)
+            (`(item ,item ,date ,tags ,origin ,_mirrors)
+             ;; R84 D1c: reserve the widest item-row priority-cell width
+             ;; (a CONSTANT 2 cols in the default `square; 0/token under
+             ;; `badge/`text) so a long title truncates in the right
+             ;; place — the review's analogue of the board's slot reserve.
              (setq dw (max dw (string-width date))
                    tw (max tw (string-width tags))
-                   ow (max ow (string-width origin))))
+                   ow (max ow (string-width origin))
+                   pri (max pri (string-width
+                                 (or (org-air-view--priority-cell item) "")))))
             (`(agg ,_label ,text)
              (setq aw (max aw (string-width text))))
             (_ nil)))))
     (setq ow (min ow org-air-origin-max-width))
     (let* ((gap 2)
-           (left-reserve (string-width (org-air-view--item-margin)))
+           (left-reserve (+ (string-width (org-air-view--item-margin)) pri))
            (cluster (lambda (o)
                       (let ((cells (delq nil (list (and (> dw 0) dw)
                                                    (and (> tw 0) tw)
@@ -982,7 +1023,12 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
                 (pcase line
                   (`(item ,item ,date ,tags ,origin ,mirrors)
                    (org-air-view--insert-row
-                    :prefix (org-air-view--item-margin)
+                    ;; R84 D1b: the review item row prepends the SAME
+                    ;; priority cell as the board/day panes (the shared
+                    ;; `org-air-view--priority-cell'); the agg/note arms
+                    ;; keep the bare margin (no item, no priority).
+                    :prefix (concat (org-air-view--item-margin)
+                                    (org-air-view--priority-cell item))
                     :title (org-air-item-title item)
                     :date-text (propertize date 'face 'org-air-face-date)
                     :tags tags
@@ -1047,13 +1093,20 @@ Summary's row idiom."
   (org-air-view--rail-header "Summary" width)
   (let ((inset (org-air-view--rail-inset-str width)))
     (pcase-dolist (`(,label . ,count)
-                   (list (cons "completed"
-                               (length (plist-get data :completed)))
-                         (cons "clocked"
-                               (length (plist-get data :time-items)))
-                         (cons "started" (length (plist-get data :started)))
-                         (cons "carried"
-                               (length (plist-get data :carried)))))
+                   (append
+                    (list (cons "completed"
+                                (length (plist-get data :completed)))
+                          (cons "clocked"
+                                (length (plist-get data :time-items)))
+                          (cons "started" (length (plist-get data :started)))
+                          (cons "carried"
+                                (length (plist-get data :carried))))
+                    ;; R84 D2e: the "dropped" count appears ONLY when the
+                    ;; period HAS an abandonment (conditional, matching the
+                    ;; section) — a drop-free rail is byte-identical.
+                    (when (plist-get data :dropped)
+                      (list (cons "dropped"
+                                  (length (plist-get data :dropped)))))))
       (insert inset
               (propertize (format "%3d" count)
                           'face (if (zerop count) 'org-air-face-faded

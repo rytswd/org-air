@@ -2905,6 +2905,16 @@ An unknown keyword whose bare name is here resolves to
 `org-air-face-dropped' even when it is not declared in the scan
 vocabulary, so the user's real spelling paints terracotta, not blue.")
 
+(defun org-air-view--dropped-keyword-p (keyword)
+  "Non-nil when KEYWORD is a cancelled/abandoned spelling (R79/R84).
+The ONE membership test over `org-air-view--dropped-keyword-names',
+matched on the bare upcased name (`org-air-query--todo-keyword-name');
+shared by the R79 face resolver (`org-air-view--merged-vocab-face') and
+R84's `org-air-review--abandoned-p' — the face split and the review's
+Dropped routing agree by construction.  Pure; never signals."
+  (let ((name (and keyword (org-air-query--todo-keyword-name keyword))))
+    (and name (member (upcase name) org-air-view--dropped-keyword-names) t)))
+
 (defun org-air-view--scan-keyword-names ()
   "Return the flat list of bare keyword names in the merged scan vocabulary (R79).
 Flattens `org-air-query--scan-todo-keywords' (the R57 merged
@@ -2930,8 +2940,7 @@ rescan, never signals."
          (scan-done (and name (member name
                                       (ignore-errors
                                         (org-air-query-merged-done-keywords)))))
-         (cancelled (and name (member (upcase name)
-                                      org-air-view--dropped-keyword-names))))
+         (cancelled (org-air-view--dropped-keyword-p keyword)))
     (cond
      (cancelled 'org-air-face-dropped)
      ((and in-vocab scan-done) 'org-air-face-done)
@@ -3049,6 +3058,21 @@ otherwise — so every item-row title starts at the same column (V6)."
              (cell (org-air-view--svg-priority-square char cell)))
         (concat cell " "))
     "  "))
+
+(defun org-air-view--priority-cell (item)
+  "Return ITEM's row-prefix priority cell (the shared board idiom; R84).
+`square (default): the FIXED 2-col `org-air-view--priority-slot' (a
+coloured square + pad, or two blanks — every title aligns).  `badge/
+`text: the conditional `org-air-view--priority-token' + one pad, ONLY
+when ITEM carries a shown priority (`org-air-priority-show'), else nil.
+The ONE definition the board (`org-air-view--insert-item') and the
+review row (`org-air-review--insert-body') both prepend — no fork; a
+byte-golden on the board proves the refactor is inert (R84 r84-2)."
+  (let ((priority (org-air-view--priority-char item)))
+    (if (eq org-air-priority-style 'square)
+        (org-air-view--priority-slot priority)
+      (when (and priority (member priority org-air-priority-show))
+        (concat (org-air-view--priority-token priority) " ")))))
 
 (defun org-air-view--svg-available-p ()
   "Return non-nil when svg pills can be drawn on this display (C2)."
@@ -3870,7 +3894,6 @@ A thin caller of the shared `org-air-view--insert-row' (D-P5.A): it maps
 the task ITEM onto the row args (todo/priority prefix, title, date / tags
 / origin cluster).  OMIT-DATE drops the date column (R6 day view)."
   (let* ((todo (org-air-item-todo item))
-         (priority (org-air-view--priority-char item))
          (date-text (unless omit-date (org-air-view--item-date-text item bucket)))
          ;; R15 D-P1: reserve a FIXED keyword cell so keyword-less rows
          ;; render blank there and ALL titles share one left edge.  The
@@ -3883,13 +3906,13 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
          (prefix (concat (org-air-view--item-margin)
                          (org-air-view--todo-cell todo todo-w
                                                   (org-air-item-donep item))
-                         ;; R13 D-P2: `square style emits a FIXED 2-col slot
-                         ;; on EVERY row (square or blank) so titles align;
-                         ;; `badge/`text keep the conditional `[#A]' token.
-                         (if (eq org-air-priority-style 'square)
-                             (org-air-view--priority-slot priority)
-                           (when (and priority (member priority org-air-priority-show))
-                             (concat (org-air-view--priority-token priority) " ")))))
+                         ;; R13 D-P2 / R84 D1a: the SHARED priority cell —
+                         ;; `square emits a FIXED 2-col slot on EVERY row
+                         ;; (square or blank) so titles align; `badge/`text
+                         ;; keep the conditional `[#A]' token.  Extracted to
+                         ;; `org-air-view--priority-cell' so the review row
+                         ;; prepends the SAME idiom (no fork; board inert).
+                         (org-air-view--priority-cell item)))
          (tags (org-air-item-tags item))
          (n-tags (length tags))
          (tagstr (org-air-view--item-tagstr

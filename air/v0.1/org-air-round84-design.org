@@ -653,5 +653,31 @@ asserted (14 ERT seams).
   No new scan slot, no cache-version bump.  GUI-confirm audit: exact
   pill/section colours only.  14 batch ERT seams defined.
 
+- 2026-07-24: R84 IMPLEMENTED (impl seat, fresh child of tlopuzpnmqmk).
+  *D1a* `org-air-view--priority-cell' extracted beside the priority
+  primitives and `org-air-view--insert-item' rewired to it (board
+  byte-IDENTICAL — the board mockups did not move).  *D2a*
+  `org-air-view--dropped-keyword-p' extracted beside
+  `org-air-view--dropped-keyword-names' and `--merged-vocab-face' rewired
+  to it (face resolution byte-identical: DROPPED→dropped, DONE→done).
+  *D1b/D1c* the review item-row prefix now prepends the shared
+  priority-cell and the cluster fit reserves its width (`pri' term).
+  *D2b* `org-air-review--abandoned-p' (final keyword ∈ dropped-names AND
+  in-period close via `--completed-stamps').  *D2c* the fold routes
+  abandonment FIRST into a new `:dropped' accumulator (the item leaves
+  Completed/Started/Carried); the time fold above stays ungated.  *D2d*
+  the conditional "Dropped" section appended after "Carried over" only
+  when non-empty.  *D2e* `:dropped' in `--collapse-data', the `dropped'
+  ⊘ glyph in `org-air-glyphs', a conditional "dropped" Summary row.
+  *D2f* header "N done" honest for free (no code change).  *D3* calendar
+  unchanged (a drop is not a completion).  Verified: started-then-DROPPED
+  → :dropped only; genuine started → :started; DONE → :completed;
+  time-invested still credits a dropped item's clocked hours;
+  period-honesty (a later-period drop reads Started in its own period).
+  `make check' green except the flagged review byte-golden
+  (`org-air-r63-12-review-mockup-golden' — the D1 2-col inset; test seat
+  re-blesses `review-mockup-170.txt').  No `org-air-view--cache-version'
+  bump.  14 ERT seams are the test seat's to land.
+
 * History
 - 2026-07-24: State: draft → ready.

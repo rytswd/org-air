@@ -2952,6 +2952,41 @@
     ;; R75 before it).  No .el SOURCE touched on the test track (impl
     ;; landed R82 in xrnqkqkp).  Round-82 manifest is EMPTY; the r82
     ;; tests stay as permanent regression guards.
+    ;;
+    ;; ===================================================================
+    ;; v0.1 ROUND-84 (impl tip <this commit>) — review-pane repair.
+    ;; USER REQUEST: two review-surface defects reported from the running
+    ;; board (the `W' key).  *D1*: the review's per-item rows (Completed /
+    ;; Started / Carried over) carried NO priority pill, an inconsistency
+    ;; with the board and day panes ("review pane should also show the
+    ;; priority the same way as other panes").  R84 REUSES the board's
+    ;; priority-cell machinery — the inline `(if (eq org-air-priority-style
+    ;; 'square) SLOT TOKEN)' branch in `org-air-view--insert-item' is
+    ;; EXTRACTED to a shared `org-air-view--priority-cell' and prepended to
+    ;; the review row prefix too (D1b), its width reserved in the cluster
+    ;; fit (D1c).  BOARD output is byte-IDENTICAL (a pure extraction — the
+    ;; board mockups do not move, r84-2).  *D2*: a started-then-DROPPED
+    ;; item mis-filed as "Started" (and, unseen, "Completed", since DROPPED
+    ;; ∈ the merged done-vocab) — a period-honest `org-air-review--
+    ;; abandoned-p' (final keyword ∈ R79's `org-air-view--dropped-keyword-
+    ;; names' via a shared `org-air-view--dropped-keyword-p', AND an
+    ;; in-period close) now routes abandonment into its OWN conditional
+    ;; "Dropped" section (⊘ glyph); no committed fixture carries a DROPPED
+    ;; heading, so that section is INERT on the existing goldens (D2 moves
+    ;; no golden today; the test seat adds new D2 fixtures).
+    ;;
+    ;; The one golden that SHIFTS is the review byte-mockup: every review
+    ;; item row gains a 2-col left inset (the `square priority slot on
+    ;; every row — `■ ' for a priority row, two blanks otherwise) — the
+    ;; user-requested "same as other panes".  DO NOT hand-bless: the test
+    ;; seat regenerates `tests/fixtures/review-mockup-170.txt' (make
+    ;; regen-mockups) and DELETES this entry on the re-bless.
+    (org-air-r63-12-review-mockup-golden
+     . "R84 D1: review item rows now carry the SAME priority pill as the \
+board/day panes (shared `org-air-view--priority-cell'), a 2-col left \
+inset in the default `square style. `review-mockup-170.txt' shifts by \
+that inset (board goldens byte-identical, r84-2). Test seat re-blesses \
+the fixture; delete this entry then.")
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

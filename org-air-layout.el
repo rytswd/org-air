@@ -77,7 +77,11 @@
     (completed . ("✓" . "+"))
     (time . ("◔" . "%"))
     (started . ("▷" . ">"))
-    (carried . ("↻" . "~")))
+    (carried . ("↻" . "~"))
+    ;; R84 D2e: the conditional REVIEW "Dropped" section icon — ⊘ (circled
+    ;; slash) reads "cancelled", visually distinct from completed's ✓;
+    ;; degrades by the S5b tier table like every glyph.
+    (dropped . ("⊘" . "x")))
   "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
 PREFERRED is the GUI glyph (already the safer S5b default: stale ○, today
 ■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate

@@ -1,5 +1,5 @@
 #+title: org-air Round 87 — the TODAY / TOMORROW standout now REACHES the due-date column: R85's rule (B) is revised to RULE (A) so a delta-0 / delta-1 date WINS its slot — `org-air-view--day-relative-face' is routed into the DEADLINE and SCHEDULED arms of `org-air-view--date-label' too (not only the neutral notes arm), so a deadline/scheduled that falls today/tomorrow reads teal/rose instead of its slot blue/orange on BOTH the plain text AND the svg pill (the pill's colour IS the face foreground — no separate svg-colour path), while an OVERDUE past deadline KEEPS `org-air-face-overdue' and delta>=2 is unchanged; a face-only change, label bytes and goldens byte-identical (only the GUI pill pixels repaint)
-#+state: ready
+#+state: complete
 #+tags: faces dates render board ux
 
 * Summary
@@ -605,3 +605,4 @@ due-date-today plus the dark-mode Nord8-vs-Nord9 scheduled-today adjacency.
 
 * History
 - 2026-07-24: State: draft → ready.
+- 2026-07-24: State: ready → complete.

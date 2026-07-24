@@ -3032,6 +3032,52 @@
     ;; org-air-round87-test.el as permanent regression guards.  Round-87
     ;; manifest is EMPTY.
     ;; ===================================================================
+    ;; v0.1 ROUND-88 (impl track) — the date cell becomes a PROXIMITY
+    ;; HEAT-RAMP (air/v0.1/org-air-round88-design.org).  The impl widened
+    ;; `org-air-view--day-relative-face' from {0->today, 1->tomorrow, else
+    ;; nil} to the five-level ramp {0->day-today ORANGE, 1->day-tomorrow
+    ;; BLEND, 2..6->day-week AMBER (NEW), <0 and >=7 -> nil} and recoloured
+    ;; the faces (day-today teal->orange #D84315/#DD7E52, day-tomorrow
+    ;; rose->the per-channel midpoint blend #C86410/#E4A46E, +day-week
+    ;; amber #B8860B/Nord13 #EBCB8B, and `org-air-face-overdue' an explicit
+    ;; R79 spec RED in BOTH tiers — dark ALIGNED to Nord11 #BF616A, was the
+    ;; inherited `critical'/Nord13 YELLOW that INVERTED the ramp in dark
+    ;; mode).  A FACE-ONLY change: the label BYTES are untouched (the
+    ;; helper returns only a FACE, a `display' prop), so EVERY text golden
+    ;; is byte-identical (verified: the full suite moved ZERO goldens);
+    ;; only the GUI pill PIXELS repaint.  R87 rule A (the reach across the
+    ;; deadline/scheduled/neutral arms) and the svg-pill `:fill (face-
+    ;; foreground FACE)' mechanism are UNCHANGED (zero arm edits); no
+    ;; rescan, no `org-air-view--cache-version' bump (R53).
+    ;;
+    ;; The four R85/R87 seams below assert the PRE-ramp two-level map and
+    ;; go RED under the five-level ramp — FLAGGED for the TEST seat to
+    ;; re-bless per the design §ERT (the impl track does NOT hand-edit
+    ;; tests; the 13 new r88-1..13 seams land there too):
+    ;;   r85-1  ("+2 -> nil"): now +2 -> `org-air-face-day-week'; re-bless to
+    ;;     the 5-level map (0->today, 1->tomorrow, 2..6->week, -1 & >=7 nil).
+    ;;   r85-7  ("+3d neutral -> org-air-face-date"): now +3d neutral ->
+    ;;     `org-air-face-day-week' (the this-week AMBER bucket; r88-4's
+    ;;     neutral twin).
+    ;;   r87-7  ("delta>=2 keeps slot face"): THE key R87 seam — now a
+    ;;     delta-3 deadline/scheduled -> `org-air-face-day-week'; split into
+    ;;     delta 2..6 -> day-week (r88-4) and delta >=7 -> slot (r88-5).
+    ;;   r87-10 ("notes-arm unchanged"): its delta-3 note ->
+    ;;     `org-air-face-date' sub-assertion now -> `org-air-face-day-week'
+    ;;     (same this-week seam as r85-7); the today/tomorrow half of this
+    ;;     test STILL holds — only the delta-3 line breaks.
+    ;; The design §ERT names r85-1/7 + r87-7 explicitly; r87-10 is the same
+    ;; delta-3-neutral casualty (the design's r87-1..10 "stay" note missed
+    ;; that r87-10 also carries a delta-3 line).
+    (org-air-r85-1-helper-maps-two-deltas
+     . "R88 ramp: +2 -> day-week (was nil); re-bless to the 5-level map (design r85-1)")
+    (org-air-r85-7-non-relative-neutral-unchanged
+     . "R88 ramp: +3d neutral -> day-week AMBER (was org-air-face-date); re-bless (design r85-7)")
+    (org-air-r87-7-delta-ge2-keeps-slot-face
+     . "R88 ramp: delta 3 -> day-week (was slot face); split 2..6->week / >=7->slot (design r87-7)")
+    (org-air-r87-10-notes-arm-unchanged
+     . "R88 ramp: delta-3 note -> day-week (was org-air-face-date); re-bless the delta-3 line (design r85-7 twin)")
+    ;; ===================================================================
     ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")

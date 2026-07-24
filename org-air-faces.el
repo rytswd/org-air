@@ -472,44 +472,62 @@ Reconciled with `org-air-priority-colors'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-overdue
-  '((t :inherit org-air-face-critical :weight bold))
-  "Face for an overdue date (past deadline / missed schedule)."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#C62828" :weight bold))          ; Red800 — unchanged from critical-light
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#BF616A" :weight bold))          ; Nord11 aurora RED — ALIGNED (was Nord13 yellow)
+    (t (:inherit error :weight bold)))
+  "Face for an overdue date (past deadline / missed schedule) — the RED,
+hottest end of the R88 proximity heat-ramp.  Explicit R79 spec: RED in
+BOTH tiers (Red800 light / Nord11 aurora-red dark) so OVERDUE always reads
+hotter than a THIS-WEEK amber; the dark tier was Nord13 (a pale aurora
+YELLOW) while it inherited `org-air-face-critical', which inverted the
+ramp in dark mode.  No longer inherits `critical' (the shared error face is
+untouched).  Exact hex GUI-confirm-only; TTY degrades to bold `error'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-day-today
   '((((class color) (min-colors 256) (background light))
-     (:foreground "#00897B" :weight bold))
+     (:foreground "#D84315" :weight bold))          ; DeepOrange800 red-orange
     (((class color) (min-colors 256) (background dark))
-     (:foreground "#88C0D0" :weight bold))
-    (t (:inherit org-air-face-salient :weight bold)))
-  "Face for a relative \"Today\" date label (R85).
-A bold TEAL (Teal600 light / Nord8 dark) — a fresh, cool \"now\" accent
-that stands clear of the muted `org-air-face-date' grey and of the three
-date-slot hues (deadline popout-orange, scheduled salient-purple, overdue
-critical-red).  Painted by `org-air-view--date-label' on ANY date slot
-(deadline, scheduled or neutral) when the date falls today, so a due date
-today stands out in this colour (R87 rule A supersedes R85's neutral-only
-rule B); an OVERDUE past deadline keeps `org-air-face-overdue'.  The exact
-hex is GUI-confirm-only; the TTY tier degrades to a bold
-`org-air-face-salient'."
+     (:foreground "#DD7E52" :weight bold))          ; warm orange (hotter than Nord12 deadline)
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Face for a TODAY date on the R88 proximity heat-ramp (supersedes R85's
+teal).  A bold ORANGE — one step cooler than OVERDUE red, hotter than
+TOMORROW's blend and THIS-WEEK's amber — painted by `org-air-view--date-
+label' on ANY date slot (deadline / scheduled / neutral, R87 rule A) when
+the date is today.  A red-leaning orange, kept distinct from the deadline
+slot's own popout-orange and from the READY badge's `#EBA05A'.  Exact hex
+GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-day-tomorrow
   '((((class color) (min-colors 256) (background light))
-     (:foreground "#C2185B" :weight bold))
+     (:foreground "#C86410" :weight bold))          ; blend(today,week) — orange
     (((class color) (min-colors 256) (background dark))
-     (:foreground "#BF616A" :weight bold))
+     (:foreground "#E4A46E" :weight bold))          ; blend(today,week)
     (t (:inherit org-air-face-popout :weight bold)))
-  "Face for a relative \"Tomorrow\" date label (R85).
-A bold ROSE / magenta (Pink700 light / Nord11 dark) — the near-
-complementary counterpart to `org-air-face-day-today's teal, so today and
-tomorrow are unmistakably DIFFERENT from each other, and both distinct
-from every date-slot face.  Painted by `org-air-view--date-label' on ANY
-date slot (deadline, scheduled or neutral) when the date falls tomorrow,
-under the same rule A as `org-air-face-day-today' (R87 supersedes R85's
-neutral-only rule B); an OVERDUE past deadline keeps `org-air-face-overdue'.
-The exact hex is GUI-confirm-only; the TTY tier degrades to a bold
-`org-air-face-popout'."
+  "Face for a TOMORROW date on the R88 proximity heat-ramp (supersedes
+R85's rose).  A BLEND sitting BETWEEN `org-air-face-day-today's orange and
+`org-air-face-day-week's amber — the per-channel midpoint in each tier —
+so tomorrow reads one notch cooler than today and one notch hotter than
+this-week.  Painted on any date slot (R87 rule A) when the date is
+tomorrow.  The RED it used to carry (Nord11) is now OVERDUE's.  Exact hex
+GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-day-week
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#B8860B" :weight bold))          ; dark goldenrod amber (legible on white)
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#EBCB8B" :weight bold))          ; Nord13 aurora yellow
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Face for a THIS-WEEK date (2 <= delta <= 6) on the R88 proximity
+heat-ramp (NEW).  The CALMEST warm — an AMBER/gold one step cooler than
+TOMORROW's blend — so a date a few days out reads warm-but-not-urgent; the
+coolest lit bucket before BEYOND (>=7 days) returns to the slot's default
+face.  Painted on any date slot (R87 rule A) for a date 2..6 days out.
+Exact hex GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-group

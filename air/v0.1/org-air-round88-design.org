@@ -748,6 +748,39 @@ batch-asserted).
 
 * Implementation History
 
+- 2026-07-24: R88 IMPL LANDED (impl track, fresh child of nsyzqsvsonyv).
+  *D1 faces* (org-air-faces.el): recoloured =org-air-face-day-today=
+  (teal =#00897B=/=#88C0D0= → ORANGE =#D84315=/=#DD7E52=) and
+  =org-air-face-day-tomorrow= (rose =#C2185B=/=#BF616A= → the per-channel
+  midpoint BLEND =#C86410=/=#E4A46E=), ADDED =org-air-face-day-week= (AMBER
+  =#B8860B=/Nord13 =#EBCB8B=, R79 convention), and gave =org-air-face-
+  overdue= an explicit R79 spec RED in BOTH tiers (light =#C62828= kept,
+  dark ALIGNED Nord11 =#BF616A=, TTY =(:inherit error :weight bold)=) —
+  it no longer inherits =critical= (Nord13 YELLOW, which inverted the ramp
+  in dark mode); =org-air-face-critical= UNTOUCHED.  *D2 helper*
+  (org-air-view.el): widened =org-air-view--day-relative-face= from
+  {0→today, 1→tomorrow, else nil} to the five-level =cond= {0→day-today,
+  1→day-tomorrow, =(<= 2 delta 6)=→day-week, <0 and ≥7 → nil}, docstring
+  updated to the ramp.  *Kept from R87 verbatim*: rule A (the three-arm
+  reach) and the svg-pill =:fill (face-foreground FACE)= mechanism — ZERO
+  arm edits; the =--date-label= arms, =--human-date=, =--item-date-text=,
+  =--svg-pillify=, =--compute-meta-widths= are all UNTOUCHED.  *R53*: no
+  rescan, NO =org-air-view--cache-version= bump (still 6).  *Byte-golden*:
+  face-only ⇒ EVERY text golden byte-identical — =jj diff --stat= shows
+  only org-air-faces.el + org-air-view.el + tests/org-air-known-failures.el
+  + README.org changed; ZERO fixtures moved (only GUI pill pixels repaint).
+  *make clean && make check*: GREEN — 1087 tests, 0 unexpected, 8 skipped
+  (GUI), *4 EXPECTED (flagged) failures*.  *Flagged for the TEST seat* in
+  tests/org-air-known-failures.el (impl track does NOT hand-edit tests):
+  =org-air-r85-1-helper-maps-two-deltas= (+2 → day-week, was nil),
+  =org-air-r85-7-non-relative-neutral-unchanged= (+3d neutral → day-week,
+  was date), =org-air-r87-7-delta-ge2-keeps-slot-face= (delta 3 → day-week,
+  the key delta≥2 seam), and =org-air-r87-10-notes-arm-unchanged= (its
+  delta-3 note → day-week — the design §ERT's r87-1..10 "stay" note missed
+  that r87-10 also carries a delta-3 neutral line; its today/tomorrow
+  assertions still hold).  The 13 new r88-1..13 seams + the re-blessings
+  land on the TEST seat.  README date-cell line updated to the heat-ramp.
+
 - 2026-07-24: R88 design (this doc) — the binary today/tomorrow highlight
   becomes a five-level proximity heat-ramp.  *Root cause*: R85 chose
   near-complementary "today ≠ tomorrow" hues (teal =#00897B=/=#88C0D0=,

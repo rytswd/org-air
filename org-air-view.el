@@ -2028,22 +2028,27 @@ stacked and two-pane layouts."
      (t (format-time-string "%d %b %y" time)))))
 
 (defun org-air-view--day-relative-face (time &optional now)
-  "Return the standout face for a TODAY / TOMORROW date, else nil (R85).
-Non-nil only when TIME is today (giving `org-air-face-day-today') or
-tomorrow (giving `org-air-face-day-tomorrow') relative to NOW — the two
-relative labels `org-air-view--human-date' emits.  Keyed on the SAME
-`org-air-view--days-between' delta as `--human-date', so the label and
-the face agree by construction.  Returned to the DEADLINE / SCHEDULED /
-NOTES date arms of `org-air-view--date-label' so ANY date that falls
-today/tomorrow stands out in the day face on every slot, not just the
-neutral one (R87 rule A supersedes R85's neutral-only rule B); a
-deadline/scheduled today/tomorrow now reads teal/rose instead of its slot
-hue, while an OVERDUE past deadline (delta<0) keeps `org-air-face-overdue'
-and a date >=2 days out keeps its slot face."
-  (let ((now (or now (current-time))))
-    (pcase (org-air-view--days-between now time)
-      (0 'org-air-face-day-today)
-      (1 'org-air-face-day-tomorrow))))
+  "Return the R88 PROXIMITY heat-ramp face for TIME relative to NOW, else nil.
+Keyed on the SAME `org-air-view--days-between' delta as `--human-date' (so
+the label and the face agree by construction):
+  delta = 0     -> `org-air-face-day-today'    (ORANGE)
+  delta = 1     -> `org-air-face-day-tomorrow' (the today<->week blend)
+  2 <= delta <= 6 -> `org-air-face-day-week'   (AMBER — this week)
+  delta < 0     -> nil  (a PAST date: a deadline/scheduled is already caught
+                        by the OVERDUE arm -> `org-air-face-overdue'; a
+                        neutral note keeps its default `org-air-face-date')
+  delta >= 7    -> nil  (BEYOND a week -> the slot's default face)
+Returned to the deadline / scheduled / notes arms of `org-air-view--date-
+label' (R87 rule A), so ANY date within the coming week reads warmer the
+nearer it is; a date >=7 days out reads the slot default.  OVERDUE (delta<0)
+is owned by the slot's OVERDUE arm, not this helper (a stale note must not
+flash critical-red)."
+  (let* ((now (or now (current-time)))
+         (delta (org-air-view--days-between now time)))
+    (cond
+     ((= delta 0) 'org-air-face-day-today)
+     ((= delta 1) 'org-air-face-day-tomorrow)
+     ((<= 2 delta 6) 'org-air-face-day-week))))   ; delta<0 and delta>=7 => nil
 
 (defun org-air-view--marker-timestamp-time (item)
   "Return first timestamp in ITEM subtree, if any.

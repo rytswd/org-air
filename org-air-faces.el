@@ -479,6 +479,38 @@ Reconciled with `org-air-priority-colors'."
   "Face for an overdue date (past deadline / missed schedule)."
   :group 'org-air-faces)
 
+(custom-declare-face 'org-air-face-day-today
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#00897B" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#88C0D0" :weight bold))
+    (t (:inherit org-air-face-salient :weight bold)))
+  "Face for a relative \"Today\" date label (R85).
+A bold TEAL (Teal600 light / Nord8 dark) — a fresh, cool \"now\" accent
+that stands clear of the muted `org-air-face-date' grey and of the three
+date-slot hues (deadline popout-orange, scheduled salient-purple, overdue
+critical-red).  Painted by `org-air-view--date-label' ONLY when the
+relative label falls under the NEUTRAL date slot (a deadline/scheduled
+today keeps its own slot face — a deadline-today still reads as a
+deadline).  The exact hex is GUI-confirm-only; the TTY tier degrades to a
+bold `org-air-face-salient'."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-day-tomorrow
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#C2185B" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#BF616A" :weight bold))
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Face for a relative \"Tomorrow\" date label (R85).
+A bold ROSE / magenta (Pink700 light / Nord11 dark) — the near-
+complementary counterpart to `org-air-face-day-today's teal, so today and
+tomorrow are unmistakably DIFFERENT from each other, and both distinct
+from every date-slot face.  Painted under the same NEUTRAL-slot rule as
+`org-air-face-day-today'.  The exact hex is GUI-confirm-only; the TTY tier
+degrades to a bold `org-air-face-popout'."
+  :group 'org-air-faces)
+
 (custom-declare-face 'org-air-face-group
   '((t :inherit org-air-face-faded))
   "Face for an item's category/group label and origin breadcrumb."

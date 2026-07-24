@@ -2027,6 +2027,21 @@ stacked and two-pane layouts."
       (format-time-string "%d %b" time))
      (t (format-time-string "%d %b %y" time)))))
 
+(defun org-air-view--day-relative-face (time &optional now)
+  "Return the standout face for a TODAY / TOMORROW date, else nil (R85).
+Non-nil only when TIME is today (giving `org-air-face-day-today') or
+tomorrow (giving `org-air-face-day-tomorrow') relative to NOW — the two
+relative labels `org-air-view--human-date' emits.  Keyed on the SAME
+`org-air-view--days-between' delta as `--human-date', so the label and
+the face agree by construction.  Returned to the NEUTRAL date arms of
+`org-air-view--date-label' so a today/tomorrow activity/created/note date
+stops reading as the muted `org-air-face-date' grey; deadline/scheduled
+dates keep their own slot face (R85 §Decision, rule B)."
+  (let ((now (or now (current-time))))
+    (pcase (org-air-view--days-between now time)
+      (0 'org-air-face-day-today)
+      (1 'org-air-face-day-tomorrow))))
+
 (defun org-air-view--marker-timestamp-time (item)
   "Return first timestamp in ITEM subtree, if any.
 R53 P2: resolves LIVE markers only (`org-air-classify--item-source'
@@ -2064,7 +2079,11 @@ position degrades to nil, never a crash."
      ((eq bucket 'notes)
       ;; R53 P3: a note row's date pill is its scan-time activity.
       (when-let* ((activity (org-air-item-activity item)))
-        (cons (org-air-view--human-date activity now) 'org-air-face-date)))
+        (cons (org-air-view--human-date activity now)
+              ;; R85: a today/tomorrow neutral date stops reading as muted
+              ;; grey; a non-today/tomorrow date keeps `org-air-face-date'.
+              (or (org-air-view--day-relative-face activity now)
+                  'org-air-face-date))))
      ((eq bucket 'stale)
       ;; R53 P2: the scan-time `activity' slot answers data-pure (it IS
       ;; the first-subtree-timestamp ‖ mtime value in this branch — the

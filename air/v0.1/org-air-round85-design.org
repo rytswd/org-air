@@ -536,3 +536,20 @@ byte-identity are all batch-asserted (10 ERT seams).*
 
 * History
 - 2026-07-24: State: draft → ready.
+- 2026-07-24: R85 IMPLEMENTED (Opus).  D1 — two new faces
+  =org-air-face-day-today= (bold teal #00897B/#88C0D0) +
+  =org-air-face-day-tomorrow= (bold rose #C2185B/#BF616A) added beside the
+  date faces in org-air-faces.el, R79 convention (light+dark hex + TTY
+  =:inherit= bold fallback).  D2 — =org-air-view--day-relative-face= added
+  beside =--human-date= (org-air-view.el), keyed on the SAME
+  =--days-between= delta.  D3 — the =notes= arm of =org-air-view--date-
+  label= rewired to =(or (--day-relative-face activity now)
+  'org-air-face-date)=; =--human-date=, the deadline/scheduled/attention/
+  stale arms, =--item-date-text=, =--compute-meta-widths=, query/classify/
+  calendar and the cache VERSION all UNTOUCHED (R53, no rescan, no cache
+  bump).  Rule (B) NEUTRAL-ONLY held: the R3 date-label tests
+  (=org-air-date-future-{deadline,scheduled}-is-benign=) pass verbatim.
+  10 batch ERT seams landed in tests/org-air-round85-test.el (r85-1..10),
+  all green.  Face-only ⇒ every golden BYTE-IDENTICAL; =make clean &&
+  make check= green (1052 tests, 0 unexpected, 8 pre-existing GUI-only
+  skips), no known-failures flag needed.

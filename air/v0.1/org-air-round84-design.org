@@ -1,0 +1,657 @@
+#+title: org-air Round 84 — review-pane repair: (D1) the SAME priority pill on review rows through the board's shared `org-air-view--priority-cell' (no fork), and (D2) a started-then-DROPPED item stops mis-filing as "Started"/"Completed" — a period-honest `org-air-review--abandoned-p' routes abandonment to its own conditional "Dropped" slot
+#+state: ready
+#+tags: review priority faces keyword classify bug ux
+
+* Summary
+
+Two review-surface defects reported from the running board (the =W=
+board key → =org-air-review.el=):
+
+- *D1 — the review rows carry NO priority pill.*  The board and the day
+  pane paint a priority cell on every task row (the R13/R22 filled
+  square in =square style, the R13 =[#A]= svg capsule in =badge= / the
+  plain cookie in =text=), but the review's per-item rows
+  (Completed / Started / Carried over) omit it — an inconsistency the
+  user noticed directly ("review pane should also show the priority the
+  same way as other panes").  R84 adds the SAME pill by REUSING the
+  board's priority-cell machinery — no fork: the small
+  =(if (eq org-air-priority-style 'square) SLOT TOKEN)= branch inlined in
+  =org-air-view--insert-item= (org-air-view.el:3838) is extracted to a
+  shared =org-air-view--priority-cell=, and the review's row prefix
+  prepends it exactly as the board does.
+
+- *D2 — a DROPPED item mis-files as "Started" (and, unseen, as
+  "Completed").*  Screenshot: a heading CLOSED =2026-07-23= as =DROPPED=
+  still lists under the review's *Started* section.  Root cause:
+  =org-air-review--started-epoch= (org-air-review.el:427) claims Started
+  from the item's =:CREATED:= / earliest retained log stamp in-period —
+  it never consults the item's FINAL state, so an item started-then-
+  ABANDONED reads as freshly begun work.  Worse, because the merged R57
+  done-vocabulary lumps DROPPED in with DONE, the SAME item's
+  DROPPED/CLOSED stamp also satisfies =org-air-review--completed-stamps=
+  (org-air-review.el:370) — so a dropped item silently pollutes
+  *Completed* too (dropped ≠ completed).  R84 gives abandonment a
+  first-class, period-honest treatment: a new
+  =org-air-review--abandoned-p= (final keyword is a cancelled/abandoned
+  spelling AND the item closed in-period) routes the item OUT of
+  Started / Completed / Carried and INTO its OWN conditional *Dropped*
+  slot — never silently vanished (the R59 "when in doubt, render" ethos),
+  never a lie.  Time invested is untouched (time is attributed where it
+  was clocked — a dropped item's hours still show).
+
+SPEC ONLY: no =.el= or test edits in this change.  R53 (never-error,
+data-pure render, NO rescan — the review is a period-scoped fold over
+cached items), R61/R62/R63 (review architecture, period ranges, flat
+one-row-per-item sections + mirror collapse), R79 (the DONE-family split
+into completed vs cancelled faces, =org-air-view--dropped-keyword-names=),
+R80 (OUT/OFF parked states) and R83 (the =:backlog:= tag) are all
+respected and reused, never forked.
+
+* Investigation
+
+** D1 — where the board draws the pill, and why the review does not
+
+The board maps a task item onto the shared V6 row primitive in
+=org-air-view--insert-item= (org-air-view.el:3817).  The priority cell is
+built INLINE in the row =prefix= (org-air-view.el:3835):
+
+#+begin_example
+(prefix (concat (org-air-view--item-margin)
+                (org-air-view--todo-cell todo todo-w (org-air-item-donep item))
+                ;; R13 D-P2: `square style emits a FIXED 2-col slot on
+                ;; EVERY row (square or blank) so titles align; `badge/
+                ;; `text keep the conditional `[#A]' token.
+                (if (eq org-air-priority-style 'square)
+                    (org-air-view--priority-slot priority)
+                  (when (and priority (member priority org-air-priority-show))
+                    (concat (org-air-view--priority-token priority) " ")))))
+```
+
+The two leaf primitives already exist and are style-aware:
+
+- =org-air-view--priority-slot= (org-air-view.el:2990) — the FIXED 2-col
+  =square= slot: a coloured filled square (svg on GUI, =■= glyph on TTY,
+  faced =org-air-face-priority-a…e=) + a pad space when the char is a
+  shown priority, else two blanks (so every title shares a left edge).
+- =org-air-view--priority-token= (org-air-view.el:2947) — the =[#A]=
+  cell, pillified into the round-12 svg capsule under =badge=, plain
+  coloured text under =text=.
+
+The review's row renderer, =org-air-review--insert-body= (org-air-
+review.el:923), feeds =org-air-view--insert-row= a prefix of ONLY the
+margin (org-air-review.el:984):
+
+#+begin_example
+(`(item ,item ,date ,tags ,origin ,mirrors)
+ (org-air-view--insert-row
+  :prefix (org-air-view--item-margin)          ; ← no priority cell
+  :title (org-air-item-title item)
+  ...))
+```
+
+So the omission is exactly this one missing prefix segment.  There is NO
+priority-cell in the review path today — not a divergent one, an ABSENT
+one.  The board's todo/keyword badge is deliberately NOT part of D1 (a
+review row is a completion/started/carried FACT, not the item's live
+keyword — surfacing the keyword there would fight R63-2's clean flat
+row); the *priority* is a stable per-item attribute worth showing on
+both surfaces, which is exactly what the user asked for.
+
+** D1 — the "no fork" seam: extract `org-air-view--priority-cell'
+
+The board's inline branch is the ONE authoritative priority-prefix idiom
+(style dispatch + shown-priority gate + the trailing pad).  To add the
+pill to the review WITHOUT forking it, extract that branch verbatim into
+a shared function and have BOTH call sites use it — a pure refactor on
+the board (byte-identical) and a reuse on the review:
+
+#+begin_example
+(defun org-air-view--priority-cell (item)
+  "Return ITEM's row-prefix priority cell (the shared board idiom; R84).
+`square (default): the FIXED 2-col `org-air-view--priority-slot' (a
+coloured square + pad, or two blanks — every title aligns).  `badge/
+`text: the conditional `org-air-view--priority-token' + one pad, ONLY
+when ITEM carries a shown priority, else \"\".  The ONE definition the
+board (`org-air-view--insert-item') and the review row both prepend —
+no fork; a byte-golden on the board proves the refactor is inert."
+  (let ((priority (org-air-view--priority-char item)))
+    (if (eq org-air-priority-style 'square)
+        (org-air-view--priority-slot priority)
+      (when (and priority (member priority org-air-priority-show))
+        (concat (org-air-view--priority-token priority) " ")))))
+```
+
+=org-air-view--insert-item= then reads
+=(org-air-view--priority-cell item)= in place of its inline branch — the
+board renders byte-for-byte identically (r84-2 nails this).
+
+** D2 — the exact predicates that mis-file a dropped item
+
+The fold in =org-air-review--section-data= (org-air-review.el:450) runs,
+per fold-item, three independent claims:
+
+#+begin_example
+(when (org-air-review--fold-item-p item)
+  (when-let* ((stamps (org-air-review--completed-stamps item p0 p1)))
+    (push (list item (car stamps) (length stamps) stamps) completed))
+  (when-let* ((epoch (org-air-review--started-epoch item p0 p1)))
+    (push (list item epoch) started))
+  (when (org-air-review--carried-p item p0 p1 currentp)
+    (push (list item ...) carried)))
+```
+
+For a heading =* STARTED …= that transitioned mid-period and was then
+=DROPPED= (CLOSED in-period):
+
+1. *Started* (org-air-review.el:427): =--started-epoch= returns the
+   =:CREATED:= or, absent that, the EARLIEST retained log stamp when it
+   falls in-period.  The "State STARTED from TODO [mid-period]" stamp is
+   the earliest → in-period → *Started claimed*.  It NEVER looks at how
+   the item ENDED.  This is the screenshot's bug.
+
+2. *Completed* (org-air-review.el:370): =--completed-stamps= collects
+   =done=-kind log stamps in-period, else the CLOSED stamp.  The
+   DROPPED transition is classified =done= at scan time because DROPPED ∈
+   the file's =org-done-keywords= (=org-air-query--harvest-at-point=,
+   org-air-query.el:547 — every done keyword, completed OR abandoned,
+   interns to =done=).  So the DROPPED stamp (and, redundantly, the
+   CLOSED fallback) → *Completed claimed too*.  A dropped item is
+   currently in BOTH sections — the report double-lies.
+
+3. *Carried* (org-air-review.el:442): =--carried-p= = activity ∧ not
+   done-at-p1.  The DROPPED stamp is a =done=-kind state stamp before
+   p1, so =--done-at-p= reads "done" → NOT carried.  Carried alone is
+   already correct by accident; R84 makes it correct by construction.
+
+*The conceptual gap:* the review has no notion of ABANDONED as distinct
+from COMPLETED.  =donep= and the =done= log-kind lump DONE and DROPPED
+together (both live in =org-done-keywords=).  R79 already SPLIT the two
+for FACE rendering — =org-air-view--dropped-keyword-names= (org-air-
+view.el:2851) names the cancelled/abandoned spellings
+(=DROPPED DROP CANCELLED CANCELED KILL KILLED ABANDONED=), and
+=org-air-view--merged-vocab-face= paints them terracotta, not the DONE
+blue.  R84 reuses that SAME vocabulary to fix the review's bucketing —
+the split already exists; the review just never consulted it.
+
+** D2 — why the final-state signal is the item's `todo' slot
+
+The harvest does NOT retain WHICH done keyword a =done=-kind log stamp
+targeted (only the =done=/=todo=/nil kind — org-air-query.el:229), so
+the logs alone cannot tell a DROPPED transition from a DONE one.  The
+item's scan-time =todo= slot, however, IS its FINAL/current keyword
+(e.g. ="DROPPED"=), already in the struct, no rescan.  So abandonment is
+detectable at zero cost from =(org-air-item-todo item)= crossed with
+=org-air-view--dropped-keyword-names=.
+
+Period-honesty is preserved by ALSO requiring an in-period closing stamp
+(reusing =--completed-stamps=, itself period-scoped): a heading whose
+=todo= is currently DROPPED but whose drop happened OUTSIDE the shown
+period is NOT abandoned-in-that-period — for the period it was merely
+started/active, it reads Started/Carried there, exactly as it did before
+its later abandonment.  This mirrors the existing =--done-at-p= /
+=currentp= approximation (the review already infers state-at-a-time from
+in-period stamps, falling back to the live slot only for the current
+period) and keeps past periods truthful.
+
+** What must NOT change — verified invariants
+
+1. *Time invested*: =--section-data='s time fold runs =--item-time= over
+   EVERY heading (containers included), UNGATED by =--fold-item-p= or any
+   completion/abandonment test (org-air-review.el:463).  A dropped item's
+   clocked hours therefore STAY in Time invested and the rail's "clocked"
+   total — time was really spent (honest: "4h before I gave up").  R84
+   touches only the three per-item bucket claims, never the time fold.
+
+2. *Period math (R62)*: =--period-bounds= / =--bounds= / the range
+   ladder / the anchor are untouched.  D2 is a per-item routing change
+   inside the fold; the ranges =+= / =-= / =m= walk and the =<= / =>= /
+   =.= navigation are byte-identical (r84-13).
+
+3. *No rescan (R53)*: both defects are RENDER-side folds over cached
+   slots (=todo=, =logs=, =clocks=, =created=, =priority=).  No new scan
+   slot, no cache-key element, no =org-air-view--cache-version= bump —
+   =org-air-item-todo= and =org-air-item-priority= are long-standing
+   slots.  A knob flip (=org-air-priority-style=,
+   =org-air-review-abandoned-*=) repaints, never rescans.
+
+4. *R83 backlog*: the review groups by activity/completion FACTS, not by
+   board buckets (R83 D7 — the =:backlog:= tag is written for the board's
+   attention surfaces).  A backlogged item DONE-in-period is still
+   *Completed*; a backlogged item DROPPED-in-period is *Dropped*; a
+   backlogged active item reads Started/Carried.  R84's abandoned gate is
+   orthogonal to the tag — it never reads =org-air-item-tags= (r84-11).
+
+5. *Items built outside the scan* (capture buffers, unit tests): a nil
+   =todo= is never a dropped keyword (the predicate is a plain membership
+   test over the bare-name), and a nil =priority= yields the blank slot —
+   both degrade to the pre-R84 behaviour, no slot dependency beyond what
+   already exists.
+
+* Proposal
+
+** D1 — the shared priority cell on review rows
+
+*** D1a — extract `org-air-view--priority-cell' (no fork)
+
+Add =org-air-view--priority-cell= (as in Investigation) beside the other
+priority primitives in org-air-view.el, and REPLACE the inline branch in
+=org-air-view--insert-item= (org-air-view.el:3835-3842) with a call to
+it.  Pure refactor: the board golden is unchanged (r84-2).
+
+*** D1b — prepend it in the review row prefix
+
+In =org-air-review--insert-body='s =(item …)= arm (org-air-review.el:984)
+the =:prefix= becomes:
+
+#+begin_example
+:prefix (concat (org-air-view--item-margin)
+                (org-air-view--priority-cell item))
+```
+
+The =agg= (Time-invested rollup) and =note= arms KEEP the bare margin —
+they carry no item and no priority; the priority column is a per-item
+attribute only.  The row's title, date, tags and origin cells are
+untouched; the pill rides the prefix exactly as on the board, so the pill
+face/shape/style is identical across the board, the day view and now the
+review (D1's whole point: "the same way as other panes").
+
+*** D1c — the fit reserve (title never over-truncates)
+
+=org-air-review--insert-body='s cluster-fit budget uses
+=left-reserve = (string-width (org-air-view--item-margin))= (org-air-
+review.el:951).  With the pill in the prefix, item rows grow by the
+priority-cell width — a CONSTANT 2 cols in the default =square style (a
+slot on every row), 0-or-token under =badge=/=text=.  To keep the origin/
+tags fit honest (so a long title truncates in the right place, exactly as
+the board reserves its 2-col slot), extend =left-reserve= by the MAX
+priority-cell width over the displayed ITEM rows:
+
+#+begin_example
+;; the widest item-row priority prefix (2 in `square, 0/token else)
+(pri-reserve (let ((m 0))
+               (dolist (section sections m)
+                 (unless (memq (nth 0 section) collapsed)
+                   (dolist (line (nth 3 section))
+                     (pcase line
+                       (`(item ,item . ,_)
+                        (setq m (max m (string-width
+                                        (org-air-view--priority-cell item))))))))))
+ ...
+ (left-reserve (+ (string-width (org-air-view--item-margin)) pri-reserve))
+```
+
+This is the review's analogue of the board reserving its priority slot;
+the =agg=/=note= rows (which keep the bare margin) simply have a little
+slack, never a shove — the cluster stays column-locked at
+=width − cluster-w= for every row (V6).  Byte-golden note: this ADDS 2
+cols of left inset to every review item row in the default =square style
+— an intentional, user-requested re-bless of the review fixtures (D1's
+"show it the same way").
+
+** D2 — abandonment as a first-class, period-honest slot
+
+*** D2a — the shared dropped-keyword predicate (no fork)
+
+Extract R79's inline cancelled test (=(member (upcase name)
+org-air-view--dropped-keyword-names)= inside
+=org-air-view--merged-vocab-face=, org-air-view.el:2884) into a shared
+predicate so the review's abandonment gate and R79's face resolver share
+ONE definition:
+
+#+begin_example
+(defun org-air-view--dropped-keyword-p (keyword)
+  "Non-nil when KEYWORD is a cancelled/abandoned spelling (R79/R84).
+The ONE membership test over `org-air-view--dropped-keyword-names',
+matched on the bare upcased name (`org-air-query--todo-keyword-name');
+shared by the R79 face resolver (`org-air-view--merged-vocab-face') and
+R84's `org-air-review--abandoned-p' — the face split and the review's
+Dropped routing agree by construction."
+  (let ((name (and keyword (org-air-query--todo-keyword-name keyword))))
+    (and name (member (upcase name) org-air-view--dropped-keyword-names) t)))
+```
+
+=org-air-view--merged-vocab-face= then reads
+=(org-air-view--dropped-keyword-p keyword)= for its =cancelled= binding —
+byte-identical face resolution (r84-14).
+
+*** D2b — `org-air-review--abandoned-p' (final state + in-period close)
+
+New predicate beside =--carried-p= (org-air-review.el:442):
+
+#+begin_example
+(defun org-air-review--abandoned-p (item p0 p1)
+  "Return ITEM's DROP epoch when it was ABANDONED within [P0, P1), else nil (R84).
+Non-nil (the newest in-period closing epoch) exactly when ITEM's FINAL
+keyword is a cancelled/abandoned spelling (`org-air-view--dropped-
+keyword-p' over `org-air-item-todo') AND it CLOSED in-period (a done-
+kind or CLOSED stamp via the period-scoped `org-air-review--completed-
+stamps').  Both clauses matter: the keyword gives the OUTCOME (dropped ≠
+done), the in-period stamp gives period-honesty (a heading dropped
+AFTER this period is not abandoned-here — it reads Started/Carried in
+its own period, exactly as before its later drop)."
+  (and (org-air-view--dropped-keyword-p (org-air-item-todo item))
+       (car (org-air-review--completed-stamps item p0 p1))))
+```
+
+Reusing =--completed-stamps= is deliberate: the drop epoch is exactly the
+completion-shaped stamp the old code MIS-credited to Completed, so the
+same value now labels the Dropped row's date cell — and the two claims
+can never disagree about "did it close in-period".
+
+*** D2c — route abandonment first in the fold
+
+=org-air-review--section-data= gains a =dropped= accumulator and gates
+the three existing claims behind =--abandoned-p= (the ONLY change to the
+per-item branch; the time / suspect folds above are untouched):
+
+#+begin_example
+(when (org-air-review--fold-item-p item)
+  (if-let* ((drop (org-air-review--abandoned-p item p0 p1)))
+      (push (list item drop) dropped)                 ; ABANDONED: one home
+    ;; ...the existing completed / started / carried pushes, verbatim...
+    ))
+...
+(list :completed (nreverse completed)
+      ...
+      :dropped (nreverse dropped))                    ; NEW plist key
+```
+
+Rulings:
+
+- *Single home.*  An abandoned item lands in =:dropped= ONLY — not
+  Completed, not Started, not Carried.  This is what makes the header's
+  "N done" honest (D2f) and the report truthful.
+- *Started is now correct by construction*: =--started-epoch= is unchanged
+  (its =:CREATED:=/earliest-stamp logic is right for genuine starts —
+  r84-5 pins a real started+active item STAYING in Started); the gate in
+  front of it evicts only abandonment.
+- *Time invested unaffected*: the time fold sits ABOVE the
+  =--fold-item-p= block and is not gated — a dropped item's clocks still
+  fold (invariant 1, r84-7).
+
+*** D2d — the conditional "Dropped" section
+
+Surface =:dropped= as a FLAT per-item section (the R63-2 idiom), appended
+by =org-air-review--compose-sections= (org-air-review.el:863) AFTER
+"Carried over" — but ONLY when non-empty (the R83-D5 conditional-section
+precedent):
+
+#+begin_example
+(let ((rows (list (list 'completed "Completed" (length completed) clines)
+                  (list 'time "Time invested" ... tlines)
+                  (list 'started "Started" (length started) ...)
+                  (list 'carried "Carried over" (length carried) ...))))
+  (let ((dropped (org-air-review--sort-rows (plist-get data :dropped))))
+    (if dropped
+        (append rows (list (list 'dropped "Dropped" (length dropped)
+                                 (org-air-review--item-lines dropped))))
+      rows)))
+```
+
+- A drop-free period returns the SAME 4-entry list as today → no
+  "Dropped" header, no "none" row → byte-identical to pre-R84 (modulo the
+  D1 pill).  Surfacing an empty "Dropped: none" every week would nag
+  (the opposite of the review's calm-retrospect purpose); the four core
+  sections stay always-on because they are the review's fixed frame, the
+  Dropped slot appears only when there IS an abandonment to own.
+- =--insert-body= (org-air-review.el:923) is already section-count-generic
+  (it iterates =sections= and fits over displayed item rows), so a 5th
+  entry renders, folds (TAB via the =org-air-section= property — org-air-
+  review.el:1459), and fits with zero renderer surgery.
+- The rows go through =--item-lines=, so a dropped row carries its date
+  cell (the drop day), tag pills, the shared F1 origin AND — via D1 — the
+  priority pill, exactly like every other review row.
+
+*** D2e — the "dropped" section glyph + mirror collapse + Summary
+
+- *Glyph*: add =(dropped . ("⊘" . "x"))= to =org-air-glyphs= (org-air-
+  layout.el:34, beside the four R63-2d review section icons) so the
+  section header renders through the board's shared icon+count treatment
+  (=--insert-section-heading=) and degrades by the S5b tier.  ⊘ (circled
+  slash) reads "cancelled" and is visually distinct from =completed='s ✓.
+- *Mirror collapse*: add =:dropped= to the section list in
+  =org-air-review--collapse-data= (org-air-review.el:'(:completed
+  :started :carried)) so same-title/same-day abandonment mirrors collapse
+  to one row like every other section (r84-10).
+- *Summary count*: =org-air-review--insert-summary= (org-air-review.el:
+  1042) appends a "dropped" count row AFTER "carried" ONLY when
+  =(plist-get data :dropped)= is non-empty (conditional, matching the
+  section) — a drop-free rail is byte-identical.
+
+*** D2f — the header's "N done" becomes honest for free
+
+=org-air-review--render='s =done-count= is =(length (plist-get data
+:completed))= (org-air-review.el:1300).  Because abandoned items now
+leave =:completed=, the header "N done" stops counting drops — no code
+change, an honest side-effect of the single-home routing (r84-12: a
+period with 1 DONE + 1 DROPPED reads "1 done", not "2").
+
+** D3 — calendar marks (a decided non-change)
+
+=org-air-review--calendar-marks= (org-air-review.el:1028) marks a period
+day =period-done= when it carries a completion from =:completed=.  Since a
+drop is NOT a completion, a drop day gets NO done-dot (it stays a plain
+period day).  Ruled deliberately: the calendar's dot means "something
+finished here", and an abandonment did not finish.  Left unchanged —
+=:dropped= does not feed the calendar (kept out of scope for a tight,
+honest fix; a future round could add a distinct drop mark if wanted).
+
+** D4 — the abandoned-vocabulary knob (reuse, don't re-invent)
+
+R84 needs NO new "which keywords are abandoned" defcustom — R79 already
+owns that vocabulary in =org-air-view--dropped-keyword-names=
+(=DROPPED DROP CANCELLED CANCELED KILL KILLED ABANDONED=), reused verbatim
+through the D2a shared predicate.  A user who spells abandonment
+differently extends that ONE list and BOTH the face split (R79) and the
+review's Dropped routing (R84) follow — the deliberate single source of
+truth.  (Caveat, noted not fixed: a heading only reads =todo="DROPPED"= if
+its file's =#+TODO:= sequence declares DROPPED as a keyword, or it uses a
+spelling in the R57 merged default such as =DROP= / =CANCELLED= / =KILL=;
+this is the existing vocabulary contract, unchanged.)
+
+* Interaction ledger (named rounds, one line each)
+
+- *R13/R22*: the priority pill on review rows is the SAME
+  =--priority-slot= / =--priority-token= the board draws, honouring
+  =org-air-priority-style= and =org-air-priority-show= — one machinery,
+  now behind the shared =--priority-cell=.
+- *R53*: both fixes are data-pure folds over cached slots — no file
+  access, no re-query, no cache-version bump; knob flips repaint.
+- *R59*: abandonment is RENDERED (its own slot), never silently vanished
+  — the "when in doubt, render" house default.
+- *R61/R61-4*: totals honestly describe what is shown — the header "N
+  done", the section counts and the rail Summary all follow the single-
+  home routing (drops out of done, into dropped).
+- *R62*: period ranges / anchor / ladder untouched — D2 is a per-item
+  routing change inside the fold, not a range change.
+- *R63-2*: the Dropped section is a FLAT one-row-per-item section through
+  the shared row primitive + section-header treatment + mirror collapse
+  — no fork, byte-identical idiom.
+- *R79*: the DONE-family FACE split (=org-air-view--dropped-keyword-
+  names=) is the SAME vocabulary the review now buckets on — the terracotta
+  face and the Dropped slot agree by construction (the D2a shared
+  predicate).
+- *R80*: OUT/OFF are PARKED (not-done) states, never in
+  =dropped-keyword-names= — an OUT/OFF heading is Started/Carried as
+  usual, never routed to Dropped (only genuine cancellations are).
+- *R83*: the review ignores the =:backlog:= tag; a backlogged DONE item
+  is Completed, a backlogged DROPPED item is Dropped — the abandoned gate
+  never reads tags.
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+Exact pill COLOURS are GUI-confirm-only; the seams assert pill PRESENCE
++ FACE at the byte/text layer (the =■ = square slot / =[#A]= token text +
+=org-air-face-priority-*=), and the exact review BUCKET a fixture item
+lands in.
+
+1. *r84-1 review row carries the priority pill*: a scanned corpus with a
+   =[#A]= task completed in-period → the rendered Completed row's prefix
+   begins with the priority slot (=■ = in =square, faced
+   =org-air-face-priority-a=); a no-priority row shows two blanks.  Assert
+   via the row's leading cell text + face.  Reverting the D1b prefix
+   injection fails.
+2. *r84-2 shared cell is inert on the board*: a board byte-golden is
+   UNCHANGED by extracting =--priority-cell= (=--insert-item= renders the
+   same square/token as before).  Reverting the refactor to two forks (or
+   changing the branch) fails the golden.
+3. *r84-3 `org-air-priority-style' respected in review*: with =square the
+   review row prefix carries =■ = (2-col slot); with =badge the =[#A]=
+   token appears ONLY on a priority row (blank prefix otherwise); with
+   =text the plain cookie.  Assert the slot/token text per style.
+   Hard-wiring one style fails.
+4. *r84-4 (D2 core) started-then-DROPPED is Dropped, not Started/Completed*:
+   fixture heading (=#+TODO: TODO STARTED | DONE DROPPED=; "State STARTED
+   from TODO" mid-period, "State DROPPED from STARTED" + CLOSED
+   in-period) → =--section-data='s =:dropped= holds it, and =:started= /
+   =:completed= / =:carried= do NOT.  Assert the EXACT bucket.  Reverting
+   the D2c gate fails (the item springs back into Started AND Completed).
+5. *r84-5 a genuine started+active item IS in Started*: a =* STARTED …=
+   with a mid-period =:CREATED:= and no drop → in =:started=, absent from
+   =:dropped=.  The abandoned gate must not over-evict — reverting to
+   gate on mere done-ness (not abandonment) fails.
+6. *r84-6 a DONE-in-period item stays in Completed*: =* DONE …= closed
+   in-period, =todo="DONE"= → in =:completed=, absent from =:dropped=
+   (DONE ∉ =dropped-keyword-names=).  Making the gate catch every done
+   keyword fails.
+7. *r84-7 a dropped item still counts in Time invested*: the r84-4
+   heading with a clocked interval in-period → its seconds ARE in
+   =:time-items= / =:time-total= despite being Dropped (time attributed
+   where clocked).  Gating the time fold on abandonment fails.
+8. *r84-8 period-honesty of `--abandoned-p'*: a heading =todo="DROPPED"=
+   whose CLOSED/DROP stamp falls in period W(n+1) but whose START stamp
+   falls in W(n): in W(n) it is =:started= (NOT =:dropped= — no in-period
+   close), in W(n+1) it is =:dropped=.  Dropping the in-period-stamp
+   clause (routing on the keyword alone) fails W(n).
+9. *r84-9 conditional Dropped section + Summary*: a period with two drops
+   renders a "Dropped 2" section header, the Dropped body holds exactly
+   those two rows, and the rail Summary carries a "2 dropped" row; a
+   drop-free period renders NO Dropped section and NO Summary drop row
+   (byte-identical to pre-R84 save the D1 pill).  Reverting the
+   conditional D2d/D2e append fails one half or the other.
+10. *r84-10 mirror collapse extends to Dropped*: two same-title/same-day
+    dropped mirrors collapse to ONE Dropped row under
+    =org-air-review-collapse-mirrors=.  Omitting =:dropped= from
+    =--collapse-data= fails (two rows leak).
+11. *r84-11 backlog orthogonality*: a =:backlog:=-tagged heading DONE
+    in-period → =:completed=; the same tag on a DROPPED-in-period heading
+    → =:dropped=.  The gate never consults =org-air-item-tags= — making it
+    tag-sensitive fails.
+12. *r84-12 header "N done" excludes drops*: a period with 1 DONE + 1
+    DROPPED → =done-count= = 1 (=:completed= length), the header reads "1
+    done".  Reverting D2c (drop back into Completed) makes it "2".
+13. *r84-13 period math unaffected*: =--period-bounds= and the range
+    ladder (=+= / =-= / =m=) produce identical bounds/rungs across R84
+    (assert equal to a pre-R84 snapshot); no cache-key/scan change.
+    Any range regression fails.
+14. *r84-14 shared dropped predicate is inert for R79*: extracting
+    =org-air-view--dropped-keyword-p= leaves =--merged-vocab-face=
+    byte-identical — a =DROPPED= keyword still resolves to
+    =org-air-face-dropped=, a =DONE= to =org-air-face-done=.  Forking the
+    predicate (or changing =dropped-keyword-names=) fails.
+
+* Byte-golden / fixture impact
+
+- *D1 (intentional re-bless)*: every review fixture with task rows gains
+  a leading priority cell — a 2-col left inset on each item row in the
+  default =square style (=■ = for a priority row, two blanks otherwise).
+  This is the user-requested change ("show it the same way as other
+  panes"); the affected review goldens are re-blessed once.  The BOARD
+  goldens are UNCHANGED (r84-2 — the extraction is a pure refactor).
+- *D2 (no churn unless drops exist)*: no committed review fixture carries
+  a DROPPED heading, so the conditional Dropped section / Summary row do
+  not appear and existing review goldens are byte-identical save the D1
+  inset.  The new glyph, the =:dropped= plist key and =--abandoned-p= are
+  inert until a heading closes as a cancelled keyword in-period.
+- *New fixtures*: (a) a review corpus with an =[#A]= completed row to
+  freeze the D1 pill on a review row across the three
+  =org-air-priority-style= values; (b) a corpus with the r84-4 started-
+  then-DROPPED heading (=#+TODO: … | DONE DROPPED=), a control genuine-
+  started item and a control DONE item, to freeze the Dropped section +
+  Summary row + the honest "N done".  Board text/rail only (svg is
+  GUI-only, byte-tested through the text layer).
+- *Cache*: NO =org-air-view--cache-version= bump — =todo= and =priority=
+  are long-standing slots; the fixes are render-side folds (R53).
+
+* Design details / seams (files touched — impl seat)
+
+- *org-air-view.el*: =org-air-view--priority-cell= (D1a, beside the
+  priority primitives) + =--insert-item= rewired to it (byte-identical);
+  =org-air-view--dropped-keyword-p= (D2a, beside
+  =org-air-view--dropped-keyword-names= / =--merged-vocab-face=) +
+  =--merged-vocab-face= rewired to it (byte-identical face resolution).
+- *org-air-review.el*: =org-air-review--abandoned-p= (D2b, beside
+  =--carried-p=); the =dropped= accumulator + gate + =:dropped= key in
+  =--section-data= (D2c); the conditional Dropped section in
+  =--compose-sections= (D2d); =:dropped= in =--collapse-data= (D2e);
+  the conditional "dropped" Summary row in =--insert-summary= (D2e); the
+  priority-cell prefix + the =pri-reserve= fit term in =--insert-body=
+  (D1b/D1c).
+- *org-air-layout.el*: the =(dropped . ("⊘" . "x"))= glyph in
+  =org-air-glyphs= (+ optional safe-tier entry).
+- *README / demo*: one paragraph noting the review row now shows the
+  priority pill (all panes aligned) and that a period's abandoned items
+  read under a distinct "Dropped" section (dropped ≠ completed ≠ started).
+- *NO changes*: org-air-query.el (no new scan slot; =todo=/=priority=
+  already carry it; the harvest is untouched), org-air-classify.el,
+  org-air-calendar.el (D3 non-change), org-air-inbox.el,
+  org-air-project.el, org-air-revisit.el, cache VERSION.
+- *Suggested land order*: D2a+D1a (the two shared extractions, r84-2/14 —
+  prove inertness first) → D1b/D1c (review pill, r84-1/3) → D2b+D2c (the
+  abandoned predicate + fold gate, r84-4/5/6/7/8/12) → D2d/D2e (section +
+  glyph + collapse + summary, r84-9/10) → D3 non-change + r84-11/13.
+  One coherent repair; the order keeps each seam attributable.
+
+* One-line summary (idle)
+
+R84 = two review-pane defect fixes, both data-pure folds over cached
+slots (R53, no rescan, no cache bump).  *D1*: the review rows gain the
+SAME priority pill as the board/day panes by extracting the board's
+inline branch into a shared =org-air-view--priority-cell= (no fork; the
+board golden is inert) and prepending it to the review row prefix
+(honouring =org-air-priority-style=; a re-bless of the review goldens by
+a 2-col inset — the user asked for exactly this).  *D2*: a started-then-
+DROPPED item stops mis-filing as "Started" (and, unseen, "Completed") —
+a new period-honest =org-air-review--abandoned-p= (final keyword ∈ R79's
+=org-air-view--dropped-keyword-names= via a shared
+=org-air-view--dropped-keyword-p=, AND an in-period close) routes
+abandonment out of the three per-item buckets into its OWN conditional
+"Dropped" section (⊘ glyph, mirror-collapsed, a conditional Summary
+count), so the report never lies (dropped ≠ done ≠ started), the header's
+"N done" becomes honest for free, Time invested still credits the clocked
+hours, and a drop-free period stays byte-identical.  GUI-confirm audit:
+exact pill/section colours only — presence/face/bucket are all batch-
+asserted (14 ERT seams).
+
+* Implementation History
+
+- 2026-07-24: R84 design (this doc) — two review-pane defects specced.
+  *D1 root-cause*: the review row prefix (=--insert-body=, org-air-
+  review.el:984) carried only the margin — the board's inline priority
+  branch (=--insert-item=, org-air-view.el:3835) was never shared.  Fix:
+  extract =org-air-view--priority-cell= (style dispatch + shown-priority
+  gate + pad) and reuse on BOTH surfaces (board byte-identical), prepend
+  on review item rows, reserve its width in the cluster fit; a re-bless
+  of the review goldens by a 2-col inset (the requested "same as other
+  panes").  *D2 root-cause*: =--started-epoch= (org-air-review.el:427)
+  claims Started from =:CREATED:=/earliest stamp without consulting the
+  FINAL state, so a started-then-DROPPED item read as Started; and because
+  DROPPED ∈ the merged done-vocab, its DROPPED/CLOSED stamp also satisfied
+  =--completed-stamps= → it polluted Completed too (the conceptual gap:
+  no ABANDONED-vs-COMPLETED split in the review, though R79 already split
+  them for FACES).  Chosen treatment: surface abandonment in its OWN
+  honest slot (over silent exclusion) — a period-honest
+  =org-air-review--abandoned-p= (final keyword ∈ R79's
+  =dropped-keyword-names= via a shared =org-air-view--dropped-keyword-p=,
+  AND an in-period close via =--completed-stamps=) routes the item to a
+  new conditional "Dropped" section (⊘ glyph, flat R63-2 row, mirror-
+  collapsed, conditional Summary count), evicting it from Started /
+  Completed / Carried; Time invested unaffected (time attributed where
+  clocked); header "N done" honest for free.  Backlog (R83) orthogonal
+  (review ignores the tag); OUT/OFF (R80) are parked, never dropped;
+  period math (R62) and the calendar (D3 decided non-change) unchanged.
+  No new scan slot, no cache-version bump.  GUI-confirm audit: exact
+  pill/section colours only.  14 batch ERT seams defined.
+
+* History
+- 2026-07-24: State: draft → ready.

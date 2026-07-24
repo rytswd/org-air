@@ -1,5 +1,5 @@
 #+title: org-air Round 86 — a LOCATION filter token `path:tasks/re/air': the `/' mini-language gains a segment-aware, org-root-relative source-path predicate (a third orthogonal axis beside #tag / is: / due: / todo: — NO rescan, no new scan slot, no cache bump)
-#+state: ready
+#+state: complete
 #+tags: board filter mini-language location scope ux
 
 * Summary
@@ -751,3 +751,4 @@ ERT seams; segment/relative rulings flagged for confirmation.
 
 * History
 - 2026-07-24: State: draft → ready.
+- 2026-07-24: State: ready → complete.

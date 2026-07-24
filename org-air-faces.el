@@ -364,8 +364,16 @@ path runs ZERO org-air Lisp; the highlight is pure redisplay)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-done
-  '((t :inherit org-air-face-faded))
-  "Face for a DONE keyword and completed items."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#2E7D32"))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#A3BE8C"))
+    (t (:inherit success)))
+  "Face for a DONE keyword and completed items \N{EM DASH} a calm green (R81).
+Matches `org-air-face-air-state-complete' so a completed keyword badge
+(COMP/DONE) reads green like the Complete Air state, distinct from a
+DROPPED terracotta and a faded draft.  The exact hex is GUI-confirm-only;
+the TTY tier inherits `success'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-dropped
@@ -802,8 +810,15 @@ bold; just enough presence to separate keys from prose."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-ready
-  '((t :inherit org-air-face-popout :weight bold))
-  "Air doc state badge: Ready (🎯) — popout (actionable)."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#BF6000" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#EBA05A" :weight bold))
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Air doc state badge: Ready (🎯) \N{EM DASH} a bright orange, actionable (R81).
+Pushed toward a brighter orange so READY reads clearly distinct from the
+OUT state's darker red.  The exact hex is GUI-confirm-only; the TTY tier
+inherits `org-air-face-popout'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-wip
@@ -832,17 +847,21 @@ two can be customised independently."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-out
-  '((t :inherit org-air-face-dropped))
-  "Air doc state badge: Out (\N{OUTBOX TRAY}) \N{EM DASH} matches the DROPPED colour (R80.1).
-First-class, STANDING OUT (NOT `org-air-face-faded'): out is a
-parked/inactive Air state that reads like a dropped outcome, so per the
-user's request its chip/badge takes the SAME terracotta as a dropped
-keyword (`org-air-face-dropped') rather than a bright teal.  A single
-source shared by the project STATE chip (`org-air-project--state-face')
-and the heading KEYWORD badge (the OUT entry of
-`org-air-todo-keyword-faces'), so the two surfaces never drift.  The exact
-hex is GUI-confirm-only; the TTY tier follows `org-air-face-dropped'
-\(degrades to `org-air-face-faded')."
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#8B2020" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#C0505A" :weight bold))
+    (t (:inherit org-air-face-dropped :weight bold)))
+  "Air doc state badge: Out (\N{OUTBOX TRAY}) \N{EM DASH} a darker red, first-class (R81).
+Out is a parked/inactive Air state.  R80.1 matched it to the DROPPED
+terracotta, but READY read too close, so R81 pushes OUT toward a darker
+red \N{EM DASH} distinct from READY's brighter orange and from DROPPED's
+terracotta, while staying in the warm ``retired'' family (NOT
+`org-air-face-faded').  A single source shared by the project STATE chip
+\(`org-air-project--state-face') and the heading KEYWORD badge (the OUT
+entry of `org-air-todo-keyword-faces'), so the two surfaces never drift.
+The exact hex is GUI-confirm-only; the TTY tier inherits
+`org-air-face-dropped'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-off

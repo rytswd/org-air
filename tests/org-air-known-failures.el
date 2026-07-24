@@ -2978,15 +2978,29 @@
     ;; The one golden that SHIFTS is the review byte-mockup: every review
     ;; item row gains a 2-col left inset (the `square priority slot on
     ;; every row — `■ ' for a priority row, two blanks otherwise) — the
-    ;; user-requested "same as other panes".  DO NOT hand-bless: the test
-    ;; seat regenerates `tests/fixtures/review-mockup-170.txt' (make
-    ;; regen-mockups) and DELETES this entry on the re-bless.
-    (org-air-r63-12-review-mockup-golden
-     . "R84 D1: review item rows now carry the SAME priority pill as the \
-board/day panes (shared `org-air-view--priority-cell'), a 2-col left \
-inset in the default `square style. `review-mockup-170.txt' shifts by \
-that inset (board goldens byte-identical, r84-2). Test seat re-blesses \
-the fixture; delete this entry then.")
+    ;; user-requested "same as other panes".
+    ;;
+    ;; 2026-07-24: ROUND-84 CLOSEOUT (impl tip qxrzsouz + test re-bless
+    ;; <this commit>).  The single grind entry CLOSED —
+    ;; `tests/fixtures/review-mockup-170.txt' regenerated from impl's
+    ;; render via the FROZEN-CLOCK renderer (make regen-mockups, guards
+    ;; active; verified NO HANG, exit 0).  jj diff --stat = ONLY that one
+    ;; review golden: the four review ITEM rows (Completed×2 / Started /
+    ;; Carried over) each gained a 2-col left inset (two blanks — no
+    ;; fixture item carries a priority, so the `square slot is the empty
+    ;; 2-col pad); the agg (Time invested) + note (⚠ suspect / ⚠ trunc)
+    ;; rows KEEP the bare margin (no item, no priority column) and the
+    ;; right date/tags/origin cluster stays column-locked.  EVERY board /
+    ;; project / entry-view / denote golden is BYTE-IDENTICAL — proving
+    ;; D1 is a pure extraction (`org-air-view--priority-cell' from the
+    ;; `--insert-item' inline branch; r84-2) and D2 is INERT on the
+    ;; existing fixtures (no committed heading closes as a cancelled
+    ;; keyword in-period, so the conditional Dropped section / Summary row
+    ;; never appears).  org-air-r63-12-review-mockup-golden now PASSES on
+    ;; the re-blessed fixture — entry deleted.  The 14 R84 seams
+    ;; (tests/org-air-round84-test.el) are permanent regression guards.
+    ;; Round-84 manifest is EMPTY.
+    ;; (test-symbol . "reason / spec reference")  — none right now.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

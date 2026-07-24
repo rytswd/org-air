@@ -47,6 +47,17 @@
 ;; RENDERED cell).  The retired rule-B seams (r85-5/6/11/12, which pinned
 ;; "a deadline/scheduled today/tomorrow KEEPS its slot face") are GONE —
 ;; R87 rule A reverses that ruling; see org-air-round87-test.el r87-1..4.
+;;
+;; R88 RE-BLESS: R88 turns the two-level today/tomorrow highlight into a
+;; five-level PROXIMITY HEAT-RAMP — it adds a this-week AMBER band
+;; `org-air-face-day-week' for delta 2..6 and recolours the two day faces
+;; (teal->orange today, rose->the today<->week blend tomorrow); see
+;; org-air-round88-test.el.  Two seams here are re-blessed to the ramp:
+;; r85-1 (the helper now maps 0->today / 1->tomorrow / 2..6->day-week /
+;; else nil) and r85-7 (a +3d neutral date now -> `org-air-face-day-week',
+;; was `org-air-face-date').  r85-2/3/4/8/9/10/13/14 are SYMBOL- or
+;; byte-level and stand verbatim (the day faces are recoloured, not
+;; renamed; day-today/day-tomorrow stay distinct).
 
 ;;; Code:
 
@@ -99,10 +110,14 @@ as the epoch float the scan would have cached (R53 P3)."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r85-1-helper-maps-two-deltas ()
-  "`org-air-view--day-relative-face' returns the today face for a time on
-the frozen now's day, the tomorrow face for the next day, and NIL for +2
-and for yesterday (-1).  Reverting the helper (or its delta keying)
-FAILS."
+  "R88 RE-BLESS: `org-air-view--day-relative-face' now maps the FIVE-level
+proximity heat-ramp — the today face for delta 0, the tomorrow face for
+delta 1, `org-air-face-day-week' for the this-week band 2..6, and NIL
+for a PAST date (-1) and for BEYOND a week (delta >= 7).  R85 shipped
+only {0->today, 1->tomorrow, else nil}; R88 widened the helper to
+{0, 1, 2..6, else nil} (the +2 case that R85 pinned to nil is now the
+amber this-week bucket).  Reverting the helper, its delta keying OR the
+this-week band FAILS."
   (skip-unless (and (locate-library "org-air")
                     (fboundp 'org-air-view--day-relative-face)))
   (let ((now org-air-test-now))
@@ -112,8 +127,18 @@ FAILS."
     (should (eq (org-air-view--day-relative-face
                  (org-air-r85--epoch 1) now)
                 'org-air-face-day-tomorrow))
+    ;; R88: the this-week band 2..6 now maps to the amber day-week face
+    ;; (delta +2 was nil under R85 — this is THE r85-1 re-bless).
+    (should (eq (org-air-view--day-relative-face
+                 (org-air-r85--epoch 2) now)
+                'org-air-face-day-week))
+    (should (eq (org-air-view--day-relative-face
+                 (org-air-r85--epoch 6) now)
+                'org-air-face-day-week))
+    ;; boundary "a week = 7": delta 7 is the FIRST beyond day -> nil.
     (should-not (org-air-view--day-relative-face
-                 (org-air-r85--epoch 2) now))
+                 (org-air-r85--epoch 7) now))
+    ;; a PAST date stays nil (the OVERDUE arm owns the red, not this helper).
     (should-not (org-air-view--day-relative-face
                  (org-air-r85--epoch -1) now))
     ;; keyed on the SAME delta as `--human-date' — label & face agree.
@@ -198,9 +223,14 @@ the D3 notes-arm rewire (back to `org-air-face-date') FAILS."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r85-7-non-relative-neutral-unchanged ()
-  "A `notes' item with `activity' three days out → `(cons \"Thu\"
-'org-air-face-date)' — the neutral face, byte-identical to pre-R85.
-Over-applying the day face (delta ∉ {0,1}) FAILS."
+  "R88 RE-BLESS: a `notes' item with `activity' three days out (delta 3)
+now → `(cons \"Thu\" 'org-air-face-day-week)' — the this-week AMBER
+bucket of the R88 proximity ramp.  Under R85 a +3d neutral date kept the
+muted `org-air-face-date' (no this-week band existed); R88 gives delta
+2..6 the amber day-week face.  The LABEL bytes are UNCHANGED (\"Thu\") —
+this is a face-only ramp, and delta 3 is neither today nor tomorrow.
+Reverting the this-week band (delta 3 back to the neutral slot face)
+FAILS."
   (skip-unless (and (locate-library "org-air")
                     (fboundp 'org-air-view--date-label)))
   (org-air-r85--frozen
@@ -209,7 +239,7 @@ Over-applying the day face (delta ∉ {0,1}) FAILS."
                   (org-air-r85--note :activity 3) 'notes)))
       ;; Mon 2026-06-15 + 3d = Thu 2026-06-18 (weekday label, delta 3).
       (should (equal label "Thu"))
-      (should (eq face 'org-air-face-date))
+      (should (eq face 'org-air-face-day-week))
       (should-not (memq face '(org-air-face-day-today
                                org-air-face-day-tomorrow))))))
 

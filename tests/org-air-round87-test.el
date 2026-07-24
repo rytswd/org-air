@@ -65,6 +65,19 @@
 ;;   r87-15 proves the day face survives the PILL-style painter path too
 ;;     (`org-air-date-style 'pill'), not just the plain-text one — the
 ;;     colour source the svg pill reads.
+;;
+;; R88 RE-BLESS: R88 turns the two-level today/tomorrow highlight into a
+;; five-level PROXIMITY HEAT-RAMP (adds a this-week AMBER band
+;; `org-air-face-day-week' for delta 2..6; see org-air-round88-test.el).
+;; Two seams here are re-blessed to the ramp:
+;;   r87-7  "delta>=2 keeps slot face" SPLITS at the week boundary — delta
+;;     3 now -> `org-air-face-day-week' (amber), delta 7 (BEYOND, "a week
+;;     = 7") still -> its slot face.
+;;   r87-10 the delta-3 sub-line of the notes-arm guard now ->
+;;     `org-air-face-day-week' (its today/tomorrow half is UNCHANGED).
+;; r87-1..6/8..9/11..15 are SYMBOL-only (today->day-today,
+;; tomorrow->day-tomorrow, overdue->overdue) and stand verbatim under R88
+;; (the day faces are RECOLOURED, not renamed).
 
 ;;; Code:
 
@@ -261,29 +274,42 @@ Leaking a day face onto the overdue arm (delta<0) FAILS."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r87-7-delta-ge2-keeps-slot-face ()
-  "A deadline 3 days out → `(cons \"Thu\" 'org-air-face-deadline)'; a
-scheduled 3 days out → `(cons \"Thu\" 'org-air-face-scheduled)' — both
-keep their slot face (the helper returns nil for delta 3, so the
-`(or … 'org-air-face-SLOT)' falls back).  Over-applying the day face
-beyond delta 0/1 FAILS."
+  "R88 RE-BLESS / SPLIT: R88's ramp inserts a this-week band, so the old
+\"delta>=2 keeps its slot face\" no longer holds across the board — it
+SPLITS at the week boundary.  A deadline/scheduled 3 days out (delta 3,
+this week) now → `org-air-face-day-week' (the AMBER bucket); a
+deadline/scheduled a WEEK OR MORE out (delta 7, the FIRST beyond day —
+\"a week = 7\") STILL falls back to its slot face
+(`org-air-face-deadline' / `-scheduled').  The label bytes are
+unchanged.  An off-by-one band, collapsing the this-week bucket, OR
+over-applying the ramp past the week FAILS."
   (skip-unless (and (locate-library "org-air")
                     (fboundp 'org-air-view--date-label)))
   (org-air-r87--frozen
-    ;; Mon 2026-06-15 + 3d = Thu 2026-06-18 (weekday label, delta 3).
+    ;; delta 3 (THIS WEEK): Mon 2026-06-15 + 3d = Thu -> amber day-week.
     (pcase-let ((`(,dl . ,dface)
                  (org-air-view--date-label
                   (org-air-r87--dated :deadline 3) 'notes)))
       (should (equal dl "Thu"))
-      (should (eq dface 'org-air-face-deadline))
+      (should (eq dface 'org-air-face-day-week))
       (should-not (memq dface '(org-air-face-day-today
                                 org-air-face-day-tomorrow))))
     (pcase-let ((`(,sl . ,sface)
                  (org-air-view--date-label
                   (org-air-r87--dated :scheduled 3) 'notes)))
       (should (equal sl "Thu"))
-      (should (eq sface 'org-air-face-scheduled))
+      (should (eq sface 'org-air-face-day-week))
       (should-not (memq sface '(org-air-face-day-today
-                                org-air-face-day-tomorrow))))))
+                                org-air-face-day-tomorrow))))
+    ;; delta 7 (BEYOND a week): the slot face is UNCHANGED (the ramp's
+    ;; helper returns nil for delta >= 7, so `(or … 'org-air-face-SLOT)'
+    ;; falls back exactly as pre-R88).
+    (should (eq (cdr (org-air-view--date-label
+                      (org-air-r87--dated :deadline 7) 'notes))
+                'org-air-face-deadline))
+    (should (eq (cdr (org-air-view--date-label
+                      (org-air-r87--dated :scheduled 7) 'notes))
+                'org-air-face-scheduled))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r87-8 (distinct on the slot arms) — today != tomorrow face
@@ -347,12 +373,15 @@ stubbed to nil): the label bytes are IDENTICAL.  Any label-byte drift
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r87-10-notes-arm-unchanged ()
-  "Rule (A) ADDS the slot arms, it does not disturb the neutral `notes'
-arm R85 wired: a neutral note with `activity' = today still →
+  "R88 RE-BLESS (delta-3 line only): the neutral `notes' arm still carries
+the day faces R85 wired — a note with `activity' = today →
 `(cons \"Today\" 'org-air-face-day-today)', tomorrow →
-`(cons \"Tomorrow\" 'org-air-face-day-tomorrow)' (the R85 r85-3 behaviour
-intact).  A three-days-out note keeps `org-air-face-date'.  Disturbing
-the notes arm FAILS."
+`(cons \"Tomorrow\" 'org-air-face-day-tomorrow)' (the today/tomorrow half
+is UNCHANGED).  The three-days-out sub-assertion now RAMPS: a delta-3
+note takes `org-air-face-day-week' (the R88 this-week AMBER band; was
+`org-air-face-date' under R85/R87 — the notes arm reads the SAME widened
+helper as the slot arms).  Disturbing the notes arm's today/tomorrow
+faces, or dropping the this-week band, FAILS."
   (skip-unless (and (locate-library "org-air")
                     (fboundp 'org-air-view--date-label)))
   (org-air-r87--frozen
@@ -364,7 +393,7 @@ the notes arm FAILS."
                    (cons "Tomorrow" 'org-air-face-day-tomorrow)))
     (should (eq (cdr (org-air-view--date-label
                       (org-air-r87--note :activity 3) 'notes))
-                'org-air-face-date))))
+                'org-air-face-day-week))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r87-11 (STRENGTHEN) — the SCHEDULED cell reaches the painter too

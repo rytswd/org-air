@@ -1,0 +1,691 @@
+#+title: org-air Round 86 — a LOCATION filter token `path:tasks/re/air': the `/' mini-language gains a segment-aware, org-root-relative source-path predicate (a third orthogonal axis beside #tag / is: / due: / todo: — NO rescan, no new scan slot, no cache bump)
+#+state: ready
+#+tags: board filter mini-language location scope ux
+
+* Summary
+
+USER ASK (verbatim):
+
+#+begin_quote
+all the tasks, even if it's under a clear directory structure of
+tasks/re/air or similar, will need to have the tags, so that I can
+correctly filter and view all the related items in the dashboard?  Or is
+there some other control to only see some tasks under certain files only?
+#+end_quote
+
+The dashboard filter is *tag-and-date driven*: the =/= mini-language
+(=org-air-view--filter-token-parse= / =-token-match-p=, org-air-view.el
+~2168-2377) speaks =#tag= (R69 chips), =is:= / =due:= / =scheduled:= /
+=deadline:= (R72), =todo:= / =is:done= (R79) and =is:backlog= (R83) — but
+it has NO way to scope by *where an item lives*.  So the answer to the
+user's question, today, is "yes — an item must carry a tag to be
+filterable"; the DIRECTORY it sits under (=tasks/re/air=) is invisible to
+the lens even though the board already knows it (every item carries its
+source file in =org-air-item-file=).
+
+R86 adds the missing axis: a =path:VALUE= filter token — e.g.
+=path:tasks/re/air= — that shows ONLY items whose *source file path*
+matches, composable with every existing axis under the same =M-/= AND/OR
+fold.  The user no longer has to tag a directory-structured task to see it
+in isolation; they scope by location directly.  This is a pure VIEW
+predicate over a slot the item *already carries*: org/org-ql only, no new
+engine, no rescan, no scan slot, no cache-version bump (R53).
+
+Three work packages, all reusing the R72/R79/R83 shared grammar:
+
+- *R86-1 (the token + the matcher)* — a =path:VALUE= token added to the
+  closed =org-air-view--filter-token-parse= grammar → =(path . VALUE)=,
+  matched by a new =org-air-view--filter-path-token-match-p= that tests
+  VALUE against the item's =org-air-item-file= made RELATIVE to its
+  =org-air-files= source root, *SEGMENT-aware* (whole path components, not
+  substring — =path:re= hits =…/tasks/re/…= but NOT =…/restore.org=),
+  case-insensitive.  A THIRD orthogonal axis routed in the top-level
+  =pcase= of =-token-match-p= beside the R79 keyword axis — NO
+  board-active / task-routed gate (a location is orthogonal to planning
+  state: a DONE note under =tasks/re= still lives under =tasks/re=).
+- *R86-2 (compose + completion + surfaces)* — =path:= conjoins/disjoins
+  under =M-/= with =#tag= / =is:= / =due:= / =todo:= / =is:backlog=
+  exactly like every other token (the untouched AND/OR fold), is offered
+  in =/= completion as =path:SEG= for each distinct DIRECTORY segment
+  across the loaded files, and — because it flows through the shared
+  =org-air-view--tokens-pass-filter-p= — applies to the board, the day
+  view (R6) and the review view (R63) for free.
+- *R86-3 (orthogonality ledger)* — =path:= is a LIVE view filter
+  (toggleable, composable), distinct from =org-air-files= (Source — the
+  loaded SET) and =org-air-exclude-regexps= (R60 — names pruned from the
+  set at enumeration) and from the structural =⌂ file= Scope (R19-4d).
+  Clarified below: Source defines the universe, exclude subtracts it
+  permanently, =path:= is a transient lens on what did load.
+
+SPEC ONLY: no =.el= or test edits in this change.
+
+* Decision (stated first — the two flagged rulings)
+
+Two choices carry the design; both are stated up front and are the
+"flagged" decisions for confirmation.
+
+** Decision A — match semantics: SEGMENT-aware, not substring
+
+*VALUE matches a contiguous run of WHOLE path components.*  =path:re=
+matches an item under =…/tasks/re/air/foo.org= (the component =re=) but
+NOT one under =…/tasks/restore.org= (=restore.org= is a different
+component) and NOT =…/rest/…= (=rest= ≠ =re=).  A multi-segment value
+=path:tasks/re= matches iff =tasks= is IMMEDIATELY followed by =re= in the
+path (so a sibling =tasks/restore/…= is excluded — =tasks= there is
+followed by =restore=, not =re=).
+
+*Why segment, not substring:*
+
+1. *Least surprise.*  A substring rule makes =path:re= silently hit
+   =restore.org=, =research/=, =metadata/= — a location filter that leaks
+   into unrelated names is worse than useless, it's a trap.  The user
+   thinks in *directories* (=tasks/re/air=); the predicate should honour
+   directory boundaries.
+2. *It is the ONLY thing the bare-substring token cannot already do.*  A
+   bare =/= token already substring-matches the item's *origin text*
+   (title + =org-air-view--origin=), but that origin is the filename LEAF
+   only (org-air-view.el:2129 — a Denote title or =foo.org=), never the
+   directory path.  So =path:= is not a re-skin of substring; it adds the
+   one lens the substring token structurally lacks — the DIRECTORY run.
+3. *The requirement is explicit* (the brief): =path:re= must exclude a
+   sibling =tasks/restore=.  Segment-aware delivers it by construction;
+   substring cannot.
+
+A single filename IS itself a path component, so =path:foo.org= (the whole
+leaf, extension included) still targets one file — but =path:foo= does NOT
+match =foo.org= (a partial component).  That is deliberate and consistent:
+components are whole-or-nothing.
+
+** Decision B — match target: org-root-RELATIVE, absolute fallback
+
+*VALUE is matched against the item's file path made RELATIVE to its
+=org-air-files= source root* (relative to the source's PARENT directory,
+so the root's own basename survives as the first segment); an item under
+no configured source falls back to its ABSOLUTE path.
+
+Worked example — =org-air-files= = ='("~/org")=, an item's truename
+=/home/ryota/org/tasks/re/air/foo.org=:
+
+- source =~/org= → expanded =/home/ryota/org=, its parent =/home/ryota/=;
+- relative = =org/tasks/re/air/foo.org= (the machine-specific
+  =/home/ryota= prefix is dropped, the root basename =org= is KEPT);
+- path components offered/matched: =org=, =tasks=, =re=, =air=, and the
+  leaf =foo.org=.
+
+So the user types =path:tasks/re/air= (their mental model) and it matches;
+=path:org/tasks= also matches (the root basename is typeable too); and the
+=/home/ryota= prefix — which they would never type and which no completion
+offers — can never be accidentally matched.
+
+*Why relative (root's parent), not absolute and not root-stripped:*
+
+1. *Nicer + portable.*  The user thinks =tasks/re/air=, not
+   =/home/ryota/Coding/…/org/tasks/re/air=.  Relative reads how they think
+   and doesn't hard-code an absolute machine prefix into a filter that may
+   be shared/reused.
+2. *Safer.*  Because the match is a contiguous-sublist test *anywhere* in
+   the target, dropping the machine prefix removes exactly the segments a
+   user would never scope by (=home=, their username) — so relative is not
+   only nicer, it eliminates a class of accidental matches that absolute
+   would admit.
+3. *Keep the root BASENAME (relative to the source's PARENT), don't strip
+   the whole root.*  Keeping =org= as a typeable first segment is strictly
+   more permissive and harmless: the user's =path:tasks/re= still matches
+   (contiguous-sublist-anywhere), and =path:org= additionally works for
+   "everything under this root".  Stripping the root basename would only
+   remove expressiveness.
+4. *Absolute fallback is never a dead end.*  An item outside every
+   configured source (a stray absolute file) still matches by its absolute
+   segments (=path:tasks/re= is a sublist of the absolute path too) — the
+   relative rule *narrows the noise*, it never *loses* a real match.
+
+*Nested-source tie-break:* when several =org-air-files= sources contain
+the file (e.g. both =~/org= and =~/org/tasks= are listed), the SHALLOWEST
+source wins (fewest path components → its parent is highest → the relative
+path keeps the MOST segments), so every real segment under the user's tree
+stays typeable.  This is a rare configuration; the ruling is stated for
+determinism, not because it changes the common case.
+
+*These two rulings (A segment-aware, B org-root-relative) are the flagged
+decisions.*  If the user prefers substring or absolute, each is a
+one-predicate swap — the spec isolates both behind a single helper
+(=org-air-view--path-relative= and =org-air-view--path-run-match-p=) so a
+pivot never ripples.
+
+** Decision C — one token, NO `dir:` / `file:` alias
+
+The token is =path:= alone.  A =dir:= alias buys nothing: segment-aware
+matching already scopes "under a directory" (directory segments) AND "a
+specific file" (a filename is a whole segment, =path:foo.org=).  A =file:=
+alias would additionally *collide* with the existing structural =⌂ file=
+Scope (R19-4d), which already targets a single file by basename with
+require-match completion — a different, complementary control (§R86-3).
+One token, one axis: restraint over surface.
+
+* Investigation
+
+** Where a filter token is parsed, matched and offered — the shared seam
+
+=org-air-view--filter-token-parse= (org-air-view.el:2168) is the ONE
+parser of the closed =qualifier:value= grammar; it already returns
+=(is . SYM)=, =(SLOT . DAYS)=, =(status . done)= and =(todo . NAME)= and
+falls through to nil (⇒ =#tag= / bare-substring) for anything unknown.
+The matcher =org-air-view--filter-token-match-p= (org-air-view.el:2329)
+dispatches: the =#= branch FIRST (tags can never be stolen), then
+=if parsed= into a =pcase= over the two existing axes (keyword axis via
+=--filter-keyword-token-match-p=, date axis via
+=--filter-date-token-match-p=), else the bare-substring rule.  The
+completion offer is assembled by =org-air-view--filter-vocabulary=
+(org-air-view.el:2287).  The whole fold is driven by
+=org-air-view--tokens-pass-filter-p= (org-air-view.el:2358) under the
+=org-air-filter-match= AND/OR combinator — SHARED by the board
+(=--passes-filter-p=, org-air-view.el:2390), the review view
+(=org-air-review--visible-items=, org-air-review.el:801, ITEM threaded)
+and the project/revisit surfaces (which pass ITEM=nil — a slot-reading
+token is vacuously false there, R72 Decision 8).
+
+So a new token is a *localised* extension: one parse arm, one predicate,
+one =pcase= clause, one completion line — every surface inherits it.
+
+** The item already knows its path — no scan work needed
+
+=org-air-item-file= (org-air-query.el:223, the struct's =file= slot) holds
+the item's source file path, set at scan time (org-air-query.el:1337) — it
+is the item's very IDENTITY, present on every board/day/review record.
+The path token reads THAT slot plus =org-air-files= (a knob) and does pure
+string arithmetic — zero file opens, zero re-query.  There is nothing to
+scan, no slot to add, no cache input to grow (=org-air-files= is ALREADY
+an element of =org-air-view--cache-key=, org-air-view.el:832; the item's
+file is already cached).  This is the R53 "data-pure render" property: a
+filter flip repaints, never rescans.
+
+** Why the origin text can't already do this
+
+=org-air-view--passes-filter-p= passes =(concat title " " (--origin item))=
+as the bare-substring TEXT.  =--origin= (org-air-view.el:2129) returns the
+filename LEAF (or a Denote/org title) — NEVER the directory path.  So a
+bare token can match =foo= in =foo.org= but can NEVER express "under
+=tasks/re=".  =path:= fills exactly this gap; it is additive, not
+redundant.
+
+** The axis is orthogonal to planning state (gate-free, like R79)
+
+The date/status tokens conjoin the buckets' gates (=board-active-p= ∧
+=task-routed-p=) so the filter agrees with the buckets by construction
+(R72 Decision 3).  The R79 keyword axis deliberately does NOT (it must
+select DONE items — the day pane's staple).  =path:= is like R79: a
+LOCATION is orthogonal to whether an item is done, archived, a note or a
+task — a completed note under =tasks/re= is STILL under =tasks/re=.  So
+=path:= is routed in the top-level =pcase= of =-token-match-p= (beside the
+keyword axis), NOT inside =--filter-date-token-match-p=; it carries no
+board-active / task-routed gate.  (Composed under =all= with =is:overdue=,
+the OVERDUE token still supplies its own gate — the AND is honest.)
+
+* Proposal
+
+** D1 — the token grammar: `path:VALUE` → `(path . VALUE)`
+
+Add one arm to =org-air-view--filter-token-parse= (org-air-view.el:2168),
+inside the existing =case-fold-search t= =cond= (so =PATH:Foo= parses
+too), beside the =todo:= arm — order-independent, the prefixes are
+disjoint:
+
+#+begin_example
+;; R86 LOCATION axis: `path:VALUE' — VALUE is a `/'-joined run of whole
+;; path components, matched SEGMENT-aware and org-root-RELATIVE at match
+;; time (`org-air-view--filter-path-token-match-p').  Kept as the RAW
+;; VALUE atom here so the token prints back verbatim in the lens
+;; (`org-air-view--filter-token-label'); the split/relativise is deferred
+;; to the matcher.  A `#'-prefixed token is already refused above, so a
+;; literal `#path:x' tag is a tag forever.
+((string-match "\\`path:\\(.+\\)\\'" token)
+ (cons 'path (match-string 1 token)))
+#+end_example
+
+An empty value (=path:= alone) does NOT parse (=\\(.+\\)= requires ≥1
+char) → falls through to bare-substring VERBATIM (never-error; the
+quoting in the lens is the tell, R72 Decision 5 — a bare =path:= reads
+=\"path:\"=).
+
+** D2 — the segment-aware, root-relative predicate (three pure helpers)
+
+*(a) =org-air-view--path-segments= — split to whole components.*
+
+#+begin_example
+(defun org-air-view--path-segments (path)
+  "Split PATH into a list of lower-cased, non-empty path components (R86).
+`/'-delimited; empty runs (leading `/', `//', a trailing `/') are
+dropped.  Lower-cased so `path:' matching is case-insensitive
+(`org-air-view--filter-token-match-p's throughout-rule).  Pure string
+work — no file access."
+  (when path (split-string (downcase path) "/" t)))
+#+end_example
+
+*(b) =org-air-view--path-run-match-p= — contiguous sublist test.*
+
+#+begin_example
+(defun org-air-view--path-run-match-p (needle haystack)
+  "Non-nil when the NEEDLE component list is a CONTIGUOUS run in HAYSTACK (R86).
+Both are `org-air-view--path-segments' outputs (already lower-cased).
+Segment-aware, not substring: NEEDLE `(\"re\")' matches HAYSTACK
+`(… \"tasks\" \"re\" \"air\" …)' but NOT `(… \"tasks\" \"restore.org\")';
+NEEDLE `(\"tasks\" \"re\")' matches only where `tasks' is IMMEDIATELY
+followed by `re'.  An empty NEEDLE never matches (an empty `path:' does
+not parse — D1).  Pure list work."
+  (and needle
+       (let ((n (length needle)) (hit nil) (tail haystack))
+         (while (and tail (not hit))
+           (when (and (>= (length tail) n)
+                      (equal needle (seq-take tail n)))
+             (setq hit t))
+           (setq tail (cdr tail)))
+         hit)))
+#+end_example
+
+*(c) =org-air-view--path-relative= — Decision B (root's-parent-relative).*
+
+#+begin_example
+(defun org-air-view--path-relative (file)
+  "Return FILE relative to its `org-air-files' source root, else absolute (R86).
+Decision B: FILE is made relative to the PARENT of the SHALLOWEST
+`org-air-files' source that contains it, so the source's own basename
+survives as the first segment (`~/org' + `…/org/tasks/re/foo.org' =>
+`org/tasks/re/foo.org') while the machine-specific prefix above the root
+is dropped.  A FILE under no configured source is returned ABSOLUTE (still
+segment-matchable).  Reads `org-air-files' LIVE at match time; pure
+`expand-file-name' string arithmetic — NO disk access (the item's file is
+already the scan's truename; sources are `expand-file-name'd, not
+truenamed, to stay I/O-free — a symlinked source degrades to the absolute
+branch, still matchable)."
+  (let* ((exp (expand-file-name (or file "")))
+         (best nil) (best-depth nil))
+    (dolist (src (and (boundp 'org-air-files) org-air-files))
+      (let ((sx (directory-file-name (expand-file-name src))))
+        (when (or (equal sx exp)
+                  (string-prefix-p (file-name-as-directory sx) exp))
+          (let ((depth (length (split-string sx "/" t))))
+            (when (or (null best-depth) (< depth best-depth))
+              (setq best sx best-depth depth))))))
+    (if best
+        (file-relative-name exp (file-name-directory (directory-file-name best)))
+      exp)))
+#+end_example
+
+*(d) =org-air-view--filter-path-token-match-p= — the token predicate.*
+
+#+begin_example
+(defun org-air-view--filter-path-token-match-p (value item)
+  "Non-nil when ITEM's source path matches the `path:' VALUE (R86).
+VALUE is the raw `(path . VALUE)' payload; ITEM's `org-air-item-file' is
+made root-RELATIVE (`org-air-view--path-relative', Decision B) and
+SEGMENT-matched against VALUE's component run
+(`org-air-view--path-run-match-p', Decision A).  Vacuously FALSE when
+ITEM carries no file (empty project/revisit records) — like the R72/R79
+slot tokens.  Reads a cached slot + `org-air-files'; NO file access, NO
+board-active/task-routed gate (a LOCATION is orthogonal to planning
+state — a DONE note under `tasks/re' still lives there)."
+  (when-let* ((file (org-air-item-file item)))
+    (org-air-view--path-run-match-p
+     (org-air-view--path-segments value)
+     (org-air-view--path-segments (org-air-view--path-relative file)))))
+#+end_example
+
+** D3 — wire the axis into the matcher (top-level, beside the keyword axis)
+
+In =org-air-view--filter-token-match-p= (org-air-view.el:2349) the parsed
+=pcase= gains a =path= clause ALONGSIDE the keyword axis (NOT inside the
+date matcher — D-Investigation: it is gate-free):
+
+#+begin_example
+(if-let* ((parsed (org-air-view--filter-token-parse token)))
+    (and item
+         (pcase parsed
+           ;; R79 keyword axis (gate-free): item's own keyword/done slot.
+           ((or `(todo . ,_) `(status . done))
+            (org-air-view--filter-keyword-token-match-p parsed item))
+           ;; R86 LOCATION axis (gate-free): item's source path.
+           (`(path . ,value)
+            (org-air-view--filter-path-token-match-p value item))
+           ;; R72 date/status axis: the bucket predicate under one NOW.
+           (_ (org-air-view--filter-date-token-match-p
+               parsed item (or org-air-view--filter-now (current-time))))))
+  …bare-substring rule unchanged…)
+#+end_example
+
+The =and item= guard already present makes =path:= vacuously false when no
+ITEM is threaded (project/revisit) — R72 Decision 8, extended to the
+location axis for free.  The =#= branch stays FIRST (a =#path:x= tag is
+never stolen).  The bare-substring fallback is untouched (an unparsable
+near-miss like =path:= still substring-matches).
+
+** D4 — completion offer: `path:SEG` per distinct DIRECTORY segment
+
+Add to =org-air-view--filter-vocabulary= (org-air-view.el:2287) a
+=path:SEG= for each distinct DIRECTORY segment across the loaded items'
+root-relative paths (the LEAF filename dropped — the user scopes by
+directory), via a small helper:
+
+#+begin_example
+(defun org-air-view--filter-path-segments ()
+  "Return the distinct DIRECTORY segments across the loaded items (R86).
+For each `org-air-view--items' file, `org-air-view--path-relative' then
+`org-air-view--path-segments' MINUS the leaf filename (`butlast'); the
+union, case-insensitively de-duplicated (first-seen spelling kept) and
+sorted for a deterministic `/' completion + byte-stable ordering.  Pure
+over cached slots; no file access.  The completion teaches the axis by
+the user's OWN directory names (`tasks', `re', `air', …); deeper
+multi-segment values (`path:tasks/re') are typed freely (the prompt is
+not require-match)."
+  (let ((seen (make-hash-table :test #'equal)) (out nil))
+    (dolist (item org-air-view--items)
+      (when-let* ((file (org-air-item-file item)))
+        (dolist (seg (butlast (org-air-view--path-segments
+                               (org-air-view--path-relative file))))
+          (unless (gethash seg seen)
+            (puthash seg t seen)
+            (push seg out)))))
+    (sort out #'string<)))
+#+end_example
+
+and append it in =--filter-vocabulary=:
+
+#+begin_example
+(append
+ (mapcar (lambda (v) (concat "is:" v)) org-air-view--filter-is-values)
+ (mapcar (lambda (q) (format "%s:%dd" q org-air-upcoming-days)) '("due" "scheduled" "deadline"))
+ (list "is:done")
+ (mapcar (lambda (kw) (concat "todo:" kw)) (org-air-view--scan-keyword-names))
+ (mapcar (lambda (seg) (concat "path:" seg)) (org-air-view--filter-path-segments)))  ; ← R86
+#+end_example
+
+Segments are already lower-cased by =--path-segments=, matching the
+case-insensitive predicate; the =sort= keeps the completion list and any
+golden that captures it byte-stable.
+
+** D5 — the lens label is verbatim (already correct, noted for completeness)
+
+=org-air-view--filter-token-label= (org-air-view.el:2305) already renders
+any token that PARSES verbatim-unquoted (like =#tag= / =is:overdue=): a
+=path:tasks/re= reads =path:tasks/re= in the rail/banner/mode-line, while
+an unparsed near-miss (=path:= empty) keeps its quotes (=\"path:\"=) — the
+quoting is the tell.  No change needed; the D1 parse arm makes =path:=
+tokens print clean automatically.
+
+* R86-3 — orthogonality ledger (path: vs Source vs exclude vs Scope)
+
+| control                         | what it is                          | when it acts     | reversible? |
+|---------------------------------+-------------------------------------+------------------+-------------|
+| =org-air-files= (Source)        | the loaded SET (files/dirs scanned) | enumeration/scan | config edit |
+| =org-air-exclude-regexps= (R60) | names PRUNED from the set by regexp  | enumeration/scan | config edit |
+| =⌂ file= Scope (R19-4d)         | structural lens: ONE file by leaf    | live view        | =s= / clear |
+| *=path:= (R86)*                 | *live FILTER: a directory subtree*   | *live view*      | *toggle/=/=*|
+
+- *Source is the universe.*  =org-air-files= decides what EXISTS as an
+  item.  Add/remove a source and the item set changes; =path:= can only
+  ever filter items that Source already loaded — it can NEVER surface a
+  file Source didn't scan.
+- *exclude subtracts permanently.*  =org-air-exclude-regexps= (R60) prunes
+  matching files/dirs at enumeration (org-air-query.el:382) — they are
+  never scanned, never items.  A file excluded by R60 is invisible to
+  =path:= by construction (there is no item).  =path:= is the LIVE,
+  toggleable lens on what DID load; exclude is the loaded-set definition.
+  Orthogonal: exclude changes membership (permanent, config), =path:=
+  changes visibility (transient, in-view).
+- *Scope (=⌂ file=) is the structural cousin.*  R19-4d's =⌂ file= Scope
+  targets exactly ONE file by basename via require-match completion — a
+  single-file structural lens.  =path:= is the FILTER-axis complement: a
+  DIRECTORY subtree, segment-aware, multi-segment, and composable with
+  =#tag= / =is:= / =due:= under AND/OR (Scope is not composable and is
+  single-file).  This is precisely why Decision C adds no =file:= alias —
+  the single-file control already exists as Scope; =path:= owns the
+  directory-subtree axis inside the =/= mini-language.
+
+* Alternatives considered
+
+- *Substring match (rejected — Decision A).*  =path:re= would leak into
+  =restore.org= / =research/= — a location filter that ignores directory
+  boundaries is a trap; the brief explicitly requires the sibling
+  =tasks/restore= to be excluded.
+- *Absolute-path match (rejected — Decision B).*  Bakes a machine-specific
+  =/home/ryota/…= prefix into the axis, reads nothing like the user's
+  mental model, and admits accidental matches on =home= / username
+  segments.  Relative-to-root's-parent is nicer AND strictly safer.
+- *Strip the root basename entirely (rejected).*  Relative-to-the-root
+  (not its parent) would drop =org= as a typeable segment for no gain;
+  keeping it (relative to the parent) is strictly more permissive and
+  never breaks a =path:tasks/re= query.
+- *=dir:= / =file:= aliases (rejected — Decision C).*  Segment matching
+  already covers both directory and single-file targeting; =file:= would
+  collide with the existing =⌂ file= Scope.  One token, one axis.
+- *A new Scope kind =(:path …)= instead of a filter token (rejected).*
+  Scope (R19-4d) is a single, non-composable structural lens; the user
+  asked to "filter and view related items", i.e. compose location with
+  tags/dates.  The =/= mini-language is the composable surface — path
+  belongs there, beside =#tag= / =is:= / =due:=, not in the mutually-
+  exclusive Scope selector.
+- *Gating =path:= by board-active/task-routed (rejected).*  A location is
+  orthogonal to planning state; gating it would hide a DONE note that
+  genuinely lives under =tasks/re= from a =path:tasks/re= query — wrong.
+  Gate-free, like the R79 keyword axis.
+- *A new scan slot for the relative path (rejected).*  The absolute file
+  is already cached; the relative transform is pure and cheap and depends
+  on =org-air-files= (a knob that can change WITHOUT a rescan).  Computing
+  it at match time keeps it LIVE and adds no cache input (R53).
+
+* Interaction ledger (named rounds, one line each)
+
+- *R19-4d (structural Scope)*: =path:= is the composable FILTER complement
+  to the single-file =⌂ file= Scope — orthogonal controls, which is why
+  Decision C needs no =file:= alias.
+- *R53 (data-pure render, no rescan)*: the token reads a cached slot
+  (=org-air-item-file=) + a knob (=org-air-files=) with zero file access —
+  a filter flip repaints; no scan, no scan slot, no =cache-version= bump.
+- *R60 (exclude-regexps)*: exclude prunes the loaded SET at enumeration
+  (permanent); =path:= filters the loaded set in view (transient) —
+  orthogonal, §R86-3.
+- *R69 (tag chips)*: =path:= composes with =#tag= under the SAME AND/OR
+  fold; it does not touch the tag axis.
+- *R72 (is:/due: date grammar)*: =path:= joins the SAME closed
+  =qualifier:value= grammar and the SAME shared matcher; unlike the date
+  axis it is gate-free (Decision, Investigation).  Decision 8 (vacuously
+  false with no ITEM) extends to =path:= for free.
+- *R79 (todo:/is:done keyword axis)*: =path:= is a THIRD orthogonal,
+  gate-free axis routed beside the keyword axis in the top-level =pcase=
+  (not inside the date matcher).
+- *R83 (is:backlog)*: =path:= composes with =is:backlog= like any token;
+  the backlog tag axis and the location axis are independent.
+- *R6 (day view) / R63 (review view)*: both thread ITEM through the shared
+  =--tokens-pass-filter-p=, so both inherit =path:= with no per-surface
+  code (project/revisit thread ITEM=nil → vacuously false, unchanged).
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+The clock is frozen to =org-air-test-now= where a token reads planning
+slots; the path axis is time-independent (a pure slot/string predicate).
+Fixtures construct =org-air-item-create= records with explicit =:file=
+paths under a temporary =org-air-files= root so the relative transform is
+exercised deterministically.
+
+1. *r86-1 (parse) the grammar admits `path:VALUE'*:
+   =org-air-view--filter-token-parse= returns =(path . "tasks/re")= for
+   =path:tasks/re= and =(path . "air")= for =PATH:air= (case-fold), and
+   =nil= for =path:= (empty ⇒ bare-substring).  Reverting the D1 arm
+   fails.
+2. *r86-2 (core, segment-aware) `path:tasks/re' shows ONLY items under
+   tasks/re*: with =org-air-files= = the temp root, an item whose =:file=
+   is =…/tasks/re/air/foo.org= PASSES =path:tasks/re= while a SIBLING item
+   =…/tasks/restore/bar.org= FAILS it (segment boundary — =tasks= is
+   followed by =restore=, not =re=).  Substringing the predicate
+   (matching =restore=) fails this.
+3. *r86-3 (segment boundary, single) `path:re' hits `re/' NOT
+   `restore.org'*: an item under =…/tasks/re/…= passes =path:re=; an item
+   whose only near-match is a =restore.org= leaf (or a =research/= dir)
+   FAILS =path:re=.  A partial-component match fails.
+4. *r86-4 (leaf is a whole segment) `path:foo.org' targets the file,
+   `path:foo' does NOT*: =path:foo.org= passes for the =foo.org= item;
+   =path:foo= FAILS it (partial component).  Confirms Decision A's
+   whole-or-nothing rule and that no =file:= alias is needed.
+5. *r86-5 (relative, Decision B) the machine prefix is dropped, the root
+   basename is kept*: for =org-air-files= = =(list ROOT)= and item
+   =ROOT/tasks/re/foo.org=, =path:tasks/re= PASSES even though the
+   absolute path is =/tmp/…/ROOT/tasks/re/foo.org=; =path:<basename-of-
+   ROOT>= PASSES (root name typeable); a segment from ABOVE the root
+   (=path:tmp=) FAILS (dropped).  Switching =--path-relative= to return
+   the absolute path fails the =path:tmp=-should-fail assertion.
+6. *r86-6 (absolute fallback) an item under NO source still matches by
+   absolute segments*: with =org-air-files= empty (or not containing the
+   item), an item =/x/tasks/re/foo.org= still PASSES =path:tasks/re=
+   (absolute fallback), so the relative rule narrows noise without losing
+   a real match.
+7. *r86-7 (case) `path:AIR' matches `air/'*: =path:AIR= (and =PATH:Air=)
+   PASSES an item under =…/air/…=.  Making the comparison case-sensitive
+   fails.
+8. *r86-8 (unmatched ⇒ EMPTY, not all) a non-existent path yields nothing*:
+   =path:nope/zzz= over a corpus with no such segment run leaves the
+   visible set EMPTY (not the full board).  A predicate that defaults-true
+   on no-match fails.
+9. *r86-9 (compose, AND) `path:tasks/re' + `#work' + `is:overdue' under
+   =all=*: with =org-air-filter-match= = =all=, only items that are under
+   =tasks/re= AND tagged =work= AND overdue pass; dropping any one
+   conjunct's item drops it from the visible set.  Reverting the D3
+   =path= =pcase= clause (so =path:= no longer matches) collapses the AND
+   to empty — fails.
+10. *r86-10 (compose, OR) same three tokens under =any=*: with
+    =org-air-filter-match= = =any=, an item under =tasks/re= OR tagged
+    =work= OR overdue passes; a path-only item (untagged, not overdue)
+    still appears via the =path:= disjunct.  Confirms =path:= is a
+    first-class token in the OR fold.
+11. *r86-11 (gate-free) a DONE note under `tasks/re' still matches*: a
+    =donep= / note-typed item under =tasks/re= PASSES =path:tasks/re=
+    (no board-active / task-routed gate) — the location axis is
+    orthogonal to planning state.  Routing =path:= through
+    =--filter-date-token-match-p= (which gates) would drop it — fails.
+12. *r86-12 (completion) `path:SEG' is offered for each distinct dir
+    segment*: =org-air-view--filter-vocabulary= over a corpus spanning
+    =tasks/re/air= and =notes/= contains =path:tasks=, =path:re=,
+    =path:air=, =path:notes= — and does NOT offer the leaf filenames
+    (=path:foo.org=), and the list is SORTED (byte-stable).  Reverting the
+    D4 append fails.
+13. *r86-13 (surfaces inherit) board + day + review all filter by
+    `path:'*: the same corpus filtered by =path:tasks/re= yields the same
+    membership decision on the board (=--passes-filter-p=), the day view
+    (R6, shared =--visible-items=) and the review view
+    (=org-air-review--visible-items=, ITEM threaded); the project/revisit
+    surfaces (ITEM=nil) treat =path:= as vacuously false (unchanged).
+14. *r86-14 (NO rescan, spy=0) toggling `path:' never re-queries*: a spy
+    on =org-air-query-items= stays at ZERO across setting, composing and
+    clearing a =path:= filter while the visible set changes — the token
+    is a pure slot/string predicate (R53).  Any accidental rescan fails.
+15. *r86-15 (label) a `path:' token reads verbatim, a near-miss keeps
+    quotes*: =org-air-view--filter-token-label= returns =path:tasks/re=
+    unquoted for the real token and =\"path:\"= (quoted) for the empty
+    near-miss — the quoting is the tell (D5).
+16. *r86-16 (`#' precedence) `#path:x' stays a TAG*: a =#path:x= token is
+    a TAG match (the =#= branch is first), never parsed as a location
+    token.  Moving the =path:= arm ahead of the =#= guard would fail this
+    (the guard is structural, but the seam pins the invariant).
+
+* Byte-golden / fixture impact
+
+- *No default-render churn.*  =path:= is inert until a token is set — an
+  unfiltered board / day / review / project render is byte-identical.  The
+  completion vocabulary only materialises inside the =/= prompt (not in a
+  rendered buffer), so no board golden captures it.
+- *New fixtures.*  A small corpus of =org-air-item-create= records with
+  explicit =:file= paths under a temp =org-air-files= root spanning
+  =tasks/re/air/=, a SIBLING =tasks/restore/=, =tasks/re= leaves and a
+  =notes/= dir — enough to freeze r86-2..r86-13 (segment boundary,
+  relative/absolute, case, compose, gate-free, completion, surfaces).  No
+  on-disk .org fixture is required (the predicate is pure over the =:file=
+  slot); a live-scan integration fixture is optional for r86-13/r86-14.
+- *Cache.*  NO =org-air-view--cache-version= bump — =org-air-item-file= is
+  the item's identity (long-standing), =org-air-files= is ALREADY a
+  cache-key element (org-air-view.el:832), and the relative transform is a
+  match-time pure function (R53).  A =path:= flip repaints, never rescans.
+
+* Design details / seams (files touched — impl seat)
+
+- *org-air-view.el*:
+  - =org-air-view--filter-token-parse= — the D1 =path:= arm →
+    =(path . VALUE)=.
+  - =org-air-view--path-segments= / =--path-run-match-p= /
+    =--path-relative= / =--filter-path-token-match-p= (D2) — four pure
+    helpers, beside the other filter helpers.
+  - =org-air-view--filter-token-match-p= — the D3 =(path . value)= =pcase=
+    clause (top-level, beside the keyword axis; gate-free).
+  - =org-air-view--filter-path-segments= + the =--filter-vocabulary=
+    append (D4).
+  - =--filter-token-label= (D5) — UNCHANGED (already renders a parsed
+    token verbatim; noted, not edited).
+- *README / demo*: one line documenting =path:VALUE= — a location filter
+  scoping the board/day/review to a directory subtree, segment-aware and
+  org-root-relative, composable with =#tag= / =is:= / =due:= / =todo:= /
+  =is:backlog=.
+- *NO changes*: =org-air-view--filter-date-token-match-p= (path is
+  gate-free, not routed through it), =org-air-view--passes-filter-p= /
+  =--tokens-pass-filter-p= / the AND/OR fold (path is just one more token),
+  =org-air-review.el= / day-view render (they inherit via the shared
+  matcher), =org-air-query.el= (no scan slot — the file is already
+  cached), =org-air-classify.el=, =org-air-project.el= / =-revisit.el=
+  (ITEM=nil ⇒ vacuously false), cache VERSION.
+- *Suggested land order*: D1 + D2 (parse arm + four pure helpers — prove
+  r86-1..r86-8, r86-11, r86-16 in isolation) → D3 (wire the axis —
+  r86-9/r86-10/r86-13/r86-14) → D4 (completion — r86-12) → confirm the
+  label (r86-15).  One small, attributable, localised change per step.
+
+* One-line summary (idle)
+
+R86 = a LOCATION filter token =path:tasks/re/air= joins the =/=
+mini-language: show ONLY items whose SOURCE FILE path matches, composable
+with =#tag= / =is:= / =due:= / =todo:= / =is:backlog= under the SAME
+=M-/= AND/OR fold, on the board + day view + review.  *Two flagged
+decisions: (A) SEGMENT-aware* (VALUE is a run of WHOLE path components, so
+=path:re= hits =…/tasks/re/…= but NOT a sibling =…/tasks/restore= — least
+surprise, and the ONE thing the bare-substring token structurally can't
+do since the origin text is the filename LEAF only); *(B) org-root-
+RELATIVE* (matched against the file made relative to its =org-air-files=
+source root's parent — the machine =/home/…= prefix dropped, the root
+basename kept — nicer AND safer than absolute; absolute fallback for an
+item under no source).  Case-insensitive; ONE token, NO =dir:=/=file:=
+alias (segment matching covers both, and =⌂ file= Scope already owns
+single-file — Decision C).  A THIRD orthogonal, GATE-FREE axis routed
+beside the R79 keyword axis (a DONE note under =tasks/re= still lives
+there), read from the cached =org-air-item-file= slot + =org-air-files=
+knob — NO file access, NO scan slot, NO =cache-version= bump, spy=0 (R53).
+Offered in =/= completion as =path:SEG= for each distinct directory
+segment; the lens label reads verbatim.  =path:= is a LIVE view filter,
+orthogonal to =org-air-files= (Source — the loaded set) and
+=org-air-exclude-regexps= (R60 — permanent enumeration prune).  16 batch
+ERT seams; segment/relative rulings flagged for confirmation.
+
+* Implementation History
+
+- 2026-07-24: R86 design (this doc) — a =path:VALUE= LOCATION filter token
+  answers the user's ask ("only see some tasks under certain files") WITHOUT
+  requiring every directory-structured task to be tagged.  *Mechanism*:
+  one arm in =org-air-view--filter-token-parse= → =(path . VALUE)=; four
+  pure helpers (=--path-segments= split-to-components, =--path-run-match-p=
+  contiguous-sublist, =--path-relative= org-root-relative transform,
+  =--filter-path-token-match-p= the predicate); one top-level =pcase=
+  clause in =--filter-token-match-p= (beside the R79 keyword axis, GATE-
+  FREE — a location is orthogonal to planning state); a =path:SEG=
+  completion offer per distinct directory segment.  *Two flagged
+  decisions*: (A) SEGMENT-aware (whole path components — =path:re= excludes
+  a sibling =tasks/restore=; the ONLY lens the bare-substring token can't
+  do, its origin text being the filename leaf only); (B) org-root-RELATIVE
+  (relative to the =org-air-files= source root's parent — machine prefix
+  dropped, root basename kept — nicer + safer than absolute, with an
+  absolute fallback).  Case-insensitive; ONE token, NO =dir:=/=file:= alias
+  (Decision C — =⌂ file= Scope already owns single-file; segment matching
+  covers directory + file).  Reads the cached =org-air-item-file= slot +
+  the =org-air-files= knob — NO file access, NO scan slot, NO
+  =cache-version= bump (R53, spy=0); =org-air-files= is already a cache-key
+  element.  Composes under =M-/= with every axis; inherited by board + day
+  + review through the shared =--tokens-pass-filter-p= (project/revisit
+  ITEM=nil ⇒ vacuously false, R72 Decision 8).  Orthogonal to Source
+  (=org-air-files=, the loaded set) and exclude (R60, permanent enumeration
+  prune).  16 batch ERT seams defined; the segment-aware and org-root-
+  relative rulings flagged for confirmation.
+
+* History
+- 2026-07-24: State: draft → ready.

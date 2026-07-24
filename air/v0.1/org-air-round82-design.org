@@ -1,0 +1,479 @@
+#+title: org-air Round 82 — The edit-form `,' priority PROMPT is annoying: drop R76's read-char picker for a forward-WRAPPING one-key cycle (none → A → … → E → none), no minibuffer, full up-reachability via wraparound
+#+state: ready
+#+tags: bug transient refile inbox ux
+
+* Summary
+
+USER REQUEST (verbatim): /"priority change from transient using ',' prompting
+explicit A, etc. is annoying, just cycle through instead"/.
+
+R76 reworked the =e= editor's =,= priority field
+(=org-air-refile-form-priority=, org-air-inbox.el:1397) from a one-way
+cycle into a full-range one-key PICKER: pressing =,= fires
+=read-char-exclusive= with the prompt ="Priority %c-%c, SPC clears[,
+RET keeps %c]: "= and the user then types an explicit letter (A–E; SPC/=-=
+clears; RET keeps).  That fixed R76's real complaint — the pre-R76 cycle
+=next = (1+ current)= could not reach a HIGHER priority without walking
+D → E → unset → A (and its unset step meant =:priority nil= = UNTOUCHED,
+so it could never actually REMOVE a cookie).  But the picker traded the
+walk for a PROMPT, and the user now finds the prompt itself annoying:
+one keystroke should just advance, not open a minibuffer read.
+
+FIX — keep R76's *reachability + real clear*, drop its *prompt*: =,=
+becomes a forward-WRAPPING cycle over the write target's own range, one
+slot per press, NO =read-char=, NO minibuffer.  The ring INCLUDES the
+cleared slot so clearing stays reachable, and it WRAPS so every priority
+stays reachable UP as well as down — R76's up-reachability delivered by
+WRAPAROUND, not by a prompt:
+
+: none → A → B → C → D → E → none → A → …          (range A–E)
+
+- One press = one slot forward.  From =[#C]= one press lands =[#D]=;
+  from the lowest (=E=) one press lands the cleared slot, the next lands
+  =A= (straight back to the top — the wraparound that R76 needed a
+  prompt for).
+- The cleared slot reuses R76's honest tri-state: on an item that HAS a
+  cookie it arms the =?\s= sentinel (a REAL removal at apply — R76
+  Decision 4, byte-unchanged); on a cookie-less item it stores nil
+  ("back to untouched", writes nothing — same visible no-cookie).
+- The range (and thus the ring's span + wrap point) is the WRITE
+  TARGET's own =#+PRIORITIES:= range — the EXISTING
+  =org-air-inbox--target-priority-range= over
+  =org-air-inbox--form-write-target= (R67-4 / R57), read in the same
+  buffer the apply-time =org-priority= runs in, unchanged.
+- =:transient t= stays: the field row + the live Preview repaint on each
+  press (WYSIWYG — the previewed heading shows =[#D]=, then no cookie,
+  then =[#A]= as the ring advances), with ZERO preview/field-row code
+  change (R76 Decision 5 already renders the tri-state).
+
+ZERO apply-leg changes: =org-air-inbox--apply-item-edits= (:1577) and
+the =org-air-refile-item= engine (:784) still pass =:priority= through
+=(org-priority (if (stringp p) (aref p 0) p))= untouched — the =?\s=
+sentinel rides both legs exactly as R76 shipped it, and the cycle only
+ever PRODUCES an in-range char or the clear sentinel, so the apply-time
+range check (R76's "range-clamp") is never even exercised by the cycle.
+One pure helper REPLACES two (the picker's reader + normalizer are
+retired), the suffix body swapped picker → cycle, the =,= binding /
+suffix name / =:transient t= / description lambda all KEPT.  No new key,
+no defcustom, no README change, org/org-ql only.  NO prompt survives.
+
+* Decision 1 — the field becomes a forward-WRAPPING cycle (the user's ask, R76's reachability kept)
+
+R76's ruling was "chooser over blind cycle"; the user's counter is
+narrower and correct for THIS field: a priority is a tiny CONTIGUOUS
+ordered domain (≤ range+1 slots incl. "none"), so a forward-wrapping
+cycle is fully predictable AND press-cheap — every slot reachable in
+≤ range+1 presses, no undiscoverable modifier, no minibuffer.  The
+pre-R76 cycle's ONLY real defects were (a) it could not wrap UP cheaply
+because its unset step was a dead end (=nil= = untouched, and it sat
+between the lowest and =A= so "up from C" still cost four presses) and
+(b) it had no real clear.  R82 fixes BOTH inside the cycle: the ring
+WRAPS (so "up" is just "keep pressing — you come back around"), and its
+"none" slot is R76's honest clear sentinel, not a dead untouched step.
+
+- The suffix =org-air-refile-form-priority= (name, =,= binding,
+  =:transient t=, the description lambda's slot all KEPT — muscle memory;
+  nothing pins the picker in the codebase, grepped) becomes: compute the
+  effective current slot, advance ONE slot via the pure Decision 3
+  helper, store the new value.  No =read-char-exclusive=, no =message=,
+  no minibuffer, no reject branch (a cycle cannot be "out of range" — it
+  only ever hands back an in-range char or the clear slot).
+
+* Decision 2 — the exact ring order + wraparound (INCLUDING the "none" slot)
+
+The ring, over the write target's range =(HIGH . LOW)= (char codes,
+=HIGH ≤ LOW=; e.g. =(?A . ?E)=):
+
+: none → HIGH → HIGH+1 → … → LOW → none → HIGH → …
+
+- =range+1= slots: the =(LOW − HIGH + 1)= priority letters PLUS one
+  "none" slot.  For A–E that is =none A B C D E= (6 slots) — every
+  priority AND the cleared state reachable, the "none" slot deliberately
+  IN the ring so clearing needs no separate key (R76's SPC is retired).
+- *Advance rule* (one press):
+  - =none= (or a nil/untouched cookie-less start) → =HIGH= (the top
+    priority — first press lands =A=, the fastest possible "give me the
+    highest").
+  - a char strictly inside =[HIGH, LOW)= → the NEXT char up
+    (=1+ current= — codes are contiguous within an alphabetic range).
+  - the char =LOW= (the lowest priority) → =none= (wrap point into the
+    cleared slot).
+  - an OUT-OF-RANGE or nil current → restart at =HIGH= (see Decision 3).
+- *Where a press starts.*  The effective current slot is the field's
+  present value, so a press ADVANCES past it (a cycle press is a move,
+  never a no-op):
+  - field untouched, item =[#C]= → current =C= → press → =D=.
+  - field untouched, cookie-less item → current =none= → press → =A=.
+  - field already holds a pending char =X= → press → =X='s successor.
+  - field holds the =?\s= clear sentinel → current =none= → press → =A=.
+- *One-letter range* =(?B . ?B)= (=#+PRIORITIES: B B B=): the ring
+  collapses to =none ↔ B= — a clean two-state toggle (press B→none→B).
+- Full trace, =[#C]= item, range A–E, starting untouched:
+  : C(own) →,→ D →,→ E →,→ none(clear) →,→ A →,→ B →,→ C →,→ D → …
+  Six presses return to =C= (now an explicit, byte-identical
+  same-value set — R76 r76-12's guarantee), and every slot is passed.
+
+* Decision 3 — the pure cycle helper; effective-current + state-aware "none" arming
+
+One PURE helper REPLACES R76's reader + normalizer — the honest,
+stub-free batch seam (no buffer, no state, no read), mirroring R76's
+=--priority-normalize= shape (verb-returning, the suffix does the arming):
+
+#+begin_src emacs-lisp
+(defun org-air-inbox--priority-cycle-next (current range)
+  "Return the priority slot AFTER CURRENT over RANGE — PURE (R82).
+The forward-WRAPPING ring the `,' field walks, one slot per press, with
+NO prompt and NO read.  RANGE is a (HIGH . LOW) char pair
+\(`org-air-inbox--target-priority-range' shape; HIGH <= LOW as codes).
+CURRENT is the effective current slot: a CHAR in [HIGH..LOW], or the
+symbol `none' (the cleared/untouched slot — nil is read as `none' too).
+Returns the NEXT slot: a CHAR in [HIGH..LOW], or the symbol `none'.  The
+ring is  none -> HIGH -> HIGH+1 -> ... -> LOW -> none -> ...  so every
+priority AND the cleared slot stay reachable in <= range+1 presses
+\(R76's up-reachability by WRAPAROUND, not a prompt).  An OUT-OF-RANGE
+or nil CURRENT restarts the ring at HIGH — the first press lands the top
+priority (a stale pick from a since-narrowed destination self-heals)."
+  (let ((high (car range))
+        (low  (cdr range)))
+    (cond
+     ((or (null current) (eq current 'none)) high)
+     ((and (integerp current) (<= high current) (< current low)) (1+ current))
+     ((and (integerp current) (= current low)) 'none)
+     (t high))))
+#+end_src
+
+The suffix body (picker → cycle):
+
+#+begin_src emacs-lisp
+(transient-define-suffix org-air-refile-form-priority ()
+  "CYCLE the priority one slot forward over the WRITE TARGET's range —
+one key, NO prompt (R82).  The destination file when one is set, else
+the item's OWN file (R67-4).  The ring wraps
+none -> A -> B -> ... -> E -> none  (the write target's own range), so
+every priority AND the cleared slot stay reachable; `,' advances ONE
+slot per press with no minibuffer.  The cleared slot arms R76's `?\\s'
+clear sentinel when the item HAS a cookie (a real removal at apply),
+else leaves the field untouched (a cookie-less item has nothing to
+remove).  RET (execute) applies; the field/preview repaint each press."
+  :transient t
+  :description (lambda ()                       ; UNCHANGED from R76
+                 (org-air-inbox--form-field
+                  "priority"
+                  (let ((c (or (org-air-inbox--form-get :priority)
+                               (let ((item (org-air-inbox--form-get :item)))
+                                 (and item
+                                      (org-air-inbox--item-priority-char
+                                       item))))))
+                    (cond ((eq c ?\s) "clear")
+                          (c (string c))))))
+  (interactive)
+  (let* ((item    (org-air-inbox--form-get :item))
+         (own     (and item (org-air-inbox--item-priority-char item)))
+         (pending (org-air-inbox--form-get :priority))
+         (range   (org-air-inbox--target-priority-range
+                   (org-air-inbox--form-write-target)))
+         ;; effective current slot: a pending clear reads as `none', a
+         ;; pending char as itself, else the item's OWN cookie (nil own
+         ;; => `none').  A press ADVANCES past this — never a no-op.
+         (current (cond ((eq pending ?\s) 'none)
+                        (pending pending)
+                        (own own)
+                        (t 'none)))
+         (next (org-air-inbox--priority-cycle-next current range)))
+    ;; state-aware `none' arming (R76 Decision 4, verbatim): `?\\s' only
+    ;; when the item factually has a cookie to remove — else nil (back to
+    ;; untouched); a char stores directly.
+    (if (eq next 'none)
+        (org-air-inbox--form-put :priority (and own ?\s))
+      (org-air-inbox--form-put :priority next))))
+#+end_src
+
+- The =none=-slot arming is R76 Decision 4 unchanged: =(and own ?\s)= —
+  a real =?\s= removal when a cookie exists, nil otherwise.  This is why
+  the apply legs need ZERO edits: the cycle can only ever store a nil,
+  an in-range char, or the =?\s= sentinel — exactly the tri-state R76's
+  legs already consume.
+- =current= reuses R76's effective-current expression =(or (form-get
+  :priority) own)= plus the =?\s→none= read; the ONLY new logic is the
+  advance, isolated in the pure helper.
+
+* Decision 4 — forward-only; no reverse key (keep it simple)
+
+The ask is "just cycle through".  Forward-wrapping alone makes every
+slot reachable in ≤ range+1 presses (≤ 5 for A–E), so a reverse cycle
+would save at most a couple of presses at the cost of a SECOND binding,
+a second description token, and new muscle memory — reintroducing exactly
+the discoverability weight the user just asked us to shed.  R76's audit
+confirmed the editor form has no shifted-key/modifier convention to hang
+a reverse off cleanly.  DECISION: forward-only, no reverse key this
+round.
+
+- A reverse is TRIVIALLY addable later if the user asks — the mirror
+  helper is one =cond= (=none→LOW=, =HIGH→none=, else =1- current=) and
+  a second suffix bound to, e.g., a =<= — but it is deliberately NOT
+  wired now (clearly labelled DEFERRED, Non-goals).  No dead code ships.
+
+* Decision 5 — surfaces: preview, field row, apply legs ALL unchanged; only the entry mechanism moves
+
+R82 changes ONLY how a =:priority= value is CHOSEN.  Everything
+downstream of the stored tri-state is byte-identical to R76:
+
+- /Preview/ (=org-air-inbox--form-preview=, the =pri= binding ~1158):
+  UNCHANGED.  It already maps =?\s → no cookie=, a char → =[#X]=, nil →
+  the item's own cookie (R76 Decision 5).  So the "live preview updates
+  on each press" requirement is met for FREE — =:transient t= re-renders
+  the group after every suffix, and the preview reads the freshly-stored
+  slot.  The broken ="[# ]"= still never renders.
+- /Field row/ (the description lambda above): UNCHANGED — =?\s→"clear"=,
+  char→=(string c)=, nil→own-or-"–".
+- /Apply legs/: UNCHANGED — =--apply-item-edits= (:1577) and the engine
+  (:784) pass =:priority= through untouched; =?\s= removes, a char sets,
+  nil writes nothing.  The R73/R75 undo ring records an in-place
+  set/clear via the existing push (=u=/=U= cover it).
+- /Retired (picker-only)/: =org-air-inbox--read-priority-char= (:1007)
+  and =org-air-inbox--priority-normalize= (:983) — both existed ONLY to
+  interpret a keystroke; the cycle reads no keystroke, so they are dead
+  and removed (grepped: no other caller).  =--target-priority-range=
+  (:976) and =--form-write-target= (:1048) STAY (the ring's span).
+- /Docstrings/: the suffix reframed (cycle, no prompt); the form-state
+  defvar's =:priority= tri-state line (:888) is SEMANTICALLY unchanged
+  (nil/char/=?\s= mean the same) — refresh only its "R76 picker" aside
+  to note R82's cycle now drives it.  The apply-leg / engine "=?\s=
+  removes" sentences (:662, :1430-class) stay verbatim.
+
+* The reframe — every surface touched
+
+- org-air-inbox.el (the ONLY file):
+  - NEW pure =org-air-inbox--priority-cycle-next (current range)=.
+  - REMOVE =org-air-inbox--read-priority-char= and
+    =org-air-inbox--priority-normalize= (picker-only, now dead).
+  - =org-air-refile-form-priority= — body swapped picker → cycle
+    (Decision 3); =,= binding, name, =:transient t=, description lambda
+    KEPT.
+  - Docstrings per Decision 5 (suffix reframed; defvar aside refreshed).
+  - NO change to =--form-preview=, =--form-field=, the field row,
+    =--target-priority-range=, =--form-write-target=,
+    =--apply-item-edits= code, the engine code, =--form-execute=,
+    =--form-init=.
+- No keymap change, no defcustom, no cache/schema change, no golden
+  surface (the transient renders in no mockup/golden), no README change,
+  no Emacs floor change.
+
+* Test plan — tests/org-air-round82-test.el (ALL BATCH ERT)
+
+Fixture: the R76/R67 harness idiom — a temp dir; =own.org= with
+=#+PRIORITIES: A E C= + =* TODO [#C] Widget :inbox:= (C mid-range, room
+both ways); =bare.org= with a cookie-less =* TODO Jot :inbox:=;
+=narrow.org= (a refile target) with =#+PRIORITIES: A C B= (range A–C);
+=one.org= with =#+PRIORITIES: B B B= + =* TODO [#B] Solo=.  Form seeded
+via =org-air-inbox--form-init=; the suffix invoked via
+=call-interactively= (its body touches only form state + the pure
+helper).  *A GUARD stub asserts NO prompt*: =cl-letf= both
+=read-char-exclusive= AND =read-char= to =(lambda (&rest _) (error
+"cycle must not read a char"))= — every press below runs under it, so a
+surviving prompt REDDENS (the anti-picker anchor).
+
+- *r82-1 /THE ASK — C advances to D, NO read/minibuffer/*: fresh form on
+  =[#C]=; press =,= (under the no-read guard) ⇒ =:priority= = =?D=; the
+  guard never fires (no prompt).  Revert-RED against R76: the picker
+  calls =read-char-exclusive= (guard errors) and never lands =D= from
+  =C= in one press without a typed key.
+- *r82-2 /the full ring, pure — no stub/*:
+  =--priority-cycle-next= over =(?A . ?E)=: =none→?A=, =nil→?A=, =?A→?B=,
+  …, =?D→?E=, =?E→'none=, and an OUT-OF-RANGE =?F→?A= (restart) plus a
+  BELOW-range =?0→?A=.  The pure forward-wrapping ring, stub-free.
+- *r82-3 /wrap at the lowest → none → A (up-reachability, no prompt)/*:
+  fresh =[#C]=; drive presses =C→D→E=; the next press lands the CLEARED
+  slot (=:priority= = =?\s=, preview cookie-less, row "clear"); the next
+  press lands =?A= (straight to the top — the wraparound).  All under
+  the no-read guard.  Revert-RED: the old one-way cycle's unset step is
+  =nil= (untouched) and never reaches =A= without four+ presses; the
+  picker needs a typed key.
+- *r82-4 /the live preview + field row update on each press/*: after the
+  =D= press =(org-air-inbox--form-preview)= contains ="[#D]"= and the
+  field row is ="D"=; after the wrap-to-none press the preview has NO
+  ="[#"= cookie and the row is ="clear"=; after the =A= press ="[#A]"= /
+  ="A"=.  ="[# ]"= never appears (WYSIWYG).
+- *r82-5 /out-of-range / none / cookie-less starts behave/*: (a)
+  cookie-less =bare.org= item, one press ⇒ =?A= (none→top); (b) with
+  =:file= = narrow.org (range A–C) and =:priority= a STALE =?E= (out of
+  A–C), one press ⇒ =?A= (self-heal restart), NOT a crash/reject; (c)
+  the pure helper over =(?A . ?C)= maps =?E→?A=.
+- *r82-6 /the write-target range governs the ring (R67-4)/*: =:file= =
+  narrow.org (A–C); from =[#C]=-effective the ring wraps at =C=
+  (=C→'none=, not =C→D=); =:file= back to nil ⇒ the item's own file's
+  A–E range (=C→D=).  The SAME press reads the destination's range at
+  press time.
+- *r82-7 /one-letter range toggles none ↔ B/*: =one.org= (B–B), item
+  =[#B]=: press ⇒ =?\s= (own=B → clear armed); press ⇒ =?B=; press ⇒
+  =?\s= — a clean two-state toggle.  Pure: =--priority-cycle-next= over
+  =(?B . ?B)= gives =?B→'none=, =none→?B=.
+- *r82-8 /clear + set apply on RET, both legs, ring recorded/*: in place
+  — cycle =[#C]= to the none slot, execute ⇒ SAVED bytes lose =[#C]=
+  (=?\s= rides the leg), the R73 ring recorded it; cycle to =?A=,
+  execute ⇒ saved bytes carry =[#A]=; refile leg — =:priority ?A= +
+  narrow.org destination ⇒ the MOVED heading carries =[#A]=.  (R76's
+  apply seams, re-expressed as cycle presses — the apply path is
+  byte-unchanged.)
+- *r82-9 /cookie-less "none" writes nothing, no error/*: =bare.org=
+  item, cycle A→B→C→D→E→none; at the none slot =:priority= = nil (own
+  nil ⇒ back to untouched); execute ⇒ gentle "Nothing to change", bytes
+  identical, NO =user-error= (the =(org-priority ?\s)= no-cookie error
+  class is unreachable by construction — Decision 3's arming).
+
+*REPLACES R76's picker seams — call-out for the test seat.*  R76's
+=tests/org-air-round76-test.el= asserts PICKER behaviour that R82
+removes; the test seat must SUPERSEDE it (the round82 seams above are
+the replacements).  Named explicitly per the task:
+- =r76-11= (direct paths from FRESH forms — "C→B and C→E in ONE press,
+  the cycle would yield ?D") — now FALSE by design: R82's cycle yields
+  =?D= from =C=.  Replaced by r82-1/r82-2 (the cycle IS the behaviour).
+- =r76-12= (same-value pick — "?C on =[#C]= stores ?C") — impossible via
+  cycle (a press from C yields D); its INTENT (a same-value set applies
+  byte-identically, ring records) survives after a FULL lap (C→…→C) —
+  fold into r82-8.
+- =r76-13= (one-priority range — asserts the PROMPT "B-B" and out-of-
+  range REJECTION) — the prompt/reject are gone; replaced by r82-7 (the
+  none↔B toggle).
+- =r76-14= (pending clear × keep — asserts the PROMPT omits "RET keeps"
+  and RET keeps the pending clear) — no prompt, no RET-keep in the field
+  (execute is RET now); replaced by r82-3's wrap-to-none behaviour.
+- Likewise r76-1/-2/-3/-7/-8 (reader-consulted anchor, normalize, prompt
+  discloses, out-of-range reject, prompt "A-C") assert the picker and
+  are superseded; r76-4/-9/-10's INTENT (clear end-to-end, both-leg
+  apply, preview tri-state) is preserved but re-driven by cycle presses
+  in r82-4/-8.  The test seat should DELETE or REWRITE round76-test.el's
+  priority seams (not leave them RED) and land round82-test.el.
+
+Goldens/mockups: ZERO shifts (the transient renders in none) — =make
+regen-mockups= must come back byte-clean; the known-failures manifest
+stays EMPTY.  GUI residue for the impl round's user confirm: the field-
+row + preview repaint cadence as =,= is held down (each press one slot),
+and that the echo area is now SILENT (no prompt) during a press.
+
+* Non-goals
+
+- No reverse cycle / shifted key this round (Decision 4) — forward-
+  wrapping already reaches every slot in ≤ range+1 presses; the mirror
+  helper is sketched as a trivially-addable DEFERRED option, not wired.
+- No numeric =#+PRIORITIES= support (e.g. =1 64 32=): the board's whole
+  priority model is single-char (=--item-priority-char=, the badge
+  renderer, =--target-priority-range='s char pair); alphabetic / single-
+  char ranges — the documented domain — are covered.  A numeric range
+  would need a step size, out of scope (R76 Non-goal, unchanged).
+- No cross-field revalidation when the destination changes after a
+  cycle press: the ring reads the write-target range at EACH press, and
+  a stale in-form char from a since-narrowed destination SELF-HEALS on
+  the next press (restart at HIGH — Decision 3); a value carried into
+  execute is handled by the apply legs' own range check exactly as R76
+  (the standing =k=-field class).
+- No board-level priority key (the board has no priority verb — R68/R76
+  audit); a board cycle over this same helper is a separate round.
+- No change to the apply legs, the engine signature, the range helper,
+  =--form-write-target=, the preview/field-row renderers, or
+  =--form-execute='s dirty-only gates.
+- No new key, no new defcustom, no transient layout change, no README
+  change.
+
+* Compatibility
+
+- *R53 (never-hang / never-error / cache-first)*: the cycle does NO
+  read and NO scan — it reads the write-target range via the ONE
+  =find-file-noselect= the picker (and today's cycle) already used, then
+  advances a char.  No loop, no signal, no minibuffer — strictly LESS
+  interactive machinery than R76.
+- *R57 / R67-4 (per-file vocabulary, write-target law)*: the ring's span
+  is the write target's own =#+PRIORITIES:= range via the UNCHANGED
+  =--target-priority-range= over =--form-write-target=; read in the
+  buffer the apply-time =org-priority= runs in, so ring and apply agree
+  by construction.
+- *R64-2 (prompt-time no-mutation)*: the cycle collects into form state;
+  only RET (execute) writes; =C-g=/=q= abandon the pending slot with no
+  buffer touched.
+- *R67 (the editor)*: the dirty-only discipline holds — an untouched
+  field the user never presses stays nil (writes nothing); a press
+  always dirties (a cycle press is an intentional change).  R67-4 byte-
+  kept.
+- *R68 (chooser law)*: R68 settled chooser-over-blind-cycle for the
+  board's =T= (an OPEN keyword vocabulary — a genuine list).  R82's =,=
+  is the narrow, well-argued exception the USER requested: priority is a
+  tiny CONTIGUOUS ORDERED domain where a wrapping cycle is both cheap
+  and fully predictable, and R76's original defect (no UP, no clear) is
+  cured by WRAPAROUND + the clear slot, not by a prompt.  =T= is
+  untouched.
+- *R76 (the picker round this supersedes)*: R82 KEEPS R76's honest tri-
+  state (=nil= / char / =?\s=), its state-aware clear arming (Decision
+  4), its WYSIWYG preview + field row (Decision 5), and its ZERO-apply-
+  leg-edit sentinel.  R82 DROPS only R76's prompt/reader/normalizer and
+  the "type an explicit letter" interaction.  R76's ERT seams (which
+  pin the picker) are superseded — see the Test plan call-out.
+- *R71 (one RET confirms)*: the cycled slot rides the same single
+  execute with the note and every other field.
+- *R73/R75 (undo/redo ring)*: an in-place set or clear records through
+  =--apply-item-edits='s existing push — =u=/=U= cover it.
+- Muscle memory / pins: the =,= binding, the suffix name, the field
+  slot, =:transient t=, the description lambda — all untouched; no test
+  or README pins the picker prose (grepped).
+
+* Risks / edges
+
+- The =none= slot on a COOKIE-LESS item stores =nil= (untouched), which
+  is visually identical to "no priority" and writes nothing — correct
+  (there is nothing to clear), and r82-9 pins it errors-free.  On a
+  cookie'd item it arms =?\s= (real removal); the no-cookie
+  =(org-priority ?\s)= error class is unreachable BY CONSTRUCTION.
+- A stale pending char from a since-narrowed destination self-heals to
+  =HIGH= on the next press (Decision 3's out-of-range restart); r82-5
+  pins it.  A value carried straight into execute without a further
+  press is the standing =k=-field class (apply-time org rejects
+  honestly inside the transaction — R76 unchanged).
+- Holding =,= walks the full ring; there is no accidental "stuck at the
+  lowest" (the pre-R76 bug) because =LOW→none→HIGH= wraps.  The echo
+  area is now silent during a press (no prompt) — flagged GUI-confirm.
+- Removing =--read-priority-char= / =--priority-normalize= drops R76's
+  pure-normalize + reader seams; the test seat must delete/rewrite
+  round76-test.el's priority seams (not leave them RED) alongside
+  landing round82-test.el — called out in the Test plan.
+
+* Implementation History
+
+- 2026-07-24: Round 82 spec (design seat).  USER REQUEST: the =e=
+  editor's =,= priority field, reworked by R76 into a full-range one-key
+  read-char PICKER (=read-char-exclusive= + prompt "Priority %c-%c, SPC
+  clears[, RET keeps %c]:", the user types an explicit letter), is
+  ANNOYING — "just cycle through instead".  DECISION: drop R76's prompt,
+  keep R76's reachability + real clear — =,= becomes a forward-WRAPPING
+  cycle (=none → A → B → … → E → none →=) over the write target's own
+  range, ONE slot per press, NO =read-char=/minibuffer.  The ring
+  INCLUDES the cleared slot (so clearing needs no separate key) and
+  WRAPS (so R76's up-reachability comes from wraparound, not a prompt).
+  New PURE =org-air-inbox--priority-cycle-next (current range)= (=none/
+  nil→HIGH=, char in =[HIGH,LOW)→1+=, =LOW→none=, out-of-range→HIGH
+  restart) REPLACES the retired =--read-priority-char= +
+  =--priority-normalize= (picker-only, now dead).  Suffix body swapped
+  picker → cycle: effective current (=?\s→none=, pending char, else item
+  cookie), advance one slot, store with R76's state-aware =none= arming
+  (=?\s= only when a cookie exists, else nil = untouched); =,= binding /
+  name / =:transient t= / description lambda KEPT.  ZERO apply-leg edits
+  (the tri-state sentinel rides both legs byte-unchanged; the cycle only
+  produces in-range chars or =?\s=, so the range check is never
+  exercised) and ZERO preview/field-row edits (R76 Decision 5 already
+  renders the tri-state; =:transient t= repaints each press).  Forward-
+  only, no reverse key (kept simple; mirror helper sketched as a
+  trivially-addable DEFERRED option, not wired).  Nine batch seams
+  r82-1..r82-9 under a no-read GUARD stub (a surviving prompt reddens):
+  r82-1 C→D one press no-read (the ask); r82-2 pure ring incl. out-of-
+  range restart; r82-3 wrap LOW→none→A (up-reachability, no prompt);
+  r82-4 live preview/row per press; r82-5 out-of-range/none/cookie-less
+  starts; r82-6 write-target range governs the wrap; r82-7 one-letter
+  none↔B toggle; r82-8 clear+set apply both legs + ring; r82-9 cookie-
+  less none writes nothing, no error.  R76's picker ERTs (r76-11..14 and
+  the r76-1/-2/-3/-7/-8 prompt/reader seams) assert the removed picker
+  and must be SUPERSEDED/rewritten by the test seat — called out; r76-4/
+  -9/-10's apply/preview INTENT is preserved, re-driven by cycle presses
+  in r82-4/-8.  One file (org-air-inbox.el), no new key/defcustom, no
+  README/golden change, org/org-ql only.  State: ready — awaiting impl +
+  test seats.
+
+* History
+- 2026-07-24: State: draft → ready.

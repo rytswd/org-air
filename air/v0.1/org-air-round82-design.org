@@ -475,5 +475,28 @@ and that the echo area is now SILENT (no prompt) during a press.
   README/golden change, org/org-ql only.  State: ready — awaiting impl +
   test seats.
 
+- 2026-07-24: Round 82 TEST-SEAT CLOSEOUT (impl tip xrnqkqkp + test
+  seat <this commit>).  `make clean && make check' GREEN: 1011 tests,
+  1003 as expected, 0 unexpected, 8 GUI skips; lint 0 findings; `make
+  regen-mockups' byte-clean (ZERO fixture/golden churn — the transient
+  renders in no mockup); known-failures manifest EMPTY.  The 14 R76
+  priority picker ERTs (r76-1..r76-14) were SUPERSEDED per the Test-plan
+  call-out: tests/org-air-round76-test.el is DELETED whole (every seam
+  pinned the retired read-char picker — `read-char-exclusive', the pure
+  `--priority-normalize', the "A-E"/"RET keeps"/"must be between"
+  prompt strings), and the still-valid coverage is re-driven by CYCLE
+  presses in the new tests/org-air-round82-test.el (r82-1..r82-9): the
+  both-leg apply + tri-state clear (r76-9/-4 → r82-8), the WYSIWYG
+  preview/field tri-state (r76-10 → r82-4), the cookie-less safe no-op
+  (r76-5 → r82-9).  Every simulated `,' press runs under a NO-READ
+  GUARD (`read-char'/`read-char-exclusive'/`read-string' `cl-letf'd to
+  a raising stub — a surviving R76 prompt reddens; the anti-picker
+  anchor), and all nine seams verified REVERT-RED against the pre-impl
+  trunk ywzpqkltxsus in a scratch swap (the picker fires
+  `read-char-exclusive' → the guard errors; r82-2 hits void-function
+  for the retired `--priority-cycle-next').  No .el SOURCE touched on
+  the test track.  Round-82 manifest EMPTY; the r82 tests stay as
+  permanent regression guards.
+
 * History
 - 2026-07-24: State: draft → ready.

@@ -2912,95 +2912,46 @@
     ;; (r80-1..r80-9 + the R80 audit adds); the R80 manifest is EMPTY.
     ;;
     ;; ===================================================================
-    ;; v0.1 ROUND-82 impl grind (air/v0.1/org-air-round82-design.org).
-    ;; USER REQUEST: the `e' editor's `,' priority field, reworked by R76
-    ;; into a full-range one-key read-char PICKER (`read-char-exclusive'
-    ;; + prompt "Priority %c-%c, SPC clears[, RET keeps %c]:", the user
-    ;; types an explicit letter), is ANNOYING — "just cycle through
-    ;; instead".  R82 DROPS R76's prompt and keeps its reachability +
-    ;; real clear: `,' is now a forward-WRAPPING cycle
+    ;; v0.1 ROUND-82 CLOSEOUT (impl tip xrnqkqkp + test seat <this
+    ;; commit>).  USER REQUEST: the `e' editor's `,' priority field,
+    ;; reworked by R76 into a full-range one-key read-char PICKER
+    ;; (`read-char-exclusive' + prompt "Priority %c-%c, SPC clears[, RET
+    ;; keeps %c]:", the user types an explicit letter), is ANNOYING —
+    ;; "just cycle through instead".  R82 DROPS R76's prompt and keeps
+    ;; its reachability + real clear: `,' is now a forward-WRAPPING cycle
     ;; (none -> A -> B -> ... -> E -> none -> ...) over the write
-    ;; target's own range, ONE slot per press, NO `read-char'/minibuffer.
-    ;; The picker-only helpers `org-air-inbox--read-priority-char' and
-    ;; `org-air-inbox--priority-normalize' are RETIRED (now dead — the
-    ;; cycle reads no keystroke) and REPLACED by the PURE
+    ;; target's own range, ONE slot per press, NO `read-char'/minibuffer
+    ;; (impl: the picker-only `org-air-inbox--read-priority-char' +
+    ;; `--priority-normalize' RETIRED, REPLACED by the PURE
     ;; `org-air-inbox--priority-cycle-next (current range)'; the suffix
-    ;; body swapped picker -> cycle (`,' binding / name / :transient t /
-    ;; description lambda KEPT).  ZERO apply-leg edits (the tri-state
-    ;; `?\s' sentinel rides both legs byte-unchanged) and ZERO preview/
-    ;; field-row edits (R76 Decision 5 already renders the tri-state).
+    ;; body swapped picker -> cycle; `,' binding / name / :transient t /
+    ;; description lambda KEPT; ZERO apply-leg + ZERO preview/field-row
+    ;; edits — the tri-state `?\s' sentinel rides both legs unchanged).
     ;;
-    ;; The R76 priority ERTs pin the RETIRED picker and are now WRONG by
-    ;; design — the spec's Test-plan call-out names them for the test
-    ;; seat to SUPERSEDE/rewrite with cycle assertions (and land
-    ;; tests/org-air-round82-test.el r82-1..r82-9).  Per the impl brief
-    ;; these are FLAGGED here, NOT hand-edited on the impl track.  All 14
-    ;; go RED against the R82 tree — the reader-consulting ones
-    ;; (r76-1/-3/-4/-5/-6/-7/-8/-9/-10/-11/-12/-14) drive the now-absent
-    ;; `read-char-exclusive' via `org-air-r76--press' (a press now
-    ;; ADVANCES the cycle, never reads; the captured-prompt anchor is
-    ;; nil; out-of-range no longer user-errors), r76-13 does both, and
-    ;; r76-2 calls the retired pure `--priority-normalize' directly
-    ;; (void-function).  The test seat DELETES/REWRITES round76-test.el's
-    ;; priority seams (r76-4/-9/-10's apply/preview INTENT re-driven by
-    ;; cycle presses in r82-4/-8) and deletes these entries as closeout.
-    ;; ZERO byte goldens move (the transient renders in no mockup/golden
-    ;; — `make regen-mockups' byte-clean, as R76/R70/R75 before it).
-    (org-air-r76-1-full-range-one-press-up
-     . "R82: picker retired for a forward-wrapping cycle; the reader is
-gone, one press from C now advances to D (not the typed pick) and the
-captured-prompt anchor is nil — superseded by r82-1/-2.")
-    (org-air-r76-2-normalize-pure-domain
-     . "R82: `org-air-inbox--priority-normalize' retired (picker-only,
-now dead) — void-function; replaced by the pure ring r82-2.")
-    (org-air-r76-3-prompt-discloses-range-and-current
-     . "R82: NO prompt survives — the cycle reads no char, so there is no
-\"A-E\"/\"RET keeps\" prompt to disclose; superseded by r82's no-read
-guard seams.")
-    (org-air-r76-4-clear-end-to-end
-     . "R82: ?- / ?\\s presses now advance the cycle instead of arming
-clear directly; the clear slot is reached by WRAPPING off the lowest.
-Apply/ring INTENT re-driven by cycle presses in r82-3/-8.")
-    (org-air-r76-5-clear-on-cookieless-item-safe
-     . "R82: the ?B-then-?\\s press sequence now cycles; the cookie-less
-`none' slot (nil, writes nothing, no error) is reached by the ring —
-superseded by r82-9.")
-    (org-air-r76-6-ret-keeps
-     . "R82: RET is no longer a field key (execute is RET now); a `,'
-press always advances (a cycle press is an intentional change) — the
-keep semantics are retired.")
-    (org-air-r76-7-out-of-range-rejected
-     . "R82: a cycle cannot be out of range — it only ever hands back an
-in-range char or the `none' slot; the reject branch is gone (a stale
-in-form char self-heals to HIGH), superseded by r82-5.")
-    (org-air-r76-8-write-target-range-governs
-     . "R82: the write-target range still governs (the ring's span), but
-via the cycle wrap point, not a prompt showing \"A-C\"; superseded by
-r82-6.")
-    (org-air-r76-9-apply-on-ret-both-legs
-     . "R82: the ?A press now advances the cycle (C->D), not a direct
-pick; the both-leg apply INTENT is re-driven by cycle presses in
-r82-8 (the apply path is byte-unchanged).")
-    (org-air-r76-10-preview-and-field-tri-state
-     . "R82: the tri-state preview/field-row are UNCHANGED, but driven by
-cycle presses now (a direct ?A pick no longer lands); superseded by
-r82-4.")
-    (org-air-r76-11-direct-paths-fresh-forms
-     . "R82: WRONG by design — C->B / C->E in ONE press is impossible via
-a cycle (a press from C yields D); replaced by r82-1/-2 (the cycle IS
-the behaviour).")
-    (org-air-r76-12-same-value-pick-safe
-     . "R82: a same-value pick is impossible via cycle (a press from C
-yields D); its INTENT (a byte-identical same-value set, ring records)
-survives after a FULL lap C->...->C — folded into r82-8.")
-    (org-air-r76-13-one-priority-range
-     . "R82: the prompt \"B-B\" and out-of-range REJECTION are gone; the
-one-letter range is now a clean none<->B toggle — superseded by r82-7
-(and `--priority-normalize' it also calls is retired).")
-    (org-air-r76-14-pending-clear-keep-and-replace
-     . "R82: no prompt, no RET-keep in the field (execute is RET now);
-the pending-clear / replace behaviour is re-expressed by the ring's
-wrap-to-none slot — superseded by r82-3.")
+    ;; The 14 R76 priority ERTs pinned the RETIRED picker and were WRONG
+    ;; by design.  The test seat SUPERSEDED them per the spec's Test-plan
+    ;; call-out: round76-test.el (every one of r76-1..r76-14 drove the
+    ;; now-absent read-char picker — `read-char-exclusive', the pure
+    ;; `--priority-normalize', the "A-E"/"RET keeps"/"must be between"
+    ;; prompt strings) is DELETED whole, and the still-valid coverage is
+    ;; re-driven by CYCLE presses in the new tests/org-air-round82-test.el
+    ;; (r82-1..r82-9).  The preserved intent: r76-9's both-leg apply +
+    ;; r76-4's tri-state clear (byte-unchanged apply path) -> r82-8;
+    ;; r76-10's WYSIWYG preview/field tri-state -> r82-4; r76-5's
+    ;; cookie-less safe no-op -> r82-9.  The new cycle seams run every
+    ;; press under a NO-READ GUARD (`read-char'/`read-char-exclusive'/
+    ;; `read-string' `cl-letf'd to a raising stub — a surviving R76
+    ;; prompt reddens): r82-1 C->D one press no-read (the ask); r82-2
+    ;; pure ring incl. out-of-range restart; r82-3 wrap LOW->none->A
+    ;; (up-reachability, no prompt); r82-4 live preview/row per press;
+    ;; r82-5 out-of-range/none/cookie-less starts; r82-6 write-target
+    ;; range governs the wrap; r82-7 one-letter none<->B toggle; r82-8
+    ;; clear+set apply both legs + ring; r82-9 cookie-less none writes
+    ;; nothing, no error.  ZERO byte goldens moved (the transient renders
+    ;; in no mockup/golden — `make regen-mockups' byte-clean, as R76/R70/
+    ;; R75 before it).  No .el SOURCE touched on the test track (impl
+    ;; landed R82 in xrnqkqkp).  Round-82 manifest is EMPTY; the r82
+    ;; tests stay as permanent regression guards.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

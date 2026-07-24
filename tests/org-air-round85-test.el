@@ -27,8 +27,18 @@
 ;; the seams assert the FACE SYMBOL on the (LABEL . FACE) cons (and, where
 ;; relevant, the LABEL text), never the pixel.  The clock is frozen to
 ;; `org-air-test-now' (Mon 2026-06-15): today = 2026-06-15, tomorrow =
-;; 2026-06-16.  These 10 seams are the permanent regression guards named
-;; by the design's "ERT seams" ledger; each names what reverting breaks.
+;; 2026-06-16.  These seams are the permanent regression guards.  r85-1..10
+;; are the design's "ERT seams" ledger (each names what reverting breaks);
+;; r85-11..14 are the R85 TEST-round strengthenings that close audit gaps:
+;;   r85-11/12 pin the DEADLINE-TODAY / SCHEDULED-TODAY slot faces (rule B
+;;     TODAY case) — r85-5/6 pin only the TOMORROW variant, so a PARTIAL
+;;     rule-A leaking ONLY the loud `org-air-face-day-today' onto a slot
+;;     arm passed all 10 original seams; r85-11/12 redden it.
+;;   r85-13 pins the two day faces are DIFFERENT COLOURS (the user's
+;;     verbatim ask), strengthening r85-2's symbol-only distinctness to
+;;     the hue level (inequality only — exact hex stays GUI-confirm-only).
+;;   r85-14 proves the ROSE tomorrow face reaches a RENDERED cell (the
+;;     TOMORROW twin of r85-9's today-only painter path).
 
 ;;; Code:
 
@@ -70,6 +80,28 @@ as the epoch float the scan would have cached (R53 P3)."
    :marker (cons "/tmp/org-air-r85-note.org" 1)
    :kind 'heading
    :activity (and activity (org-air-r85--epoch activity))))
+
+(defun org-air-r85--org-ts (days)
+  "Return an Org timestamp object DAYS calendar days from the frozen now.
+Built from the frozen now's calendar day so `org-air-view--date-label's
+deadline/scheduled arms resolve it as today (DAYS=0) / tomorrow (DAYS=1) —
+exactly the SLOT dates that, under rule B, must KEEP their slot face."
+  (org-timestamp-from-string
+   (format-time-string "<%Y-%m-%d %a>"
+                       (time-add org-air-test-now (days-to-time days)))))
+
+(cl-defun org-air-r85--dated (&key deadline scheduled)
+  "Build an `org-air-item' carrying a DEADLINE and/or SCHEDULED day offset.
+DEADLINE / SCHEDULED are day offsets from the frozen now (0 = today,
+1 = tomorrow) stored as Org timestamp objects, so `--date-label' takes its
+SLOT arm (deadline / scheduled) — the rule-B non-neutral path."
+  (org-air-item-create
+   :title "A dated task"
+   :file "/tmp/org-air-r85-dated.org"
+   :marker (cons "/tmp/org-air-r85-dated.org" 1)
+   :kind 'heading
+   :deadline (and deadline (org-air-r85--org-ts deadline))
+   :scheduled (and scheduled (org-air-r85--org-ts scheduled))))
 
 (defun org-air-r85--fixture-label (title)
   "Return the (LABEL . FACE) date metadata for fixture item TITLE.
@@ -317,6 +349,122 @@ GUI-confirm-only.)  A face missing the light/dark/TTY tier FAILS."
         (should (memq (plist-get tty :inherit)
                       '(org-air-face-salient org-air-face-popout)))
         (should (eq (plist-get tty :weight) 'bold))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r85-11 — slot-interplay: a deadline TODAY KEEPS the deadline face
+;;;;           (the TODAY twin of r85-5; closes the partial rule-A gap)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r85-11-deadline-today-keeps-slot-face ()
+  "A DEADLINE that falls TODAY → `(cons \"Today\" 'org-air-face-deadline)' —
+it KEEPS the deadline slot face, it does NOT take `org-air-face-day-today'
+(§Decision rule B: a deadline-today still reads as an urgent deadline).
+
+This is the TODAY companion of r85-5 (which pins only the TOMORROW case
+via the R3 fixture).  It is the strictly stronger guard: a PARTIAL rule-A
+that leaks ONLY the standout `org-air-face-day-today' onto the deadline
+arm (the most tempting mis-fix — the today face is the loud one) passes
+r85-5/-6 verbatim yet FAILS here.  The delta-0 slot date is the single
+row where repainting teal would most destroy the \"this is a deadline\"
+signal, so it is pinned explicitly."
+  (skip-unless (and (locate-library "org-air")
+                    (fboundp 'org-air-view--date-label)))
+  (org-air-r85--frozen
+    (pcase-let ((`(,label . ,face)
+                 (org-air-view--date-label
+                  (org-air-r85--dated :deadline 0) 'notes)))
+      (should (equal label "Today"))
+      (should (eq face 'org-air-face-deadline))
+      (should-not (eq face 'org-air-face-day-today))
+      (should-not (memq face '(org-air-face-day-today
+                               org-air-face-day-tomorrow))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r85-12 — slot-interplay: a scheduled TODAY KEEPS the scheduled face
+;;;;           (the TODAY twin of r85-6; closes the partial rule-A gap)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r85-12-scheduled-today-keeps-slot-face ()
+  "A SCHEDULED that falls TODAY → `(cons \"Today\" 'org-air-face-scheduled)'
+— it KEEPS the scheduled slot face, NOT `org-air-face-day-today' (rule B).
+The TODAY companion of r85-6 (which pins only TOMORROW via the R3
+fixture): a partial rule-A leaking the today face onto the scheduled arm
+passes r85-6 yet FAILS here."
+  (skip-unless (and (locate-library "org-air")
+                    (fboundp 'org-air-view--date-label)))
+  (org-air-r85--frozen
+    (pcase-let ((`(,label . ,face)
+                 (org-air-view--date-label
+                  (org-air-r85--dated :scheduled 0) 'notes)))
+      (should (equal label "Today"))
+      (should (eq face 'org-air-face-scheduled))
+      (should-not (eq face 'org-air-face-day-today))
+      (should-not (memq face '(org-air-face-day-today
+                               org-air-face-day-tomorrow))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r85-13 — the two day faces stand out in DIFFERENT COLOURS
+;;;;           (the user's verbatim ask, strengthening r85-2 to the
+;;;;            colour level — INEQUALITY only, exact hex GUI-confirm-only)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r85-13-day-faces-different-colours ()
+  "The user's verbatim ask was \"TODAY and TOMORROW should be in different
+colour to stand out more\".  r85-2 pins the two are different face SYMBOLS
+— but two distinct symbols could still resolve to the SAME hue, which
+would violate the ask.  This seam pins the stronger, colour-level claim:
+the declared `:foreground' of `org-air-face-day-today' and
+`org-air-face-day-tomorrow' DIFFER in BOTH the 256-colour light tier AND
+the dark tier.  It asserts INEQUALITY only (never a specific hex — the
+exact teal/rose values stay GUI-confirm-only), so a palette refresh is
+free as long as the two stay distinguishable.  Collapsing today and
+tomorrow onto one colour FAILS."
+  (skip-unless (locate-library "org-air"))
+  (cl-flet ((fg (face bg)
+              (let ((spec (get face 'face-defface-spec)))
+                (cl-loop for (display atts) in spec
+                         when (and (listp display)
+                                   (member (list 'background bg) display))
+                         return (plist-get atts :foreground)))))
+    (dolist (bg '(light dark))
+      (let ((today (fg 'org-air-face-day-today bg))
+            (tomorrow (fg 'org-air-face-day-tomorrow bg)))
+        (should (stringp today))
+        (should (stringp tomorrow))
+        ;; different COLOUR (not just a different symbol) in each tier.
+        (should-not (equal today tomorrow))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r85-14 — end-to-end: the ROSE tomorrow face reaches the rendered
+;;;;           date cell too (the TOMORROW twin of r85-9's today case)
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r85-14-tomorrow-face-only-through-painter ()
+  "The date cell for a TOMORROW-dated neutral note carries the TEXT
+\"Tomorrow\" and the standout `org-air-face-day-tomorrow' face, while the
+label BYTES are byte-identical to the pre-R85 render (a face is a display
+prop, not text).  Renders the SAME cell twice through the real painter
+`org-air-view--item-date-text' — once normally, once with the R85 helper
+stubbed to nil (pre-R85) — and asserts identical stripped text but a
+different `face'.  This is the TOMORROW companion of r85-9 (which covers
+only TODAY): it proves the ROSE face actually reaches a rendered cell, not
+just the (LABEL . FACE) cons.  A change that mutes the tomorrow neutral
+cell, or alters its label bytes, FAILS."
+  (skip-unless (and (locate-library "org-air")
+                    (fboundp 'org-air-view--item-date-text)))
+  (let ((org-air-date-style 'text)      ; plain coloured text, no svg pill
+        (item (org-air-r85--note :activity 1)))
+    (org-air-r85--frozen
+      (let* ((r85 (org-air-view--item-date-text item 'notes))
+             (pre (cl-letf (((symbol-function 'org-air-view--day-relative-face)
+                             (lambda (&rest _) nil)))
+                    (org-air-view--item-date-text item 'notes))))
+        (should (equal (substring-no-properties r85) "Tomorrow"))
+        (should (equal (substring-no-properties r85)
+                       (substring-no-properties pre)))
+        (should (eq (get-text-property 0 'face r85)
+                    'org-air-face-day-tomorrow))
+        (should (eq (get-text-property 0 'face pre) 'org-air-face-date))))))
 
 (provide 'org-air-round85-test)
 ;;; org-air-round85-test.el ends here

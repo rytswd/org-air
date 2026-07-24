@@ -553,3 +553,28 @@ byte-identity are all batch-asserted (10 ERT seams).*
   all green.  Face-only ⇒ every golden BYTE-IDENTICAL; =make clean &&
   make check= green (1052 tests, 0 unexpected, 8 pre-existing GUI-only
   skips), no known-failures flag needed.
+- 2026-07-24: R85 TEST/AUDIT (Opus; fixtures/tests/gate ONLY, no =.el=
+  source touched).  CONFIRMED the impl is face-only: manifest EMPTY,
+  =make regen-mockups= a NO-OP (every board/day/review/entry/denote golden
+  byte-identical), so goldens byte-consistent.  AUDITED the 10 impl seams
+  by targeted mutation — each reddens under its own revert vs pre-R85:
+  r85-1 (helper→nil / over-apply), r85-2 (facep removed), r85-3 (notes-arm
+  reverted to =org-air-face-date=), r85-4/-9 (=--human-date= label-byte
+  drift), r85-5 (rule-A on deadline arm), r85-6 (rule-A on scheduled arm),
+  r85-7 (helper over-applies to all deltas), r85-8 (stale arm leaks the
+  day face), r85-10 (a face tier dropped).  Found + closed a GAP: r85-5/6
+  pin only the deadline/scheduled TOMORROW variant (delta 1), so a PARTIAL
+  rule-A leaking ONLY the loud =org-air-face-day-today= onto a slot arm
+  (delta 0) passed all 10 original seams.  ADDED 4 strengthening seams:
+  r85-11 (a DEADLINE TODAY KEEPS =org-air-face-deadline=, NOT day-today),
+  r85-12 (a SCHEDULED TODAY KEEPS =org-air-face-scheduled=) — the rule-B
+  TODAY case, each mutation-verified to redden the partial-leak while
+  r85-5/6 stay green (strictly stronger); r85-13 (the two day faces are
+  DIFFERENT COLOURS — the user's verbatim ask — pinning =:foreground=
+  INEQUALITY in both light+dark tiers, exact hex still GUI-confirm-only,
+  catching a same-hue collapse r85-2's symbol check is blind to); r85-14
+  (the ROSE tomorrow face reaches a RENDERED cell via the real painter
+  =--item-date-text=, the TOMORROW twin of r85-9's today-only path).  All
+  4 new seams mutation-verified revert-RED.  =make clean && make check=
+  GREEN (1056 tests, 0 unexpected, 8 pre-existing GUI-only skips), manifest
+  EMPTY, goldens byte-consistent (re-regen no-op).  No =.el= source touched.

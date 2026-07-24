@@ -1,5 +1,5 @@
 #+title: org-air Round 82 — The edit-form `,' priority PROMPT is annoying: drop R76's read-char picker for a forward-WRAPPING one-key cycle (none → A → … → E → none), no minibuffer, full up-reachability via wraparound
-#+state: ready
+#+state: complete
 #+tags: bug transient refile inbox ux
 
 * Summary
@@ -500,3 +500,4 @@ and that the echo area is now SILENT (no prompt) during a press.
 
 * History
 - 2026-07-24: State: draft → ready.
+- 2026-07-24: State: ready → complete.

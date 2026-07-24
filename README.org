@@ -62,7 +62,8 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 - Five semantic buckets: *Inbox* (~:inbox:~ capture queue), *Needs attention* (overdue, or active with no schedule/deadline), *Upcoming* (within ~org-air-upcoming-days~), *High priority* (~[#A]~ etc.), *Stale* (untouched for ~org-air-stale-days~).
 - A month *calendar* marking scheduled/deadline/created days, with today highlighted — navigate months without leaving the board.
 - The date cell is a *proximity heat-ramp* on *every* date slot (deadline / scheduled / neutral): *overdue* reads red, *today* orange, *tomorrow* a blend between today and this-week, anything *2–6 days out* a calmer amber, and a date *a week or more out* keeps its slot colour — warmer means nearer, so urgency is legible at a glance (text /and/ svg pill).
-- *Filtering* by tag /and/ free text /and/ date/status /and/ location: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:stale~ / ~is:nodate~ / ~is:hipri~ / ~is:backlog~ and ~due:7d~-style windows (with ~scheduled:~/~deadline:~ twins) match the planning slots; a ~path:tasks/re/air~ token scopes the board/day/review to a directory subtree of your source files (segment-aware — ~path:re~ hits ~…/tasks/re/…~ but not a sibling ~…/tasks/restore~ — and matched relative to your ~org-air-files~ root, no tagging required); multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
+- A *single-day view* — ~RET~ a calendar day (or ~g d~ to jump to any date) focuses that day's items grouped *Deadline / Scheduled / Logged*; ~<~ / ~>~ step to the adjacent day and ~q~ returns to the board. Rows wear your TODO-keyword faces (~org-air-keyword-face-source~) and re-sort by time / keyword / priority / title.
+- *Filtering* by tag /and/ free text /and/ date/status /and/ location: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:stale~ / ~is:nodate~ / ~is:hipri~ / ~is:done~ / ~is:backlog~, a ~todo:KEYWORD~ keyword-identity token, and ~due:7d~-style windows (with ~scheduled:~ / ~deadline:~ twins) match the planning and status slots; a ~path:tasks/re/air~ token scopes the board/day/review to a directory subtree of your source files (segment-aware — ~path:re~ hits ~…/tasks/re/…~ but not a sibling ~…/tasks/restore~ — and matched relative to your ~org-air-files~ root, no tagging required); multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
 - *Backlog* (~b~): ack-and-defer a not-urgent task off the attention surfaces onto a Backlog lens via an org-native ~:backlog:~ tag — still trackable (Notes, day view, calendar, ~is:backlog~/~#backlog~), never nagging.
 - *Scope* the whole dataset to one tag, group, or file.
 - *Sort* within each bucket (date / priority / title / recency).
@@ -76,9 +77,14 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 - A *Revisit* view resurfaces your evergreen knowledge notes *dustiest-first*, with *orphans* (nothing links to them) and *spaced* (a rotating notes-garden) modes.
 - *denote-friendly*: reads ID-filenames, ~#+title~ and ~#+filetags~ and follows ~denote:~ links — with no ~denote~ dependency (keep denote for authoring, or drop it entirely).
 
+*Review* (~W~)
+
+- A *retrospective* over a period: items *Completed*, *Time invested* (clocked hours, rolled up by day / tag / directory / origin — ~f~ cycles the basis), *Started*, *Carried over*, and *Dropped* (shown only when there is an abandonment to own). ~<~ / ~>~ / ~.~ move by one unit of the active range; ~+~ / ~-~ widen / narrow and ~m~ cycles the range ladder (week → fortnight → month → quarter → year, per ~org-air-review-ranges~).
+- Mirror rows (an item DONE-logged across several files) collapse to one row per real completion, and an over-long clock interval is quarantined as *suspect* and excluded — so every total honestly describes what is shown.
+
 *Project viewer* (~org-air-project~)
 
-- ~airctl status -Da~ *parity tree*: documents grouped by state (draft → ready → work-in-progress → complete → dropped), directory, or tag.
+- ~airctl status -Da~ *parity tree*: documents grouped by state (draft → ready → work-in-progress → complete → out → off → dropped), directory, or tag.
 - A side-rail *inspector* showing the doc's state, tags, path, and metadata.
 - An in-place *doc session*: open a planning doc in the same window, edit it live, and jump back to the tree — with a rail *outline* that follows point.
 
@@ -194,7 +200,7 @@ The repo's ~flake.nix~ also exposes a devshell (~python3~ + ~emacs~ + ~make~); w
 
 ** ⚙️ Configuration
 
-org-air is useful out of the box; everything here is optional. These are the knobs most users actually tune — run ~M-x customize-group RET org-air RET~ for the full ~60.
+org-air is useful out of the box; everything here is optional. These are the knobs most users actually tune — run ~M-x customize-group RET org-air RET~ for the full ~140.
 
 | Variable                            | Default                                      | Meaning                                                                   |
 |-------------------------------------+----------------------------------------------+---------------------------------------------------------------------------|
@@ -221,8 +227,8 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | ~org-air-project-group~             | ~directory~                                  | Default grouping: ~state~ / ~directory~ / ~tag~.                              |
 | ~org-air-project-state-style~       | ~svg~                                        | State badge: ~svg~ / ~nerd~ / ~text~ / ~emoji~ / ~badge~.                         |
 | *Rail*                              |                                              |                                                                           |
-| ~org-air-rail-placement~            | ~((board . inline) (project . side-window))~ | Default rail placement per view.                                          |
-| ~org-air-outline-rail-placement~    | ~side-window~                                | Where ~org-air-outline-mode~ hosts its rail.                              |
+| ~org-air-rail-placement~            | ~side-window~                                | Shared default rail placement — ~side-window~ (popped out) or ~inline~; per-view overrides win. |
+| ~org-air-outline-rail-placement~    | ~nil~                                        | Where ~org-air-outline-mode~ hosts its rail (~nil~ = inherit the shared default). |
 | *Faces*                             |                                              |                                                                           |
 | ~org-air-tag-color~                 | ~nil~                                        | Give tag chips per-tag accent hues.                                       |
 | ~org-air-faces-prefer-nano~         | ~nil~                                        | Link org-air faces to nano-theme's, when available.                       |
@@ -244,7 +250,7 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~n~ / ~p~               | Next / previous item                                                   |
 | ~j~ / ~k~               | Line down / up (lands on the title)                                    |
 | ~RET~                   | Open the item in the bottom view pane                                  |
-| ~S-RET~ / ~O~           | Visit the source heading in the other window                           |
+| ~S-RET~                 | Visit the source heading in the other window                           |
 | ~SPC~                   | Peek at the item                                                       |
 | ~v~ / ~V~               | Open / close the bottom view pane                                      |
 | ~TAB~ / ~S-TAB~         | Toggle / previous section                                              |
@@ -257,17 +263,17 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~b~                     | Backlog / un-backlog: defer the item off the attention surfaces        |
 | ~d~ / ~D~               | Set deadline / mark done                                               |
 | ~a~ / ~x~ / ~u~ / ~U~   | Archive / kill (guarded) / undo the most recent board edit / redo      |
-| ~/~                     | Filter by tag, free text, date/status or location (~is:overdue~, ~is:backlog~, ~due:7d~, ~path:tasks/re~) |
+| ~/~                     | Filter by tag, free text, date/status or location (~is:overdue~, ~is:done~, ~todo:NEXT~, ~due:7d~, ~path:tasks/re~) |
 | ~\~                     | Clear the filter                                                       |
 | ~M-/~                   | Toggle filter combinator (AND ↔ OR)                                    |
 | ~s~ / ~S~               | Scope / clear scope                                                    |
 | ~o~ / ~O~               | Sort: cycle key / reverse direction                                    |
 | ~z f~ / ~z d~ / ~z t~   | Toggle the filename / dates / tags column                              |
 | ~\vert~                 | Pop the context rail in / out of a side window                         |
-| ~g~                     | ~g~-prefix: ~g r~ refresh, ~g g~ top, ~g R~ refresh-all, ~g RET~ visit |
+| ~g~                     | ~g~-prefix: ~g r~ refresh · ~g g~ top · ~g R~ refresh-all · ~g RET~ visit · ~g o~ visit-stay · ~g d~ go-to-date |
 | ~G~                     | Go to the bottom                                                       |
-| ~<~ / ~>~ / ~.~         | Calendar: previous / next month / today                                |
-| ~P~                     | Open the Air project viewer                                            |
+| ~<~ / ~>~ / ~.~         | Calendar: previous / next month / today (in the day view: previous / next day / today) |
+| ~P~ / ~N~ / ~W~         | Air project viewer / Revisit (notes) / Review (period)                 |
 | ~?~                     | Help                                                                   |
 | ~q~                     | Quit (progressively closes one surface per press)                      |
 | ~C-c C-a~               | Leader: ~\vert~ rail · ~o~ outline jump · ~s~ sort · ~/~ filter        |
@@ -284,14 +290,16 @@ Some tasks are real but not urgent — a placeholder heading you will fill in /a
 |-----------------------+-----------------------------------------------------------------|
 | ~n~ / ~p~ / ~j~ / ~k~ | Motion between doc rows                                         |
 | ~RET~                 | Open the doc in a same-window session                           |
-| ~S-RET~ / ~O~         | Visit the doc in the other window                               |
+| ~S-RET~               | Visit the doc in the other window                               |
 | ~s~ / ~d~ / ~t~       | Group by state / directory / tag                                |
 | ~(~                   | Flip rows between title and relative path                       |
+| ~TAB~                 | Fold / unfold each group's dropped docs                         |
 | ~/~                   | Filter docs by tag                                              |
 | ~o~ / ~O~             | Sort: cycle (name/created/updated) / reverse                    |
 | ~v~ / ~V~             | Bottom peek pane open / close                                   |
 | ~\vert~               | Pop the context rail in / out                                   |
 | ~g~                   | Refresh                                                         |
+| ~N~ / ~W~             | Revisit (notes) / Review (period)                              |
 | ~?~ / ~q~             | Help / quit                                                     |
 | ~C-c C-a~             | Leader: ~\vert~ rail · ~o~ outline jump · ~s~ sort · ~/~ filter |
 
@@ -301,7 +309,6 @@ Some tasks are real but not urgent — a placeholder heading you will fill in /a
 |---------------------------+-----------------------------|
 | ~C-c C-q~                 | Back to the tree            |
 | ~C-c C-a \vert~           | Toggle the rail             |
-| ~C-c C-a o~               | Jump to the current heading |
 | ~C-c C-a n~ / ~C-c C-a p~ | Next / previous heading     |
 
 Because the doc buffer is fully editable (single keys self-insert), the main-window actions live under the ~C-c C-a~ leader. Legends show the context-correct key — the bare key where it works, the leader form where it doesn't.

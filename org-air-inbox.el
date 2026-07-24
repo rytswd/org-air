@@ -890,7 +890,9 @@ and the dirty-only fields `:category', `:scheduled'
 `:priority' \(an honest TRI-STATE, R76: nil = leave the item's own
 value untouched — writes nothing; a CHAR = set that priority; ?\\s =
 CLEAR — remove the cookie at apply, org's own remove vocabulary,
-armed only when the item factually has a cookie), and
+armed only when the item factually has a cookie; R82's forward-
+WRAPPING `,' cycle now drives this tri-state — one slot per press,
+no prompt), and
 `:note' (R71-1 — the drafted dated-log-note text; nil = no note,
 the form never holds \"\").")
 
@@ -980,55 +982,26 @@ declares is rejected by `org-todo' itself with an honest `user-error'
         (cons org-priority-highest org-priority-lowest))
     (cons org-priority-highest org-priority-lowest)))
 
-(defun org-air-inbox--priority-normalize (key range)
-  "Map raw KEY to a priority verb over RANGE — PURE (R76 Decision 3).
-RANGE is a (HIGHEST . LOWEST) char pair (the
-`org-air-inbox--target-priority-range' shape).  Returns: the symbol
-`clear' for SPC (org's own remove key) or `-' (the field's unset
-glyph \"–\" made typeable; ?- is 45, below every alphanumeric cookie
-char, so it can never collide with the range); the symbol `keep' for
-RET (`C-g' never reaches here — `read-char-exclusive' quits first);
-KEY itself, UPCASED when both range ends are uppercase (org's own
-rule in `org-priority', probed: ?a → [#A]), when its upcase lies
-within RANGE; nil for anything else (the caller rejects honestly —
-never clamped).  The stub-free batch seam: no buffer, no state, no
-read."
+(defun org-air-inbox--priority-cycle-next (current range)
+  "Return the priority slot AFTER CURRENT over RANGE — PURE (R82).
+The forward-WRAPPING ring the `,' field walks, one slot per press, with
+NO prompt and NO read.  RANGE is a (HIGH . LOW) char pair
+\(`org-air-inbox--target-priority-range' shape; HIGH <= LOW as codes).
+CURRENT is the effective current slot: a CHAR in [HIGH..LOW], or the
+symbol `none' (the cleared/untouched slot — nil is read as `none' too).
+Returns the NEXT slot: a CHAR in [HIGH..LOW], or the symbol `none'.  The
+ring is  none -> HIGH -> HIGH+1 -> ... -> LOW -> none -> ...  so every
+priority AND the cleared slot stay reachable in <= range+1 presses
+\(R76's up-reachability by WRAPAROUND, not a prompt).  An OUT-OF-RANGE
+or nil CURRENT restarts the ring at HIGH — the first press lands the top
+priority (a stale pick from a since-narrowed destination self-heals)."
   (let ((high (car range))
-        (low (cdr range)))
+        (low  (cdr range)))
     (cond
-     ((memq key '(?\s ?-)) 'clear)
-     ((memq key '(?\r ?\n)) 'keep)
-     ((and (integerp key) (<= high (upcase key) low))
-      (if (and (= (upcase high) high) (= (upcase low) low))
-          (upcase key)
-        key))
-     (t nil))))
-
-(defun org-air-inbox--read-priority-char (file &optional current)
-  "Read ONE priority key over FILE's own full range (R76, the R68 chooser law).
-The `,' field's reader, beside `org-air-inbox--read-todo-keyword' —
-the range is FILE's OWN (`org-air-inbox--target-priority-range', read
-in the buffer the apply-time `org-priority' will run in, so a
-per-file `#+PRIORITIES:' line governs both by construction — R57).
-The prompt SHOWS the whole range, the clear option, and CURRENT (the
-pre-filled value RET keeps) when non-nil — org's own `org-priority'
-prompt idiom extended, so every choice is visible before the
-keystroke; a single `read-char-exclusive' then sets ANY in-range
-priority directly, up or down.  Returns an in-range CHAR (lowercase
-upcased per org's rule), the symbol `clear' (SPC or -), or the
-symbol `keep' (RET); out-of-range input signals org's own
-`user-error' wording — rejected honestly, never clamped, single-shot
-\(no re-prompt loop, R53 never-hang)."
-  (let* ((range (org-air-inbox--target-priority-range file))
-         (high (car range))
-         (low (cdr range))
-         (key (read-char-exclusive
-               (format "Priority %c-%c, SPC clears%s: " high low
-                       (if current (format ", RET keeps %c" current) ""))))
-         (choice (org-air-inbox--priority-normalize key range)))
-    (or choice
-        (user-error "Priority must be between `%c' and `%c' (SPC clears)"
-                    high low))))
+     ((or (null current) (eq current 'none)) high)
+     ((and (integerp current) (<= high current) (< current low)) (1+ current))
+     ((and (integerp current) (= current low)) 'none)
+     (t high))))
 
 (defconst org-air-inbox--schedule-options
   '(("today" . ".") ("tomorrow" . "+1d") ("this week" . "+1w")
@@ -1395,16 +1368,17 @@ file the write will land in, so completion and the apply-time
                 (org-air-item-todo item))))))
 
 (transient-define-suffix org-air-refile-form-priority ()
-  "Pick a priority over the WRITE TARGET's FULL range — one key (R76).
-The destination file when one is set, else the item's OWN file
-\(R67-4).  The prompt shows the whole range + the current value; one
-`read-char-exclusive' sets ANY priority directly (up or down —
-never a cycle); SPC or - CLEARS (a real removal when the item has a
-cookie — the ?\\s sentinel rides RET's apply; on a cookie-less item
-it drops the pending pick back to untouched); RET keeps the field as
-it was; out-of-range input is rejected honestly."
+  "CYCLE the priority one slot forward over the WRITE TARGET's range —
+one key, NO prompt (R82).  The destination file when one is set, else
+the item's OWN file (R67-4).  The ring wraps
+none -> A -> B -> ... -> E -> none  (the write target's own range), so
+every priority AND the cleared slot stay reachable; `,' advances ONE
+slot per press with no minibuffer.  The cleared slot arms R76's `?\\s'
+clear sentinel when the item HAS a cookie (a real removal at apply),
+else leaves the field untouched (a cookie-less item has nothing to
+remove).  RET (execute) applies; the field/preview repaint each press."
   :transient t
-  :description (lambda ()
+  :description (lambda ()                       ; UNCHANGED from R76
                  (org-air-inbox--form-field
                   "priority"
                   (let ((c (or (org-air-inbox--form-get :priority)
@@ -1415,24 +1389,25 @@ it was; out-of-range input is rejected honestly."
                     (cond ((eq c ?\s) "clear")
                           (c (string c))))))
   (interactive)
-  (let* ((item (org-air-inbox--form-get :item))
-         (own (and item (org-air-inbox--item-priority-char item)))
+  (let* ((item    (org-air-inbox--form-get :item))
+         (own     (and item (org-air-inbox--item-priority-char item)))
          (pending (org-air-inbox--form-get :priority))
-         ;; a pending CLEAR shows no "current" to keep — the prompt
-         ;; then omits its "RET keeps" token.
-         (current (if (eq pending ?\s) nil (or pending own)))
-         (choice (org-air-inbox--read-priority-char
-                  (org-air-inbox--form-write-target) current)))
-    (pcase choice
-      ;; RET: an untouched field stays untouched (the R67 dirty-only
-      ;; law — no `form-put' at all), a pending pick/clear survives.
-      ('keep nil)
-      ;; SPC/-: state-aware arming (R76 Decision 4) — the ?\s sentinel
-      ;; only when the item factually HAS a cookie to remove
-      ;; (`(org-priority ?\s)' on a cookie-less heading user-errors);
-      ;; otherwise "back to untouched", which writes nothing.
-      ('clear (org-air-inbox--form-put :priority (and own ?\s)))
-      (_ (org-air-inbox--form-put :priority choice)))))
+         (range   (org-air-inbox--target-priority-range
+                   (org-air-inbox--form-write-target)))
+         ;; effective current slot: a pending clear reads as `none', a
+         ;; pending char as itself, else the item's OWN cookie (nil own
+         ;; => `none').  A press ADVANCES past this — never a no-op.
+         (current (cond ((eq pending ?\s) 'none)
+                        (pending pending)
+                        (own own)
+                        (t 'none)))
+         (next (org-air-inbox--priority-cycle-next current range)))
+    ;; state-aware `none' arming (R76 Decision 4, verbatim): `?\s' only
+    ;; when the item factually has a cookie to remove — else nil (back to
+    ;; untouched); a char stores directly.
+    (if (eq next 'none)
+        (org-air-inbox--form-put :priority (and own ?\s))
+      (org-air-inbox--form-put :priority next))))
 
 (defun org-air-inbox--flush-pending-log-note ()
   "Synchronously store a pending timestamp-style Org log record (R68-2).

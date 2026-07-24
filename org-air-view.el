@@ -849,9 +849,11 @@ An `eq' hash (R18 D-P1c).  Auto-invalidates because a re-query yields new
 item objects; explicitly cleared on day-rollover and refresh.")
 (defvar-local org-air-view--classify-cache-day nil
   "Key the classify cache was built for; a mismatch clears it.
-R72: the pair (DAY . EFFECTIVE-HORIZON) — `time-to-days' of the render's
-now consed with `org-air-view--filter-effective-horizon' — so both a day
-rollover and an active-window horizon change rebuild the memo.")
+R72/R83: the list (DAY EFFECTIVE-HORIZON BACKLOG-TAG) — `time-to-days' of
+the render's now, `org-air-view--filter-effective-horizon' and
+`org-air-backlog-tag' — so a day rollover, an active-window horizon
+change OR a mid-session backlog-tag rename all rebuild the memo (a cheap
+slot-fold, never a file re-derive).")
 (defvar org-air-view--render-partition nil
   "Per-render compute-once memo (ITEMS VISIBLE . TABLE) (R20-6).
 VISIBLE is the scope+filter visible subset of ITEMS computed ONCE; TABLE is
@@ -941,6 +943,19 @@ The most recent notes by scan-time activity; the remainder stays behind
 the standard `…and N more' fold row so the section can never reintroduce
 an unbounded render at 5000 files."
   :type 'integer
+  :group 'org-air)
+
+(defcustom org-air-show-backlog-section t
+  "When non-nil, show the bottom Backlog section for deferred items (R83).
+An item carrying `org-air-backlog-tag' (toggled by the board key `b',
+`org-air-item-backlog') routes OFF the four task buckets + the Inbox into
+a single `backlog' bucket; that bucket surfaces as ONE conditional
+section at the bottom of the board (the Notes-section pattern) plus a
+rail Summary count.  Nil removes the section from the board entirely (the
+items stay reachable via Notes / all-items / `#backlog' / `is:backlog').
+A backlog-free board renders byte-identically either way — the section
+appears only when a heading is deferred."
+  :type 'boolean
   :group 'org-air)
 
 (defvar-local org-air-view--refresh-token 0
@@ -1166,15 +1181,32 @@ Rendered ONLY when headingless note file-items exist (see
 `org-air-view--section-descriptors'), so a notes-free board — every
 existing golden — renders exactly the pre-R53 sections.")
 
+(defconst org-air-view--backlog-descriptor
+  '(backlog "Backlog" "Nothing deferred.")
+  "The conditional Backlog section descriptor (R83).
+Rendered ONLY when a visible item defers into the `backlog' bucket (see
+`org-air-view--section-descriptors') and `org-air-show-backlog-section'
+is on, so a backlog-free board — every existing golden — renders exactly
+the pre-R83 sections.  The ▽ section icon comes from `org-air-glyphs'.")
+
 (defun org-air-view--section-descriptors (items)
-  "Return the section descriptors to render for ITEMS (R53 P3).
-The fixed task sections, plus the single collapsed Notes section at the
-bottom when any visible item is a `kind' `file' note and
-`org-air-show-notes-section' is on."
-  (if (and org-air-show-notes-section
-           (org-air-view--items-for-bucket 'notes items))
-      (append org-air-view--sections (list org-air-view--notes-descriptor))
-    org-air-view--sections))
+  "Return the section descriptors to render for ITEMS (R53 P3, R83).
+The fixed task sections, then the single collapsed Notes section when any
+visible item is a `kind' `file' note and `org-air-show-notes-section' is
+on, and finally the Backlog section when any visible item defers into the
+`backlog' bucket and `org-air-show-backlog-section' is on.  Both trailing
+sections are conditional-and-empty-suppressed, so a board with neither
+renders byte-identically to the fixed five."
+  (let ((descriptors org-air-view--sections))
+    (when (and org-air-show-notes-section
+               (org-air-view--items-for-bucket 'notes items))
+      (setq descriptors
+            (append descriptors (list org-air-view--notes-descriptor))))
+    (when (and org-air-show-backlog-section
+               (org-air-view--items-for-bucket 'backlog items))
+      (setq descriptors
+            (append descriptors (list org-air-view--backlog-descriptor))))
+    descriptors))
 
 ;;;; =====================================================================
 ;;;; R35-1 — one switch to opt out of EVERY default keybinding.
@@ -1652,6 +1684,9 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "f" #'org-air-item-file-group
   "t" #'org-air-set-tag
   "T" #'org-air-item-cycle-todo
+  ;; R83: `b' toggles the backlog tag — defer/un-defer the item off the
+  ;; attention surfaces (audited FREE on this map + the review map).
+  "b" #'org-air-item-backlog
   "a" #'org-air-item-archive
   "D" #'org-air-item-done
   "x" #'org-air-item-kill
@@ -2123,8 +2158,12 @@ bare substring token."
    ((stringp org-air-view--tag-filter) (list org-air-view--tag-filter))))
 
 (defconst org-air-view--filter-is-values
-  '("overdue" "upcoming" "stale" "nodate" "hipri")
-  "The closed value set of the R72 `is:' status-token family.")
+  '("overdue" "upcoming" "stale" "nodate" "hipri" "backlog")
+  "The closed value set of the R72 `is:' status-token family.
+R83: `backlog' is the bucket-exact twin of the raw-tag `#backlog' — it
+selects exactly the `backlog' bucket (board-active ∧ task-routed ∧
+tagged), a strict subset of `#backlog' (which also hits done / archived /
+note-typed carriers of the tag).")
 
 (defun org-air-view--filter-token-parse (token)
   "Parse TOKEN as an R72 date/status filter token, or return nil.
@@ -2213,6 +2252,11 @@ agreement law through the routing layer."
           ;; stale clock) and must not answer "nodate".
           (not (org-air-classify--stale-eligible-p item)))
          (`(is . hipri) (org-air-classify--hipri-p item))
+         ;; R83: `is:backlog' is the bucket-exact twin of `#backlog'.  The
+         ;; enclosing board-active ∧ task-routed conjunction already holds,
+         ;; so this selects EXACTLY the `backlog' bucket — the R72
+         ;; agreement law extended to the deferred set for free.
+         (`(is . backlog) (org-air-classify--backlog-p item))
          (`(due . ,days) (org-air-classify--due-within-p item now days))
          (`(scheduled . ,days)
           (org-air-classify--due-within-p item now days 'scheduled))
@@ -2406,9 +2450,15 @@ day rollover (or a missing table) rebuilds it.  R72: the memo key is the
 pair (DAY . EFFECTIVE-HORIZON), so toggling a window filter token that
 widens the Upcoming horizon rebuilds the memo instead of serving stale
 buckets — a pure slot-fold rebuild — and is a NO-OP when the horizon is
-unchanged (`due:7d' at defaults keys identically to no filter)."
-  (let ((key (cons (time-to-days (or now (current-time)))
-                   (org-air-view--filter-effective-horizon))))
+unchanged (`due:7d' at defaults keys identically to no filter).
+R83: `org-air-backlog-tag' joins the key (a RENDER-time classify input,
+not a scan-key input — the tag NAME never forces a file reopen), so a
+mid-session `setq' of the tag name self-invalidates the memo on the next
+repaint (a cheap slot-fold rebuild), never a cold file re-derive; a
+backlog-free default keys identically to before."
+  (let ((key (list (time-to-days (or now (current-time)))
+                   (org-air-view--filter-effective-horizon)
+                   org-air-backlog-tag)))
     (unless (and org-air-view--classify-cache
                  (equal org-air-view--classify-cache-day key))
       (setq org-air-view--classify-cache (make-hash-table :test 'eq :size 700)
@@ -4359,19 +4409,34 @@ to the line+spacing so the rule stays solid even with row spacing (D-P3)."
                     bar)
               " "))))
 
+(defun org-air-view--summary-buckets (items)
+  "Return the Summary section descriptors for visible ITEMS (R83).
+The fixed five task/inbox sections, plus the conditional Backlog
+descriptor when any visible item defers into the `backlog' bucket — so a
+backlog-free board keeps the exact five Summary rows (byte-identical),
+while a board with deferred items grows ONE `Backlog N' row.  Notes stay
+OUT of the Summary, as before."
+  (if (org-air-view--items-for-bucket 'backlog items)
+      (append org-air-view--sections (list org-air-view--backlog-descriptor))
+    org-air-view--sections))
+
 (defun org-air-view--section-counts (items)
   "Return bucket count alist for visible ITEMS.
 Counts use `org-air-view--items-for-bucket' so the summary mirrors the
 section badges and bodies exactly (S4) — inbox items are not also tallied
-under the other buckets."
+under the other buckets.  R83: the conditional `backlog' tally rides the
+`org-air-view--summary-buckets' list."
   (mapcar (lambda (descriptor)
             (pcase-let ((`(,bucket ,_title ,_empty) descriptor))
               (cons bucket (length (org-air-view--items-for-bucket bucket items)))))
-          org-air-view--sections))
+          (org-air-view--summary-buckets items)))
 
 (defun org-air-view--bucket-title (bucket)
-  "Return display title for BUCKET."
-  (cadr (assq bucket org-air-view--sections)))
+  "Return display title for BUCKET.
+R83: `backlog' resolves to the conditional Backlog descriptor's title."
+  (cadr (if (eq bucket 'backlog)
+            org-air-view--backlog-descriptor
+          (assq bucket org-air-view--sections))))
 
 (defun org-air-view--rail-inset (width)
   "Return the D5b content-spine inset for a rail of content WIDTH.
@@ -10276,6 +10341,68 @@ above the definition byte-compiles against whatever macro a stale
     (org-air-refresh)))
 
 ;;;###autoload
+(defun org-air-item-backlog ()
+  "Toggle `org-air-backlog-tag' on the item at point — defer/un-defer (R83).
+Adds the tag when absent, REMOVES it when present (a reversible
+un-backlog): a board-active tagged item routes OFF the four task buckets
+\(Upcoming / Needs attention / High priority / Stale) and the Inbox into
+the single `backlog' bucket — off the attention surfaces, still trackable
+\(the Backlog section + a rail Summary count) and reachable everywhere
+non-attention (Notes, all-items, the day view, the calendar, `#backlog',
+`is:backlog').
+
+PROMPT-FREE: unlike `org-air-set-tag' (a `read-string') and
+`org-air-item-kill' (a `yes-or-no-p'), the `b' key reads NOTHING — the
+tag is the `org-air-backlog-tag' defcustom, so the whole action is a
+single non-interactive keystroke (fully batch-testable, no GUI-confirm
+bits).
+
+Writes the SOURCE heading via `org-air-view--at-item-source' (the SAME
+path `org-air-set-tag' uses): the R68 board-context logging discipline
+\(inhibit the note-downgrade + pre-save flush), ONE `atomic-change-group'
+\(one edit = one undo group), an `org-toggle-tag' that preserves every
+OTHER tag, and — for free — an R73/R75 recent-edits ring record (`u'
+undoes, `U' redoes; an in-place, single-buffer record, never structural).
+
+Then — R53, no rescan — mutates the CACHED item's `tags' slot in place,
+drops that one item's `eq' classify-memo entry, and repaints from cache
+via `org-air-view--refresh-current': the row moves from Needs-attention
+to Backlog (Summary follows) with NO org-ql re-query.  Never-error: the
+soft `user-error' (no item at point / a mid-refresh stale file) is
+message-only, a mid-body signal rolls back the `atomic-change-group'
+\(no save, no ring push), and any RESIDUAL hard error downgrades to a
+message (the R53 never-error law).
+
+Relocated BELOW the `org-air-view--at-item-source' defmacro (the R68fix
+source-order law), beside `org-air-set-tag'."
+  (interactive)
+  (let* ((item (org-air-view--item-at-point))
+         (tag  org-air-backlog-tag)
+         (had  (and (member tag (org-air-item-tags item)) t))
+         (want (if had 'off 'on)))
+    (condition-case err
+        (progn
+          (org-air-view--at-item-source item
+            (format "backlog \"%s\" %s%s" (org-air-item-title item)
+                    (if had "-" "+") tag)
+            (org-toggle-tag tag want)) ; explicit on/off: idempotent
+          ;; R53: update the cached item + repaint in place, do NOT
+          ;; `org-air-refresh' (no org-ql re-query).
+          (setf (org-air-item-tags item)
+                (if had (remove tag (org-air-item-tags item))
+                  (cons tag (org-air-item-tags item))))
+          (when org-air-view--classify-cache
+            (remhash item org-air-view--classify-cache)) ; the one stale eq-entry
+          (org-air-view--refresh-current) ; board/day re-classify; review in place
+          (message "%s \"%s\"" (if had "Un-backlogged" "Backlogged")
+                   (org-air-item-title item)))
+      ;; R53 never-error: the soft `user-error' (no item / the mid-refresh
+      ;; stale guard) propagates message-only; any RESIDUAL hard error
+      ;; downgrades to a message (belt-and-suspenders) — never a backtrace.
+      (user-error (signal (car err) (cdr err)))
+      (error (message "Backlog: %s" (error-message-string err))))))
+
+;;;###autoload
 (defun org-air-item-file-group ()
   "Fast-refile the item at point under a category/group (graduates it)."
   (interactive)
@@ -10565,7 +10692,8 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
           (org-air-view--goto-first-inbox-item)
           (let ((key (read-char-exclusive
                       (format (concat "Inbox %d ┆ [s]chedule [d]eadline [r]efile "
-                                      "[f]ile [t]ag [T]odo [a]rchive [D]one [k]ill "
+                                      "[f]ile [t]ag [T]odo [b]acklog [a]rchive "
+                                      "[D]one [k]ill "
                                       "┆ [SPC]skip [p]rev [u]ndo [U]redo "
                                       "[g]refresh [q]uit ")
                               n))))
@@ -10576,6 +10704,10 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
               (?f (call-interactively #'org-air-item-file-group))
               (?t (call-interactively #'org-air-set-tag))
               (?T (org-air-item-cycle-todo))
+              ;; R83: `b' is a DEFER disposition — the single-home backlog
+              ;; gate drops the item out of the `inbox' bucket, so the
+              ;; guided walk's countdown advances like any filing verb.
+              (?b (org-air-item-backlog))
               (?a (org-air-item-archive))
               (?D (org-air-item-done))
               (?k (org-air-item-kill))
@@ -10840,6 +10972,7 @@ read by the bookmark record producer.")
      (org-air-item-deadline . "set deadline")
      (org-air-set-tag . "set tag")
      (org-air-item-cycle-todo . "set todo state")
+     (org-air-item-backlog . "backlog / un-backlog item (defer off attention)")
      (org-air-item-archive . "archive item")
      (org-air-item-done . "mark done")
      (org-air-item-kill . "kill item")

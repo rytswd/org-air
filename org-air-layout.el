@@ -39,6 +39,9 @@
     (high-priority . ("★" . "*"))
     (stale . ("○" . "~"))
     (notes . ("≣" . "="))
+    ;; R83: the Backlog section icon — ▽ (deferred), the calm inverse of
+    ;; attention's ▲; degrades by the S5b tier table, user-overridable.
+    (backlog . ("▽" . "-"))
     (calendar-item . ("●" . "o"))
     (today . ("■" . "#"))
     (clear . ("✕" . "x"))

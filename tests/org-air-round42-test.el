@@ -530,11 +530,12 @@ and the classify day would stay YESTERDAY, so both `should's FAIL."
           (yesterday (1- (time-to-days (current-time))))
           (today (time-to-days (current-time))))
       ;; stamp the classify cache with a STALE (yesterday) key, as a board
-      ;; left open across midnight would be.  R72: the key is the pair
-      ;; (DAY . EFFECTIVE-HORIZON); stamp the new shape with yesterday's
-      ;; day so ONLY the day is stale.
+      ;; left open across midnight would be.  R72/R83: the key is the list
+      ;; (DAY EFFECTIVE-HORIZON BACKLOG-TAG); stamp the new shape with
+      ;; yesterday's day so ONLY the day is stale.
       (setq org-air-view--classify-cache-day
-            (cons yesterday (org-air-view--filter-effective-horizon)))
+            (list yesterday (org-air-view--filter-effective-horizon)
+                  org-air-backlog-tag))
       (should org-air-view--classify-cache)      ; a table is present to rebuild
       (org-air-view--refresh-start)
       ;; no-change: synchronous, no paced machine, state stays nil.
@@ -542,11 +543,12 @@ and the classify day would stay YESTERDAY, so both `should's FAIL."
       ;; …but it REPAINTED: the buffer's char tick advanced…
       (should (> (buffer-chars-modified-tick) tick0))
       ;; …and the render rebuilt the classify cache for TODAY (drops the
-      ;; stale midnight bucketing).  R72: the rebuilt key is the pair
-      ;; (TODAY . HORIZON) with the cdr = the knob horizon (the board is
-      ;; unfiltered, so no window token widens it).
+      ;; stale midnight bucketing).  R72/R83: the rebuilt key is the list
+      ;; (TODAY HORIZON BACKLOG-TAG) with HORIZON = the knob horizon (the
+      ;; board is unfiltered, so no window token widens it).
       (should (equal org-air-view--classify-cache-day
-                     (cons today org-air-upcoming-days))))))
+                     (list today org-air-upcoming-days
+                           org-air-backlog-tag))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; 9. R42.1 F3 — sync fast-path scan error => `failed', never stranded

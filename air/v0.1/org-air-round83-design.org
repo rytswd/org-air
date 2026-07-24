@@ -1,5 +1,5 @@
 #+title: org-air Round 83 — a one-key BACKLOG toggle (`b'): ack-and-defer an item off Needs-attention onto a Backlog lens via an org-native :backlog: tag (classify gate + is:backlog twin + in-place repaint, no rescan)
-#+state: ready
+#+state: done
 #+tags: board classify triage filter keybindings defcustom ux tags
 
 * Summary
@@ -645,5 +645,32 @@ classify-memo input, not a scan-key input).
   audit: NONE (single non-interactive keystroke).  13 batch ERT seams
   defined.
 
+- 2026-07-24: R83 IMPLEMENTED (child of nvvuttktkkun).  Landed exactly as
+  specced: =org-air-backlog-tag= defcustom ("backlog") +
+  =org-air-classify--backlog-p= gating =--heading-buckets= INSIDE the
+  board-active branch → a single =backlog= bucket (org-air-classify.el);
+  =b= registered via the R35-1 registry on =org-air-view-mode-map=
+  (board+day) and =org-air-review-mode-map=; =org-air-item-backlog=
+  below =--at-item-source= beside =org-air-set-tag= — prompt-free
+  =org-toggle-tag= on/off, R68 log + atomic + R73 ring, then R53 in-place
+  (slot mutate + single classify-memo =remhash= + =--refresh-current=, NO
+  re-query), wrapped in a never-error =condition-case= (user-error
+  re-raised, residual error → message); conditional Backlog section
+  descriptor + =org-air-show-backlog-section= + =--summary-buckets=
+  (conditional Summary count) + =bucket-title=/=section-counts= /
+  =section-descriptors=; ▽ glyph in =org-air-glyphs= (org-air-layout.el);
+  ="backlog"= in =--filter-is-values= + the =(is . backlog)= arm; the
+  classify-memo coherence key grew to the LIST (DAY HORIZON BACKLOG-TAG)
+  — NOT the scan =--cache-key=, no version bump; =?= help Triage rows
+  (board + review) + the process-inbox =[b]= defer disposition.  13 batch
+  ERT seams r83-1..13 all green.  ZERO golden churn (=make regen-mockups=
+  byte-clean; no committed heading is tagged).  Collateral: the R72
+  memo-key shape change (cons→3-list) required updating the internal
+  key-shape asserts in r42/r72 tests (intent preserved, not a golden
+  re-bless).  =make clean && make check= green (1016 as expected, 8
+  GUI-only skips, 0 unexpected; lint ok; compile clean bar the two
+  pre-existing baselined warnings).
+
 * History
 - 2026-07-23: State: draft → ready.
+- 2026-07-24: State: ready → done (implemented).

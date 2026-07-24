@@ -30,6 +30,22 @@
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-backlog-tag "backlog"
+  "Org tag that defers a board item onto the Backlog lens (R83).
+A heading carrying this tag routes OUT of the task sections
+\(Upcoming / Needs attention / High priority / Stale) and the Inbox into
+the single `backlog' bucket -- off the \"needs attention\" surfaces while
+staying trackable (a Backlog section + a rail Summary count) and fully
+reachable elsewhere (Notes, all-items, the day view, the calendar).  The
+board key `b' (`org-air-item-backlog') toggles the tag on the item at
+point; `is:backlog' filters to exactly the backlog set; `#<tag>' filters
+by raw tag membership (its superset).  The tag is written to the source
+heading and re-scanned like any tag; the NAME is a live classify input
+\(the render memo carries it -- org-air-view.el), so a mid-session change
+takes effect on the next repaint, never a file rescan."
+  :type 'string
+  :group 'org-air)
+
 (defun org-air-classify--time (timestamp)
   "Convert Org TIMESTAMP object to an Emacs time value."
   (when timestamp
@@ -274,11 +290,23 @@ the full task treatment there too."
        (or (org-air-classify--inbox-dweller-p item)
            (not (memq (org-air-item-ntype item) '(journal knowledge))))))
 
+(defun org-air-classify--backlog-p (item)
+  "Non-nil when ITEM carries `org-air-backlog-tag' — the deferred flag (R83).
+A live membership test over the already-scanned `tags' slot (the tag NAME
+is a classify input; the tag VALUE is re-scanned).  Consulted by
+`org-air-classify--heading-buckets' (routes off the four task buckets +
+Inbox into `backlog') and by the `is:backlog' filter token — the ONE
+definition both share, so filter⇔bucket agreement holds by construction."
+  (and org-air-backlog-tag
+       (member org-air-backlog-tag (org-air-item-tags item))
+       t))
+
 ;;;###autoload
 (defun org-air-classify-item (item &optional now)
   "Return bucket symbols for ITEM relative to NOW.
 
 Buckets are `upcoming', `stale', `attention', `high-priority', `inbox',
+the R83 `backlog' (a board-active deferred item, off the task buckets),
 plus the non-board `notes', `container', `knowledge' and `journal'.
 R53 P3: a `kind' `file' item (a headingless note synthesised by the scan)
 routes to the dedicated `notes' bucket FIRST and never enters the task
@@ -324,26 +352,36 @@ share ONE definition of every date word (agreement by construction)."
          (deadline (org-air-item-deadline item))
          (inbox-p (org-air-classify--inbox-dweller-p item)))
     (when (org-air-classify--board-active-p item)
-      (when (org-air-classify--due-within-p item now org-air-upcoming-days)
-        (push 'upcoming buckets))
-      ;; Real-signal membership ruling (xsqrnoyn): an overdue item needs
-      ;; attention, but the NO-DATE attention default is suppressed for
-      ;; inbox-dwellers — a schedule-less inbox capture is unfiled, not
-      ;; "needs attention" (it stays in Inbox).  Real scheduled/deadline/
-      ;; priority membership is still honoured everywhere.
-      (when (or (org-air-classify--overdue-p item now)
-                (and (null scheduled) (null deadline) (not inbox-p)))
-        (push 'attention buckets))
-      (when (org-air-classify--hipri-p item)
-        (push 'high-priority buckets))
-      (when inbox-p
-        (push 'inbox buckets))
-      ;; R54-1: the stale-ELIGIBILITY gate is the FIRST conjunct — an item
-      ;; with no actionable date is not a task and can never go Stale.
-      ;; The stale CLOCK (`org-air-classify--last-activity') is unchanged,
-      ;; so a dated-but-quiet item classifies byte-identically to before.
-      (when (org-air-classify--stale-p item now)
-        (push 'stale buckets)))
+      (if (org-air-classify--backlog-p item)
+          ;; R83: a board-active DEFERRED item routes OFF the four task
+          ;; buckets + Inbox into the SINGLE `backlog' home — off the
+          ;; attention surfaces, still trackable (a Backlog section + a
+          ;; rail count).  The gate sits INSIDE the board-active branch,
+          ;; so a DONE / archived backlog heading still classifies into
+          ;; ZERO buckets (backlog never resurrects history).  Mirrors
+          ;; R77's subtractive shape but keeps the item a TASK (a tag
+          ;; overlay, not a re-typed note).
+          (push 'backlog buckets)
+        (when (org-air-classify--due-within-p item now org-air-upcoming-days)
+          (push 'upcoming buckets))
+        ;; Real-signal membership ruling (xsqrnoyn): an overdue item needs
+        ;; attention, but the NO-DATE attention default is suppressed for
+        ;; inbox-dwellers — a schedule-less inbox capture is unfiled, not
+        ;; "needs attention" (it stays in Inbox).  Real scheduled/deadline/
+        ;; priority membership is still honoured everywhere.
+        (when (or (org-air-classify--overdue-p item now)
+                  (and (null scheduled) (null deadline) (not inbox-p)))
+          (push 'attention buckets))
+        (when (org-air-classify--hipri-p item)
+          (push 'high-priority buckets))
+        (when inbox-p
+          (push 'inbox buckets))
+        ;; R54-1: the stale-ELIGIBILITY gate is the FIRST conjunct — an item
+        ;; with no actionable date is not a task and can never go Stale.
+        ;; The stale CLOCK (`org-air-classify--last-activity') is unchanged,
+        ;; so a dated-but-quiet item classifies byte-identically to before.
+        (when (org-air-classify--stale-p item now)
+          (push 'stale buckets))))
     (nreverse buckets)))
 
 (provide 'org-air-classify)

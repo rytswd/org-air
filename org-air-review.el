@@ -1601,6 +1601,8 @@ rail and quits back to the previous view (the shared quit convention)."
      (org-air-review-cycle-rollup . "cycle rollup (day/tag/dir/origin)")
      (org-air-view-sort-cycle . "cycle sort key (date/title)")
      (org-air-view-sort-reverse . "reverse sort"))
+    ("Triage"
+     (org-air-item-backlog . "backlog / un-backlog item (defer off attention)"))
     ("Filter"
      (org-air-review-filter . "filter by tag / text / date (is:overdue, due:7d…)")
      (org-air-filter-clear . "clear filter")
@@ -1657,6 +1659,9 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "=" #'org-air-review-range-widen
   "-" #'org-air-review-range-narrow
   "f" #'org-air-review-cycle-rollup
+  ;; R83: `b' toggles the backlog tag on the review row's item — the same
+  ;; installer-owned defer verb the board carries (audited FREE here too).
+  "b" #'org-air-item-backlog
   "/" #'org-air-review-filter
   "s" #'org-air-review-scope
   "S" #'org-air-review-scope-clear

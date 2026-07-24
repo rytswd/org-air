@@ -61,7 +61,8 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 - Five semantic buckets: *Inbox* (~:inbox:~ capture queue), *Needs attention* (overdue, or active with no schedule/deadline), *Upcoming* (within ~org-air-upcoming-days~), *High priority* (~[#A]~ etc.), *Stale* (untouched for ~org-air-stale-days~).
 - A month *calendar* marking scheduled/deadline/created days, with today highlighted — navigate months without leaving the board.
-- *Filtering* by tag /and/ free text /and/ date/status: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:stale~ / ~is:nodate~ / ~is:hipri~ and ~due:7d~-style windows (with ~scheduled:~/~deadline:~ twins) match the planning slots; multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
+- *Filtering* by tag /and/ free text /and/ date/status: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:stale~ / ~is:nodate~ / ~is:hipri~ / ~is:backlog~ and ~due:7d~-style windows (with ~scheduled:~/~deadline:~ twins) match the planning slots; multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
+- *Backlog* (~b~): ack-and-defer a not-urgent task off the attention surfaces onto a Backlog lens via an org-native ~:backlog:~ tag — still trackable (Notes, day view, calendar, ~is:backlog~/~#backlog~), never nagging.
 - *Scope* the whole dataset to one tag, group, or file.
 - *Sort* within each bucket (date / priority / title / recency).
 - One-keystroke *capture* to the inbox, a guided *refile / process* flow, and an *inbox walk* that dispositions items one at a time.
@@ -252,9 +253,10 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~I~                     | Walk the Inbox one item at a time                                      |
 | ~m~                     | Toggle mark                                                            |
 | ~t~ / ~T~               | Set tag / cycle TODO keyword                                           |
+| ~b~                     | Backlog / un-backlog: defer the item off the attention surfaces        |
 | ~d~ / ~D~               | Set deadline / mark done                                               |
 | ~a~ / ~x~ / ~u~ / ~U~   | Archive / kill (guarded) / undo the most recent board edit / redo      |
-| ~/~                     | Filter by tag, free text, or date/status (~is:overdue~, ~due:7d~)      |
+| ~/~                     | Filter by tag, free text, or date/status (~is:overdue~, ~is:backlog~, ~due:7d~) |
 | ~\~                     | Clear the filter                                                       |
 | ~M-/~                   | Toggle filter combinator (AND ↔ OR)                                    |
 | ~s~ / ~S~               | Scope / clear scope                                                    |
@@ -270,6 +272,10 @@ org-air sizes every line to the window's /usable/ columns, so with a zero right 
 | ~C-c C-a~               | Leader: ~\vert~ rail · ~o~ outline jump · ~s~ sort · ~/~ filter        |
 
 ~u~ undoes the most recent board edit (a bounded recent-edits ring — ~?~ lists what ~u~ will undo; refiles and archives are named but not auto-reverted, since a source-side undo beside the moved copy would leave a duplicate). ~U~ re-applies the edit ~u~ just reverted; a fresh edit clears the redo side (refiles and archives are never redoable).
+
+***** Backlog: ack-and-defer (~b~)
+
+Some tasks are real but not urgent — a placeholder heading you will fill in /anytime/. A dateless keyworded heading otherwise camps forever in *Needs attention* (the no-date attention default), burying the genuinely-urgent work. ~b~ (~org-air-item-backlog~) is the third verb between "date it" (a lie) and "drop the keyword" (no longer a task): it toggles an org-native ~:backlog:~ tag (~org-air-backlog-tag~, default ~"backlog"~) on the item at point — one keystroke, no prompt — and presses again to un-defer. A backlogged item routes /off/ the four task sections and the Inbox into a single *Backlog* lens at the bottom of the board (a section + a rail Summary count), while staying fully trackable elsewhere: Notes, all-items, the day view and the calendar (if dated) are untouched. Filter it with ~is:backlog~ (exactly the deferred set) or the raw ~#backlog~ tag (its superset — also done/archived carriers); ~b~ is also a ~[b]~ defer disposition in the guided Inbox walk (~I~). The write reuses the same in-place, undoable path as ~t~ (set tag), so ~u~/~U~ revert/redo it.
 
 **** Project viewer (~org-air-project~)
 

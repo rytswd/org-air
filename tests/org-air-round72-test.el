@@ -382,7 +382,9 @@ horizon."
         (should (memq d10 upcoming))
         (should (memq d8 upcoming))
         (should (memq d10 (cadr part)))    ; visible under the filter
-        (should (equal 14 (cdr key-14)))
+        ;; R83: the memo key is the LIST (DAY HORIZON BACKLOG-TAG); the
+        ;; horizon element moved from `cdr' to the second slot.
+        (should (equal 14 (nth 1 key-14)))
         ;; Phase 2: due:7d — the 7-day membership restored, key = default.
         (setq-local org-air-view--tag-filter '("due:7d"))
         (org-air-view--compute-partition items org-air-test-now)
@@ -637,7 +639,8 @@ home)."
              (upcoming (gethash 'upcoming (cddr part))))
         (should (memq d10 (cadr part)))      ; matched (visible)
         (should (memq d10 upcoming))         ; shown (a home row)
-        (should (equal 14 (cdr org-air-view--classify-cache-day))))
+        ;; R83: horizon is the second element of (DAY HORIZON BACKLOG-TAG).
+        (should (equal 14 (nth 1 org-air-view--classify-cache-day))))
       ;; an unparsed near-miss is NOT a window: no widening.
       (setq-local org-air-view--tag-filter '("due:99x"))
       (should (= 7 (org-air-view--filter-effective-horizon)))
@@ -755,8 +758,9 @@ it out of frame the ZERO-opens assert pins the R72 contract exactly."
                                  (org-air-view--filter-tags)))
                   ;; the render was REAL…
                   (should (> (buffer-chars-modified-tick) tick0))
-                  ;; …the widened-horizon memo key landed…
-                  (should (equal (cons today 14)
+                  ;; …the widened-horizon memo key landed (R83: the key is
+                  ;; the LIST (DAY HORIZON BACKLOG-TAG), not a bare cons)…
+                  (should (equal (list today 14 org-air-backlog-tag)
                                  org-air-view--classify-cache-day))
                   ;; …and NOTHING was scanned or opened (R53).
                   (should (= 0 scans))
@@ -766,7 +770,8 @@ it out of frame the ZERO-opens assert pins the R72 contract exactly."
                     (org-air-filter nil)
                     (should-not (org-air-view--filter-tags))
                     (should (> (buffer-chars-modified-tick) tick1))
-                    (should (equal (cons today org-air-upcoming-days)
+                    (should (equal (list today org-air-upcoming-days
+                                          org-air-backlog-tag)
                                    org-air-view--classify-cache-day))
                     (should (= 0 scans))
                     (should (= 0 opens)))))))

@@ -43,6 +43,29 @@
 ;;           across a backlog-tag rename; the classify-memo key DIFFERS.
 ;;   r83-13  process-inbox `[b]' defer disposition drops the item out of
 ;;           the inbox bucket (single-home ruling).
+;;
+;; The test seat's STRENGTHENING seams r83-14..r83-17 (audit additions,
+;; each revert-RED-driven vs a targeted mutation of the R83 code) close
+;; the four gaps the shipped 13 left open against the brief:
+;;
+;;   r83-14  is:backlog COMPOSES under M-/ (the AND/OR combinator) with
+;;           #tag / todo: / scheduled: / due: — the deferred set narrows
+;;           under `all' and broadens under `any' (the shipped r83-3
+;;           only tested is:backlog / #backlog in ISOLATION).
+;;   r83-15  the Summary Backlog count + section materialise on the LIVE
+;;           in-place repaint (0 re-queries) when `b' defers, and retract
+;;           when `b' un-defers (r83-4 tested only a STATIC board).
+;;   r83-16  R68 write discipline: the ONLY on-disk delta from `b' is the
+;;           heading tag — no LOGBOOK drawer / `- State' note / CLOSED
+;;           stamp, body byte-identical; and `org-air-item-archive' stays
+;;           `archive' (structural) alongside the backlog `in-place'
+;;           record (the deferred write did not demote the structural class).
+;;   r83-17  R77 compose + dead item: an `org-air-task-requires-todo'
+;;           keyword-less placeholder demotes off the task buckets (a
+;;           knowledge note) yet stays day/calendar reachable; `b' in the
+;;           DAY view never errors and never phantoms a backlog entry
+;;           (backlog is board-active only); `b' on a DELETED source file
+;;           degrades to a message with no ring push (never-error law).
 
 ;;; Code:
 
@@ -171,8 +194,14 @@ Returns the row's item; fails the test when no such row renders."
 (defun org-air-r83--passes-p (item tokens)
   "Non-nil when ITEM passes filter TOKENS under `all' at the frozen now.
 Drives the REAL fold `org-air-view--passes-filter-p', the board path."
+  (org-air-r83--passes-match-p item tokens 'all))
+
+(defun org-air-r83--passes-match-p (item tokens match)
+  "Non-nil when ITEM passes TOKENS under the M-/ combinator MATCH at now.
+MATCH is `all' (AND) or `any' (OR) — `org-air-filter-match'.  Drives the
+REAL fold `org-air-view--passes-filter-p', the board path."
   (let ((org-air-view--tag-filter tokens)
-        (org-air-filter-match 'all)
+        (org-air-filter-match match)
         (org-air-view--filter-now org-air-test-now)
         (org-air-view--scope nil)
         (org-air-view--render-partition nil)
@@ -660,6 +689,230 @@ the pcase entry (or the single-home gate) fails."
             (let ((kill-buffer-query-functions nil)
                   (buf (get-buffer org-air-view-buffer-name)))
               (when buf (kill-buffer buf)))))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r83-14 — is:backlog COMPOSES under M-/ with #tag/todo:/scheduled:/due:.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r83-14-is-backlog-composes-under-m-slash ()
+  "`is:backlog' composes with every axis under the M-/ combinator (r83-14).
+Three rows — Alpha (deferred, #proj, scheduled soon), Beta (scheduled
+soon, #proj, NOT deferred) and Gamma (deferred, dateless) — exercise the
+real `org-air-view--passes-filter-p' fold.  Under `all' (AND) is:backlog
+NARROWS: `is:backlog #proj' => Alpha alone; `is:backlog scheduled:7d' =>
+Alpha alone (dateless Gamma drops); `is:backlog todo:TODO' => the two
+deferred rows.  Under `any' (OR) the SAME `is:backlog #proj' BROADENS to
+all three.  A weakened combinator (ignoring the token, or dropping the
+match mode) fails one direction or the other."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r83--with-corpus
+      '(("board.org" . "#+title: board\n\n\
+* TODO Alpha deferred :backlog:proj:\nSCHEDULED: <2026-06-16 Tue>\n\
+* TODO Beta scheduled :proj:\nSCHEDULED: <2026-06-16 Tue>\n\
+* TODO Gamma deferred :backlog:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((items (org-air-query-items))
+           (alpha (org-air-r83--item "Alpha deferred" items))
+           (beta (org-air-r83--item "Beta scheduled" items))
+           (gamma (org-air-r83--item "Gamma deferred" items)))
+      ;; the buckets are as intended.
+      (should (equal '(backlog) (org-air-classify-item alpha org-air-test-now)))
+      (should (memq 'upcoming (org-air-classify-item beta org-air-test-now)))
+      (should (equal '(backlog) (org-air-classify-item gamma org-air-test-now)))
+      ;; AND: is:backlog ∧ #proj => Alpha ALONE (the raw #tag axis).
+      (should (org-air-r83--passes-match-p alpha '("is:backlog" "#proj") 'all))
+      (should-not (org-air-r83--passes-match-p beta '("is:backlog" "#proj") 'all))
+      (should-not (org-air-r83--passes-match-p gamma '("is:backlog" "#proj") 'all))
+      ;; OR: the SAME two tokens broaden to all three (Beta via #proj,
+      ;; Gamma via is:backlog).
+      (should (org-air-r83--passes-match-p alpha '("is:backlog" "#proj") 'any))
+      (should (org-air-r83--passes-match-p beta '("is:backlog" "#proj") 'any))
+      (should (org-air-r83--passes-match-p gamma '("is:backlog" "#proj") 'any))
+      ;; AND with the R79 keyword axis: is:backlog ∧ todo:TODO => the two
+      ;; deferred rows; Beta (a TODO, but not deferred) drops.
+      (should (org-air-r83--passes-match-p alpha '("is:backlog" "todo:TODO") 'all))
+      (should (org-air-r83--passes-match-p gamma '("is:backlog" "todo:TODO") 'all))
+      (should-not (org-air-r83--passes-match-p beta '("is:backlog" "todo:TODO") 'all))
+      ;; AND with the R72 date window: is:backlog ∧ scheduled:7d => Alpha
+      ;; ALONE (dateless Gamma drops; Beta is scheduled but not deferred).
+      (should (org-air-r83--passes-match-p alpha '("is:backlog" "scheduled:7d") 'all))
+      (should-not (org-air-r83--passes-match-p gamma '("is:backlog" "scheduled:7d") 'all))
+      (should-not (org-air-r83--passes-match-p beta '("is:backlog" "scheduled:7d") 'all))
+      ;; AND with due: (deadline OR scheduled) selects Alpha too; Beta
+      ;; still fails the is:backlog conjunct.
+      (should (org-air-r83--passes-match-p alpha '("is:backlog" "due:7d") 'all))
+      (should-not (org-air-r83--passes-match-p beta '("is:backlog" "due:7d") 'all)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r83-15 — the Summary count + section update on the LIVE toggle (R53).
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r83-15-summary-count-updates-live-on-toggle ()
+  "The Summary Backlog count + section materialise on the live repaint (r83-15).
+A single-attention board shows NO Backlog Summary row, NO Backlog section
+and NO `Backlog' text.  After `b' (an R53 in-place repaint, spy = 0
+re-queries) `org-air-view--section-counts' grows a `(backlog . 1)' row,
+the section descriptors gain Backlog, and the repainted BUFFER now
+renders a Backlog section; a second `b' retracts BOTH — the Summary
+returns to the fixed five.  Complements r83-4 (which only measured a
+STATIC board) and r83-7 (the spy) by pinning the DYNAMIC Summary update."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r83--with-board
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    ;; before: no backlog anywhere (data + rendered text).
+    (should-not (assq 'backlog (org-air-view--section-counts org-air-view--items)))
+    (should-not (assq 'backlog (org-air-view--section-descriptors org-air-view--items)))
+    (should-not (string-match-p
+                 "Backlog" (buffer-substring-no-properties (point-min) (point-max))))
+    ;; defer, counting re-queries: the repaint must NOT scan.
+    (org-air-r83--goto-row "Btrfs")
+    (let ((queries 0))
+      (cl-letf* ((orig (symbol-function 'org-air-query-items))
+                 ((symbol-function 'org-air-query-items)
+                  (lambda (&rest a) (cl-incf queries) (apply orig a))))
+        (org-air-item-backlog))
+      (should (= 0 queries)))
+    ;; after: the Summary count row + section materialised IN PLACE.
+    (should (equal 1 (cdr (assq 'backlog
+                                (org-air-view--section-counts org-air-view--items)))))
+    (should (assq 'backlog (org-air-view--section-descriptors org-air-view--items)))
+    (should (string-match-p
+             "Backlog" (buffer-substring-no-properties (point-min) (point-max))))
+    ;; un-defer: the count row + section retract, back to the fixed five.
+    (org-air-r83--goto-row "Btrfs")
+    (org-air-item-backlog)
+    (should-not (assq 'backlog (org-air-view--section-counts org-air-view--items)))
+    (should (equal (mapcar #'car (org-air-view--summary-buckets org-air-view--items))
+                   (mapcar #'car org-air-view--sections)))))
+
+;;;; -------------------------------------------------------------------
+;;;; r83-16 — R68 clean write + refile/archive stay structural.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r83-16-r68-clean-write-and-archive-structural ()
+  "`b' writes the tag CLEANLY (R68) and other verbs stay structural (r83-16).
+The ONLY on-disk delta from `b' is the heading's tag: no `:LOGBOOK:'
+drawer, no `- State' note, no `CLOSED:' stamp; the PROPERTIES drawer and
+body line stay byte-identical and the file keeps its line count (the R68
+board-context logging discipline the shared macro enforces).  The
+backlog ring record is `in-place' while `org-air-item-archive' still
+records `archive' (structural) — the deferred write did not demote the
+structural class.  Reverting the R68 logging binds (a stray state note)
+or the macro's structural leg fails."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r83--with-board
+      '(("docs.org" . "#+title: docs\n\n\
+* TODO Btrfs partition layout :nix:\n\
+:PROPERTIES:\n:CUSTOM_ID: btrfs\n:END:\n\
+  body line stays.\n\
+* TODO Archive me\nDEADLINE: <2026-06-10 Wed>\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let ((before-lines (split-string (org-air-r83--text "docs.org") "\n")))
+      (org-air-r83--goto-row "Btrfs")
+      (org-air-item-backlog)
+      (let* ((after (org-air-r83--text "docs.org"))
+             (after-lines (split-string after "\n")))
+        ;; the tag landed…
+        (should (string-match-p ":backlog:" after))
+        ;; …and NOTHING logging-ish did.
+        (should-not (string-match-p ":LOGBOOK:" after))
+        (should-not (string-match-p "- State" after))
+        (should-not (string-match-p "CLOSED:" after))
+        ;; the file kept its shape: same line count, exactly ONE line
+        ;; changed, and it is the Btrfs heading gaining the tag.
+        (should (= (length before-lines) (length after-lines)))
+        (let ((diffs (cl-loop for b in before-lines for a in after-lines
+                              unless (equal b a) collect (cons b a))))
+          (should (= 1 (length diffs)))
+          (should (string-match-p "Btrfs partition layout" (car (car diffs))))
+          (should (string-match-p ":backlog:" (cdr (car diffs))))
+          ;; the PROPERTIES drawer + body line are untouched.
+          (should (string-match-p ":CUSTOM_ID: btrfs" after))
+          (should (string-match-p "body line stays\\." after))))
+      ;; the backlog record is in-place…
+      (should (eq 'in-place (plist-get (car org-air-view--edit-ring) :kind)))
+      ;; …while archive stays STRUCTURAL (the class is not demoted).
+      (org-air-r83--goto-row "Archive me")
+      (org-air-item-archive)
+      (should (eq 'archive (plist-get (car org-air-view--edit-ring) :kind))))))
+
+;;;; -------------------------------------------------------------------
+;;;; r83-17 — R77 keyword-less placeholder + `b'; never-error on a dead item.
+;;;; -------------------------------------------------------------------
+
+(ert-deftest org-air-r83-17-r77-keywordless-and-dead-item ()
+  "`b' on an R77-demoted placeholder + a DEAD item never errors (r83-17).
+Under `org-air-task-requires-todo' t a keyword-less SCHEDULED heading
+demotes OFF the task buckets (a `knowledge' note) yet stays reachable by
+its day group AND its calendar mark.  Rendered in the DAY view (where the
+note surfaces), `b' NEVER errors: it writes `:backlog:' to the source but
+the item stays a NOTE — NOT routed to `backlog' (that bucket is
+board-active only) and still off attention, still day-reachable.  And `b'
+on an item whose SOURCE FILE has been deleted degrades to a message with
+NO ring push (the never-error law).  Gating day/calendar on the bucket,
+or letting a note phantom a backlog entry, or a hard throw on the dead
+file, each fails."
+  (skip-unless (locate-library "org-air"))
+  ;; (a) the R77-demoted placeholder, toggled in the day view.
+  (let ((org-air-task-requires-todo t))
+    (org-air-r83--with-board
+        '(("notes.org" . "#+title: notes\n\n\
+* Btrfs notes placeholder\nSCHEDULED: <2026-06-16 Tue>\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      ;; capture the buffer-local items list LEXICALLY (it reads nil inside
+      ;; a `with-temp-buffer' otherwise — the r83-5 idiom).
+      (let* ((items org-air-view--items)
+             (note (org-air-r83--item "Btrfs notes" items))
+             (day (encode-time '(0 0 12 16 6 2026 nil -1 nil))))
+        ;; off the attention surfaces — a demoted note, not a task.
+        (let ((buckets (org-air-classify-item note org-air-test-now)))
+          (should-not (memq 'attention buckets))
+          (should-not (memq 'upcoming buckets))
+          (should-not (memq 'backlog buckets)))
+        ;; reachable by date: its day lists it + its calendar day is marked.
+        (with-temp-buffer
+          (let* ((org-air-view--scope nil)
+                 (org-air-view--render-partition nil)
+                 (groups (org-air-view--day-groups items day)))
+            (should (memq note (cdr (assoc "Scheduled" groups))))))
+        (should (gethash "2026-06-16"
+                         (org-air-calendar--marked-days items)))
+        ;; render the DAY view; `b' on the note row never errors.
+        (org-air-view-day day)
+        (should (string-match-p
+                 "Btrfs notes" (buffer-substring-no-properties (point-min) (point-max))))
+        (org-air-r83--goto-row "Btrfs notes")
+        (org-air-item-backlog)
+        ;; the tag landed, but the item stays a NOTE (no phantom backlog),
+        ;; off attention and still day-reachable.
+        (should (string-match-p ":backlog:" (org-air-r83--text "notes.org")))
+        (let* ((items2 org-air-view--items)
+               (note2 (org-air-r83--item "Btrfs notes" items2)))
+          (should-not (memq 'backlog (org-air-classify-item note2 org-air-test-now)))
+          (should-not (memq 'attention (org-air-classify-item note2 org-air-test-now)))
+          (with-temp-buffer
+            (let* ((org-air-view--scope nil)
+                   (org-air-view--render-partition nil)
+                   (groups (org-air-view--day-groups items2 day)))
+              (should (memq note2 (cdr (assoc "Scheduled" groups))))))))))
+  ;; (b) a DEAD item: the source BUFFER killed AND its file deleted — the
+  ;; at-item-source hydrate lands in a headless buffer, so `b' raises a
+  ;; SOFT `user-error' (never a backtrace), pushes NO ring record and
+  ;; writes nothing (a distinct never-error leg from r83-10's no-item /
+  ;; mid-refresh-stale cases).
+  (org-air-r83--with-board
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (org-air-r83--goto-row "Btrfs")
+    (dolist (b (buffer-list))
+      (let ((fn (buffer-file-name b)))
+        (when (and fn (string-match-p "docs\\.org\\'" fn))
+          (with-current-buffer b (set-buffer-modified-p nil))
+          (kill-buffer b))))
+    (delete-file (org-air-r83--file "docs.org"))
+    (should-error (org-air-item-backlog) :type 'user-error)
+    (should (null org-air-view--edit-ring))))
 
 (provide 'org-air-round83-test)
 ;;; org-air-round83-test.el ends here

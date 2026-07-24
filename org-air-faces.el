@@ -377,16 +377,13 @@ the TTY tier inherits `success'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-dropped
-  '((((class color) (min-colors 256) (background light))
-     (:foreground "#B5432B"))
-    (((class color) (min-colors 256) (background dark))
-     (:foreground "#E07A5F"))
-    (t (:inherit org-air-face-faded)))
-  "Face for a cancelled/abandoned keyword (DROPPED/CANCELLED/KILL) (R79).
-A muted terracotta, visibly distinct from `org-air-face-done''s faded
-blue, so a DONE completion and a DROPPED abandonment read as different
-outcomes on the board and in the day view.  The exact hex is
-GUI-confirm-only; the TTY tier degrades to `org-air-face-faded'."
+  '((t :inherit org-air-face-air-state-out))
+  "Face for a cancelled/abandoned keyword (DROPPED/CANCELLED/KILL) (R79/R87).
+Shares the OUT ``retired'' red (`org-air-face-air-state-out') per the
+user's request \N{EM DASH} DROPPED, OUT and OFF all read in one red, distinct
+from the green DONE completion.  A distinct face symbol (recustomisable)
+that defaults to OUT's colour.  Exact hex GUI-confirm-only; the TTY tier
+follows OUT."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-todo-next
@@ -870,12 +867,12 @@ The 5th Air state (between Ready and Complete)."
 
 (custom-declare-face 'org-air-face-air-state-dropped
   '((t :inherit org-air-face-faded))
-  "Air doc state badge: Dropped (🗑) — faded.
-R51-1 removed the `:strike-through' (a whole-row/whole-cell strike drew
-a rule across the fill); grey is the SOLE dropped affordance.
-Badge-ONLY: this face colours the DROP chip/token cell; the dropped
-row's title band takes `org-air-face-project-dropped' (R48-2), so the
-two can be customised independently."
+  "Air doc state badge: Dropped (🗑) — faded (R51-1).
+The PROJECT-view DROP state chip stays dim grey: dropped docs RECEDE
+(the row also dims via `org-air-face-project-dropped').  This is a
+separate surface from the day/board DROPPED *keyword* badge
+\(`org-air-face-dropped'), which shares the OUT red (R87).  R51-1 removed
+the `:strike-through'; grey is the SOLE dropped affordance here."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-out
@@ -883,32 +880,26 @@ two can be customised independently."
      (:foreground "#8B2020" :weight bold))
     (((class color) (min-colors 256) (background dark))
      (:foreground "#C0505A" :weight bold))
-    (t (:inherit org-air-face-dropped :weight bold)))
-  "Air doc state badge: Out (\N{OUTBOX TRAY}) \N{EM DASH} a darker red, first-class (R81).
-Out is a parked/inactive Air state.  R80.1 matched it to the DROPPED
-terracotta, but READY read too close, so R81 pushes OUT toward a darker
-red \N{EM DASH} distinct from READY's brighter orange and from DROPPED's
-terracotta, while staying in the warm ``retired'' family (NOT
-`org-air-face-faded').  A single source shared by the project STATE chip
+    (t (:inherit error :weight bold)))
+  "Air doc state badge / keyword: Out (\N{OUTBOX TRAY}) \N{EM DASH} the canonical retired red (R81/R87).
+The SINGLE ``retired/removed'' red: OUT, DROPPED and OFF all read in this
+same colour \N{EM DASH} `org-air-face-dropped', `org-air-face-air-state-off' and
+`org-air-face-air-state-dropped' all inherit it \N{EM DASH} parked/inactive/
+abandoned states as one family, distinct from READY's brighter orange and
+the green DONE.  Shared by the project STATE chip
 \(`org-air-project--state-face') and the heading KEYWORD badge (the OUT
-entry of `org-air-todo-keyword-faces'), so the two surfaces never drift.
-The exact hex is GUI-confirm-only; the TTY tier inherits
-`org-air-face-dropped'."
+entry of `org-air-todo-keyword-faces').  The exact hex is GUI-confirm-only;
+the TTY tier is a standalone `error' red (NO inherit of
+`org-air-face-dropped' \N{EM DASH} that would be circular now dropped follows OUT)."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-off
-  '((((class color) (min-colors 256) (background light))
-     (:foreground "#8E4585" :weight bold))
-    (((class color) (min-colors 256) (background dark))
-     (:foreground "#B48EAD" :weight bold))
-    (t (:inherit org-air-face-popout :weight bold)))
-  "Air doc state badge: Off (\N{DOUBLE VERTICAL BAR}) \N{EM DASH} a muted plum, first-class (R80).
-DISTINCT and STANDING OUT (NOT `org-air-face-faded'), apart from WIP's
-salient blue-violet and WAIT's amber.  Shared by the project STATE chip
-and the heading KEYWORD badge (the OFF entry of
-`org-air-todo-keyword-faces') so the two can never drift.
-GUI-confirm-only: the exact hex; the TTY tier degrades to
-`org-air-face-popout'."
+  '((t :inherit org-air-face-air-state-out))
+  "Air doc state badge: Off (\N{DOUBLE VERTICAL BAR}) \N{EM DASH} shares the OUT retired red (R80/R87).
+Per the user's request OFF reads in the SAME red as OUT and DROPPED
+\(`org-air-face-air-state-out') \N{EM DASH} parked/inactive states as one family.
+A distinct face symbol (recustomisable) that defaults to OUT's colour.
+Shared by the project STATE chip and the OFF keyword badge."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-project-dropped

@@ -1,5 +1,5 @@
 #+title: org-air Round 85 — the TODAY / TOMORROW relative date labels stop reading as muted grey: two DISTINCT, standing-out faces (org-air-face-day-today teal, org-air-face-day-tomorrow rose) painted where `org-air-view--human-date' emits them under the neutral date slot — the deadline / scheduled slot faces are DELIBERATELY preserved (a deadline-today still reads as a deadline), a face-only change with byte-identical goldens
-#+state: ready
+#+state: complete
 #+tags: faces dates render board ux
 
 * Summary
@@ -578,3 +578,4 @@ byte-identity are all batch-asserted (10 ERT seams).*
   4 new seams mutation-verified revert-RED.  =make clean && make check=
   GREEN (1056 tests, 0 unexpected, 8 pre-existing GUI-only skips), manifest
   EMPTY, goldens byte-consistent (re-regen no-op).  No =.el= source touched.
+- 2026-07-24: State: ready → complete.

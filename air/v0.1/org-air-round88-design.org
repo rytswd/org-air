@@ -1,0 +1,784 @@
+#+title: org-air Round 88 — the date cell stops using a BINARY today/tomorrow highlight and becomes a PROXIMITY HEAT-RAMP: OVERDUE red → TODAY orange → TOMORROW (a blend) → THIS-WEEK amber → BEYOND the slot default; the two R85/R87 day faces are recoloured (teal→orange today, rose→orange/amber blend tomorrow), a new `org-air-face-day-week' is added, and `org-air-face-overdue' is ALIGNED to red in BOTH tiers so overdue reads hotter than this-week; the 5-level ramp is driven from `org-air-view--day-relative-face' on all three date arms (R87 rule A, svg-pill fill=face-fg mechanism both UNCHANGED), a face-only change with byte-identical text goldens — only the GUI pill pixels repaint
+#+state: ready
+#+tags: faces dates render board ux
+
+* Summary
+
+User feedback on the running board (verbatim):
+
+#+begin_quote
+Today SVG is highlighted in blue, and Tomorrow is red -- this is odd.
+Anything within a week should be Today's colour now, overdue to be red,
+today to be orange, tomorrow is somewhere between today's and this week --
+anything more than a week away could be the current default colour
+#+end_quote
+
+R85 introduced two DISTINCT standout faces — =org-air-face-day-today= (bold
+teal =#00897B= light / =#88C0D0= dark, which *reads blue*) and
+=org-air-face-day-tomorrow= (bold rose =#C2185B= / =#BF616A=, which *reads
+red*) — and R87 extended them (rule A) across the deadline / scheduled /
+neutral arms of =org-air-view--date-label=.  The colour CHOICE was
+near-complementary "today ≠ tomorrow" — but the user reads the result as
+*wrong-signed*: TOMORROW in red is *alarming* (red should mean OVERDUE,
+the genuinely critical case), and TODAY in a cool teal/blue reads *calm*
+exactly when it should read *hot*.  The two faces stand out, but they do
+not encode *urgency* — a nearer date is not visibly hotter than a further
+one, and the hottest colour (red) is spent on TOMORROW instead of OVERDUE.
+
+R88 replaces the *binary* today/tomorrow highlight with a *PROXIMITY
+HEAT-RAMP*: the date cell's colour now encodes how *close / urgent* the
+date is, warmest when nearest.  Five buckets, keyed on the SAME
+=--days-between= delta R85/R87 already compute:
+
+| bucket    | delta   | colour                                          |
+|-----------+---------+-------------------------------------------------|
+| OVERDUE   | < 0     | RED (the existing =org-air-face-overdue=, urgent)|
+| TODAY     | = 0     | ORANGE (=org-air-face-day-today=, recoloured)   |
+| TOMORROW  | = 1     | a BLEND between today's orange and this-week    |
+|           |         | (=org-air-face-day-tomorrow=, recoloured)       |
+| THIS WEEK | 2 … 6   | AMBER — a calmer warm (=org-air-face-day-week=, NEW)|
+| BEYOND    | ≥ 7     | the slot's CURRENT DEFAULT face (deadline /     |
+|           |         | scheduled / date — UNCHANGED)                   |
+
+That is a natural rougier RED → ORANGE → AMBER → default ramp: read from
+overdue outward it *cools* monotonically, so "hotter = more urgent /
+nearer" is legible at a glance, and RED is reserved for OVERDUE exactly as
+the user asked.
+
+*What R88 keeps from R87 verbatim* (only the RAMP of faces changes):
+
+- *R87 rule A — the reach across all three arms.*  The ramp is applied on
+  the deadline, scheduled AND neutral date arms (a today/tomorrow/this-week
+  date wins its slot); a BEYOND date falls through to the slot face
+  (deadline keeps deadline, scheduled keeps scheduled).  R88 does NOT edit
+  those arms — it only widens what =org-air-view--day-relative-face=
+  returns (2 levels → 5) and recolours / adds the faces it returns.
+- *The svg-pill mechanism.*  The board date pill has NO separate colour
+  path — =org-air-view--svg-pillify= draws its label =:fill (face-
+  foreground FACE)=, so the pill colour IS the text face's foreground.
+  Recolouring the faces therefore repaints the pill automatically, in the
+  same face-only move that repaints the plain text; no svg edit, no new
+  pill parameter (R87 §Investigation, unchanged).
+
+*The one alignment R88 must make.*  =org-air-face-overdue= reads red in
+LIGHT (=#C62828=, Red800) but its DARK tier inherits =org-air-face-critical=
+= *Nord13 =#EBCB8B=, a pale AURORA YELLOW* — NOT red.  A yellow overdue is
+*cooler* than a this-week amber and would INVERT the ramp in dark mode
+(overdue would look less urgent than a nearer date).  So R88 gives
+=org-air-face-overdue= an explicit R79 spec that reads RED in *both* tiers
+(light =#C62828= kept, dark aligned to *Nord11 =#BF616A=*, the aurora RED)
+— the "else align" the brief flagged.
+
+This stays a *face-only* change (R53): the label BYTES
+("Today"/"Tomorrow"/"Wed"/"17 Jul") are untouched — the helper returns
+only a FACE — so every text golden is byte-identical; only the GUI pill /
+coloured-text PIXELS repaint.  R79 (explicit light+dark hex + TTY
+=:inherit= fallback + "exact hex GUI-confirm-only") is respected for all
+four faces.
+
+SPEC ONLY: no =.el= or test edits in this change.  The R85/R87 today
+/tomorrow COLOUR assertions and the R87 delta≥2 seam are now WRONG under
+the ramp and are enumerated for re-blessing (§ERT).
+
+* Decision (stated first — the proximity ramp supersedes the binary highlight)
+
+*The date cell is coloured by PROXIMITY on a five-level heat-ramp, keyed
+on the SAME =org-air-view--days-between= delta as =--human-date=:*
+
+#+begin_example
+delta < 0   → OVERDUE   → org-air-face-overdue      (RED, urgent)
+delta = 0   → TODAY     → org-air-face-day-today    (ORANGE)
+delta = 1   → TOMORROW  → org-air-face-day-tomorrow (orange↔week BLEND)
+2 ≤ delta ≤ 6 → THIS WEEK → org-air-face-day-week   (AMBER, calmer warm)   ← NEW
+delta ≥ 7   → BEYOND    → (the slot face, UNCHANGED: deadline / scheduled / date)
+```
+
+*Boundary exactly as the brief states — "a week = 7":* delta 6 is the LAST
+this-week day (=org-air-face-day-week=); delta 7 is the FIRST beyond day
+(falls through to the slot face).  The band is =2 ≤ delta ≤ 6=, i.e.
+=(<= 2 delta 6)=.
+
+*Why a heat-ramp, superseding R85's "distinct" / R87's "reach":*
+
+1. *The user's model is URGENCY, not identity.*  R85 chose two
+   *near-complementary* hues so today and tomorrow were unmistakably
+   DIFFERENT from each other — a *categorical* distinction.  The user does
+   not want categories; they want a *gradient*: "overdue to be red, today
+   orange, tomorrow between today's and this week."  A ramp where warmth
+   tracks nearness is exactly that, and it fixes the two specific
+   complaints — TOMORROW stops being red (red now means only OVERDUE) and
+   TODAY stops being blue/teal (it is now the hot orange).
+
+2. *Red must mean the critical case.*  Spending the hottest, most-alarming
+   colour on TOMORROW (a not-yet-late date) while OVERDUE sat in a
+   *different* red — or in dark mode a *yellow* — is precisely the "odd"
+   the user reported.  On the ramp, RED is the single most-urgent bucket
+   (OVERDUE); everything not-yet-due is warm-but-not-red; everything far is
+   calm.  One colour, one meaning.
+
+3. *A gradient degrades gracefully to "default" at the horizon.*  Beyond a
+   week the cell returns to its slot identity (deadline orange, scheduled
+   blue/purple, neutral grey) — so the board is not a wall of warm cells;
+   the heat is spent only where proximity matters (the coming week), and a
+   far date reads exactly as it does today.  This is the user's "anything
+   more than a week away could be the current default colour," verbatim.
+
+4. *Minimal change surface — R87's routing already delivers the reach.*
+   R87 wired =(or (org-air-view--day-relative-face SLOT now) 'org-air-face-
+   SLOT)= into the deadline / scheduled / notes arms.  A five-level helper
+   drops straight into that same call — no arm edit, no new call site.
+   R88 is therefore a *faces + one helper body* change: recolour two
+   faces, add one, align one, and widen the helper's =cond=.
+
+*The one nuance to state up front — the user's "within a week should be
+Today's colour" is refined by their own follow-on.*  The opening clause
+reads "anything within a week should be Today's colour", but the same
+sentence then graduates it — "today to be orange, tomorrow is somewhere
+between today's and this week."  So THIS-WEEK is NOT literally today's
+orange; it is its own *calmer warm* (amber), one step cooler than
+tomorrow, so the ramp reads as *decreasing* urgency from today outward.
+Taking the refined, graduated reading (5 distinct buckets) honours the
+whole sentence; a literal "everything within a week is identical orange"
+would contradict the "tomorrow between today and this-week" clause that
+immediately follows.  *This is the interpretation flagged for confirm* —
+if the user truly wants a flat within-a-week orange (only 3 buckets:
+overdue-red / week-orange / beyond-default), collapsing TOMORROW and
+THIS-WEEK onto =org-air-face-day-today= is a one-line helper change and
+=org-air-face-day-{tomorrow,week}= simply go unused; the spec is written so
+that pivot is trivial.
+
+*OVERDUE is a SLOT concern, never the helper's.*  A delta<0 date is caught
+by the two =overdue= arms of =--date-label= that PRECEDE the deadline
+/scheduled arms — they emit "OVERDUE Nd" in =org-air-face-overdue= (RED).
+The helper is only ever consulted on the deadline / scheduled / notes arms,
+where a deadline/scheduled delta<0 is UNREACHABLE (the overdue arm fired
+first) and a *neutral* delta<0 is an ordinary OLD log date that must stay
+its default grey — an old note is *not* "overdue."  So the helper returns
+=nil= for delta<0 (fall through to the slot's default), and the RED-for-
+overdue bucket is realised structurally by the pre-existing overdue arms,
+not by the helper.  This is the correct split: it keeps a stale note from
+ever flashing critical-red.
+
+* Investigation (read the code)
+
+** The helper and the delta convention — the two levels R85/R87 built
+
+=org-air-view--day-relative-face= (org-air-view.el:2030) today:
+
+#+begin_example
+(let ((now (or now (current-time))))
+  (pcase (org-air-view--days-between now time)
+    (0 'org-air-face-day-today)
+    (1 'org-air-face-day-tomorrow)))
+```
+
+=(org-air-view--days-between now time)= = =(- (time-to-days time)
+(time-to-days now))= — POSITIVE in the FUTURE (delta 0 = today, 1 =
+tomorrow, ≥2 = further out), NEGATIVE in the past.  This is the SAME delta
+=--human-date= (org-air-view.el:2017) keys on, so "Today"/"Tomorrow"/"%a"
+and the face agree by construction.  The helper answers only {0,1} today
+and =nil= otherwise; R88 widens it to the five-level =cond= (D2) — the
+delta and its sign are already computed, nothing new is read (R53).
+
+** The call sites — R87's three-arm wiring, REUSED VERBATIM
+
+=org-air-view--date-label= (org-air-view.el:2064) cond, after R87 lands
+(rule A):
+
+#+begin_example
+(cond
+ ((and deadline  (> (days-between deadline now) 0)) …'org-air-face-overdue) ; OVERDUE past DL
+ ((and scheduled (> (days-between scheduled now) 0)) …'org-air-face-overdue) ; OVERDUE past SCHED
+ (deadline  (cons (--human-date deadline now)
+                  (or (--day-relative-face deadline now)  'org-air-face-deadline)))  ; ARM 3
+ (scheduled (cons (--human-date scheduled now)
+                  (or (--day-relative-face scheduled now) 'org-air-face-scheduled))) ; ARM 4
+ ((eq bucket 'attention) (cons "no date" 'org-air-face-date))
+ ((eq bucket 'notes)
+  (when-let* ((activity (org-air-item-activity item)))
+    (cons (--human-date activity now)
+          (or (--day-relative-face activity now) 'org-air-face-date))))          ; ARM 6
+ ((eq bucket 'stale) (cons "· Nd quiet" 'org-air-face-date)))
+```
+
+- Arms 3 / 4 / 6 all read =(or (--day-relative-face SLOT now) 'org-air-face-
+  SLOT)= — the helper WINS when non-nil, else the slot face.  R88 does NOT
+  touch these arms.  Widening the helper to return =org-air-face-day-week=
+  for delta 2..6 makes those arms paint amber for a this-week date, and
+  the helper's =nil= for delta ≥7 (and delta <0 on the notes arm) falls
+  through to the slot face exactly as now.
+- The two =overdue= arms PRECEDE 3/4 and fire for PAST deadline/scheduled
+  → =org-air-face-overdue= (the RED bucket).  A deadline/scheduled delta<0
+  never reaches the helper.
+- =attention= ("no date") and =stale= ("· Nd quiet") never emit a relative
+  date and never call the helper — untouched.
+
+*Consequence:* R88's render-side change is *zero arm edits* — the helper
+body plus the faces are the entire surface.  (Prerequisite: R87's rule-A
+routing, currently =ready=; R88 layers on it.  If R88 lands before R87, it
+must land R87's arm rewire too — but the arm form is R87's, not R88's.)
+
+** The svg crux — unchanged from R87 (the pill colour IS the face fg)
+
+=org-air-view--item-date-text= (org-air-view.el:3615) hands the =(LABEL .
+FACE)= to both the plain-text branch and =org-air-view--svg-pillify=
+(org-air-view.el:3293), which draws =(svg-text … :fill (face-foreground
+FACE …))=.  The pill's colour is the face foreground; the pill's image
+cache key already includes =fg= (so a recoloured face rebuilds a fresh
+pill image with no cache change).  Recolouring the four faces therefore
+repaints the pill AND the plain text together — no svg-specific edit.  R88
+touches no line of the svg path.
+
+** =org-air-face-overdue= — red in light, YELLOW in dark (the align)
+
+=org-air-face-overdue= (org-air-faces.el:474):
+
+#+begin_example
+(custom-declare-face 'org-air-face-overdue
+  '((t :inherit org-air-face-critical :weight bold)) …)
+```
+
+It inherits =org-air-face-critical= = =(org-air-faces--spec 'critical …)=,
+and the =critical= palette entry (org-air-faces.el:90) is:
+
+#+begin_example
+(critical . ("#C62828" . "#EBCB8B"))  ; Red800 / Nord13
+```
+
+So =org-air-face-overdue= resolves to *=#C62828= (Red800, RED) in LIGHT*
+but *=#EBCB8B= (Nord13, a pale AURORA YELLOW) in DARK*.  For the heat-ramp
+to read correctly — OVERDUE the HOTTEST, hotter than a this-week amber — a
+yellow overdue is wrong-signed in dark mode.  R88 gives =org-air-face-
+overdue= its OWN explicit R79 spec: light =#C62828= (byte-identical — no
+light change), dark =#BF616A= (Nord11, the aurora RED), TTY =(:inherit
+error :weight bold)= (unchanged — =error= is red on a terminal).  It stops
+inheriting =critical= (so the shared error face is untouched; only overdue
+moves).  =org-air-face-critical= itself is NOT edited.
+
+*Blast radius:* =org-air-face-overdue= is used in exactly two places —
+the two overdue arms of =--date-label= (org-air-view.el:2072,2075), i.e.
+the SAME date-cell surface the ramp lives on.  Aligning its dark tier
+repaints only the "OVERDUE Nd" pill/text; no other surface, no golden byte
+(the label bytes are unchanged; a face is a =display= prop).
+
+** Which "blue" / which "red" the user saw
+
+- *TODAY reads BLUE* because =org-air-face-day-today='s dark tier is Nord8
+  =#88C0D0= (frost cyan) and its light tier Teal600 =#00897B= — cool hues.
+  R88 recolours it ORANGE.
+- *TOMORROW reads RED* because =org-air-face-day-tomorrow='s dark tier is
+  Nord11 =#BF616A= (aurora RED) and its light tier Pink700 =#C2185B= — the
+  alarming red the user wants reserved for OVERDUE.  R88 recolours it to
+  the orange↔amber BLEND, and hands =#BF616A= (Nord11 red) to
+  =org-air-face-overdue='s newly-explicit dark tier instead — the red is
+  *moved from tomorrow to overdue*, which is precisely the user's ask.
+
+** Non-surface audit (unchanged from R85/R87)
+
+The relative date label renders on exactly ONE surface — the board date
+cell (=--date-label= → =--item-date-text=, text + svg pill).  The day pane
+(R6, omits per-item dates), the inspector (=%F= ISO + "(in Nd)" in its own
+faces), review (=%b %-d= + chips), revisit (age chips) and the calendar
+(=org-air-face-calendar-*= cell family) never call =--human-date= and are
+untouched (R85 §Investigation, re-confirmed).  The ramp reaches that one
+surface on all three date arms.
+
+* Proposal
+
+** D1 — recolour two faces, add one, align one (R79 convention)
+
+All four faces below carry the R79 convention: an explicit 256-colour
+LIGHT tier, an explicit 256-colour DARK tier, a TTY =(t (:inherit …
+:weight bold))= fallback, bold weight, and an "exact hex GUI-confirm-only"
+docstring note.  The candidate hexes form a coherent Material-for-light /
+Nord-aurora-for-dark red→orange→amber ladder; the exact values are
+GUI-confirm-only (§GUI-confirm) — the ERT pins the *relationships*
+(distinctness, the blend-betweenness, overdue-red-in-both-tiers), never a
+pixel.
+
+*Candidate ramp (GUI-confirm):*
+
+| face                     | LIGHT (Material) | DARK (Nord aurora) | role                    |
+|--------------------------+------------------+--------------------+-------------------------|
+| org-air-face-overdue     | =#C62828= (kept) | =#BF616A= (Nord11) | RED — hottest / urgent  |
+| org-air-face-day-today   | =#D84315=        | =#DD7E52=          | ORANGE — hot, "now"     |
+| org-air-face-day-tomorrow| =#C86410=        | =#E4A46E=          | BLEND (today↔week)      |
+| org-air-face-day-week    | =#B8860B=        | =#EBCB8B= (Nord13) | AMBER — calmer warm     |
+
+The =day-tomorrow= hexes are the per-channel ARITHMETIC MIDPOINT of
+=day-today= and =day-week= in each tier (so "a blend BETWEEN today's
+orange and the this-week colour" holds structurally, both tiers):
+
+- light: today =(216,67,21)= ↔ week =(184,134,11)= → mid =(200,100,16)= =
+  =#C86410=.
+- dark: today =(221,126,82)= ↔ week =(235,203,139)= → mid ≈ =(228,164,110)=
+  = =#E4A46E=.
+
+#+begin_example
+(custom-declare-face 'org-air-face-overdue
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#C62828" :weight bold))          ; Red800 — unchanged from critical-light
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#BF616A" :weight bold))          ; Nord11 aurora RED — ALIGNED (was Nord13 yellow)
+    (t (:inherit error :weight bold)))
+  "Face for an overdue date (past deadline / missed schedule) — the RED,
+hottest end of the R88 proximity heat-ramp.  Explicit R79 spec: RED in
+BOTH tiers (Red800 light / Nord11 aurora-red dark) so OVERDUE always reads
+hotter than a THIS-WEEK amber; the dark tier was Nord13 (a pale aurora
+YELLOW) while it inherited `org-air-face-critical', which inverted the
+ramp in dark mode.  No longer inherits `critical' (the shared error face is
+untouched).  Exact hex GUI-confirm-only; TTY degrades to bold `error'."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-day-today
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#D84315" :weight bold))          ; DeepOrange800 red-orange
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#DD7E52" :weight bold))          ; warm orange (hotter than Nord12 deadline)
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Face for a TODAY date on the R88 proximity heat-ramp (supersedes R85's
+teal).  A bold ORANGE — one step cooler than OVERDUE red, hotter than
+TOMORROW's blend and THIS-WEEK's amber — painted by `org-air-view--date-
+label' on ANY date slot (deadline / scheduled / neutral, R87 rule A) when
+the date is today.  A red-leaning orange, kept distinct from the deadline
+slot's own popout-orange and from the READY badge's `#EBA05A'.  Exact hex
+GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-day-tomorrow
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#C86410" :weight bold))          ; blend(today,week) — orange
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#E4A46E" :weight bold))          ; blend(today,week)
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Face for a TOMORROW date on the R88 proximity heat-ramp (supersedes
+R85's rose).  A BLEND sitting BETWEEN `org-air-face-day-today's orange and
+`org-air-face-day-week's amber — the per-channel midpoint in each tier —
+so tomorrow reads one notch cooler than today and one notch hotter than
+this-week.  Painted on any date slot (R87 rule A) when the date is
+tomorrow.  The RED it used to carry (Nord11) is now OVERDUE's.  Exact hex
+GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-day-week
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#B8860B" :weight bold))          ; dark goldenrod amber (legible on white)
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#EBCB8B" :weight bold))          ; Nord13 aurora yellow
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Face for a THIS-WEEK date (2 ≤ delta ≤ 6) on the R88 proximity heat-ramp
+(NEW).  The CALMEST warm — an AMBER/gold one step cooler than TOMORROW's
+blend — so a date a few days out reads warm-but-not-urgent; the coolest lit
+bucket before BEYOND (≥7 days) returns to the slot's default face.  Painted
+on any date slot (R87 rule A) for a date 2..6 days out.  Exact hex
+GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
+  :group 'org-air-faces)
+```
+
+*Hue rationale (rougier-consistent).*  Every hex is drawn from the
+palette's own families — Material for light, Nord for dark — so the ramp
+sits inside the design language.  The dark ramp is the Nord AURORA in
+order: Nord11 red (overdue) → a warm orange (today) → its amber blend
+(tomorrow) → Nord13 yellow (this-week); the light ramp is the Material
+warm ladder Red800 → DeepOrange800 → Orange700-ish → dark-goldenrod, each
+legible on white (the amber tier is a *dark* goldenrod =#B8860B=, not a
+pale yellow, so it passes contrast — a paler yellow would fail on white
+and is the one tier most likely to need a GUI nudge).  A FOREGROUND ramp
+(not backgrounds) keeps the "coloured text, no fill" doctrine and renders
+correctly in the svg pill (=:fill fg=) and on the TTY.
+
+** D2 — extend the helper to the five-level ramp
+
+=org-air-view--day-relative-face= (org-air-view.el:2030) gains the
+this-week band; delta<0 and delta≥7 stay =nil= (fall through):
+
+#+begin_example
+(defun org-air-view--day-relative-face (time &optional now)
+  "Return the R88 PROXIMITY heat-ramp face for TIME relative to NOW, else nil.
+Keyed on the SAME `org-air-view--days-between' delta as `--human-date' (so
+the label and the face agree by construction):
+  delta = 0     → `org-air-face-day-today'    (ORANGE)
+  delta = 1     → `org-air-face-day-tomorrow' (the today↔week blend)
+  2 ≤ delta ≤ 6 → `org-air-face-day-week'     (AMBER — this week)
+  delta < 0     → nil  (a PAST date: a deadline/scheduled is already caught
+                        by the OVERDUE arm → `org-air-face-overdue'; a
+                        neutral note keeps its default `org-air-face-date')
+  delta ≥ 7     → nil  (BEYOND a week → the slot's default face)
+Returned to the deadline / scheduled / notes arms of `org-air-view--date-
+label' (R87 rule A), so ANY date within the coming week reads warmer the
+nearer it is; a date ≥7 days out reads the slot default.  OVERDUE (delta<0)
+is owned by the slot's OVERDUE arm, not this helper (a stale note must not
+flash critical-red)."
+  (let* ((now (or now (current-time)))
+         (delta (org-air-view--days-between now time)))
+    (cond
+     ((= delta 0) 'org-air-face-day-today)
+     ((= delta 1) 'org-air-face-day-tomorrow)
+     ((<= 2 delta 6) 'org-air-face-day-week))))   ; delta<0 and delta≥7 ⇒ nil
+```
+
+- The band =(<= 2 delta 6)= is the exact "a week = 7" boundary: delta 6 →
+  amber, delta 7 → =nil= → slot face.
+- delta<0 → =nil= by construction (no cond arm matches) — the split that
+  keeps a past neutral note on its default face and lets the OVERDUE arm
+  own the red (§Decision).
+- delta≥7 → =nil= → slot face — BEYOND reads the slot default.
+
+That is the WHOLE render change: one =cond= widened.  The three
+=--date-label= arms are R87's and are UNTOUCHED; =--human-date= (label
+bytes), =--item-date-text=, =--svg-pillify=, =--compute-meta-widths= are
+all UNTOUCHED.
+
+** D3 — the arms and boundaries (confirmations, no edit)
+
+- *OVERDUE (delta<0) → red, via the pre-existing arms.*  The two =overdue=
+  arms precede 3/4 and emit =org-air-face-overdue= (now RED in both tiers,
+  D1) for a past deadline/scheduled; the helper never returns a face for
+  delta<0.  A past NEUTRAL note falls to =org-air-face-date= (grey) — never
+  red.
+- *TODAY / TOMORROW / THIS-WEEK win their slot* on all three arms (helper
+  non-nil for delta 0/1/2..6).
+- *BEYOND (delta≥7) is byte- and face-identical to pre-R88* — helper
+  returns =nil=, so a deadline 8 days out is still =org-air-face-deadline=,
+  a scheduled 8 days out still =org-air-face-scheduled=, a neutral note 8
+  days out still =org-air-face-date=.
+- *label bytes unchanged* — a this-week date still shows its =%a= weekday
+  ("Wed"), now in amber; "Today"/"Tomorrow" unchanged.
+
+** D4 — width, pill geometry, cache: nothing to reserve
+
+The date column width is measured from =(string-width (car date))= — LABEL
+width only, face-independent (org-air-view.el:3647).  Label bytes are
+unchanged → the date column width and every downstream V6 column position
+are byte-identical; the svg pill BOX geometry (Ncols × char-px) is
+label-width-driven, so the box is unchanged and only the drawn label COLOUR
+(=:fill fg=) changes.  The pill image cache key already includes =fg=, so a
+recoloured face builds a fresh image with no cache change.  NO
+=org-air-view--cache-version= bump — the timestamps and the delta are
+long-standing; the face is a render-side choice from the SAME value (R53).
+A knob flip (light/dark, date-style) repaints, never rescans.
+
+* Alternatives considered
+
+- *Keep R85/R87's binary today/tomorrow highlight (the status quo).*
+  Rejected: it is what the user reported as odd — TOMORROW alarms in red,
+  TODAY reads cool/blue, and neither encodes urgency; a nearer date is not
+  hotter than a further one.
+- *A FLAT within-a-week orange (3 buckets: overdue-red / week-orange /
+  beyond-default).*  A literal reading of "anything within a week should be
+  Today's colour."  Noted and NOT taken by default because the user's SAME
+  sentence graduates it ("tomorrow is somewhere between today's and this
+  week") — a flat orange contradicts a distinct tomorrow.  Flagged for
+  confirm (§Decision); it is a one-line helper pivot (map 0..6 all to
+  =org-air-face-day-today=) if the user wants it.
+- *A continuous colour interpolation (compute a hue per delta).*  Rejected:
+  it needs a colour-mixing render path and a face-per-delta the restraint
+  budget does not want; five named faces are legible, testable (each a
+  distinct symbol), theme-able and R79-conventional.  The blend for
+  TOMORROW is baked into ONE face (the midpoint), not computed at render.
+- *Leave =org-air-face-overdue= inheriting =critical= (dark = Nord13
+  yellow).*  Rejected: a yellow overdue is cooler than a this-week amber
+  and INVERTS the ramp in dark mode — the exact wrong-signed problem the
+  round fixes.  The align is scoped to overdue only; =critical= (the shared
+  error face) is untouched.
+- *Recolour =critical= itself to red in dark.*  Rejected: =critical= is the
+  shared error/attention face used well beyond dates; retinting it would
+  ripple across the UI.  Giving =org-air-face-overdue= its own explicit
+  R79 spec is the surgical move.
+- *Add the amber as a background fill for this-week rows.*  Rejected:
+  fights the "coloured text, no fill" doctrine and does not render in the
+  svg pill (no per-chip fill).  A foreground ramp renders in text, pill and
+  TTY alike.
+
+* Interaction ledger (named rounds, one line each)
+
+- *R3 (date-label / OVERDUE sign)*: the OVERDUE sign-inversion contract
+  (future ≠ OVERDUE) is PRESERVED — the overdue arms are untouched and
+  =org-air-face-overdue= keeps its SYMBOL (only its dark hex aligns).  The
+  R3 =…-is-benign= tests' FACE line (a "Tomorrow" deadline/scheduled) moves
+  to =org-air-face-day-tomorrow= (already R87's re-bless; R88 keeps the
+  symbol, only the hex changes).
+- *R6 (single-day focus view)*: the day pane omits per-item dates — emits
+  no relative label, untouched.
+- *R7 (calendar today cell)*: "today" in the CALENDAR is the filled cell;
+  the date-LABEL ramp is a different surface — the two today idioms stay
+  per-surface, no fork.
+- *R53 (data-pure render, no rescan)*: the ramp face is chosen from the
+  SAME delta already computed in =--date-label= — no file access, no
+  re-query, no cache bump; a knob flip repaints.
+- *R79 (DONE-family face convention)*: all four faces carry explicit
+  light+dark hex + TTY =:inherit= + bold + GUI-confirm note — =day-week= is
+  a new sibling, =overdue= is upgraded from an inherit to an explicit R79
+  spec.
+- *R85 (the two day faces, rule B)*: R88 RECOLOURS =org-air-face-day-today=
+  (teal→orange) and =org-air-face-day-tomorrow= (rose→blend); the helper
+  and the notes-arm wiring are reused.  The R85 COLOUR seams (helper "+2 →
+  nil", "+3d neutral → date", "two faces different colours", R79 tier
+  count) are re-blessed to the ramp (§ERT).
+- *R87 (rule A — the reach)*: R88 KEEPS rule A verbatim — the deadline
+  /scheduled/notes arm wiring and the svg-pill mechanism are unchanged; R88
+  only widens the helper and recolours the faces it returns.  R87's
+  delta≥2 "keeps slot face" seam (r87-7) is re-blessed to "delta 2..6 →
+  day-week, delta≥7 → slot" (§ERT); r87-1..6/8..10 stand (symbols
+  unchanged).
+- *R81 (Air state badge orange)*: =org-air-face-day-today='s orange is kept
+  distinct from the READY badge's =#EBA05A= (a different surface anyway) —
+  a red-leaning orange, not the READY amber.
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+Exact colours are GUI-confirm-only; the seams assert the FACE SYMBOL on
+the =(LABEL . FACE)= cons, the rendered TEXT/pill face, the *relationships*
+between the four ramp hexes (distinctness, blend-betweenness, overdue-red-
+in-both-tiers) and the boundary — never a single named pixel.  Clock frozen
+to =org-air-test-now= (Mon 2026-06-15): today = 2026-06-15, +3d =
+2026-06-18 (this week), +8d = 2026-06-23 (beyond), −5d = 2026-06-10 (past).
+
+*New R88 seams (r88-1..13):*
+
+1. *r88-1 (OVERDUE → red, both tiers)*: a deadline 5 days PAST →
+   =(cons "OVERDUE 5d" 'org-air-face-overdue)=; AND =org-air-face-overdue=
+   resolves to a RED foreground in BOTH the light and the dark tier (the
+   dark tier is the aligned red, NOT Nord13 yellow — assert the dark
+   =:foreground= is =#BF616A= / is NOT =#EBCB8B=).  Reverting the align (or
+   letting overdue re-inherit =critical=) fails.
+2. *r88-2 (TODAY → day-today, all arms)*: a deadline / scheduled / neutral
+   TODAY → =(cons "Today" 'org-air-face-day-today)= on each arm.
+3. *r88-3 (TOMORROW → day-tomorrow, all arms)*: a deadline / scheduled /
+   neutral TOMORROW → =(cons "Tomorrow" 'org-air-face-day-tomorrow)=.
+4. *r88-4 (THIS-WEEK → day-week, all arms)*: a delta-3 deadline / scheduled
+   / neutral → =(cons <weekday> 'org-air-face-day-week)= — the NEW amber
+   bucket, on every arm.  Reverting the D2 this-week band (helper returns
+   nil for delta 3) fails (it would fall back to the slot face).
+5. *r88-5 (BEYOND → slot default, unchanged)*: a delta-8 deadline →
+   =(cons <date> 'org-air-face-deadline)=; a delta-8 scheduled →
+   =…'org-air-face-scheduled=; a delta-8 neutral → =…'org-air-face-date=.
+   Over-applying the ramp past the week fails.
+6. *r88-6 (boundary exactness — "a week = 7")*: the helper returns
+   =org-air-face-day-week= for delta 6 and =nil= for delta 7; a RENDERED
+   delta-6 deadline → =org-air-face-day-week=, a delta-7 deadline →
+   =org-air-face-deadline=.  An off-by-one band (=(<= 2 delta 7)= or
+   =(< 2 delta 6)=) fails.
+7. *r88-7 (five buckets are distinct SYMBOLS)*: =org-air-face-overdue=,
+   =-day-today=, =-day-tomorrow=, =-day-week= are all facep, pairwise NOT
+   =eq=, and none =eq= to =org-air-face-deadline= / =-scheduled= / =-date=
+   (the BEYOND slot faces).  Collapsing any two fails.
+8. *r88-8 (the ramp is red→orange→amber — distinct HEXES, both tiers)*: the
+   =:foreground= of =overdue=, =day-today=, =day-tomorrow=, =day-week= are
+   pairwise DIFFERENT strings in BOTH the light and the dark tier (the
+   pixel-level twin of r88-7, the r85-13 analogue for the 4-colour ramp).
+   A same-hue collapse the symbol check is blind to fails.
+9. *r88-9 (TOMORROW is a BLEND between TODAY and THIS-WEEK)*: for BOTH
+   tiers, each RGB channel of =day-tomorrow='s foreground lies BETWEEN
+   (inclusive) the corresponding channel of =day-today= and =day-week= —
+   i.e. tomorrow is monotone between the two neighbours per channel.
+   Pinning the user's "tomorrow is somewhere between today's and this week"
+   structurally, robust to GUI hex nudges that keep the blend.  A tomorrow
+   hue OUTSIDE the today↔week interval fails.
+10. *r88-10 (reaches text + svg-pill on a deadline)*: the deadline-today
+    cell rendered through =org-air-view--item-date-text= (=org-air-date-
+    style 'text=) carries TEXT "Today" and the =org-air-face-day-today=
+    =face= property (the plain-text twin of the pill; the pill's =:fill=
+    reads the same =face-foreground=, so the svg is orange by the same face
+    — GUI-confirm-only).  Stubbing =--day-relative-face= to nil yields the
+    pre-ramp =org-air-face-deadline= with byte-identical text.
+11. *r88-11 (byte layer — labels unchanged)*: in r88-2..6 the =car= is
+    EXACTLY =--human-date='s output ("Today" / "Tomorrow" / weekday /
+    "%d %b") — only the =cdr= face changed.  Any label-byte drift fails.
+12. *r88-12 (a PAST neutral note stays default, NOT red)*: a =notes= item
+    with =activity= 3 days in the PAST (delta −3) → =(cons <date>
+    'org-air-face-date)= — the helper returns nil for delta<0, so an OLD
+    log note does NOT take =org-air-face-overdue=.  Leaking the overdue/red
+    onto a stale neutral date fails.
+13. *r88-13 (R79 convention on all four faces)*: =org-air-face-overdue=,
+    =-day-today=, =-day-tomorrow=, =-day-week= each load under =emacs -Q
+    --batch -l org-air-faces.el=, each carries a 256-colour light spec, a
+    256-colour dark spec AND a TTY =(t (:inherit … :weight bold))=
+    fallback, and each resolves bold.  A face missing a tier fails.
+
+*R85/R87 seams to RE-BLESS (now WRONG under the ramp) — for the test seat:*
+
+- *round85 r85-1* (helper maps two deltas and ONLY those): the "+2 days →
+  nil" assertion is now WRONG — +2 → =org-air-face-day-week=.  RE-BLESS to
+  the five-level map (0→today, 1→tomorrow, 2..6→week, −1 and ≥7 → nil).
+  The "−1 → nil" line STAYS (still correct).
+- *round85 r85-7* (a +3d neutral date → =org-air-face-date=): now WRONG —
+  +3d neutral → =org-air-face-day-week=.  RE-BLESS (this is r88-4's neutral
+  twin).
+- *round85 r85-2 / r85-13* (two day faces distinct symbols / different
+  colours): EXTEND to the four-face ramp — add =org-air-face-day-week= (and
+  the re-specced =org-air-face-overdue=) to the anti-collision / different-
+  colour sets.  r88-7 / r88-8 supersede; the seat folds r85-2/13 into them
+  or extends in place.
+- *round85 r85-10* (R79 tier count on the two faces): EXTEND to
+  =org-air-face-day-week= and the now-explicit =org-air-face-overdue=
+  (r88-13 supersedes).  Note the TTY =:inherit= set changes: it was
+  ={salient, popout}= (teal/rose era) and is now =popout= for all three day
+  faces (warm) — re-bless the =(memq … '(salient popout))= assertion to
+  the warm set.
+- *round85 r85-3 / r85-4 / r85-14* (neutral today/tomorrow → day face /
+  byte layer / tomorrow reaches a rendered cell): SYMBOLS unchanged
+  (today→day-today, tomorrow→day-tomorrow), labels unchanged — these STAY
+  as-is (they assert symbols and text, not hexes).  r85-14's rendered-cell
+  face is still =org-air-face-day-tomorrow=.
+- *round85 r85-5/6/11/12* (rule-B: deadline/scheduled today/tomorrow KEEP
+  slot): ALREADY replaced by R87 (rule-A day-face assertions).  Under R88
+  they carry the SAME symbols (day-today/day-tomorrow); the R87
+  replacements STAND.  If R87 has not yet landed, R88's landing must ensure
+  these are the rule-A day-face assertions (NOT the rule-B "keeps slot").
+- *round87 r87-7* (deadline/scheduled ≥2 days out KEEPS its slot face): now
+  WRONG for delta 2..6 — a delta-3 deadline/scheduled → =org-air-face-day-
+  week=.  RE-BLESS / SPLIT into: delta 2..6 → =day-week= (r88-4) and delta
+  ≥7 → slot face (r88-5).  This is THE key R87 re-bless.
+- *round87 r87-1..6, r87-8..10* (deadline/scheduled today→day-today,
+  tomorrow→day-tomorrow; rendered-cell reach; overdue→overdue; today≠
+  tomorrow; byte layer; notes-arm guard): SYMBOLS unchanged — these STAY.
+  r87-6 (overdue → =org-air-face-overdue=) STAYS; r88-1 strengthens it with
+  the red-in-both-tiers hex assertion.
+- *tests/org-air-date-label-test.el* =org-air-date-future-{deadline,
+  scheduled}-is-benign=: the FACE line is =org-air-face-day-tomorrow=
+  (already R87's re-bless; R88 keeps the symbol).  If landing R88 without
+  R87 first, re-bless =(eq face 'org-air-face-deadline)= →
+  =(eq face 'org-air-face-day-tomorrow)= (and the scheduled twin); the
+  OVERDUE contract lines are unchanged.  The two =…-is-overdue= tests
+  (=org-air-face-overdue= symbol) STAY.
+
+The test round MUST land r88-1..13 and perform the re-blessings above; each
+re-bless names the OLD assertion so the seat replaces the stale
+expectation rather than leaving a guard that now contradicts production.
+
+* Byte-golden / fixture impact
+
+- *No text-golden churn.*  The change is FACE-only on the helper + faces;
+  the label bytes are unchanged (helper returns only a FACE) and text
+  goldens do not capture =face= — every board / day / review / revisit
+  golden is byte-identical (r88-11).  No re-bless of goldens.
+- *The svg PILL pixels DO change (GUI, intended).*  A today pill now draws
+  orange, a tomorrow pill the blend, a this-week pill amber, an overdue
+  pill red (dark tier no longer yellow) — the user-visible fix.  A
+  =display= image, not buffer text — not a golden byte; the GUI-confirm
+  deliverable.
+- *Width unchanged.*  The date column measures label WIDTH, unchanged (D4).
+- *New fixtures.*  A deadline / scheduled / neutral item at delta 0, 1, 3
+  (this week), 6 (boundary), 7 (boundary), 8 (beyond) and −3 (past neutral)
+  / −5 (past deadline) — the R85 =org-air-r85--dated= / =--note= builders
+  already construct deadline/scheduled/activity offsets and are reused.
+- *Cache.*  NO =org-air-view--cache-version= bump (R53).
+
+* GUI-confirm (exact hexes only — the ramp relationships are batch-asserted)
+
+- *The four ramp hexes, both tiers.*  Confirm the Material-light /
+  Nord-dark ladder reads as an urgency gradient (red → orange → blend →
+  amber) and each tier is legible.  The one tier most likely to need a
+  nudge is =org-air-face-day-week='s LIGHT amber =#B8860B= — a paler yellow
+  would fail contrast on white; if the GUI wants it yellower it must stay a
+  dark goldenrod.
+- *TODAY vs the deadline slot (light).*  =org-air-face-day-today='s
+  =#D84315= is close to the deadline slot's popout =#E0631E= — bold weight
+  + the redder hue should give standout, but confirm a deadline-today is
+  visibly hotter than a beyond-deadline.
+- *TODAY vs the deadline slot (dark).*  =#DD7E52= vs Nord12 =#D08770= is a
+  subtle adjacency (same note as R87's Nord8-vs-Nord9); confirm the
+  dark-mode deadline-today standout is enough.
+- *TODAY vs the READY badge orange.*  =#DD7E52= (dark) is distinct from the
+  READY badge's =#EBA05A= — a different surface, but confirm no confusion.
+- *OVERDUE dark = Nord11 red.*  Confirm the aligned dark overdue reads
+  clearly RED and hotter than the this-week amber.
+
+* Design details / seams (files touched — impl seat)
+
+- *org-air-faces.el*: recolour =org-air-face-day-today= (teal→orange) and
+  =org-air-face-day-tomorrow= (rose→blend); ADD =org-air-face-day-week=
+  (amber, R79 convention); give =org-air-face-overdue= an explicit R79 spec
+  (light =#C62828= kept, dark aligned Nord11 =#BF616A=, TTY inherit =error=)
+  — stop inheriting =critical= (D1).  =org-air-face-critical= UNTOUCHED.
+- *org-air-view.el*: widen =org-air-view--day-relative-face= to the
+  five-level =cond= (D2) and correct its docstring to the ramp.  The three
+  =--date-label= arms (R87's), =--human-date=, =--item-date-text=,
+  =--svg-pillify=, =--compute-meta-widths= all UNTOUCHED.
+- *README / demo*: one line — the date cell is now a proximity heat-ramp
+  (overdue red → today orange → tomorrow blend → this-week amber → beyond
+  default), superseding the R85/R87 teal/rose today/tomorrow.
+- *tests*: land r88-1..13 (new); RE-BLESS round85 r85-1/2/7/10/13 and
+  round87 r87-7 (and, if R87 has not landed, the R3 =…-is-benign= face
+  lines) per §ERT.
+- *NO changes*: =--human-date= (label bytes), the =--date-label= arm
+  wiring, the svg path, =org-air-face-critical=, org-air-query.el /
+  classify / calendar / inbox / project / review / revisit, the cache
+  VERSION.
+- *Suggested land order*: D1 faces (recolour + add + align — prove r88-1
+  overdue-red, r88-7/8/9/13 the ramp relationships in isolation) → D2
+  helper widen (prove r88-2..6 the buckets + boundary, r88-12 the past-
+  neutral guard) → confirm r88-10 the rendered pill reach and r88-11 the
+  byte layer → re-bless the R85/R87 seams → GUI-confirm the ramp (§GUI-
+  confirm).
+
+* One-line summary (idle)
+
+R88 = the date cell stops being a BINARY today/tomorrow highlight and
+becomes a PROXIMITY HEAT-RAMP.  The user found R85/R87's colours
+wrong-signed — TOMORROW in red *alarms* (red should mean OVERDUE) and
+TODAY in teal reads *blue/cool* when it should read *hot*.  *Decision: five
+urgency buckets keyed on the SAME =--days-between= delta* — OVERDUE(<0)
+RED, TODAY(0) ORANGE, TOMORROW(1) a BLEND between today and this-week,
+THIS-WEEK(2..6) AMBER (new =org-air-face-day-week=), BEYOND(≥7) the slot
+DEFAULT — a red→orange→amber→default ramp that *cools* with distance so
+"hotter = nearer/urgent," and RED is reserved for OVERDUE.  *Kept from R87
+verbatim*: rule A (the reach across deadline + scheduled + neutral arms)
+and the svg-pill =:fill (face-foreground FACE)= mechanism — R88 edits ZERO
+arms, only widens =org-air-view--day-relative-face= (2 levels → 5) and
+recolours the faces it returns (=day-today= teal→orange, =day-tomorrow=
+rose→the midpoint blend, +=day-week= amber).  *The one align (flagged)*:
+=org-air-face-overdue= reads red in light (=#C62828=) but its dark tier
+inherited =critical= = Nord13 YELLOW, which inverts the ramp — R88 gives
+it an explicit R79 spec, dark aligned to Nord11 =#BF616A= (the aurora red
+formerly on TOMORROW), so overdue reads red in BOTH tiers and hotter than
+this-week.  Boundary exactly delta<0 / 0 / 1 / 2..6 / ≥7 ("a week = 7").
+Label bytes untouched → text goldens byte-identical (face is a =display=
+prop); only the GUI pill PIXELS repaint; no rescan, no cache bump (R53).
+*Test re-bless (flagged)*: round85 r85-1 ("+2→nil"), r85-7 ("+3d→date"),
+r85-2/13 (distinctness/colour set → 4 faces), r85-10 (TTY inherit set →
+warm) and round87 r87-7 ("delta≥2 keeps slot" → split delta 2..6→day-week /
+≥7→slot) are now WRONG and re-blessed; r85-3/4/14 and r87-1..6/8..10 stand
+(symbols unchanged).  13 new batch ERT seams (r88-1..13); the exact ramp
+hexes + the light-amber legibility + the dark today-vs-Nord12 adjacency are
+GUI-confirm-only (the ramp *relationships* — distinctness, blend-
+betweenness, overdue-red-both-tiers, the delta 6-vs-7 boundary — are all
+batch-asserted).
+
+* Implementation History
+
+- 2026-07-24: R88 design (this doc) — the binary today/tomorrow highlight
+  becomes a five-level proximity heat-ramp.  *Root cause*: R85 chose
+  near-complementary "today ≠ tomorrow" hues (teal =#00897B=/=#88C0D0=,
+  rose =#C2185B=/=#BF616A=) that encode IDENTITY, not URGENCY — so TOMORROW
+  reads alarming red (which should mean OVERDUE) and TODAY reads cool blue
+  (which should read hot), and a nearer date is not visibly hotter than a
+  further one.  *Fix (ramp supersedes the binary)*: extend
+  =org-air-view--day-relative-face= from {0→today, 1→tomorrow} to the
+  five-level =cond= {0→day-today ORANGE, 1→day-tomorrow BLEND, 2..6→day-week
+  AMBER (new), <0 and ≥7 → nil}; recolour =org-air-face-day-today=
+  (teal→orange =#D84315=/=#DD7E52=) and =org-air-face-day-tomorrow=
+  (rose→the per-channel midpoint blend =#C86410=/=#E4A46E=), ADD
+  =org-air-face-day-week= (amber =#B8860B=/Nord13 =#EBCB8B=), and give
+  =org-air-face-overdue= an explicit R79 spec red in BOTH tiers (light
+  =#C62828= kept, dark ALIGNED Nord11 =#BF616A= — it inherited
+  =critical=/Nord13 YELLOW, which inverted the ramp in dark mode; the red is
+  moved from TOMORROW onto OVERDUE, the user's ask).  *Kept from R87*: rule
+  A (the reach across deadline + scheduled + neutral arms) and the
+  svg-pill =:fill (face-foreground FACE)= mechanism — ZERO arm edits, the
+  helper body + faces are the whole surface (prerequisite: R87's rule-A
+  routing, currently =ready=).  *Boundary*: exactly delta<0 / 0 / 1 / 2..6
+  / ≥7, =(<= 2 delta 6)= ("a week = 7"); OVERDUE(<0) owned by the
+  pre-existing overdue arms (a stale neutral note stays its default grey,
+  never red — the helper returns nil for delta<0).  Label bytes untouched →
+  text goldens byte-identical (face is a =display= prop); only GUI pill
+  pixels repaint; no rescan, no cache-version bump (R53).  *Test impact
+  (flagged)*: round85 r85-1/2/7/10/13 and round87 r87-7 re-blessed to the
+  ramp (the delta≥2 "keeps slot" seam splits into delta 2..6→day-week /
+  ≥7→slot); r85-3/4/14 + r87-1..6/8..10 stand (symbols unchanged).  13 new
+  batch ERT seams (r88-1..13); the exact ramp hexes, the light-amber
+  legibility and the dark today-vs-Nord12 adjacency are GUI-confirm-only.
+
+* History
+- 2026-07-24: State: draft → ready.

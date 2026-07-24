@@ -2033,10 +2033,13 @@ Non-nil only when TIME is today (giving `org-air-face-day-today') or
 tomorrow (giving `org-air-face-day-tomorrow') relative to NOW — the two
 relative labels `org-air-view--human-date' emits.  Keyed on the SAME
 `org-air-view--days-between' delta as `--human-date', so the label and
-the face agree by construction.  Returned to the NEUTRAL date arms of
-`org-air-view--date-label' so a today/tomorrow activity/created/note date
-stops reading as the muted `org-air-face-date' grey; deadline/scheduled
-dates keep their own slot face (R85 §Decision, rule B)."
+the face agree by construction.  Returned to the DEADLINE / SCHEDULED /
+NOTES date arms of `org-air-view--date-label' so ANY date that falls
+today/tomorrow stands out in the day face on every slot, not just the
+neutral one (R87 rule A supersedes R85's neutral-only rule B); a
+deadline/scheduled today/tomorrow now reads teal/rose instead of its slot
+hue, while an OVERDUE past deadline (delta<0) keeps `org-air-face-overdue'
+and a date >=2 days out keeps its slot face."
   (let ((now (or now (current-time))))
     (pcase (org-air-view--days-between now time)
       (0 'org-air-face-day-today)
@@ -2073,8 +2076,19 @@ position degrades to nil, never a crash."
      ((and scheduled (> (org-air-view--days-between scheduled now) 0))
       (cons (format "OVERDUE %dd" (abs (org-air-view--days-between scheduled now)))
             'org-air-face-overdue))
-     (deadline (cons (org-air-view--human-date deadline now) 'org-air-face-deadline))
-     (scheduled (cons (org-air-view--human-date scheduled now) 'org-air-face-scheduled))
+     (deadline
+      (cons (org-air-view--human-date deadline now)
+            ;; R87: a deadline that falls today/tomorrow WINS its slot — it
+            ;; reads teal/rose (day face) instead of the slot orange, so the
+            ;; standout reaches the due-date column (text AND svg pill); a
+            ;; deadline >=2 days out keeps `org-air-face-deadline'.
+            (or (org-air-view--day-relative-face deadline now)
+                'org-air-face-deadline)))
+     (scheduled
+      (cons (org-air-view--human-date scheduled now)
+            ;; R87: a scheduled today/tomorrow WINS its slot too (consistency).
+            (or (org-air-view--day-relative-face scheduled now)
+                'org-air-face-scheduled)))
      ((eq bucket 'attention) (cons "no date" 'org-air-face-date))
      ((eq bucket 'notes)
       ;; R53 P3: a note row's date pill is its scan-time activity.

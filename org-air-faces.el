@@ -486,11 +486,12 @@ Reconciled with `org-air-priority-colors'."
 A bold TEAL (Teal600 light / Nord8 dark) — a fresh, cool \"now\" accent
 that stands clear of the muted `org-air-face-date' grey and of the three
 date-slot hues (deadline popout-orange, scheduled salient-purple, overdue
-critical-red).  Painted by `org-air-view--date-label' ONLY when the
-relative label falls under the NEUTRAL date slot (a deadline/scheduled
-today keeps its own slot face — a deadline-today still reads as a
-deadline).  The exact hex is GUI-confirm-only; the TTY tier degrades to a
-bold `org-air-face-salient'."
+critical-red).  Painted by `org-air-view--date-label' on ANY date slot
+(deadline, scheduled or neutral) when the date falls today, so a due date
+today stands out in this colour (R87 rule A supersedes R85's neutral-only
+rule B); an OVERDUE past deadline keeps `org-air-face-overdue'.  The exact
+hex is GUI-confirm-only; the TTY tier degrades to a bold
+`org-air-face-salient'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-day-tomorrow
@@ -503,9 +504,12 @@ bold `org-air-face-salient'."
 A bold ROSE / magenta (Pink700 light / Nord11 dark) — the near-
 complementary counterpart to `org-air-face-day-today's teal, so today and
 tomorrow are unmistakably DIFFERENT from each other, and both distinct
-from every date-slot face.  Painted under the same NEUTRAL-slot rule as
-`org-air-face-day-today'.  The exact hex is GUI-confirm-only; the TTY tier
-degrades to a bold `org-air-face-popout'."
+from every date-slot face.  Painted by `org-air-view--date-label' on ANY
+date slot (deadline, scheduled or neutral) when the date falls tomorrow,
+under the same rule A as `org-air-face-day-today' (R87 supersedes R85's
+neutral-only rule B); an OVERDUE past deadline keeps `org-air-face-overdue'.
+The exact hex is GUI-confirm-only; the TTY tier degrades to a bold
+`org-air-face-popout'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-group

@@ -1,0 +1,538 @@
+#+title: org-air Round 85 — the TODAY / TOMORROW relative date labels stop reading as muted grey: two DISTINCT, standing-out faces (org-air-face-day-today teal, org-air-face-day-tomorrow rose) painted where `org-air-view--human-date' emits them under the neutral date slot — the deadline / scheduled slot faces are DELIBERATELY preserved (a deadline-today still reads as a deadline), a face-only change with byte-identical goldens
+#+state: ready
+#+tags: faces dates render board ux
+
+* Summary
+
+User feedback from the running board: *the relative "Today" / "Tomorrow"
+date labels don't stand out.*  Verbatim ask —
+
+#+begin_quote
+TODAY and TOMORROW should be in different colour to stand out more
+#+end_quote
+
+=org-air-view--human-date= (org-air-view.el:2017) turns a delta of 0 into
+="Today"= and 1 into ="Tomorrow"= (else =%a= / =%d %b= / =%d %b %y=).  The
+date CELL'S FACE, however, is NOT chosen there — it is chosen at the call
+site inside =org-air-view--date-label= (org-air-view.el:2049) by the
+item's date SLOT: a deadline paints =org-air-face-deadline= (popout
+orange), a scheduled paints =org-air-face-scheduled= (salient purple), and
+an activity / created / note date paints the *neutral* =org-air-face-date=
+(faded grey).  So a today/tomorrow label INHERITS the slot face and, in
+the neutral case, reads as the *same muted grey* as any other quiet
+timestamp — exactly the "doesn't stand out" the user reported.
+
+R85 introduces *two new faces* — =org-air-face-day-today= (a bold teal)
+and =org-air-face-day-tomorrow= (a bold rose), DISTINCT from each other
+and from every date-slot face — and paints them wherever =--human-date=
+emits the relative label *under the neutral date slot*.  The
+slot-interplay rule is deliberate and stated up front (§Decision): the
+day face *replaces the neutral =org-air-face-date= only*; a deadline or a
+scheduled date that happens to fall today/tomorrow *keeps its slot face*
+(a deadline-today still reads as an urgent deadline, a scheduled-tomorrow
+still reads scheduled).  This is a *face-only* change — the label BYTES
+("Today" / "Tomorrow") are untouched, and a face is a =display= property,
+not buffer text, so every golden is byte-identical.
+
+SPEC ONLY: no =.el= or test edits in this change.  R53 (never-error,
+data-pure render, NO rescan — a face is chosen from the same cached delta
+already computed), R79 (explicit light+dark hex + TTY =:inherit= fallback
++ "exact hex is GUI-confirm-only" for a new semantic face) and R80 (the
+face split is orthogonal to parked keyword states) are respected and
+reused, never forked.
+
+* Decision (stated first — the slot-interplay ruling)
+
+*The day-today / day-tomorrow face REPLACES the neutral =org-air-face-date=
+ONLY.  Deadline and scheduled dates that fall today/tomorrow KEEP their
+slot face.*  Rule (B) of the two the brief named — "a today/tomorrow
+highlight that still lets a deadline read as a deadline" — over rule (A),
+a clean override of every slot.
+
+*Why (B), not (A):*
+
+1. *The date-cell colour ENCODES the slot semantic, and that matters most
+   exactly on today/tomorrow.*  Orange = deadline, purple = scheduled,
+   grey = neutral activity is a signal the user scans to FIND deadlines.
+   A deadline due *today* is the single most time-critical row on the
+   board; repainting it teal (rule A) would *destroy* the "this is a
+   deadline" signal on precisely the row where it matters most.  (B)
+   keeps the deadline reading as a deadline (popout orange) and the
+   scheduled reading as scheduled (salient purple) — they already STAND
+   OUT (they are accent hues, not the muted grey), and they keep their
+   meaning.
+
+2. *(A) would BREAK the R3 date-label contract.*  Two shipped regression
+   tests pin the slot face on a "Tomorrow" label:
+   =org-air-date-future-deadline-is-benign= asserts a deadline-tomorrow →
+   =(cons "Tomorrow" 'org-air-face-deadline)= and
+   =org-air-date-future-scheduled-is-benign= asserts a scheduled-tomorrow
+   → =(cons "Tomorrow" 'org-air-face-scheduled)= (tests/org-air-date-
+   label-test.el:44,80).  Rule (A) would recolour both to the day face
+   and fail them — a real regression of an intentional contract.  Rule
+   (B) leaves both untouched (they still pass verbatim) and ADDS the
+   highlight only where the label was the muted neutral grey.
+
+3. *Under (B), NO today/tomorrow label is ever muted.*  A deadline
+   today/tomorrow stands out as orange; a scheduled today/tomorrow stands
+   out as purple; a *neutral* (created / logged / note) today/tomorrow —
+   the ONLY case that read muted grey, i.e. the user's complaint locus —
+   now stands out as teal / rose.  (B) achieves "today/tomorrow always
+   stands out" WITHOUT sacrificing any slot semantic.  (A) achieves the
+   same standout but at the cost of both the semantic and the contract —
+   strictly worse on the least-surprise axis.
+
+The composite rule (C) — keep the slot HUE but *add* a today/tomorrow
+emphasis (bold + underline) so a deadline-today reads "deadline AND today"
+— is noted in §Alternatives and rejected: it turns the =(LABEL . FACE)=
+contract's FACE into a face LIST / anonymous merged face, ripples into
+=--item-date-text= and the svg-pill (which expect ONE face symbol) and
+muddies the ERT seams, for a marginal gain the project's restraint budget
+does not want.  (B) is the clean, contract-preserving, least-surprising
+choice.  *This is the decision flagged for confirmation* — if the user
+actually wants today/tomorrow to override deadline/scheduled too, (A) is
+a one-line change (drop the neutral-arm gate) and the two R3 tests would
+be re-blessed; the spec is written so that pivot is trivial.
+
+* Investigation
+
+** Where the relative label is produced — and where its face is chosen
+
+=org-air-view--human-date= (org-air-view.el:2017) is the ONE producer of
+the relative label:
+
+#+begin_example
+(cond
+ ((= delta 0) "Today")
+ ((= delta 1) "Tomorrow")
+ ((and (> delta 1) (< delta 7)) (format-time-string "%a" time))
+ ...)
+```
+
+It returns a bare STRING — it never chooses a face.  The face is chosen
+downstream in =org-air-view--date-label= (org-air-view.el:2049), whose
+cond arms pair the label with a SLOT face:
+
+#+begin_example
+(deadline  (cons (org-air-view--human-date deadline now) 'org-air-face-deadline))
+(scheduled (cons (org-air-view--human-date scheduled now) 'org-air-face-scheduled))
+((eq bucket 'attention) (cons "no date" 'org-air-face-date))
+((eq bucket 'notes)
+ (when-let* ((activity (org-air-item-activity item)))
+   (cons (org-air-view--human-date activity now) 'org-air-face-date)))   ; ← NEUTRAL
+((eq bucket 'stale)
+ ... (cons (format "%s %dd quiet" org-air-chrome-separator ...) 'org-air-face-date))
+```
+
+The =(LABEL . FACE)= cons is consumed by =org-air-view--item-date-text=
+(org-air-view.el:3458), which propertizes the label with =(cdr date)= —
+the slot face — for the board row's date cell (coloured text, or the V3
+svg pill, whose LABEL takes its colour from the SAME face, org-air-
+view.el:3136 "colour lives only in the LABEL via FACE").
+
+** Every arm that can emit "Today" / "Tomorrow" — the complete audit
+
+Only arms that call =--human-date= can emit the relative label.  There
+are exactly THREE, and their faces today are:
+
+| arm       | emits "Today"/"Tomorrow"? | face today                    |
+|-----------+---------------------------+-------------------------------|
+| overdue   | NO (delta>0 ⇒ "OVERDUE Nd")| org-air-face-overdue         |
+| deadline  | YES (delta 0/1)           | org-air-face-deadline (accent)|
+| scheduled | YES (delta 0/1)           | org-air-face-scheduled(accent)|
+| attention | NO ("no date")            | org-air-face-date             |
+| notes     | YES (delta 0/1 via activity)| org-air-face-date ← MUTED    |
+| stale     | NO ("· Nd quiet")         | org-air-face-date             |
+
+So the relative label reaches the *muted neutral face* in exactly ONE arm
+— =notes= (the scan-time =activity= date, R53 P3).  The =deadline= /
+=scheduled= arms already give it an accent hue; the =attention= ("no
+date") and =stale= ("· Nd quiet") arms never emit today/tomorrow at all.
+Under the §Decision rule (B), the =notes= arm is the *single locus* to
+recolour, and the fix is future-proof: it is expressed as "apply the day
+face wherever =--human-date= renders UNDER =org-air-face-date=", which
+resolves to the notes arm today and would auto-cover any neutral
+human-date arm added later.
+
+** The other surfaces — a deliberate NON-change audit
+
+The brief said "board date column + day view + anywhere the relative
+label shows".  Reading the code, the relative label shows in exactly ONE
+place, and the other candidate surfaces are audited as non-surfaces:
+
+- *Board date column* — =--date-label= → =--item-date-text=.  THE
+  surface.  Recoloured (notes arm) per §Decision.
+- *Day view (R6)* — =org-air-view--insert-day-pane= (org-air-view.el:5522)
+  binds =(org-air-view--meta-date-w nil)= and renders "the R10 item line
+  minus its now-redundant date": the day pane groups items under
+  Deadline / Scheduled / Logged-created headings with a fixed
+  =%A %-d %B %Y= day header, so per-item dates are OMITTED.  =--human-date=
+  is NOT called on the day pane — nothing to recolour, no regression.
+- *Review pane* — =org-air-review--row-date-text= (org-air-review.el:809)
+  renders =(format-time-string "%b %-d" epoch)= (+ ×N / ⚠ chips); it never
+  calls =--human-date=, so it never emits "Today"/"Tomorrow".  Untouched.
+- *Revisit pane* — =org-air-revisit--date-text= (org-air-revisit.el:318)
+  renders age chips ("dusty 3d", the visited-tick); no =--human-date=.
+  Untouched.
+- *Calendar / rail* — =org-air-calendar= paints day CELLS with its own
+  =org-air-face-calendar-*= family and marks the review period; it emits
+  no "Today"/"Tomorrow" TEXT (the calendar's "today" is already the
+  filled =org-air-face-calendar-today= cell, R7).  Out of scope, untouched.
+
+So there is precisely ONE rendering surface, and the audit above is part
+of the deliverable — every =--human-date= consumer was checked.
+
+** Why muted grey is the right thing to fix (and only that)
+
+=org-air-face-date= inherits =org-air-face-faded= (org-air-faces.el:462) —
+BlueGrey300 / muted (#90A4AE / #677691), the same low-intensity tone used
+for every quiet timestamp, hint and count.  A "Today" in that tone is
+indistinguishable from a three-weeks-ago date.  The deadline (popout
+orange #E0631E / #D08770) and scheduled (salient purple #673AB7 / #81A1C1)
+faces are already ACCENT hues — a "Today" there is not muted, it is
+coloured with meaning.  The complaint is specifically about the muted
+neutral case, and rule (B) recolours exactly that.
+
+* Proposal
+
+** D1 — two new standing-out faces (R79 convention)
+
+Add, beside the date faces in org-air-faces.el (after =org-air-face-date=
+/ =-scheduled= / =-deadline= / =-overdue=, org-air-faces.el:462–480), two
+faces following the R79 done/dropped convention — explicit light AND dark
+hex, a graceful TTY =:inherit= fallback, bold weight for standout, and an
+"exact hex is GUI-confirm-only" docstring note:
+
+#+begin_example
+(custom-declare-face 'org-air-face-day-today
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#00897B" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#88C0D0" :weight bold))
+    (t (:inherit org-air-face-salient :weight bold)))
+  "Face for a relative \"Today\" date label (R85).
+A bold TEAL (Teal600 light / Nord8 dark) — a fresh, cool \"now\" accent
+that stands clear of the muted `org-air-face-date' grey and of the three
+date-slot hues (deadline popout-orange, scheduled salient-purple, overdue
+critical-red).  Painted by `org-air-view--date-label' ONLY when the
+relative label falls under the NEUTRAL date slot (a deadline/scheduled
+today keeps its own slot face — a deadline-today still reads as a
+deadline).  The exact hex is GUI-confirm-only; the TTY tier degrades to a
+bold `org-air-face-salient'."
+  :group 'org-air-faces)
+
+(custom-declare-face 'org-air-face-day-tomorrow
+  '((((class color) (min-colors 256) (background light))
+     (:foreground "#C2185B" :weight bold))
+    (((class color) (min-colors 256) (background dark))
+     (:foreground "#BF616A" :weight bold))
+    (t (:inherit org-air-face-popout :weight bold)))
+  "Face for a relative \"Tomorrow\" date label (R85).
+A bold ROSE / magenta (Pink700 light / Nord11 dark) — the near-
+complementary counterpart to `org-air-face-day-today's teal, so today and
+tomorrow are unmistakably DIFFERENT from each other, and both distinct
+from every date-slot face.  Painted under the same NEUTRAL-slot rule as
+`org-air-face-day-today'.  The exact hex is GUI-confirm-only; the TTY tier
+degrades to a bold `org-air-face-popout'."
+  :group 'org-air-faces)
+```
+
+*Hue rationale (rougier-consistent).*  Both hexes are drawn from the
+palette's own families — Material for light, Nord for dark (org-air-
+faces.el Commentary) — so they sit inside the design language, not beside
+it.  Teal (today) and rose (tomorrow) are near-complementary → maximally
+distinct FROM EACH OTHER (the "each different" requirement), and both are
+distinct in hue FROM the four date faces: grey (date), purple (scheduled),
+orange (deadline), red/amber (overdue).  A FOREGROUND face (not a
+background fill) is chosen deliberately: (i) the project's restraint
+doctrine is "quiet coloured TEXT — no box, no background fill" (org-air-
+faces.el:547 tag note), and a filled block on every today-row would fight
+the calm aesthetic and the one-cell calendar-today precedent; (ii) the
+svg date pill draws its label colour from the face FOREGROUND (org-air-
+view.el:3136), so a foreground face renders correctly in BOTH the plain-
+text and pill date styles, and on the TTY.  Exact colours are
+GUI-confirm-only; the ERT asserts the FACE, not the pixel.
+
+** D2 — a tiny pure helper: `org-air-view--day-relative-face'
+
+Add beside =--human-date= (org-air-view.el:2017) a helper that maps a
+time to the day face, keyed on the SAME delta =--human-date= uses so the
+label and the face can never disagree:
+
+#+begin_example
+(defun org-air-view--day-relative-face (time &optional now)
+  "Return the standout face for a TODAY / TOMORROW date, else nil (R85).
+Non-nil only when TIME is today (`org-air-face-day-today') or tomorrow
+(`org-air-face-day-tomorrow') relative to NOW — the two relative labels
+`org-air-view--human-date' emits.  Keyed on the SAME
+`org-air-view--days-between' delta as `--human-date', so the label and
+the face agree by construction.  Returned to the NEUTRAL date arms of
+`org-air-view--date-label' so a today/tomorrow activity/created/note date
+stops reading as the muted `org-air-face-date' grey; deadline/scheduled
+dates keep their own slot face (§Decision, rule B)."
+  (let ((now (or now (current-time))))
+    (pcase (org-air-view--days-between now time)
+      (0 'org-air-face-day-today)
+      (1 'org-air-face-day-tomorrow))))
+```
+
+The =(org-air-view--days-between now time)= argument order MATCHES
+=--human-date='s own =(org-air-view--days-between now time)= (org-air-
+view.el:2019), so delta 0 ⇒ "Today" ⇒ =face-day-today= and delta 1 ⇒
+"Tomorrow" ⇒ =face-day-tomorrow= are locked together; any other delta
+returns nil and the caller falls back to =org-air-face-date= (byte-
+identical for every non-today/tomorrow neutral date).  =time= is whatever
+=--human-date= is called with — an Emacs time value OR the =activity=
+epoch FLOAT (a valid time value for =time-to-days=), so it composes with
+the notes arm unchanged.  Pure, data-only, no file access (R53).
+
+** D3 — recolour the NEUTRAL notes arm (the single locus)
+
+In =org-air-view--date-label= (org-air-view.el:2064–2067) the =notes= arm
+becomes:
+
+#+begin_example
+((eq bucket 'notes)
+ ;; R53 P3: a note row's date pill is its scan-time activity.
+ (when-let* ((activity (org-air-item-activity item)))
+   (cons (org-air-view--human-date activity now)
+         ;; R85: a today/tomorrow neutral date stops reading as muted
+         ;; grey; a non-today/tomorrow date keeps `org-air-face-date'.
+         (or (org-air-view--day-relative-face activity now)
+             'org-air-face-date))))
+```
+
+That is the WHOLE render change:
+
+- The LABEL — =(car …)= — is UNCHANGED (=--human-date= untouched): still
+  exactly "Today" / "Tomorrow" / "Wed" / "17 Jul".  Byte layer intact.
+- The FACE — =(cdr …)= — becomes the day face for a today/tomorrow neutral
+  date, else =org-air-face-date= exactly as before.
+- The =deadline= / =scheduled= arms are UNTOUCHED — a deadline-today stays
+  =org-air-face-deadline=, a scheduled-tomorrow stays
+  =org-air-face-scheduled= (§Decision, and the R3 tests keep passing).
+- The =attention= ("no date") and =stale= ("· Nd quiet") arms are
+  UNTOUCHED — they never emit a relative today/tomorrow.
+
+No new scan slot, no cache-key element, no =org-air-view--cache-version=
+bump — =activity= is a long-standing R53 slot and the delta is already
+computed by =--human-date=; the day face is chosen from the SAME value.  A
+knob flip (light/dark background, date style) repaints, never rescans.
+
+** D4 — width & pill: nothing to reserve
+
+The date column width is measured from =(string-width (car date))= in
+=org-air-view--compute-meta-widths= (org-air-view.el:3536) — the LABEL
+text only, face-independent.  The label bytes are unchanged, so the date
+column width is unchanged and every downstream V6 column position is
+byte-identical.  The svg pill (=--svg-pillify=) draws the label in the
+new face's FOREGROUND — a GUI-only colour swap on the same box; the box
+geometry (Ncols × char-px) is label-width-driven, so pill-on and pill-off
+are both position-stable (C2).  Nothing to reserve, nothing to re-fit.
+
+* Alternatives considered
+
+- *(A) clean override of every slot.*  Simpler / uniform, but destroys the
+  deadline/scheduled semantic on the most time-critical rows and breaks
+  the R3 date-label face contract (two shipped tests).  Rejected — see
+  §Decision.
+- *(C) composite (slot hue + today emphasis).*  Keep the slot hue and add
+  a bold/underline today/tomorrow emphasis so a deadline-today reads
+  "deadline AND today".  Rejected: turns the =(LABEL . FACE)= FACE into a
+  face LIST / merged anonymous face, ripples into =--item-date-text= and
+  the svg pill (which expect ONE face symbol), and complicates the ERT
+  seams — a restraint-budget loss for a marginal gain.
+- *A filled highlight for today (calendar-today idiom).*  Reuse
+  =org-air-face-calendar-today='s popout-hue FILLED cell in the date
+  label for cross-surface consistency.  Rejected: a filled block on every
+  today-row (a board can have many) fights the project's "coloured text,
+  no fill" restraint doctrine and does not render cleanly in the svg pill
+  (no per-chip fill).  The one-cell calendar-today stays a calendar
+  affordance; date labels use quiet coloured text.
+- *Baking the face into =--human-date=.*  Have =--human-date= return
+  propertized text.  Rejected: =--item-date-text= re-propertizes the whole
+  label with the slot face (overriding any inline face), the deadline/
+  scheduled arms must NOT be recoloured, and a producer returning a face
+  it cannot honour is a leaky contract.  The face decision belongs at the
+  call site (which knows the slot); the shared =--day-relative-face=
+  keeps it DRY and in lockstep with the delta.
+
+* Interaction ledger (named rounds, one line each)
+
+- *R3 (date-label / OVERDUE sign)*: the deadline/scheduled "Tomorrow"
+  face contract (tests/org-air-date-label-test.el) is PRESERVED by rule
+  (B) — those tests pass verbatim; the neutral arm is the only change.
+- *R6 (single-day focus view)*: the day pane omits per-item dates
+  (=--meta-date-w nil=), so it emits no relative label — audited
+  non-surface, untouched.
+- *R7 (calendar today cell)*: "today" in the CALENDAR is already the
+  filled =org-air-face-calendar-today= cell; the date-LABEL "Today" is a
+  different surface and gets its own coloured-text face — the two
+  today idioms stay per-surface, no fork.
+- *R53 (data-pure render, no rescan)*: the face is chosen from the SAME
+  cached =activity= slot / =--days-between= delta already computed — no
+  file access, no re-query, no cache-version bump; a knob flip repaints.
+- *R63-2 (review flat rows)*: the review's own =%b %-d= date text never
+  emits today/tomorrow — audited non-surface, untouched.
+- *R79 (DONE-family face split)*: the new faces follow the SAME
+  convention — explicit light+dark hex, TTY =:inherit= fallback, bold
+  weight, "exact hex GUI-confirm-only" — a sibling of
+  =org-air-face-done= / =-dropped=, not a new idiom.
+- *R80 (OUT/OFF parked keyword states)*: the day face split is a DATE-slot
+  concern, orthogonal to keyword states — a parked heading's date is
+  faced by its slot exactly as before; R85 never reads =todo=.
+
+* ERT seams (batch, no GUI; each names what reverting breaks)
+
+Exact colours are GUI-confirm-only; the seams assert the FACE SYMBOL on
+the =(LABEL . FACE)= cons (and, where relevant, the rendered TEXT), never
+the pixel.  The clock is frozen to =org-air-test-now= (Mon 2026-06-15), so
+today = 2026-06-15 and tomorrow = 2026-06-16.
+
+1. *r85-1 the helper maps the two deltas and only those*:
+   =org-air-view--day-relative-face= returns =org-air-face-day-today= for
+   a time on =org-air-test-now='s day, =org-air-face-day-tomorrow= for the
+   next day, and NIL for +2 days and for yesterday (-1).  Reverting the
+   helper (or its delta keying) fails.
+2. *r85-2 the two faces are DISTINCT and standing out (anti-collision)*:
+   =org-air-face-day-today= and =org-air-face-day-tomorrow= are non-nil,
+   are NOT =eq= to each other, and are NOT =eq= to any of
+   =org-air-face-date= / =-scheduled= / =-deadline= / =-overdue=.  (Exact
+   hex GUI-confirm-only; the seam pins the face-SYMBOL distinctness, the
+   requirement "distinct from each other AND from deadline/scheduled/
+   date".)  Collapsing either onto a date-slot face fails.
+3. *r85-3 (core) a NEUTRAL today/tomorrow carries the day face*: a
+   =notes=-bucket item (no scheduled, no deadline) with =activity= = today
+   → =--date-label= returns =(cons "Today" 'org-air-face-day-today)=; with
+   =activity= = tomorrow → =(cons "Tomorrow" 'org-air-face-day-tomorrow)=.
+   Reverting the D3 notes-arm rewire (back to =org-air-face-date=) fails.
+4. *r85-4 the LABEL text is unchanged (byte layer)*: in r85-3 the =car= of
+   the cons is EXACTLY ="Today"= / ="Tomorrow"= — only the =cdr= (face)
+   changed.  Any drift in the label text (e.g. a decorated label) fails.
+5. *r85-5 (slot-interplay, deadline) a deadline-today/tomorrow KEEPS the
+   deadline face*: the R3 fixture "Prep client presentation" (DEADLINE
+   2026-06-16) → =(cons "Tomorrow" 'org-air-face-deadline)= — NOT the day
+   face.  This is exactly =org-air-date-future-deadline-is-benign=;
+   pivoting to rule (A) (override) fails it.
+6. *r85-6 (slot-interplay, scheduled) a scheduled-today/tomorrow KEEPS the
+   scheduled face*: the R3 fixture "Prepare standup notes" (SCHEDULED
+   2026-06-16) → =(cons "Tomorrow" 'org-air-face-scheduled)= — NOT the day
+   face.  Exactly =org-air-date-future-scheduled-is-benign=; rule (A)
+   fails it.
+7. *r85-7 a non-today/tomorrow NEUTRAL date is UNCHANGED*: a =notes= item
+   with =activity= three days out → =(cons "Wed" 'org-air-face-date)= —
+   the neutral face, byte-identical to pre-R85.  Over-applying the day
+   face (delta ∉ {0,1}) fails.
+8. *r85-8 the non-emitting neutral arms are UNTOUCHED*: an =attention=
+   item with no date → =(cons "no date" 'org-air-face-date)=; a =stale=
+   item → a "· Nd quiet" label with =org-air-face-date= — neither ever
+   carries a day face (they never emit a relative today/tomorrow).
+   Accidentally routing them through the day face fails.
+9. *r85-9 goldens are byte-identical (face is a display prop)*: an
+   end-to-end board render whose corpus has a today-dated note row still
+   contains the TEXT "Today" on that row and the whole rendered buffer
+   text is byte-identical to the pre-R85 render (the =face= property is
+   not captured by the text golden).  Any change that alters the LABEL
+   BYTES (not just the face) fails.
+10. *r85-10 the faces obey the R79 face convention*: both faces load under
+    =emacs -Q --batch -l org-air-faces.el= (no nano-theme), each carries a
+    256-colour light spec, a 256-colour dark spec AND a TTY =(t (:inherit
+    …))= fallback, and each resolves bold.  (Exact hex GUI-confirm-only.)
+    A face missing the light/dark/TTY tier fails.
+
+* Byte-golden / fixture impact
+
+- *No golden churn.*  The change is FACE-only on the notes arm; the label
+  bytes are unchanged and the text goldens do not capture =face= — every
+  board / day / review / revisit golden is byte-identical (r85-9).  No
+  re-bless.
+- *Width unchanged.*  The date column measures label WIDTH, unchanged, so
+  every V6 column position holds (D4).
+- *New fixtures.*  A tiny =notes=-bucket corpus (or a directly-constructed
+  =org-air-item-create= with =:activity= = today / tomorrow / +3d and no
+  scheduled/deadline) to freeze r85-3 / r85-4 / r85-7; the R3 fixtures
+  already carry the deadline-tomorrow and scheduled-tomorrow rows for
+  r85-5 / r85-6.  Board text only (the svg pill colour is GUI-only, tested
+  through the text/face layer).
+- *Cache.*  NO =org-air-view--cache-version= bump — =activity= is a
+  long-standing slot; the fix is a render-side face choice (R53).
+
+* Design details / seams (files touched — impl seat)
+
+- *org-air-faces.el*: =org-air-face-day-today= + =org-air-face-day-
+  tomorrow= (D1, beside the date faces; R79 convention; light+dark hex +
+  TTY inherit + GUI-confirm docstring).
+- *org-air-view.el*: =org-air-view--day-relative-face= (D2, beside
+  =--human-date=); the =notes= arm of =org-air-view--date-label= rewired
+  to =(or (--day-relative-face activity now) 'org-air-face-date)= (D3).
+  =--human-date= itself is UNTOUCHED (label bytes frozen); =--item-date-
+  text= / =--compute-meta-widths= untouched (they read the cons as
+  before).
+- *README / demo*: one line noting a today/tomorrow neutral date now reads
+  in its own standout colour (a deadline/scheduled today still reads as a
+  deadline/scheduled).
+- *NO changes*: =--human-date= (label bytes), the deadline/scheduled/
+  attention/stale arms, org-air-query.el (no scan slot; =activity= already
+  carries it), org-air-classify.el, org-air-calendar.el, org-air-inbox.el,
+  org-air-project.el, org-air-review.el, org-air-revisit.el, cache VERSION.
+- *Suggested land order*: D1+D2 (faces + helper — prove r85-1/2/10 in
+  isolation) → D3 (notes-arm rewire — r85-3/4/7/8) → confirm the R3
+  contract (r85-5/6) and the golden (r85-9).  One small, attributable
+  change.
+
+* One-line summary (idle)
+
+R85 = the relative "Today" / "Tomorrow" date labels stop reading as muted
+grey.  Two new faces — =org-air-face-day-today= (bold teal) and
+=org-air-face-day-tomorrow= (bold rose), near-complementary so they are
+unmistakably DIFFERENT from each other and from every date-slot hue
+(grey/purple/orange/red), R79 convention (light+dark hex + TTY inherit) —
+painted by =org-air-view--date-label= wherever =org-air-view--human-date=
+emits the label UNDER THE NEUTRAL date slot (a tiny pure
+=org-air-view--day-relative-face= keyed on the same delta).
+*Slot-interplay decision (flagged): rule (B), NEUTRAL-ONLY.* The day face
+replaces the muted =org-air-face-date= only; a deadline or scheduled date
+that falls today/tomorrow KEEPS its slot face — a deadline-today still
+reads as an urgent deadline (and the R3 date-label tests keep passing) —
+because the slot COLOUR carries meaning exactly where it matters most, and
+rule (A) clean-override would both destroy that semantic and break the R3
+contract.  Only the notes arm is recoloured (the single =--human-date=
+neutral arm; the day view / review / revisit / calendar are audited
+non-surfaces).  A face is a =display= prop, not text, so the label BYTES
+are untouched and every golden is byte-identical; no rescan, no cache
+bump (R53).  *GUI-confirm audit: the exact teal / rose HEXES only —
+presence, face-symbol distinctness, the neutral-vs-slot routing and the
+byte-identity are all batch-asserted (10 ERT seams).*
+
+* Implementation History
+
+- 2026-07-24: R85 design (this doc) — the muted today/tomorrow relative
+  date labels get two distinct standing-out faces.  *Root cause*:
+  =org-air-view--human-date= (org-air-view.el:2017) emits "Today"/
+  "Tomorrow" as bare text; the face is chosen downstream in
+  =org-air-view--date-label= (org-air-view.el:2049) by the date SLOT, so a
+  today/tomorrow label inherits the slot face — and in the *neutral*
+  =notes= arm that face is =org-air-face-date= (faded grey), the "doesn't
+  stand out" the user reported.  Full call-site audit: three arms emit the
+  relative label (deadline → accent orange, scheduled → accent purple,
+  notes → MUTED grey); the day view (R6, no per-item dates), review
+  (=%b %-d=), revisit (age chips) and calendar (cell faces) are audited
+  NON-surfaces.  *Fix*: two new faces =org-air-face-day-today= (bold teal
+  #00897B/#88C0D0) + =org-air-face-day-tomorrow= (bold rose #C2185B/
+  #BF616A), R79 convention (light+dark hex + TTY =:inherit= + GUI-confirm
+  hex), near-complementary so DISTINCT from each other and from all four
+  date hues; a pure =org-air-view--day-relative-face= keyed on the SAME
+  =--days-between= delta as =--human-date=; and the =notes= arm rewired to
+  =(or (--day-relative-face activity now) 'org-air-face-date)=.
+  *Slot-interplay decision (flagged for confirm): rule (B) NEUTRAL-ONLY* —
+  the day face replaces the muted neutral face only; deadline/scheduled
+  today/tomorrow KEEP their slot face (a deadline-today still reads as a
+  deadline), because the slot colour carries meaning where it matters most
+  and rule (A) clean-override would break the R3 date-label contract
+  (=org-air-date-future-{deadline,scheduled}-is-benign= pin the slot face
+  on a "Tomorrow" label).  Label bytes untouched → goldens byte-identical
+  (face is a =display= prop); no scan slot, no cache-version bump (R53).
+  10 batch ERT seams defined; exact teal/rose colours GUI-confirm-only.
+
+* History
+- 2026-07-24: State: draft → ready.

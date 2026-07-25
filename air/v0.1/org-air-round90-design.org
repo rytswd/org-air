@@ -1,0 +1,719 @@
+#+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
+#+state: ready
+#+tags: board triage backlog marks bulk undo focus collapse ux robustness
+
+* Summary
+
+This round closes three connected dashboard interaction gaps without adding a
+query path:
+
+1. =b= must stop following the item it just moved.  After a row leaves its
+   current section, point stays local: the successor that slides into the
+   same section row wins; on the old section's last row, the nearest previous
+   row wins.  The moved item's new Backlog/non-Backlog home is never the
+   fallback.
+2. =m= becomes a real selection model.  Today it stores only an
+   =org-air-marked= text property on one rendered line and replaces that
+   line's first byte with =•=.  No command reads the property; the next
+   repaint erases it.  R90 stores marks by durable source identity, renders
+   them from state, shows their count, and makes =b= apply once to the whole
+   marked set.  The existing add-tag command =t= is the one shared-prompt
+   companion included in this round.  Riskier/semantically ambiguous actions
+   are explicitly blocked while marks are active rather than silently acting
+   on point.
+3. Backlog stays on the normal dashboard as a compact header/count but is
+   header-only by default.  =TAB= reveals it.  Session/bookmark expansion
+   survives ordinary repaints and refreshes; an explicit =is:backlog= lens
+   reveals the rows because asking for that lens is an explicit request to
+   see them.
+
+The implementation remains a cached-data mutation followed by one repaint.
+There is no org-ql scan on mark, bulk action, filter, collapse, or repaint.
+Source writes remain Org-native and use the R68 logging/atomic discipline.
+One marked command creates one user-facing compound undo entry, including
+when marked items span files.  Disk saves cannot be made transactionally
+atomic across files with the current machinery; the exact per-file commit
+and failure law is specified below instead of claiming otherwise.
+
+DESIGN ONLY.  No =.el=, test, or fixture change is made in this document.
+
+* Investigation: the three current failure shapes
+
+** Why `b' follows the moved item
+
+R83's =org-air-item-backlog= writes the tag, mutates the cached item's =tags=
+slot, removes that item's classify memo entry, then calls
+=org-air-view--refresh-current=.  The generic point token stores the row's
+=org-air-marker=.  =org-air-view--restore-position= prefers that exact marker
+wherever it renders after the repaint.  The item still exists, now under
+Backlog (or back in a task section), so the generic identity-preserving rule
+faithfully jumps to the moved row.  That rule is right for sort/resize and
+wrong for a triage move.
+
+The fix is not to weaken generic point preservation.  Mutation commands need
+an explicit local landing plan whose exclusions say “do not follow these
+moved source keys”.
+
+** What `m' stores today, and why it cannot drive work
+
+=org-air-toggle-mark= has no selection collection.  It:
+
+- reads =org-air-marked= from point,
+- writes the inverse property only over the current rendered line, and
+- deletes/reinserts the first character as a space or =•=.
+
+Consequences:
+
+- no action enumerates marked items;
+- a full render, section splice, filter, sort, refresh, day transition, or
+  resize destroys the property;
+- duplicate rows for one source heading can disagree visually;
+- there is no stable identity, count, stale-mark handling, clear-all command,
+  undo description, or bulk error model;
+- replacing byte 1 assumes the line's first column is expendable instead of
+  rendering through the row primitive.
+
+The README's “Toggle mark” and the original design's “mark/unmark item for
+bulk action” therefore promise more than the implementation supplies.
+
+** Why Backlog shows rows on a cold board
+
+R83 appended a normal =backlog= descriptor.  Only =notes= has special
+header-only logic in =org-air-view--displayed-for-bucket-1= and fold-row
+logic in =org-air-view--insert-section=.  Backlog follows the ordinary
+section cap, so a nil =org-air-view--expanded-sections= still renders up to
+=org-air-section-max= rows.  The expansion list already survives repaint;
+the missing piece is defining “not expanded” as zero Backlog rows.
+
+* Goals and non-goals
+
+** Goals
+
+- Preserve rapid keyboard triage: row, =b=, next local row, =b=.
+- Make marks identity-backed, repaint-stable, deduplicated, visible, countable,
+  clearable, and actionable.
+- Ship a useful batch now: marked =b= and marked add-tag =t=.
+- Use one source write transaction per touched file, one cached repaint per
+  command, and one compound recent-edit entry per marked command.
+- Be explicit about partial cross-file failure, stale/ineligible marks, and
+  compound undo/redo limits.
+- Make Backlog compact by default but easy to discover and recover.
+- Preserve all no-mark command behavior.
+
+** Non-goals for R90
+
+- No generic “run every item command on marks” loop.
+- No bulk refile/archive/kill, no repeated note text, and no multi-field bulk
+  transient.
+- No fuzzy title fallback for marks after a real rescan.  Exact source
+  identity wins over guessing between duplicate titles.
+- No mark persistence in the disk scan cache or across a killed/new board
+  buffer.
+- No removal of Backlog as the shipped default.
+- No org-agenda and no dependency beyond Org/org-ql; Emacs remains 29.1+.
+
+* Decision 1 — keep option A: compact Backlog header, collapsed by default
+
+The alternatives are:
+
+| Option | Benefits | Costs / ruling |
+|--------+----------+----------------|
+| A. Keep =Backlog N=, header-only by default, =TAB= reveals | The defer action has an immediately discoverable destination and count; un-backlog is keyboard-reachable; no permanent row wall | One compact section header and one conditional Summary row when non-empty. *Chosen.* |
+| B. Remove it from the normal dashboard, expose only through =is:backlog= | Zero ordinary board lines | A user can press =b= and see the item vanish with no visible destination; recovery requires remembering filter grammar; worse discoverability and reversibility. Rejected as the default. |
+
+The existing =org-air-show-backlog-section= remains the opt-out for users who
+want B.  R90 makes that opt-out honest: when nil, both the ordinary Backlog
+section and its ordinary Summary row are absent.  An explicit
+=is:backlog= token overrides the display opt-out for that lens only; an
+explicit request must never produce an item count with no item section.
+
+** Exact collapsed/expanded contract
+
+- Cold new board buffer: =backlog= is not in
+  =org-air-view--expanded-sections=, so a non-empty Backlog section renders
+  exactly its header/count and zero item/fold rows.
+- =TAB= on the Backlog header adds =backlog= to the existing expansion list
+  and shows all currently visible backlog rows in the active sort order.
+  A second =TAB= removes it and returns to the one header.  Explicit expansion
+  is allowed to be large because it is user-requested; paging is a deferral.
+- Ordinary cached repaint, resize, column toggle, sort, source scope, section
+  splice, =g r= refresh, =g R= refresh-all, and the R53 progressive/final
+  paints do not reset the expansion list.
+- A bookmark/activity record already saves =org-air-expanded=.  A manually
+  expanded Backlog therefore reopens expanded from that record; an absent or
+  old field means the new collapsed default.  No second persistence store is
+  added.
+- Burying and reopening the same live board buffer keeps its buffer-local
+  state.  Killing it and opening a new buffer is a cold open and collapses.
+- =#backlog= is raw tag membership and does not auto-expand.  Any parsed
+  exact =is:backlog= token (alone or in a multi-term AND/OR expression)
+  adds =backlog= to the saved expansion list before the cached repaint.  This
+  is stateful, not a hidden temporary override: after clearing the filter the
+  user can still see where the lens went, and one =TAB= collapses it again.
+  Bookmark application enforces the same rule when restoring an
+  =is:backlog= filter.
+
+Implementation seam: treat =backlog= like =notes= only for its collapsed
+zero-row/fold suppression; unlike Notes, expanded Backlog is not preview-
+capped.  Centralise expansion reads in
+=org-air-view--section-expanded-p= so meta-width calculation, section body,
+fold-row emission, TAB, and the explicit lens cannot disagree.
+
+* Decision 2 — first-class marks use source-key identity, never row text
+
+** The source key
+
+Add one shared pure helper, =org-air-view--item-source-key=:
+
+#+begin_example
+(expanded-absolute-file . heading-position)
+#+end_example
+
+The position comes from the durable R53 marker slot: integer cdr for
+=(FILE . POS)=, or =marker-position= for a live marker.  Headingless
+=file= items may produce a key but are action-ineligible.  No title enters
+the identity: two same-title headings in one file remain distinct.  No
+=file-truename= is paid on motion/repaint; scan items already carry the
+configured absolute source file, and =expand-file-name= is enough to
+normalise a live-capture edge.
+
+This is the same source identity already carried by =org-air-marker=,
+bookmarks, review mirror members, pane contexts, and cache records; R90 gives
+it one named helper instead of inventing a parallel identity.
+
+** Mark state and rendering
+
+- New buffer-local =org-air-view--marked-keys=: an insertion-ordered list plus
+  an =equal= membership table (or one small ordered-set abstraction), keyed
+  by source key.  Count means unique source headings, not rendered rows.
+- =m= toggles the source key of the item at point.  It does not move point
+  (preserves existing muscle behavior), writes no source bytes, creates no
+  edit-ring entry, and triggers one cached repaint.
+- The item row primitive derives the mark glyph from the set.  It replaces
+  one existing indentation space with =•= and keeps exactly the same prefix
+  width, title edge, metadata fence, and V6 alignment.  The row receives an
+  =org-air-marked= property as rendered output, but that property is not the
+  source of truth.
+- Every duplicate board row for the same source key renders marked together
+  and a bulk command targets it once.
+- New installer-owned =M= clears all marks and repaints once.  It is free on
+  the board map and is the mnemonic shift-pair of =m=.  With no marks it is a
+  gentle “No marked items” no-op.
+- Marks are board-buffer state.  They survive ordinary repaint, sort, filter,
+  scope, collapse, day/board switches, resize, and bury/reopen of the same
+  live buffer.  They are deliberately absent from the persistent scan cache
+  and bookmark record: restoring an old selection into a destructive future
+  session would be unsafe.
+
+** Hidden, stale, and duplicate selections
+
+- Filtering, sorting, scoping, or collapsing does not clear marks.  Hidden
+  marks remain action targets.  Status therefore reports both totals, e.g.
+  =3 marked · 1 shown=.  “Shown” is unique marked source keys represented by
+  a rendered item row, not duplicate row count.
+- On a real item-generation swap, reconcile the set by exact source key
+  against the new cached items.  Exact survivors stay marked.  Missing keys
+  are stale and are removed with one bounded message/status count.  There is
+  no file read and no title fallback.
+- At bulk-command preflight, a key absent from the current cached index is
+  stale and pruned.  A present item that the action cannot accept is
+  ineligible and remains marked so the user can inspect it or press =M=.
+- A source file/position/title mismatch discovered when opening a file for
+  the write is a failed/stale target, never silently relocated.  The message
+  says to =g r=; the mark remains.
+
+* Decision 3 — marks change command dispatch explicitly
+
+The dispatch law is simple and visible:
+
+1. No marks: every command behaves exactly as on R89.
+2. Marks + an R90 bulk-capable command: the command targets the unique marked
+   source set, including currently hidden marks; point is not implicitly
+   added.
+3. Marks + a single-item-only mutation: signal a soft =user-error= naming
+   the command and =M= (“Refiling is single-item while 3 marks are active;
+   M clears marks”).  Never mutate just point behind the selection's back.
+4. Navigation, pane/visit, filter/sort/collapse, =u=/=U=, and =M= keep their
+   own meanings; they are not item mutations and do not consume marks.
+5. =I= (the guided Inbox walk) is blocked while marks exist.  It is a
+   single-current-item loop with its own prompts; mixing it with a hidden
+   marked set would be surprising.
+
+** Complete item-action inventory and R90 ruling
+
+| Surface / command | Class | Marks-active behavior in R90 | Rationale / natural eventual UX |
+|-------------------+-------+------------------------------+---------------------------------|
+| =b= backlog | Safe reversible tag metadata, no prompt | *Bulk now*: set-all toggle over every eligible mark | The required rapid defer workflow; cached =tags= is sufficient for exact no-scan repaint. |
+| =t= add tag | Safe reversible tag metadata, one shared value | *Bulk now*: read one tag once, add it to every eligible mark | Existing unmarked add-only semantics stay unchanged; no pairwise toggle ambiguity. |
+| =T= TODO state | Shared-value lifecycle metadata | Block this round | Natural UX is one keyword from the intersection of every target file's accepted vocabulary, require-match, then apply to all.  Current per-file vocab + =donep=/=closed=/log cache updates need a dedicated slot-sync design; partial free-typed values are unacceptable. |
+| =d= deadline; M-x/=I= schedule | Shared quick-date metadata | Block this round | Natural UX is one quick-date/clear value for all.  Correct no-scan updates must cover scheduled/deadline, activity, active timestamp and day/calendar slots together. |
+| priority (inside =e=) | Shared-value metadata | Block this round | Natural UX is one priority/clear value from the intersection of target-file priority ranges.  It must never cycle each item from a different starting value. |
+| tags/category/schedule/deadline/TODO/priority in =e= | Mixed metadata editor | Block; =e= remains single-item after =M= | Eventual marked =e= is a metadata-only form with shared values and tag add/remove deltas.  Destination and note fields are omitted.  Reusing the current one-item prefilled replacement form would destroy mixed values. |
+| dated note in =e= | Content, not metadata | Single-item only | Duplicating one prose note over many unrelated headings is not a natural default. |
+| =D= done | Graduating lifecycle action | Single-item only this round | Eventual bulk DONE requires one explicit “Mark N DONE?” confirmation plus the TODO/cache work above.  A naked shifted key must not graduate a hidden set yet. |
+| =e= destination / =f= / refile engine | Structural cross-file move | Single-item only | One shared destination is plausible, but inverse refile, level changes, target creation and partial disk saves are not honestly undoable today. |
+| =a= archive | Structural move | Single-item only | R73 classifies it structural; source-side undo would duplicate the archived copy. |
+| =x= kill | Destructive content deletion | Single-item only | Although one-buffer undo can restore one cut, a hidden multi-delete deserves a separately designed aggregate confirmation/review. |
+| =u=/=U= | Global edit history | Unchanged; acts on the top edit record, not marks | A successful bulk command contributes one compound top record.  Undo/redo never restore UI marks. |
+| RET/S-RET/SPC/v/V, filter/sort/scope/TAB | Navigation/view | Current-point/view semantics unchanged | Marks persist; these are not writes. |
+
+This is intentionally narrower than “bulk-enable everything.”  R90 ships two
+coherent tag operations (one no-prompt, one shared-prompt) and the complete
+selection/transaction/history substrate.  The attractive shared-value
+metadata form is recorded under Deferrals rather than being smuggled into the
+round without cache or undo honesty.
+
+* Decision 4 — exact marked `b' and `t' semantics
+
+** Target eligibility
+
+For marked =b=, eligible means:
+
+- an =org-air-item= still present in the current cached generation,
+- =kind= =heading=,
+- board-active and task-routed under the same R83/R77 predicates, and
+- source file/heading preflight succeeds.
+
+A marked headingless file-item, done/archived carrier, or demoted knowledge
+note is ineligible and remains marked.  This stricter bulk eligibility does
+not change R83's permissive unmarked/day-row behavior.
+
+For marked =t=, any live =kind= =heading= item is eligible; headingless
+file-items are not.  One =read-string= happens before any source mutation.
+Empty input is the existing add-tag behavior (Org decides/soft-errors); no new
+remove semantics are invented.
+
+** Set-all backlog toggle (mixed states)
+
+Pairwise inversion is rejected: a mixed set would merely swap which items are
+backlogged.  The set has one desired result:
+
+- if every eligible marked item already carries =org-air-backlog-tag=,
+  desired state is OFF for all;
+- otherwise desired state is ON for all.
+
+Items already in the desired state are successful no-ops: no source write for
+that item, but their marks clear with the successful command.  Echo text is
+precise, for example:
+
+#+begin_example
+Backlogged 5 marked items (2 already backlog); 1 ineligible remains marked
+Un-backlogged 4 marked items
+#+end_example
+
+Marked =t= similarly adds the one shared tag only where absent and reports
+already-tagged no-ops.
+
+** Selection clearing
+
+- Successful eligible targets, including desired-state no-ops, are unmarked.
+- Stale keys are pruned.
+- Failed, ineligible, and unattempted targets remain marked.
+- A cancelled shared prompt or confirmation changes neither source nor marks.
+- Undo/redo changes source data only; it does not resurrect or clear marks.
+
+This gives a retry path after partial failure without silently re-running
+already committed files.
+
+* Decision 5 — source write coordinator, one repaint, no rescan
+
+The existing single-item macro must not be called N times: that would save,
+push history, restore point, resync panes, and repaint N times.  Add one board-
+side marked-tag coordinator used only by marked =b=/=t=.
+
+** Preflight and identity relocation
+
+1. Snapshot the rendered focus plan (Decision 7), the ordered marked keys,
+   and the current key→item index.  Resolve stale/ineligible entries before
+   any write.
+2. Run the existing mid-refresh stale-file guard for every candidate.  Open
+   only the distinct source files that may be written; this is the same
+   user-initiated source access as a single R68 write, not an org-ql scan.
+3. Verify each exact position still begins the expected heading.  Build live
+   temporary markers before changing bytes.
+4. For every cached heading in a touched file, create a relocation marker
+   from its cached source position.  Tag text can change the byte positions
+   of later headings in the same file; after a successful file commit, write
+   those marker positions back to the cached items' =(FILE . POS)= slots and
+   rebuild surviving marked keys.  This prevents a second no-scan command
+   from using stale row identities.  It is an O(items in touched files)
+   slot walk, not a source/query scan.
+
+** Per-file commit
+
+For each source file, in deterministic file order:
+
+- one leading =undo-boundary=;
+- one =atomic-change-group= containing every changed heading in descending
+  source-position order;
+- R68's dynamic logging bindings around the operation, and a pending-log
+  flush after each heading before another heading can overwrite Org's shared
+  log globals;
+- one =save-buffer=;
+- only after the save succeeds, mirror exact tag values into each cached
+  item's =tags= slot, remove each changed/no-op item from the classify memo,
+  relocate all cached source positions for that file, and record one history
+  part for the file.
+
+A signal inside a file rolls back that whole file and records no successful
+part for it.  Stop after the first failed file; later files are unattempted
+and remain marked.  Earlier committed files remain committed.
+
+After the command (full success, partial success, or no-op): rebuild the
+render partition through exactly one cached repaint, consume the explicit
+landing plan before inspector setup, then perform the direct pane resync.
+Spies on =org-air-query-items=, =org-air-query-items-in-files=,
+=org-ql-select=, refresh timers, and =org-air-refresh= must all read zero.
+
+** Why cross-file all-or-nothing is not promised
+
+Org change groups and undo lists are buffer-local, and =save-buffer= commits
+one file at a time.  There is no current multi-file atomic rename protocol,
+and rolling an already-saved file back after a later save failure can clobber
+an external edit or itself fail.  Therefore the strongest honest R90 law is:
+
+- preflight the whole target set first;
+- all-or-nothing within each source file;
+- deterministic stop-on-first-file-failure across files;
+- exact successful/failed/unattempted counts and filenames;
+- one compound history record containing only files that actually committed.
+
+That is safer than continuing blindly, pretending rollback succeeded, or
+weakening R68's per-file atomicity.
+
+* Decision 6 — one marked command is one compound undo/redo entry
+
+Extend the R73/R75 record shape with =:kind 'bulk= and =:parts=.  Each part is
+one committed source buffer/file, its post-save chars tick, and the one
+per-file undo group created above.  The top description names operation,
+direction/value, and unique item count.  No item text/diff or markers are
+stored.
+
+- Zero actual writes (all targets already desired) creates no edit record.
+- One marked item creates one bulk entry with one part.  One =u= reverts it
+  and one =U= reapplies it.
+- N marked items in one file still create one part/one undo step.
+- N marked items across files create one top compound entry, not N entries.
+- A fresh later edit clears compound redo through the existing R75 choke
+  point.
+- Structural records can never be parts; R90's coordinator accepts only tag
+  metadata.
+
+** Compound `u'/`U' law
+
+Before touching any part, check every buffer is live, every chars tick matches,
+and every expected undo/redo step is present.  A failed preflight consumes the
+compound record with zero file changes and one message naming every blocker,
+matching R73's stale/dead “do not eat an unrelated edit” honesty.
+
+When preflight passes, =u= applies one =undo-only= per part in reverse commit
+order and saves; =U= applies one =undo-redo= per part in commit order and
+saves.  On complete success the whole record moves to the other ring and all
+parts are two-sided-restamped.
+
+The same disk limitation applies during cross-file undo/redo.  An unexpected
+mid-operation save/undo failure is never called success: stop, clear the redo
+branch, report “Undo incomplete: X/Y files reverted” with filenames, and
+requeue only untouched remaining parts as a residual bulk undo entry.  Already
+reverted parts are deliberately not advertised as redoable after this
+exceptional split.  This loses convenience rather than lying about bytes or
+creating a branch the linear R75 ring cannot represent.
+
+* Decision 7 — mutation-specific local focus, never the moved source key
+
+** Landing plan captured before the write
+
+A landing plan contains:
+
+- current source key (if point is on an item), section bucket, title column;
+- the current section's rendered unique item-key sequence and current index;
+- the full rendered unique item-key sequence as a final outward fallback;
+- an exclusion set: every source key whose successful backlog state change
+  can move it out of the current section.
+
+Rendered means the rows actually on screen after filter/scope/sort/collapse,
+not all cached items.  Duplicate rows are distinct section occurrences for
+local ordering but resolve to one source key for exclusion.
+
+** Landing algorithm after repaint
+
+1. If point's item was not moved (for example point is unmarked while a
+   hidden marked set changes, or a mixed set leaves the current already-
+   backlog item in place), restore that exact source key and title column.
+2. If it moved/disappeared, remove excluded keys from the pre-command current-
+   section sequence.  Pick the survivor at the old section-local visible row
+   index — the successor that slid into that row.
+3. If the old index is now past the section end, pick the last survivor — the
+   nearest previous item.  Thus toggling the old section's last row moves up,
+   not down to Backlog or onward to another section.
+4. If the section has no survivor, choose the nearest non-excluded survivor
+   in the pre-command full visible order, preferring the following item then
+   the previous item at equal distance.
+5. Resolve by source key in the new buffer and land on
+   =org-air-row-title=.  Never fall back to an excluded/moved key, even if it
+   now renders in an expanded Backlog section or explicit lens.
+6. If no non-excluded item remains, land on the old surviving section header,
+   else the nearest section header/first visible chrome.  The bottom pane
+   closes when the board is truly item-empty; the inspector shows its honest
+   nil state.
+
+This supersedes only mutation landing.  Generic
+=org-air-view--restore-position= retains its same-item behavior for resize,
+sort, refresh, and other repaints.
+
+The pending mutation landing is consumed inside =org-air-view--render= after
+its default/bookmark landing and *before* =org-air-view--setup-inspector= and
+side-rail setup.  The final direct R73 resync then updates the follow pane,
+with no timer.  Therefore board point, inline/popped inspector, bottom pane,
+Summary/Actions rail, and mark count all describe one final identity; there is
+no intermediate stale row observable after the command.
+
+* Decision 8 — discoverability: status, rail, help, and messages
+
+All additions are conditional when the mark set is empty, preserving default
+board bytes.
+
+- Banner/status: a non-sheddable-before-filter segment =• N marked=; when
+  hidden marks exist, =• N marked · V shown=.  Scan progress still sheds
+  decoration before progress as R56 requires.
+- Rail Actions: while marks exist, a conditional bulk row shows the live keys
+  derived through =org-air-view--legend-key=: =b backlog all=,
+  =t tag all=, =M clear marks=.  The Actions header/suffix carries the count.
+- =?= help: static Triage copy becomes “mark for bulk (b backlog, t add tag)”
+  plus a =M= clear row.  When marks exist, a “Marked items” block states the
+  total/shown count, that hidden marks are included, the two available bulk
+  actions, and that other mutations require =M= first.
+- =m= echo: =Marked N items — b backlog, t add tag, M clears= (or the unmark
+  count).  Bulk completion/failure messages use the precise Decision 4/5
+  counts; no per-item echo spam.
+- README: the key table gains =M= clear, the =m= row names =b=/=t= bulk, and
+  the Backlog paragraph says header-only until =TAB= or =is:backlog=.
+
+The review view keeps its existing meaning of =m= (cycle review range) and its
+single-item =b=.  R90's marked state/key/help belongs only to the board/day
+owner buffer; no review key collision is introduced.
+
+* Cache, source-write, and compatibility invariants
+
+- *R53*: no org-ql scan or refresh machine on =m=/=M=/bulk =b=/bulk =t=,
+  filter, collapse, or repaint.  All render decisions fold cached slots.
+- *R68*: source mutations run in undisplayed source buffers under the logging
+  downgrade/flush discipline; each file is one atomic group and one save.
+- *R73/R75*: no fake structural inverse; one command is one bulk history
+  record, redo is only fed by a complete successful undo, and fresh edits
+  clear redo.
+- *R83*: backlog remains an org-native tag, single-home bucket,
+  =is:backlog= exact twin, day/calendar reachability, classify memo input,
+  and no-scan cached mutation.  Only default body visibility and landing
+  change.
+- *R18/R21/R29*: generic section/render and title-landing primitives are
+  reused; V6 prefix width and point normalization remain exact.
+- *Filtering/sort/collapse*: marks are source selections, not row selections;
+  changing a lens/order does not change targets.  Focus candidates are
+  captured from the actual sorted/filtered section before mutation.
+- *Source identity*: touched-file relocation updates cached =(FILE . POS)=
+  slots and surviving mark keys before repaint.  No stale row property is
+  retained from the old render.
+- *Cache schema*: unchanged.  Marks and collapse state are UI state, and no
+  =org-air-item= slot is added; no cache version bump.
+
+* Acceptance matrix
+
+| Case | Required result |
+|------+-----------------|
+| Single unmarked =b=, middle row | Source/cache tag flips; zero query calls; old section's next row occupies focus; moved key is excluded; pane/inspector/rail sync once to successor. |
+| Single unmarked =b=, last row | Focus lands on nearest previous row in that section; never the new Backlog row. |
+| Un-backlog from expanded Backlog or =is:backlog= | Row leaves Backlog/filter; same local successor/previous law; it never follows the item into Upcoming/attention/high-priority. |
+| =m= several then =b= | Unique marked eligible headings receive one set-all operation, one repaint, one compound ring entry; successes/no-ops clear, failures remain. |
+| Mixed backlog/non-backlog marks | Desired state is ON for all; already-backlogged targets are no-op successes; no pairwise swap.  A second all-backlog marked command chooses OFF for all. |
+| Stale mark | Exact-key miss is pruned and reported; no file lookup fallback, no source write for it. |
+| Ineligible mark | Remains marked and reported; eligible peers can commit.  If none eligible, zero write/repaint-history churn. |
+| Marked =t= | One prompt, one tag value, add to all eligible marks, one repaint/compound entry; existing unmarked =t= unchanged. |
+| Unsupported mutation with marks (=T/d/e/f/a/D/x/I=) | Soft error before any prompt/write, naming count and =M=; no accidental point-only action. |
+| One marked item undo/redo | One bulk record/one file part; one =u= restores, one =U= reapplies; marks do not return. |
+| Multi-item same-file undo/redo | One bulk record and one per-file undo group; all changed headings round-trip in one =u=/=U=. |
+| Multi-file undo/redo | One compound entry; all healthy parts round-trip.  Preflight failure changes zero files; runtime partial failure reports exact split and never claims full success. |
+| Cold open with backlog | =Backlog N= header and Summary count, zero Backlog item/fold rows. |
+| Manual Backlog expansion + repaint/refresh | Rows remain expanded across sort, resize, column toggle, =g r=/=g R= and no-change/full swaps; bookmark round-trip preserves it. |
+| Explicit =is:backlog= | Backlog descriptor is forced even if show knob nil; rows auto-reveal without scan; =TAB= can collapse afterward. |
+| =#backlog= | Raw-tag filter does not auto-expand; normal saved collapse state applies. |
+| Filter/sort with marks | Marks persist; hidden marks count/act; shown count is honest; focus fallback follows the pre-action sorted/filtered local order. |
+| Section collapse with marks | Hidden marked rows remain targets; all duplicate occurrences share one mark; =M= clears all. |
+| Pane/inspector/rail after disappearing row | Final point is chosen before inspector/rail setup; follow pane directly resyncs or closes on empty; no stale moved identity and no timer/query. |
+| Touched same-file positions shift | Relocation markers rewrite every cached source key in that file; a second no-scan action reaches the correct later heading. |
+
+* Test plan and seams
+
+Add =tests/org-air-round90-test.el=; all tests are batch/TTY and use the real
+board renderer plus source temp files.  No GUI wait is required.
+
+1. *r90-1 current root-cause pin*: current R89 =b= follows the exact marker
+   into Backlog; R90 middle-row test asserts successor title/source key and
+   explicitly asserts point's key differs from moved key.
+2. *r90-2 last-row + unbacklog*: last row chooses previous; expanded Backlog
+   and =is:backlog= un-toggle choose local neighbors, never destination.
+3. *r90-3 first-class marks*: =m= fills the ordered source-key set, all
+   duplicate rows render =•=/=org-air-marked=, and a cached repaint/sort/
+   filter/collapse preserves state.  =M= clears every occurrence.
+4. *r90-4 marked backlog set-all*: three marks (plain, plain, already backlog)
+   yield all backlog, one already-no-op count, source co-tags preserved,
+   marks cleared, one repaint.
+5. *r90-5 all-on → all-off*: remark that set and =b= removes only the backlog
+   tag from all; other tags survive.
+6. *r90-6 hidden marks*: filter/collapse hides two of three; banner/rail says
+   =3 marked · 1 shown= and =b= still targets all three exactly once.
+7. *r90-7 stale/ineligible*: missing key is pruned; headingless/done/demoted
+   item remains marked; eligible peer commits; message counts all classes.
+8. *r90-8 marked add-tag*: =read-string= spy fires once; one value lands on
+   every eligible heading; no-op already-tagged item reported; one compound
+   entry.
+9. *r90-9 unsupported action guard*: =T/d/e/f/a/D/x/I= spies prove zero prompt,
+   source write, engine, or refresh while marks exist; =M= restores their
+   ordinary current-item path.
+10. *r90-10 no scan / one repaint*: counters around =org-air-query-items=,
+    =org-air-query-items-in-files=, =org-ql-select=, =org-air-refresh=,
+    =org-air-view--render= and timer constructors: 0/0/0/0/1/0 for a marked
+    command.
+11. *r90-11 per-file atomicity and partial commit*: injected failure on item 2
+    of one file rolls that whole file back; a later-file failure leaves the
+    earlier committed file, stops before subsequent files, and leaves failed/
+    unattempted marks with exact report.
+12. *r90-12 source-key relocation*: two marked headings plus an unmarked later
+    heading in one file; tag growth shifts bytes, cached locators update, and
+    a second action at the later rendered row edits the correct source heading.
+13. *r90-13 compound one/many*: one mark, many same-file marks, and cross-file
+    marks each produce exactly one top record; part counts are 1/1/N-files.
+14. *r90-14 compound u/U*: source bytes round-trip in all three shapes; pane
+    resync spies fire from the one final repaint; a fresh edit clears redo.
+15. *r90-15 compound guards/failure*: dead/tick-stale part preflight moves zero
+    bytes; injected runtime part failure emits incomplete counts, no false redo,
+    residual untouched parts remain honestly undoable.
+16. *r90-16 cold collapse*: static non-empty backlog board renders header and
+    Summary count but no titles/fold row; =TAB= reveals titles; second =TAB=
+    hides them.
+17. *r90-17 persistence*: no-change, sync-changed and paced-finish repaint
+    paths preserve expansion; bookmark save/apply round-trips expanded and
+    absent/default-collapsed states.
+18. *r90-18 explicit lens/knob*: =is:backlog= forces descriptor and expansion
+    with show knob both t/nil; =#backlog= does not; zero query calls.
+19. *r90-19 final resync*: with pane/inspector/side rail spies, mutation landing
+    is consumed before setup, each surface ends on the same successor; final
+    item removal closes pane/nils inspector.
+20. *r90-20 key/help/status*: board =m=/=M=/=b=/=t= bindings are installer-
+    owned and strippable; review =m= remains range-cycle; mark-empty output is
+    unchanged, mark-active help/rail/banner teach count, hidden inclusion,
+    bulk keys, and =M=.
+
+** Existing tests that deliberately flip
+
+R83's semantics remain, but tests that depended on visible default Backlog
+rows must be revised rather than weakened:
+
+- r83-2 and r83-15 must expand the Backlog header or apply =is:backlog= before
+  locating the row for the second =b=;
+- r83-4 must assert titles absent while collapsed, then =TAB= and assert both
+  titles present;
+- r83-7/8/9/16 keep their no-scan/cache/ring/source-byte assertions;
+- every R73/R75 ring test remains green; R90 adds =bulk= dispatch without
+  changing normal =in-place=/structural behavior.
+
+** Revert-RED and mutation plan
+
+- Whole R90 suite against R89: mark-state/bulk/compound symbols are absent;
+  current =b= follows the marker; Backlog titles render cold.  The three
+  primary packages are independently RED.
+- Mutation A: remove moved-key exclusion/use generic restore → r90-1/2/19 RED.
+- Mutation B: store marks only as line properties → r90-3/6 RED after repaint.
+- Mutation C: pairwise invert mixed backlog states → r90-4 RED.
+- Mutation D: call the single-item macro per target → r90-10/13 RED (N saves,
+  N records/repaints).
+- Mutation E: omit touched-file relocation → r90-12 edits the wrong/lost later
+  heading.
+- Mutation F: continue after a failed file or clear failed marks → r90-7/11
+  RED.
+- Mutation G: split a command into per-item history records → r90-13/14 RED.
+- Mutation H: one-sided/best-effort compound preflight → r90-15 detects bytes
+  moved before a stale part.
+- Mutation I: let Backlog use the normal section cap → r90-16 RED (titles leak
+  on cold open).
+- Mutation J: reset expansion in any refresh tail → r90-17 RED.
+- Mutation K: omit explicit-lens force/auto-reveal → r90-18 RED.
+- Mutation L: scan or timer from mark/bulk/collapse → r90-10 RED.
+
+GUI confirmation remains useful for the perceived rapid =arrow, b, arrow, b=
+loop, the =•= gutter face, side-rail count reflow, and pane repaint timing,
+but all identity/call-order contracts are batch-pinned.
+
+* Text fixtures / goldens
+
+No existing text fixture should move:
+
+- no committed fixture heading carries the actual =:backlog:= tag, so the new
+  collapsed-body rule is dormant in every current dashboard golden;
+- an empty mark set emits the exact old row indentation/banner/rail bytes;
+- mark glyph/count/help additions are conditional or outside existing goldens;
+- source/cache schemas do not change.
+
+Do not add or re-bless a broad viewport golden merely to freeze ephemeral
+selection state.  The focused R90 ERTs assert exact header/body/glyph/status
+bytes for non-empty Backlog and marks.  If =make regen-mockups= shows any
+existing diff, hold it as a bug: the expected fixture delta set is empty.
+
+* Implementation surface and order
+
+1. *Selection foundation* (=org-air-view.el=): source-key helper, ordered mark
+   set/index/reconcile, render-derived mark prefix, =m=/=M=, conditional
+   status/rail/help, installer registry entries.
+2. *Local landing* (=org-air-view.el=): mutation landing-plan capture/consume,
+   render-tail ordering before inspector setup, direct pane resync.  Route
+   unmarked R83 =b= through it without changing its source/ring behavior.
+3. *Bulk tag coordinator* (=org-air-view.el=, with the existing Org write
+   helpers from =org-air-inbox.el=): marked dispatch, set-all =b=, shared-tag
+   =t=, preflight, per-file groups/saves, cached tag/memo/source-position
+   updates, one repaint and exact reports.
+4. *Compound history* (=org-air-view.el=): =bulk= records/parts and R73/R75
+   dispatch; normal record paths byte-untouched.
+5. *Backlog collapse/lens* (=org-air-view.el=): central expanded predicate,
+   header-only special case, filter/bookmark auto-reveal, show-knob/summary
+   agreement.
+6. *Docs/tests*: README updates, R83 flips, new R90 suite, clean regen proof,
+   full =make clean && make check=.
+
+No change is expected in =org-air-query.el=, =org-air-classify.el=,
+=org-air-calendar.el=, =org-air-review.el=, item struct/cache version, faces,
+or golden fixtures.  A tiny shared source-write helper may live in
+=org-air-inbox.el= only if needed to avoid copying the R68 logging bindings;
+no query or refile-engine behavior changes.
+
+* Attractive deferrals
+
+- Metadata-only marked =e=: shared TODO/priority/category/schedule/deadline
+  values, tag add/remove deltas, no destination or note.
+- Direct marked =T=/=d=/schedule and confirmed marked =D= after exact
+  derived-slot synchronization is designed and tested.
+- Bulk refile with a review screen, target preflight, and a true inverse move;
+  bulk archive/kill with aggregate confirmation.
+- Persistable named selections (not implicit session marks).
+- Bounded/paged expanded Backlog for very large deferred sets.
+- A reusable multi-file transactional save journal if org-air later needs
+  stronger-than-per-file disk guarantees.
+
+* Implementation History
+
+- 2026-07-25: Round 90 design created.  Audited the shipped R53/R68/R73/R75/
+  R83 pipelines, R18/R51 collapse machinery, R67/R71 item editor, README,
+  current board/source-write code, and tests.  Decisions: mutation-specific
+  local focus excludes moved source keys; marks become an exact source-key
+  ordered set with =M= clear and conditional status/rail/help; marked =b=
+  uses set-all semantics and marked =t= one shared add value; unsupported
+  mutations block rather than act only on point; per-file atomic commits +
+  one cached repaint/no scan; one compound undo record with an explicit
+  cross-file non-atomic failure law; choose compact Backlog header/count,
+  collapsed on cold open and auto-revealed by =is:backlog=.  Defined the
+  acceptance matrix, 20 test seams, mutation/revert-RED plan, zero-golden
+  expectation, implementation order, and scoped deferrals.  State: ready.
+
+* History
+
+- 2026-07-25: Design completed and set ready for implementation.
+- 2026-07-25: State: draft → ready.

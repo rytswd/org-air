@@ -946,15 +946,13 @@ an unbounded render at 5000 files."
   :group 'org-air)
 
 (defcustom org-air-show-backlog-section t
-  "When non-nil, show the bottom Backlog section for deferred items (R83).
-An item carrying `org-air-backlog-tag' (toggled by the board key `b',
-`org-air-item-backlog') routes OFF the four task buckets + the Inbox into
-a single `backlog' bucket; that bucket surfaces as ONE conditional
-section at the bottom of the board (the Notes-section pattern) plus a
-rail Summary count.  Nil removes the section from the board entirely (the
-items stay reachable via Notes / all-items / `#backlog' / `is:backlog').
-A backlog-free board renders byte-identically either way — the section
-appears only when a heading is deferred."
+  "When non-nil, show the bottom Backlog header/count for deferred items.
+R90 makes the normal section header-only until TAB explicitly expands all
+currently visible backlog rows.  Nil removes both its ordinary section
+and ordinary Summary row; an exact `is:backlog' lens overrides that
+opt-out and reveals the rows because it is an explicit request.  Raw
+`#backlog' does not auto-reveal.  Items remain reachable through other
+surfaces either way.  A backlog-free board renders byte-identically."
   :type 'boolean
   :group 'org-air)
 
@@ -1088,6 +1086,17 @@ Keys:
 (defvar-local org-air-view--day nil
   "When non-nil, an Emacs time focusing the single-day view (R6).")
 (defvar-local org-air-view--expanded-sections nil)
+
+;; R90: marks are live board-buffer UI state, keyed by exact source
+;; identity.  They deliberately do not enter the scan cache or bookmarks.
+(defvar-local org-air-view--marked-keys nil
+  "Insertion-ordered exact source keys currently marked in this board.")
+(defvar-local org-air-view--marked-key-table nil
+  "Equal hash table mirroring `org-air-view--marked-keys' for membership.")
+(defvar-local org-air-view--marked-generation nil
+  "The cached item-list object last reconciled with the marked key set.")
+(defvar-local org-air-view--pending-mutation-landing nil
+  "One-shot R90 local landing plan consumed by the next board render.")
 (defvar-local org-air-view--line-width nil)
 (defvar-local org-air-view--rendered-width nil
   "Column width used for the most recent render of this dashboard buffer.")
@@ -1183,11 +1192,38 @@ existing golden — renders exactly the pre-R53 sections.")
 
 (defconst org-air-view--backlog-descriptor
   '(backlog "Backlog" "Nothing deferred.")
-  "The conditional Backlog section descriptor (R83).
-Rendered ONLY when a visible item defers into the `backlog' bucket (see
-`org-air-view--section-descriptors') and `org-air-show-backlog-section'
-is on, so a backlog-free board — every existing golden — renders exactly
-the pre-R83 sections.  The ▽ section icon comes from `org-air-glyphs'.")
+  "The conditional Backlog section descriptor (R83/R90).
+A normal board shows it when the display knob is on; an exact
+`is:backlog' lens forces it even when the knob is nil.  The ▽ section
+icon comes from `org-air-glyphs'.")
+
+(defun org-air-view--explicit-backlog-lens-p ()
+  "Return non-nil for an exact `is:backlog' token in the active filter.
+Case-insensitive exact matching mirrors the parser.  Raw `#backlog' is
+intentionally not an explicit Backlog lens."
+  (seq-some (lambda (token)
+              (and (stringp token)
+                   (string-equal-ignore-case token "is:backlog")))
+            (cond ((listp org-air-view--tag-filter)
+                   org-air-view--tag-filter)
+                  ((stringp org-air-view--tag-filter)
+                   (list org-air-view--tag-filter)))))
+
+(defun org-air-view--backlog-section-enabled-p ()
+  "Return non-nil when the ordinary knob or exact Backlog lens enables it."
+  (or org-air-show-backlog-section
+      (org-air-view--explicit-backlog-lens-p)))
+
+(defun org-air-view--section-expanded-p (bucket)
+  "Return non-nil when BUCKET is explicitly expanded in this live board.
+This is the one R90 expansion read seam shared by row selection, fold-row
+emission, TAB and width measurement."
+  (and (memq bucket org-air-view--expanded-sections) t))
+
+(defun org-air-view--ensure-explicit-backlog-lens ()
+  "Persistently reveal Backlog when an exact `is:backlog' lens is applied."
+  (when (org-air-view--explicit-backlog-lens-p)
+    (cl-pushnew 'backlog org-air-view--expanded-sections)))
 
 (defun org-air-view--section-descriptors (items)
   "Return the section descriptors to render for ITEMS (R53 P3, R83).
@@ -1202,7 +1238,7 @@ renders byte-identically to the fixed five."
                (org-air-view--items-for-bucket 'notes items))
       (setq descriptors
             (append descriptors (list org-air-view--notes-descriptor))))
-    (when (and org-air-show-backlog-section
+    (when (and (org-air-view--backlog-section-enabled-p)
                (org-air-view--items-for-bucket 'backlog items))
       (setq descriptors
             (append descriptors (list org-air-view--backlog-descriptor))))
@@ -1678,6 +1714,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "SPC" #'org-air-peek-item
   "c" #'org-air-capture
   "m" #'org-air-toggle-mark
+  "M" #'org-air-clear-marks
   "s" #'org-air-scope
   "d" #'org-air-item-deadline
   "e" #'org-air-refile-item
@@ -2001,6 +2038,72 @@ stacked and two-pane layouts."
                    org-air-item-indent
                  (+ org-air-margin org-air-item-indent))
                ?\s))
+
+(defun org-air-view--item-source-key (item)
+  "Return ITEM's exact R90 source key `(ABSOLUTE-FILE . POSITION)'.
+The position is read from the durable marker slot: the integer cdr of a
+cache-hydrated `(FILE . POS)' cell, or `marker-position' for a live
+marker.  `expand-file-name' is the only normalisation paid; titles never
+participate and no file is read.  Return nil when the source is malformed."
+  (when (org-air-item-p item)
+    (let* ((marker (org-air-item-marker item))
+           (file (or (and (consp marker) (stringp (car marker)) (car marker))
+                     (org-air-item-file item)))
+           (pos (cond ((markerp marker) (marker-position marker))
+                      ((and (consp marker) (integerp (cdr marker)))
+                       (cdr marker)))))
+      (when (and (stringp file) (integerp pos))
+        (cons (expand-file-name file) pos)))))
+
+(defun org-air-view--marked-table-rebuild ()
+  "Rebuild the exact-key membership table from the ordered mark list."
+  (setq org-air-view--marked-key-table (make-hash-table :test #'equal))
+  (dolist (key org-air-view--marked-keys)
+    (puthash key t org-air-view--marked-key-table))
+  org-air-view--marked-key-table)
+
+(defun org-air-view--marked-key-p (key)
+  "Return non-nil when exact source KEY is marked in this board."
+  (when key
+    (unless (hash-table-p org-air-view--marked-key-table)
+      (org-air-view--marked-table-rebuild))
+    (and (gethash key org-air-view--marked-key-table) t)))
+
+(defun org-air-view--marks-active-p ()
+  "Return non-nil when the current board owns at least one source mark."
+  (and (derived-mode-p 'org-air-view-mode)
+       org-air-view--marked-keys
+       t))
+
+(defun org-air-view--marked-remove-keys (keys)
+  "Remove exact KEYS from the ordered mark set and rebuild membership."
+  (when keys
+    (let ((drop (make-hash-table :test #'equal)))
+      (dolist (key keys) (puthash key t drop))
+      (setq org-air-view--marked-keys
+            (seq-remove (lambda (key) (gethash key drop))
+                        org-air-view--marked-keys))
+      (org-air-view--marked-table-rebuild))))
+
+(defun org-air-view--marked-reconcile (items)
+  "Reconcile the exact source-key selection with a new ITEMS generation.
+Missing source keys are pruned, with no title fallback and no file read.
+Ordinary cached repaints keep the identical list object and do no work."
+  (unless (eq items org-air-view--marked-generation)
+    (let ((live (make-hash-table :test #'equal))
+          (before (length org-air-view--marked-keys)))
+      (dolist (item items)
+        (when-let* ((key (org-air-view--item-source-key item)))
+          (puthash key t live)))
+      (setq org-air-view--marked-keys
+            (seq-filter (lambda (key) (gethash key live))
+                        org-air-view--marked-keys)
+            org-air-view--marked-generation items)
+      (org-air-view--marked-table-rebuild)
+      (let ((pruned (- before (length org-air-view--marked-keys))))
+        (when (> pruned 0)
+          (message "Pruned %d stale marked item%s"
+                   pruned (if (= pruned 1) "" "s")))))))
 
 (defun org-air-view--date-key (time)
   "Return YYYY-MM-DD key for TIME."
@@ -2673,25 +2776,27 @@ A top-K selection over precomputed floats — milliseconds at 4k notes."
 
 (defun org-air-view--displayed-for-bucket-1 (bucket items)
   "Compute (no memo) the BUCKET rows of ITEMS a section renders (R20-6).
-Mirrors `org-air-view--insert-section': the bucket members (date-sorted for
-attention/upcoming), capped to `org-air-view--section-limit' unless the
-section is expanded.  R53 P3: the Notes section is BOUNDED both ways —
-collapsed it renders NO rows (the heading is the single count row);
-expanded it renders only the `org-air-notes-preview-limit' most recent
-notes, so it can never reintroduce an unbounded render."
-  (if (eq bucket 'notes)
-      (when (memq 'notes org-air-view--expanded-sections)
-        (seq-take (org-air-view--notes-by-recency
-                   (org-air-view--items-for-bucket bucket items))
-                  (max 0 org-air-notes-preview-limit)))
+Mirrors `org-air-view--insert-section'.  Notes and Backlog are header-only
+while collapsed.  Expanded Notes remains preview-capped; expanded Backlog
+shows every currently visible member in the active sort order."
+  (cond
+   ((eq bucket 'notes)
+    (when (org-air-view--section-expanded-p 'notes)
+      (seq-take (org-air-view--notes-by-recency
+                 (org-air-view--items-for-bucket bucket items))
+                (max 0 org-air-notes-preview-limit))))
+   ((eq bucket 'backlog)
+    (when (org-air-view--section-expanded-p 'backlog)
+      (org-air-view--sort-items
+       (org-air-view--items-for-bucket bucket items) bucket)))
+   (t
     (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
            ;; R22-3: order WITHIN the bucket by the active sort key/direction.
-           ;; The default key `date' reproduces the historical order exactly
-           ;; (attention/upcoming date-sorted, the rest query order).
+           ;; The default key `date' reproduces the historical order exactly.
            (bucket-items (org-air-view--sort-items bucket-items bucket)))
-      (if (memq bucket org-air-view--expanded-sections)
+      (if (org-air-view--section-expanded-p bucket)
           bucket-items
-        (seq-take bucket-items (org-air-view--section-limit bucket))))))
+        (seq-take bucket-items (org-air-view--section-limit bucket)))))))
 
 (defun org-air-view--displayed-items-for-bucket (bucket items)
   "Return the BUCKET rows of ITEMS a section actually renders (R20-6).
@@ -2709,6 +2814,36 @@ instead of each paying it.  Falls back to a fresh compute off-render."
                      memo)
           hit))
     (org-air-view--displayed-for-bucket-1 bucket items)))
+
+(defun org-air-view--marked-shown-count (items)
+  "Return unique marked source keys from ITEMS represented by rendered rows.
+Hidden filtered/scoped/collapsed marks are excluded from this count but
+remain in the action target set.  Duplicate bucket rows count once."
+  (if (null org-air-view--marked-keys)
+      0
+    (let ((seen (make-hash-table :test #'equal)))
+      (if org-air-view--day
+          (dolist (group (org-air-view--day-groups items org-air-view--day))
+            (dolist (item (cdr group))
+              (when-let* ((key (org-air-view--item-source-key item))
+                          ((org-air-view--marked-key-p key)))
+                (puthash key t seen))))
+        (dolist (descriptor (org-air-view--section-descriptors items))
+          (dolist (item (org-air-view--displayed-items-for-bucket
+                         (car descriptor) items))
+            (when-let* ((key (org-air-view--item-source-key item))
+                        ((org-air-view--marked-key-p key)))
+              (puthash key t seen)))))
+      (hash-table-count seen))))
+
+(defun org-air-view--marked-count-label (items)
+  "Return the conditional R90 total/shown mark label for ITEMS, or nil."
+  (when org-air-view--marked-keys
+    (let ((total (length org-air-view--marked-keys))
+          (shown (org-air-view--marked-shown-count items)))
+      (if (= total shown)
+          (format "• %d marked" total)
+        (format "• %d marked · %d shown" total shown)))))
 
 (defun org-air-view--render-width ()
   "Return the width used for current org-air view rendering."
@@ -2909,6 +3044,11 @@ optional segments (after filter, scope and count)."
          ;; R18 D-P2.3: with >=2 active filter tags, join them with the
          ;; combinator word (AND/OR) so the mode reads inline; a single tag
          ;; shows no combinator (irrelevant).
+         ;; R90: source-key marks are a non-sheddable-before-filter status
+         ;; segment.  Empty mark state contributes no bytes.
+         (mark-text (when-let* ((label (org-air-view--marked-count-label items)))
+                      (propertize (concat (org-air-view--sep) label)
+                                  'face 'org-air-face-faded)))
          (filter-text (let* ((filters (org-air-view--filter-tags))
                              (sep (if (> (length filters) 1)
                                       (concat " " (org-air-view--filter-combinator-word) " ")
@@ -2961,6 +3101,7 @@ optional segments (after filter, scope and count)."
          (assemble (lambda (shed)
                      (concat date
                              (unless (memq :count shed) count)
+                             (unless (memq :marks shed) (or mark-text ""))
                              (unless (memq :filter shed) (or filter-text ""))
                              (unless (memq :scope shed) (or scope-text ""))
                              (unless (memq :sort shed) (or sort-text "")))))
@@ -2976,10 +3117,12 @@ optional segments (after filter, scope and count)."
                    (dolist (shed (if refreshing
                                      '(() (:filter) (:filter :scope)
                                        (:filter :scope :sort)
-                                       (:filter :scope :sort :count))
+                                       (:filter :scope :sort :marks)
+                                       (:filter :scope :sort :marks :count))
                                    '(() (:filter) (:filter :scope)
                                      (:filter :scope :count)
-                                     (:filter :scope :count :sort)))
+                                     (:filter :scope :count :sort)
+                                     (:filter :scope :count :sort :marks)))
                                  date)
                      (let ((s (funcall assemble shed)))
                        (when (<= (string-width s) budget)
@@ -3850,7 +3993,7 @@ the reported 1-2 col drift."
 
 (cl-defun org-air-view--insert-row (&key prefix title date-text tags
                                          origin-text origin-face widths
-                                         props face own-fence)
+                                         props face own-fence marked)
   "Insert one shared V6 fixed-column row (D-P5.A; the board + project floor).
 PREFIX leads the line (todo/priority markers, or a state chip); the TITLE
 owns the LEFT and stays clean; the metadata is a fixed-width
@@ -3871,6 +4014,13 @@ re-lookup can never fire)."
   (let* ((start (point))
          (width (org-air-view--render-width))
          (prefix (or prefix ""))
+         ;; R90: the mark glyph consumes one existing indentation space.
+         ;; Width and every downstream V6 column remain unchanged.
+         (prefix (if (and marked (string-match " " prefix))
+                     (concat (substring prefix 0 (match-beginning 0))
+                             "•"
+                             (substring prefix (1+ (match-beginning 0))))
+                   prefix))
          (prefix-w (string-width prefix))
          ;; R23-1 (defensive): normalise the incoming title to PLAIN text
          ;; before any width math, so the row is rendered purely via org-air's
@@ -4078,7 +4228,9 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
                  (+ (or org-air-view--meta-date-w org-air-date-column)
                     (or org-air-view--meta-date-repeat 0))))
          (tcol (or org-air-view--meta-tags-w (string-width tagstr)))
-         (ocol (or org-air-view--meta-origin-w (string-width origin-raw))))
+         (ocol (or org-air-view--meta-origin-w (string-width origin-raw)))
+         (marked (org-air-view--marked-key-p
+                  (org-air-view--item-source-key item))))
     (org-air-view--insert-row
      :prefix prefix
      :title (org-air-item-title item)
@@ -4094,9 +4246,11 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
      ;; its own focused cluster field with the board globals let-unset, so it
      ;; keeps anchoring to THIS row's cluster width (OWN-FENCE t).
      :own-fence omit-date
-     :props (list 'org-air-item item
-                  'org-air-marker (org-air-item-marker item)
-                  'mouse-face 'org-air-face-cursor)
+     :marked marked
+     :props (append (list 'org-air-item item
+                          'org-air-marker (org-air-item-marker item)
+                          'mouse-face 'org-air-face-cursor)
+                    (and marked (list 'org-air-marked t)))
      :face 'org-air-face-title)))
 
 (defun org-air-view--item-sort-time (item)
@@ -4368,11 +4522,11 @@ chronological board default).  Direction carries unchanged."
             (dolist (item visible)
               (org-air-view--insert-item item bucket))
             (when (and (> count (length visible))
-                       ;; R53 P3: the COLLAPSED Notes section is the single
-                       ;; count row (its heading) — TAB there expands; the
-                       ;; fold row appears only past the expanded preview.
-                       (or (not (eq bucket 'notes))
-                           (memq 'notes org-air-view--expanded-sections)))
+                       ;; R53/R90: collapsed Notes and Backlog are header-only
+                       ;; and emit no fold row.  Expanded Notes may still have
+                       ;; a capped preview; expanded Backlog shows all rows.
+                       (or (not (memq bucket '(notes backlog)))
+                           (org-air-view--section-expanded-p bucket)))
               ;; R51-3: the fold row is itself an actionable toggle target.
               ;; It carries `org-air-more-row' BUCKET over its FULL extent
               ;; (the dispatch handle — the board twin of the project's
@@ -4427,6 +4581,8 @@ chronological board default).  Direction carries unchanged."
         (tag-filter org-air-view--tag-filter)
         (scope org-air-view--scope)
         (expanded org-air-view--expanded-sections)
+        (marked-keys org-air-view--marked-keys)
+        (marked-table org-air-view--marked-key-table)
         (cal-month org-air-view--cal-month)
         (day org-air-view--day)
         ;; R18 D-P1c: share the board's classify cache TABLE OBJECT into the
@@ -4470,6 +4626,8 @@ chronological board default).  Direction carries unchanged."
             (org-air-view--tag-filter tag-filter)
             (org-air-view--scope scope)
             (org-air-view--expanded-sections expanded)
+            (org-air-view--marked-keys marked-keys)
+            (org-air-view--marked-key-table marked-table)
             (org-air-view--cal-month cal-month)
             (org-air-view--day day)
             (org-air-view--classify-cache classify-cache)
@@ -4591,7 +4749,8 @@ descriptor when any visible item defers into the `backlog' bucket — so a
 backlog-free board keeps the exact five Summary rows (byte-identical),
 while a board with deferred items grows ONE `Backlog N' row.  Notes stay
 OUT of the Summary, as before."
-  (if (org-air-view--items-for-bucket 'backlog items)
+  (if (and (org-air-view--backlog-section-enabled-p)
+           (org-air-view--items-for-bucket 'backlog items))
       (append org-air-view--sections (list org-air-view--backlog-descriptor))
     org-air-view--sections))
 
@@ -4902,7 +5061,10 @@ DERIVED cell strings, so the layout follows automatically at every rail
 tier (wide/mid/narrow gap rules unchanged).  R69-4: the rows emit through
 the shared fit-driven `org-air-view--insert-verb-rows' (3→2→1 columns),
 so a narrow rail REFLOWS instead of truncating a verb."
-  (org-air-view--rail-header "Actions" width)
+  (org-air-view--rail-header
+   "Actions" width
+   :suffix (org-air-view--marked-count-label org-air-view--items)
+   :suffix-face 'org-air-face-count)
   (let* ((board (get-buffer org-air-view-buffer-name))
          (key (lambda (command fallback)
                 (org-air-view--legend-key command board fallback)))
@@ -4921,11 +5083,18 @@ so a narrow rail REFLOWS instead of truncating a verb."
          ;; buffer is dead — a legend key must never be a bare prefix.
          (row2 (list (cons (funcall key #'org-air-refresh "g r") "refresh")
                      mid2
-                     (cons (funcall key #'org-air-help "?") "help"))))
+                     (cons (funcall key #'org-air-help "?") "help")))
+         (bulk (and org-air-view--marked-keys
+                    (list (cons (funcall key #'org-air-item-backlog "b")
+                                "backlog all")
+                          (cons (funcall key #'org-air-set-tag "t")
+                                "tag all")
+                          (cons (funcall key #'org-air-clear-marks "M")
+                                "clear marks")))))
     ;; R69-4: the shared fit-driven emitter (column widths from the
     ;; DERIVED cells via `string-width'; 3-col byte-identical when it
     ;; fits, else reflow to 2 then 1 columns — never truncate a verb).
-    (org-air-view--insert-verb-rows (append row1 row2) width)))
+    (org-air-view--insert-verb-rows (append row1 row2 bulk) width)))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; D-P7 — item inspector (lower-rail metadata for the line at point)
@@ -6511,6 +6680,8 @@ inspector update re-finds + re-fills the region (Phase 2)."
                         :tag-filter org-air-view--tag-filter
                         :scope org-air-view--scope
                         :expanded org-air-view--expanded-sections
+                        :marked-keys org-air-view--marked-keys
+                        :marked-table org-air-view--marked-key-table
                         :cal-month org-air-view--cal-month
                         :day org-air-view--day
                         ;; R22-5: carry the host's rail descriptor +
@@ -6538,6 +6709,8 @@ inspector update re-finds + re-fills the region (Phase 2)."
             (org-air-view--tag-filter (plist-get state :tag-filter))
             (org-air-view--scope (plist-get state :scope))
             (org-air-view--expanded-sections (plist-get state :expanded))
+            (org-air-view--marked-keys (plist-get state :marked-keys))
+            (org-air-view--marked-key-table (plist-get state :marked-table))
             (org-air-view--cal-month (plist-get state :cal-month))
             (org-air-view--day (plist-get state :day))
             (org-air-view--rail-descriptor
@@ -6718,6 +6891,7 @@ byte-identical and may be skipped."
           org-air-filter-match
           org-air-view--scope
           org-air-view--expanded-sections
+          org-air-view--marked-keys
           org-air-view--cal-month
           width height
           org-air-view--rail-descriptor
@@ -8134,6 +8308,130 @@ spans the full body height when the body is padded out (S6)."
           (concat (make-string item-width ?\s) divider
                   (make-string rail-width ?\s)))))
 
+(defun org-air-view--rendered-item-occurrences ()
+  "Return rendered item occurrences as `(KEY SECTION POSITION)' in row order."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((section nil) out)
+      (while (not (eobp))
+        (when-let* ((heading (org-air-view--line-section)))
+          (setq section heading))
+        (when-let* ((item (org-air-view--row-property 'org-air-item))
+                    (key (org-air-view--item-source-key item)))
+          (push (list key section (line-beginning-position)) out))
+        (forward-line 1))
+      (nreverse out))))
+
+(defun org-air-view--mutation-landing-capture ()
+  "Capture the R90 section-local landing plan for a cached mutation."
+  (let* ((item (org-air-view--row-property 'org-air-item))
+         (key (and item (org-air-view--item-source-key item)))
+         (section (org-air-view--section-at-point))
+         (line (line-beginning-position))
+         (occurrences (org-air-view--rendered-item-occurrences))
+         (section-occ (seq-filter (lambda (entry)
+                                    (eq (nth 1 entry) section))
+                                  occurrences))
+         (section-index (or (cl-position line section-occ
+                                         :key (lambda (entry) (nth 2 entry)))
+                            0))
+         (full-index (or (cl-position line occurrences
+                                      :key (lambda (entry) (nth 2 entry)))
+                         0)))
+    (list :key key
+          :section section
+          :title-column (save-excursion
+                          (org-air-view--goto-row-title)
+                          (current-column))
+          :section-keys (mapcar #'car section-occ)
+          :section-index section-index
+          :full-keys (mapcar #'car occurrences)
+          :full-index full-index
+          :line (line-number-at-pos)
+          :excluded nil)))
+
+(defun org-air-view--mutation-landing-exclude (plan keys)
+  "Set PLAN's exact moved-key exclusion set to KEYS and return PLAN."
+  (plist-put plan :excluded (delete-dups (delq nil (copy-sequence keys)))))
+
+(defun org-air-view--find-source-key-row (key &optional section)
+  "Return a rendered row position for exact source KEY, optionally in SECTION."
+  (when key
+    (save-excursion
+      (goto-char (point-min))
+      (let ((current-section nil) found)
+        (while (and (not found) (not (eobp)))
+          (when-let* ((heading (org-air-view--line-section)))
+            (setq current-section heading))
+          (when (or (null section) (eq section current-section))
+            (when-let* ((item (org-air-view--row-property 'org-air-item))
+                        ((equal key (org-air-view--item-source-key item))))
+              (setq found (line-beginning-position))))
+          (forward-line 1))
+        found))))
+
+(defun org-air-view--mutation-landing-consume ()
+  "Consume and apply the pending R90 local landing plan, if any.
+Moved source keys are never accepted as a fallback.  The same-section
+successor at the old local row index wins, then the nearest previous row,
+then the nearest non-excluded outward item, then section chrome."
+  (when org-air-view--pending-mutation-landing
+    (let* ((plan org-air-view--pending-mutation-landing)
+           (_ (setq org-air-view--pending-mutation-landing nil))
+           (key (plist-get plan :key))
+           (section (plist-get plan :section))
+           (excluded (plist-get plan :excluded))
+           (excluded-p (lambda (candidate) (member candidate excluded)))
+           (position nil))
+      ;; 1. Point's item did not move: restore that exact identity.
+      (unless (or (null key) (funcall excluded-p key))
+        (setq position (or (org-air-view--find-source-key-row key section)
+                           (org-air-view--find-source-key-row key))))
+      ;; 2/3. Same-section survivor at the old local index, else its tail.
+      (unless (or position (null key))
+        (let* ((survivors (seq-remove excluded-p
+                                      (plist-get plan :section-keys)))
+               (index (plist-get plan :section-index))
+               (candidate (or (nth index survivors) (car (last survivors)))))
+          (setq position (org-air-view--find-source-key-row candidate section))))
+      ;; 4. Nearest non-excluded survivor in old full visible order;
+      ;; following wins at equal distance.
+      (unless (or position (null key))
+        (let* ((keys (plist-get plan :full-keys))
+               (origin (plist-get plan :full-index))
+               (radius 1)
+               (limit (length keys)))
+          (while (and (not position) (< radius (1+ limit)))
+            (dolist (index (list (+ origin radius) (- origin radius)))
+              (when (and (not position) (>= index 0) (< index limit))
+                (let ((candidate (nth index keys)))
+                  (unless (funcall excluded-p candidate)
+                    (setq position
+                          (org-air-view--find-source-key-row candidate))))))
+            (setq radius (1+ radius)))))
+      (cond
+       (position
+        (goto-char position)
+        (org-air-view--goto-row-title))
+       ;; A bulk command may run while point is on chrome; preserve that
+       ;; chrome when possible instead of inventing an item selection.
+       ((and (null key)
+             section
+             (org-air-view--find-property 'org-air-section section))
+        (goto-char (org-air-view--find-property 'org-air-section section))
+        (org-air-view--beginning-of-visible))
+       ;; 6. Old section header, nearest/first section header, then chrome.
+       ((and section (org-air-view--find-property 'org-air-section section))
+        (goto-char (org-air-view--find-property 'org-air-section section))
+        (org-air-view--beginning-of-visible))
+       ((text-property-not-all (point-min) (point-max) 'org-air-section nil)
+        (goto-char (text-property-not-all (point-min) (point-max)
+                                          'org-air-section nil))
+        (org-air-view--beginning-of-visible))
+       (t
+        (goto-char (point-min))
+        (org-air-view--beginning-of-visible))))))
+
 (defun org-air-view--render (items tag-filter)
   "Render the dashboard for cached ITEMS with TAG-FILTER, filling the window.
 Three bands (S6): a fixed header (banner + rule), a body that fills the
@@ -8172,6 +8470,8 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
               (setq org-air-view--items items
                     org-air-view--items-key (org-air-view--cache-key)
                     org-air-view--tag-filter tag-filter)
+              ;; R90 generation swap: exact source-key reconciliation only.
+              (org-air-view--marked-reconcile items)
               (org-air-view--classify-cache-ensure)))
          (org-air-view--render-partition
           (org-air-view--compute-partition items))
@@ -8308,6 +8608,9 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
     ;; machine is still filling (a progressive paint may not hold the row
     ;; yet), so the inspector below syncs to the bookmarked item.
     (org-air-view--bookmark-consume)
+    ;; R90 mutation landing overrides only this mutation repaint.  Consume
+    ;; it after default/bookmark placement and BEFORE inspector/rail setup.
+    (org-air-view--mutation-landing-consume)
     ;; D-P7: locate the inspector band, set its markers, sync to the item
     ;; the cursor landed on (the live hook keeps it synced thereafter).
     (org-air-view--setup-inspector)
@@ -8546,8 +8849,10 @@ in-flight slice's org-ql predicate is reading)."
     ;; the saved point belongs to the pre-restore skeleton, so the
     ;; save/restore pair is skipped and the render tail's
     ;; `org-air-view--bookmark-consume' places point instead.
-    (let ((token (and (not org-air-view--bookmark-locator)
-                      (org-air-view--save-position))))
+    (let* ((mutationp org-air-view--pending-mutation-landing)
+           (token (and (not mutationp)
+                       (not org-air-view--bookmark-locator)
+                       (org-air-view--save-position))))
       (org-air-view--render (or org-air-view--items (org-air-query-items))
                             org-air-view--tag-filter)
       (when token
@@ -9875,7 +10180,8 @@ exact synchronous re-query it always was."
 Scoped to `org-air-files'/`org-air-inbox-file'; this covers capture,
 refile, and any manual edit saved from an Org buffer (U3).  Point and
 filters are preserved by `org-air-refresh'."
-  (when (and buffer-file-name (org-air--relevant-file-p buffer-file-name))
+  (when (and (not org-air-view--bulk-source-write)
+             buffer-file-name (org-air--relevant-file-p buffer-file-name))
     (let ((buffer (get-buffer org-air-view-buffer-name)))
       (when (buffer-live-p buffer)
         (with-current-buffer buffer
@@ -9951,6 +10257,7 @@ pre-filled value, or clear it to drop the filter."
                                #'string<))
             (org-air-view--filter-vocabulary)))))
   (setq org-air-view--tag-filter (unless (null tags) tags))
+  (org-air-view--ensure-explicit-backlog-lens)
   (org-air-view--render-current))
 
 (defun org-air-filter-by-tag (tag)
@@ -9959,6 +10266,7 @@ R18 D-P2: pre-fills with the first active filter tag (empty clears)."
   (interactive (list (read-string "Tag filter (empty clears): "
                                   (car (org-air-view--filter-tags)))))
   (setq org-air-view--tag-filter (unless (string-empty-p tag) (list tag)))
+  (org-air-view--ensure-explicit-backlog-lens)
   (org-air-view--render-current))
 
 (defun org-air-filter-toggle (tag)
@@ -9969,6 +10277,7 @@ R18 D-P2: pre-fills with the first active filter tag (empty clears)."
           (if (member tag filters)
               (delete tag filters)
             (cons tag filters))))
+  (org-air-view--ensure-explicit-backlog-lens)
   (org-air-view--render-current))
 
 (defun org-air-filter-clear ()
@@ -10166,16 +10475,42 @@ header and never toggles or hangs."
 (defalias 'org-air-back-section #'org-air-prev-section)
 
 (defun org-air-toggle-mark ()
-  "Toggle a visual mark on the item at point."
+  "Toggle the item at point in the exact source-key bulk selection (R90).
+Every mirror occurrence renders together; the selection survives cached
+repaints, filters, sorts, folds and view changes in this live board."
   (interactive)
-  (let ((inhibit-read-only t)
-        (marked (get-text-property (point) 'org-air-marked)))
-    (add-text-properties (line-beginning-position) (line-end-position)
-                         `(org-air-marked ,(not marked)))
-    (save-excursion
-      (beginning-of-line)
-      (delete-char 1)
-      (insert (if marked " " "•")))))
+  (let* ((item (org-air-view--item-at-point))
+         (key (or (org-air-view--item-source-key item)
+                  (user-error "Item has no source identity")))
+         (marked (org-air-view--marked-key-p key)))
+    (if marked
+        (org-air-view--marked-remove-keys (list key))
+      (setq org-air-view--marked-keys
+            (append org-air-view--marked-keys (list key)))
+      (unless (hash-table-p org-air-view--marked-key-table)
+        (org-air-view--marked-table-rebuild))
+      (puthash key t org-air-view--marked-key-table))
+    (org-air-view--refresh-current)
+    (message "%s %d item%s — b backlog, t add tag, M clears"
+             (if marked "Unmarked" "Marked")
+             (length org-air-view--marked-keys)
+             (if (= (length org-air-view--marked-keys) 1) "" "s"))))
+
+(defun org-air-clear-marks ()
+  "Clear every source-key mark in the live board, repainting once (R90)."
+  (interactive)
+  (if (null org-air-view--marked-keys)
+      (message "No marked items")
+    (setq org-air-view--marked-keys nil)
+    (org-air-view--marked-table-rebuild)
+    (org-air-view--refresh-current)
+    (message "Cleared all marks")))
+
+(defun org-air-view--single-mutation-guard (label)
+  "Soft-error for single-item mutation LABEL while a board selection is active."
+  (when (org-air-view--marks-active-p)
+    (user-error "%s is single-item while %d marks are active; M clears marks"
+                label (length org-air-view--marked-keys))))
 
 ;;;; Inbox triage — inline dispositions + process-inbox (org-air-triage.org)
 
@@ -10193,12 +10528,11 @@ record is a short string + a buffer ref + ints.")
 
 (defvar org-air-view--edit-ring nil
   "The bounded recent-edits ring: a plain NEWEST-FIRST list (R73).
-Each record is a plist (:desc :buffer :file :kind :tick :time) — small
-pure data plus a LIVE buffer reference (no markers — nothing to
-re-locate, `undo-only' operates on the buffer's own undo list — and no
-retained content; a killed buffer degrades its records to the dead
-branch of `org-air-edit-undo', and the ref never keeps a buffer alive
-or blocks `find-file-noselect' reuse).  GLOBAL, not buffer-local:
+A single-file record is a plist (:desc :buffer :file :kind :tick :time).
+R90 adds one compound shape, (:desc :kind bulk :parts :time), whose
+ordered PARTS carry the same live-buffer/file/tick facts plus the expected
+undo head; it holds no source markers or retained content.  A killed
+buffer degrades honestly in either shape.  GLOBAL, not buffer-local:
 edits are global facts about the user's org files, and history
 survives a board kill/recreate (`q' + \\[org-air]).  `u' consumes from
 the head; `org-air-view--edit-ring-push' truncates the tail at
@@ -10207,9 +10541,9 @@ wanted.")
 
 (defvar org-air-view--edit-redo-ring nil
   "The REDO side of the recent-edits ring (R75): a NEWEST-FIRST list.
-Same record shape as `org-air-view--edit-ring' (:desc :buffer :file
-:kind :tick :time — small pure data, no markers, no retained content)
-and the same GLOBAL single-timeline discipline (Decision 1).  Fed ONLY
+Same single-file and R90 compound shapes as `org-air-view--edit-ring',
+with small metadata and no source markers or retained content, and the
+same GLOBAL single-timeline discipline (Decision 1).  Fed ONLY
 by `org-air-edit-undo''s SUCCESS branch — the popped record, tick
 re-stamped to the buffer's post-undo chars tick; the
 consumed-without-revert branches (structural, dead, tick-tripped) feed
@@ -10289,8 +10623,12 @@ outright, so the hazard has no redo-side twin at all)."
     (let ((tick (buffer-chars-modified-tick buffer)))
       (dolist (rec (append org-air-view--edit-ring
                            org-air-view--edit-redo-ring))
-        (when (eq (plist-get rec :buffer) buffer)
-          (plist-put rec :tick tick))))))
+        (if (eq (plist-get rec :kind) 'bulk)
+            (dolist (part (plist-get rec :parts))
+              (when (eq (plist-get part :buffer) buffer)
+                (plist-put part :tick tick)))
+          (when (eq (plist-get rec :buffer) buffer)
+            (plist-put rec :tick tick)))))))
 
 (defun org-air-view--edit-ring-requeue (rec buffer ring)
   "Re-stamp REC to BUFFER's current chars tick and push it onto RING.
@@ -10408,6 +10746,366 @@ every macro user, current and future."
            (setq org-air-view--triage-source-buffer ,buf)
            ,buf)))))
 
+;;;; R90 source-key bulk tag coordinator
+
+(defvar org-air-view--bulk-source-write nil
+  "Non-nil while R90 owns source saves and the one cached repaint.")
+
+(defun org-air-view--items-by-source-key (&optional items)
+  "Return an equal hash from exact source key to all matching cached ITEMS."
+  (let ((table (make-hash-table :test #'equal)))
+    (dolist (item (or items org-air-view--items))
+      (when-let* ((key (org-air-view--item-source-key item)))
+        (puthash key (append (gethash key table) (list item)) table)))
+    table))
+
+(defun org-air-view--bulk-eligible-p (item action)
+  "Return non-nil when ITEM is eligible for marked tag ACTION."
+  (and (eq (org-air-item-kind item) 'heading)
+       (pcase action
+         ('backlog (and (org-air-classify--board-active-p item)
+                        (org-air-classify--task-routed-p item)))
+         ('tag t))))
+
+(defun org-air-view--source-heading-exact-p (item position)
+  "Verify ITEM is the exact heading at POSITION in the current buffer."
+  (and (integerp position)
+       (<= (point-min) position) (<= position (point-max))
+       (save-excursion
+         (goto-char position)
+         (and (org-at-heading-p)
+              (equal (substring-no-properties (org-get-heading t t t t))
+                     (substring-no-properties (or (org-air-item-title item) "")))
+              ;; Exact cached tags are part of the preflight truth used to
+              ;; choose set-all semantics; ordering itself is immaterial.
+              (equal (sort (copy-sequence (org-get-tags nil t)) #'string<)
+                     (sort (copy-sequence (org-air-item-tags item))
+                           #'string<))))))
+
+(defun org-air-view--bulk-preflight (action)
+  "Preflight every ordered mark for ACTION without changing source bytes.
+Return a plist carrying the old index, stale/ineligible/failed keys and
+verified candidate records.  Distinct files are opened at most once."
+  (let* ((keys (copy-sequence org-air-view--marked-keys))
+         (index (org-air-view--items-by-source-key))
+         (buffers (make-hash-table :test #'equal))
+         stale ineligible failed candidates)
+    (dolist (key keys)
+      (let ((item (car (gethash key index))))
+        (cond
+         ((null item)
+          (push key stale))
+         ((not (org-air-view--bulk-eligible-p item action))
+          (push key ineligible))
+         (t
+          (condition-case nil
+              (progn
+                (org-air-view--refresh-stale-item-guard item)
+                (let* ((file (expand-file-name (org-air-item-file item)))
+                       (pos (cdr key)))
+                  ;; Reject a known read-only/vanished path before opening it:
+                  ;; `find-file-noselect' may otherwise ask whether to make an
+                  ;; already-known writable buffer read-only, violating the
+                  ;; one-shared-prompt bulk contract.
+                  (if (not (file-writable-p file))
+                      (push key failed)
+                    (let ((buf (or (gethash file buffers)
+                                   (let ((opened (find-file-noselect file)))
+                                     (puthash file opened buffers)
+                                     opened))))
+                      (with-current-buffer buf
+                        (org-with-wide-buffer
+                         (if buffer-read-only
+                             (push key failed)
+                           (if (org-air-view--source-heading-exact-p item pos)
+                               (push (list :key key :item item :file file
+                                           :buffer buf :position pos
+                                           :marker (copy-marker pos nil))
+                                     candidates)
+                             (push key failed)))))))))
+            (error
+             (push key failed)))))))
+    (list :index index
+          :stale (nreverse stale)
+          :ineligible (nreverse ineligible)
+          :failed (nreverse failed)
+          :candidates (nreverse candidates))))
+
+(defun org-air-view--undo-head (buffer)
+  "Return BUFFER's first non-boundary undo-list object, or nil."
+  (with-current-buffer buffer
+    (seq-find #'identity buffer-undo-list)))
+
+(defun org-air-view--relocation-markers (file buffer)
+  "Create relocation markers in BUFFER for every cached heading in FILE."
+  (let (out)
+    (dolist (item org-air-view--items)
+      (when (and (eq (org-air-item-kind item) 'heading)
+                 (equal file (expand-file-name (org-air-item-file item))))
+        (let ((pos (cdr (org-air-view--item-source-key item))))
+          (when (and (integerp pos)
+                     (with-current-buffer buffer
+                       (<= (point-min) pos (point-max))))
+            (push (cons item (with-current-buffer buffer
+                               (copy-marker pos nil)))
+                  out)))))
+    out))
+
+(defun org-air-view--relocation-release (relocations)
+  "Release every temporary marker in RELOCATIONS."
+  (dolist (entry relocations)
+    (set-marker (cdr entry) nil)))
+
+(defun org-air-view--relocation-commit (file relocations)
+  "Write RELOCATIONS back to cached `(FILE . POS)' marker slots."
+  (dolist (entry relocations)
+    (when (marker-position (cdr entry))
+      (setf (org-air-item-marker (car entry))
+            (cons file (marker-position (cdr entry)))))))
+
+(defun org-air-view--bulk-key-after-relocation (key old-index)
+  "Translate old KEY through OLD-INDEX after cached marker relocation."
+  (if-let* ((item (car (gethash key old-index)))
+            (new (org-air-view--item-source-key item)))
+      new
+    key))
+
+(defun org-air-view--bulk-rekey-marks (old-index)
+  "Rekey the surviving selection through OLD-INDEX after source relocation."
+  (let ((seen (make-hash-table :test #'equal)) out)
+    (dolist (key org-air-view--marked-keys)
+      (let ((new (org-air-view--bulk-key-after-relocation key old-index)))
+        (unless (gethash new seen)
+          (puthash new t seen)
+          (push new out))))
+    (setq org-air-view--marked-keys (nreverse out))
+    (org-air-view--marked-table-rebuild)))
+
+(defun org-air-view--bulk-rekey-landing (plan old-index)
+  "Translate PLAN's rendered source keys through OLD-INDEX after relocation."
+  (when plan
+    (dolist (slot '(:key))
+      (when (plist-get plan slot)
+        (plist-put plan slot
+                   (org-air-view--bulk-key-after-relocation
+                    (plist-get plan slot) old-index))))
+    (dolist (slot '(:section-keys :full-keys))
+      (plist-put plan slot
+                 (mapcar (lambda (key)
+                           (org-air-view--bulk-key-after-relocation
+                            key old-index))
+                         (plist-get plan slot))))
+    plan))
+
+(defun org-air-view--edit-ring-push-bulk (desc parts)
+  "Push one compound bulk history record DESC with committed file PARTS."
+  (when parts
+    (setq org-air-view--edit-redo-ring nil)
+    (push (list :desc desc :kind 'bulk :parts parts :time (current-time))
+          org-air-view--edit-ring)
+    (when (> (length org-air-view--edit-ring) org-air-view--edit-ring-max)
+      (setcdr (nthcdr (1- org-air-view--edit-ring-max)
+                      org-air-view--edit-ring)
+              nil))))
+
+(defun org-air-view--bulk-message (action desired tag successful noops
+                                          stale ineligible failed unattempted
+                                          failed-file)
+  "Echo marked ACTION/TAG completion for DESIRED and all target counts."
+  (let ((base (pcase action
+                ('backlog
+                 (format "%s %d marked item%s"
+                         (if desired "Backlogged" "Un-backlogged")
+                         successful (if (= successful 1) "" "s")))
+                ('tag
+                 (format "Added #%s to %d marked item%s"
+                         tag successful (if (= successful 1) "" "s")))))
+        extras)
+    (when (> noops 0)
+      (push (format "%d already %s" noops
+                    (if (eq action 'backlog)
+                        (if desired "backlog" "not backlog")
+                      "tagged"))
+            extras))
+    (when (> stale 0) (push (format "%d stale pruned" stale) extras))
+    (when (> ineligible 0)
+      (push (format "%d ineligible remains marked" ineligible) extras))
+    (when (> failed 0)
+      (push (format "%d failed%s"
+                    failed (if failed-file
+                               (format " in %s" (file-name-nondirectory failed-file))
+                             ""))
+            extras))
+    (when (> unattempted 0)
+      (push (format "%d unattempted remains marked" unattempted) extras))
+    (message "%s%s" base
+             (if extras (concat "; " (mapconcat #'identity (nreverse extras) "; "))
+               ""))))
+
+(defun org-air-view--marked-tag-action (action &optional tag)
+  "Apply marked tag ACTION (`backlog' or `tag') with one cached repaint.
+TAG is required for `tag'.  Source files commit deterministically and
+atomically one file at a time; the first runtime file failure stops later
+files.  Earlier files remain committed and only successes/no-ops clear."
+  (let* ((landing (org-air-view--mutation-landing-capture))
+         (pre (org-air-view--bulk-preflight action))
+         (old-index (plist-get pre :index))
+         (stale (plist-get pre :stale))
+         (ineligible (plist-get pre :ineligible))
+         (pre-failed (plist-get pre :failed))
+         (candidates (plist-get pre :candidates))
+         (desired (if (eq action 'backlog)
+                      (not (and candidates
+                                (seq-every-p
+                                 (lambda (record)
+                                   (member org-air-backlog-tag
+                                           (org-air-item-tags
+                                            (plist-get record :item))))
+                                 candidates)))
+                    t))
+         (tag (if (eq action 'backlog) org-air-backlog-tag tag))
+         changed noops)
+    ;; The stale exact-key misses are UI-state facts, pruned before writes.
+    (org-air-view--marked-remove-keys stale)
+    (dolist (record candidates)
+      (let* ((item (plist-get record :item))
+             (had (and (member tag (org-air-item-tags item)) t))
+             (change (if desired (not had) had)))
+        (plist-put record :had had)
+        (plist-put record :desired desired)
+        (if change (push record changed) (push record noops))))
+    (setq changed (nreverse changed)
+          noops (nreverse noops))
+    (let ((by-file (make-hash-table :test #'equal))
+          (committed nil) (parts nil) (runtime-failed nil)
+          (failed-file nil) (stop nil) (unattempted 0))
+      (dolist (record changed)
+        (puthash (plist-get record :file)
+                 (append (gethash (plist-get record :file) by-file)
+                         (list record))
+                 by-file))
+      (let (files)
+        (maphash (lambda (file _records) (push file files)) by-file)
+        (setq files (sort files #'string<))
+        (dolist (file files)
+          (let ((records (gethash file by-file)))
+            (if stop
+                (setq unattempted (+ unattempted (length records)))
+              (let* ((buffer (plist-get (car records) :buffer))
+                     (relocations (org-air-view--relocation-markers file buffer))
+                     (ok nil))
+                (unwind-protect
+                    (condition-case _err
+                        (with-current-buffer buffer
+                          (org-with-wide-buffer
+                           (undo-boundary)
+                           ;; Save is inside the group: a save signal rolls
+                           ;; back the whole file buffer and records no part.
+                           (atomic-change-group
+                             (dolist (record
+                                      (sort (copy-sequence records)
+                                            (lambda (a b)
+                                              (> (marker-position
+                                                  (plist-get a :marker))
+                                                 (marker-position
+                                                  (plist-get b :marker))))))
+                               (goto-char (plist-get record :marker))
+                               (unless (org-air-view--source-heading-exact-p
+                                        (plist-get record :item) (point))
+                                 (error "Source changed; run g r"))
+                               (let ((org-inhibit-logging
+                                      (or org-inhibit-logging 'note))
+                                     (org-log-reschedule
+                                      (if (eq org-log-reschedule 'note) 'time
+                                        org-log-reschedule))
+                                     (org-log-redeadline
+                                      (if (eq org-log-redeadline 'note) 'time
+                                        org-log-redeadline)))
+                                 (org-toggle-tag tag (if desired 'on 'off)))
+                               ;; Org's pending globals are shared: flush one
+                               ;; heading before the next may overwrite them.
+                               (org-air-inbox--flush-pending-log-note))
+                             (let ((org-air-view--bulk-source-write t))
+                               (save-buffer)))
+                           (setq ok t)
+                           ;; Cache mirrors and relocation happen only after
+                           ;; the save succeeded.
+                           (dolist (record records)
+                             (let ((exact-tags
+                                    (save-excursion
+                                      (goto-char (plist-get record :marker))
+                                      (org-get-tags nil t))))
+                               (dolist (item (gethash (plist-get record :key)
+                                                     old-index))
+                                 (setf (org-air-item-tags item)
+                                       (copy-sequence exact-tags))
+                                 (when org-air-view--classify-cache
+                                   (remhash item org-air-view--classify-cache)))))
+                           (org-air-view--relocation-commit file relocations)
+                           (setq committed (append committed records))
+                           (push (list :buffer buffer :file file
+                                       :tick (buffer-chars-modified-tick buffer)
+                                       :undo-head (org-air-view--undo-head buffer))
+                                 parts)))
+                      (error
+                       (setq runtime-failed records
+                             failed-file file
+                             stop t)))
+                  (org-air-view--relocation-release relocations)
+                  (dolist (record records)
+                    (when (markerp (plist-get record :marker))
+                      (set-marker (plist-get record :marker) nil))))
+                (unless ok
+                  ;; The file group rolled back; all of its targets remain.
+                  nil))))))
+      ;; Desired-state no-ops are successful exact-preflight targets.
+      (dolist (record noops)
+        (dolist (item (gethash (plist-get record :key) old-index))
+          (when org-air-view--classify-cache
+            (remhash item org-air-view--classify-cache))))
+      ;; Every exact-target marker was temporary (no marker enters marks,
+      ;; cache persistence or history), including desired-state no-ops.
+      (dolist (record candidates)
+        (when (markerp (plist-get record :marker))
+          (set-marker (plist-get record :marker) nil)))
+      ;; Relocation changes source identities for marked and landing keys.
+      (org-air-view--bulk-rekey-marks old-index)
+      (setq landing (org-air-view--bulk-rekey-landing landing old-index))
+      (let* ((clear-old (append (mapcar (lambda (r) (plist-get r :key)) committed)
+                                (mapcar (lambda (r) (plist-get r :key)) noops)))
+             (clear (mapcar (lambda (key)
+                              (org-air-view--bulk-key-after-relocation
+                               key old-index))
+                            clear-old))
+             (excluded (mapcar (lambda (record)
+                                 (org-air-view--bulk-key-after-relocation
+                                  (plist-get record :key) old-index))
+                               (if (eq action 'backlog) committed nil)))
+             (successful (+ (length committed) (length noops)))
+             (changed-state (or stale clear committed)))
+        (org-air-view--marked-remove-keys clear)
+        (setq parts (nreverse parts))
+        (when parts
+          (org-air-view--edit-ring-push-bulk
+           (if (eq action 'backlog)
+               (format "%s %d marked item%s"
+                       (if desired "backlog" "un-backlog")
+                       (length committed) (if (= (length committed) 1) "" "s"))
+             (format "tag %d marked item%s +%s"
+                     (length committed) (if (= (length committed) 1) "" "s") tag))
+           parts))
+        (when changed-state
+          (setq org-air-view--pending-mutation-landing
+                (org-air-view--mutation-landing-exclude landing excluded))
+          (org-air-view--refresh-current)
+          ;; Landing was consumed before setup; now directly converge panes.
+          (org-air-view--panes-resync-now))
+        (org-air-view--bulk-message
+         action desired tag successful (length noops) (length stale)
+         (length ineligible)
+         (+ (length pre-failed) (length runtime-failed))
+         unattempted failed-file)))))
+
 (defun org-air-view--next-dow (target)
   "Return YYYY-MM-DD of the next day-of-week TARGET (0=Sun..6=Sat)."
   (let* ((now (current-time))
@@ -10444,6 +11142,8 @@ R68-3 audit: the quick-date `read-char-exclusive' runs BEFORE the
 macro, against the displayed board — safe; a `lognotereschedule' /
 `lognoteredeadline' note is downgraded + flushed by the macro's
 logging discipline."
+  (org-air-view--single-mutation-guard
+   (if (eq kind 'deadline) "Setting a deadline" "Scheduling"))
   (let* ((item (org-air-view--item-at-point))
          (clearp (eq date 'clear))
          (setter (if (eq kind 'deadline) #'org-deadline #'org-schedule)))
@@ -10465,6 +11165,7 @@ logging discipline."
 DATE may be supplied non-interactively.  A refinement: the item gains
 Upcoming membership and a calendar dot but stays in Inbox until filed."
   (interactive)
+  (org-air-view--single-mutation-guard "Scheduling")
   (org-air-view--apply-date 'scheduled
                             (or date (org-air-view--read-quick-date "Schedule"))))
 
@@ -10473,6 +11174,7 @@ Upcoming membership and a calendar dot but stays in Inbox until filed."
   "Set DEADLINE on the item at point via the quick-date sub-prompt.
 DATE may be supplied non-interactively.  A refinement: stays in Inbox."
   (interactive)
+  (org-air-view--single-mutation-guard "Setting a deadline")
   (org-air-view--apply-date 'deadline
                             (or date (org-air-view--read-quick-date "Deadline"))))
 
@@ -10488,6 +11190,7 @@ defmacro — a use above the definition byte-compiles against whatever
 macro a stale `.elc' happens to carry on an incremental build,
 silently losing the logging discipline (the round-68 Fable blocker)."
   (interactive "sSchedule (empty clears): ")
+  (org-air-view--single-mutation-guard "Scheduling")
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item
       (format "schedule \"%s\"%s" (org-air-item-title item)
@@ -10506,14 +11209,20 @@ ring (`u'), and the conversion brings the R68 logging discipline for free.
 The prompt STAYS before the macro — the R68-3 safety shape.
 Relocated BELOW the defmacro (the R68fix source-order law: a call
 above the definition byte-compiles against whatever macro a stale
-`.elc' carries on an incremental build)."
+`.elc' carries on an incremental build).
+
+R90: with marks active, prompts once and adds that tag to every eligible
+exact source heading as one compound, file-atomic edit."
   (interactive)
-  (let* ((item (org-air-view--item-at-point))
-         (tag (read-string "Tag: ")))
-    (org-air-view--at-item-source item
-      (format "tag \"%s\" +%s" (org-air-item-title item) tag)
-      (org-toggle-tag tag 'on))
-    (org-air-refresh)))
+  (if (org-air-view--marks-active-p)
+      ;; One shared prompt; cancellation precedes every preflight/write.
+      (org-air-view--marked-tag-action 'tag (read-string "Tag all marked items: "))
+    (let* ((item (org-air-view--item-at-point))
+           (tag (read-string "Tag: ")))
+      (org-air-view--at-item-source item
+        (format "tag \"%s\" +%s" (org-air-item-title item) tag)
+        (org-toggle-tag tag 'on))
+      (org-air-refresh))))
 
 ;;;###autoload
 (defun org-air-item-backlog ()
@@ -10549,38 +11258,55 @@ message-only, a mid-body signal rolls back the `atomic-change-group'
 message (the R53 never-error law).
 
 Relocated BELOW the `org-air-view--at-item-source' defmacro (the R68fix
-source-order law), beside `org-air-set-tag'."
+source-order law), beside `org-air-set-tag'.
+
+R90: the ordinary Backlog is header-only until TAB expands it.  A single
+unmarked toggle lands on a local survivor instead of following the moved
+item.  With marks active, set-all semantics apply to every eligible exact
+source heading and one compound `u'/`U' record covers all changed files."
   (interactive)
-  (let* ((item (org-air-view--item-at-point))
-         (tag  org-air-backlog-tag)
-         (had  (and (member tag (org-air-item-tags item)) t))
-         (want (if had 'off 'on)))
-    (condition-case err
-        (progn
-          (org-air-view--at-item-source item
-            (format "backlog \"%s\" %s%s" (org-air-item-title item)
-                    (if had "-" "+") tag)
-            (org-toggle-tag tag want)) ; explicit on/off: idempotent
-          ;; R53: update the cached item + repaint in place, do NOT
-          ;; `org-air-refresh' (no org-ql re-query).
-          (setf (org-air-item-tags item)
-                (if had (remove tag (org-air-item-tags item))
-                  (cons tag (org-air-item-tags item))))
-          (when org-air-view--classify-cache
-            (remhash item org-air-view--classify-cache)) ; the one stale eq-entry
-          (org-air-view--refresh-current) ; board/day re-classify; review in place
-          (message "%s \"%s\"" (if had "Un-backlogged" "Backlogged")
-                   (org-air-item-title item)))
-      ;; R53 never-error: the soft `user-error' (no item / the mid-refresh
-      ;; stale guard) propagates message-only; any RESIDUAL hard error
-      ;; downgrades to a message (belt-and-suspenders) — never a backtrace.
-      (user-error (signal (car err) (cdr err)))
-      (error (message "Backlog: %s" (error-message-string err))))))
+  (if (org-air-view--marks-active-p)
+      (org-air-view--marked-tag-action 'backlog)
+    (let* ((item (org-air-view--item-at-point))
+           (tag  org-air-backlog-tag)
+           (had  (and (member tag (org-air-item-tags item)) t))
+           (want (if had 'off 'on))
+           (landing (and (derived-mode-p 'org-air-view-mode)
+                         (org-air-view--mutation-landing-capture))))
+      (condition-case err
+          (progn
+            (org-air-view--at-item-source item
+              (format "backlog \"%s\" %s%s" (org-air-item-title item)
+                      (if had "-" "+") tag)
+              (org-toggle-tag tag want)) ; explicit on/off: idempotent
+            ;; R53: update the cached item + repaint in place, do NOT
+            ;; `org-air-refresh' (no org-ql re-query).
+            (setf (org-air-item-tags item)
+                  (if had (remove tag (org-air-item-tags item))
+                    (cons tag (org-air-item-tags item))))
+            (when org-air-view--classify-cache
+              (remhash item org-air-view--classify-cache))
+            ;; R90: this one mutation repaint excludes the moved identity;
+            ;; generic repaint/sort/resize restoration stays untouched.
+            (when landing
+              (setq org-air-view--pending-mutation-landing
+                    (org-air-view--mutation-landing-exclude
+                     landing (list (org-air-view--item-source-key item)))))
+            (org-air-view--refresh-current)
+            (when landing (org-air-view--panes-resync-now))
+            (message "%s \"%s\"" (if had "Un-backlogged" "Backlogged")
+                     (org-air-item-title item)))
+        ;; R53 never-error: the soft `user-error' (no item / the mid-refresh
+        ;; stale guard) propagates message-only; any RESIDUAL hard error
+        ;; downgrades to a message (belt-and-suspenders) — never a backtrace.
+        (user-error (signal (car err) (cdr err)))
+        (error (message "Backlog: %s" (error-message-string err)))))))
 
 ;;;###autoload
 (defun org-air-item-file-group ()
   "Fast-refile the item at point under a category/group (graduates it)."
   (interactive)
+  (org-air-view--single-mutation-guard "Filing")
   (call-interactively #'org-air-refile-item))
 
 ;;;###autoload
@@ -10600,6 +11326,7 @@ Named -cycle-todo (name/binding kept — muscle memory + test pins) to
 avoid colliding with the `org-air-item-todo' struct accessor; the
 triage spec's `T' key maps here."
   (interactive)
+  (org-air-view--single-mutation-guard "Setting TODO state")
   (let* ((item (org-air-view--item-at-point))
          (old (org-air-item-todo item))
          (choice (org-air-inbox--read-todo-keyword
@@ -10623,6 +11350,7 @@ writes the archive location too, so a source-side undo would leave the
 archived COPY (the duplicate shape); `u' consumes the record with a
 message naming the archive file instead."
   (interactive)
+  (org-air-view--single-mutation-guard "Archiving")
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item
       (format "archive \"%s\" → %s" (org-air-item-title item)
@@ -10645,6 +11373,7 @@ downgraded to its timestamp — is flushed into the same save by the
 `org-air-view--at-item-source' logging discipline instead of pending
 against the undisplayed source buffer."
   (interactive)
+  (org-air-view--single-mutation-guard "Marking DONE")
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item
       (format "done \"%s\"" (org-air-item-title item))
@@ -10658,6 +11387,7 @@ against the undisplayed source buffer."
 R68-3 audit: SAFE — the `yes-or-no-p' confirm runs BEFORE the macro,
 against the displayed board; `org-cut-subtree' is prompt-free."
   (interactive)
+  (org-air-view--single-mutation-guard "Killing")
   (let ((item (org-air-view--item-at-point)))
     (when (yes-or-no-p (format "Delete \"%s\"? " (org-air-item-title item)))
       (org-air-view--at-item-source item
@@ -10665,6 +11395,147 @@ against the displayed board; `org-cut-subtree' is prompt-free."
         (org-cut-subtree))
       (org-air-refresh)
       (message "Deleted \"%s\"" (org-air-item-title item)))))
+
+(defun org-air-view--bulk-part-live-p (part)
+  "Return non-nil when PART's buffer, tick and expected undo head are healthy."
+  (let ((buffer (plist-get part :buffer)))
+    (and (buffer-live-p buffer)
+         (eql (plist-get part :tick)
+              (buffer-chars-modified-tick buffer))
+         (eq (plist-get part :undo-head)
+             (org-air-view--undo-head buffer)))))
+
+(defun org-air-view--bulk-history-blockers (parts)
+  "Return human-readable preflight blockers across compound PARTS."
+  (let (out)
+    (dolist (part parts)
+      (let* ((buffer (plist-get part :buffer))
+             (name (file-name-nondirectory (or (plist-get part :file) "source"))))
+        (cond
+         ((not (buffer-live-p buffer))
+          (push (format "%s gone" name) out))
+         ((not (eql (plist-get part :tick)
+                    (buffer-chars-modified-tick buffer)))
+          (push (format "%s changed since" name) out))
+         ((not (eq (plist-get part :undo-head)
+                   (org-air-view--undo-head buffer)))
+          (push (format "%s history step missing" name) out)))))
+    (nreverse out)))
+
+(defun org-air-view--bulk-history-sync-file (part relocations)
+  "After a successful PART save, sync cached positions/tags via RELOCATIONS."
+  (let ((file (plist-get part :file))
+        (buffer (plist-get part :buffer)))
+    (with-current-buffer buffer
+      (org-with-wide-buffer
+       (org-air-view--relocation-commit file relocations)
+       (dolist (entry relocations)
+         (let ((item (car entry)) (marker (cdr entry)))
+           (when (and (marker-position marker)
+                      (save-excursion
+                        (goto-char marker)
+                        (org-at-heading-p)))
+             (setf (org-air-item-tags item)
+                   (save-excursion
+                     (goto-char marker)
+                     (org-get-tags nil t)))
+             (when org-air-view--classify-cache
+               (remhash item org-air-view--classify-cache)))))))))
+
+(defun org-air-view--bulk-history-requeue (record ring)
+  "Push compound RECORD directly onto RING without clearing its peer."
+  (set ring (cons record (symbol-value ring)))
+  (let ((list (symbol-value ring)))
+    (when (> (length list) org-air-view--edit-ring-max)
+      (setcdr (nthcdr (1- org-air-view--edit-ring-max) list) nil))))
+
+(defun org-air-view--bulk-history-restamp-part (part)
+  "Restamp PART after its successful undo/redo operation."
+  (let ((buffer (plist-get part :buffer)))
+    (plist-put part :tick (buffer-chars-modified-tick buffer))
+    (plist-put part :undo-head (org-air-view--undo-head buffer))))
+
+(defun org-air-view--bulk-history-operation (record operation)
+  "Apply compound RECORD OPERATION (`undo' or `redo') honestly.
+All parts preflight before any bytes move.  Runtime processing is reverse
+commit order for undo and commit order for redo, stopping on first file
+failure and retaining only a truthful linear residual."
+  (let* ((parts (plist-get record :parts))
+         (ordered (if (eq operation 'undo) (reverse parts) parts))
+         (blockers (org-air-view--bulk-history-blockers parts))
+         (desc (plist-get record :desc)))
+    (if blockers
+        (message "Cannot %s: %s — %s"
+                 operation desc (mapconcat #'identity blockers "; "))
+      (let ((remaining ordered) (successes nil) (failed nil))
+        (while (and remaining (not failed))
+          (let* ((part (pop remaining))
+                 (buffer (plist-get part :buffer))
+                 (file (plist-get part :file))
+                 (relocations (org-air-view--relocation-markers file buffer))
+                 (ok nil))
+            (unwind-protect
+                (condition-case _err
+                    (progn
+                      (with-current-buffer buffer
+                        ;; Keep the exceptional per-file runtime law honest:
+                        ;; an undo/redo or save signal cancels this file's
+                        ;; whole in-buffer step before the split is reported.
+                        (atomic-change-group
+                          (undo-boundary)
+                          (if (eq operation 'undo) (undo-only) (undo-redo))
+                          (let ((org-air-view--bulk-source-write t))
+                            (save-buffer))))
+                      (org-air-view--bulk-history-sync-file part relocations)
+                      (org-air-view--bulk-history-restamp-part part)
+                      (push part successes)
+                      (setq ok t))
+                  (error (setq failed part)))
+              (org-air-view--relocation-release relocations))
+            (unless ok (setq failed part))))
+        (if failed
+            (progn
+              ;; A runtime split never creates a speculative redo branch.
+              (setq org-air-view--edit-redo-ring nil)
+              (let ((residual
+                     (if (eq operation 'undo)
+                         ;; Untouched files are still in their committed
+                         ;; state and remain honestly undoable.
+                         (reverse remaining)
+                       ;; Files successfully re-applied before a redo
+                       ;; failure are honestly undoable; untouched undone
+                       ;; files are not advertised as redoable after split.
+                       (nreverse successes))))
+                (when residual
+                  (org-air-view--bulk-history-requeue
+                   (list :desc (format "%s (residual %d file%s)"
+                                       desc (length residual)
+                                       (if (= (length residual) 1) "" "s"))
+                         :kind 'bulk :parts residual :time (current-time))
+                   'org-air-view--edit-ring)))
+              (when successes
+                (dolist (part successes)
+                  (org-air-view--edit-ring-restamp (plist-get part :buffer)))
+                (org-air-view--refresh-current)
+                (org-air-view--panes-resync-now))
+              (message "%s incomplete: %d/%d files %s; failed %s"
+                       (if (eq operation 'undo) "Undo" "Redo")
+                       (length successes) (length parts)
+                       (if (eq operation 'undo) "reverted" "reapplied")
+                       (file-name-nondirectory (plist-get failed :file))))
+          ;; Complete success: one compound record crosses rings as a unit.
+          (dolist (part successes)
+            (org-air-view--edit-ring-restamp (plist-get part :buffer)))
+          (if (eq operation 'undo)
+              (org-air-view--bulk-history-requeue
+               record 'org-air-view--edit-redo-ring)
+            (org-air-view--bulk-history-requeue
+             record 'org-air-view--edit-ring))
+          (org-air-view--refresh-current)
+          (org-air-view--panes-resync-now)
+          (message "%s: %s (%d file%s)"
+                   (if (eq operation 'undo) "Undid" "Redid")
+                   desc (length parts) (if (= (length parts) 1) "" "s")))))))
 
 (defun org-air-edit-undo ()
   "Undo the MOST RECENT recorded board edit (R73 Decisions 5 + 6).
@@ -10710,6 +11581,10 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
          (tick (plist-get rec :tick))
          (next (car org-air-view--edit-ring)))
     (cond
+     ;; R90 compound metadata history: preflight every file before one
+     ;; reverse-commit-order undo and one final cached repaint.
+     ((eq kind 'bulk)
+      (org-air-view--bulk-history-operation rec 'undo))
      ;; Decision 6: structural honesty — named, never a duplicate-making
      ;; partial undo.
      ((memq kind '(refile archive))
@@ -10800,9 +11675,14 @@ read-only board where isearch is a real navigation path)."
     (user-error "Nothing to redo"))
   (let* ((rec (pop org-air-view--edit-redo-ring))
          (desc (plist-get rec :desc))
+         (kind (plist-get rec :kind))
          (buf (plist-get rec :buffer))
          (tick (plist-get rec :tick)))
     (cond
+     ;; R90 compound metadata history: forward commit order, all-part
+     ;; preflight, one final cached repaint.
+     ((eq kind 'bulk)
+      (org-air-view--bulk-history-operation rec 'redo))
      ;; Decision 5 step 2: liveness — consumed, the press ENDS.
      ((not (buffer-live-p buf))
       (message "Cannot redo: %s — source buffer gone" desc))
@@ -10855,6 +11735,7 @@ dispositions (refile/file/archive/done/kill) shrink the Inbox; schedule/
 deadline/tag/todo are refinements that keep the item in Inbox.  Filters
 and scope are preserved; `q'/`RET' exits with partial progress kept."
   (interactive)
+  (org-air-view--single-mutation-guard "Inbox processing")
   (unless (derived-mode-p 'org-air-view-mode)
     (org-air-view))
   (let ((quit nil))
@@ -11145,7 +12026,7 @@ read by the bookmark record producer.")
      (org-air-capture . "capture")
      (org-air-refile-item . "edit item (a destination refiles)")
      (org-air-item-deadline . "set deadline")
-     (org-air-set-tag . "set tag")
+     (org-air-set-tag . "add tag")
      (org-air-item-cycle-todo . "set todo state")
      (org-air-item-backlog . "backlog / un-backlog item (defer off attention)")
      (org-air-item-archive . "archive item")
@@ -11153,7 +12034,8 @@ read by the bookmark record producer.")
      (org-air-item-kill . "kill item")
      (org-air-edit-undo . "undo last edit (ring; ? shows recent)")
      (org-air-edit-redo . "redo last undo (a new edit clears redo)")
-     (org-air-toggle-mark . "mark/unmark item")
+     (org-air-toggle-mark . "mark for bulk (b backlog, t add tag)")
+     (org-air-clear-marks . "clear all marks")
      (org-air-process-inbox . "process inbox (guided walk)"))
     ("Filter & sort"
      (org-air-filter . "filter by tag / text / date (is:overdue, due:7d…)")
@@ -11319,7 +12201,15 @@ unrelated ORIGIN degrades to `M-x' cells, never an error.  Returns
 BUFFER."
   (let ((groups (org-air-help--groups context))
         (title (format "org-air help — %s"
-                       (org-air-help--context-title context))))
+                       (org-air-help--context-title context)))
+        (mark-counts
+         (and (eq context 'board)
+              (buffer-live-p origin)
+              (with-current-buffer origin
+                (and org-air-view--marked-keys
+                     (cons (length org-air-view--marked-keys)
+                           (org-air-view--marked-shown-count
+                            org-air-view--items)))))))
     (with-current-buffer buffer
       (org-air-help-mode)
       ;; R58: remember the context for the bookmark record producer (the
@@ -11348,6 +12238,25 @@ BUFFER."
                       "  "
                       (propertize desc 'face 'org-air-face-faded)
                       "\n"))))
+        ;; R90: a conditional selection explainer.  Empty marks emit no
+        ;; bytes, preserving every pre-R90 help fixture.
+        (when mark-counts
+          (insert "\n")
+          (org-air-help--insert-header "Marked items")
+          (insert "  "
+                  (propertize
+                   (format "%d marked · %d shown; hidden marks are included"
+                           (car mark-counts) (cdr mark-counts))
+                   'face 'org-air-face-faded)
+                  "\n"
+                  "  "
+                  (propertize "b backlogs all · t adds one tag to all · M clears marks"
+                              'face 'org-air-face-faded)
+                  "\n"
+                  "  "
+                  (propertize "Other mutations are single-item; press M first"
+                              'face 'org-air-face-faded)
+                  "\n"))
         ;; R73 Decision 8 + R75 Decision 7: the Recent-edits block —
         ;; newest first, at most 5 rows per side, `u' undoes the top /
         ;; `U' redoes the top.  The gate is EITHER-ring-non-empty
@@ -11374,6 +12283,11 @@ BUFFER."
                        (rbuf (plist-get rec :buffer))
                        (suffix (cond ((memq kind '(refile archive))
                                       " [not simply undoable]")
+                                     ((eq kind 'bulk)
+                                      (if (org-air-view--bulk-history-blockers
+                                           (plist-get rec :parts))
+                                          " [part blocked]"
+                                        ""))
                                      ((not (buffer-live-p rbuf)) " [gone]")
                                      (t ""))))
                   (insert "  "
@@ -11395,7 +12309,13 @@ BUFFER."
               (dolist (rec (seq-take org-air-view--edit-redo-ring 5))
                 (setq n (1+ n))
                 (let* ((rbuf (plist-get rec :buffer))
-                       (suffix (if (buffer-live-p rbuf) "" " [gone]")))
+                       (suffix
+                        (if (eq (plist-get rec :kind) 'bulk)
+                            (if (org-air-view--bulk-history-blockers
+                                 (plist-get rec :parts))
+                                " [part blocked]"
+                              "")
+                          (if (buffer-live-p rbuf) "" " [gone]"))))
                   (insert "  "
                           (propertize (format "%d." n)
                                       'face 'org-air-face-rail-key)
@@ -11734,7 +12654,10 @@ read best-effort through this same path) restores a plain board."
                (car sort) (symbolp (car sort))
                (cdr sort) (symbolp (cdr sort)))
       (setq-local org-air-view--sort-key (car sort)
-                  org-air-view--sort-direction (cdr sort)))))
+                  org-air-view--sort-direction (cdr sort)))
+    ;; R90: restoring an explicit lens is the same explicit reveal request
+    ;; as applying it interactively; raw `#backlog' remains collapse-neutral.
+    (org-air-view--ensure-explicit-backlog-lens)))
 
 (defun org-air-view--bookmark-consume ()
   "Land point per the armed bookmark locator; one-shot (R58).

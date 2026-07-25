@@ -682,6 +682,12 @@ gated by `org-air-refile-synthesize-frontmatter' — a brand-new or
 the effective tags) before the paste; an already-titled target is left
 byte-for-byte as-is, and a failed refile still creates no file."
   (interactive (list 'org-air-inbox--form-dispatch))
+  ;; R90: the board's `e' is deliberately single-item while a hidden
+  ;; source-key selection exists.  Guard before opening the transient or
+  ;; touching either source/target file; direct engine API calls are kept.
+  (when (and (eq item 'org-air-inbox--form-dispatch)
+             (fboundp 'org-air-view--single-mutation-guard))
+    (org-air-view--single-mutation-guard "Editing/refiling"))
   (if (eq item 'org-air-inbox--form-dispatch)
       (call-interactively #'org-air-refile-transient)
     (unless (and item target-file)

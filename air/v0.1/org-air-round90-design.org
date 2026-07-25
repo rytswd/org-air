@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: ready
+#+state: work-in-progress
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -35,7 +35,9 @@ when marked items span files.  Disk saves cannot be made transactionally
 atomic across files with the current machinery; the exact per-file commit
 and failure law is specified below instead of claiming otherwise.
 
-DESIGN ONLY.  No =.el=, test, or fixture change is made in this document.
+Implemented on 2026-07-25.  The decisions below remain the normative
+contract; implementation and gate details are recorded in Implementation
+History.
 
 * Investigation: the three current failure shapes
 
@@ -713,7 +715,35 @@ no query or refile-engine behavior changes.
   acceptance matrix, 20 test seams, mutation/revert-RED plan, zero-golden
   expectation, implementation order, and scoped deferrals.  State: ready.
 
+- 2026-07-25: Round 90 IMPLEMENTED.  Added the one-shot section-local
+  mutation landing plan for single and marked =b=; exact buffer-local
+  source-key marks with generation reconciliation, mirror rendering,
+  =m=/=M=, total/shown banner and rail counts, conditional bulk Actions and
+  help; Backlog header-only cold rendering with persistent =TAB= expansion
+  and exact =is:backlog= reveal (including the knob-nil override); marked
+  =b= set-all and marked =t= shared-prompt coordinators with complete
+  preflight, deterministic descending heading writes and sorted file commits,
+  stale/ineligible/failure accounting, cached source-position relocation,
+  truthful mark clearing and one cached repaint; and compound multi-file
+  =u=/=U= history with all-file preflight, per-file atomic steps and the
+  specified partial-failure residual law.  Unsupported item mutations now
+  guard before prompts/writes while marks are active.  Updated board key
+  registration (review's lowercase =m= remains its span control),
+  help/rail/banner surfaces, README, defcustom/docstrings,
+  and the R83 known-failure manifest for the three design-obsolete cold-row
+  assumptions.  Per seat ownership, no ERT or golden payload was added; the
+  independent test seat owns the Round-90 acceptance tests and re-blessing.
+  =make clean && make check=: 1102 tests, 1094 expected results, 3
+  design-expected R83 failures, 8 GUI-only skips, 0 unexpected; lint clean;
+  compile has only the pre-existing =org-air-project.el= wide-docstring
+  warning.  =make regen-mockups= produced zero fixture churn.  Implementation
+  complete; state remains work-in-progress for independent test/review
+  closeout.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
 - 2026-07-25: State: draft → ready.
+- 2026-07-25: State: ready → work-in-progress.
+- 2026-07-25: Implementation completed and gated; state remains
+  work-in-progress pending independent test/review closeout.

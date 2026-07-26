@@ -1113,6 +1113,72 @@ no query or refile-engine behavior changes.
   =oqnuxmmkopwl=; golden movement is zero and no repository =probe-*.el=
   exists.
 
+- 2026-07-26: FINAL INDEPENDENT TEST/AUDIT RETEST 4 completed GREEN.
+  Re-blessed the two semantically stale cache assertions as current v7
+  contracts: =org-air-r59-13-cache-v7-and-key= retains every historical
+  struct/key/coherence fence, and
+  =org-air-r86-18-path-adds-no-cache-coherence-input= truthfully says R86
+  adds no path-specific coherence input while acknowledging R90's independent
+  v7 transition.  New =r90-31= serialises the former malformed v6
+  =title "Alpha task :shared-tag:" / tags nil= shape under the current key and
+  proves both cache APIs return a clean miss; a real v7 write/read preserves
+  plain title plus =shared-tag=.  Changing only the source constant back to 6
+  made the selected cache set RED 3/3; r90-31 failed specifically because the
+  malformed v6 object hydrated.
+
+  Added 15 permanent ERTs =r90-31..45= (R90 now 51/51) using shared helpers.
+  The save/history set pins real mutating+signalling after-save hooks for
+  single =b=, initial marked =b=/=t=, compound =u=/=U= directions and deep
+  older single/compound records: committed disk truth plus legitimate unsaved
+  hook text, modified live state, persistent warning, exact cache/ring facts,
+  zero-save/zero-byte same-ring blocking, user-only hook resolution, honest
+  retry/redo, no speculative branch/reorder, and sentinel cleanup.  The
+  compound retention audit requires both =:expected-undo= and =:undo-head= to
+  be bounded =org-air-view--history-token=s; transitive metadata with only
+  documented buffer references removed reaches no raw tail/head, marker or
+  distinctive 128-KiB source text.  Empirical =key-and-value= checks drop a
+  mapping when either independently held key or value disappears; source kill,
+  80 truncate/clear cycles and GC return the registry to zero.  Forced GC on a
+  blocked→resolved compound retry either follows the exact identity or stays
+  zero-byte blocked; current source follows the exact step.
+
+  The projection/input set permanently covers hyphenated local, parent and
+  FILETAGS values; local-wins deduplication; exclusions plus nil/list/regexp
+  inheritance; no inherited-to-local copying; custom TODO/priority/COMMENT
+  prefix preservation; marked =shared-tag= and =@context=/underscore/Unicode
+  through real generation swaps and a second no-scan write.  Thirteen empty,
+  colon and embedded/leading/trailing space/tab/newline values are tested in
+  both marked and unmarked dispatch: exactly one prompt, immediate =user-error=
+  and byte/object-identical disk, live cache, marks, rings, focus, inspector,
+  panes, windows and timers.  Low-level toggle/line setters are zero-change too.
+  Bypassing the validator made both permanent invalid-input ERTs RED 2/2.
+
+  Total-finalization tests isolate combined relocation-helper/cosmetic-parser
+  failure, hostile =remhash= and one mandatory slot failure among several
+  items.  Mandatory slots and every warmed classify entry still invalidate;
+  =remhash= failure poisons the whole memo; mandatory failure drops generation,
+  marks and old locators, persists a warning, performs a truthful safe rebuild,
+  and the next cached command reaches only the exact target.  Owner lifecycle
+  tests cover source open before/after board, incidental mode open/kill,
+  source kill/reopen, owner kill/reopen over already-live sources,
+  cross-project isolation, exactly one global hook, and twelve no-open/no-query/
+  no-refresh/no-org-air-timer generation swaps with dead old markers, one
+  current locator per item and numeric durable keys.  Reverting view/query to
+  pass-2 =nmtxuvkxmkny= made the selected FIX-3 set RED 10/10; within it the
+  old broad finalizer was RED 3/3 and old owner/prune lifecycle RED 2/2.
+  Reverting bounded storage to raw-tail =oxyrryyqprum= made r90-30 plus the
+  compound/registry audits RED 3/3: raw tail/head and 131188 source-string
+  bytes were reachable, and token/registry APIs were absent.
+
+  Current-source evidence: all distinguished probes are GREEN (original review
+  6/6; consistent finalizer/owner/generation 3/3; FIX-3 critical,
+  supplementary, resolve and deep =1+4+2+2=; FIX-5 malformed/valid 4/4).
+  Relevant R53/R59/R68/R73/R75/R83/R86/R90 is 153/153.  Final clean gate:
+  1153 tests / 1145 expected / 0 unexpected / 8 GUI skips; lint 0; manifest
+  active=0.  =make regen-mockups= is a no-op.  Implementation =.el= is
+  byte-pristine against =krpmszyxpmvo=; README, fixtures and goldens are
+  byte-identical; no repository probe exists and =.deps= remains present.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

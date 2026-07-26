@@ -756,24 +756,25 @@ seam uses the live corpus, not the synthetic-item helper.)"
         (should-not (org-air-r86--passes kwx '("path:notes" "is:backlog") 'any root))))))
 
 ;;;; -------------------------------------------------------------------
-;;;; r86-18 (AUDIT gap) — NO scan-key element, NO cache-version bump (R53).
+;;;; r86-18 (AUDIT gap) — path adds no scan-cache coherence input (R53).
 ;;;; -------------------------------------------------------------------
 
-(ert-deftest org-air-r86-18-no-cache-version-bump ()
-  "`path:' adds NO scan-key element and NO cache-version bump (r86-18, R53).
-The spec forbids a rescan slot or an `org-air-view--cache-version' bump:
-`path:' reads the ALREADY-cached `org-air-item-file' slot + the ALREADY-
-keyed `org-air-files' knob.  So (a) the serialisation version stays at
-its pre-R86 value 6; (b) `org-air-view--cache-key' stays a SEVEN-element
+(ert-deftest org-air-r86-18-path-adds-no-cache-coherence-input ()
+  "`path:' adds no scan-key element or path-driven schema bump (r86-18).
+The feature reads the already-cached `org-air-item-file' slot plus the
+already-keyed `org-air-files' knob.  The current serialisation version is
+7 after R90's independent title/tag semantic invalidation; `path:' still
+adds no version transition of its own.  Thus (a) the version is 7; (b)
+`org-air-view--cache-key' stays a SEVEN-element
 list (the R77 element count — R86 added none); (c) the key is INDEPENDENT
 of `org-air-view--tag-filter' AND `org-air-filter-match' — setting or
 composing a `path:' token does NOT change the coherence key (a `path:'
-flip repaints, it never invalidates the scan cache).  Bumping the version
-or keying the filter into the scan key fails; the closing check confirms
+flip repaints, it never invalidates the scan cache).  A path-driven version
+or key perturbation fails; the closing check confirms
 the key is NOT inert (a real source change DOES move it)."
   (skip-unless (locate-library "org-air"))
-  ;; (a) no version bump.
-  (should (= 6 org-air-view--cache-version))
+  ;; (a) current version, with no path-specific transition.
+  (should (= 7 org-air-view--cache-version))
   (let ((org-air-files '("/home/u/org"))
         (org-air-inbox-file "/home/u/org/inbox.org"))
     ;; (b) still a SEVEN-element key (no path element added).

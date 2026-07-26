@@ -1878,11 +1878,9 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   ;; hairline rules (S2) and the single internal rail divider; no chrome
   ;; frame, so `header-line-format' stays nil (S1) and the mode-line is
   ;; the default.
-  ;; R90fix: while the board is live, a source file opened by the user gains
-  ;; live heading markers before any unsaved edit can invalidate numeric cache
-  ;; locators.  The board teardown removes this one global observation hook.
-  (add-hook 'find-file-hook #'org-air-view--hydrate-open-source-markers)
-  (add-hook 'kill-buffer-hook #'org-air-view--source-tracking-teardown nil t)
+  ;; R90 pass-2: only the canonical `*org-air*' board owns global source
+  ;; tracking.  Incidental mode buffers neither install nor tear down its hook.
+  (org-air-view--source-tracking-claim)
   ;; R15 D-P2: tear down the side-window rail when the board buffer is
   ;; killed (the rail buffer + side window must not outlive the board).
   (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
@@ -2060,68 +2058,142 @@ participate and no file is read.  Return nil when the source is malformed."
       (when (and (stringp file) (integerp pos))
         (cons (expand-file-name file) pos)))))
 
+(defvar org-air-view--source-tracking-owner nil
+  "The one canonical live board buffer that owns source tracking.")
+
+(defvar-local org-air-view--source-tracked-buffers nil
+  "Already-live source buffers carrying this board owner's locators.")
+
 (defvar-local org-air-view--source-tracked-locators nil
   "Ephemeral `(ITEM . MARKER)' locators for one user-visited source buffer.")
 
+(defvar-local org-air-view--source-locator-owner nil
+  "Canonical board buffer owning this source's tracked locators.")
+
 (defun org-air-view--dehydrate-source-markers ()
-  "Release this dying source buffer's ephemeral tracked locators."
-  (dolist (entry org-air-view--source-tracked-locators)
-    (set-marker (cdr entry) nil))
-  (setq org-air-view--source-tracked-locators nil))
+  "Release this source buffer's ephemeral tracked locators and ownership."
+  (let ((source (current-buffer))
+        (owner org-air-view--source-locator-owner))
+    (dolist (entry org-air-view--source-tracked-locators)
+      (set-marker (cdr entry) nil))
+    (setq org-air-view--source-tracked-locators nil
+          org-air-view--source-locator-owner nil)
+    (when (buffer-live-p owner)
+      (with-current-buffer owner
+        (setq org-air-view--source-tracked-buffers
+              (delq source org-air-view--source-tracked-buffers))))))
+
+(defun org-air-view--source-prune-buffer (source items owner)
+  "In SOURCE retain one live locator per current ITEMS member for OWNER."
+  (when (buffer-live-p source)
+    (with-current-buffer source
+      (when (eq org-air-view--source-locator-owner owner)
+        (let ((seen (make-hash-table :test #'eq)) keep)
+          (dolist (entry org-air-view--source-tracked-locators)
+            (let ((item (car entry)) (marker (cdr entry)))
+              (if (and (memq item items)
+                       (markerp marker) (marker-position marker)
+                       (not (gethash item seen)))
+                  (progn (puthash item t seen) (push entry keep))
+                (when (markerp marker) (set-marker marker nil)))))
+          (setq org-air-view--source-tracked-locators (nreverse keep)))))))
+
+(defun org-air-view--source-prune-generation (items)
+  "Release stale/deduplicated owner locators before hydrating ITEMS."
+  (when (eq (current-buffer) org-air-view--source-tracking-owner)
+    (let ((owner (current-buffer)) live)
+      (dolist (source org-air-view--source-tracked-buffers)
+        (when (buffer-live-p source)
+          (push source live)
+          (org-air-view--source-prune-buffer source items owner)))
+      (setq org-air-view--source-tracked-buffers (nreverse live)))))
 
 (defun org-air-view--hydrate-source-items (source)
   "Track cached numeric locators belonging to live SOURCE ephemerally.
 Only the exact cached position is accepted; this never searches by title and
 never changes the durable cons stored in an item or rendered row property."
-  (when (and (buffer-live-p source)
+  (when (and (eq (current-buffer) org-air-view--source-tracking-owner)
+             (buffer-live-p source)
              (buffer-local-value 'buffer-file-name source))
-    (let ((file (expand-file-name
-                 (buffer-local-value 'buffer-file-name source))))
-      (dolist (item org-air-view--items)
-        (let ((durable (org-air-item-marker item)))
-          (when (and (eq (org-air-item-kind item) 'heading)
-                     (consp durable)
-                     (equal file (expand-file-name (org-air-item-file item)))
-                     (integerp (cdr durable)))
-            (let ((position (cdr durable)))
-              (with-current-buffer source
-                (org-with-wide-buffer
-                 (unless (assq item org-air-view--source-tracked-locators)
-                   (when (and (<= (point-min) position (point-max))
-                              (org-air-view--source-heading-exact-p item position))
-                     ;; This marker only observes user drift before an action;
-                     ;; item/cache identity remains the durable numeric cons.
-                     (push (cons item (copy-marker position t))
-                           org-air-view--source-tracked-locators))))))))))))
+    (let* ((owner (current-buffer))
+           (file (expand-file-name
+                  (buffer-local-value 'buffer-file-name source)))
+           (matching
+            (seq-some (lambda (item)
+                        (and (eq (org-air-item-kind item) 'heading)
+                             (equal file
+                                    (expand-file-name
+                                     (org-air-item-file item)))))
+                      org-air-view--items)))
+      (when matching
+        (with-current-buffer source
+          (unless (eq org-air-view--source-locator-owner owner)
+            (org-air-view--dehydrate-source-markers))
+          (setq-local org-air-view--source-locator-owner owner)
+          (add-hook 'kill-buffer-hook
+                    #'org-air-view--dehydrate-source-markers nil t))
+        (cl-pushnew source org-air-view--source-tracked-buffers :test #'eq)
+        (org-air-view--source-prune-buffer source org-air-view--items owner)
+        (dolist (item org-air-view--items)
+          (let ((durable (org-air-item-marker item)))
+            (when (and (eq (org-air-item-kind item) 'heading)
+                       (consp durable)
+                       (equal file (expand-file-name (org-air-item-file item)))
+                       (integerp (cdr durable)))
+              (let ((position (cdr durable)))
+                (with-current-buffer source
+                  (org-with-wide-buffer
+                   (unless (assq item org-air-view--source-tracked-locators)
+                     (when (and (<= (point-min) position (point-max))
+                                (org-air-view--source-heading-exact-p
+                                 item position))
+                       ;; This marker only observes user drift before an action;
+                       ;; item/cache identity remains the durable numeric cons.
+                       (push (cons item (copy-marker position t))
+                             org-air-view--source-tracked-locators)))))))))))))
 
 (defun org-air-view--hydrate-open-source-markers ()
-  "Hydrate this newly visited source's cached heading locators, if any."
-  (when-let* ((board (get-buffer org-air-view-buffer-name)))
-    (let ((source (current-buffer)))
-      (with-current-buffer board
-        (org-air-view--hydrate-source-items source))
-      (add-hook 'kill-buffer-hook #'org-air-view--dehydrate-source-markers
-                nil t))))
+  "Hydrate this newly visited source for the one canonical board owner."
+  (when (buffer-live-p org-air-view--source-tracking-owner)
+    (let ((source (current-buffer))
+          (owner org-air-view--source-tracking-owner))
+      (with-current-buffer owner
+        (org-air-view--hydrate-source-items source)))))
 
 (defun org-air-view--hydrate-live-source-markers ()
   "Hydrate locators for already visited files without opening any file."
-  (let ((seen (make-hash-table :test #'eq)))
-    (dolist (item org-air-view--items)
-      (when-let* ((source (find-buffer-visiting (org-air-item-file item))))
-        (unless (gethash source seen)
-          (puthash source t seen)
-          (org-air-view--hydrate-source-items source)
-          (with-current-buffer source
-            (add-hook 'kill-buffer-hook
-                      #'org-air-view--dehydrate-source-markers nil t)))))))
+  (when (eq (current-buffer) org-air-view--source-tracking-owner)
+    (let ((seen (make-hash-table :test #'eq)))
+      (dolist (item org-air-view--items)
+        (when-let* ((source (find-buffer-visiting (org-air-item-file item))))
+          (unless (gethash source seen)
+            (puthash source t seen)
+            (org-air-view--hydrate-source-items source)))))))
+
+(defun org-air-view--source-tracking-claim ()
+  "Claim global source tracking iff current buffer is the canonical board."
+  (when (eq (current-buffer) (get-buffer org-air-view-buffer-name))
+    (unless (buffer-live-p org-air-view--source-tracking-owner)
+      (setq org-air-view--source-tracking-owner (current-buffer)))
+    (when (eq (current-buffer) org-air-view--source-tracking-owner)
+      (add-hook 'find-file-hook #'org-air-view--hydrate-open-source-markers)
+      (add-hook 'kill-buffer-hook
+                #'org-air-view--source-tracking-teardown nil t))))
 
 (defun org-air-view--source-tracking-teardown ()
-  "Remove the source-open hook and release locators owned by the dying board."
-  (remove-hook 'find-file-hook #'org-air-view--hydrate-open-source-markers)
-  (dolist (buffer (buffer-list))
-    (with-current-buffer buffer
-      (when (local-variable-p 'org-air-view--source-tracked-locators)
-        (org-air-view--dehydrate-source-markers)))))
+  "Release only the locators and global hook owned by this canonical board."
+  (when (eq (current-buffer) org-air-view--source-tracking-owner)
+    (let ((owner (current-buffer)))
+      (remove-hook 'find-file-hook #'org-air-view--hydrate-open-source-markers)
+      (dolist (source (copy-sequence org-air-view--source-tracked-buffers))
+        (when (and (buffer-live-p source)
+                   (eq (buffer-local-value 'org-air-view--source-locator-owner
+                                           source)
+                       owner))
+          (with-current-buffer source
+            (org-air-view--dehydrate-source-markers))))
+      (setq org-air-view--source-tracked-buffers nil
+            org-air-view--source-tracking-owner nil))))
 
 (defun org-air-view--marked-table-rebuild ()
   "Rebuild the exact-key membership table from the ordered mark list."
@@ -8543,8 +8615,10 @@ every body row; stacked blank-fills), and a footer pinned to the bottom."
               (setq org-air-view--items items
                     org-air-view--items-key (org-air-view--cache-key)
                     org-air-view--tag-filter tag-filter)
-              ;; Numeric cache locators become exact live markers only for
-              ;; source buffers the user already chose to visit; no file open.
+              ;; Before hydrating the replacement generation, release stale
+              ;; item identities and duplicate current entries.  Both passes
+              ;; inspect only already-live source buffers; no file is opened.
+              (org-air-view--source-prune-generation items)
               (org-air-view--hydrate-live-source-markers)
               ;; R90 generation swap: exact source-key reconciliation only.
               (org-air-view--marked-reconcile items)
@@ -9032,7 +9106,7 @@ interrupt, but the guard is cheap and harmless."
 ;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
-(defconst org-air-view--cache-version 6
+(defconst org-air-view--cache-version 7
   "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
 v2 (R53): `org-air-item' gained the scan-time slots
 \(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
@@ -9061,7 +9135,11 @@ v6 (R61): the struct gained the four review harvest slots (`clocks' /
 length, so a v5 cache is the same clean one-time cold miss.  New
 TRAILING slots ride the existing print/`read' machinery with zero new
 serialisation code — the version bump exists precisely for the record
-length.")
+length.
+v7 (R90 pass-2): persisted item title/tag semantics now use the shared
+broad heading projection (including hyphenated local/inherited tags).
+A v6 entry may have retained a tag suffix in `title' and nil `tags', so
+semantic invalidation is mandatory even though the struct length is stable.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.
@@ -10635,8 +10713,16 @@ under the one `org-air-view--edit-ring-max' defconst (Decision 6:
 records only ever shuffle between the two sides until a fresh edit
 truncates history), with the same defensive truncate on every push.")
 
-(defun org-air-view--edit-ring-push (desc buffer &optional kind)
+(defvar org-air-view--cache-sync-history
+  (make-hash-table :test #'eq :weakness 'key)
+  "Weak record-identity table for single metadata edits needing cache sync.
+This implementation detail keeps the public R73/R75 history plist shape
+stable; values contain no source bytes, markers, or snapshots.")
+
+(defun org-air-view--edit-ring-push (desc buffer &optional kind save-result cache-sync)
   "Push an undo record for the DESC edit made in BUFFER (R73 Decision 3).
+SAVE-RESULT supplies the exact pre-user-hook undo identity/tick.  CACHE-SYNC
+marks metadata edits whose undo/redo can finalize from cached source state.
 KIND defaults to `in-place' (single-buffer, honestly undoable via the
 buffer's own undo list); `refile' / `archive' mark the record
 STRUCTURAL — named by `u' but never auto-reverted (Decision 6: a
@@ -10667,13 +10753,28 @@ through here (`org-air-view--edit-ring-requeue' pushes directly)."
   (condition-case nil
       (when (buffer-live-p buffer)
         (setq org-air-view--edit-redo-ring nil)
-        (push (list :desc desc
-                    :buffer buffer
-                    :file (buffer-file-name buffer)
-                    :kind (or kind 'in-place)
-                    :tick (buffer-chars-modified-tick buffer)
-                    :time (current-time))
-              org-air-view--edit-ring)
+        (let ((record
+               (list :desc desc
+                     :buffer buffer
+                     :file (buffer-file-name buffer)
+                     :kind (or kind 'in-place)
+                     ;; The sentinel tick names the committed org-air state,
+                     ;; not a later ordinary after-save-hook mutation.
+                     :tick (or (plist-get save-result :expected-tick)
+                               (buffer-chars-modified-tick buffer))
+                     :time (current-time))))
+          ;; Retain the exact list-tail only when a later hook actually left
+          ;; another history step ahead.  The normal path keeps the established
+          ;; R73/R75 metadata/guard semantics; the exceptional path is blocked
+          ;; and retryable until this exact identity is safe again.
+          (when (org-air-view--save-result-ahead-p
+                 save-result buffer 'undo)
+            (setq record
+                  (plist-put record :expected-undo
+                             (plist-get save-result :expected-undo))))
+          (when cache-sync
+            (puthash record t org-air-view--cache-sync-history))
+          (push record org-air-view--edit-ring))
         (when (> (length org-air-view--edit-ring)
                  org-air-view--edit-ring-max)
           (setcdr (nthcdr (1- org-air-view--edit-ring-max)
@@ -10701,9 +10802,11 @@ outright, so the hazard has no redo-side twin at all)."
                            org-air-view--edit-redo-ring))
         (if (eq (plist-get rec :kind) 'bulk)
             (dolist (part (plist-get rec :parts))
-              (when (eq (plist-get part :buffer) buffer)
+              (when (and (eq (plist-get part :buffer) buffer)
+                         (not (plist-member part :expected-undo)))
                 (plist-put part :tick tick)))
-          (when (eq (plist-get rec :buffer) buffer)
+          (when (and (eq (plist-get rec :buffer) buffer)
+                     (not (plist-member rec :expected-undo)))
             (plist-put rec :tick tick)))))))
 
 (defun org-air-view--edit-ring-requeue (rec buffer ring)
@@ -10719,7 +10822,8 @@ makes the record's tick guard mean \"no non-ring change since the
 ring op\" on its new side; the same defensive push-and-truncate to
 `org-air-view--edit-ring-max' applies (Decision 6: the bound is
 enforced on BOTH sides, not merely argued by conservation)."
-  (plist-put rec :tick (buffer-chars-modified-tick buffer))
+  (unless (plist-member rec :expected-undo)
+    (plist-put rec :tick (buffer-chars-modified-tick buffer)))
   (set ring (cons rec (symbol-value ring)))
   (let ((lst (symbol-value ring)))
     (when (> (length lst) org-air-view--edit-ring-max)
@@ -10760,6 +10864,9 @@ Both sentinels are buffer-local and removed unconditionally."
          (prepared nil)
          (state nil)
          (after-save-began nil)
+         (expected-undo nil)
+         (expected-redo nil)
+         (expected-tick nil)
          (failure nil)
          (returned nil)
          (before-sentinel
@@ -10770,7 +10877,16 @@ Both sentinels are buffer-local and removed unconditionally."
          (after-sentinel
           (lambda ()
             (when (eq org-air-view--save-attempt-token token)
-              (setq after-save-began t)))))
+              ;; The disk write is committed.  Close the org-air edit group
+              ;; before any ordinary after-save hook can mutate live bytes,
+              ;; then capture the exact history identity/tick org-air owns.
+              (undo-boundary)
+              (setq after-save-began t
+                    expected-undo
+                    (org-air-view--expected-undo-step (current-buffer))
+                    expected-redo
+                    (org-air-view--expected-redo-step (current-buffer))
+                    expected-tick (buffer-chars-modified-tick))))))
     (when prepare
       ;; Emacs 29's numeric hook depth keeps this after ordinary depth-zero
       ;; before-save hooks, so STATE describes the bytes about to be written.
@@ -10806,14 +10922,41 @@ Both sentinels are buffer-local and removed unconditionally."
                   prepared t)
           ((error quit)
            (unless failure (setq failure prepare-error)))))
-      (list :committed committed :state state :error failure))))
+      (when (and committed (null expected-tick))
+        ;; File-handler fallback: create the same explicit boundary/identity
+        ;; after return.  Standard saves always take the earlier sentinel.
+        (undo-boundary)
+        (setq expected-undo
+              (org-air-view--expected-undo-step (current-buffer))
+              expected-redo
+              (org-air-view--expected-redo-step (current-buffer))
+              expected-tick (buffer-chars-modified-tick)))
+      (list :committed committed :state state :error failure
+            :expected-undo expected-undo :expected-redo expected-redo
+            :expected-tick expected-tick))))
+
+(defun org-air-view--persistent-warning (text)
+  "Persistently surface bounded org-air warning TEXT without signaling."
+  (condition-case nil
+      (display-warning 'org-air
+                       (truncate-string-to-width text 160 nil nil "…")
+                       :warning)
+    (error (message "org-air warning: %s" text))))
 
 (defun org-air-view--report-save-warning (result)
   "Surface RESULT's bounded post-commit save warning, if any."
   (when (and (plist-get result :committed) (plist-get result :error))
-    (message "org-air warning: saved changes kept after hook error: %s"
-             (truncate-string-to-width
-              (error-message-string (plist-get result :error)) 120 nil nil "…"))))
+    (let ((text
+           (format "saved changes kept after hook error: %s"
+                   (truncate-string-to-width
+                    (error-message-string (plist-get result :error))
+                    120 nil nil "…"))))
+      ;; The warning buffer is durable after the command's concise success
+      ;; echo replaces the minibuffer text.  Keep the legacy bounded message
+      ;; too: existing callers/tests that collect command diagnostics retain
+      ;; their public prefix.
+      (org-air-view--persistent-warning text)
+      (message "org-air warning: %s" text))))
 
 (defun org-air-view--signal-save-failure (result)
   "Re-signal the true pre-write failure represented by RESULT."
@@ -10886,7 +11029,7 @@ by no-scan metadata commands such as single-item backlog."
                  file relocations (plist-get result :state))))
             (with-current-buffer buffer
               (org-air-view--edit-ring-push
-               (funcall desc-function) buffer kind))
+               (funcall desc-function) buffer kind result cache-sync))
             (setq org-air-view--triage-source-buffer buffer)
             (org-air-view--report-save-warning result)
             buffer))
@@ -10950,59 +11093,51 @@ touched file and mirrors committed effective tags without a query scan."
          ('tag t))))
 
 (defun org-air-view--source-heading-title ()
-  "Return the plain title parsed directly from the heading line at point.
-Unlike `org-get-heading', this accepts every tag spelling Org's writer can
-emit, including a hyphen, without depending on deferred element caches."
-  (save-excursion
-    (org-back-to-heading t)
-    (let ((text (buffer-substring-no-properties
-                 (line-beginning-position) (line-end-position))))
-      (setq text (replace-regexp-in-string "\\`\\*+[ \t]+" "" text))
-      ;; Strip the broad local tag suffix before TODO/priority prefixes.
-      (setq text
-            (replace-regexp-in-string
-             "[ \t]+:[^: \t\n]+\\(?::[^: \t\n]+\\)*:[ \t]*\\'" "" text))
-      (let* ((words (split-string text "[ \t]+" t))
-             (first (car words)))
-        (when (and first (member first org-todo-keywords-1))
-          (setq text (string-trim-left
-                      (substring text (length first))))))
-      (setq text
-            (replace-regexp-in-string "\\`\\[#[[:alnum:]]\\][ \t]*" "" text))
-      (when (string-match "\\`COMMENT[ \t]+" text)
-        (setq text (substring text (match-end 0))))
-      (string-trim text))))
+  "Return the shared query/source plain title projection at point."
+  (plist-get (org-air-query--heading-projection) :title))
 
 (defun org-air-view--source-local-tags ()
-  "Return local tags parsed from the source heading line at point.
-Org's own writer accepts a broader shared tag string than its strict
-headline parser (notably a hyphen).  Reading the trailing colon group
-keeps the just-written live source truthful without changing what bytes
-`org-toggle-tag' writes."
-  (save-excursion
-    (org-back-to-heading t)
-    (let ((end (line-end-position)))
-      (when (re-search-forward
-             "[ \t]+\\(:[^: \t\n]+\\(?::[^: \t\n]+\\)*:\\)[ \t]*$"
-             end t)
-        (split-string (match-string-no-properties 1) ":" t)))))
+  "Return the shared broad local-tag projection at point."
+  (plist-get (org-air-query--heading-projection) :local-tags))
 
 (defun org-air-view--source-effective-tags ()
-  "Return source-effective tags at point with exact local-tag truth.
-Inheritance follows `org-get-tags'.  Its possibly deferred local cache
-projection is replaced by `org-air-view--source-local-tags', so a write
-can be mirrored synchronously without copying inherited tags locally."
-  (let* ((local (org-air-view--source-local-tags))
-         (cached-local
+  "Return the shared local-plus-inherited tag projection at point."
+  (plist-get (org-air-query--heading-projection) :effective-tags))
+
+(defun org-air-view--source-toggle-local-tag (tag state)
+  "Set broad local TAG on/off at point according to STATE.
+Unlike Org's strict headline parser, this preserves every writer-accepted
+hyphenated local tag already present.  Inherited tags are never passed to the
+line writer and therefore can never be copied onto the child."
+  (org-back-to-heading t)
+  (let* ((projection (org-air-query--heading-projection))
+         (local (copy-sequence (plist-get projection :local-tags)))
+         (strict-local
           (let ((org-element-use-cache nil))
             (mapcar #'substring-no-properties (org-get-tags nil t))))
-         (effective
-          (let ((org-element-use-cache nil))
-            (mapcar #'substring-no-properties (org-get-tags nil nil))))
-         (inherited
-          (seq-remove (lambda (tag) (member tag cached-local)) effective)))
-    (append (seq-remove (lambda (tag) (member tag local)) inherited)
-            local)))
+         (strict-tag-p
+          (and (stringp tag)
+               (string-match-p (concat "\\`" org-tag-re "\\'") tag))))
+    (if (and strict-tag-p (equal local strict-local))
+        ;; Preserve Org's native alignment/logging seam whenever its grammar
+        ;; is equivalent (the common case).  Broad-only spellings take the
+        ;; shared pure line writer below.
+        (org-toggle-tag tag state)
+      (let* ((wanted (pcase state
+                       ('on (if (member tag local)
+                                local (append local (list tag))))
+                       ('off (delete tag local))
+                       (_ (if (member tag local)
+                              (delete tag local)
+                            (append local (list tag))))))
+             (old-line (buffer-substring-no-properties
+                        (line-beginning-position) (line-end-position)))
+             (new-line (org-air-query--heading-line-set-local-tags
+                        old-line wanted)))
+        (unless (equal old-line new-line)
+          (delete-region (line-beginning-position) (line-end-position))
+          (insert new-line)
+          (run-hooks 'org-after-tags-change-hook))))))
 
 (defun org-air-view--source-heading-exact-p (item position)
   "Verify ITEM is the exact heading at POSITION in the current buffer."
@@ -11015,7 +11150,7 @@ can be mirrored synchronously without copying inherited tags locally."
                      (substring-no-properties (or (org-air-item-title item) "")))
               ;; Cached query tags are effective (local plus inherited), so
               ;; exact preflight must compare that same source projection.
-              ;; The later `org-toggle-tag' still writes LOCAL tags only.
+              ;; The later broad writer still writes LOCAL tags only.
               (equal (sort (org-air-view--source-effective-tags) #'string<)
                      (sort (mapcar #'substring-no-properties
                                    (org-air-item-tags item))
@@ -11103,9 +11238,53 @@ verified candidate records.  Distinct files are opened at most once."
             :relocations relocations))))
 
 (defun org-air-view--undo-head (buffer)
-  "Return BUFFER's first non-boundary undo-list object, or nil."
+  "Return BUFFER's first non-boundary raw undo-list object, or nil."
   (with-current-buffer buffer
     (seq-find #'identity buffer-undo-list)))
+
+(defun org-air-view--undo-list-without-boundaries (list)
+  "Return LIST advanced past leading undo boundaries."
+  (while (and (consp list) (null (car list)))
+    (setq list (cdr list)))
+  list)
+
+(defun org-air-view--expected-undo-step (buffer)
+  "Return BUFFER's exact list-tail identity the next `undo-only' will apply.
+Redo groups created by independently undoing an ahead edit are followed
+through `undo-equiv-table', exactly as `undo-only' skips them."
+  (with-current-buffer buffer
+    (let ((tail (org-air-view--undo-list-without-boundaries
+                 buffer-undo-list))
+          next)
+      (while (and (consp tail)
+                  (consp (setq next (gethash tail undo-equiv-table))))
+        (setq tail (org-air-view--undo-list-without-boundaries next)))
+      (and (consp tail) (car tail) tail))))
+
+(defun org-air-view--expected-redo-step (buffer)
+  "Return BUFFER's exact list-tail identity the next `undo-redo' will apply."
+  (with-current-buffer buffer
+    (let ((tail (org-air-view--undo-list-without-boundaries
+                 buffer-undo-list)))
+      (and (consp tail) (gethash tail undo-equiv-table) tail))))
+
+(defun org-air-view--save-result-ahead-p (result buffer operation)
+  "Return non-nil when RESULT left a hook edit ahead of OPERATION in BUFFER.
+OPERATION names the next ring action (`undo' or `redo').  Both exact list-tail
+identity and the pre-hook chars tick are required; this is deliberately not a
+text/title guess."
+  (when result
+    (let ((expected
+           (plist-get result
+                      (if (eq operation 'undo)
+                          :expected-undo :expected-redo))))
+      (and expected
+           (or (not (eq expected
+                        (if (eq operation 'undo)
+                            (org-air-view--expected-undo-step buffer)
+                          (org-air-view--expected-redo-step buffer))))
+               (not (eql (plist-get result :expected-tick)
+                         (buffer-chars-modified-tick buffer))))))))
 
 (defun org-air-view--relocation-markers (file buffer)
   "Create a total exact relocation set in BUFFER for cached headings in FILE.
@@ -11186,63 +11365,103 @@ before the write.  Any missing exact heading aborts before disk commit."
                  state)))))
     (nreverse state)))
 
+(defun org-air-view--cache-sync-invalidate-generation (file reason)
+  "Invalidate the current source generation after mandatory FILE failure.
+REASON is surfaced persistently.  The next cached repaint must re-query
+rather than retain a wrong-target item generation."
+  (setq org-air-view--items nil
+        org-air-view--items-key nil
+        org-air-view--marked-generation nil
+        org-air-view--classify-cache nil
+        org-air-view--classify-cache-day nil)
+  (org-air-view--source-prune-generation nil)
+  (org-air-view--persistent-warning
+   (format "Cache finalization invalidated %s: %s; run g r"
+           (file-name-nondirectory file) reason)))
+
+(defun org-air-view--cache-sync-write-slots (item file position effective-tags)
+  "Write mandatory ITEM source slots for FILE, POSITION and EFFECTIVE-TAGS."
+  (unless (integerp position)
+    (error "Missing numeric source position"))
+  (setf (org-air-item-marker item) (cons file position)
+        (org-air-item-tags item) (copy-sequence effective-tags)))
+
+(defun org-air-view--cache-sync-invalidate-classify (item file)
+  "Invalidate ITEM's classify memo for FILE, poisoning cache on failure."
+  (when org-air-view--classify-cache
+    (condition-case err
+        (remhash item org-air-view--classify-cache)
+      (error
+       ;; Never retain a table after its exact invalidation operation failed.
+       ;; Assigning nil is deterministic even when `remhash' itself is hostile.
+       (setq org-air-view--classify-cache nil
+             org-air-view--classify-cache-day nil)
+       (org-air-view--persistent-warning
+        (format "Classification cache invalidated for %s after %s"
+                (file-name-nondirectory file)
+                (error-message-string err)))))))
+
 (defun org-air-view--cache-sync-finalize (file relocations state)
-  "Finalize every FILE relocation from committed STATE without signaling.
-The normal relocation helper may be injected to fail; direct application
-still visits every cached item in RELOCATIONS.  STATE was captured totally
-at the last pre-write boundary, so no permissive branch can omit an item."
+  "Finalize FILE's RELOCATIONS from committed STATE without signaling.
+Mandatory numeric position/tag slots and classify invalidation are isolated
+from best-effort Org-element mirroring.  Any mandatory slot failure poisons
+the full item generation; any `remhash' failure poisons the classify cache."
+  ;; Preserve the injectable compatibility seam, but never rely on it: the
+  ;; mandatory loop below directly writes every relocation from total STATE.
   (condition-case nil
       (org-air-view--relocation-commit file relocations)
     (error nil))
   (dolist (relocation relocations)
-    (condition-case nil
-        (let* ((item (car relocation))
-               (marker (cdr relocation))
-               (captured (assq item state))
-               ;; STATE is total in the normal path.  If an unusual file
-               ;; handler skipped preparation, capture this exact live marker
-               ;; directly after commit; every error remains item-local.
-               (entry
-                (or captured
-                    (condition-case nil
-                        (when (and (marker-position marker)
-                                   (buffer-live-p (marker-buffer marker)))
-                          (with-current-buffer (marker-buffer marker)
-                            (org-with-wide-buffer
-                             (goto-char marker)
-                             (when (and (org-at-heading-p)
-                                        (equal
-                                         (org-air-view--source-heading-title)
-                                         (substring-no-properties
-                                          (or (org-air-item-title item) ""))))
-                               (list item (marker-position marker)
-                                     (org-air-view--source-local-tags)
-                                     (org-air-view--source-effective-tags))))))
-                      (error nil))))
-               ;; The final old-slot fallback still applies every item even
-               ;; when source text itself became uninspectable after commit.
-               (position (or (and entry (nth 1 entry))
-                             (marker-position marker)
-                             (cdr (org-air-view--item-source-key item))))
-               (local-tags (and entry (nth 2 entry)))
-               (effective-tags (if entry (nth 3 entry)
-                                 (org-air-item-tags item))))
-          (when (integerp position)
-            (setf (org-air-item-marker item) (cons file position)))
-          (setf (org-air-item-tags item) (copy-sequence effective-tags))
-          ;; Org's deferred element cache stores LOCAL tags only; inherited
-          ;; values remain inherited.  This cosmetic parser mirror is best
-          ;; effort, unlike the total item-slot finalization above.
-          (when (and entry (buffer-live-p (marker-buffer marker)))
+    (let* ((item (car relocation))
+           (marker (cdr relocation))
+           (entry
+            (or (assq item state)
+                ;; Unusual file handlers may skip normal preparation.  An
+                ;; exact live marker can still supply total state; otherwise
+                ;; mandatory fallback invalidates the whole generation.
+                (condition-case nil
+                    (when (and (marker-position marker)
+                               (buffer-live-p (marker-buffer marker)))
+                      (with-current-buffer (marker-buffer marker)
+                        (org-with-wide-buffer
+                         (goto-char marker)
+                         (when (and (org-at-heading-p)
+                                    (equal
+                                     (org-air-view--source-heading-title)
+                                     (substring-no-properties
+                                      (or (org-air-item-title item) ""))))
+                           (list item (marker-position marker)
+                                 (org-air-view--source-local-tags)
+                                 (org-air-view--source-effective-tags))))))
+                  (error nil))))
+           (position (and entry (nth 1 entry)))
+           (local-tags (and entry (nth 2 entry)))
+           (effective-tags (and entry (nth 3 entry))))
+      ;; Mandatory classify invalidation executes even when slot writing
+      ;; signals.  Continue with every relocation after an item-local failure.
+      (unwind-protect
+          (condition-case err
+              (if entry
+                  (org-air-view--cache-sync-write-slots
+                   item file position effective-tags)
+                (error "Committed heading state unavailable"))
+            (error
+             (org-air-view--cache-sync-invalidate-generation
+              file (error-message-string err))))
+        (org-air-view--cache-sync-invalidate-classify item file))
+      ;; Cosmetic deferred Org-element cache mirroring is deliberately last
+      ;; and isolated.  Use the live marker position (which follows a later
+      ;; after-save hook insertion), while mandatory slots retain disk state.
+      (condition-case nil
+          (when (and entry (buffer-live-p (marker-buffer marker))
+                     (marker-position marker))
             (with-current-buffer (marker-buffer marker)
               (save-excursion
-                (goto-char position)
+                (goto-char marker)
                 (when-let* ((element (org-element-at-point)))
                   (org-element-put-property
                    element :tags (copy-sequence local-tags))))))
-          (when org-air-view--classify-cache
-            (remhash item org-air-view--classify-cache)))
-      (error nil))))
+        (error nil)))))
 
 (defun org-air-view--bulk-key-after-relocation (key old-index)
   "Translate old KEY through OLD-INDEX after cached marker relocation."
@@ -11409,7 +11628,8 @@ files.  Earlier files remain committed and only successes/no-ops clear."
                                        (org-log-redeadline
                                         (if (eq org-log-redeadline 'note) 'time
                                           org-log-redeadline)))
-                                   (org-toggle-tag tag (if desired 'on 'off)))
+                                   (org-air-view--source-toggle-local-tag
+                                    tag (if desired 'on 'off)))
                                  ;; Org's pending globals are shared: flush one
                                  ;; heading before another can overwrite them.
                                  (org-air-inbox--flush-pending-log-note)))))
@@ -11446,10 +11666,21 @@ files.  Earlier files remain committed and only successes/no-ops clear."
                           (org-air-view--cache-sync-finalize
                            file relocations (plist-get save-result :state))
                           (setq committed (append committed records))
-                          (push (list :buffer buffer :file file
-                                      :tick (buffer-chars-modified-tick buffer)
-                                      :undo-head (org-air-view--undo-head buffer))
-                                parts)
+                          (let* ((expected
+                                  (plist-get save-result :expected-undo))
+                                 (part
+                                  (list :buffer buffer :file file
+                                        :tick
+                                        (plist-get save-result :expected-tick)
+                                        :undo-head (car-safe expected))))
+                            ;; Ordinary compound parts preserve the established
+                            ;; shape.  A mutating later hook alone adds the exact
+                            ;; retry identity captured at after-save entry.
+                            (when (org-air-view--save-result-ahead-p
+                                   save-result buffer 'undo)
+                              (setq part
+                                    (plist-put part :expected-undo expected)))
+                            (push part parts))
                           (when (plist-get save-result :error)
                             (push save-result warnings)))))
                   (org-air-view--relocation-release relocations)
@@ -11506,13 +11737,13 @@ files.  Earlier files remain committed and only successes/no-ops clear."
           (org-air-view--refresh-current)
           ;; Landing was consumed before setup; now directly converge panes.
           (org-air-view--panes-resync-now))
+        (dolist (warning (nreverse warnings))
+          (org-air-view--report-save-warning warning))
         (org-air-view--bulk-message
          action desired tag successful (length noops) (length stale)
          (length ineligible)
          (+ (length pre-failed) (length runtime-failed))
-         unattempted failed-file)
-        (dolist (warning (nreverse warnings))
-          (org-air-view--report-save-warning warning))))))
+         unattempted failed-file)))))
 
 (defun org-air-view--next-dow (target)
   "Return YYYY-MM-DD of the next day-of-week TARGET (0=Sun..6=Sat)."
@@ -11629,7 +11860,7 @@ exact source heading as one compound, file-atomic edit."
            (tag (read-string "Tag: ")))
       (org-air-view--at-item-source item
         (format "tag \"%s\" +%s" (org-air-item-title item) tag)
-        (org-toggle-tag tag 'on))
+        (org-air-view--source-toggle-local-tag tag 'on))
       (org-air-refresh))))
 
 ;;;###autoload
@@ -11688,7 +11919,8 @@ source heading and one compound `u'/`U' record covers all changed files."
               (format "backlog \"%s\" %s%s" (org-air-item-title item)
                       (if had "-" "+") tag)
               :cache-sync
-              (org-toggle-tag tag want)) ; local and idempotent
+              (org-air-view--source-toggle-local-tag
+               tag want)) ; local and idempotent
             ;; Save-hook edits may shift every source key in the file.  The
             ;; macro finalized those exact committed marker positions.
             (setq landing
@@ -11805,17 +12037,50 @@ against the displayed board; `org-cut-subtree' is prompt-free."
       (org-air-refresh)
       (message "Deleted \"%s\"" (org-air-item-title item)))))
 
-(defun org-air-view--bulk-part-live-p (part)
-  "Return non-nil when PART's buffer, tick and expected undo head are healthy."
-  (let ((buffer (plist-get part :buffer)))
+(defun org-air-view--history-expected-safe-p (record &optional operation)
+  "Return non-nil when RECORD's exact OPERATION identity is safe.
+New pass-2 records use a list-tail `:expected-undo' identity.  For undo this
+follows only Emacs' exact redo-equivalence chain; for redo it requires the raw
+redo tail.  With OPERATION nil, either direction is accepted for read-only
+status callers.  Legacy/synthetic records retain the older tick/head guard."
+  (let ((buffer (plist-get record :buffer)))
     (and (buffer-live-p buffer)
-         (eql (plist-get part :tick)
-              (buffer-chars-modified-tick buffer))
-         (eq (plist-get part :undo-head)
-             (org-air-view--undo-head buffer)))))
+         (if (plist-member record :expected-undo)
+             (let ((expected (plist-get record :expected-undo)))
+               (and expected
+                    (pcase operation
+                      ('undo (eq expected
+                                 (org-air-view--expected-undo-step buffer)))
+                      ('redo (eq expected
+                                 (org-air-view--expected-redo-step buffer)))
+                      (_ (or (eq expected
+                                 (org-air-view--expected-undo-step buffer))
+                             (eq expected
+                                 (org-air-view--expected-redo-step buffer)))))))
+           (and (eql (plist-get record :tick)
+                     (buffer-chars-modified-tick buffer))
+                (or (not (plist-member record :undo-head))
+                    (eq (plist-get record :undo-head)
+                        (org-air-view--undo-head buffer))))))))
 
-(defun org-air-view--bulk-history-blockers (parts)
-  "Return human-readable preflight blockers across compound PARTS."
+(defun org-air-view--history-ahead-edit-name (record)
+  "Name the intervening edit ahead of RECORD's expected org-air step."
+  (let* ((buffer (plist-get record :buffer))
+         (name (file-name-nondirectory
+                (or (plist-get record :file) "source"))))
+    (format "%s edit in %s is ahead of the expected org-air step"
+            (if (and (buffer-live-p buffer)
+                     (buffer-modified-p buffer))
+                "unsaved" "intervening")
+            name)))
+
+(defun org-air-view--bulk-part-live-p (part)
+  "Return non-nil when PART's exact expected history identity is healthy."
+  (org-air-view--history-expected-safe-p part))
+
+(defun org-air-view--bulk-history-blockers (parts &optional operation)
+  "Return human-readable preflight blockers across compound PARTS.
+OPERATION, when non-nil, selects the exact undo or redo identity."
   (let (out)
     (dolist (part parts)
       (let* ((buffer (plist-get part :buffer))
@@ -11823,6 +12088,12 @@ against the displayed board; `org-cut-subtree' is prompt-free."
         (cond
          ((not (buffer-live-p buffer))
           (push (format "%s gone" name) out))
+         ;; Exact pass-2 parts are governed solely by list-tail identity.
+         ;; Independently undoing an ahead hook edit necessarily changes the
+         ;; chars tick and raw head while restoring the safe org-air tail.
+         ((plist-member part :expected-undo)
+          (unless (org-air-view--history-expected-safe-p part operation)
+            (push (org-air-view--history-ahead-edit-name part) out)))
          ((not (eql (plist-get part :tick)
                     (buffer-chars-modified-tick buffer)))
           (push (format "%s changed since" name) out))
@@ -11906,11 +12177,191 @@ the caller restamps every affected metadata record to that honest tick."
     (when (> (length list) org-air-view--edit-ring-max)
       (setcdr (nthcdr (1- org-air-view--edit-ring-max) list) nil))))
 
-(defun org-air-view--bulk-history-restamp-part (part)
-  "Restamp PART after its successful undo/redo operation."
-  (let ((buffer (plist-get part :buffer)))
-    (plist-put part :tick (buffer-chars-modified-tick buffer))
-    (plist-put part :undo-head (org-air-view--undo-head buffer))))
+(defun org-air-view--bulk-history-restamp-part
+    (part operation &optional save-result)
+  "Restamp PART for the inverse of OPERATION using SAVE-RESULT identity."
+  (let* ((buffer (plist-get part :buffer))
+         (inverse (if (eq operation 'undo) 'redo 'undo))
+         (tick (or (plist-get save-result :expected-tick)
+                   (buffer-chars-modified-tick buffer)))
+         (expected
+          (or (and save-result
+                   (plist-get save-result
+                              (if (eq operation 'undo)
+                                  :expected-redo :expected-undo)))
+              (if (eq operation 'undo)
+                  (org-air-view--expected-undo-step buffer)
+                (org-air-view--expected-redo-step buffer)))))
+    (plist-put part :tick tick)
+    (plist-put part :undo-head (car-safe expected))
+    (cond
+     ;; A restored failed attempt keeps its existing exact retry contract.
+     ((and (null save-result) (plist-member part :expected-undo))
+      (plist-put part :expected-undo expected))
+     ;; A committed operation needs exact metadata only if its own later hook
+     ;; has now put a new user step ahead of the inverse ring action.
+     ((org-air-view--save-result-ahead-p save-result buffer inverse)
+      (plist-put part :expected-undo expected))
+     ((plist-member part :expected-undo)
+      (cl-remf part :expected-undo)))))
+
+(defun org-air-view--history-arm-next
+    (ring buffer expected tick)
+  "Arm RING's next BUFFER record with exact EXPECTED identity and TICK.
+Only the first local in-place record (or compound part) can represent the next
+buffer undo/redo step.  A same-buffer structural record stops the search: its
+cut must never be made automatically undoable through an older record."
+  (when expected
+    (let ((records (symbol-value ring)) found)
+      (while (and records (not found))
+        (let ((record (pop records)))
+          (if (eq (plist-get record :kind) 'bulk)
+              (when-let* ((part
+                           (seq-find
+                            (lambda (candidate)
+                              (eq (plist-get candidate :buffer) buffer))
+                            (plist-get record :parts))))
+                (plist-put part :tick tick)
+                (plist-put part :undo-head (car-safe expected))
+                (plist-put part :expected-undo expected)
+                (setq found t))
+            (when (eq (plist-get record :buffer) buffer)
+              (setq found t)
+              (unless (memq (plist-get record :kind) '(refile archive))
+                (plist-put record :tick tick)
+                (plist-put record :expected-undo expected)))))))))
+
+(defun org-air-view--single-history-restamp (record save-result operation)
+  "Restamp RECORD from SAVE-RESULT for inverse of committed OPERATION."
+  (let* ((buffer (plist-get record :buffer))
+         (inverse (if (eq operation 'undo) 'redo 'undo))
+         (expected
+          (plist-get save-result
+                     (if (eq operation 'undo)
+                         :expected-redo :expected-undo))))
+    (plist-put record :tick (plist-get save-result :expected-tick))
+    (if (org-air-view--save-result-ahead-p save-result buffer inverse)
+        (plist-put record :expected-undo expected)
+      (when (plist-member record :expected-undo)
+        (cl-remf record :expected-undo)))))
+
+(defun org-air-view--single-history-operation (record operation)
+  "Apply single RECORD OPERATION without ever undoing an intervening edit."
+  (let* ((buffer (plist-get record :buffer))
+         (file (expand-file-name (plist-get record :file)))
+         (source-ring (if (eq operation 'undo)
+                          'org-air-view--edit-ring
+                        'org-air-view--edit-redo-ring))
+         (target-ring (if (eq operation 'undo)
+                          'org-air-view--edit-redo-ring
+                        'org-air-view--edit-ring))
+         (cache-sync (gethash record org-air-view--cache-sync-history))
+         relocations snapshot operation-error save-result)
+    (condition-case err
+        (when cache-sync
+          (setq relocations (org-air-view--relocation-markers file buffer)))
+      (error (setq operation-error err)))
+    (if operation-error
+        (progn
+          (org-air-view--edit-ring-requeue record buffer source-ring)
+          (message "Cannot %s: %s — %s"
+                   operation (plist-get record :desc)
+                   (error-message-string operation-error)))
+      (setq snapshot (org-air-view--buffer-attempt-snapshot buffer))
+      (unwind-protect
+          (progn
+            (condition-case err
+                (with-current-buffer buffer
+                  (org-with-wide-buffer
+                   (undo-boundary)
+                   (if (eq operation 'undo) (undo-only) (undo-redo))))
+              ((error quit) (setq operation-error err)))
+            (unless operation-error
+              (org-air-view--relocation-arm-save-hooks relocations)
+              (with-current-buffer buffer
+                (org-with-wide-buffer
+                 (let ((org-air-view--bulk-source-write t))
+                   (setq save-result
+                         (org-air-view--save-attempt
+                          (when cache-sync
+                            (lambda ()
+                              (org-air-view--cache-sync-capture
+                               relocations)))))))))
+            (if (or operation-error
+                    (not (plist-get save-result :committed)))
+                (progn
+                  (org-air-view--buffer-attempt-restore buffer snapshot)
+                  ;; Restoration preserves an exact expected object but bumps
+                  ;; the chars tick; keep an exceptional blocked record
+                  ;; retryable without changing legacy/synthetic metadata.
+                  (plist-put record :tick
+                             (buffer-chars-modified-tick buffer))
+                  (when (plist-member record :expected-undo)
+                    (plist-put record :expected-undo
+                               (if (eq operation 'undo)
+                                   (org-air-view--expected-undo-step buffer)
+                                 (org-air-view--expected-redo-step buffer))))
+                  (when (plist-member record :expected-undo)
+                    (org-air-view--edit-ring-requeue
+                     record buffer source-ring))
+                  (message "Cannot %s: %s — %s"
+                           operation (plist-get record :desc)
+                           (cond
+                            ((not operation-error)
+                             "source save failed before writing")
+                            ((and (eq operation 'redo)
+                                  (not (plist-member record :expected-undo)))
+                             (format "no redo step left in %s"
+                                     (buffer-name buffer)))
+                            (t (error-message-string operation-error)))))
+              ;; The disk step committed.  Cache-sync records finalize from
+              ;; the pre-hook state while a later legitimate hook edit remains
+              ;; live and modified behind its separate undo boundary.
+              (when cache-sync
+                (org-air-view--cache-sync-finalize
+                 file relocations (plist-get save-result :state)))
+              (org-air-view--single-history-restamp
+               record save-result operation)
+              (org-air-view--edit-ring-requeue record buffer target-ring)
+              (if (not (eql (plist-get save-result :expected-tick)
+                            (buffer-chars-modified-tick buffer)))
+                  ;; A later hook edit is also ahead of the next same-buffer
+                  ;; record on the source side.  Arm that one exact step rather
+                  ;; than restamping it to the user's unsafe head.
+                  (org-air-view--history-arm-next
+                   source-ring buffer
+                   (plist-get save-result
+                              (if (eq operation 'undo)
+                                  :expected-undo :expected-redo))
+                   (plist-get save-result :expected-tick))
+                ;; Normal history walks retain the classic two-sided stamps.
+                (org-air-view--edit-ring-restamp buffer))
+              (if cache-sync
+                  (progn
+                    (org-air-view--refresh-current)
+                    (org-air-view--panes-resync-now))
+                ;; Preserve the historic full re-query only when no ordinary
+                ;; hook inserted a live step after the captured identity.
+                (if (and (eq (plist-get save-result
+                                         (if (eq operation 'undo)
+                                             :expected-redo :expected-undo))
+                             (if (eq operation 'undo)
+                                 (org-air-view--expected-redo-step buffer)
+                               (org-air-view--expected-undo-step buffer)))
+                         (eql (plist-get save-result :expected-tick)
+                              (buffer-chars-modified-tick buffer)))
+                    (org-air-refresh)
+                  (org-air-view--persistent-warning
+                   (format "board refresh deferred: unsaved edit in %s is ahead; resolve it, then run g r"
+                           (file-name-nondirectory file)))))
+              (org-air-view--report-save-warning save-result)
+              (message (if (eq operation 'undo)
+                           "Undid: %s (%d more)"
+                         "Redid: %s (%d more redoable)")
+                       (plist-get record :desc)
+                       (length (symbol-value source-ring)))))
+        (org-air-view--relocation-release relocations)
+        (setq snapshot nil)))))
 
 (defun org-air-view--bulk-history-operation (record operation)
   "Apply compound RECORD OPERATION (`undo' or `redo') honestly.
@@ -11920,7 +12371,7 @@ redo, stopping on the first true pre-write/operation failure.  A signal
 after disk commit is finalized as success and only emits a bounded warning."
   (let* ((parts (plist-get record :parts))
          (ordered (if (eq operation 'undo) (reverse parts) parts))
-         (blockers (org-air-view--bulk-history-blockers parts))
+         (blockers (org-air-view--bulk-history-blockers parts operation))
          (desc (plist-get record :desc))
          (relocations-by-file (make-hash-table :test #'equal)))
     ;; Cache locators are part of compound preflight too.  Keep every marker
@@ -11943,9 +12394,16 @@ after disk commit is finalized as success and only emits a bounded warning."
           (maphash (lambda (_file relocations)
                      (org-air-view--relocation-release relocations))
                    relocations-by-file)
+          ;; The caller popped RECORD before dispatch.  A preflight blocker
+          ;; changes zero bytes and remains retryable on the same ring side.
+          (org-air-view--bulk-history-requeue
+           record (if (eq operation 'undo)
+                      'org-air-view--edit-ring
+                    'org-air-view--edit-redo-ring))
           (message "Cannot %s: %s — %s"
                    operation desc (mapconcat #'identity blockers "; ")))
-      (let ((remaining ordered) (successes nil) (failed nil) warnings)
+      (let ((remaining ordered) (successes nil) (failed nil) warnings
+            hooked-buffers)
         (while (and remaining (not failed))
           (let* ((part (pop remaining))
                  (buffer (plist-get part :buffer))
@@ -11981,12 +12439,26 @@ after disk commit is finalized as success and only emits a bounded warning."
                         ;; Only a true pre-write/undo failure restores the
                         ;; attempt.  Disk and live bytes therefore stay equal.
                         (org-air-view--buffer-attempt-restore buffer snapshot)
-                        (org-air-view--bulk-history-restamp-part part)
+                        (org-air-view--bulk-history-restamp-part
+                         part operation)
                         (org-air-view--edit-ring-restamp buffer)
                         (setq failed part))
                     (org-air-view--bulk-history-sync-file
                      part relocations (plist-get save-result :state))
-                    (org-air-view--bulk-history-restamp-part part)
+                    (org-air-view--bulk-history-restamp-part
+                     part operation save-result)
+                    (when (not (eql (plist-get save-result :expected-tick)
+                                    (buffer-chars-modified-tick buffer)))
+                      (cl-pushnew buffer hooked-buffers :test #'eq)
+                      (org-air-view--history-arm-next
+                       (if (eq operation 'undo)
+                           'org-air-view--edit-ring
+                         'org-air-view--edit-redo-ring)
+                       buffer
+                       (plist-get save-result
+                                  (if (eq operation 'undo)
+                                      :expected-undo :expected-redo))
+                       (plist-get save-result :expected-tick)))
                     (push part successes)
                     (when (plist-get save-result :error)
                       (push save-result warnings))
@@ -11999,6 +12471,10 @@ after disk commit is finalized as success and only emits a bounded warning."
                    (org-air-view--relocation-release relocations))
                  relocations-by-file)
         (clrhash relocations-by-file)
+        ;; Persist diagnostics first; the branch-specific concise status below
+        ;; remains the final success/incomplete minibuffer echo.
+        (dolist (warning (nreverse warnings))
+          (org-air-view--report-save-warning warning))
         (if failed
             (progn
               ;; A runtime split never creates a speculative redo branch.
@@ -12023,7 +12499,9 @@ after disk commit is finalized as success and only emits a bounded warning."
                    'org-air-view--edit-ring)))
               (when successes
                 (dolist (part successes)
-                  (org-air-view--edit-ring-restamp (plist-get part :buffer)))
+                  (unless (memq (plist-get part :buffer) hooked-buffers)
+                    (org-air-view--edit-ring-restamp
+                     (plist-get part :buffer))))
                 (org-air-view--refresh-current)
                 (org-air-view--panes-resync-now))
               (message "%s incomplete: %d/%d files %s; failed %s"
@@ -12033,7 +12511,8 @@ after disk commit is finalized as success and only emits a bounded warning."
                        (file-name-nondirectory (plist-get failed :file))))
           ;; Complete success: one compound record crosses rings as a unit.
           (dolist (part successes)
-            (org-air-view--edit-ring-restamp (plist-get part :buffer)))
+            (unless (memq (plist-get part :buffer) hooked-buffers)
+              (org-air-view--edit-ring-restamp (plist-get part :buffer))))
           (if (eq operation 'undo)
               (org-air-view--bulk-history-requeue
                record 'org-air-view--edit-redo-ring)
@@ -12043,9 +12522,7 @@ after disk commit is finalized as success and only emits a bounded warning."
           (org-air-view--panes-resync-now)
           (message "%s: %s (%d file%s)"
                    (if (eq operation 'undo) "Undid" "Redid")
-                   desc (length parts) (if (= (length parts) 1) "" "s")))
-        (dolist (warning (nreverse warnings))
-          (org-air-view--report-save-warning warning))))))
+                   desc (length parts) (if (= (length parts) 1) "" "s")))))))
 
 (defun org-air-edit-undo ()
   "Undo the MOST RECENT recorded board edit (R73 Decisions 5 + 6).
@@ -12088,7 +12565,6 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
          (desc (plist-get rec :desc))
          (buf (plist-get rec :buffer))
          (kind (plist-get rec :kind))
-         (tick (plist-get rec :tick))
          (next (car org-air-view--edit-ring)))
     (cond
      ;; R90 compound metadata history: preflight every file before one
@@ -12109,34 +12585,21 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
      ;; Decision 5 step 1: liveness — consumed, the press ENDS.
      ((not (buffer-live-p buf))
       (message "Cannot undo: %s — source buffer gone" desc))
-     ;; Decision 5 step 2: the tick guard — the buffer changed since the
-     ;; edit (manual user edit, external revert); blind undo would eat
-     ;; the WRONG change.
-     ((not (eql tick (buffer-chars-modified-tick buf)))
+     ;; Only records whose save actually observed a later hook mutation carry
+     ;; an exact identity.  Such an ahead step blocks without consumption.
+     ((and (plist-member rec :expected-undo)
+           (not (org-air-view--history-expected-safe-p rec 'undo)))
+      (push rec org-air-view--edit-ring)
+      (message "Cannot undo: %s — %s"
+               desc (org-air-view--history-ahead-edit-name rec)))
+     ;; Preserve R73's established stale-user-edit degrade for ordinary
+     ;; records: consume it, move zero bytes, and name the changed buffer.
+     ((and (not (plist-member rec :expected-undo))
+           (not (eql (plist-get rec :tick)
+                     (buffer-chars-modified-tick buf))))
       (message "Cannot undo: %s — %s changed since" desc (buffer-name buf)))
      (t
-      ;; Decision 5 steps 3 + 4: `undo-only' in the record's OWN buffer,
-      ;; re-stamp the survivors, save, refresh — the R73-1 resync rides
-      ;; the refresh tail for free.  The explicit `undo-boundary' first:
-      ;; the command loop normally closes the edit's group before an
-      ;; interactive `u' press (making this a no-op), but the board's
-      ;; edits land from Lisp against an UNDISPLAYED buffer whose head
-      ;; boundary nobody closed — without it, `undo's own drop-the-
-      ;; initial-boundary step would consume the real change group.
-      (with-current-buffer buf
-        (undo-boundary)
-        (undo-only)
-        (save-buffer))
-      (org-air-view--edit-ring-restamp buf)
-      ;; R75 Decision 1: the success branch feeds the REDO ring — the
-      ;; reverted record moves across (tick re-stamped post-undo by the
-      ;; requeue), so `U' re-applies exactly this edit.  A DIRECT push:
-      ;; never `--edit-ring-push', whose fresh-edit clear would eat the
-      ;; redo remainder mid-walk.
-      (org-air-view--edit-ring-requeue rec buf 'org-air-view--edit-redo-ring)
-      (org-air-refresh)
-      (message "Undid: %s (%d more)" desc
-               (length org-air-view--edit-ring))))))
+      (org-air-view--single-history-operation rec 'undo)))))
 
 (defalias 'org-air-triage-undo #'org-air-edit-undo
   "Renamed to `org-air-edit-undo' (R73) — `u' now undoes every board
@@ -12186,8 +12649,7 @@ read-only board where isearch is a real navigation path)."
   (let* ((rec (pop org-air-view--edit-redo-ring))
          (desc (plist-get rec :desc))
          (kind (plist-get rec :kind))
-         (buf (plist-get rec :buffer))
-         (tick (plist-get rec :tick)))
+         (buf (plist-get rec :buffer)))
     (cond
      ;; R90 compound metadata history: forward commit order, all-part
      ;; preflight, one final cached repaint.
@@ -12196,30 +12658,19 @@ read-only board where isearch is a real navigation path)."
      ;; Decision 5 step 2: liveness — consumed, the press ENDS.
      ((not (buffer-live-p buf))
       (message "Cannot redo: %s — source buffer gone" desc))
-     ;; Decision 5 step 3: the tick guard — a manual/external edit after
-     ;; the undo bumped the tick with no re-stamp (ring ops re-stamp).
-     ((not (eql tick (buffer-chars-modified-tick buf)))
+     ;; As on undo, only a captured post-save hook step blocks/retries.
+     ((and (plist-member rec :expected-undo)
+           (not (org-air-view--history-expected-safe-p rec 'redo)))
+      (push rec org-air-view--edit-redo-ring)
+      (message "Cannot redo: %s — %s"
+               desc (org-air-view--history-ahead-edit-name rec)))
+     ;; Ordinary later user edits retain R75's consumed stale-record law.
+     ((and (not (plist-member rec :expected-undo))
+           (not (eql (plist-get rec :tick)
+                     (buffer-chars-modified-tick buf))))
       (message "Cannot redo: %s — %s changed since" desc (buffer-name buf)))
      (t
-      ;; Decision 5 steps 4 + 5: one `undo-redo' step in the record's
-      ;; own buffer (caught — the Decision 3 backstop), save, two-sided
-      ;; restamp, direct undo-ring re-push, refresh (the R73-1 resync
-      ;; rides the tail).
-      (let ((ok t))
-        (with-current-buffer buf
-          (undo-boundary)
-          (condition-case nil
-              (undo-redo)
-            (error (setq ok nil)))
-          (when ok (save-buffer)))
-        (if (not ok)
-            (message "Cannot redo: %s — no redo step left in %s"
-                     desc (buffer-name buf))
-          (org-air-view--edit-ring-restamp buf)
-          (org-air-view--edit-ring-requeue rec buf 'org-air-view--edit-ring)
-          (org-air-refresh)
-          (message "Redid: %s (%d more redoable)" desc
-                   (length org-air-view--edit-redo-ring))))))))
+      (org-air-view--single-history-operation rec 'redo)))))
 
 (defun org-air-view--goto-first-inbox-item ()
   "Move point to the first Inbox item row, if any."

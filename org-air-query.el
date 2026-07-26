@@ -457,6 +457,111 @@ Lets `org-air-query--item-at-point' seed the `activity' slot's mtime
 fallback from the stat the scan already paid, instead of a per-item
 re-stat.")
 
+(defvar org-air-query--projection-file-tags nil
+  "Broad file tags bound once around a query file's heading projection.")
+
+(defconst org-air-query--heading-tag-suffix-regexp
+  "[ \t]+\\(:[^: \t\n]+\\(?::[^: \t\n]+\\)*:\\)[ \t]*\\'"
+  "The one broad local-tag suffix grammar used by projection and writes.")
+
+(defun org-air-query--heading-line-parts (&optional line)
+  "Return broad headline parts from LINE, or the heading at point.
+The result is a plist `(:title TITLE :local-tags TAGS)'.  This is the one
+headline grammar shared by query generation and source-write validation.
+It follows Org's heading prefix order (custom TODO keyword, priority,
+COMMENT), but deliberately accepts every non-space/non-colon tag spelling
+Org's writer accepts, including hyphens."
+  (let* ((line (or line
+                   (buffer-substring-no-properties
+                    (line-beginning-position) (line-end-position))))
+         (text (replace-regexp-in-string "\\`\\*+[ \t]+" "" line))
+         local-tags)
+    (when (string-match org-air-query--heading-tag-suffix-regexp text)
+      ;; Copy match products before `split-string' clobbers match data.
+      (let ((suffix (match-string 1 text))
+            (title-end (match-beginning 0)))
+        (setq local-tags (split-string suffix ":" t)
+              text (substring text 0 title-end))))
+    (let ((first (car (split-string text "[ \t]+" t))))
+      (when (and first (member first org-todo-keywords-1))
+        (setq text (string-trim-left (substring text (length first))))))
+    (setq text
+          (replace-regexp-in-string
+           "\\`\\[#[[:alnum:]]\\][ \t]*" "" text))
+    (when (string-match "\\`COMMENT\\(?:[ \t]+\\|\\'\\)" text)
+      (setq text (substring text (match-end 0))))
+    (list :title (string-trim text) :local-tags local-tags)))
+
+(defun org-air-query--heading-line-set-local-tags (line tags)
+  "Return heading LINE with broad local TAGS replacing its suffix.
+Only the suffix bytes change; TODO keywords, COMMENT, priority and title are
+left verbatim.  TAGS are local only—callers must never pass inherited tags."
+  (let ((base (if (string-match org-air-query--heading-tag-suffix-regexp line)
+                  (substring line 0 (match-beginning 0))
+                (string-trim-right line))))
+    (if tags
+        (concat base " :" (string-join tags ":") ":")
+      base)))
+
+(defun org-air-query--projection-file-tags ()
+  "Return broad file tags for the current Org buffer.
+The scan binds the already-paid `#+filetags' projection.  Live validation
+also unions Org's parsed value with a bounded head fallback so a hyphenated
+FILETAGS value cannot disappear merely because Org's strict headline tag
+regexp rejected that spelling."
+  (let ((tags (append org-air-query--projection-file-tags
+                      (mapcar #'substring-no-properties org-file-tags))))
+    (save-excursion
+      (goto-char (point-min))
+      (let ((case-fold-search t)
+            (bound (min (point-max) 4096)))
+        (while (re-search-forward
+                "^#\\+filetags:[ \t]*\\(.+?\\)[ \t]*$" bound t)
+          (setq tags
+                (append tags
+                        (split-string (match-string-no-properties 1)
+                                      "[: \t]+" t))))))
+    (delete-dups tags)))
+
+(defun org-air-query--dedupe-effective-tags (tags)
+  "Return TAGS with duplicates removed in favour of the most local copy."
+  (let ((seen (make-hash-table :test #'equal)) out)
+    (dolist (tag (reverse tags))
+      (unless (gethash tag seen)
+        (puthash tag t seen)
+        (push tag out)))
+    out))
+
+(defun org-air-query--heading-projection (&optional position)
+  "Return the shared heading projection at POSITION (default point).
+The plist contains `:title', broad `:local-tags', and `:effective-tags'.
+Effective tags follow `org-use-tag-inheritance',
+`org-tags-exclude-from-inheritance', parent order and FILETAGS.  Duplicate
+local/inherited names collapse to the most-local occurrence; inherited tags
+are never copied onto the child headline."
+  (save-excursion
+    (when position (goto-char position))
+    (org-back-to-heading t)
+    (let* ((parts (org-air-query--heading-line-parts))
+           (local (plist-get parts :local-tags))
+           inherited)
+      (when org-use-tag-inheritance
+        (setq inherited
+              (seq-filter #'org-tag-inherit-p
+                          (org-air-query--projection-file-tags)))
+        (let (parents)
+          (save-excursion
+            (while (org-up-heading-safe)
+              (push (plist-get (org-air-query--heading-line-parts)
+                               :local-tags)
+                    parents)))
+          (dolist (tags parents)
+            (setq inherited
+                  (append inherited (seq-filter #'org-tag-inherit-p tags))))))
+      (plist-put parts :effective-tags
+                 (org-air-query--dedupe-effective-tags
+                  (append inherited local))))))
+
 ;;;; ---------------------------------------------------------------------
 ;;;; R61-1 — the review harvest: same pass, own body, never-error, capped.
 ;;;; ---------------------------------------------------------------------
@@ -1046,14 +1151,14 @@ R53 P2: also records the scan-time slots (`kind'/`donep'/`activity'/
 marker slot is the durable (FILE . POS) cons (source buffers are never
 retained by scanning; live positions resolve on demand)."
   (let* ((file (or (buffer-file-name) ""))
-         ;; R23-1: `org-get-heading' returns a FONTIFIED title (with `face
-         ;; org-level-1') once the source Org buffer is live + fontified
-         ;; (e.g. after a refile).  Strip all text-properties at the data
-         ;; layer so the struct title is a plain string and no caller leaks
-         ;; org heading faces into the calm one-line row (V6 pixel-lock).
-         (title (substring-no-properties (org-get-heading t t t t)))
+         ;; R90 pass-2: one broad projection owns title/local/effective tags
+         ;; for both query generation and source validation.  In particular,
+         ;; a writer-accepted `:shared-tag:' suffix never leaks into TITLE or
+         ;; vanishes from TAGS after a real refresh.
+         (projection (org-air-query--heading-projection))
+         (title (plist-get projection :title))
          (todo (org-get-todo-state))
-         (tags (org-get-tags nil nil))
+         (tags (plist-get projection :effective-tags))
          (scheduled (org-air-query--timestamp "SCHEDULED"))
          (deadline (org-air-query--timestamp "DEADLINE"))
          (closed (org-air-query--timestamp "CLOSED"))
@@ -1330,6 +1435,8 @@ even when the buffer's own name differs (a symlinked visit)."
          (org-air-query--scan-file-signals
           (with-current-buffer buffer
             (org-air-query--file-signals file)))
+         (org-air-query--projection-file-tags
+          (plist-get org-air-query--scan-file-signals :tags))
          (items (copy-sequence
                  (org-ql-select buffer (or query '(heading))
                    :action #'org-air-query--item-at-point))))
@@ -1380,6 +1487,8 @@ variables scans like the same Org file without them."
             ;; binding (like `org-air-query--scan-mtime').
             (let* ((org-air-query--scan-file-signals
                     (org-air-query--file-signals file))
+                   (org-air-query--projection-file-tags
+                    (plist-get org-air-query--scan-file-signals :tags))
                    (items (copy-sequence
                            (org-ql-select (current-buffer)
                              (or query '(heading))

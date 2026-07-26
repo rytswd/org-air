@@ -921,6 +921,74 @@ no query or refile-engine behavior changes.
   =.el= is pristine against =qvwkmsunuoup=, and no repository =probe-*.el=
   exists.
 
+- 2026-07-26: REVIEW FIX 3 completed from the five pass-2 blocker contracts.
+  The earliest after-save sentinel now closes the org-air undo group and
+  captures its exact undo/redo list-tail identity and chars tick before any
+  ordinary hook.  A later mutating hook is represented by an explicit small
+  =:expected-undo= field only while its user step is ahead: =u=/=U= and every
+  compound preflight then move zero bytes, save nothing, and retain the record
+  on the same ring until Emacs' exact undo-equivalence chain reaches that
+  identity.  Independently undoing the hook edit makes the org-air step safe;
+  no title/text guess or source snapshot is retained.  Normal R73/R75 records
+  preserve their established shape, stale-edit consumption, deep-walk
+  restamping, messages and redo backstop.  Single metadata cache-sync intent
+  is held in a weak record-identity table containing no source data.  Hook
+  failures also reach =display-warning= before the concise final success echo,
+  so the diagnostic remains discoverable.
+
+  Query generation and source validation/writing now share one broad heading
+  projection in =org-air-query.el=: custom TODO/priority/COMMENT prefixes,
+  plain title, writer-accepted hyphenated local tags, inherited parent and
+  =FILETAGS= values, inheritance exclusions, and local-wins deduplication all
+  agree.  The local writer never copies inherited values onto a child.  Since
+  old persisted entries can contain a tag suffix in title with a nil tag slot,
+  the disk cache schema is intentionally bumped from v6 to v7.  Post-commit
+  cache finalization now isolates mandatory numeric marker/effective-tag slot
+  writes, per-item classify invalidation, and cosmetic Org-element mirroring;
+  parser failure cannot skip =remhash=, hostile =remhash= poisons the whole
+  classify memo, and a mandatory-slot failure invalidates the complete item
+  generation with a persistent warning instead of retaining wrong targets.
+
+  Global source tracking now has one explicit canonical board owner.  Only
+  that owner installs/removes =find-file-hook=; incidental mode buffers cannot
+  steal or tear down tracking, source kill/owner reopen are symmetric, and
+  owner-scoped teardown touches no unrelated buffer.  Every generation swap
+  first releases stale item markers and duplicate current entries, then
+  hydrates only already-live source buffers, preserving the R53 no-open/no-scan
+  repaint law.
+
+  Proof: the three internally consistent supplied probes (finalization,
+  hook-owner, generation release) are GREEN 3/3.  Contract-correct temporary
+  probes are GREEN for the other two blockers: a mutating/signalling hook
+  blocks =u= with exact zero-byte retry and succeeds after independent hook
+  undo, while a real hyphen-tag refresh keeps title =Alpha task= (not the tag
+  suffix) plus tag =shared-tag= and permits a second exact write.  Supplementary
+  temporary probes are GREEN 4/4 for compound mutating hooks in both
+  directions, hyphenated local/parent/FILETAGS inheritance and second mutation,
+  hostile parser/=remhash=/mandatory-slot fallback, owner kill/reopen and
+  unrelated source isolation, and twelve repeated generation replacements.
+  Two additional compound resolve probes are GREEN 2/2 after independently
+  undoing the ahead hook step, and deep same-buffer single/compound histories
+  are GREEN 2/2: an older record also blocks rather than consuming the user's
+  edit, then resumes at its exact identity after resolution.  The two original
+  supplied files remain assertion-RED by construction: one
+  demands immediate org-air undo while the user hook edit is still ahead,
+  contrary to the zero-byte blocking requirement; the other demands the known
+  malformed title =Alpha task :shared-tag:=, contrary to the plain-title
+  requirement.  Their diagnostic state confirms the required behavior.
+
+  Focused R90 is 35/35 GREEN; the seven historical R73/R75 compatibility
+  regressions are restored GREEN 7/7.  Clean =make check= compiles (only the
+  pre-existing project wide-docstring warning), lints with 0 findings, and
+  runs 1137 tests with 1127 expected, exactly 2 schema-expectation failures and
+  8 GUI skips.  The only failures are
+  =org-air-r59-13-cache-v5-and-key= and
+  =org-air-r86-18-no-cache-version-bump=, both pinning cache version 6; every
+  behavioral test is green.  Per seat ownership those stale schema assertions
+  were not edited.  =make regen-mockups= produces no fixture diff; tests,
+  fixtures, known-failures and README remain byte-pristine, golden movement is
+  zero, and no repository probe file exists.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

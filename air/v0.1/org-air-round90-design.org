@@ -1179,6 +1179,76 @@ no query or refile-engine behavior changes.
   byte-pristine against =krpmszyxpmvo=; README, fixtures and goldens are
   byte-identical; no repository probe exists and =.deps= remains present.
 
+- 2026-07-26: REVIEW FIX 6 closed the pass-3 blockers in source.  Save
+  attempts now wrap recursive =save-buffer= depth and make PREPARE plus the
+  first outer after-save identity one-shot.  A recursive hook commit can no
+  longer overwrite the org-air boundary: it persists a bounded exact blocker,
+  keeps disk/live/modified state honest, names the intervening committed hook,
+  and requires that hook step to be independently undone and saved.  Recursive
+  commits are recorded in weak source-free history side state and invalidate
+  the old source generation once, so hook changes to title/tags/position or
+  deletion rebuild from final disk rather than reusing pre-hook cache facts.
+  Comment/title/tag nested-save shapes, with and without a later signal, all
+  block immediate =u= with zero save/byte/ring movement, then resolve and
+  rebuild exactly once; marked initial and compound =u=/=U= directions obey the
+  same law.  Undo-disabled/missing identities remain conservatively blocked.
+
+  Source tracking now builds one eq item-membership table, one expanded-file
+  item table and one eq locator index per replacement generation.  A current
+  source/generation is an O(1) hydration no-op; same-generation repaint,
+  filter, mark and collapse skip prune/hydration entirely; replacement/source-
+  open validation uses one forward native Org scanner pass and one exact check
+  per heading.  The GC-stabilised 1k/5k probe measured initial hydration
+  0.0436/0.2418s, already-current hydration 0.000048/0.000051s, repaint
+  0.0234/0.1000s, filter 0.0071/0.0303s, mark 0.0058/0.0177s, collapse
+  0.0051/0.0195s, and replacement 0.0416/0.2156s.  Same-generation paths had
+  zero heading projections/exact checks; replacement had exactly N exact
+  checks, with zero opens/queries/timers.  Native query projection measured
+  0.447/1.443s and exactly N projections.  No nested list-membership path
+  remains in prune/hydrate/relocation lookup.
+
+  Canonical ownership is revalidated on every command/open-core entry.
+  Renamed, noncanonical or non-org-air owners relinquish immediately;
+  =change-major-mode-hook= tears down before locals disappear; exact-owner
+  discovery clears source locators even after a mode reset; stale find-file
+  hydration validates/tears down its owner.  Rename→new canonical→old kill and
+  mode-change→reopen both retain exactly one global hook and zero dead-owner
+  markers.  Mandatory finalization is now a one-way =invalidated= status:
+  the first slot failure poisons generation/classification, warns once, stops
+  all detached item/cosmetic and later-file work, preserves committed history,
+  and causes one safe disk rebuild.  The pass-3 loop probe now calls only Alpha
+  and failing Beta (never Gamma), with one query/warning.
+
+  The speculative broad tag extension was reversed.  Singular input is
+  anchored to Org's live =org-tag-re=; hyphen, slash, colon, whitespace and
+  empty values refuse before point movement/write, while =shared_tag=,
+  =@context=, =hash#tag= and Org-accepted Unicode round-trip through
+  =org-toggle-tag=, =org-get-tags= and =org-map-entries=.  Query, source
+  exactness, local/effective inheritance and finalization use Org-native
+  =org-get-heading=/=org-get-tags= with deferred cache disabled for synchronous
+  truth; literal =:not/a/tag:= remains title text.  Unmarked =t= now resolves
+  the row before prompting; marked chrome dispatch remains valid.  The
+  experimental v7 broad-projection cache transition existed only on the R90
+  review stack and was never released/integrated; final native semantics match
+  main's v6 entries, so the source schema is restored to 6.
+
+  All six corrected pass-3 probes are GREEN.  Clean compile has only the
+  pre-existing project docstring warning; lint is 0; regen is a no-op.  Full
+  permanent gate: 1153 total, 1138 unrelated behavioral results green, 8 GUI
+  skips, and exactly seven test-seat-stale failures (never manifested):
+  =org-air-r59-13-cache-v7-and-key=,
+  =org-air-r86-18-path-adds-no-cache-coherence-input=,
+  =org-air-r90-12-relocates-all-later-headings-for-second-action= (uses
+  invalid =a-very-long-shared-tag=),
+  =org-air-r90-31-cache-v7-rejects-malformed-v6-projection=,
+  =org-air-r90-33-marked-b-and-t-mutating-hooks-resolve-exactly= (uses invalid
+  =shared-tag=),
+  =org-air-r90-38-broad-projection-inheritance-prefix-and-refresh=, and
+  =org-air-r90-hostile-b-post-save-sync-cannot-diverge= (uses invalid
+  =long-shared-tag=).  Tests/README/known-failures/fixtures/goldens remain
+  byte-pristine; independent test-seat replacement of those obsolete v7/broad
+  inputs/assertions and permanent pass-3 coverage remains the only follow-up.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

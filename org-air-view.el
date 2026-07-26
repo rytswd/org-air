@@ -10678,15 +10678,16 @@ longer read by `u' (`org-air-edit-undo' dispatches on the bounded
   "Depth bound of the recent-edits undo ring (R73 Decision 7).
 An internal bound like `org-air-view--refresh-pace' — never a
 defcustom; 20 covers a whole process-inbox sitting, and the payload per
-record is a short string + a buffer ref + ints.")
+record is a short string, a buffer ref, ints, and bounded opaque tokens.")
 
 (defvar org-air-view--edit-ring nil
   "The bounded recent-edits ring: a plain NEWEST-FIRST list (R73).
 A single-file record is a plist (:desc :buffer :file :kind :tick :time).
 R90 adds one compound shape, (:desc :kind bulk :parts :time), whose
-ordered PARTS carry the same live-buffer/file/tick facts plus the expected
-undo head; it holds no source markers or retained content.  A killed
-buffer degrades honestly in either shape.  GLOBAL, not buffer-local:
+ordered PARTS carry the same live-buffer/file/tick facts plus a bounded
+opaque token for the expected undo head; it holds no source markers, raw undo
+objects, or retained content.  A killed buffer degrades honestly in either
+shape.  GLOBAL, not buffer-local:
 edits are global facts about the user's org files, and history
 survives a board kill/recreate (`q' + \\[org-air]).  `u' consumes from
 the head; `org-air-view--edit-ring-push' truncates the tail at
@@ -10696,8 +10697,8 @@ wanted.")
 (defvar org-air-view--edit-redo-ring nil
   "The REDO side of the recent-edits ring (R75): a NEWEST-FIRST list.
 Same single-file and R90 compound shapes as `org-air-view--edit-ring',
-with small metadata and no source markers or retained content, and the
-same GLOBAL single-timeline discipline (Decision 1).  Fed ONLY
+with small metadata and no source markers, raw undo objects, or retained
+content, and the same GLOBAL single-timeline discipline (Decision 1).  Fed ONLY
 by `org-air-edit-undo''s SUCCESS branch — the popped record, tick
 re-stamped to the buffer's post-undo chars tick; the
 consumed-without-revert branches (structural, dead, tick-tripped) feed
@@ -10713,11 +10714,136 @@ under the one `org-air-view--edit-ring-max' defconst (Decision 6:
 records only ever shuffle between the two sides until a fresh edit
 truncates history), with the same defensive truncate on every push.")
 
+(cl-defstruct
+    (org-air-view--history-token
+     (:constructor org-air-view--history-token-create (projection)))
+  "Bounded opaque reference to an Emacs-owned undo identity."
+  projection)
+
+(defvar org-air-view--history-identity-registry
+  (make-hash-table :test #'eq :weakness 'key-and-value)
+  "Weak map from bounded history tokens to Emacs-owned undo-list tails.
+`key-and-value' is intentional: a mapping survives only while both the token
+is independently owned by a history record and the raw tail is independently
+owned by Emacs' undo machinery.  The table therefore retains neither side
+when a ring drops the token or a source buffer/undo lineage drops the tail.")
+
+(defun org-air-view--history-identity-register (identity &optional projection)
+  "Return a bounded token weakly resolving to raw undo IDENTITY.
+PROJECTION is nil for a tail identity and `head' when callers compare the
+first non-boundary undo object represented by that tail."
+  (when identity
+    (let ((token (org-air-view--history-token-create projection)))
+      (puthash token identity org-air-view--history-identity-registry)
+      token)))
+
+(defun org-air-view--history-identity-resolve (identity)
+  "Resolve bounded undo IDENTITY, leaving legacy raw values unchanged.
+Return nil when a bounded token's weak registry entry has disappeared."
+  (if (org-air-view--history-token-p identity)
+      (when-let* ((raw (gethash identity
+                                org-air-view--history-identity-registry)))
+        (if (eq (org-air-view--history-token-projection identity) 'head)
+            (car-safe raw)
+          raw))
+    identity))
+
+(defun org-air-view--history-identity-match-p (identity current)
+  "Return non-nil when stored IDENTITY resolves exactly to CURRENT.
+A collected bounded token never matches, including when CURRENT is nil.
+Legacy/synthetic raw values retain their established `eq' comparison."
+  (if (org-air-view--history-token-p identity)
+      (let ((missing (list 'missing)))
+        (let ((raw (gethash identity org-air-view--history-identity-registry
+                            missing)))
+          (and (not (eq raw missing))
+               (eq (if (eq (org-air-view--history-token-projection identity)
+                           'head)
+                       (car-safe raw)
+                     raw)
+                   current))))
+    (eq identity current)))
+
+(defun org-air-view--history-identity-forget (identity)
+  "Remove bounded undo IDENTITY from the weak registry immediately."
+  (when (org-air-view--history-token-p identity)
+    (remhash identity org-air-view--history-identity-registry)))
+
+(defun org-air-view--history-identity-put
+    (plist property identity &optional projection)
+  "Store raw IDENTITY in PLIST PROPERTY as a bounded opaque token.
+PROJECTION has the meaning documented by
+`org-air-view--history-identity-register'.  Return the updated plist."
+  (when (plist-member plist property)
+    (org-air-view--history-identity-forget (plist-get plist property)))
+  (plist-put plist property
+             (org-air-view--history-identity-register identity projection)))
+
+(defun org-air-view--history-identity-remove (plist property)
+  "Remove PLIST PROPERTY and forget any bounded identity it carried."
+  (when (plist-member plist property)
+    (org-air-view--history-identity-forget (plist-get plist property))
+    (cl-remf plist property))
+  plist)
+
+(defun org-air-view--history-part-forget-identities (part)
+  "Forget every bounded undo identity stored by history PART."
+  (dolist (property '(:expected-undo :undo-head))
+    (when (plist-member part property)
+      (org-air-view--history-identity-forget (plist-get part property)))))
+
 (defvar org-air-view--cache-sync-history
   (make-hash-table :test #'eq :weakness 'key)
   "Weak record-identity table for single metadata edits needing cache sync.
 This implementation detail keeps the public R73/R75 history plist shape
 stable; values contain no source bytes, markers, or snapshots.")
+
+(defun org-air-view--history-buffer-killed ()
+  "Forget weak identities owned by the source buffer being killed."
+  (let ((buffer (current-buffer)))
+    (dolist (record (append org-air-view--edit-ring
+                            org-air-view--edit-redo-ring))
+      (if (eq (plist-get record :kind) 'bulk)
+          (dolist (part (plist-get record :parts))
+            (when (eq (plist-get part :buffer) buffer)
+              (org-air-view--history-part-forget-identities part)))
+        (when (eq (plist-get record :buffer) buffer)
+          (org-air-view--history-part-forget-identities record)
+          (remhash record org-air-view--cache-sync-history))))))
+
+(defun org-air-view--history-track-buffer (buffer)
+  "Install bounded-history identity cleanup in live source BUFFER."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (add-hook 'kill-buffer-hook
+                #'org-air-view--history-buffer-killed nil t))))
+
+(defun org-air-view--history-record-discard (record)
+  "Release side metadata for a permanently discarded history RECORD."
+  (if (eq (plist-get record :kind) 'bulk)
+      (dolist (part (plist-get record :parts))
+        (org-air-view--history-part-forget-identities part))
+    (org-air-view--history-part-forget-identities record))
+  (remhash record org-air-view--cache-sync-history))
+
+(defun org-air-view--history-records-discard (records)
+  "Release side metadata for permanently discarded history RECORDS."
+  (dolist (record records)
+    (org-air-view--history-record-discard record)))
+
+(defun org-air-view--history-ring-clear (ring)
+  "Discard every record on history RING and set that ring to nil."
+  (org-air-view--history-records-discard (symbol-value ring))
+  (set ring nil))
+
+(defun org-air-view--history-ring-truncate (ring)
+  "Truncate history RING to `org-air-view--edit-ring-max' with cleanup."
+  (let ((records (symbol-value ring)))
+    (when (> (length records) org-air-view--edit-ring-max)
+      (let* ((last (nthcdr (1- org-air-view--edit-ring-max) records))
+             (discarded (cdr last)))
+        (setcdr last nil)
+        (org-air-view--history-records-discard discarded)))))
 
 (defun org-air-view--edit-ring-push (desc buffer &optional kind save-result cache-sync)
   "Push an undo record for the DESC edit made in BUFFER (R73 Decision 3).
@@ -10752,7 +10878,8 @@ beneath this — Decision 3).  The ring ops themselves never come
 through here (`org-air-view--edit-ring-requeue' pushes directly)."
   (condition-case nil
       (when (buffer-live-p buffer)
-        (setq org-air-view--edit-redo-ring nil)
+        (org-air-view--history-ring-clear
+         'org-air-view--edit-redo-ring)
         (let ((record
                (list :desc desc
                      :buffer buffer
@@ -10763,23 +10890,21 @@ through here (`org-air-view--edit-ring-requeue' pushes directly)."
                      :tick (or (plist-get save-result :expected-tick)
                                (buffer-chars-modified-tick buffer))
                      :time (current-time))))
-          ;; Retain the exact list-tail only when a later hook actually left
-          ;; another history step ahead.  The normal path keeps the established
-          ;; R73/R75 metadata/guard semantics; the exceptional path is blocked
-          ;; and retryable until this exact identity is safe again.
+          ;; Persist only a bounded token when a later hook left another step
+          ;; ahead.  Its exact raw tail remains weakly owned by Emacs' undo
+          ;; machinery, never by this record.
           (when (org-air-view--save-result-ahead-p
                  save-result buffer 'undo)
             (setq record
-                  (plist-put record :expected-undo
-                             (plist-get save-result :expected-undo))))
+                  (org-air-view--history-identity-put
+                   record :expected-undo
+                   (plist-get save-result :expected-undo))))
           (when cache-sync
             (puthash record t org-air-view--cache-sync-history))
+          (org-air-view--history-track-buffer buffer)
           (push record org-air-view--edit-ring))
-        (when (> (length org-air-view--edit-ring)
-                 org-air-view--edit-ring-max)
-          (setcdr (nthcdr (1- org-air-view--edit-ring-max)
-                          org-air-view--edit-ring)
-                  nil)))
+        (org-air-view--history-ring-truncate
+         'org-air-view--edit-ring))
     (error nil)))
 
 (defun org-air-view--edit-ring-restamp (buffer)
@@ -10824,10 +10949,9 @@ ring op\" on its new side; the same defensive push-and-truncate to
 enforced on BOTH sides, not merely argued by conservation)."
   (unless (plist-member rec :expected-undo)
     (plist-put rec :tick (buffer-chars-modified-tick buffer)))
+  (org-air-view--history-track-buffer buffer)
   (set ring (cons rec (symbol-value ring)))
-  (let ((lst (symbol-value ring)))
-    (when (> (length lst) org-air-view--edit-ring-max)
-      (setcdr (nthcdr (1- org-air-view--edit-ring-max) lst) nil))))
+  (org-air-view--history-ring-truncate ring))
 
 (defun org-air-view--item-at-point ()
   "Return the org-air item at point, or signal a `user-error'.
@@ -11500,13 +11624,14 @@ the full item generation; any `remhash' failure poisons the classify cache."
 (defun org-air-view--edit-ring-push-bulk (desc parts)
   "Push one compound bulk history record DESC with committed file PARTS."
   (when parts
-    (setq org-air-view--edit-redo-ring nil)
+    (org-air-view--history-ring-clear
+     'org-air-view--edit-redo-ring)
+    (dolist (part parts)
+      (org-air-view--history-track-buffer (plist-get part :buffer)))
     (push (list :desc desc :kind 'bulk :parts parts :time (current-time))
           org-air-view--edit-ring)
-    (when (> (length org-air-view--edit-ring) org-air-view--edit-ring-max)
-      (setcdr (nthcdr (1- org-air-view--edit-ring-max)
-                      org-air-view--edit-ring)
-              nil))))
+    (org-air-view--history-ring-truncate
+     'org-air-view--edit-ring)))
 
 (defun org-air-view--bulk-message (action desired tag successful noops
                                           stale ineligible failed unattempted
@@ -11672,14 +11797,18 @@ files.  Earlier files remain committed and only successes/no-ops clear."
                                   (list :buffer buffer :file file
                                         :tick
                                         (plist-get save-result :expected-tick)
-                                        :undo-head (car-safe expected))))
-                            ;; Ordinary compound parts preserve the established
-                            ;; shape.  A mutating later hook alone adds the exact
-                            ;; retry identity captured at after-save entry.
+                                        :undo-head nil)))
+                            ;; New compound metadata stores bounded tokens for
+                            ;; both normal head and exceptional tail identity.
+                            ;; The raw tail remains ephemeral in SAVE-RESULT.
+                            (setq part
+                                  (org-air-view--history-identity-put
+                                   part :undo-head expected 'head))
                             (when (org-air-view--save-result-ahead-p
                                    save-result buffer 'undo)
                               (setq part
-                                    (plist-put part :expected-undo expected)))
+                                    (org-air-view--history-identity-put
+                                     part :expected-undo expected)))
                             (push part parts))
                           (when (plist-get save-result :error)
                             (push save-result warnings)))))
@@ -12039,29 +12168,33 @@ against the displayed board; `org-cut-subtree' is prompt-free."
 
 (defun org-air-view--history-expected-safe-p (record &optional operation)
   "Return non-nil when RECORD's exact OPERATION identity is safe.
-New pass-2 records use a list-tail `:expected-undo' identity.  For undo this
-follows only Emacs' exact redo-equivalence chain; for redo it requires the raw
-redo tail.  With OPERATION nil, either direction is accepted for read-only
-status callers.  Legacy/synthetic records retain the older tick/head guard."
+New pass-2 records use bounded opaque tokens.  For undo, exact comparison
+follows only Emacs' redo-equivalence chain; for redo it requires the exact
+redo tail.  Missing weak identities safely fail.  With OPERATION nil, either
+direction is accepted for read-only status callers.  Legacy/synthetic raw
+`:expected-undo' and `:undo-head' values retain their established semantics."
   (let ((buffer (plist-get record :buffer)))
     (and (buffer-live-p buffer)
          (if (plist-member record :expected-undo)
              (let ((expected (plist-get record :expected-undo)))
-               (and expected
-                    (pcase operation
-                      ('undo (eq expected
-                                 (org-air-view--expected-undo-step buffer)))
-                      ('redo (eq expected
-                                 (org-air-view--expected-redo-step buffer)))
-                      (_ (or (eq expected
-                                 (org-air-view--expected-undo-step buffer))
-                             (eq expected
-                                 (org-air-view--expected-redo-step buffer)))))))
+               (pcase operation
+                 ('undo
+                  (org-air-view--history-identity-match-p
+                   expected (org-air-view--expected-undo-step buffer)))
+                 ('redo
+                  (org-air-view--history-identity-match-p
+                   expected (org-air-view--expected-redo-step buffer)))
+                 (_
+                  (or (org-air-view--history-identity-match-p
+                       expected (org-air-view--expected-undo-step buffer))
+                      (org-air-view--history-identity-match-p
+                       expected (org-air-view--expected-redo-step buffer))))))
            (and (eql (plist-get record :tick)
                      (buffer-chars-modified-tick buffer))
                 (or (not (plist-member record :undo-head))
-                    (eq (plist-get record :undo-head)
-                        (org-air-view--undo-head buffer))))))))
+                    (org-air-view--history-identity-match-p
+                     (plist-get record :undo-head)
+                     (org-air-view--undo-head buffer))))))))
 
 (defun org-air-view--history-ahead-edit-name (record)
   "Name the intervening edit ahead of RECORD's expected org-air step."
@@ -12088,7 +12221,7 @@ OPERATION, when non-nil, selects the exact undo or redo identity."
         (cond
          ((not (buffer-live-p buffer))
           (push (format "%s gone" name) out))
-         ;; Exact pass-2 parts are governed solely by list-tail identity.
+         ;; Exact pass-2 parts are governed solely by opaque-token resolution.
          ;; Independently undoing an ahead hook edit necessarily changes the
          ;; chars tick and raw head while restoring the safe org-air tail.
          ((plist-member part :expected-undo)
@@ -12097,8 +12230,9 @@ OPERATION, when non-nil, selects the exact undo or redo identity."
          ((not (eql (plist-get part :tick)
                     (buffer-chars-modified-tick buffer)))
           (push (format "%s changed since" name) out))
-         ((not (eq (plist-get part :undo-head)
-                   (org-air-view--undo-head buffer)))
+         ((not (org-air-view--history-identity-match-p
+                (plist-get part :undo-head)
+                (org-air-view--undo-head buffer)))
           (push (format "%s history step missing" name) out)))))
     (nreverse out)))
 
@@ -12172,10 +12306,10 @@ the caller restamps every affected metadata record to that honest tick."
 
 (defun org-air-view--bulk-history-requeue (record ring)
   "Push compound RECORD directly onto RING without clearing its peer."
+  (dolist (part (plist-get record :parts))
+    (org-air-view--history-track-buffer (plist-get part :buffer)))
   (set ring (cons record (symbol-value ring)))
-  (let ((list (symbol-value ring)))
-    (when (> (length list) org-air-view--edit-ring-max)
-      (setcdr (nthcdr (1- org-air-view--edit-ring-max) list) nil))))
+  (org-air-view--history-ring-truncate ring))
 
 (defun org-air-view--bulk-history-restamp-part
     (part operation &optional save-result)
@@ -12193,17 +12327,25 @@ the caller restamps every affected metadata record to that honest tick."
                   (org-air-view--expected-undo-step buffer)
                 (org-air-view--expected-redo-step buffer)))))
     (plist-put part :tick tick)
-    (plist-put part :undo-head (car-safe expected))
+    (setq part
+          (org-air-view--history-identity-put
+           part :undo-head expected 'head))
     (cond
      ;; A restored failed attempt keeps its existing exact retry contract.
      ((and (null save-result) (plist-member part :expected-undo))
-      (plist-put part :expected-undo expected))
+      (setq part
+            (org-air-view--history-identity-put
+             part :expected-undo expected)))
      ;; A committed operation needs exact metadata only if its own later hook
      ;; has now put a new user step ahead of the inverse ring action.
      ((org-air-view--save-result-ahead-p save-result buffer inverse)
-      (plist-put part :expected-undo expected))
+      (setq part
+            (org-air-view--history-identity-put
+             part :expected-undo expected)))
      ((plist-member part :expected-undo)
-      (cl-remf part :expected-undo)))))
+      (setq part
+            (org-air-view--history-identity-remove
+             part :expected-undo))))))
 
 (defun org-air-view--history-arm-next
     (ring buffer expected tick)
@@ -12222,14 +12364,20 @@ cut must never be made automatically undoable through an older record."
                               (eq (plist-get candidate :buffer) buffer))
                             (plist-get record :parts))))
                 (plist-put part :tick tick)
-                (plist-put part :undo-head (car-safe expected))
-                (plist-put part :expected-undo expected)
+                (setq part
+                      (org-air-view--history-identity-put
+                       part :undo-head expected 'head))
+                (setq part
+                      (org-air-view--history-identity-put
+                       part :expected-undo expected))
                 (setq found t))
             (when (eq (plist-get record :buffer) buffer)
               (setq found t)
               (unless (memq (plist-get record :kind) '(refile archive))
                 (plist-put record :tick tick)
-                (plist-put record :expected-undo expected)))))))))
+                (setq record
+                      (org-air-view--history-identity-put
+                       record :expected-undo expected))))))))))
 
 (defun org-air-view--single-history-restamp (record save-result operation)
   "Restamp RECORD from SAVE-RESULT for inverse of committed OPERATION."
@@ -12241,9 +12389,13 @@ cut must never be made automatically undoable through an older record."
                          :expected-redo :expected-undo))))
     (plist-put record :tick (plist-get save-result :expected-tick))
     (if (org-air-view--save-result-ahead-p save-result buffer inverse)
-        (plist-put record :expected-undo expected)
+        (setq record
+              (org-air-view--history-identity-put
+               record :expected-undo expected))
       (when (plist-member record :expected-undo)
-        (cl-remf record :expected-undo)))))
+        (setq record
+              (org-air-view--history-identity-remove
+               record :expected-undo))))))
 
 (defun org-air-view--single-history-operation (record operation)
   "Apply single RECORD OPERATION without ever undoing an intervening edit."
@@ -12297,13 +12449,16 @@ cut must never be made automatically undoable through an older record."
                   (plist-put record :tick
                              (buffer-chars-modified-tick buffer))
                   (when (plist-member record :expected-undo)
-                    (plist-put record :expected-undo
-                               (if (eq operation 'undo)
-                                   (org-air-view--expected-undo-step buffer)
-                                 (org-air-view--expected-redo-step buffer))))
-                  (when (plist-member record :expected-undo)
-                    (org-air-view--edit-ring-requeue
-                     record buffer source-ring))
+                    (setq record
+                          (org-air-view--history-identity-put
+                           record :expected-undo
+                           (if (eq operation 'undo)
+                               (org-air-view--expected-undo-step buffer)
+                             (org-air-view--expected-redo-step buffer)))))
+                  (if (plist-member record :expected-undo)
+                      (org-air-view--edit-ring-requeue
+                       record buffer source-ring)
+                    (org-air-view--history-record-discard record))
                   (message "Cannot %s: %s — %s"
                            operation (plist-get record :desc)
                            (cond
@@ -12478,7 +12633,8 @@ after disk commit is finalized as success and only emits a bounded warning."
         (if failed
             (progn
               ;; A runtime split never creates a speculative redo branch.
-              (setq org-air-view--edit-redo-ring nil)
+              (org-air-view--history-ring-clear
+               'org-air-view--edit-redo-ring)
               (let ((residual
                      (if (eq operation 'undo)
                          ;; FAILED was restored to its committed pre-attempt
@@ -12497,6 +12653,12 @@ after disk commit is finalized as success and only emits a bounded warning."
                                        (if (= (length residual) 1) "" "s"))
                          :kind 'bulk :parts residual :time (current-time))
                    'org-air-view--edit-ring)))
+              ;; Parts excluded from residual history release their token
+              ;; mappings immediately; weak semantics backstop every path.
+              (dolist (part (if (eq operation 'undo)
+                                successes
+                              (cons failed remaining)))
+                (org-air-view--history-part-forget-identities part))
               (when successes
                 (dolist (part successes)
                   (unless (memq (plist-get part :buffer) hooked-buffers)
@@ -12574,6 +12736,7 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
      ;; Decision 6: structural honesty — named, never a duplicate-making
      ;; partial undo.
      ((memq kind '(refile archive))
+      (org-air-view--history-record-discard rec)
       (message "Not simply undoable: %s — it moved; %s%s"
                desc
                (if (eq kind 'refile)
@@ -12584,6 +12747,7 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
                  "")))
      ;; Decision 5 step 1: liveness — consumed, the press ENDS.
      ((not (buffer-live-p buf))
+      (org-air-view--history-record-discard rec)
       (message "Cannot undo: %s — source buffer gone" desc))
      ;; Only records whose save actually observed a later hook mutation carry
      ;; an exact identity.  Such an ahead step blocks without consumption.
@@ -12597,6 +12761,7 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
      ((and (not (plist-member rec :expected-undo))
            (not (eql (plist-get rec :tick)
                      (buffer-chars-modified-tick buf))))
+      (org-air-view--history-record-discard rec)
       (message "Cannot undo: %s — %s changed since" desc (buffer-name buf)))
      (t
       (org-air-view--single-history-operation rec 'undo)))))
@@ -12657,6 +12822,7 @@ read-only board where isearch is a real navigation path)."
       (org-air-view--bulk-history-operation rec 'redo))
      ;; Decision 5 step 2: liveness — consumed, the press ENDS.
      ((not (buffer-live-p buf))
+      (org-air-view--history-record-discard rec)
       (message "Cannot redo: %s — source buffer gone" desc))
      ;; As on undo, only a captured post-save hook step blocks/retries.
      ((and (plist-member rec :expected-undo)
@@ -12668,6 +12834,7 @@ read-only board where isearch is a real navigation path)."
      ((and (not (plist-member rec :expected-undo))
            (not (eql (plist-get rec :tick)
                      (buffer-chars-modified-tick buf))))
+      (org-air-view--history-record-discard rec)
       (message "Cannot redo: %s — %s changed since" desc (buffer-name buf)))
      (t
       (org-air-view--single-history-operation rec 'redo)))))

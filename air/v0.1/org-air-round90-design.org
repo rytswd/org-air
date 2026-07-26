@@ -1030,6 +1030,49 @@ no query or refile-engine behavior changes.
   history changed; implementation =.el=, README, fixtures and goldens remain
   byte-pristine against =vptuoslynoqo=, and no repository probe file exists.
 
+- 2026-07-26: REVIEW FIX 4 replaced every newly persisted undo identity with a
+  bounded opaque =org-air-view--history-token=.  Exceptional
+  =:expected-undo= fields now tokenise the exact undo-list tail; every new R90
+  compound =:undo-head= field tokenises the same Emacs-owned tail with a
+  head-projection, so neither path stores the raw tail/head object.  Active
+  =save-result= plists may still carry raw tails only inside the dynamic command
+  scope.  Legacy/synthetic raw =:expected-undo= and =:undo-head= values remain
+  distinguishable from the struct token and retain the R73/R75 comparison law.
+
+  Exact resolution uses one side registry with Emacs weakness
+  =key-and-value=.  This is the required both-independently-live law: a mapping
+  remains only while the history ring strongly owns its token /and/ Emacs' undo
+  machinery strongly owns the raw tail; loss of either side removes the mapping
+  on GC.  Missing token resolution never guesses from title, text, tick, or raw
+  head equality: exceptional single and compound operations stay blocked with
+  zero bytes, and normal compound preflight reports the missing history step.
+  Source-buffer kill hooks eagerly forget that buffer's mappings.  Ring clear,
+  truncation, stale/dead/structural consumption, failed residual splitting, and
+  explicit record discard eagerly release token mappings and weak cache-sync
+  keys; the weak semantics backstop every lifecycle path.
+
+  Evidence: unchanged permanent r90-30 is GREEN.  A compound 128-KiB deletion +
+  mutating/signalling-hook probe traversed the complete record/part graph with
+  only documented =:buffer= references removed: 21 conses, 2 strings / 55
+  string bytes, zero buffers/markers, and both raw-tail and distinctive-source
+  reachability nil; both =:expected-undo= and =:undo-head= were bounded tokens.
+  Killing the source, dropping probe-held undo references and forcing GC reduced
+  the identity registry from 2 to baseline 0; 80 repeated create/discard cycles
+  stayed at 0.  Forced GC at blocked state, after independent hook undo, and
+  immediately before retry preserved exact success at the true identity (with
+  safe zero-byte blocking permitted if Emacs drops it).  The unchanged critical,
+  supplementary, compound-resolution, deep-history and review probes are GREEN
+  1/1 + 4/4 + 2/2 + 2/2 + 6/6; the three consistent pass-2 probes are GREEN
+  3/3.  Replacing token registration with FIX-3 raw tail/head persistence makes
+  unchanged r90-30 RED with =:undo-tail-reachable t=,
+  =:distinctive-source-reachable t=, 131188 string bytes and a 131120-byte
+  largest source string.  Clean compile has only the pre-existing project
+  docstring warning; lint is 0.  Full gate: 1138 tests / 1128 expected / exactly
+  2 unexpected / 8 GUI skips; r90-30 and every behavioral test pass, with only
+  the intentionally untouched stale-v6 assertions =org-air-r59-13-cache-v5-and-key=
+  and =org-air-r86-18-no-cache-version-bump= failing.  Manifest remains empty.
+  README/tests/fixtures/goldens remain test-seat owned and untouched.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

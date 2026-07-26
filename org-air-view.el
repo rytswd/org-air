@@ -11232,7 +11232,9 @@ touched file and mirrors committed effective tags without a query scan."
   "Set broad local TAG on/off at point according to STATE.
 Unlike Org's strict headline parser, this preserves every writer-accepted
 hyphenated local tag already present.  Inherited tags are never passed to the
-line writer and therefore can never be copied onto the child."
+line writer and therefore can never be copied onto the child.  Refuse an
+unreadable TAG before moving point or changing source bytes."
+  (org-air-query--validate-single-tag-value tag)
   (org-back-to-heading t)
   (let* ((projection (org-air-query--heading-projection))
          (local (copy-sequence (plist-get projection :local-tags)))
@@ -11672,6 +11674,10 @@ the full item generation; any `remhash' failure poisons the classify cache."
 TAG is required for `tag'.  Source files commit deterministically and
 atomically one file at a time; the first runtime file failure stops later
 files.  Earlier files remain committed and only successes/no-ops clear."
+  ;; Defend direct callers before landing capture or source preflight.  The
+  ;; interactive `t' path has already performed this same immediate check.
+  (setq tag (org-air-query--validate-single-tag-value
+             (if (eq action 'backlog) org-air-backlog-tag tag)))
   (let* ((landing (org-air-view--mutation-landing-capture))
          (pre (org-air-view--bulk-preflight action))
          (old-index (plist-get pre :index))
@@ -11689,7 +11695,6 @@ files.  Earlier files remain committed and only successes/no-ops clear."
                                             (plist-get record :item))))
                                  candidates)))
                     t))
-         (tag (if (eq action 'backlog) org-air-backlog-tag tag))
          changed noops)
     ;; The stale exact-key misses are UI-state facts, pruned before writes.
     (org-air-view--marked-remove-keys stale)
@@ -11982,15 +11987,19 @@ above the definition byte-compiles against whatever macro a stale
 R90: with marks active, prompts once and adds that tag to every eligible
 exact source heading as one compound, file-atomic edit."
   (interactive)
-  (if (org-air-view--marks-active-p)
-      ;; One shared prompt; cancellation precedes every preflight/write.
-      (org-air-view--marked-tag-action 'tag (read-string "Tag all marked items: "))
-    (let* ((item (org-air-view--item-at-point))
-           (tag (read-string "Tag: ")))
-      (org-air-view--at-item-source item
-        (format "tag \"%s\" +%s" (org-air-item-title item) tag)
-        (org-air-view--source-toggle-local-tag tag 'on))
-      (org-air-refresh))))
+  (let* ((marked (org-air-view--marks-active-p))
+         ;; Validate immediately after the one prompt.  In particular, the
+         ;; marked path has not captured landing, preflighted, opened source
+         ;; files, consumed marks, or touched history at this boundary.
+         (tag (org-air-query--validate-single-tag-value
+               (read-string (if marked "Tag all marked items: " "Tag: ")))))
+    (if marked
+        (org-air-view--marked-tag-action 'tag tag)
+      (let ((item (org-air-view--item-at-point)))
+        (org-air-view--at-item-source item
+          (format "tag \"%s\" +%s" (org-air-item-title item) tag)
+          (org-air-view--source-toggle-local-tag tag 'on))
+        (org-air-refresh)))))
 
 ;;;###autoload
 (defun org-air-item-backlog ()

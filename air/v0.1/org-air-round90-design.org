@@ -1073,6 +1073,46 @@ no query or refile-engine behavior changes.
   and =org-air-r86-18-no-cache-version-bump= failing.  Manifest remains empty.
   README/tests/fixtures/goldens remain test-seat owned and untouched.
 
+- 2026-07-26: REVIEW FIX 5 closed the shared-tag input-safety blocker with
+  one projection-adjacent single-value grammar: a tag is nonempty and contains
+  no colon or whitespace (including space, tab, newline, carriage return and
+  vertical whitespace); hyphens and every other non-colon/non-whitespace
+  spelling remain accepted.  Marked and unmarked =t= validate immediately
+  after their one prompt.  The marked coordinator repeats the check before
+  landing capture/source preflight for direct callers, the low-level local-tag
+  toggle refuses before moving point or changing bytes, and the pure heading
+  line setter validates every local value before concatenation.  Backlog and
+  inherited/local semantics are unchanged; inherited values are still never
+  copied local.  This validates future writes only and leaves cache v7 intact.
+
+  A temporary assertion probe is GREEN 4/4.  Thirteen invalid shapes (empty,
+  space, embedded/leading/trailing space or tab/newline, and colon) each raise
+  the concise =user-error= “Tag must be nonempty and contain no colon or
+  whitespace” before preflight/open/save/render/pane/timer activity, while
+  preserving exact disk/live/cache item vectors and identities, every mark,
+  both nonempty history-ring sentinels, board point, selected window, window
+  layout, pane context, inspector and pending landing.  Direct low-level
+  toggle and line-set calls likewise refuse with zero line/point change.
+  Valid =shared-tag=, =@context=, =hash#tag=, =under_score= and Unicode
+  =日本語= each write, survive a real refresh as plain title plus exact tag,
+  and permit a second exact backlog mutation and refresh.  With the shared
+  validator deliberately bypassed, the same probe recreates and detects the
+  historical =:one::= and =:one:bad tag:= disk corruption for empty/space
+  input, proving the assertions are mutation-sensitive.
+
+  Permanent R90 is GREEN 36/36 including r90-30; original review is 6/6;
+  consistent pass-2 finalization/owner/generation is 3/3; FIX-3 critical,
+  supplementary, compound-resolution and deep-history probes are respectively
+  1/1, 4/4, 2/2 and 2/2.  Clean compile retains only the pre-existing project
+  wide-docstring warning and lint is 0.  Full gate runs 1138 tests with 1128
+  expected, exactly the two intentionally untouched stale-v6 assertions
+  =org-air-r59-13-cache-v5-and-key= and
+  =org-air-r86-18-no-cache-version-bump= unexpected, and 8 GUI skips; every
+  behavioral test is green.  =make regen-mockups= is a byte no-op.  Tests,
+  README, known-failures, fixtures and goldens remain byte-pristine against
+  =oqnuxmmkopwl=; golden movement is zero and no repository =probe-*.el=
+  exists.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

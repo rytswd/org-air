@@ -460,8 +460,27 @@ re-stat.")
 (defvar org-air-query--projection-file-tags nil
   "Broad file tags bound once around a query file's heading projection.")
 
+(defconst org-air-query--single-tag-value-regexp
+  "[^:[:space:]\n\r\v]+"
+  "Grammar for one local tag value shared by projection and source writes.")
+
+(defun org-air-query--single-tag-value-p (value)
+  "Return non-nil when VALUE is one readable local tag value.
+A value is nonempty and contains neither a colon nor whitespace.  Every
+other spelling, including hyphens, is deliberately accepted."
+  (and (stringp value)
+       (string-match-p
+        (concat "\\`" org-air-query--single-tag-value-regexp "\\'") value)))
+
+(defun org-air-query--validate-single-tag-value (value)
+  "Return VALUE, or refuse it when it is not one readable local tag."
+  (unless (org-air-query--single-tag-value-p value)
+    (user-error "Tag must be nonempty and contain no colon or whitespace"))
+  value)
+
 (defconst org-air-query--heading-tag-suffix-regexp
-  "[ \t]+\\(:[^: \t\n]+\\(?::[^: \t\n]+\\)*:\\)[ \t]*\\'"
+  (concat "[ \t]+\\(:" org-air-query--single-tag-value-regexp
+          "\\(?::" org-air-query--single-tag-value-regexp "\\)*:\\)[ \t]*\\'")
   "The one broad local-tag suffix grammar used by projection and writes.")
 
 (defun org-air-query--heading-line-parts (&optional line)
@@ -495,7 +514,9 @@ Org's writer accepts, including hyphens."
 (defun org-air-query--heading-line-set-local-tags (line tags)
   "Return heading LINE with broad local TAGS replacing its suffix.
 Only the suffix bytes change; TODO keywords, COMMENT, priority and title are
-left verbatim.  TAGS are local only—callers must never pass inherited tags."
+left verbatim.  TAGS are local only—callers must never pass inherited tags.
+Signal `user-error' before concatenation when any tag is unreadable."
+  (mapc #'org-air-query--validate-single-tag-value tags)
   (let ((base (if (string-match org-air-query--heading-tag-suffix-regexp line)
                   (substring line 0 (match-beginning 0))
                 (string-trim-right line))))

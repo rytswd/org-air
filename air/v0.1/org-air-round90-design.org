@@ -844,6 +844,46 @@ no query or refile-engine behavior changes.
   byte-identical goldens; implementation =.el= files are pristine against
   =rnpvtwtmrmpq=; no probe file remains.
 
+- 2026-07-26: REVIEW FIX 2 completed from the six distinguished-review RED
+  probes (baseline 0/6).  Established one shared save-attempt boundary for
+  single source writes, marked =b=/=t=, and compound =u=/=U=: temporary
+  buffer-local hook sentinels run at Emacs-29 hook depths +100 before write
+  preparation and -100 at after-save entry, are token-scoped for nested
+  org-air attempts, and are removed unconditionally.  The boundary also has
+  a conservative unmodified/visited/file-equality fallback for unusual file
+  handlers.  Source edit groups now finish before =save-buffer=; only a true
+  pre-write failure restores the ephemeral text, modified/visited state,
+  undo list and undo walker, stops later files, and records no success.  Once
+  after-save lifecycle begins, a later hook signal is committed success:
+  live committed bytes remain, total cache/mark/history finalization runs
+  exactly once, and a bounded warning is surfaced.  No source snapshot is
+  retained in either history ring.
+
+  Touched-file preflight now builds a total exact relocation set before the
+  first mutation.  User-visited source buffers keep separate ephemeral live
+  locators (durable item/row identities remain numeric conses), allowing
+  unsaved insertion drift to map exactly without title search; otherwise an
+  incomplete locator rejects the whole file with =run g r=.  Relocation
+  markers stay before Org's own heading rewrite, then switch insertion type
+  immediately before save hooks.  A latest pre-write capture therefore reads
+  positions plus local/effective tags after all ordinary =before-save-hook=
+  edits.  Finalization iterates every relocation directly, retains inherited
+  versus local tag truth, and remains total even when the normal relocation
+  helper signals.  Day/permissive landing now first restores the exact key in
+  the old rendered section; exclusion applies only after it actually leaves,
+  preserving ordinary board successor/previous behavior.
+
+  Proof: the supplied real-hook review probes are GREEN 6/6 (single =b=,
+  marked =b=, before-save relocation, pre-existing unsaved drift, day focus,
+  compound =u=); supplementary read-only probes are GREEN 3/3 for marked
+  =t=, compound =U=, and marked day focus.  Focused R90 is 26/26.  Final
+  =make clean && make check= is GREEN: compile succeeds with only the
+  pre-existing project wide-docstring warning, lint 0, 1128 tests / 1120
+  expected / 0 unexpected / 8 GUI skips; manifest active=0.
+  =make regen-mockups= is a no-op, tests/README are byte-pristine against
+  =lsszzqumkswv=, golden movement is zero, and no repository =probe-*.el=
+  exists.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

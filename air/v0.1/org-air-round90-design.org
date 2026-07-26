@@ -989,6 +989,47 @@ no query or refile-engine behavior changes.
   fixtures, known-failures and README remain byte-pristine, golden movement is
   zero, and no repository probe file exists.
 
+- 2026-07-26: Independent TEST/AUDIT FIX-3 stopped BLOCKED at the mandatory
+  bounded-history audit.  A real mutating/signalling buffer-local
+  =after-save-hook= correctly leaves its user edit ahead and makes immediate
+  org-air =u= a zero-byte retry, but the exceptional ring record's
+  =:expected-undo= is the exact cons tail of =buffer-undo-list=, not small
+  identity metadata.  Before that org-air write, the audit deleted and saved a
+  distinctive 128 KiB source line in an unrelated older undo group.  Traversing
+  the ring record after removing its one accepted =:buffer= reference, killing
+  the source buffer and forcing GC still reached that raw undo-list tail and the
+  deleted source string: 36 conses, 4 strings,
+  131188 total string bytes, largest string 131120 bytes, both
+  =:undo-tail-reachable= and =:distinctive-source-reachable= true.  Thus the
+  global ring can retain an unbounded undo chain and deleted source contents
+  after source-buffer death, contrary to the no-snapshot/bounded-metadata
+  requirement.
+
+  Permanently added one RED ERT,
+  =org-air-r90-30-history-identity-is-bounded-and-source-free=, which constructs
+  that real history and audits the complete transitive record metadata after
+  removing only the accepted buffer field.  It rejects any further buffer or
+  marker, any raw undo-list-tail alias, and retained distinctive source bytes,
+  with loose bounds of 256 conses / 8192 string bytes to avoid coupling to a
+  future bounded identity representation.
+  Focused R90 is 35/36 expected with only r90-30 RED and prints the exact graph
+  totals above.  Full clean gate compiles with only the pre-existing project
+  wide-docstring warning, lints 0, and runs 1138 tests / 1127 expected / 3
+  unexpected / 8 GUI skips: r90-30 plus the two intentionally unedited stale
+  v6 assertions =org-air-r59-13-cache-v5-and-key= and
+  =org-air-r86-18-no-cache-version-bump=.  Manifest active=0.
+
+  Pre-edit reproduction otherwise matched supervisor evidence: original review
+  probes 6/6, finalization/owner/generation 3/3, corrected critical 1/1,
+  supplementary 4/4, compound resolution 2/2 and deep history 2/2.  The two
+  externally supplied contrary assertions remained intentionally RED: immediate
+  org-air undo while a hook edit is ahead, and malformed refreshed title
+  =Alpha task :shared-tag:=.  Per the explicit STOP instruction, no cache-v7
+  re-bless, broader FIX-3 permanent coverage or source-revert audit was
+  attempted after proving this blocker.  Only this RED test evidence and R90
+  history changed; implementation =.el=, README, fixtures and goldens remain
+  byte-pristine against =vptuoslynoqo=, and no repository probe file exists.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

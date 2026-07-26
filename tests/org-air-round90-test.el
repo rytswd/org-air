@@ -273,6 +273,65 @@
                (org-air-r90--plist-keys record)
                '(:desc :buffer :file :kind :tick :time))))))
 
+(defun org-air-r90--metadata-reachability (root needle undo-list)
+  "Summarize bounded metadata reachable from ROOT without following buffers.
+NEEDLE identifies deleted source text that history must not retain.
+UNDO-LIST supplies the live source's raw list tails for an identity-alias
+check; the traversal otherwise follows conses, vectors and hash tables only."
+  (let ((seen (make-hash-table :test #'eq))
+        (undo-tails (make-hash-table :test #'eq))
+        (stack (list root))
+        (conses 0)
+        (vectors 0)
+        (hash-tables 0)
+        (buffers 0)
+        (markers 0)
+        (strings 0)
+        (string-bytes 0)
+        (largest-string 0)
+        (distinctive-source-reachable nil)
+        (undo-tail-reachable nil))
+    (while (consp undo-list)
+      (puthash undo-list t undo-tails)
+      (setq undo-list (cdr undo-list)))
+    (while stack
+      (let ((object (pop stack)))
+        (unless (or (null object) (gethash object seen))
+          (puthash object t seen)
+          (cond
+           ((consp object)
+            (cl-incf conses)
+            (when (gethash object undo-tails)
+              (setq undo-tail-reachable t))
+            (push (car object) stack)
+            (push (cdr object) stack))
+           ((stringp object)
+            (cl-incf strings)
+            (cl-incf string-bytes (string-bytes object))
+            (setq largest-string
+                  (max largest-string (string-bytes object)))
+            (when (string-match-p (regexp-quote needle) object)
+              (setq distinctive-source-reachable t)))
+           ((bufferp object) (cl-incf buffers))
+           ((markerp object) (cl-incf markers))
+           ((functionp object) nil)
+           ((vectorp object)
+            (cl-incf vectors)
+            (dotimes (index (length object))
+              (push (aref object index) stack)))
+           ((hash-table-p object)
+            (cl-incf hash-tables)
+            (maphash (lambda (key value)
+                       (push key stack)
+                       (push value stack))
+                     object))))))
+    (list :conses conses :vectors vectors :hash-tables hash-tables
+          :buffers buffers :markers markers
+          :strings strings :string-bytes string-bytes
+          :largest-string largest-string
+          :distinctive-source-reachable distinctive-source-reachable
+          :undo-tail-reachable undo-tail-reachable)))
+
 (defun org-air-r90--hostile-b-snapshot (first later first-key)
   "Inject post-save relocation failure and summarize every truth surface."
   (cl-letf* (((symbol-function 'org-air-view--relocation-commit)
@@ -2074,6 +2133,73 @@ and every other callback rooted in org-air must remain fully synchronous."
                               (org-air-r90--text "tasks.org")))
       (should-not org-air-view--edit-ring)
       (should-not org-air-view--edit-redo-ring))))
+
+;;; r90-30 — exact retry identity must stay bounded and source-free.
+
+(ert-deftest org-air-r90-30-history-identity-is-bounded-and-source-free ()
+  "History metadata must not retain an undo-list tail or deleted source text.
+A real older undo group contains a distinctive 128 KiB deletion before an
+org-air write whose mutating/signalling `after-save-hook' requires retryable
+identity.  Starting from a copy of the ring record with its already-known
+`:buffer' reference removed, the transitive metadata must remain bounded,
+must not alias any raw `buffer-undo-list' tail, and must not reach those
+source bytes.  A tail pointer is rejected even if the current corpus happens
+to be small: it keeps every older undo entry alive after buffer death."
+  (skip-unless (locate-library "org-air"))
+  (let* ((needle "R90-BOUNDED-HISTORY-DISTINCTIVE-DELETED-SOURCE-")
+         (large (concat needle (make-string (* 128 1024) ?X) "\n")))
+    (org-air-r90--with-board
+        `(("tasks.org" .
+           ,(concat "#+title: tasks\n\n* TODO Alpha task :one:\n"
+                    large
+                    "* TODO Beta task :two:\n"))
+          ("inbox.org" . "#+title: inbox\n"))
+      (let* ((source (find-file-noselect (org-air-r90--file "tasks.org")))
+             (hook (lambda ()
+                     (goto-char (point-min))
+                     (insert "# ahead user after-save edit\n")
+                     (error "after-save mutated live bytes"))))
+        ;; Seed an unrelated OLDER deletion entry, then refresh so the source
+        ;; generation and mtime baseline are truthful before org-air writes.
+        (with-current-buffer source
+          (goto-char (point-min))
+          (search-forward needle)
+          (let ((beginning (line-beginning-position)))
+            (forward-line 1)
+            (delete-region beginning (point)))
+          (undo-boundary)
+          (save-buffer))
+        (org-air-refresh)
+        (org-air-r90--goto-row "Alpha task")
+        (with-current-buffer source
+          (add-hook 'after-save-hook hook nil t))
+        (unwind-protect
+            (org-air-item-backlog)
+          (with-current-buffer source
+            (remove-hook 'after-save-hook hook t)))
+        (let* ((record (car org-air-view--edit-ring))
+               ;; Exclude the one explicitly accepted live-buffer reference;
+               ;; every other record-local edge remains under audit.
+               (metadata (plist-put (copy-sequence record) :buffer nil))
+               (undo-list (buffer-local-value 'buffer-undo-list source)))
+          ;; The global record survives source death.  Retaining UNDO-LIST
+          ;; here permits the identity-alias check; METADATA's independent
+          ;; graph must itself neither alias the tail nor reach its strings.
+          (with-current-buffer source
+            (set-buffer-modified-p nil))
+          (kill-buffer source)
+          (garbage-collect)
+          (should-not (buffer-live-p source))
+          (let ((summary (org-air-r90--metadata-reachability
+                          metadata needle undo-list)))
+            (ert-info ((format "transitive history metadata: %S" summary))
+              (should-not (plist-get summary :undo-tail-reachable))
+              (should-not
+               (plist-get summary :distinctive-source-reachable))
+              (should (zerop (plist-get summary :buffers)))
+              (should (zerop (plist-get summary :markers)))
+              (should (< (plist-get summary :string-bytes) 8192))
+              (should (< (plist-get summary :conses) 256)))))))))
 
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

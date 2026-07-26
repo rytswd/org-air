@@ -813,6 +813,37 @@ no query or refile-engine behavior changes.
   files are byte-pristine against the audit parent and fixture/golden movement
   is zero.
 
+- 2026-07-26: Fresh GPT-5.6 Sol RETEST/AUDIT completed GREEN.  Narrowed the
+  three timer seams without dropping timer coverage: both timer constructors
+  now record constructor kind, delay, repeat, callback identity and callback
+  arguments.  Exact callback =org-element--cache-sync= is classified as
+  intrinsic Org element-cache maintenance; every callback rooted in org-air
+  is independently rejected, as is every other non-intrinsic callback, with
+  the full observation printed on failure.  There is no hard-coded total in
+  which an application timer could hide.  The live observations remain 3/6/2
+  idle constructors in r90-1/r90-10/r90-19, all
+  =org-element--cache-sync=; zero-query/refresh, one-render and one direct-pane
+  resync assertions remain pinned.  An injected =org-air-refresh= timer made
+  r90-1 RED and printed its callback and =(:injected)= argument.
+  Re-audited the four source corrections in two consecutive focused GREEN
+  passes.  Strengthened inherited-tag coverage to assert exact local source
+  bytes and exact effective cached tags after write/=u=/=U=; residual coverage
+  now pins canonical part order and no speculative redo; undo/redo save
+  failures pin disk/live bytes, modified state and undo-list identity; new
+  r90-15c injects an undo-operation failure and proves an older unrelated undo
+  remains usable; and hostile post-save relocation coverage now pins exact
+  cached tags/positions, mark clearing, one truthful file part and successful
+  =u=/=U=.  In an isolated workspace with the source correction reverted to
+  =uqqpllvwnkon=, the inherited/residual/redo-save/post-save set was RED 4/4
+  with the expected distinct blockers.  The original pre-R90 24/25 RED audit,
+  re-blessed R83 cold-row RED, and collapse-reset mutation-J RED evidence above
+  remain intact.  The strengthened R90 file has 26 ERTs (one new named case).
+  Final =make clean && make check=: compile succeeded with only the pre-existing
+  project wide-docstring warning, lint 0, 1128 tests / 1120 expected / 0
+  unexpected / 8 GUI skips.  Manifest active=0; =make regen-mockups= produced
+  byte-identical goldens; implementation =.el= files are pristine against
+  =rnpvtwtmrmpq=; no probe file remains.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

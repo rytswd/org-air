@@ -99,6 +99,20 @@
     (insert-file-contents (org-air-r90--file name))
     (buffer-string)))
 
+(defun org-air-r90--live-text (name)
+  "Return live buffer text of corpus file NAME."
+  (with-current-buffer (find-file-noselect (org-air-r90--file name))
+    (buffer-substring-no-properties (point-min) (point-max))))
+
+(defun org-air-r90--sorted-tags (item)
+  "Return ITEM's cached effective tags in canonical order."
+  (sort (copy-sequence (org-air-item-tags item)) #'string<))
+
+(defun org-air-r90--cached-position-exact-p (item name title)
+  "Return non-nil when ITEM's cached position names TITLE in corpus NAME."
+  (= (cdr (org-air-view--item-source-key item))
+     (org-air-r90--actual-heading-position name title)))
+
 (defun org-air-r90--item (title &optional items)
   "Return item named TITLE from ITEMS or the current board cache."
   (let ((item (org-air-test-find-item title (or items org-air-view--items))))
@@ -186,18 +200,64 @@
              ((symbol-function 'read-string)
               (lambda (&rest _) "long-shared-tag")))
     (org-air-set-tag))
-  (list :disk (org-air-r90--disk-has-tag-p
-               "tasks.org" "First heading" "long-shared-tag")
-        :live (and (org-air-r90--file-has-tag-p
-                    "tasks.org" "First heading" "long-shared-tag") t)
-        :cache-tag (and (member "long-shared-tag"
-                                (org-air-item-tags first)) t)
-        :position (= (cdr (org-air-view--item-source-key later))
-                     (org-air-r90--actual-heading-position
-                      "tasks.org" "Later heading"))
-        :marked (and (member first-key org-air-view--marked-keys) t)
-        :history (and org-air-view--edit-ring
-                      (plist-get (car org-air-view--edit-ring) :kind))))
+  (let ((record (car org-air-view--edit-ring)))
+    (list :disk-live (equal (org-air-r90--text "tasks.org")
+                            (org-air-r90--live-text "tasks.org"))
+          :first-tags (org-air-r90--sorted-tags first)
+          :later-tags (org-air-r90--sorted-tags later)
+          :first-position (org-air-r90--cached-position-exact-p
+                           first "tasks.org" "First heading")
+          :later-position (org-air-r90--cached-position-exact-p
+                           later "tasks.org" "Later heading")
+          :marked (and (member first-key org-air-view--marked-keys) t)
+          :history (and record (plist-get record :kind))
+          :parts (and record (length (plist-get record :parts))))))
+
+(defun org-air-r90--intrinsic-org-timer-p (observation)
+  "Return non-nil when OBSERVATION is intrinsic Org cache maintenance."
+  (eq (plist-get observation :callback) 'org-element--cache-sync))
+
+(defun org-air-r90--org-air-timer-p (observation)
+  "Return non-nil when OBSERVATION's callback is rooted in org-air code."
+  (let ((case-fold-search nil))
+    (string-match-p "\\borg-air-"
+                    (prin1-to-string (plist-get observation :callback)))))
+
+(defun org-air-r90--assert-timer-seam (observations)
+  "Assert OBSERVATIONS contain only intrinsic Org cache-maintenance timers.
+Each observation retains constructor, timing, callback identity, and callback
+arguments so an unexpected callback is printed in the ERT failure.  In
+particular, org-air refresh/render, pane/inspector resync, mutation-landing,
+and every other callback rooted in org-air must remain fully synchronous."
+  (let ((org-air-owned (seq-filter #'org-air-r90--org-air-timer-p observations))
+        (non-intrinsic
+         (seq-remove #'org-air-r90--intrinsic-org-timer-p observations)))
+    (ert-info ((format "org-air-owned timer constructors: %S" org-air-owned))
+      (should-not org-air-owned))
+    (ert-info ((format "non-intrinsic timer constructors: %S" non-intrinsic))
+      (should-not non-intrinsic))))
+
+(defmacro org-air-r90--with-timer-audit (observations &rest body)
+  "Run BODY while collecting timer constructor identity in OBSERVATIONS."
+  (declare (indent 1) (debug t))
+  `(let ((,observations nil))
+     (cl-letf (((symbol-function 'run-with-timer)
+                (lambda (seconds repeat callback &rest arguments)
+                  (push (list :constructor 'run-with-timer
+                              :seconds seconds :repeat repeat
+                              :callback callback :arguments arguments)
+                        ,observations)
+                  nil))
+               ((symbol-function 'run-with-idle-timer)
+                (lambda (seconds repeat callback &rest arguments)
+                  (push (list :constructor 'run-with-idle-timer
+                              :seconds seconds :repeat repeat
+                              :callback callback :arguments arguments)
+                        ,observations)
+                  nil)))
+       ,@body)
+     (setq ,observations (nreverse ,observations))
+     (org-air-r90--assert-timer-seam ,observations)))
 
 (defmacro org-air-r90--record-messages (var &rest body)
   "Run BODY and collect formatted `message' calls in VAR."
@@ -238,41 +298,39 @@
     (find-file-noselect (org-air-r90--file "tasks.org"))
     (let* ((moved (org-air-r90--goto-row "Beta task"))
            (moved-key (org-air-view--item-source-key moved))
-           (queries 0) (timers 0) (setup nil) (pane-final nil))
-      (cl-letf* ((setup-orig (symbol-function 'org-air-view--setup-inspector))
-                 ((symbol-function 'org-air-view--setup-inspector)
-                  (lambda ()
-                    (push (list org-air-view--pending-mutation-landing
-                                (org-air-r90--row-title)) setup)
-                    (funcall setup-orig)))
-                 ((symbol-function 'org-air-view--view-pane-update-now)
-                  (lambda (buf)
-                    (setq pane-final
-                          (with-current-buffer buf (org-air-r90--row-title)))))
-                 (query-orig (symbol-function 'org-air-query-items))
-                 ((symbol-function 'org-air-query-items)
-                  (lambda (&rest args)
-                    (cl-incf queries) (apply query-orig args)))
-                 (query-files-orig
-                  (symbol-function 'org-air-query-items-in-files))
-                 ((symbol-function 'org-air-query-items-in-files)
-                  (lambda (&rest args)
-                    (cl-incf queries) (apply query-files-orig args)))
-                 ((symbol-function 'run-with-timer)
-                  (lambda (&rest _) (cl-incf timers) nil))
-                 ((symbol-function 'run-with-idle-timer)
-                  (lambda (&rest _) (cl-incf timers) nil)))
-        (org-air-item-backlog))
+           (queries 0) (setup nil) (pane-final nil) (pane-resyncs 0))
+      (org-air-r90--with-timer-audit timer-observations
+        (cl-letf* ((setup-orig (symbol-function 'org-air-view--setup-inspector))
+                   ((symbol-function 'org-air-view--setup-inspector)
+                    (lambda ()
+                      (push (list org-air-view--pending-mutation-landing
+                                  (org-air-r90--row-title)) setup)
+                      (funcall setup-orig)))
+                   ((symbol-function 'org-air-view--view-pane-update-now)
+                    (lambda (buf)
+                      (cl-incf pane-resyncs)
+                      (setq pane-final
+                            (with-current-buffer buf (org-air-r90--row-title)))))
+                   (query-orig (symbol-function 'org-air-query-items))
+                   ((symbol-function 'org-air-query-items)
+                    (lambda (&rest args)
+                      (cl-incf queries) (apply query-orig args)))
+                   (query-files-orig
+                    (symbol-function 'org-air-query-items-in-files))
+                   ((symbol-function 'org-air-query-items-in-files)
+                    (lambda (&rest args)
+                      (cl-incf queries) (apply query-files-orig args))))
+          (org-air-item-backlog)))
       (should (equal "Gamma task" (org-air-r90--row-title)))
       (should-not (equal moved-key
                          (org-air-view--item-source-key
                           (org-air-view--row-property 'org-air-item))))
       (should (org-air-r90--file-has-tag-p "tasks.org" "Beta task" "backlog"))
       (should (equal "Gamma task" pane-final))
+      (should (= pane-resyncs 1))
       (should (equal '(nil "Gamma task") (car setup)))
       (should-not org-air-view--pending-mutation-landing)
-      (should (= queries 0))
-      (should (= timers 0)))))
+      (should (= queries 0)))))
 
 ;;; r90-2 — last/previous and un-backlog local focus.
 
@@ -575,51 +633,48 @@
         ("inbox.org" . "#+title: inbox\n"))
     (dolist (title '("A first" "A second" "B only"))
       (org-air-r90--mark-title title))
-    ;; Exclude org-mode's one-time source-buffer setup timers from this
-    ;; coordinator seam; the command itself must construct none.
+    ;; Provision source buffers before the seam.  Constructor observations
+    ;; below still retain and classify every command-time callback.
     (find-file-noselect (org-air-r90--file "a.org"))
     (find-file-noselect (org-air-r90--file "b.org"))
     (let ((preflights 0) (groups 0) (renders 0) (queries 0)
-          (refreshes 0) (timers 0) saves toggles)
-      (cl-letf* ((pre-orig (symbol-function 'org-air-view--bulk-preflight))
-                 ((symbol-function 'org-air-view--bulk-preflight)
-                  (lambda (&rest args)
-                    (cl-incf preflights) (apply pre-orig args)))
-                 (group-orig (symbol-function 'prepare-change-group))
-                 ((symbol-function 'prepare-change-group)
-                  (lambda (&rest args)
-                    (cl-incf groups) (apply group-orig args)))
-                 (save-orig (symbol-function 'save-buffer))
-                 ((symbol-function 'save-buffer)
-                  (lambda (&rest args)
-                    (push (buffer-file-name) saves)
-                    (apply save-orig args)))
-                 (toggle-orig (symbol-function 'org-toggle-tag))
-                 ((symbol-function 'org-toggle-tag)
-                  (lambda (tag state)
-                    (push (cons (buffer-file-name) (point)) toggles)
-                    (funcall toggle-orig tag state)))
-                 (render-orig (symbol-function 'org-air-view--render))
-                 ((symbol-function 'org-air-view--render)
-                  (lambda (&rest args) (cl-incf renders) (apply render-orig args)))
-                 ((symbol-function 'org-air-query-items)
-                  (lambda (&rest _) (cl-incf queries) (error "query")))
-                 ((symbol-function 'org-air-query-items-in-files)
-                  (lambda (&rest _) (cl-incf queries) (error "query")))
-                 ((symbol-function 'org-air-refresh)
-                  (lambda (&rest _) (cl-incf refreshes) (error "refresh")))
-                 ((symbol-function 'run-with-timer)
-                  (lambda (&rest _) (cl-incf timers) nil))
-                 ((symbol-function 'run-with-idle-timer)
-                  (lambda (&rest _) (cl-incf timers) nil)))
-        (org-air-item-backlog))
+          (refreshes 0) saves toggles)
+      (org-air-r90--with-timer-audit timer-observations
+        (cl-letf* ((pre-orig (symbol-function 'org-air-view--bulk-preflight))
+                   ((symbol-function 'org-air-view--bulk-preflight)
+                    (lambda (&rest args)
+                      (cl-incf preflights) (apply pre-orig args)))
+                   (group-orig (symbol-function 'prepare-change-group))
+                   ((symbol-function 'prepare-change-group)
+                    (lambda (&rest args)
+                      (cl-incf groups) (apply group-orig args)))
+                   (save-orig (symbol-function 'save-buffer))
+                   ((symbol-function 'save-buffer)
+                    (lambda (&rest args)
+                      (push (buffer-file-name) saves)
+                      (apply save-orig args)))
+                   (toggle-orig (symbol-function 'org-toggle-tag))
+                   ((symbol-function 'org-toggle-tag)
+                    (lambda (tag state)
+                      (push (cons (buffer-file-name) (point)) toggles)
+                      (funcall toggle-orig tag state)))
+                   (render-orig (symbol-function 'org-air-view--render))
+                   ((symbol-function 'org-air-view--render)
+                    (lambda (&rest args)
+                      (cl-incf renders) (apply render-orig args)))
+                   ((symbol-function 'org-air-query-items)
+                    (lambda (&rest _) (cl-incf queries) (error "query")))
+                   ((symbol-function 'org-air-query-items-in-files)
+                    (lambda (&rest _) (cl-incf queries) (error "query")))
+                   ((symbol-function 'org-air-refresh)
+                    (lambda (&rest _) (cl-incf refreshes) (error "refresh"))))
+          (org-air-item-backlog)))
       (setq saves (nreverse saves) toggles (nreverse toggles))
       (should (= preflights 1))
       (should (= groups 2))
       (should (= renders 1))
       (should (= queries 0))
       (should (= refreshes 0))
-      (should (= timers 0))
       (should (equal saves (sort (copy-sequence saves) #'string<)))
       (should (= 1 (seq-count (lambda (file) (equal file (org-air-r90--file "a.org"))) saves)))
       (should (= 1 (seq-count (lambda (file) (equal file (org-air-r90--file "b.org"))) saves)))
@@ -708,44 +763,92 @@
                    "tasks.org" "Second heading" "backlog")))))
 
 (ert-deftest org-air-r90-12-inherited-effective-tags-do-not-reject-valid-heading ()
-  "Exact preflight accepts inherited cached tags absent from the local tag string."
+  "Inherited preflight and write/u/U mirrors preserve effective/local truth."
   (skip-unless (locate-library "org-air"))
   (org-air-r90--with-board
       '(("tasks.org" . "#+title: tasks\n\n* Project :inherited:\n** TODO Inherited child :local:\n")
         ("inbox.org" . "#+title: inbox\n"))
-    (let ((child (org-air-r90--item "Inherited child")))
-      (should (member "inherited" (org-air-item-tags child)))
-      (should (member "local" (org-air-item-tags child))))
-    (org-air-r90--mark-title "Inherited child")
-    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "shared")))
-      (org-air-set-tag))
-    ;; A cached effective-tag superset is valid source truth, not a title/
-    ;; position mismatch.  Rejecting it here is an R90 source blocker.
-    (should (org-air-r90--file-has-tag-p
-             "tasks.org" "Inherited child" "shared"))
-    (should-not org-air-view--marked-keys)
-    (should (eq 'bulk (plist-get (car org-air-view--edit-ring) :kind)))))
+    (let* ((child (org-air-r90--item "Inherited child"))
+           (before (org-air-r90--text "tasks.org"))
+           (after "#+title: tasks\n\n* Project :inherited:\n** TODO Inherited child :local:shared:\n"))
+      (should (equal '("inherited" "local")
+                     (org-air-r90--sorted-tags child)))
+      (org-air-r90--mark-title "Inherited child")
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "shared")))
+        (org-air-set-tag))
+      ;; Effective cached tags validate the heading, but only the requested
+      ;; local tag is added to source; the inherited tag stays on the parent.
+      (should (equal after (org-air-r90--text "tasks.org")))
+      (should-not (org-air-r90--file-has-tag-p
+                   "tasks.org" "Inherited child" "inherited"))
+      (should (equal '("inherited" "local" "shared")
+                     (org-air-r90--sorted-tags child)))
+      (should-not org-air-view--marked-keys)
+      (should (eq 'bulk (plist-get (car org-air-view--edit-ring) :kind)))
+      (setq last-command 'ignore)
+      (org-air-edit-undo)
+      (should (equal before (org-air-r90--text "tasks.org")))
+      (should (equal '("inherited" "local")
+                     (org-air-r90--sorted-tags child)))
+      (should-not (org-air-r90--file-has-tag-p
+                   "tasks.org" "Inherited child" "inherited"))
+      (setq last-command 'ignore)
+      (org-air-edit-redo)
+      (should (equal after (org-air-r90--text "tasks.org")))
+      (should (equal '("inherited" "local" "shared")
+                     (org-air-r90--sorted-tags child)))
+      (should-not (org-air-r90--file-has-tag-p
+                   "tasks.org" "Inherited child" "inherited")))))
 
 (ert-deftest org-air-r90-hostile-b-post-save-sync-cannot-diverge ()
-  "A post-save relocation signal cannot split disk/cache/marks/history truth."
+  "Post-save relocation failure stays exact and round-trips through u/U."
   (skip-unless (locate-library "org-air"))
   (org-air-r90--with-board
       '(("tasks.org" . "#+title: tasks\n\n* TODO First heading\n* TODO Later heading\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let* ((first (org-air-r90--item "First heading"))
            (later (org-air-r90--item "Later heading"))
-           (first-key (org-air-view--item-source-key first)))
+           (first-key (org-air-view--item-source-key first))
+           (before (org-air-r90--text "tasks.org")))
       (org-air-r90--mark-title "First heading")
       ;; `save-buffer' succeeds inside the real coordinator.  The injected
       ;; signal is strictly after that save, in cache relocation sync.
       (let ((actual (org-air-r90--hostile-b-snapshot
                      first later first-key)))
-        ;; Once disk save succeeds the only truthful outcome is a fully
-        ;; synchronized commit.  Current code must not report a failed target
-        ;; while retaining stale positions/mark and omitting history.
         (should (equal actual
-                       '(:disk t :live t :cache-tag t :position t
-                         :marked nil :history bulk)))))))
+                       '(:disk-live t :first-tags ("long-shared-tag")
+                         :later-tags nil :first-position t :later-position t
+                         :marked nil :history bulk :parts 1))))
+      (let ((committed (org-air-r90--text "tasks.org"))
+            (record (car org-air-view--edit-ring)))
+        (should (org-air-r90--disk-has-tag-p
+                 "tasks.org" "First heading" "long-shared-tag"))
+        (should (= 1 (length (plist-get record :parts))))
+        (should (equal (org-air-r90--file "tasks.org")
+                       (plist-get (car (plist-get record :parts)) :file)))
+        (setq last-command 'ignore)
+        (org-air-edit-undo)
+        (should (equal before (org-air-r90--text "tasks.org")))
+        (should (equal before (org-air-r90--live-text "tasks.org")))
+        (should-not (org-air-r90--sorted-tags first))
+        (should-not (org-air-r90--sorted-tags later))
+        (should (org-air-r90--cached-position-exact-p
+                 first "tasks.org" "First heading"))
+        (should (org-air-r90--cached-position-exact-p
+                 later "tasks.org" "Later heading"))
+        (should-not org-air-view--marked-keys)
+        (setq last-command 'ignore)
+        (org-air-edit-redo)
+        (should (equal committed (org-air-r90--text "tasks.org")))
+        (should (equal committed (org-air-r90--live-text "tasks.org")))
+        (should (equal '("long-shared-tag")
+                       (org-air-r90--sorted-tags first)))
+        (should-not (org-air-r90--sorted-tags later))
+        (should (org-air-r90--cached-position-exact-p
+                 first "tasks.org" "First heading"))
+        (should (org-air-r90--cached-position-exact-p
+                 later "tasks.org" "Later heading"))
+        (should-not org-air-view--marked-keys)))))
 
 ;;; r90-13 — one top compound record for one/many/cross-file shapes.
 
@@ -874,7 +977,12 @@
         ("inbox.org" . "#+title: inbox\n"))
     (dolist (title '("A task" "B task" "C task")) (org-air-r90--mark-title title))
     (org-air-item-backlog)
-    (let ((save-orig (symbol-function 'save-buffer)) messages)
+    (let* ((b-buffer (find-file-noselect (org-air-r90--file "b.org")))
+           (b-before (org-air-r90--live-text "b.org"))
+           (b-modified (buffer-modified-p b-buffer))
+           (b-undo-list (buffer-local-value 'buffer-undo-list b-buffer))
+           (save-orig (symbol-function 'save-buffer))
+           messages)
       (cl-letf* (((symbol-function 'save-buffer)
                   (lambda (&rest args)
                     (if (equal (buffer-file-name) (org-air-r90--file "b.org"))
@@ -882,23 +990,32 @@
                       (apply save-orig args))))
                  ((symbol-function 'message)
                   (lambda (fmt &rest args)
-                   (when fmt (push (apply #'format fmt args) messages)) nil)))
+                    (when fmt (push (apply #'format fmt args) messages)) nil)))
         (org-air-edit-undo))
       (should (seq-some (lambda (msg)
-                          (string-match-p "Undo incomplete: 1/3 files reverted; failed b.org" msg))
-                        messages)))
+                          (string-match-p
+                           "Undo incomplete: 1/3 files reverted; failed b.org"
+                           msg))
+                        messages))
+      ;; The failed current file is restored to exact disk/live, modified,
+      ;; and undo-list truth before residual history is decided.
+      (should (equal b-before (org-air-r90--text "b.org")))
+      (should (equal b-before (org-air-r90--live-text "b.org")))
+      (should (eq b-modified (buffer-modified-p b-buffer)))
+      (should (eq b-undo-list
+                  (buffer-local-value 'buffer-undo-list b-buffer))))
     (should-not (org-air-r90--file-has-tag-p "c.org" "C task" "backlog"))
     (should (org-air-r90--file-has-tag-p "b.org" "B task" "backlog"))
     (should (org-air-r90--file-has-tag-p "a.org" "A task" "backlog"))
     (should-not org-air-view--edit-redo-ring)
     (let* ((residual (car org-air-view--edit-ring))
-           (files (sort (mapcar (lambda (part)
-                                 (file-name-nondirectory (plist-get part :file)))
-                               (plist-get residual :parts))
-                        #'string<)))
-      ;; The failed current part was popped from the local `remaining' list,
-      ;; but is still committed and MUST join untouched a.org in residual.
-      (should (equal '("a.org" "b.org") files)))))
+           (files (mapcar (lambda (part)
+                            (file-name-nondirectory (plist-get part :file)))
+                          (plist-get residual :parts))))
+      ;; The restored failed b.org and untouched a.org remain in canonical
+      ;; commit order; no speculative redo branch exists for reverted c.org.
+      (should (equal '("a.org" "b.org") files))
+      (should-not org-air-view--edit-redo-ring))))
 
 (ert-deftest org-air-r90-15b-runtime-redo-has-truthful-residual ()
   "Runtime redo failure reports exact counts, creates no redo, and keeps truth."
@@ -911,7 +1028,12 @@
     (dolist (title '("A task" "B task" "C task")) (org-air-r90--mark-title title))
     (org-air-item-backlog)
     (org-air-edit-undo)
-    (let ((save-orig (symbol-function 'save-buffer)) messages)
+    (let* ((b-buffer (find-file-noselect (org-air-r90--file "b.org")))
+           (b-before (org-air-r90--live-text "b.org"))
+           (b-modified (buffer-modified-p b-buffer))
+           (b-undo-list (buffer-local-value 'buffer-undo-list b-buffer))
+           (save-orig (symbol-function 'save-buffer))
+           messages)
       (cl-letf* (((symbol-function 'save-buffer)
                   (lambda (&rest args)
                     (if (equal (buffer-file-name) (org-air-r90--file "b.org"))
@@ -919,11 +1041,18 @@
                       (apply save-orig args))))
                  ((symbol-function 'message)
                   (lambda (fmt &rest args)
-                   (when fmt (push (apply #'format fmt args) messages)) nil)))
+                    (when fmt (push (apply #'format fmt args) messages)) nil)))
         (org-air-edit-redo))
       (should (seq-some (lambda (msg)
-                          (string-match-p "Redo incomplete: 1/3 files reapplied; failed b.org" msg))
-                        messages)))
+                          (string-match-p
+                           "Redo incomplete: 1/3 files reapplied; failed b.org"
+                           msg))
+                        messages))
+      (should (equal b-before (org-air-r90--text "b.org")))
+      (should (equal b-before (org-air-r90--live-text "b.org")))
+      (should (eq b-modified (buffer-modified-p b-buffer)))
+      (should (eq b-undo-list
+                  (buffer-local-value 'buffer-undo-list b-buffer))))
     (let* ((parts (plist-get (car org-air-view--edit-ring) :parts))
            (actual
             (list :a-disk (org-air-r90--disk-has-tag-p
@@ -942,11 +1071,66 @@
                                (file-name-nondirectory
                                 (plist-get part :file)))
                              parts))))
-      ;; b.org's failed redo must be rolled back in the live buffer as well
-      ;; as remaining absent on disk; only successful a.org is residual undo.
+      ;; b.org's failed redo is restored absent in live and disk.  Only the
+      ;; successful a.org redo is honestly residual-undoable; no false redo.
       (should (equal actual
                      '(:a-disk t :a-live t :b-disk nil :b-live nil
                        :c-disk nil :redo nil :residual ("a.org")))))))
+
+(ert-deftest org-air-r90-15c-operation-failure-preserves-unrelated-undo ()
+  "An undo-operation signal restores machinery and leaves older undo usable."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Target task\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    ;; Seed a real, older user undo group beneath the later bulk edit.
+    (let ((source (find-file-noselect (org-air-r90--file "tasks.org"))))
+      (with-current-buffer source
+        (goto-char (point-max))
+        (undo-boundary)
+        (insert "# unrelated prior edit\n")
+        (undo-boundary)
+        (save-buffer))
+      (org-air-refresh)
+      (org-air-r90--mark-title "Target task")
+      (org-air-item-backlog)
+      (let* ((before (org-air-r90--live-text "tasks.org"))
+             (modified (buffer-modified-p source))
+             (undo-list (buffer-local-value 'buffer-undo-list source))
+             (undo-orig (symbol-function 'undo-only))
+             (tripped nil))
+        (cl-letf (((symbol-function 'undo-only)
+                   (lambda (&rest args)
+                     (let ((result (apply undo-orig args)))
+                       (unless tripped
+                         (setq tripped t)
+                         (error "runtime undo operation failure"))
+                       result))))
+          (org-air-edit-undo))
+        (should tripped)
+        (should (equal before (org-air-r90--text "tasks.org")))
+        (should (equal before (org-air-r90--live-text "tasks.org")))
+        (should (eq modified (buffer-modified-p source)))
+        (should (eq undo-list
+                    (buffer-local-value 'buffer-undo-list source)))
+        (should-not org-air-view--edit-redo-ring)
+        (should (= 1 (length (plist-get (car org-air-view--edit-ring)
+                                        :parts)))))
+      ;; Retry consumes the bulk group only.  The unrelated older group is
+      ;; still independently undoable afterward.
+      (setq last-command 'ignore)
+      (org-air-edit-undo)
+      (should-not (org-air-r90--disk-has-tag-p
+                   "tasks.org" "Target task" "backlog"))
+      (should (string-match-p "unrelated prior edit"
+                              (org-air-r90--text "tasks.org")))
+      (with-current-buffer source
+        (setq last-command 'ignore)
+        (undo-boundary)
+        (undo-only)
+        (save-buffer))
+      (should-not (string-match-p "unrelated prior edit"
+                                  (org-air-r90--text "tasks.org"))))))
 
 ;;; r90-16/17/18 — Backlog collapse, persistence, and explicit lens.
 
@@ -1063,26 +1247,23 @@
         ("inbox.org" . "#+title: inbox\n"))
     (org-air-r90--goto-row "Only visible task")
     (find-file-noselect (org-air-r90--file "tasks.org"))
-    (let ((hide 0) setup-states (queries 0) (timers 0))
-      (cl-letf* ((setup-orig (symbol-function 'org-air-view--setup-inspector))
-                 ((symbol-function 'org-air-view--setup-inspector)
-                  (lambda ()
-                    (push (list org-air-view--pending-mutation-landing
-                                (org-air-r90--row-title)) setup-states)
-                    (funcall setup-orig)))
-                 ((symbol-function 'org-air-view-pane--window-live-p)
-                  (lambda () t))
-                 ((symbol-function 'org-air-view-pane--hide)
-                  (lambda () (cl-incf hide)))
-                 (query-orig (symbol-function 'org-air-query-items))
-                 ((symbol-function 'org-air-query-items)
-                  (lambda (&rest args)
-                    (cl-incf queries) (apply query-orig args)))
-                 ((symbol-function 'run-with-timer)
-                  (lambda (&rest _) (cl-incf timers) nil))
-                 ((symbol-function 'run-with-idle-timer)
-                  (lambda (&rest _) (cl-incf timers) nil)))
-        (org-air-item-backlog))
+    (let ((hide 0) setup-states (queries 0))
+      (org-air-r90--with-timer-audit timer-observations
+        (cl-letf* ((setup-orig (symbol-function 'org-air-view--setup-inspector))
+                   ((symbol-function 'org-air-view--setup-inspector)
+                    (lambda ()
+                      (push (list org-air-view--pending-mutation-landing
+                                  (org-air-r90--row-title)) setup-states)
+                      (funcall setup-orig)))
+                   ((symbol-function 'org-air-view-pane--window-live-p)
+                    (lambda () t))
+                   ((symbol-function 'org-air-view-pane--hide)
+                    (lambda () (cl-incf hide)))
+                   (query-orig (symbol-function 'org-air-query-items))
+                   ((symbol-function 'org-air-query-items)
+                    (lambda (&rest args)
+                      (cl-incf queries) (apply query-orig args))))
+          (org-air-item-backlog)))
       (should (> hide 0))
       (should (equal '(nil nil) (car setup-states)))
       (should-not (org-air-view--row-property 'org-air-item))
@@ -1092,8 +1273,7 @@
       (should (string-match-p "Backlog"
                               (buffer-substring-no-properties
                                (point-min) (point-max))))
-      (should (= queries 0))
-      (should (= timers 0)))))
+      (should (= queries 0)))))
 
 ;;; r90-20 — discoverability, key ownership, review collision, and bytes.
 

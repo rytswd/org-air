@@ -705,9 +705,9 @@ doubt, render."
 ;;;; r59-13 — T13: current cache schema + the knob in the cache key
 ;;;; -------------------------------------------------------------------
 
-(ert-deftest org-air-r59-13-cache-v7-and-key ()
+(ert-deftest org-air-r59-13-cache-v6-and-key ()
   "T13: the current schema and knob-bearing key remain revert-fenced.
-`org-air-view--cache-version' is 7 (the R90 semantic re-bless below); the knob is
+`org-air-view--cache-version' is 6 (the native R90 re-bless below); the knob is
 the FOURTH `org-air-view--cache-key' element (tracking the live value
 both ways); a crafted v4 cache with the CURRENT key is a clean cold miss
 \(nil read, nil load, no error — reverting the version bump hydrates it
@@ -744,11 +744,11 @@ knob shapes scan-time `ntype' and the baked file-meta `:ntype' —
 reverting the R77 key extension hydrates it and FAILS).  The R59-knob,
 exclude-set and log-cap conjuncts above are all KEPT, each at its same
 \(fourth/fifth/sixth) seat.
-R90 re-bless: version 7 invalidates v6 title/tag projections because a
-writer-accepted hyphenated suffix could persist as malformed title text
-with nil tags.  The dedicated R90 cache test pins that semantic miss and
-current broad-projection roundtrip; this historical test keeps every
-older shape/key fence unchanged."
+R90 final re-bless: version 6 remains the released native title/tag contract.
+The experimental v7 broad projection was discarded before integration; the
+dedicated R90 cache test pins native roundtrip plus a clean miss for that
+unshipped payload.  This historical test keeps every older shape/key fence
+unchanged."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       (append org-air-r59--inbox-specs
@@ -761,7 +761,7 @@ Body.\n")))
     ;; element; R61: `org-air-log-cap' is the SIXTH; R77:
     ;; `org-air-task-requires-todo' is the SEVENTH; this corpus runs at
     ;; the nil-exclude / default-cap / nil-knob baseline).
-    (should (= org-air-view--cache-version 7))
+    (should (= org-air-view--cache-version 6))
     (let ((key (org-air-view--cache-key)))
       (should (= (length key) 7))
       (should (eq (nth 3 key) t))
@@ -799,7 +799,7 @@ Body.\n")))
                      '(container)))
       (should (floatp own-ts))
       (org-air-view--cache-write items (org-air-view--mtimes-snapshot files))
-      ;; Live-version (v7) roundtrip: the container signals survive
+      ;; Live-version (v6) roundtrip: the container signals survive
       ;; write->read->classify.
       (let* ((data (org-air-view--cache-read))
              (hydrated (plist-get data :items)))

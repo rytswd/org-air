@@ -1249,6 +1249,62 @@ no query or refile-engine behavior changes.
   byte-pristine; independent test-seat replacement of those obsolete v7/broad
   inputs/assertions and permanent pass-3 coverage remains the only follow-up.
 
+- 2026-07-26: Independent FIX-6 TEST/AUDIT replaced all seven obsolete
+  assumptions without papering over them.  R59/R86 and the dedicated R90
+  cache seam now retain every historical key/shape fence while pinning native
+  v6, a =shared_tag= round-trip, literal =:shared-tag:=/=:not/a/tag:= title
+  truth, and a clean miss for the discarded experimental v7 payload.  Invalid
+  matrices now include hyphen and slash, valid fixtures use native underscores,
+  and the former broad projection seam now compares Org-native inheritance,
+  exclusions, TODO/priority/COMMENT, local-only writes, Org mapping/org-ql/tag
+  filtering, refresh, literal suffixes and second cached mutation.
+
+  Added permanent =r90-46..53= coverage.  Recursive comment/title/tag/move/
+  delete saves, with and without a later signal, pin one persistent warning,
+  final-disk generation rebuild, dead old locators, bounded intervening mode,
+  zero-byte immediate inverse and exact independently resolved retry.  Direct
+  =save-buffer=/=basic-save-buffer= recursion proves prepare/state/undo/redo/
+  tick capture is one-shot; non-signalling edits, missing weak identities and
+  undo-disabled buffers block conservatively.  Marked initial =b=/=t= and
+  compound history directions pin one part, ring order and no speculative
+  residual.  Native 1k/5k fixtures require one forward scanner, exactly N
+  heading validations and N locators for source-open/replacement, eq membership
+  and locator indexes, and zero prune/hydration/list lookup/open/query/refresh/
+  org-air timer work for current render/filter/mark/collapse.  The independent
+  native probe measured 1k/5k current hydration 0.000014/0.000032s, repaint
+  0.023/0.097s and replacement 0.040/0.308s, with exactly N replacement checks
+  and zero open/query/timer calls.  Owner rename, mode teardown/recovery and a
+  stale find-file callback retain one exact hook and preserve foreign owners.
+  Finalizer tests now require Alpha then failing Beta only, one warning/query,
+  no detached Gamma/later-file work, and honest multi-file residual history;
+  parser/remhash paths retain their generation.
+
+  Mutation evidence is operation-based: cache constant 7 is RED 3/3; broad
+  FIX-5 query/view is RED 4/4; kmz nested is RED 4/4; kmz source tracking is
+  RED 1/1; a focused memq/assq mutation is RED with 2,000 forbidden item-list
+  lookups at N=1,000; kmz owner recovery is RED 1/1 while the normal lifecycle
+  remains green; and kmz finalizer is RED 2/2.  All supplied FIX-6 probes are
+  green (nested matrix 6/6, compound 1/1, conservative 1/1, native tags 1/1,
+  owner/finalizer/shape diagnostics as specified).
+
+  The audit nevertheless remains *BLOCKED* on one newly permanent source
+  defect: =org-air-r90-49-marked-and-compound-nested-directions-are-exact=.
+  A compound =u= that commits a recursive after-save hook correctly reaches
+  disk/live equality and puts the record on redo; immediate =U= blocks with
+  zero bytes.  But independently =undo-only=ing that hook step makes the live
+  buffer lose the committed hook bytes while Emacs reports it unmodified, so
+  the following =save-buffer= no-ops: disk retains the hook text and live does
+  not.  The symmetric compound =U=→inverse-=u= path, marked initial =b=/=t=
+  paths, and all ten single nested shapes pass.  Thus recursive compound undo
+  still reproduces a disk/live split during resolution, before its redo
+  identity can safely become reachable; the claimed two-direction law is not
+  root-fixed.  Clean full
+  gate: 1161 total, 1152 unrelated green, exactly this 1 unexpected failure,
+  8 GUI skips; compile has only the pre-existing project docstring warning,
+  lint 0, manifest active=0, regen no-op.  Implementation =.el= is byte-pristine
+  against =krwkxupznmuu= and README/fixtures/goldens are byte-identical.  State
+  remains work-in-progress pending a source fix and review approval.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

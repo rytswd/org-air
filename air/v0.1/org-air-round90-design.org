@@ -783,6 +783,36 @@ no query or refile-engine behavior changes.
   =make regen-mockups= was zero churn.  Result remains red/block; source was
   not repaired by the test seat.
 
+- 2026-07-26: Round 90 SOURCE CORRECTION.  Exact heading preflight and all
+  write/undo/redo mirrors now compare and retain effective source tags while
+  keeping =org-toggle-tag= local-only, so inherited tags are neither rejected
+  nor duplicated onto children.  Compound history now snapshots only
+  ephemeral per-attempt buffer/undo state, restores live bytes and undo
+  machinery after an undo/redo or save signal, includes the restored failed
+  current undo part plus every untouched part in canonical commit order, and
+  never advertises a speculative redo.  Bulk writes and history operations
+  precompute relocation/effective-tag state before save; after the irreversible
+  save boundary, cache/Org-element/mark/history finalization catches the
+  injectable relocation helper and applies that captured state directly, so
+  disk, live buffer, cache positions/tags and history cannot split.
+  The four data-integrity blockers passed twice consecutively in focused ERT.
+  Timer investigation found no R90 application timer: a stock temporary
+  =org-mode= buffer with a live element cache followed by bare
+  =org-toggle-tag= constructed four idle timers, all with callback
+  =org-element--cache-sync=.  The independent seams observe the same callback
+  3/6/2 times in r90-1/r90-10/r90-19.  The pre-R90 implementation diff shows
+  the R68 single-item =b= path already invoked the same =org-toggle-tag= through
+  =org-air-view--at-item-source=; R90 landing/coordinator code contains no
+  timer constructor.  No Org timer was canceled, rebound, suppressed or
+  disabled.  The remaining timer assertions therefore need to narrow their
+  spy to org-air-owned deferred repaint/pane/refresh constructors.  Final
+  =make clean && make check=: compile succeeded (only the pre-existing
+  project wide-docstring warning), lint 0, 1127 tests with 1116 expected,
+  exactly those 3 timer-spy assertions unexpected, and 8 GUI skips.  The
+  known-failures manifest is empty; =make regen-mockups= was a no-op; all test
+  files are byte-pristine against the audit parent and fixture/golden movement
+  is zero.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

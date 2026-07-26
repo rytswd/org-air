@@ -884,6 +884,43 @@ no query or refile-engine behavior changes.
   =lsszzqumkswv=, golden movement is zero, and no repository =probe-*.el=
   exists.
 
+- 2026-07-26: REVIEW FIX 2 RETEST/AUDIT 2 completed GREEN.  Landed the six
+  distinguished-review probe contracts as permanent, stronger normal R90
+  coverage in =tests/org-air-round90-test.el=, plus the three supplementary
+  =t=/=U=/marked-day and save-boundary hygiene shapes: nine new ERTs
+  =r90-21..29=.  The tests now pin a real post-write =after-save-hook= signal
+  for single =b=, marked =b=/=t=, and both compound =u=/=U= directions;
+  exact disk/live/effective-cache/locator/mark/history/ring truth; one prompt,
+  one file part and no duplicate/retry; bounded warnings; classify
+  invalidation; final point/pane/inline-rail inspector identity; real
+  =before-save-hook= relocation followed by a second no-scan action; exact
+  pre-existing unsaved-drift tracking without title fallback; whole-file
+  pre-write rejection of an untracked incomplete locator with =run g r=;
+  unmarked and marked Scheduled/Deadline day focus; exact pre-write recovery
+  of bytes, modified/visited/undo state; temporary hook cleanup after normal,
+  pre-write-failed, post-write-signalled and nested/reentrant attempts; and
+  exact history metadata shapes with no retained source snapshot.  The
+  identity-based timer seam is unchanged: only exact
+  =org-element--cache-sync= is intrinsic, and every org-air or other callback
+  remains RED.
+
+  Current-source proof: new seams 9/9 GREEN; complete R90 35/35 GREEN; the
+  supplied external review probe remains 6/6 GREEN.  Reverting only
+  =qvwkmsunuoup='s =org-air-view.el= source changes to =lsszzqumkswv= while
+  retaining the tests made the new set 0/9 GREEN, 9/9 RED for the intended
+  post-write warning/commit, live rollback split, relocation/tracking,
+  incomplete-locator, day-focus and absent save-attempt-boundary reasons.
+  Prior evidence remains preserved: pre-R90 24/25 RED, the re-blessed R83
+  cold-row RED, mutation-J expansion-reset RED, and the fix-1 correction
+  revert set 4/4 RED.
+
+  Final gate after a clean rebuild: 1137 tests / 1129 expected / 0
+  unexpected / 8 GUI skips; lint 0; manifest active=0.  Focused new tests
+  are 9/9 and all R90 tests are 35/35.  =make regen-mockups= produced zero
+  churn.  Fixtures/goldens and README are byte-identical, every implementation
+  =.el= is pristine against =qvwkmsunuoup=, and no repository =probe-*.el=
+  exists.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

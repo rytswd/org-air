@@ -193,6 +193,86 @@
           text)
          t)))
 
+(defun org-air-r90--live-tags (name title &optional local)
+  "Return TITLE's sorted live tags in NAME; with LOCAL exclude inheritance."
+  (with-current-buffer (find-file-noselect (org-air-r90--file name))
+    (org-with-wide-buffer
+     (goto-char (point-min))
+     (re-search-forward (regexp-quote title))
+     (org-back-to-heading t)
+     (sort (copy-sequence (org-get-tags nil local)) #'string<))))
+
+(defun org-air-r90--assert-file-cache-exact (name items)
+  "Assert every heading in ITEMS exactly mirrors live file NAME."
+  (dolist (item items)
+    (let ((title (org-air-item-title item)))
+      (should (org-air-r90--cached-position-exact-p item name title))
+      (should (equal (org-air-r90--sorted-tags item)
+                     (org-air-r90--live-tags name title))))))
+
+(defun org-air-r90--day-group-at-point ()
+  "Return the rendered Deadline/Scheduled/Logged group above point."
+  (save-excursion
+    (let (found)
+      (while (and (not found) (not (bobp)))
+        (beginning-of-line)
+        (let ((line (buffer-substring-no-properties
+                     (line-beginning-position) (line-end-position))))
+          (dolist (label '("Deadline" "Scheduled" "Logged / created"))
+            (when (string-match-p
+                   (format "\\`[[:space:]]*%s[[:space:]]*\\(?:[|│]\\|$\\)"
+                           (regexp-quote label))
+                   line)
+              (setq found label))))
+        (unless found (forward-line -1)))
+      found)))
+
+(defun org-air-r90--warning-messages (messages)
+  "Return bounded post-commit warnings selected from MESSAGES."
+  (seq-filter
+   (lambda (text)
+     (string-prefix-p "org-air warning: saved changes kept after hook error:"
+                      text))
+   messages))
+
+(defun org-air-r90--assert-bounded-warnings (messages count)
+  "Assert MESSAGES contain COUNT bounded post-commit save warnings."
+  (let ((warnings (org-air-r90--warning-messages messages)))
+    (should (= count (length warnings)))
+    (dolist (warning warnings)
+      (should (<= (string-width warning) 180)))
+    warnings))
+
+(defun org-air-r90--plist-keys (plist)
+  "Return the keys from proper property list PLIST."
+  (let (keys)
+    (while plist
+      (push (car plist) keys)
+      (setq plist (cddr plist)))
+    (nreverse keys)))
+
+(defun org-air-r90--same-key-set-p (actual expected)
+  "Return non-nil when ACTUAL and EXPECTED contain the same unique keys."
+  (and (= (length actual) (length expected))
+       (seq-every-p (lambda (key) (memq key actual)) expected)))
+
+(defun org-air-r90--assert-history-has-no-snapshot ()
+  "Assert both history rings retain only the documented metadata shapes."
+  (dolist (record (append org-air-view--edit-ring
+                          org-air-view--edit-redo-ring))
+    (if (eq (plist-get record :kind) 'bulk)
+        (progn
+          (should (org-air-r90--same-key-set-p
+                   (org-air-r90--plist-keys record)
+                   '(:desc :kind :parts :time)))
+          (dolist (part (plist-get record :parts))
+            (should (org-air-r90--same-key-set-p
+                     (org-air-r90--plist-keys part)
+                     '(:buffer :file :tick :undo-head)))))
+      (should (org-air-r90--same-key-set-p
+               (org-air-r90--plist-keys record)
+               '(:desc :buffer :file :kind :tick :time))))))
+
 (defun org-air-r90--hostile-b-snapshot (first later first-key)
   "Inject post-save relocation failure and summarize every truth surface."
   (cl-letf* (((symbol-function 'org-air-view--relocation-commit)
@@ -1333,6 +1413,667 @@ and every other callback rooted in org-air must remain fully synchronous."
     (should (string-match-p "header-only" readme))
     (should (string-match-p "hidden marks remain targets" readme))
     (should (string-match-p "set-all semantics" readme))))
+
+;;; r90-21 — single-item real post-write save boundary.
+
+(ert-deftest org-air-r90-21-single-after-save-signal-commits-every-surface ()
+  "Single `b' treats a real post-write hook signal as committed success."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha task :one:\n* TODO Beta task :two:\n* TODO Later task :three:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((alpha (org-air-r90--goto-row "Alpha task"))
+           (beta (org-air-r90--item "Beta task"))
+           (later (org-air-r90--item "Later task"))
+           (source (find-file-noselect (org-air-r90--file "tasks.org")))
+           (cache org-air-view--classify-cache)
+           (cache-sentinel (list 'stale-classification))
+           (invalidations 0)
+           (hook-ran 0)
+           hook-saw-disk hook-saw-live
+           (pane-resyncs 0) pane-final
+           (hostile
+            (lambda ()
+              (cl-incf hook-ran)
+              (setq hook-saw-disk
+                    (org-air-r90--disk-has-tag-p
+                     "tasks.org" "Alpha task" "backlog")
+                    hook-saw-live
+                    (and (org-air-r90--file-has-tag-p
+                          "tasks.org" "Alpha task" "backlog") t))
+              (error "hostile single post-write %s" (make-string 300 ?x)))))
+      (puthash alpha cache-sentinel cache)
+      (with-current-buffer source
+        (add-hook 'after-save-hook hostile nil t))
+      (let ((before-hooks (with-current-buffer source
+                            (copy-tree before-save-hook)))
+            (after-hooks (with-current-buffer source
+                           (copy-tree after-save-hook))))
+        (org-air-r90--record-messages messages
+          (cl-letf* ((remhash-orig (symbol-function 'remhash))
+                     ((symbol-function 'remhash)
+                      (lambda (key table)
+                        (when (and (eq table cache) (eq key alpha))
+                          (cl-incf invalidations))
+                        (funcall remhash-orig key table)))
+                     ((symbol-function 'org-air-view--view-pane-update-now)
+                      (lambda (board)
+                        (cl-incf pane-resyncs)
+                        (setq pane-final
+                              (with-current-buffer board
+                                (org-air-r90--row-title))))))
+            (org-air-item-backlog))
+          (let ((warnings (org-air-r90--assert-bounded-warnings messages 1)))
+            (should (string-match-p "hostile single post-write"
+                                    (car warnings)))))
+        ;; The real hostile hook ran only after the original disk write.
+        (should (= hook-ran 1))
+        (should hook-saw-disk)
+        (should hook-saw-live)
+        (should (equal (org-air-r90--text "tasks.org")
+                       (org-air-r90--live-text "tasks.org")))
+        (should (equal '("backlog" "one")
+                       (org-air-r90--sorted-tags alpha)))
+        (org-air-r90--assert-file-cache-exact
+         "tasks.org" (list alpha beta later))
+        (should (> invalidations 0))
+        (should-not (eq cache-sentinel (gethash alpha cache)))
+        (should (= 1 (length org-air-view--edit-ring)))
+        (should (eq 'in-place
+                    (plist-get (car org-air-view--edit-ring) :kind)))
+        (should (equal "Beta task" (org-air-r90--row-title)))
+        (should (eq beta (org-air-view--row-property 'org-air-item)))
+        (should (eq beta org-air-view--inspector-item))
+        (should (= pane-resyncs 1))
+        (should (equal "Beta task" pane-final))
+        (should (equal before-hooks
+                       (with-current-buffer source before-save-hook)))
+        (should (equal after-hooks
+                       (with-current-buffer source after-save-hook)))
+        (org-air-r90--assert-history-has-no-snapshot)))))
+
+;;; r90-22 — marked backlog real post-write save boundary.
+
+(ert-deftest org-air-r90-22-marked-backlog-after-save-signal-is-one-commit ()
+  "Marked `b' finalizes one committed part after a real hook signal."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha task :one:\n* TODO Beta task :two:\n* TODO Gamma task :three:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((items (mapcar #'org-air-r90--item
+                          '("Alpha task" "Beta task" "Gamma task")))
+           (source (find-file-noselect (org-air-r90--file "tasks.org")))
+           (before (org-air-r90--text "tasks.org"))
+           (hook-ran 0) hook-saw-commit
+           toggles
+           (hostile
+            (lambda ()
+              (cl-incf hook-ran)
+              (setq hook-saw-commit
+                    (and (org-air-r90--disk-has-tag-p
+                          "tasks.org" "Alpha task" "backlog")
+                         (org-air-r90--disk-has-tag-p
+                          "tasks.org" "Beta task" "backlog")))
+              (error "hostile marked backlog post-write %s"
+                     (make-string 300 ?b)))))
+      (org-air-r90--mark-title "Alpha task")
+      (org-air-r90--mark-title "Beta task")
+      (with-current-buffer source
+        (add-hook 'after-save-hook hostile nil t))
+      (let ((before-hooks (with-current-buffer source
+                            (copy-tree before-save-hook)))
+            (after-hooks (with-current-buffer source
+                           (copy-tree after-save-hook))))
+        (org-air-r90--record-messages messages
+          (cl-letf* ((toggle-orig (symbol-function 'org-toggle-tag))
+                     ((symbol-function 'org-toggle-tag)
+                      (lambda (tag state)
+                        (push (org-get-heading t t t t) toggles)
+                        (funcall toggle-orig tag state))))
+            (org-air-item-backlog))
+          (org-air-r90--assert-bounded-warnings messages 1))
+        (should (= hook-ran 1))
+        (should hook-saw-commit)
+        (should (= 2 (length toggles)))
+        (should (= 2 (length (delete-dups (copy-sequence toggles)))))
+        (should (equal (org-air-r90--text "tasks.org")
+                       (org-air-r90--live-text "tasks.org")))
+        (org-air-r90--assert-file-cache-exact "tasks.org" items)
+        (dolist (title '("Alpha task" "Beta task"))
+          (should (= 1 (seq-count
+                        (lambda (tag) (equal tag "backlog"))
+                        (org-air-r90--live-tags "tasks.org" title t)))))
+        (should-not org-air-view--marked-keys)
+        (should (= 1 (length org-air-view--edit-ring)))
+        (should (eq 'bulk (plist-get (car org-air-view--edit-ring) :kind)))
+        (should (= 1 (length
+                      (plist-get (car org-air-view--edit-ring) :parts))))
+        (should (equal before-hooks
+                       (with-current-buffer source before-save-hook)))
+        (should (equal after-hooks
+                       (with-current-buffer source after-save-hook)))
+        (org-air-r90--assert-history-has-no-snapshot)
+        ;; The committed history part remains honestly usable; no retry or
+        ;; duplicate tag is needed after removing only the hostile user hook.
+        (with-current-buffer source
+          (remove-hook 'after-save-hook hostile t))
+        (let ((committed (org-air-r90--text "tasks.org")))
+          (setq last-command 'ignore)
+          (org-air-edit-undo)
+          (should (equal before (org-air-r90--text "tasks.org")))
+          (org-air-r90--assert-file-cache-exact "tasks.org" items)
+          (setq last-command 'ignore)
+          (org-air-edit-redo)
+          (should (equal committed (org-air-r90--text "tasks.org")))
+          (org-air-r90--assert-file-cache-exact "tasks.org" items)
+          (should-not org-air-view--marked-keys))))))
+
+;;; r90-23 — marked shared tag real post-write save boundary.
+
+(ert-deftest org-air-r90-23-marked-tag-after-save-signal-shares-one-value ()
+  "Marked `t' prompts once and commits one exact part after a hook signal."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Tag Alpha :one:\n* TODO Tag Beta :shared:two:\n* TODO Tag Later :three:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((items (mapcar #'org-air-r90--item
+                          '("Tag Alpha" "Tag Beta" "Tag Later")))
+           (source (find-file-noselect (org-air-r90--file "tasks.org")))
+           (before (org-air-r90--text "tasks.org"))
+           (prompts 0) (toggles 0) (hook-ran 0) hook-saw-value
+           (hostile
+            (lambda ()
+              (cl-incf hook-ran)
+              (setq hook-saw-value
+                    (and (org-air-r90--disk-has-tag-p
+                          "tasks.org" "Tag Alpha" "shared")
+                         (org-air-r90--disk-has-tag-p
+                          "tasks.org" "Tag Beta" "shared")))
+              (error "hostile marked tag post-write %s"
+                     (make-string 300 ?t)))))
+      (org-air-r90--mark-title "Tag Alpha")
+      (org-air-r90--mark-title "Tag Beta")
+      (with-current-buffer source
+        (add-hook 'after-save-hook hostile nil t))
+      (let ((before-hooks (with-current-buffer source
+                            (copy-tree before-save-hook)))
+            (after-hooks (with-current-buffer source
+                           (copy-tree after-save-hook))))
+        (org-air-r90--record-messages messages
+          (cl-letf* (((symbol-function 'read-string)
+                      (lambda (&rest _)
+                        (cl-incf prompts)
+                        "shared"))
+                     (toggle-orig (symbol-function 'org-toggle-tag))
+                     ((symbol-function 'org-toggle-tag)
+                      (lambda (tag state)
+                        (cl-incf toggles)
+                        (funcall toggle-orig tag state))))
+            (org-air-set-tag))
+          (org-air-r90--assert-bounded-warnings messages 1))
+        (should (= prompts 1))
+        (should (= toggles 1))
+        (should (= hook-ran 1))
+        (should hook-saw-value)
+        (should (equal (org-air-r90--text "tasks.org")
+                       (org-air-r90--live-text "tasks.org")))
+        (org-air-r90--assert-file-cache-exact "tasks.org" items)
+        (should (equal '("one" "shared")
+                       (org-air-r90--live-tags
+                        "tasks.org" "Tag Alpha" t)))
+        (should (equal '("shared" "two")
+                       (org-air-r90--live-tags
+                        "tasks.org" "Tag Beta" t)))
+        (should-not org-air-view--marked-keys)
+        (should (= 1 (length org-air-view--edit-ring)))
+        (should (= 1 (length
+                      (plist-get (car org-air-view--edit-ring) :parts))))
+        (should (equal before-hooks
+                       (with-current-buffer source before-save-hook)))
+        (should (equal after-hooks
+                       (with-current-buffer source after-save-hook)))
+        (org-air-r90--assert-history-has-no-snapshot)
+        (with-current-buffer source
+          (remove-hook 'after-save-hook hostile t))
+        (let ((committed (org-air-r90--text "tasks.org")))
+          (setq last-command 'ignore)
+          (org-air-edit-undo)
+          (should (equal before (org-air-r90--text "tasks.org")))
+          (should (equal '("shared" "two")
+                         (org-air-r90--live-tags
+                          "tasks.org" "Tag Beta" t)))
+          (org-air-r90--assert-file-cache-exact "tasks.org" items)
+          (setq last-command 'ignore)
+          (org-air-edit-redo)
+          (should (equal committed (org-air-r90--text "tasks.org")))
+          (org-air-r90--assert-file-cache-exact "tasks.org" items)
+          (should-not org-air-view--marked-keys))))))
+
+;;; r90-24 — compound undo and redo real post-write save boundaries.
+
+(ert-deftest org-air-r90-24-compound-u-U-after-save-signals-move-rings-honestly ()
+  "Compound `u' and `U' both finalize post-write hook signals as success."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Undo Alpha :one:\n* TODO Undo Beta :two:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((items (mapcar #'org-air-r90--item
+                          '("Undo Alpha" "Undo Beta")))
+           (source (find-file-noselect (org-air-r90--file "tasks.org")))
+           (before (org-air-r90--text "tasks.org")))
+      (org-air-r90--mark-title "Undo Alpha")
+      (org-air-r90--mark-title "Undo Beta")
+      (org-air-item-backlog)
+      (let* ((committed (org-air-r90--text "tasks.org"))
+             (hook-calls 0)
+             hook-observations
+             (hostile
+              (lambda ()
+                (cl-incf hook-calls)
+                (push (list hook-calls
+                            (org-air-r90--disk-has-tag-p
+                             "tasks.org" "Undo Alpha" "backlog")
+                            (and (org-air-r90--file-has-tag-p
+                                  "tasks.org" "Undo Alpha" "backlog") t))
+                      hook-observations)
+                (error "hostile compound post-write %s"
+                       (make-string 300 ?u)))))
+        (with-current-buffer source
+          (add-hook 'after-save-hook hostile nil t))
+        (let ((before-hooks (with-current-buffer source
+                              (copy-tree before-save-hook)))
+              (after-hooks (with-current-buffer source
+                             (copy-tree after-save-hook))))
+          (org-air-r90--record-messages messages
+            (setq last-command 'ignore)
+            (org-air-edit-undo)
+            (should (equal before (org-air-r90--text "tasks.org")))
+            (should (equal before (org-air-r90--live-text "tasks.org")))
+            (org-air-r90--assert-file-cache-exact "tasks.org" items)
+            (should-not org-air-view--edit-ring)
+            (should (= 1 (length org-air-view--edit-redo-ring)))
+            (should (= 1 (length
+                          (plist-get (car org-air-view--edit-redo-ring)
+                                     :parts))))
+            (should-not (seq-some (lambda (text)
+                                    (string-match-p "incomplete" text))
+                                  messages))
+            (setq last-command 'ignore)
+            (org-air-edit-redo)
+            (should (equal committed (org-air-r90--text "tasks.org")))
+            (should (equal committed (org-air-r90--live-text "tasks.org")))
+            (org-air-r90--assert-file-cache-exact "tasks.org" items)
+            (should (= 1 (length org-air-view--edit-ring)))
+            (should-not org-air-view--edit-redo-ring)
+            (should (= 1 (length
+                          (plist-get (car org-air-view--edit-ring) :parts))))
+            (org-air-r90--assert-bounded-warnings messages 2))
+          (should (= hook-calls 2))
+          (should (equal '((1 nil nil) (2 t t))
+                         (nreverse hook-observations)))
+          (should (equal before-hooks
+                         (with-current-buffer source before-save-hook)))
+          (should (equal after-hooks
+                         (with-current-buffer source after-save-hook)))
+          (should-not org-air-view--marked-keys)
+          (org-air-r90--assert-history-has-no-snapshot))))))
+
+;;; r90-25 — before-save relocation and a second no-scan write.
+
+(ert-deftest org-air-r90-25-before-save-hook-relocates-total-cache ()
+  "Ordinary before-save insertion relocates all headings before a second write."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Hook Alpha :one:\n* TODO Hook Middle :two:\n* TODO Hook Later :three:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((items (mapcar #'org-air-r90--item
+                          '("Hook Alpha" "Hook Middle" "Hook Later")))
+           (alpha (nth 0 items))
+           (later (nth 2 items))
+           (source (find-file-noselect (org-air-r90--file "tasks.org")))
+           (hook-calls 0)
+           (inserted nil)
+           (inserter
+            (lambda ()
+              (cl-incf hook-calls)
+              (unless inserted
+                (setq inserted t)
+                (goto-char (point-min))
+                (forward-line 2)
+                (insert "# inserted by real before-save hook\n")))))
+      (org-air-r90--mark-title "Hook Alpha")
+      (with-current-buffer source
+        (add-hook 'before-save-hook inserter nil t))
+      (let ((before-hooks (with-current-buffer source
+                            (copy-tree before-save-hook)))
+            (after-hooks (with-current-buffer source
+                           (copy-tree after-save-hook))))
+        (org-air-item-backlog)
+        (should inserted)
+        (should (= hook-calls 1))
+        (should (equal (org-air-r90--text "tasks.org")
+                       (org-air-r90--live-text "tasks.org")))
+        (should (string-match-p "inserted by real before-save hook"
+                                (org-air-r90--text "tasks.org")))
+        (org-air-r90--assert-file-cache-exact "tasks.org" items)
+        (should (equal '("backlog" "one")
+                       (org-air-r90--sorted-tags alpha)))
+        (should (equal '("backlog" "one")
+                       (org-air-r90--live-tags
+                        "tasks.org" "Hook Alpha" t)))
+        ;; The later row now relies on its committed post-hook locator.  Its
+        ;; second action must remain cached/no-scan and target that heading.
+        (org-air-r90--goto-row "Hook Later")
+        (let ((queries 0))
+          (cl-letf* ((query-orig (symbol-function 'org-air-query-items))
+                     ((symbol-function 'org-air-query-items)
+                      (lambda (&rest args)
+                        (cl-incf queries)
+                        (apply query-orig args)))
+                     (files-orig
+                      (symbol-function 'org-air-query-items-in-files))
+                     ((symbol-function 'org-air-query-items-in-files)
+                      (lambda (&rest args)
+                        (cl-incf queries)
+                        (apply files-orig args))))
+            (org-air-item-backlog))
+          (should (= queries 0)))
+        (should (= hook-calls 2))
+        (should (org-air-r90--disk-has-tag-p
+                 "tasks.org" "Hook Later" "backlog"))
+        (should-not (org-air-r90--disk-has-tag-p
+                     "tasks.org" "Hook Middle" "backlog"))
+        (org-air-r90--assert-file-cache-exact "tasks.org" items)
+        (should (equal before-hooks
+                       (with-current-buffer source before-save-hook)))
+        (should (equal after-hooks
+                       (with-current-buffer source after-save-hook)))
+        (should (= 2 (length org-air-view--edit-ring)))
+        (org-air-r90--assert-history-has-no-snapshot)
+        (should (org-air-r90--cached-position-exact-p
+                 later "tasks.org" "Hook Later"))))))
+
+;;; r90-26/27 — tracked unsaved drift and incomplete-locator rejection.
+
+(ert-deftest org-air-r90-26-preexisting-unsaved-drift-uses-tracked-marker ()
+  "A pre-action tracked marker maps unrelated unsaved drift without guessing."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Drift Alpha :one:\n* TODO Drift Middle :two:\n* TODO Drift Later :three:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((items (mapcar #'org-air-r90--item
+                          '("Drift Alpha" "Drift Middle" "Drift Later")))
+           (later (nth 2 items))
+           (durable-before (cdr (org-air-view--item-source-key later)))
+           ;; Visiting after board creation runs the R90 source-tracking hook.
+           (source (find-file-noselect (org-air-r90--file "tasks.org")))
+           (tracked (with-current-buffer source
+                      (cdr (assq later org-air-view--source-tracked-locators)))))
+      (should (markerp tracked))
+      (should (= durable-before (marker-position tracked)))
+      (with-current-buffer source
+        (goto-char tracked)
+        (insert "# pre-existing unsaved user drift\n"))
+      ;; Durable UI identity intentionally remains numeric/stale while the
+      ;; separate ephemeral exact marker follows the insertion.
+      (should (= durable-before
+                 (cdr (org-air-view--item-source-key later))))
+      (should-not (= durable-before
+                     (org-air-r90--actual-heading-position
+                      "tasks.org" "Drift Later")))
+      (should (= (marker-position tracked)
+                 (org-air-r90--actual-heading-position
+                  "tasks.org" "Drift Later")))
+      (org-air-r90--mark-title "Drift Alpha")
+      (org-air-item-backlog)
+      (should (equal (org-air-r90--text "tasks.org")
+                     (org-air-r90--live-text "tasks.org")))
+      (should (string-match-p "pre-existing unsaved user drift"
+                              (org-air-r90--text "tasks.org")))
+      (should (org-air-r90--disk-has-tag-p
+               "tasks.org" "Drift Alpha" "backlog"))
+      (should-not (org-air-r90--disk-has-tag-p
+                   "tasks.org" "Drift Later" "backlog"))
+      (org-air-r90--assert-file-cache-exact "tasks.org" items)
+      (should-not org-air-view--marked-keys)
+      (should (= 1 (length org-air-view--edit-ring)))
+      (should (= 1 (length
+                    (plist-get (car org-air-view--edit-ring) :parts))))
+      (org-air-r90--assert-history-has-no-snapshot))))
+
+(ert-deftest org-air-r90-27-incomplete-locator-rejects-whole-file-prewrite ()
+  "An untracked incomplete locator rejects the file before any source edit."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Reject Alpha :one:\n* TODO Reject Later :two:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((alpha (org-air-r90--item "Reject Alpha"))
+           (later (org-air-r90--item "Reject Later"))
+           (before (org-air-r90--text "tasks.org"))
+           (file (org-air-r90--file "tasks.org"))
+           ;; `point-max' is in range but not a heading.
+           (bad-position (1+ (length before)))
+           (saves 0) (toggles 0))
+      (org-air-r90--mark-title "Reject Alpha")
+      ;; This intentionally models an old/incomplete cached shape.  If query
+      ;; happened to leave the file visited, explicitly release only Later's
+      ;; ephemeral marker so it cannot mask the malformed durable locator.
+      (when-let* ((source (find-buffer-visiting file)))
+        (with-current-buffer source
+          (when-let* ((entry (assq later org-air-view--source-tracked-locators)))
+            (set-marker (cdr entry) nil)
+            (setq org-air-view--source-tracked-locators
+                  (assq-delete-all later org-air-view--source-tracked-locators)))))
+      (setf (org-air-item-marker later) (cons file bad-position))
+      (org-air-r90--record-messages messages
+        (cl-letf* ((save-orig (symbol-function 'save-buffer))
+                   ((symbol-function 'save-buffer)
+                    (lambda (&rest args)
+                      (cl-incf saves)
+                      (apply save-orig args)))
+                   (toggle-orig (symbol-function 'org-toggle-tag))
+                   ((symbol-function 'org-toggle-tag)
+                    (lambda (&rest args)
+                      (cl-incf toggles)
+                      (apply toggle-orig args))))
+          (org-air-item-backlog))
+        (should (seq-some (lambda (text)
+                            (string-match-p "run g r" text))
+                          messages)))
+      (should (= saves 0))
+      (should (= toggles 0))
+      (should (equal before (org-air-r90--text "tasks.org")))
+      (should (equal before (org-air-r90--live-text "tasks.org")))
+      (should-not (org-air-r90--disk-has-tag-p
+                   "tasks.org" "Reject Alpha" "backlog"))
+      (should (equal (list (org-air-view--item-source-key alpha))
+                     org-air-view--marked-keys))
+      (should-not org-air-view--edit-ring)
+      (should-not org-air-view--edit-redo-ring))))
+
+;;; r90-28 — permissive day focus for single and marked backlog.
+
+(ert-deftest org-air-r90-28-day-backlog-retains-same-section-identity ()
+  "Dated single/marked `b' keeps the exact Scheduled or Deadline row."
+  (skip-unless (locate-library "org-air"))
+  (dolist (kind '(scheduled deadline))
+    (dolist (marked '(nil t))
+      (let ((specs
+             (list
+              (cons "tasks.org"
+                    (if (eq kind 'scheduled)
+                        "#+title: tasks\n\n* TODO Day Alpha\nSCHEDULED: <2026-06-15 Mon>\n* TODO Day Beta\nSCHEDULED: <2026-06-15 Mon>\n"
+                      "#+title: tasks\n\n* TODO Day Alpha\nDEADLINE: <2026-06-15 Mon>\n* TODO Day Beta\nDEADLINE: <2026-06-15 Mon>\n"))
+              (cons "inbox.org" "#+title: inbox\n"))))
+        (org-air-r90--with-board specs
+          (org-air-view-day org-air-test-now)
+          (let* ((item (org-air-r90--goto-row "Day Alpha"))
+                 (key (org-air-view--item-source-key item))
+                 (section (org-air-r90--day-group-at-point))
+                 (queries 0) pane-key setup-key)
+            (should (equal (if (eq kind 'scheduled)
+                               "Scheduled" "Deadline")
+                           section))
+            (when marked
+              (org-air-toggle-mark)
+              (org-air-r90--goto-row "Day Alpha"))
+            ;; Provision source mode before constructor auditing; command-time
+            ;; intrinsic Org cache timers remain classified by identity.
+            (find-file-noselect (org-air-r90--file "tasks.org"))
+            (org-air-r90--with-timer-audit timer-observations
+              (cl-letf* ((query-orig (symbol-function 'org-air-query-items))
+                         ((symbol-function 'org-air-query-items)
+                          (lambda (&rest args)
+                            (cl-incf queries)
+                            (apply query-orig args)))
+                         (files-orig
+                          (symbol-function 'org-air-query-items-in-files))
+                         ((symbol-function 'org-air-query-items-in-files)
+                          (lambda (&rest args)
+                            (cl-incf queries)
+                            (apply files-orig args)))
+                         (ql-orig (symbol-function 'org-ql-select))
+                         ((symbol-function 'org-ql-select)
+                          (lambda (&rest args)
+                            (cl-incf queries)
+                            (apply ql-orig args)))
+                         (refresh-orig (symbol-function 'org-air-refresh))
+                         ((symbol-function 'org-air-refresh)
+                          (lambda (&rest args)
+                            (cl-incf queries)
+                            (apply refresh-orig args)))
+                         (setup-orig
+                          (symbol-function 'org-air-view--setup-inspector))
+                         ((symbol-function 'org-air-view--setup-inspector)
+                          (lambda ()
+                            (funcall setup-orig)
+                            (setq setup-key
+                                  (when-let* ((at (org-air-view--row-property
+                                                  'org-air-item)))
+                                    (org-air-view--item-source-key at)))))
+                         ((symbol-function 'org-air-view--view-pane-update-now)
+                          (lambda (board)
+                            (setq pane-key
+                                  (with-current-buffer board
+                                    (when-let* ((at
+                                                 (org-air-view--row-property
+                                                  'org-air-item)))
+                                      (org-air-view--item-source-key at)))))))
+                (org-air-item-backlog)))
+            (should (= queries 0))
+            (should (equal key
+                           (org-air-view--item-source-key
+                            (org-air-view--row-property 'org-air-item))))
+            (should (equal section (org-air-r90--day-group-at-point)))
+            (should (eq item org-air-view--inspector-item))
+            (should (equal key setup-key))
+            (should (equal key pane-key))
+            ;; Under batch the rail is inline; its inspector region therefore
+            ;; shares this exact final identity and visibly names the item.
+            (should (markerp org-air-view--inspector-beg))
+            (should (string-match-p
+                     "Day Alpha"
+                     (buffer-substring-no-properties
+                      org-air-view--inspector-beg
+                      org-air-view--inspector-end)))
+            (should (org-air-r90--disk-has-tag-p
+                     "tasks.org" "Day Alpha" "backlog"))
+            (should-not org-air-view--marked-keys)))))))
+
+;;; r90-29 — pre-write restoration, hook cleanup, and reentrant hygiene.
+
+(ert-deftest org-air-r90-29-save-boundary-hygiene-and-no-retained-snapshot ()
+  "Save attempts restore only pre-write failure and always remove sentinels."
+  (skip-unless (locate-library "org-air"))
+  ;; A true pre-write failure restores exact source/undo/visited state and
+  ;; leaves the failed mark available without recording success.
+  (org-air-r90--with-board
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Fail Alpha :one:\n* TODO Fail Later :two:\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((alpha (org-air-r90--item "Fail Alpha"))
+           (source (find-file-noselect (org-air-r90--file "tasks.org")))
+           (before-disk (org-air-r90--text "tasks.org"))
+           (before-live (org-air-r90--live-text "tasks.org"))
+           (before-modified (buffer-modified-p source))
+           (before-undo (buffer-local-value 'buffer-undo-list source))
+           (before-saved-size (buffer-local-value 'buffer-saved-size source))
+           (before-modtime (with-current-buffer source
+                             (copy-tree (visited-file-modtime))))
+           (before-hooks (with-current-buffer source
+                           (copy-tree before-save-hook)))
+           (after-hooks (with-current-buffer source
+                          (copy-tree after-save-hook)))
+           (saves 0))
+      (org-air-r90--mark-title "Fail Alpha")
+      (cl-letf (((symbol-function 'save-buffer)
+                 (lambda (&rest _)
+                   (cl-incf saves)
+                   (error "true pre-write save failure"))))
+        (org-air-item-backlog))
+      (should (= saves 1))
+      (should (equal before-disk (org-air-r90--text "tasks.org")))
+      (should (equal before-live (org-air-r90--live-text "tasks.org")))
+      (should (eq before-modified (buffer-modified-p source)))
+      (should (eq before-undo
+                  (buffer-local-value 'buffer-undo-list source)))
+      (should (equal before-saved-size
+                     (buffer-local-value 'buffer-saved-size source)))
+      (should (equal before-modtime
+                     (with-current-buffer source (visited-file-modtime))))
+      (should (equal before-hooks
+                     (with-current-buffer source before-save-hook)))
+      (should (equal after-hooks
+                     (with-current-buffer source after-save-hook)))
+      (should-not (member "backlog" (org-air-item-tags alpha)))
+      (should (equal (list (org-air-view--item-source-key alpha))
+                     org-air-view--marked-keys))
+      (should-not org-air-view--edit-ring)
+      (should-not org-air-view--edit-redo-ring)))
+  ;; Reentrant same-buffer attempts are token-scoped: the inner preparation
+  ;; and after sentinel cannot satisfy the outer attempt, and both hook pairs
+  ;; disappear after two successful writes.
+  (org-air-r90--with-corpus
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Nested save\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let* ((source (find-file-noselect (org-air-r90--file "tasks.org")))
+           (nested nil) inner-result outer-result
+           (inner-prepares 0) (outer-prepares 0))
+      (with-current-buffer source
+        (org-mode)
+        (goto-char (point-max))
+        (insert "# nested/reentrant attempt\n")
+        (let ((before-hooks (copy-tree before-save-hook))
+              (after-hooks (copy-tree after-save-hook)))
+          (setq outer-result
+                (org-air-view--save-attempt
+                 (lambda ()
+                   (cl-incf outer-prepares)
+                   (unless nested
+                     (setq nested t
+                           inner-result
+                           (org-air-view--save-attempt
+                            (lambda ()
+                              (cl-incf inner-prepares)
+                              'inner-state))))
+                   'outer-state)))
+          (should nested)
+          (should (= inner-prepares 1))
+          (should (= outer-prepares 1))
+          (should (plist-get inner-result :committed))
+          (should (eq 'inner-state (plist-get inner-result :state)))
+          (should-not (plist-get inner-result :error))
+          (should (plist-get outer-result :committed))
+          (should (eq 'outer-state (plist-get outer-result :state)))
+          (should-not (plist-get outer-result :error))
+          (should (equal before-hooks before-save-hook))
+          (should (equal after-hooks after-save-hook))
+          (should-not org-air-view--save-attempt-token)))
+      (should (equal (org-air-r90--text "tasks.org")
+                     (org-air-r90--live-text "tasks.org")))
+      (should (string-match-p "nested/reentrant attempt"
+                              (org-air-r90--text "tasks.org")))
+      (should-not org-air-view--edit-ring)
+      (should-not org-air-view--edit-redo-ring))))
 
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

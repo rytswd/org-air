@@ -3071,16 +3071,8 @@
     ;; UNTOUCHED) + r88-15 (R53 data-purity for the amber band).  Round-88
     ;; manifest is EMPTY.
     ;; ===================================================================
-    ;; v0.1 ROUND-90 implementation: R83 assertions intentionally made
-    ;; obsolete by the design-blessed header-only Backlog default.  The
-    ;; independent test seat owns rewriting these assertions to expand the
-    ;; header (or apply the exact lens) before locating deferred rows.
-    (org-air-r83-2-b-again-round-trips-preserving-tags
-     . "R90: after the first b, Backlog is header-only; expand it or use is:backlog before locating the row for the second b")
-    (org-air-r83-4-summary-and-section-conditional
-     . "R90: a cold Backlog section renders its header/count but zero item/fold rows; assert absence, TAB, then assert both titles")
-    (org-air-r83-15-summary-count-updates-live-on-toggle
-     . "R90: the live first b materialises a collapsed Backlog header; expand it or use is:backlog before the second b")
+    ;; v0.1 ROUND-90: the three design-obsolete R83 cold-row assumptions
+    ;; were re-blessed for header-only Backlog + explicit reveal.  Empty.
     )
   "Alist of (TEST-SYMBOL . REASON) for tests expected to fail.")
 

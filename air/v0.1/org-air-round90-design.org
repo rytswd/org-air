@@ -740,6 +740,49 @@ no query or refile-engine behavior changes.
   complete; state remains work-in-progress for independent test/review
   closeout.
 
+- 2026-07-26: Independent TEST/AUDIT completed RED/BLOCK.  Re-blessed the
+  three design-obsolete R83 tests without weakening their source-byte,
+  no-scan, co-tag, or round-trip assertions; all three now pass and the
+  known-failures manifest is empty.  Added
+  =tests/org-air-round90-test.el= with 25 ERTs covering r90-1..20 plus the
+  supervisor's hostile A/B/C paths.  Focused current-implementation run:
+  25 tests, 18 pass / 7 RED.  Full =make clean && make check=: 1127 tests,
+  1112 expected, 7 unexpected, 8 skipped; compile succeeded and lint was
+  clean.  Exact source blockers (left RED, never manifested):
+  1. =org-air-r90-1-local-focus-middle-successor-no-scan= expected zero
+     timer constructors but observed 3; r90-10 observed 6 and r90-19
+     observed 2.  They are =org-element--cache-sync= idle timers armed by
+     =org-toggle-tag= during the command, violating the acceptance plan's
+     0-timer seam even though landing/final identities otherwise converge.
+  2. =org-air-r90-12-inherited-effective-tags-do-not-reject-valid-heading=
+     proves exact preflight rejects a valid inherited-tag child: cached
+     effective tags are =inherited,local= while source-local tags are
+     =local=, so the shared tag is not written, the mark remains, and no
+     bulk history is created.
+  3. Hostile A, =org-air-r90-15a-runtime-undo-retains-failed-current-part=:
+     after c.org undo succeeds and b.org save fails, committed a.org and
+     failed-current b.org must both remain in residual undo; actual residual
+     contains only a.org because b.org was popped from =remaining=.
+  4. =org-air-r90-15b-runtime-redo-has-truthful-residual=: after a.org redo
+     succeeds and b.org save fails, b.org disk remains undone but its live
+     buffer remains redone (=backlog=), violating same-file rollback and
+     buffer/disk truth; no false redo branch is created and the a.org
+     residual itself is otherwise correct.
+  5. Hostile B, =org-air-r90-hostile-b-post-save-sync-cannot-diverge=:
+     injected relocation failure after successful save yields the exact
+     split =disk=t, live=nil, cached-tag=nil, later-position stale, mark=t,
+     history=nil; expected a fully synchronized committed part.  Disk bytes
+     therefore diverge from every live/cache/selection/history surface.
+  Hostile C passes: no-op-only and stale-prune-only actions perform no source
+  save and create no history.  Healthy same-file rollback, cross-file stop,
+  relocation, compound u/U shapes, collapse/lens, marks, and discoverability
+  seams pass.  Revert/mutation audit: the suite against pre-R90 was RED
+  24/25 (only the pre-existing expansion-persistence r90-17 seam survived);
+  the three re-blessed R83 tests were 2 pass / r83-4 RED on cold-row leakage;
+  targeted mutation J (clear expansion at refresh-repaint) made r90-17 RED.
+  =make regen-mockups= was zero churn.  Result remains red/block; source was
+  not repaired by the test seat.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

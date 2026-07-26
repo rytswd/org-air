@@ -265,6 +265,10 @@ explicit on/off direction or the `org-toggle-tag' choice fails."
       (should (equal '(backlog)
                      (org-air-classify-item btrfs org-air-test-now))))
     (should (string-match-p ":nix:" (org-air-r83--text "docs.org")))
+    ;; R90: Backlog is header-only by default.  Explicitly reveal it before
+    ;; locating the deferred row for the round-trip toggle.
+    (setq org-air-view--expanded-sections '(backlog))
+    (org-air-view--refresh-current)
     ;; toggle OFF.
     (org-air-r83--goto-row "Btrfs")
     (org-air-item-backlog)
@@ -328,10 +332,11 @@ Reverting the (is . backlog) arm or the filter-is-values entry fails."
 
 (ert-deftest org-air-r83-4-summary-and-section-conditional ()
   "The Backlog Summary row + section appear iff the bucket is non-empty
-\(r83-4).  A board with two deferred items renders a `Backlog 2' Summary
-row and a Backlog section body holding exactly those two; a backlog-free
-board renders NO Backlog Summary row and NO Backlog section.  Reverting
-the conditional D5 append fails one half or the other."
+\(r83-4).  A cold board with two deferred items renders a `Backlog 2'
+Summary row and a header-only Backlog section; TAB reveals exactly those
+two item rows.  A backlog-free board renders NO Backlog Summary row and
+NO Backlog section.  Reverting the conditional D5 append or R90 collapse
+law fails one half or the other."
   (skip-unless (locate-library "org-air"))
   ;; two backlog items => the section + a count row.
   (org-air-r83--with-board
@@ -344,8 +349,16 @@ the conditional D5 append fails one half or the other."
       (should (equal 2 (cdr (assq 'backlog counts)))))
     (let ((descriptors (org-air-view--section-descriptors org-air-view--items)))
       (should (assq 'backlog descriptors)))
+    ;; R90 cold contract: count/header chrome, zero item or fold rows.
     (let ((text (buffer-substring-no-properties (point-min) (point-max))))
       (should (string-match-p "Backlog" text))
+      (should-not (string-match-p "Alpha placeholder" text))
+      (should-not (string-match-p "Beta placeholder" text))
+      (should-not (string-match-p "and [0-9]+ more" text)))
+    ;; TAB on the header reveals every Backlog title.
+    (goto-char (org-air-view--find-property 'org-air-section 'backlog))
+    (org-air-toggle-section)
+    (let ((text (buffer-substring-no-properties (point-min) (point-max))))
       (should (string-match-p "Alpha placeholder" text))
       (should (string-match-p "Beta placeholder" text))))
   ;; a backlog-free board => NO section, NO summary row (byte-identity).
@@ -779,6 +792,9 @@ STATIC board) and r83-7 (the spy) by pinning the DYNAMIC Summary update."
     (should (assq 'backlog (org-air-view--section-descriptors org-air-view--items)))
     (should (string-match-p
              "Backlog" (buffer-substring-no-properties (point-min) (point-max))))
+    ;; R90: reveal the new header-only section before locating the row again.
+    (setq org-air-view--expanded-sections '(backlog))
+    (org-air-view--refresh-current)
     ;; un-defer: the count row + section retract, back to the fixed five.
     (org-air-r83--goto-row "Btrfs")
     (org-air-item-backlog)

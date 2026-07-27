@@ -5544,5 +5544,524 @@ is the user's only statement of how many files org-air just rewrote."
                                  text))
                               messages)))))))))))
 
+;;;; r90-67 — retest-11 permanent root: an incomplete compound operation must
+;;;; restamp EVERY buffer it really committed (R75 Decision 5, two-sided).
+
+(defconst org-air-r90--restamp-board
+  '(("a.org" . "#+title: a\n\n* TODO A1\n* TODO A2\n")
+    ("b.org" . "#+title: b\n\n* TODO B1\n* TODO B2\n")
+    ("c.org" . "#+title: c\n\n* TODO C1\n* TODO C2\n")
+    ("d.org" . "#+title: d\n\n* TODO D1\n* TODO D2\n")
+    ("inbox.org" . "#+title: inbox\n"))
+  "Four two-heading source files plus an inbox for compound restamp tests.")
+
+(defun org-air-r90--tick-guarded-records (buffer)
+  "Return every tick-guarded ring entry naming BUFFER, both ring sides.
+`:expected-undo' entries are exact opaque-token records that the restamp law
+deliberately never touches, so they are excluded."
+  (let (out)
+    (dolist (rec (append org-air-view--edit-ring org-air-view--edit-redo-ring))
+      (if (eq (plist-get rec :kind) 'bulk)
+          (dolist (part (plist-get rec :parts))
+            (when (and (eq (plist-get part :buffer) buffer)
+                       (not (plist-member part :expected-undo)))
+              (push part out)))
+        (when (and (eq (plist-get rec :buffer) buffer)
+                   (not (plist-member rec :expected-undo)))
+          (push rec out))))
+    (nreverse out)))
+
+(defun org-air-r90--stale-stamped-records (buffer)
+  "Return a readable description of BUFFER's ring entries with a stale tick."
+  (let ((tick (buffer-chars-modified-tick buffer)))
+    (delq nil
+          (mapcar (lambda (entry)
+                    (unless (eql (plist-get entry :tick) tick)
+                      (list :desc (plist-get entry :desc)
+                            :file (file-name-nondirectory
+                                   (or (plist-get entry :file) "?"))
+                            :stamped (plist-get entry :tick) :now tick)))
+                  (org-air-r90--tick-guarded-records buffer)))))
+
+(defconst org-air-r90--changed-since-re "\\`Cannot undo: .* changed since"
+  "Echo shape of the R73/R75 stale-record degrade a bad stamp would cause.")
+
+(defun org-air-r90--count-messages (messages regexp)
+  "Return how many MESSAGES match REGEXP."
+  (seq-count (lambda (text) (string-match-p regexp text)) messages))
+
+(defun org-air-r90--single-record-for (buffer)
+  "Return the ordinary single-buffer undo record naming BUFFER."
+  (let ((found (seq-find (lambda (rec)
+                           (and (not (eq (plist-get rec :kind) 'bulk))
+                                (eq (plist-get rec :buffer) buffer)))
+                         (append org-air-view--edit-ring
+                                 org-air-view--edit-redo-ring))))
+    (should found)
+    found))
+
+(defun org-air-r90--expand-section (bucket)
+  "Expand BUCKET through the real board TAB toggle so every row renders."
+  (let ((pos (org-air-view--find-property 'org-air-section bucket)))
+    (should pos)
+    (goto-char pos)
+    (org-air-toggle-section)
+    (should (memq bucket org-air-view--expanded-sections))))
+
+(defun org-air-r90--restamp-setup ()
+  "Create four ordinary records, then one committed four-file bulk record.
+Return the compound record.  The ordinary `done' records are pushed newest
+LAST for `a.org', so a later `u' walk reaches every source buffer in turn."
+  (org-air-r90--expand-section 'attention)
+  (dolist (title '("D2" "C2" "B2" "A2"))
+    (org-air-r90--goto-row title)
+    (org-air-item-done))
+  (dolist (title '("A1" "B1" "C1" "D1")) (org-air-r90--mark-title title))
+  (org-air-item-backlog)
+  (let ((record (car org-air-view--edit-ring)))
+    (should (eq 'bulk (plist-get record :kind)))
+    (should (equal '("a.org" "b.org" "c.org" "d.org")
+                   (mapcar (lambda (part)
+                             (file-name-nondirectory (plist-get part :file)))
+                           (plist-get record :parts))))
+    record))
+
+(ert-deftest org-air-r90-67-incomplete-compound-restamps-every-committed-buffer ()
+  "Every buffer an incomplete compound op really committed must be restamped.
+R75 Decision 5 (two-sided restamp) is what keeps the chars-tick guard meaning
+\"no NON-ring change intervened\": after a ring op writes a buffer, that
+buffer's OTHER ring records must carry the new tick or the next honest `u' is
+refused with a truthful-looking but wrong \"changed since\" and the record is
+consumed with zero bytes moved.  An incomplete compound operation commits a
+real PREFIX of files, so the sweep must visit exactly the committed set —
+every one of them, and none of the parts that never moved.  A destructive
+`nreverse' on the newest-first accumulator leaves the sweep naming a
+one-element tail, restamping only the LAST committed buffer while the echo
+may still be honest, which is why this law needs its own permanent test."
+  (skip-unless (locate-library "org-air"))
+  (dolist (combo '((undo blocked) (undo invalidated)
+                   (redo blocked) (redo invalidated)))
+    (let ((direction (nth 0 combo))
+          (shape (nth 1 combo))
+          (pending-undo-list nil)
+          (undo-equiv-table (make-hash-table :test #'eq))
+          (last-command nil)
+          (this-command nil))
+      (org-air-r90--with-board org-air-r90--restamp-board
+        (let* ((record (org-air-r90--restamp-setup))
+               (parts (copy-sequence (plist-get record :parts)))
+               (buffers (mapcar (lambda (name)
+                                  (find-file-noselect (org-air-r90--file name)))
+                                '("a.org" "b.org" "c.org" "d.org")))
+               ;; Processing order is reverse commit order for undo and
+               ;; commit order for redo, so the same shapes always stop
+               ;; after exactly three committed files.
+               (order (if (eq direction 'undo)
+                          '("d.org" "c.org" "b.org" "a.org")
+                        '("a.org" "b.org" "c.org" "d.org")))
+               (committed-names (seq-take order 3))
+               (untouched-name (nth 3 order))
+               ;; The invalidated shape stops ON the third processed file
+               ;; (it commits, then final disk truth replaces the
+               ;; generation); the blocked shape stops BEFORE the fourth.
+               (invalidate-title (concat (upcase (substring (nth 2 order) 0 1))
+                                         "1"))
+               (first-buffer (find-file-noselect
+                              (org-air-r90--file (nth 0 order))))
+               (last-buffer (find-file-noselect
+                             (org-air-r90--file (nth 3 order))))
+               (write-orig
+                (symbol-function 'org-air-view--cache-sync-write-slots))
+               (ran 0)
+               (hook (lambda ()
+                       (cl-incf ran)
+                       (when (= ran 1)
+                         (with-current-buffer last-buffer
+                           (undo-boundary)
+                           (save-excursion
+                             (goto-char (point-max))
+                             (insert "# late unsaved user note\n"))))))
+               single-records before-ticks)
+          (ert-info ((format "incomplete %S shape=%S order=%S" direction shape
+                             order))
+            ;; A redo case needs the record on the redo ring first: one
+            ;; COMPLETE undo, which legitimately restamps all four buffers.
+            (when (eq direction 'redo)
+              (org-air-edit-undo)
+              (should (eq record (car org-air-view--edit-redo-ring)))
+              (should-not (eq record (car org-air-view--edit-ring))))
+            (setq single-records
+                  (mapcar #'org-air-r90--single-record-for buffers))
+            (setq before-ticks
+                  (mapcar (lambda (rec) (plist-get rec :tick)) single-records))
+            ;; Before the incomplete operation every ordinary record is
+            ;; correctly stamped: the initial bulk push does not restamp, so
+            ;; only a real ring op can have healed them.
+            (when (eq direction 'redo)
+              (dolist (buffer buffers)
+                (should (null (org-air-r90--stale-stamped-records buffer)))))
+            (when (eq shape 'blocked)
+              (with-current-buffer first-buffer
+                (add-hook 'after-save-hook hook nil t)))
+            (org-air-r90--record-messages collected
+              (unwind-protect
+                  (cl-letf (((symbol-function
+                              'org-air-view--cache-sync-write-slots)
+                             (lambda (item file position tags)
+                               (if (and (eq shape 'invalidated)
+                                        (equal invalidate-title
+                                               (org-air-item-title item)))
+                                   (error "mandatory %s slot failure"
+                                          invalidate-title)
+                                 (funcall write-orig item file position tags))))
+                            ((symbol-function 'display-warning)
+                             (lambda (&rest _) nil)))
+                    (if (eq direction 'undo)
+                        (org-air-edit-undo)
+                      (org-air-edit-redo)))
+                (when (eq shape 'blocked)
+                  (with-current-buffer first-buffer
+                    (remove-hook 'after-save-hook hook t))))
+              (let ((messages (nreverse collected)))
+                ;; 1. Disk agrees that exactly three files moved.
+                (dolist (name '("a.org" "b.org" "c.org" "d.org"))
+                  (let ((title (concat (upcase (substring name 0 1)) "1"))
+                        (moved (member name committed-names)))
+                    (should (eq (and (org-air-r90--disk-has-tag-p
+                                      name title "backlog")
+                                     t)
+                                ;; undo removes the tag from what it moved,
+                                ;; redo adds it to what it moved.
+                                (if (eq direction 'undo)
+                                    (not (and moved t))
+                                  (and moved t))))))
+                ;; 2. The echo states that same K/N, never a smaller K.
+                (ert-info ((format "incomplete messages: %S" messages))
+                  (should (= 1 (seq-count
+                                (lambda (text)
+                                  (string-match-p
+                                   (format
+                                    "\\`%s incomplete: 3/4 files %s"
+                                    (if (eq direction 'undo) "Undo" "Redo")
+                                    (if (eq direction 'undo)
+                                        "reverted" "reapplied"))
+                                   text))
+                                messages))))))
+            ;; 3. The residual record carries the ORIGINAL part objects, in
+            ;;    order, and no speculative redo branch survives.
+            (should-not org-air-view--edit-redo-ring)
+            (let* ((residual (car org-air-view--edit-ring))
+                   (expected (if (eq direction 'undo)
+                                 ;; still-undoable: the stopped part and any
+                                 ;; untouched suffix, in commit order.
+                                 (seq-filter
+                                  (lambda (part)
+                                    (not (member (file-name-nondirectory
+                                                  (plist-get part :file))
+                                                 committed-names)))
+                                  parts)
+                               ;; reapplied prefix alone, in commit order.
+                               (seq-filter
+                                (lambda (part)
+                                  (member (file-name-nondirectory
+                                           (plist-get part :file))
+                                          committed-names))
+                                parts))))
+              (should (eq 'bulk (plist-get residual :kind)))
+              (should (org-air-r90--same-object-order-p
+                       (plist-get residual :parts) expected))
+              (should (string-match-p
+                       (format "residual %d file" (length expected))
+                       (plist-get residual :desc))))
+            ;; 4. THE RESTAMP LAW.  Every committed buffer is current on both
+            ;;    ring sides; the file that never moved is left exactly as it
+            ;;    was, so the sweep is the committed set and nothing wider.
+            (cl-loop
+             for buffer in buffers
+             for rec in single-records
+             for before in before-ticks
+             for name in '("a.org" "b.org" "c.org" "d.org")
+             do (if (member name committed-names)
+                    (let ((stale (org-air-r90--stale-stamped-records buffer)))
+                      (ert-info ((format "committed %s stale=%S" name stale))
+                        (should (null stale))
+                        (should (eql (plist-get rec :tick)
+                                     (buffer-chars-modified-tick buffer)))))
+                  (ert-info ((format "untouched %s" name))
+                    (should (equal name untouched-name))
+                    (should (eql (plist-get rec :tick) before)))))
+            ;; 5. FOLLOW-ON HISTORY.  A stale stamp would refuse the next `u'
+            ;;    on a committed buffer's own ordinary record with "changed
+            ;;    since" and consume it, moving zero bytes.
+            (let ((residual (car org-air-view--edit-ring)))
+              (org-air-r90--record-messages drained
+                (org-air-edit-undo)
+                (let ((messages (nreverse drained)))
+                  (ert-info ((format "residual drain messages: %S" messages))
+                    (if (and (eq direction 'undo) (eq shape 'blocked))
+                        ;; The stopped part carries the user's own ahead edit,
+                        ;; so its residual stays honestly retryable at the head.
+                        (progn
+                          (should (= 1 (org-air-r90--count-messages
+                                        messages
+                                        org-air-r90--changed-since-re)))
+                          (should (eq residual (car org-air-view--edit-ring))))
+                      (should (= 1 (org-air-r90--count-messages
+                                    messages "\\`Undid: ")))
+                      (should-not (eq residual
+                                      (car org-air-view--edit-ring))))))))
+            (unless (and (eq direction 'undo) (eq shape 'blocked))
+              ;; Walk every ordinary record back.  Only the file carrying a
+              ;; genuine unsaved user edit may be refused.
+              (cl-loop for name in '("a.org" "b.org" "c.org" "d.org")
+                       for rec in single-records
+                       for title = (concat (upcase (substring name 0 1)) "2")
+                       do (org-air-r90--record-messages walked
+                            (org-air-edit-undo)
+                            (let ((messages (nreverse walked))
+                                  (dirty (and (eq shape 'blocked)
+                                              (equal name untouched-name))))
+                              (ert-info ((format "walk %s (%s): %S"
+                                                 name (plist-get rec :desc)
+                                                 messages))
+                                (if dirty
+                                    (should
+                                     (= 1 (org-air-r90--count-messages
+                                           messages
+                                           org-air-r90--changed-since-re)))
+                                  (should (= 1 (org-air-r90--count-messages
+                                                messages "\\`Undid: ")))
+                                  (should
+                                   (string-match-p
+                                    (format "^\\*+ TODO %s" title)
+                                    (org-air-r90--text name)))))))))))))))
+
+
+;;;; r90-68 — retest-11 permanent root: the undo disk-truth guard resolves the
+;;;; CANONICAL visited buffer and is a strict no-op with no visited file.
+
+(defmacro org-air-r90--with-guard-clone (spec &rest body)
+  "Run BODY with BASE visiting a temp file holding SPEC and CLONE cloned off it.
+CLONE is an `org-tree-to-indirect-buffer'-style clone: `make-indirect-buffer'
+with CLONE-FLAG, sharing BASE's text and `buffer-undo-list' and visiting no
+file of its own.  Both buffers and the directory are always cleaned up."
+  (declare (indent 1) (debug t))
+  `(let* ((dir (make-temp-file "org-air-r90-guard" t))
+          (file (expand-file-name "tree.org" dir))
+          base clone)
+     (unwind-protect
+         (progn
+           (with-temp-file file (insert ,spec))
+           (setq base (find-file-noselect file))
+           (setq clone (make-indirect-buffer base "*org-air-r90-clone*" t))
+           ,@body)
+       (dolist (buffer (list clone base))
+         (when (buffer-live-p buffer)
+           (with-current-buffer buffer (set-buffer-modified-p nil))
+           (let ((kill-buffer-query-functions nil)) (kill-buffer buffer))))
+       (when (file-directory-p dir)
+         (set-file-modes dir #o700)
+         (delete-directory dir t)))))
+
+(defun org-air-r90--guard-is-total (buffer)
+  "Run the guard in BUFFER, asserting it never signals and adds no undo entry.
+The guard is a custom undo handler: it may never signal out of the undo
+machinery and may never extend the buffer's own undo list."
+  (with-current-buffer buffer
+    (let ((before buffer-undo-list)
+          (guards (org-air-r90--undo-disk-guard-count buffer-undo-list))
+          (signalled 'none))
+      (condition-case err
+          (org-air-view--undo-disk-truth-guard)
+        ((error quit) (setq signalled err)))
+      (should (eq 'none signalled))
+      (should (eq before buffer-undo-list))
+      (should (= guards (org-air-r90--undo-disk-guard-count
+                         buffer-undo-list))))))
+
+(ert-deftest org-air-r90-68-undo-guard-is-canonical-and-file-less-safe ()
+  "The disk-truth guard must resolve its subject and never invent disk truth.
+An `org-tree-to-indirect-buffer' clone shares its base's text and
+`buffer-undo-list' but visits no file, so an ordinary `C-/' inside the clone
+runs this guard with the CLONE current.  Two independent halves are load
+bearing.  (1) CANONICALIZATION: the comparison subject is the visited BASE, so
+unprovable equality still restores the base's modified state and the
+documented manual save + retry stays reachable; reading `buffer-file-name'
+from the clone would prove nothing and silently leave a divergent base clean.
+(2) THE FILE-LESS NO-OP: after that resolution a buffer with genuinely no
+visited file has no disk truth to be dishonest about, so the guard must not
+manufacture modified state and a spurious dirty-buffer prompt."
+  (skip-unless (locate-library "org-air"))
+  ;; A. The REAL product path: the product installs the guard, and the undo
+  ;;    that runs it happens inside the clone.
+  (let ((pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board
+        '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      (let* ((facts (org-air-r90--arm-recursive-compound 'undo))
+             (source (plist-get facts :source))
+             (record (plist-get facts :record))
+             (part (car (plist-get record :parts)))
+             (label "nested committed hook")
+             (committed-disk (org-air-r90--text "tasks.org"))
+             clone)
+        (unwind-protect
+            (progn
+              (org-air-r90--assert-guard-old-edge source part)
+              (setq clone (make-indirect-buffer source "*org-air-r90-tree*" t))
+              (should-not (buffer-local-value 'buffer-file-name clone))
+              (should (eq source (buffer-base-buffer clone)))
+              (should (eq source (org-air-view--source-canonical-buffer clone)))
+              ;; Ordinary `C-/' inside the clone: it walks the SHARED undo
+              ;; list, so the product's own guard entry runs with the clone
+              ;; current and no file of its own.
+              (should (= 1 (org-air-r90--undo-disk-guard-count
+                            (buffer-local-value 'buffer-undo-list clone))))
+              (with-current-buffer clone (undo-boundary) (undo-only))
+              ;; Live and disk really diverged; equality cannot be proven, so
+              ;; the CANONICAL BASE must carry the modified state.
+              (should (equal committed-disk (org-air-r90--text "tasks.org")))
+              (should-not (string-match-p
+                           label (org-air-r90--live-text "tasks.org")))
+              (should (buffer-modified-p source))
+              ;; The documented recovery stays reachable from the base.
+              (with-current-buffer source (save-buffer))
+              (should-not (buffer-modified-p source))
+              (should (equal (org-air-r90--text "tasks.org")
+                             (org-air-r90--live-text "tasks.org")))
+              (should (org-air-view--history-expected-durable-p part))
+              (org-air-edit-redo)
+              (should (eq record (car org-air-view--edit-ring)))
+              (should (org-air-r90--disk-has-tag-p
+                       "tasks.org" "Alpha" "backlog")))
+          (when (buffer-live-p clone)
+            (let ((kill-buffer-query-functions nil)) (kill-buffer clone)))))))
+  ;; B. A clone whose base genuinely equals its file stays clean, and the
+  ;;    user's restriction, point and mark survive the comparison.
+  (org-air-r90--with-guard-clone
+      "#+title: tree\n\n* TODO Alpha\n** child\n* TODO Beta\n"
+    (should-not (buffer-modified-p base))
+    ;; Both the clone AND the canonical base are narrowed like a real tree
+    ;; clone; the comparison widens neither of the user's restrictions.
+    (with-current-buffer base
+      (narrow-to-region (point-min) (min (point-max) 18))
+      (goto-char (point-max))
+      (push-mark (point-min) t))
+    (with-current-buffer clone
+      (narrow-to-region (point-min) (min (point-max) 24))
+      (goto-char (point-min))
+      (push-mark (point-max) t)
+      (let ((low (point-min)) (high (point-max))
+            (pt (point)) (mk (mark t))
+            (base-state (with-current-buffer base
+                          (list (point-min) (point-max) (point) (mark t)))))
+        (org-air-r90--guard-is-total clone)
+        (should (= low (point-min)))
+        (should (= high (point-max)))
+        (should (= pt (point)))
+        (should (= mk (mark t)))
+        (should (equal base-state
+                       (with-current-buffer base
+                         (list (point-min) (point-max) (point) (mark t)))))))
+    (with-current-buffer base (widen))
+    (should-not (buffer-modified-p base))
+    (should-not (buffer-modified-p clone))
+    ;; A clone-of-clone still resolves to the ULTIMATE base, both ways.
+    (let ((deep (make-indirect-buffer clone "*org-air-r90-clone-2*" t)))
+      (unwind-protect
+          (progn
+            (should (eq base (buffer-base-buffer deep)))
+            (should (eq base (org-air-view--source-canonical-buffer deep)))
+            (should-not (buffer-local-value 'buffer-file-name deep))
+            (org-air-r90--guard-is-total deep)
+            (should-not (buffer-modified-p base))
+            ;; Divergent base, guard run from the clone-of-clone: the
+            ;; ultimate base is the subject and must end up modified.
+            (with-current-buffer base
+              (save-excursion (goto-char (point-max)) (insert "* TODO Gamma\n"))
+              (restore-buffer-modified-p nil))
+            (should-not (buffer-modified-p base))
+            (org-air-r90--guard-is-total deep)
+            (should (buffer-modified-p base))
+            ;; An ordinary save converges and the guard is quiet again.
+            (with-current-buffer base (save-buffer))
+            (should-not (buffer-modified-p base))
+            (org-air-r90--guard-is-total deep)
+            (should-not (buffer-modified-p base)))
+        (when (buffer-live-p deep)
+          (let ((kill-buffer-query-functions nil)) (kill-buffer deep))))))
+  ;; C. Genuinely file-less subjects are a STRICT no-op, cloned or not.
+  (with-temp-buffer
+    (insert "scratch only, never visited\n")
+    (restore-buffer-modified-p nil)
+    (should-not buffer-file-name)
+    (should (eq (current-buffer)
+                (org-air-view--source-canonical-buffer (current-buffer))))
+    (org-air-r90--guard-is-total (current-buffer))
+    (should-not (buffer-modified-p)))
+  (let* ((orphan (generate-new-buffer "*org-air-r90-orphan*"))
+         (orphan-clone (make-indirect-buffer orphan
+                                             "*org-air-r90-orphan-clone*" t)))
+    (unwind-protect
+        (progn
+          (with-current-buffer orphan
+            (insert "* TODO never visited\n")
+            (restore-buffer-modified-p nil))
+          (should (eq orphan (org-air-view--source-canonical-buffer
+                              orphan-clone)))
+          (org-air-r90--guard-is-total orphan-clone)
+          (should-not (buffer-modified-p orphan))
+          (should-not (buffer-modified-p orphan-clone)))
+      (dolist (buffer (list orphan-clone orphan))
+        (when (buffer-live-p buffer)
+          (with-current-buffer buffer (set-buffer-modified-p nil))
+          (let ((kill-buffer-query-functions nil)) (kill-buffer buffer))))))
+  ;; D. Once a visited file DOES resolve, every unprovable outcome is
+  ;;    conservative and the guard stays total.
+  (dolist (shape '(divergent unreadable deleted read-only read-error
+                   quit restore-signals))
+    (org-air-r90--with-guard-clone
+        "#+title: tree\n\n* TODO Alpha\n* TODO Beta\n"
+      (let ((insert-orig (symbol-function 'insert-file-contents))
+            (restore-orig (symbol-function 'restore-buffer-modified-p)))
+        (ert-info ((format "guard subject shape: %S" shape))
+          (with-current-buffer base
+            (save-excursion (goto-char (point-max)) (insert "* TODO Gamma\n"))
+            (restore-buffer-modified-p nil)
+            (when (eq shape 'read-only) (setq buffer-read-only t)))
+          (should-not (buffer-modified-p base))
+          (pcase shape
+            ('unreadable (set-file-modes file #o000))
+            ('deleted (delete-file file))
+            (_ nil))
+          (cl-letf (((symbol-function 'insert-file-contents)
+                     (lambda (name &rest args)
+                       (if (and (stringp name)
+                                (equal (expand-file-name name) file))
+                           (pcase shape
+                             ('read-error (error "guard compare failed"))
+                             ('quit (signal 'quit nil))
+                             (_ (apply insert-orig name args)))
+                         (apply insert-orig name args))))
+                    ((symbol-function 'restore-buffer-modified-p)
+                     (lambda (flag)
+                       (if (eq shape 'restore-signals)
+                           (error "guard cannot restore modified state")
+                         (funcall restore-orig flag)))))
+            ;; The guard is invoked from the FILE-LESS clone every time.
+            (org-air-r90--guard-is-total clone))
+          (if (eq shape 'restore-signals)
+              ;; Total even when the restoration itself fails: no signal
+              ;; escapes into the undo machinery.
+              (should-not (buffer-modified-p base))
+            (should (buffer-modified-p base)))
+          (when (eq shape 'read-only)
+            (should (buffer-local-value 'buffer-read-only base)))
+          (when (eq shape 'unreadable)
+            (set-file-modes file #o600)))))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

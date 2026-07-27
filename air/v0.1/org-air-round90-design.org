@@ -2130,6 +2130,134 @@ no query or refile-engine behavior changes.
   length 0, =make regen-mockups= a byte no-op.  State: blocked →
   work-in-progress pending independent review closeout.
 
+- 2026-07-27: TEST/AUDIT retest 11 — independent audit of FIX-11 plus permanent
+  coverage for its two probe-only halves.  Tests and this history only;
+  =tests/org-air-round90-test.el= is the single changed file besides this
+  document.  All eleven production modules are byte-identical to
+  =yvloqwpvrqnl= (=org-air-view.el= SHA-256
+  =297b44210f55a2b1a45591313e9185569629d3092e2c4fa33993242b9812a012=), and
+  README, fixtures, goldens and the known-failures manifest are untouched.  No
+  repository probe file exists and =.deps= is retained.
+
+  Scope/ancestry.  Parent =tvplxtqsvpoy= confirmed for =yvloqwpvrqnl=; one
+  substantive head, no conflicts, no divergent changes; the FIX-11 change
+  touches only =org-air-view.el= and this document.  Reviewed the R90 document
+  and Implementation History (retest-10 and FIX-11), =REPORT-r90d.md=, the
+  FIX-11 diff, its =/tmp= probes, and permanent =r90-49= and =r90-54..66=.
+  Claimed gate independently reproduced before any change: =make clean &&
+  make check= 1174 tests / 1166 expected / 0 unexpected / 8 GUI skips, lint 0
+  findings, loaded known-failures active length 0, R90 72/72.
+
+  GAP CLOSED (the payload's own mutation B proves it was real).  Two repaired
+  behaviours were covered only by throwaway probes, so a future regression
+  would have passed the official gate.  Two permanent tests now pin them.
+
+  =r90-67-incomplete-compound-restamps-every-committed-buffer=.  Drives the
+  real product — four ordinary single-buffer =done= records (pushed so a later
+  =u= walk reaches every source), a four-file marked =b=, and an incomplete
+  compound operation — across ALL FOUR combinations of direction (=undo=,
+  =redo=) and stop shape (blocked/=failed=, =generation-invalidated=), each
+  stopping after exactly three committed files.  Per combination it asserts:
+  disk agrees exactly three files moved; the echo is the honest =3/4=; no
+  speculative redo branch survives; the residual record holds the ORIGINAL
+  =eq= part objects in commit order with the matching =residual N file=
+  description; and THE RESTAMP LAW — every committed buffer has zero
+  stale-ticked entries on BOTH ring sides and its own ordinary record carries
+  the buffer's current tick, while the one file that never moved keeps exactly
+  the stamp it had, so the sweep is the committed set and nothing wider.  It
+  then exercises the follow-on history a stale stamp would break: the residual
+  is drained through the real =u=, then every ordinary record is walked back
+  with =u=, each either reverting its heading to =TODO= or — only for a file
+  carrying a genuine unsaved user edit — honestly refused with
+  "changed since"; in the blocked-undo shape the residual is instead asserted
+  to stay honestly retryable at the ring head.
+
+  =r90-68-undo-guard-is-canonical-and-file-less-safe=.  (A) The REAL product
+  path: the product installs its own old-edge guard, then an ordinary
+  =undo-only= is run INSIDE an =org-tree-to-indirect-buffer=-style clone
+  (=make-indirect-buffer= with CLONE-FLAG, shared =buffer-undo-list=, no
+  =buffer-file-name=); the canonical base must end up modified because
+  equality cannot be proven, an ordinary =save-buffer= converges, and the
+  exact org-air retry then succeeds.  (B) A clone whose base genuinely equals
+  its file stays clean, and the restriction, point and mark of BOTH the
+  narrowed clone AND the narrowed base survive the comparison.  Clone-of-clone
+  canonicalization is asserted to resolve to the ULTIMATE base, in both the
+  equal (stays clean) and divergent (base modified) directions.  (C) Genuinely
+  file-less subjects — a never-visited buffer and a clone of a never-visited
+  buffer — are a STRICT no-op.  (D) Once a visited file DOES resolve, all of
+  =divergent=, =unreadable=, =deleted=, =read-only=, =read-error=, =quit= and
+  a signalling =restore-buffer-modified-p= are conservative and TOTAL: the
+  guard never signals, never extends the buffer's undo list, and (except when
+  the restoration itself fails) leaves the base modified.
+
+  Independent verification beyond the payload.  (i) COMMITTED-COUNT HONESTY
+  was re-derived from scratch over 2-, 3-, 4- and 5-file records x both
+  directions x both stop shapes (16 scenarios): the echo's K equals the true
+  committed count equals disk truth; the residual holds the original =eq= part
+  objects in commit order (non-committed parts for =undo=, the reapplied
+  prefix for =redo=) with the matching count; the redo ring is empty after
+  every runtime split; and bounded identities are forgotten for EXACTLY the
+  non-residual parts and retained for every residual part.  (ii) NON-
+  DESTRUCTIVE LIST DISCIPLINE was re-audited mechanically across all eleven
+  modules — 168 =nreverse=/=nconc=/=delq=/=sort=/=setcar=/=setcdr=/
+  =delete-dups= sites, each classified by whether its target variable is read
+  again inside the same top-level form, and every candidate read-after-mutate
+  inspected by hand.  Result: no destructive call reads a mutated list
+  afterwards.  =successes= is now written only by the per-part =push= and read
+  only by the single =(reverse successes)=.  The deliberate case FIX-11 names
+  — the O(1) first/last locator witness in =--hydrate-source-items=, which
+  reads =(car newest)= from the pre-=nreverse= head cons — is safe by
+  construction (=nreverse= relinks cdrs, never cars, so that cons is the final
+  entry) and was additionally proven empirically: across six hydrate/prune
+  cycles (same-generation re-hydrate, prune-to-generation, prune-to-nil full
+  release, a real board edit and an incremental hydrate onto an
+  already-pruned list) the witness always equalled (FIRST . LAST) of the live
+  locator list with both markers live and owned by the base.  One additional
+  in-place =sort= exists on a list stored elsewhere —
+  =--source-heading-exact-p= sorts the cached projection's =:effective-tags=
+  in place — and is harmless twice over: the product reads each cached
+  projection at most once (the index is dynamic, fresh per hydration and each
+  item is validated once), and on the Emacs 30 runtime the sorted list is
+  still =eq= to its original head cons.  Recorded as a non-blocking
+  observation, not a defect.  (iii) GUARD: totality, conservatism and
+  retention re-checked independently; a guard run over a source containing a
+  distinctive payload leaves no source bytes and no guard reference reachable
+  from either ring or the identity registry.  (iv) REGRESSIONS: =r90-49= and
+  =r90-54..66= GREEN; R73/R75 history 28/28; owner rename/mode lifecycle
+  (=r90-51=), native v6 tags (=r90-52=), total finalizer (=r90-53=), bounded
+  retention after kill + GC (=r90-56=) and 1k/5k scaling (=r90-50=, timers
+  intrinsic only) all GREEN.  (v) PERFORMANCE, candidate vs =tvplxtqsvpoy= on
+  the same machine: open+hydrate 0.26s/0.42s (parent 0.26s/0.40s), ten
+  same-generation hydrations 0.000143s/0.000199s with ZERO source checks
+  (parent 0.000143s/0.000147s), render 0.077s/0.496s (parent 0.082s/0.466s),
+  replacement generation 0.211s/0.709s with exactly one =org-map-entries= and
+  exactly N validations (parent 0.214s/0.675s) at 1k/5k.  No new per-render
+  work.
+
+  Mutation evidence, independently reproduced.  Every mutant was applied to a
+  pristine copy, byte-compiled fresh, run over the whole permanent =r90-*=
+  selector, then reverted with the SHA-256 re-verified as
+  =297b4421...12a012=.  (A) ROOT-1 restored to the parent's destructive
+  =(nreverse successes)= -> 2 unexpected: =r90-66= AND the new =r90-67=.
+  (B) THE GAP PROOF — echo left honest, the committed-buffer restamp sweep
+  truncated to =(last committed)= (exactly what the destructive call left
+  behind) -> =r90-66= stays GREEN and =r90-67= alone is RED, naming
+  =c.org='s =done "C2"= record stamped 13 against a buffer at 23.  (C) guard
+  canonicalization dropped -> =r90-68= alone RED (the divergent base is left
+  falsely clean when the undo runs in the clone).  (D) file-less no-op dropped
+  -> =r90-68= alone RED (a never-visited buffer is marked modified).
+  (E) unprovable equality treated as proven -> 8 unexpected including
+  =r90-64=, plus =r90-46=, =r90-49=, =r90-54=, =r90-56=, =r90-59=, =r90-63=
+  and =r90-68=.  Before this retest, C and D had NO permanent coverage at all.
+
+  Gate after =make clean= with every stale =.elc= deleted: all 11 modules
+  compile with only the pre-existing =org-air-project.el= wide-docstring
+  warning; lint 0 findings; =make check= 1176 tests / 1168 expected /
+  0 unexpected / 8 GUI skips (1174 + the two new permanent tests); loaded
+  known-failures active length 0; =make regen-mockups= a byte no-op.  Both new
+  tests are green interpreted AND freshly byte-compiled.  No source seam was
+  found: FIX-11 is correct, and the audit result is PASS.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -2144,3 +2272,8 @@ no query or refile-engine behavior changes.
   destructive =nreverse= from the compound redo committed set and made the
   undo disk-truth guard canonical/file-less-safe; =r90-66= green, gate
   1174/0).
+- 2026-07-27: Independent audit retest 11 PASSED: FIX-11 verified against
+  independently rebuilt evidence and the two probe-only halves are now
+  permanently covered by =r90-67= (incomplete-compound restamp law) and
+  =r90-68= (canonical, file-less-safe undo guard); gate 1176 tests /
+  0 unexpected / 8 GUI skips.

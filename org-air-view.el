@@ -11117,7 +11117,7 @@ through here (`org-air-view--edit-ring-requeue' pushes directly)."
          'org-air-view--edit-ring))
     (error nil)))
 
-(defun org-air-view--edit-ring-restamp (buffer)
+(defun org-air-view--edit-ring-restamp (buffer &optional tick)
   "Re-stamp BUFFER's ring records with its current chars tick (R73/R75).
 Run after every successful ring op in BUFFER (`u' undo, `U' redo): the
 op restored exactly the content state the neighbouring records were
@@ -11130,9 +11130,16 @@ changes the buffer's tick, so the OTHER side's remaining records for
 that buffer would trip the guard on pure ring-internal history.
 Deliberately NOT run on push — see `org-air-view--edit-ring-push' (the
 structural same-buffer duplicate hazard; the push clears the redo side
-outright, so the hazard has no redo-side twin at all)."
+outright, so the hazard has no redo-side twin at all).
+
+TICK, when given, is the AUTHORITATIVE post-commit tick org-air itself
+left in BUFFER (`:expected-tick', captured inside the save attempt),
+and is written verbatim instead of a fresh sample: a committed-buffer
+restamp must record the state org-air PRODUCED, never whatever the
+buffer happens to hold when a command-final sweep gets around to it
+\(see `org-air-view--history-restamp-committed')."
   (when (buffer-live-p buffer)
-    (let ((tick (buffer-chars-modified-tick buffer)))
+    (let ((tick (or tick (buffer-chars-modified-tick buffer))))
       (dolist (rec (append org-air-view--edit-ring
                            org-air-view--edit-redo-ring))
         (if (eq (plist-get rec :kind) 'bulk)
@@ -13033,6 +13040,45 @@ cut must never be made automatically undoable through an older record."
                       (org-air-view--history-identity-put
                        record :expected-undo expected))))))))))
 
+(defun org-air-view--history-restamp-committed (buffer tick expected ring)
+  "Restamp BUFFER's ring records only against its OWN authoritative TICK.
+TICK is the post-commit `buffer-chars-modified-tick' org-air itself left in
+BUFFER — `:expected-tick', captured INSIDE the save attempt at commit time,
+never sampled again afterwards.  R75 Decision 5 gives a restamp its whole
+meaning: the ring op restored exactly the state the neighbouring records were
+stamped against, so the guard keeps saying \"no NON-ring change intervened\".
+A restamp may therefore only ever record a change org-air MADE.  A compound
+`u'/`U' commits its files one at a time but sweeps the committed buffers ONCE,
+at command end, so a LATER part's own committed `after-save-hook' can move an
+EARLIER, already-written part's buffer in between; re-sampling the tick there
+would absorb that third-party change into the new stamp and BLESS the user's
+unsaved text — the next `u' would pass a guard that must refuse, `undo-only'
+the USER's newest group, save it away, and still claim an org-air step.
+
+So verify before stamping.  When BUFFER is still exactly where org-air left
+it, restamp with that authoritative TICK.  On any mismatch stamp NOTHING and
+arm the one exact EXPECTED next identity on RING instead — precisely what the
+same-buffer hook path does — leaving every other record for BUFFER honestly
+blocked and retryable rather than blessed."
+  (when (buffer-live-p buffer)
+    (if (eql tick (buffer-chars-modified-tick buffer))
+        (org-air-view--edit-ring-restamp buffer tick)
+      (org-air-view--history-arm-next ring buffer expected tick))))
+
+(defun org-air-view--bulk-history-restamp-committed (parts authority ring)
+  "Sweep committed compound PARTS, restamping only truly untouched buffers.
+AUTHORITY is the command's `(BUFFER TICK EXPECTED)' alist, one entry per
+committed buffer, recorded from that buffer's OWN save result at ITS commit
+instant.  A part whose buffer has no authority entry is never stamped: with no
+proof of what org-air last left there, blessing is not an option.  RING is the
+side a same-buffer next step would be popped from, so a skipped buffer's exact
+next identity is armed there (`org-air-view--history-restamp-committed')."
+  (dolist (part parts)
+    (let* ((buffer (plist-get part :buffer))
+           (entry (assq buffer authority)))
+      (org-air-view--history-restamp-committed
+       buffer (nth 1 entry) (nth 2 entry) ring))))
+
 (defun org-air-view--single-history-restamp (record save-result operation)
   "Restamp RECORD from SAVE-RESULT for inverse of committed OPERATION."
   (let* ((buffer (plist-get record :buffer))
@@ -13148,19 +13194,19 @@ cut must never be made automatically undoable through an older record."
               (org-air-view--single-history-restamp
                record save-result operation)
               (org-air-view--edit-ring-requeue record buffer target-ring)
-              (if (not (eql (plist-get save-result :expected-tick)
-                            (buffer-chars-modified-tick buffer)))
-                  ;; A later hook edit is also ahead of the next same-buffer
-                  ;; record on the source side.  Arm that one exact step rather
-                  ;; than restamping it to the user's unsafe head.
-                  (org-air-view--history-arm-next
-                   source-ring buffer
-                   (plist-get save-result
-                              (if (eq operation 'undo)
-                                  :expected-undo :expected-redo))
-                   (plist-get save-result :expected-tick))
-                ;; Normal history walks retain the classic two-sided stamps.
-                (org-air-view--edit-ring-restamp buffer))
+              ;; ONE COMMITTED-BUFFER RESTAMP LAW for both paths.  The
+              ;; authority is the tick org-air itself left behind at commit
+              ;; time, never a later sample: an untouched buffer keeps the
+              ;; classic two-sided stamps, while a later hook edit ahead of the
+              ;; next same-buffer record arms that one exact step instead of
+              ;; restamping it to the user's unsafe head.
+              (org-air-view--history-restamp-committed
+               buffer
+               (plist-get save-result :expected-tick)
+               (plist-get save-result
+                          (if (eq operation 'undo)
+                              :expected-undo :expected-redo))
+               source-ring)
               (if cache-sync
                   (progn
                     (org-air-view--refresh-current)
@@ -13231,8 +13277,19 @@ after disk commit is finalized as success and only emits a bounded warning."
                     'org-air-view--edit-redo-ring))
           (message "Cannot %s: %s — %s"
                    operation desc (mapconcat #'identity blockers "; ")))
-      (let ((remaining ordered) (successes nil) (committed nil) (failed nil)
-            warnings hooked-buffers (generation-invalidated nil))
+      (let* ((remaining ordered) (successes nil) (committed nil) (failed nil)
+             warnings (generation-invalidated nil)
+             ;; The side a same-buffer NEXT step is popped from: where an
+             ;; exact identity is armed whenever a buffer may not be stamped.
+             (source-ring (if (eq operation 'undo)
+                              'org-air-view--edit-ring
+                            'org-air-view--edit-redo-ring))
+             ;; AUTHORITY: one `(BUFFER TICK EXPECTED)' entry per committed
+             ;; buffer, recorded from that part's own save result AT ITS
+             ;; COMMIT INSTANT.  The command-final sweeps run long after the
+             ;; last part's `after-save-hook', so they may never sample a
+             ;; buffer's tick themselves — they verify against this.
+             (authority nil))
         (while (and remaining (not failed) (not generation-invalidated))
           (let* ((part (pop remaining))
                  (buffer (plist-get part :buffer))
@@ -13325,18 +13382,20 @@ after disk commit is finalized as success and only emits a bounded warning."
                                      org-air-view--cache-sync-history))))
                       (org-air-view--bulk-history-restamp-part
                        part operation save-result)
-                      (when (not (eql (plist-get save-result :expected-tick)
-                                      (buffer-chars-modified-tick buffer)))
-                        (cl-pushnew buffer hooked-buffers :test #'eq)
-                        (org-air-view--history-arm-next
-                         (if (eq operation 'undo)
-                             'org-air-view--edit-ring
-                           'org-air-view--edit-redo-ring)
-                         buffer
-                         (plist-get save-result
-                                    (if (eq operation 'undo)
-                                        :expected-undo :expected-redo))
-                         (plist-get save-result :expected-tick)))
+                      (let ((tick (plist-get save-result :expected-tick))
+                            (expected
+                             (plist-get save-result
+                                        (if (eq operation 'undo)
+                                            :expected-undo :expected-redo))))
+                        ;; Record what org-air really left in this buffer
+                        ;; before any later part can move it again.
+                        (setq authority
+                              (cons (list buffer tick expected)
+                                    (assq-delete-all buffer authority)))
+                        (when (not (eql tick
+                                        (buffer-chars-modified-tick buffer)))
+                          (org-air-view--history-arm-next
+                           source-ring buffer expected tick)))
                       (push part successes)
                       (when (or (plist-get save-result :error)
                                 (plist-get save-result :recursive-commit))
@@ -13394,10 +13453,8 @@ after disk commit is finalized as success and only emits a bounded warning."
                           (cons failed remaining)))
             (org-air-view--history-part-forget-identities part))
           (when committed
-            (dolist (part committed)
-              (unless (memq (plist-get part :buffer) hooked-buffers)
-                (org-air-view--edit-ring-restamp
-                 (plist-get part :buffer))))
+            (org-air-view--bulk-history-restamp-committed
+             committed authority source-ring)
             (org-air-view--refresh-current)
             (org-air-view--panes-resync-now))
           (message "%s incomplete: %d/%d files %s; failed %s"
@@ -13423,10 +13480,8 @@ after disk commit is finalized as success and only emits a bounded warning."
                'org-air-view--edit-ring)))
           (dolist (part (if (eq operation 'undo) committed remaining))
             (org-air-view--history-part-forget-identities part))
-          (dolist (part committed)
-            (unless (memq (plist-get part :buffer) hooked-buffers)
-              (org-air-view--edit-ring-restamp
-               (plist-get part :buffer))))
+          (org-air-view--bulk-history-restamp-committed
+           committed authority source-ring)
           ;; `org-air-view--items' is nil: this is the one safe rebuild.
           (org-air-view--refresh-current)
           (org-air-view--panes-resync-now)
@@ -13436,9 +13491,8 @@ after disk commit is finalized as success and only emits a bounded warning."
                    (if (eq operation 'undo) "reverted" "reapplied")))
          (t
           ;; Complete success: one compound record crosses rings as a unit.
-          (dolist (part committed)
-            (unless (memq (plist-get part :buffer) hooked-buffers)
-              (org-air-view--edit-ring-restamp (plist-get part :buffer))))
+          (org-air-view--bulk-history-restamp-committed
+           committed authority source-ring)
           (if (eq operation 'undo)
               (org-air-view--bulk-history-requeue
                record 'org-air-view--edit-redo-ring)

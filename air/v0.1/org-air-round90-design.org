@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: blocked
+#+state: work-in-progress
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -2370,6 +2370,115 @@ no query or refile-engine behavior changes.
   the candidate cannot ship until the command-end restamp stops blessing later
   hook edits to already-committed buffers.
 
+- 2026-07-28: FIX-12 — close the review-5 blocker at its root: a
+  committed-buffer restamp may only ever record that buffer's OWN
+  authoritative post-commit state.  Source-only change
+  (=org-air-view.el=, +95/-41); tests, README, fixtures, goldens and the
+  known-failures manifest are byte-pristine against =pywsrmtlqoyx=.
+
+  THE ROOT.  =org-air-view--bulk-history-operation= committed its files one at
+  a time but swept the committed buffers ONCE, at command end, and the sweep
+  called =org-air-view--edit-ring-restamp=, which SAMPLED
+  =buffer-chars-modified-tick= at that late moment.  The only exclusion,
+  =hooked-buffers=, was a per-part COMMIT-TIME notion: it recorded a buffer
+  only when that buffer's own save observed a mismatch.  A LATER part's
+  committed =after-save-hook= mutating an EARLIER, already-written part's
+  buffer fell exactly into the gap between the two, so the foreign unsaved
+  change was absorbed into the new stamp and BLESSED — =safe-p= became =t=, the
+  next =u= ran =undo-only= on the USER's group, saved it away and echoed a step
+  that never happened (honest commit tick 23 vs blessed 28).  Present on the
+  complete-success, =failed= and =generation-invalidated= branches, in both
+  directions.  R75 Decision 5: a ring op may never bless a NON-ring change.
+
+  THE AUTHORITATIVE-TICK RULE (the fix).  Each part's post-commit tick is
+  already computed inside its own save attempt as
+  =(plist-get save-result :expected-tick)=; the per-part success path now
+  records it, together with that part's exact inverse identity, in a new
+  command-scoped AUTHORITY alist =(BUFFER TICK EXPECTED)= — one entry per
+  committed buffer, written at ITS commit instant, before any later part can
+  move that buffer again.  The new choke point
+  =org-air-view--history-restamp-committed= re-verifies a buffer's CURRENT
+  chars tick against that authoritative value immediately before restamping,
+  and =org-air-view--edit-ring-restamp= gained an optional TICK argument so the
+  stamp written is the authoritative value itself, never a fresh sample.  A
+  buffer with no authority entry is never stamped (no proof, no blessing).
+
+  THE ARM-NEXT FALLBACK.  On any mismatch the sweep stamps NOTHING and instead
+  arms the one exact next identity through =org-air-view--history-arm-next= on
+  the side a same-buffer next step is popped from (=source-ring=: the undo ring
+  for =u=, the redo ring for =U=) — precisely what the same-part hook path
+  already does, so the two directions stay structurally symmetric.  Every other
+  record for that buffer keeps the stamp it had and stays honestly blocked and
+  retryable: the next press is refused with "… is ahead of the expected org-air
+  step" / "… changed since" and moves zero bytes.  =hooked-buffers= is gone:
+  the authority re-verification strictly subsumes it (a chars tick never
+  decreases, so a commit-time mismatch is still a mismatch at sweep time) and
+  the three sweeps now share ONE gate, =--bulk-history-restamp-committed=,
+  applied identically on all three branches and both directions.
+
+  SINGLE-PATH AUDIT (=org-air-view--single-history-operation=).  Audited and
+  routed through the same choke point.  It was NOT defective: its tick
+  comparison already ran immediately after its own commit with nothing between
+  the check and the restamp, so the re-sample could not differ; it is now
+  expressed as the same authoritative-tick call, which removes the sampling
+  entirely.  The other two restamp callers were audited too and are correct as
+  they stand: (i) =org-air-view--edit-ring-requeue= re-stamps only the record
+  it moves and only =(unless (plist-member rec :expected-undo))=, and
+  =org-air-view--save-result-ahead-p= includes the tick comparison, so a moved
+  tick always forces the exact-identity branch that skips the tick write;
+  (ii) the per-part FAILURE restamp inside the compound loop runs after
+  =--buffer-attempt-restore= on a part whose identity was revalidated by the
+  per-part TOCTOU check moments earlier, so a foreign edit can never reach it —
+  the resample there is the documented "keep a restored attempt retryable"
+  behaviour.  No other production site stamps a tick.  No disk read and no
+  per-render work were added: the whole fix is tick-level bookkeeping (one
+  alist entry per committed file, one =eql= per committed buffer).
+
+  MUTATION / REVERT EVIDENCE (all in a pristine =/tmp= copy, source restored
+  byte-identically afterwards; =org-air-view.el= SHA-256
+  =87df637b6eb490de40dc13d2f617eee52f26a3a7e48a969d4fde42bce0a8c4b0=).
+  (M-A) Sweep-time sampling restored (the parent =pywsrmtlqoyx= source,
+  =297b4421...12a012=): =r90-69= and =r90-70= RED, =r90-71= still GREEN — the
+  two coverage axes are independent and the fix is exactly what turns them
+  green.  (M-B) The reviewer's M10 in its post-fix form — drop the gate on the
+  complete-success sweep, restamping every committed buffer unconditionally:
+  =r90-71= RED (plus =r90-69=/=r90-70=), so the branch M10 could silently
+  delete on the candidate is now fenced.  (M-C) The compound sweep restamps
+  NOTHING: =r90-67= RED — a normal completed compound must still restamp its
+  own committed buffers, because =r90-67='s redo shapes require the preceding
+  COMPLETE undo to have legitimately restamped all four buffers (R73/R75
+  two-sided stamping); everything else in the 1179-test suite stays green.
+  (M-D) Only the complete-success sweep skipped: =r90-67= RED as well, for the
+  same reason.  (M-E) =--history-restamp-committed= never restamps (always arms
+  instead), i.e. both paths: whole-suite run gives exactly one unexpected,
+  =r90-67=; the single-record path degrades gracefully to exact-identity arming
+  rather than breaking a chain, recorded as an observation, not a regression.
+
+  VERIFICATION.  =r90-69=, =r90-70= now GREEN and =r90-71= stays GREEN; R90
+  77/77.  Reviewer probes re-run unchanged against the fixed source:
+  =r90e-2= PASSES (=stamped=23= = the honest commit tick, =safe-p=nil=, next
+  =u= refused with "unsaved edit in b.org is ahead of the expected org-air
+  step", note still live and never written to disk); =r90e-1c= PASSES
+  (=blessed=0= in both directions); the two defect-demonstration probes
+  =r90e-2b= ("restamp uses a late tick") and =r90e-9= ("incomplete branch also
+  blesses") now FAIL — they assert the old blessing and record =stamped=23= /
+  =safe-p=nil= instead; =r90e-1a/1b/1d=, =r90e-3a..3d=, =r90e-4=, =r90e-5=,
+  =r90e-6=, =r90e-7=, =r90e-10= all still PASS.  Canonical coverage: =r90-49=
+  and =r90-50..68= 20/20, R73/R75 28/28, owner rename/mode lifecycle
+  (=r90-51=), native v6 tags (=r90-52=), total finalizer (=r90-53=), bounded
+  retention after kill + GC (=r90-56=) GREEN, and the owner/retention/finalizer/
+  v6/native/tags name selector 36/36.  Scaling unchanged: 1k hydrate 0.2763s,
+  O(1) same-generation fast path 0.000016s, full generation replace 0.0308s;
+  5k 0.3623s / 0.000014s / 0.2618s.
+
+  Gate after =make clean= with every stale =.elc= deleted: all 11 modules
+  compile with only the pre-existing =org-air-project.el= wide-docstring
+  warning; lint 0 findings; =make check= 1179 tests / 1171 expected /
+  0 unexpected / 8 GUI skips; loaded known-failures active length 0;
+  =make regen-mockups= in a =/tmp= copy a byte no-op.  No repository probe file
+  exists and =.deps= is retained.  State back to work-in-progress pending the
+  next independent audit.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -2399,3 +2508,9 @@ no query or refile-engine behavior changes.
   (complete-success =hooked-buffers= exclusion) is GREEN and makes mutation
   M10 RED, which all 74 previous R90 tests survived.  Gate 1179 tests /
   2 unexpected / 8 GUI skips / manifest 0 / lint 0.
+- 2026-07-28: State: blocked → work-in-progress (FIX-12 made every
+  committed-buffer restamp verify the buffer's own authoritative post-commit
+  tick before stamping and arm the exact next identity on any mismatch, so a
+  later part's save-hook edit to an already-committed buffer can no longer be
+  blessed; =r90-69=/=r90-70= green, =r90-71= still green, R90 77/77, gate
+  1179 tests / 0 unexpected / 8 GUI skips / manifest 0 / lint 0).

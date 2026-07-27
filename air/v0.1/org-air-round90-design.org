@@ -1545,6 +1545,46 @@ no query or refile-engine behavior changes.
   known-failures, fixtures and goldens are byte-pristine against
   =rsmoprwnuwrn=; no probe file exists and =.deps= remains retained.
 
+- 2026-07-27: FINAL INDEPENDENT RETEST 8 completed GREEN from parent
+  =lvmrynwuyupr= (directly above =rsmoprwnuwrn=).  The workspace stack was
+  linear, conflict/divergence-free and clean; FIX-9 changed only
+  =org-air-view.el= plus this Air history, while tests, README, known-failures,
+  fixtures and goldens were byte-pristine.  Unchanged permanent =r90-49= plus
+  =r90-54..61= passed 9/9 first, and complete R90 passed 67/67.
+
+  An independent externally bounded totality audit rejected nil, atomic and
+  dotted current/expected forms; newest-group self/multi-cycles;
+  expected-tail self/multi-cycles; shared/newest-group back-edges; foreign
+  =apply=, missing save-state and injected insertion failure.  Every rejection
+  returned nil and retained the exact reachable cons graph (object-identical
+  car/cdr edges).  An existing exact old-edge own guard was reconfirmed without
+  copy or duplication.  A 50,000-node proper older cdr spine with cyclic cons
+  payloads was accepted in 0.033s with exactly one function-only old-edge
+  guard, proving no arbitrary depth cap and cdr-only payload opacity.
+
+  Mutation/revert evidence was direct.  Removing the complete older-tail walk
+  made unchanged =r90-57= RED 1/1 with bounded child output =(t nil)= instead
+  of =(nil t)=.  Retaining older cycle/dotted checks while accepting an edge
+  into the newest-group set made the independent back-edge case accept and
+  mutate its old edge.  Restoring each mutation returned =org-air-view.el= to
+  its exact pre-mutation SHA-256 and all focused tests to GREEN.
+
+  Durability/manual-save retry, all-part preflight and reverse/forward order,
+  sticky repeated-group unavailability, success/error/quit undo-equivalence
+  restoration, ordinary/no-op guard absence and source-free retention remained
+  GREEN in =r90-54..61= and =r90-30/36/37=.  Contract-current supplied FIX-6
+  conservative, native-tag, six-row nested-save, owner, one-way-finalizer and
+  native 1k/5k probes retained their required facts; the independent 1k/5k run
+  had zero same-generation source checks/opens/queries/timers and exactly N
+  replacement validations.
+
+  Final clean gate compiled all 11 modules (only the pre-existing project
+  wide-docstring warning), lint 0, 1169 tests / 1161 expected / 0 unexpected /
+  8 GUI skips.  The loaded known-failures length was 0 and
+  =make regen-mockups= was a byte no-op.  All implementation =.el= files were
+  byte-identical to =lvmrynwuyupr=; README, tests, known-failures, fixtures and
+  goldens stayed unchanged; no repository probe remained and =.deps= was kept.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

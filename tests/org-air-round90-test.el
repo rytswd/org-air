@@ -3794,7 +3794,8 @@ CELL is a mutable one-element list used as the recursion guard."
                              (hash-table-count
                               org-air-view--source-locator-index)))
                   (should (= count
-                             (length org-air-view--source-tracked-locators))))
+                             (length org-air-view--source-tracked-locators)))
+                  (should (= 0 (org-air-r90--undo-disk-guard-count))))
                 ;; Current direct hydration plus render/filter/mark/collapse do
                 ;; zero exact/scanner work, zero prune/hydrate, and no list
                 ;; membership fallback or index replacement.
@@ -3912,7 +3913,8 @@ CELL is a mutable one-element list used as the recursion guard."
                                 org-air-view--source-items-by-file)))
                   (with-current-buffer source
                     (should (eq locator-index
-                                org-air-view--source-locator-index)))
+                                org-air-view--source-locator-index))
+                    (should (= 0 (org-air-r90--undo-disk-guard-count))))
                   ;; A replacement generation does one scan + N validations,
                   ;; with indexed membership and no nested list lookup.
                   (setq maps 0 exacts 0 prunes 0 hydrates 0 finds 0
@@ -3962,7 +3964,8 @@ CELL is a mutable one-element list used as the recursion guard."
                                   org-air-view--source-locator-index)))
                       (should (= count
                                  (length
-                                  org-air-view--source-tracked-locators))))
+                                  org-air-view--source-tracked-locators)))
+                      (should (= 0 (org-air-r90--undo-disk-guard-count))))
                     (should-not (marker-buffer (car old-markers)))
                     (should-not (marker-buffer (car (last old-markers))))))))
             (when (buffer-live-p board) (kill-buffer board))))))))
@@ -4193,6 +4196,721 @@ CELL is a mutable one-element list used as the recursion guard."
       (should (equal "a.org"
                      (file-name-nondirectory
                       (plist-get (car parts) :file)))))))
+
+;;;; r90-54..60 — FIX-7 recursive guard durability and disk-truth audit.
+
+(defun org-air-r90--undo-disk-guard-entry-p (entry)
+  "Return non-nil when ENTRY is the exact function-only disk guard."
+  (equal entry '(apply org-air-view--undo-disk-truth-guard)))
+
+(defun org-air-r90--undo-disk-guard-count (&optional undo-list)
+  "Count disk guards in UNDO-LIST without looping over malformed cycles."
+  (let ((tail (or undo-list buffer-undo-list))
+        (seen (make-hash-table :test #'eq))
+        (count 0))
+    (while (and (consp tail) (not (gethash tail seen)))
+      (puthash tail t seen)
+      (when (org-air-r90--undo-disk-guard-entry-p (car tail))
+        (cl-incf count))
+      (setq tail (cdr tail)))
+    count))
+
+(defun org-air-r90--newest-undo-group (undo-list)
+  "Return `(ENTRIES BOUNDARY)' for UNDO-LIST's newest bounded group."
+  (let ((tail undo-list) entries)
+    (while (and (consp tail) (car tail))
+      (push (car tail) entries)
+      (setq tail (cdr tail)))
+    (list (nreverse entries) tail)))
+
+(defun org-air-r90--assert-guard-old-edge (source part)
+  "Assert SOURCE has one exact old-edge guard for history PART."
+  (with-current-buffer source
+    (let* ((raw (org-air-view--history-identity-resolve
+                 (plist-get part :expected-undo)))
+           (group (org-air-r90--newest-undo-group buffer-undo-list))
+           (entries (car group))
+           (boundary (cadr group))
+           (guard (car (last entries))))
+      (should (consp raw))
+      (should (= 1 (org-air-r90--undo-disk-guard-count buffer-undo-list)))
+      (should (consp boundary))
+      (should-not (car boundary))
+      (should (eq (cdr boundary) raw))
+      ;; Head-to-old order is text, save-state, guard, terminating boundary.
+      (should (org-air-r90--undo-disk-guard-entry-p guard))
+      (should (= 2 (length guard)))
+      (should (symbolp (cadr guard)))
+      (should (seq-some (lambda (entry)
+                          (and (consp entry) (eq (car entry) t)))
+                        (butlast entries)))
+      (should (= 1 (seq-count
+                    (lambda (entry)
+                      (and (consp entry) (eq (car entry) 'apply)))
+                    entries))))))
+
+(defun org-air-r90--same-command-state-p (before name source)
+  "Return non-nil when all observable command state still equals BEFORE."
+  (let ((after (org-air-r90--command-state name source)))
+    (and (equal (plist-get before :disk) (plist-get after :disk))
+         (equal (plist-get before :live) (plist-get after :live))
+         (= (plist-get before :tick) (plist-get after :tick))
+         (eq (plist-get before :modified) (plist-get after :modified))
+         (eq (plist-get before :items) (plist-get after :items))
+         (equal (plist-get before :item-data) (plist-get after :item-data))
+         (eq (plist-get before :classify) (plist-get after :classify))
+         (equal (plist-get before :classify-count)
+                (plist-get after :classify-count))
+         (eq (plist-get before :marks) (plist-get after :marks))
+         (eq (plist-get before :mark-table) (plist-get after :mark-table))
+         (org-air-r90--same-object-order-p
+          (plist-get before :edit-ring) (plist-get after :edit-ring))
+         (org-air-r90--same-object-order-p
+          (plist-get before :redo-ring) (plist-get after :redo-ring))
+         (= (plist-get before :point) (plist-get after :point))
+         (eq (plist-get before :selected) (plist-get after :selected))
+         (equal (plist-get before :windows) (plist-get after :windows))
+         (eq (plist-get before :inspector) (plist-get after :inspector))
+         (eq (plist-get before :pending) (plist-get after :pending))
+         (equal (plist-get before :pane) (plist-get after :pane)))))
+
+(defun org-air-r90--invoke-inverse (direction)
+  "Invoke the inverse of committed history DIRECTION."
+  (if (memq direction '(initial-backlog initial-tag redo))
+      (org-air-edit-undo)
+    (org-air-edit-redo)))
+
+(defun org-air-r90--arm-recursive-compound (direction)
+  "Create one recursive compound DIRECTION and return its audit facts."
+  (let ((before (org-air-r90--text "tasks.org")))
+    (dolist (title '("Alpha" "Beta")) (org-air-r90--mark-title title))
+    (if (memq direction '(initial-backlog initial-tag))
+        (let* ((source (find-file-noselect (org-air-r90--file "tasks.org")))
+               (cell (list nil))
+               (hook (org-air-r90--nested-commit-hook 'comment nil cell)))
+          (with-current-buffer source (add-hook 'after-save-hook hook nil t))
+          (unwind-protect
+              (if (eq direction 'initial-tag)
+                  (cl-letf (((symbol-function 'read-string)
+                             (lambda (&rest _) "shared_tag")))
+                    (org-air-set-tag))
+                (org-air-item-backlog))
+            (with-current-buffer source
+              (remove-hook 'after-save-hook hook t)))
+          (list :source source :before before
+                :committed (org-air-r90--text "tasks.org")
+                :record (car org-air-view--edit-ring)
+                :source-ring 'undo))
+      (org-air-item-backlog)
+      (let ((committed (org-air-r90--text "tasks.org")))
+        (when (eq direction 'redo) (org-air-edit-undo))
+        (let* ((source (find-file-noselect (org-air-r90--file "tasks.org")))
+               (cell (list nil))
+               (hook (org-air-r90--nested-commit-hook 'comment nil cell)))
+          (with-current-buffer source (add-hook 'after-save-hook hook nil t))
+          (unwind-protect
+              (if (eq direction 'undo)
+                  (org-air-edit-undo)
+                (org-air-edit-redo))
+            (with-current-buffer source
+              (remove-hook 'after-save-hook hook t)))
+          (list :source source :before before :committed committed
+                :record (car (if (eq direction 'undo)
+                                 org-air-view--edit-redo-ring
+                               org-air-view--edit-ring))
+                :source-ring (if (eq direction 'undo) 'redo 'undo)))))))
+
+(ert-deftest org-air-r90-54-unsaved-hook-resolution-blocks-before-manual-save ()
+  "A hook-only undo is modified and every org-air inverse blocks until save."
+  (skip-unless (locate-library "org-air"))
+  (let (observations)
+    (dolist (direction '(initial-backlog initial-tag undo redo))
+      (let ((pending-undo-list nil)
+            (undo-equiv-table (make-hash-table :test #'eq))
+            (last-command nil)
+            (this-command nil))
+        (org-air-r90--with-board
+            '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+              ("inbox.org" . "#+title: inbox\n"))
+          (let* ((facts (org-air-r90--arm-recursive-compound direction))
+                 (source (plist-get facts :source))
+                 (record (plist-get facts :record))
+                 (part (car (plist-get record :parts)))
+                 (immediate-disk (org-air-r90--text "tasks.org"))
+                 (immediate-live (org-air-r90--live-text "tasks.org"))
+                 (immediate-undo (copy-sequence org-air-view--edit-ring))
+                 (immediate-redo (copy-sequence org-air-view--edit-redo-ring))
+                 (immediate-saves 0))
+            (org-air-r90--assert-guard-old-edge source part)
+            ;; Existing r90-49's immediate inverse remains an exact zero-byte
+            ;; same-ring block before the user resolves the hook group.
+            (cl-letf (((symbol-function 'save-buffer)
+                       (lambda (&rest _) (cl-incf immediate-saves))))
+              (org-air-r90--invoke-inverse direction))
+            (should (= immediate-saves 0))
+            (should (equal immediate-disk (org-air-r90--text "tasks.org")))
+            (should (equal immediate-live
+                           (org-air-r90--live-text "tasks.org")))
+            (should (org-air-r90--same-object-order-p
+                     immediate-undo org-air-view--edit-ring))
+            (should (org-air-r90--same-object-order-p
+                     immediate-redo org-air-view--edit-redo-ring))
+            ;; Undo ONLY the recursive hook group.  Its guard executes after
+            ;; text/save-state and must expose a truthful unsaved resolution.
+            (with-current-buffer source (undo-boundary) (undo-only))
+            (let* ((disk (org-air-r90--text "tasks.org"))
+                   (live (org-air-r90--live-text "tasks.org"))
+                   (undo-list (buffer-local-value 'buffer-undo-list source))
+                   (before-block
+                    (org-air-r90--command-state "tasks.org" source))
+                   (saves 0)
+                   inverse-error)
+              (should-not (equal disk live))
+              (should (string-match-p "nested committed hook" disk))
+              (should-not (string-match-p "nested committed hook" live))
+              (should (buffer-modified-p source))
+              ;; Exact undo equivalence is not permission to overwrite this
+              ;; unsaved user resolution.  The injected save must be unreachable.
+              (cl-letf (((symbol-function 'save-buffer)
+                         (lambda (&rest _)
+                           (cl-incf saves)
+                           (error "org-air inverse reached source save"))))
+                (setq inverse-error
+                      (condition-case err
+                          (progn (org-air-r90--invoke-inverse direction) nil)
+                        ((error quit) err))))
+              (let ((blocked
+                     (and (= saves 0)
+                          (null inverse-error)
+                          (eq undo-list
+                              (buffer-local-value 'buffer-undo-list source))
+                          (org-air-r90--same-command-state-p
+                           before-block "tasks.org" source))))
+                ;; A correct implementation reaches the explicit resolution
+                ;; path only after the user chooses to save live truth.
+                (let ((retry-ok nil))
+                  (when blocked
+                    (with-current-buffer source (save-buffer))
+                    (should (equal (org-air-r90--text "tasks.org")
+                                   (org-air-r90--live-text "tasks.org")))
+                    (should-not (buffer-modified-p source))
+                    (condition-case nil
+                        (progn
+                          (org-air-r90--invoke-inverse direction)
+                          (setq retry-ok t))
+                      ((error quit) nil)))
+                  (push (list direction :blocked blocked :saves saves
+                              :retry retry-ok)
+                        observations))))))))
+    (setq observations (nreverse observations))
+    (ert-info ((format "unsaved recursive resolution observations: %S"
+                       observations))
+      (should (equal
+               observations
+               '((initial-backlog :blocked t :saves 0 :retry t)
+                 (initial-tag :blocked t :saves 0 :retry t)
+                 (undo :blocked t :saves 0 :retry t)
+                 (redo :blocked t :saves 0 :retry t)))))))
+
+(ert-deftest org-air-r90-55-disk-truth-adversity-blocks-with-zero-source-write ()
+  "Deleted/unreadable/replaced/stale/error disk truth blocks exact history."
+  (skip-unless (locate-library "org-air"))
+  (let (observations)
+    (dolist (case '(deleted unreadable external-replaced stale-modtime
+                   comparison-error))
+      (let ((pending-undo-list nil)
+            (undo-equiv-table (make-hash-table :test #'eq))
+            (last-command nil)
+            (this-command nil))
+        (org-air-r90--with-board
+            '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+              ("inbox.org" . "#+title: inbox\n"))
+          (let* ((facts (org-air-r90--arm-recursive-compound 'undo))
+                 (source (plist-get facts :source))
+                 (file (org-air-r90--file "tasks.org"))
+                 (pre-adversity-disk (org-air-r90--text "tasks.org"))
+                 (comparison-error (eq case 'comparison-error)))
+            (if comparison-error
+                (cl-letf (((symbol-function 'insert-file-contents)
+                           (lambda (&rest _) (error "handler compare failed"))))
+                  (with-current-buffer source (undo-boundary) (undo-only)))
+              (with-current-buffer source (undo-boundary) (undo-only)))
+            (when (eq case 'stale-modtime)
+              ;; Resolve explicitly first, then make durability metadata stale
+              ;; without changing bytes.
+              (with-current-buffer source (save-buffer))
+              (set-file-times file (time-add (current-time) 3600)))
+            (pcase case
+              ('deleted (delete-file file))
+              ('unreadable (set-file-modes file #o000))
+              ('external-replaced
+               (write-region "EXTERNAL REPLACEMENT\n" nil file nil 'silent)))
+            (let* ((existed (file-exists-p file))
+                   (disk (pcase case
+                           ('deleted nil)
+                           ('unreadable pre-adversity-disk)
+                           (_ (and existed
+                                   (org-air-r90--text "tasks.org")))))
+                   (live (with-current-buffer source
+                           (buffer-substring-no-properties
+                            (point-min) (point-max))))
+                   (undo-list (buffer-local-value 'buffer-undo-list source))
+                   (undo-order (copy-sequence org-air-view--edit-ring))
+                   (redo-order (copy-sequence org-air-view--edit-redo-ring))
+                   (saves 0))
+              (cl-letf (((symbol-function 'save-buffer)
+                         (lambda (&rest _)
+                           (cl-incf saves)
+                           (error "disk-truth inverse attempted save"))))
+                (condition-case nil
+                    (org-air-edit-redo)
+                  ((error quit) nil)))
+              (when (eq case 'unreadable) (set-file-modes file #o600))
+              (push
+               (list case :saves saves
+                     :exists (eq existed (file-exists-p file))
+                     :disk (equal disk
+                                  (and (file-exists-p file)
+                                       (condition-case nil
+                                           (org-air-r90--text "tasks.org")
+                                         (error :unreadable))))
+                     :live (equal live
+                                  (with-current-buffer source
+                                    (buffer-substring-no-properties
+                                     (point-min) (point-max))))
+                     :undo-list
+                     (eq undo-list
+                         (buffer-local-value 'buffer-undo-list source))
+                     :rings
+                     (and (org-air-r90--same-object-order-p
+                           undo-order org-air-view--edit-ring)
+                          (org-air-r90--same-object-order-p
+                           redo-order org-air-view--edit-redo-ring)))
+               observations))))))
+    (setq observations (nreverse observations))
+    (ert-info ((format "disk-truth adversity observations: %S" observations))
+      (dolist (observation observations)
+        (should (= 0 (plist-get (cdr observation) :saves)))
+        (should (plist-get (cdr observation) :exists))
+        (should (plist-get (cdr observation) :disk))
+        (should (plist-get (cdr observation) :live))
+        (should (plist-get (cdr observation) :undo-list))
+        (should (plist-get (cdr observation) :rings))))))
+
+(ert-deftest org-air-r90-56-guard-shape-scope-lifecycle-and-retention ()
+  "One old-edge function guard tracks undo/redo and never enters history."
+  (skip-unless (locate-library "org-air"))
+  (let ((pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board
+        '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      (let* ((facts (org-air-r90--arm-recursive-compound 'initial-backlog))
+             (source (plist-get facts :source))
+             (record (plist-get facts :record))
+             (part (car (plist-get record :parts)))
+             (label "nested committed hook"))
+        (org-air-r90--assert-guard-old-edge source part)
+        (let ((printed (let ((print-circle t) (print-level nil)
+                             (print-length nil))
+                         (prin1-to-string
+                          (list org-air-view--edit-ring
+                                org-air-view--edit-redo-ring)))))
+          (should-not (string-match-p "undo-disk-truth-guard" printed))
+          (should-not (string-match-p label printed)))
+        ;; Undo hook, save; redo hook, save; undo it once more.  The one custom
+        ;; entry follows Emacs history without duplication or false cleanliness.
+        (with-current-buffer source
+          (undo-boundary) (undo-only)
+          (should (buffer-modified-p))
+          (save-buffer)
+          (should-not (buffer-modified-p))
+          (should (equal (org-air-r90--text "tasks.org")
+                         (org-air-r90--live-text "tasks.org")))
+          (undo-boundary) (undo-redo)
+          (should (buffer-modified-p))
+          (save-buffer)
+          (should-not (buffer-modified-p))
+          (undo-boundary) (undo-only)
+          (should (buffer-modified-p))
+          (should (= 1 (org-air-r90--undo-disk-guard-count))))
+        (with-current-buffer source
+          (set-buffer-modified-p nil))
+        (kill-buffer source)
+        (org-air-r90--force-gc)
+        (should (zerop (hash-table-count
+                        org-air-view--history-identity-registry)))
+        (should-not (string-match-p
+                     "undo-disk-truth-guard"
+                     (let ((print-circle t))
+                       (prin1-to-string
+                        (list org-air-view--edit-ring
+                              org-air-view--edit-redo-ring)))))))))
+
+(ert-deftest org-air-r90-61-ordinary-save-and-no-op-paths-have-no-guard ()
+  "Ordinary/no-op/nonrecursive signal or mutation saves install no guard."
+  (skip-unless (locate-library "org-air"))
+  (dolist (shape '(ordinary no-op signal-only unsaved-hook))
+    (org-air-r90--with-corpus
+        '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      (let ((source (find-file-noselect (org-air-r90--file "tasks.org")))
+            hook)
+        (with-current-buffer source
+          (org-mode)
+          (unless (eq shape 'no-op)
+            (goto-char (point-max)) (insert "# ordinary dirty\n"))
+          (setq hook
+                (pcase shape
+                  ('signal-only (lambda () (error "signal only")))
+                  ('unsaved-hook
+                   (lambda ()
+                     (goto-char (point-min)) (insert "# unsaved hook\n")))))
+          (when hook (add-hook 'after-save-hook hook nil t))
+          (unwind-protect (org-air-view--save-attempt)
+            (when hook (remove-hook 'after-save-hook hook t)))
+          (should (= 0 (org-air-r90--undo-disk-guard-count))))))))
+
+(defun org-air-r90--isolated-undo-shape (expected entries)
+  "Return ENTRIES terminated by a boundary whose cdr is EXPECTED."
+  (let ((boundary (cons nil expected))
+        (head (copy-sequence entries)))
+    (if head
+        (setcdr (last head) boundary)
+      (setq head boundary))
+    head))
+
+(defun org-air-r90--guard-child-result (name form)
+  "Run guard audit FORM in child Emacs NAME and return its bounded result."
+  (let* ((buffer (generate-new-buffer (format " *r90 %s child*" name)))
+         (emacs (expand-file-name invocation-name invocation-directory))
+         (init (expand-file-name "tests/org-air-test-init.el"
+                                 default-directory))
+         (process
+          (make-process :name (format "r90-%s" name) :buffer buffer
+                        :command (list emacs "-Q" "--batch" "-l" init
+                                       "--eval" form)
+                        :connection-type 'pipe :noquery t))
+         (deadline (time-add (current-time) 2.0))
+         timed-out output status)
+    (unwind-protect
+        (progn
+          (while (and (process-live-p process)
+                      (time-less-p (current-time) deadline))
+            (accept-process-output process 0.05))
+          (when (process-live-p process)
+            (setq timed-out t)
+            (delete-process process))
+          (setq status (unless timed-out (process-exit-status process))
+                output (with-current-buffer buffer (buffer-string)))
+          (list :timeout timed-out :status status :output output))
+      (when (process-live-p process) (delete-process process))
+      (when (buffer-live-p buffer) (kill-buffer buffer)))))
+
+(defun org-air-r90--cyclic-guard-child-result ()
+  "Run cyclic guard insertion in a child Emacs and return its bounded result."
+  (org-air-r90--guard-child-result
+   "cyclic-guard"
+   (concat
+    "(progn (require 'org-air-view)"
+    " (with-temp-buffer"
+    "  (let ((node (cons '(1 . 2) nil)))"
+    "   (setcdr node node) (setq buffer-undo-list node)"
+    "   (prin1 (org-air-view--undo-disk-truth-guard-install '(tail))))))")))
+
+(defun org-air-r90--insertion-failure-child-result ()
+  "Run interpreted guard insertion failure in a child Emacs."
+  (let ((source (expand-file-name "org-air-view.el" default-directory)))
+    (org-air-r90--guard-child-result
+     "guard-insertion-failure"
+     (format
+      (concat
+       "(progn (load %S nil nil t)"
+       " (with-temp-buffer"
+       "  (let* ((expected (list 'tail))"
+       "         (boundary (cons nil expected))"
+       "         (head (list '(1 . 2) '(t . 0))))"
+       "   (setcdr (cdr head) boundary) (setq buffer-undo-list head)"
+       "   (let ((before (copy-tree head)))"
+       "    (cl-letf (((symbol-function 'setcdr)"
+       "               (lambda (&rest _) (error \"insertion failed\"))))"
+       "     (prin1 (list"
+       "      (org-air-view--undo-disk-truth-guard-install expected)"
+       "      (equal before buffer-undo-list))))))))")
+      source))))
+
+(ert-deftest org-air-r90-57-conservative-forms-and-equiv-restoration ()
+  "Malformed/ambiguous history never guesses; equivalence restores on exits."
+  (skip-unless (locate-library "org-air"))
+  (with-temp-buffer
+    (dolist (value '(t nil atomic malformed))
+      (setq buffer-undo-list
+            (pcase value
+              ('t t) ('nil nil) ('atomic '(atomic))
+              ('malformed (cons '(1 . 2) 'dotted))))
+      (should-not (org-air-view--undo-disk-truth-guard-install '(tail))))
+    (let* ((expected (list 'tail))
+           (custom (org-air-r90--isolated-undo-shape
+                    expected '((1 . 2) (t . 0) (apply ignore))))
+           (missing-save (org-air-r90--isolated-undo-shape
+                          expected '((1 . 2))))
+           (second-boundary (cons '(1 . 2)
+                                  (cons nil
+                                        (org-air-r90--isolated-undo-shape
+                                         expected '((t . 0)))))))
+      (dolist (undo-list (list custom missing-save second-boundary))
+        (setq buffer-undo-list undo-list)
+        (let ((before (copy-tree undo-list)))
+          (should-not
+           (org-air-view--undo-disk-truth-guard-install expected))
+          (should (equal before buffer-undo-list))))))
+  ;; The interpreted child makes the hostile `setcdr' seam reliable even when
+  ;; the gate byte-compiles `setcdr' to a primitive opcode in the parent.
+  (let ((child (org-air-r90--insertion-failure-child-result)))
+    (ert-info ((format "guard insertion failure child: %S" child))
+      (should-not (plist-get child :timeout))
+      (should (zerop (plist-get child :status)))
+      (should (string-match-p "(nil t)" (plist-get child :output)))))
+  ;; The special redo path restores the exact prior undo-equivalence mapping
+  ;; after normal return, `error', and `quit', including an absent mapping.
+  (dolist (outcome '(error quit success))
+    (dolist (present '(nil t))
+      (let* ((org-air-view--history-identity-registry
+              (make-hash-table :test #'eq :weakness 'key-and-value))
+             (org-air-view--cache-sync-history
+              (make-hash-table :test #'eq :weakness 'key))
+             (undo-equiv-table (make-hash-table :test #'eq))
+             (raw (list '(synthetic exact tail)))
+             (mapping (list 'older outcome present))
+             (token (org-air-view--history-identity-register raw))
+             (record (list :buffer (current-buffer)
+                           :expected-undo token)))
+        (puthash record 'intervening-commit org-air-view--cache-sync-history)
+        (when present (puthash raw mapping undo-equiv-table))
+        (cl-letf (((symbol-function 'org-air-view--expected-redo-step)
+                   (lambda (&rest _) nil))
+                  ((symbol-function 'org-air-view--expected-undo-step)
+                   (lambda (&rest _) raw))
+                  ((symbol-function 'undo-only)
+                   (lambda (&rest _)
+                     (should-not (gethash raw undo-equiv-table))
+                     (pcase outcome
+                       ('error (error "synthetic undo error"))
+                       ('quit (signal 'quit nil))))))
+          (condition-case nil
+              (org-air-view--history-apply-operation record 'redo)
+            ((error quit) nil)))
+        (if present
+            (should (eq mapping (gethash raw undo-equiv-table)))
+          (should-not (gethash raw undo-equiv-table))))))
+  ;; Cyclic input must terminate conservatively instead of spinning Emacs.
+  (let ((child (org-air-r90--cyclic-guard-child-result)))
+    (ert-info ((format "cyclic guard child: %S" child))
+      (should-not (plist-get child :timeout))
+      (should (zerop (plist-get child :status)))
+      (should (string-match-p "nil" (plist-get child :output))))))
+
+(defun org-air-r90--recursive-matrix-mutate (shape index)
+  "Mutate recursive save SHAPE for matrix iteration INDEX."
+  (pcase shape
+    ('comment
+     (goto-char (point-min))
+     (insert (format "# recursive comment %d\n" index)))
+    ('title
+     (goto-char (point-min))
+     (re-search-forward "^\\* TODO Alpha")
+     (search-backward "Alpha")
+     (replace-match "Alpha hooked"))
+    ('tag
+     (goto-char (point-min))
+     (re-search-forward "^\\* TODO Alpha")
+     (org-back-to-heading t)
+     (org-toggle-tag "hook_tag" 'on))
+    ('move
+     (goto-char (point-min))
+     (re-search-forward "^\\* TODO Alpha")
+     (beginning-of-line)
+     (let* ((beg (point))
+            (end (progn (forward-line 1) (point)))
+            (line (buffer-substring beg end)))
+       (delete-region beg end)
+       (goto-char (point-max))
+       (unless (bolp) (insert "\n"))
+       (insert line)))
+    ('delete
+     (goto-char (point-min))
+     (re-search-forward "^\\* TODO Alpha")
+     (beginning-of-line)
+     (delete-region (point) (progn (forward-line 1) (point))))))
+
+(ert-deftest org-air-r90-58-recursive-mechanism-matrix-rejects-stale-first-guard ()
+  "save/basic recursion gets one guard; repeated groups invalidate identity."
+  (skip-unless (locate-library "org-air"))
+  ;; Run the complete single-group cross-product before the deliberately RED
+  ;; repeated-group cases, so one stale-first-guard failure hides no matrix row.
+  (dolist (repeats '(1 2))
+    (dolist (mechanism '(save-buffer basic-save-buffer))
+      (dolist (signalp '(nil t))
+        (dolist (shape (if (= repeats 1)
+                           '(comment title tag move delete)
+                         '(comment)))
+          (org-air-r90--with-corpus
+              '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+                ("inbox.org" . "#+title: inbox\n"))
+            (let* ((source
+                    (find-file-noselect (org-air-r90--file "tasks.org")))
+                   (cell (list nil))
+                   hook result)
+              (setq hook
+                    (lambda ()
+                      (unless (car cell)
+                        (setcar cell t)
+                        (dotimes (index repeats)
+                          (org-air-r90--recursive-matrix-mutate shape index)
+                          (funcall mechanism))
+                        (when signalp (error "recursive matrix signal")))))
+              (with-current-buffer source
+                (org-mode)
+                (goto-char (point-max)) (insert "# outer dirty\n")
+                (add-hook 'after-save-hook hook nil t)
+                (unwind-protect
+                    (setq result
+                          (org-air-view--save-attempt (lambda () 'state)))
+                  (remove-hook 'after-save-hook hook t))
+                (ert-info ((format "mechanism=%S signal=%S shape=%S repeats=%S"
+                                   mechanism signalp shape repeats))
+                  (should (plist-get result :committed))
+                  (should (plist-get result :recursive-commit))
+                  (should (= 1 (org-air-r90--undo-disk-guard-count)))
+                  (if (= repeats 1)
+                      (progn
+                        (should (eq 'installed
+                                    (plist-get result :undo-disk-guard)))
+                        (should (plist-get result :identity-known))
+                        (should (consp (plist-get result :expected-undo))))
+                    ;; A second separately saved group is ambiguous: the first
+                    ;; guard must never bless a stale expected tail.
+                    (should-not (plist-get result :identity-known))
+                    (should-not (plist-get result :expected-undo))
+                    (should-not (plist-get result :expected-redo))))))))))))
+
+(ert-deftest org-air-r90-59-two-file-guarded-preflight-is-all-parts-zero-byte ()
+  "One guarded and one ordinary part preflight before either file is touched."
+  (skip-unless (locate-library "org-air"))
+  (let ((pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board
+        '(("a.org" . "#+title: a\n\n* TODO A1\n* TODO A2\n")
+          ("b.org" . "#+title: b\n\n* TODO B1\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      ;; Two same-file targets still form one A part; B forms the second.
+      (dolist (title '("A1" "A2" "B1")) (org-air-r90--mark-title title))
+      (org-air-item-backlog)
+      (let* ((record (car org-air-view--edit-ring))
+             (parts (plist-get record :parts))
+             (a (find-file-noselect (org-air-r90--file "a.org")))
+             (b (find-file-noselect (org-air-r90--file "b.org")))
+             (cell (list nil))
+             (hook (org-air-r90--nested-commit-hook 'comment nil cell)))
+        (should (equal '("a.org" "b.org")
+                       (mapcar (lambda (part)
+                                 (file-name-nondirectory
+                                  (plist-get part :file)))
+                               parts)))
+        ;; Undo order is B then A, so A's recursive hook leaves one guarded
+        ;; part while B has already completed normally.
+        (with-current-buffer a (add-hook 'after-save-hook hook nil t))
+        (unwind-protect (org-air-edit-undo)
+          (with-current-buffer a (remove-hook 'after-save-hook hook t)))
+        (let* ((record (car org-air-view--edit-redo-ring))
+               (parts (plist-get record :parts))
+               (a-part (car parts))
+               (b-part (cadr parts)))
+          (should (eq 'intervening-commit
+                      (gethash a-part org-air-view--cache-sync-history)))
+          (should-not (eq 'intervening-commit
+                          (gethash b-part org-air-view--cache-sync-history)))
+          (org-air-r90--assert-guard-old-edge a a-part)
+          (with-current-buffer a (undo-boundary) (undo-only))
+          (should (buffer-modified-p a))
+          (let ((a-disk (org-air-r90--text "a.org"))
+                (b-disk (org-air-r90--text "b.org"))
+                (a-live (org-air-r90--live-text "a.org"))
+                (b-live (org-air-r90--live-text "b.org"))
+                (a-undo (buffer-local-value 'buffer-undo-list a))
+                (b-undo (buffer-local-value 'buffer-undo-list b))
+                (undo-order (copy-sequence org-air-view--edit-ring))
+                (redo-order (copy-sequence org-air-view--edit-redo-ring))
+                (pending pending-undo-list)
+                (equiv undo-equiv-table)
+                (saves 0))
+            (cl-letf (((symbol-function 'save-buffer)
+                       (lambda (&rest _)
+                         (cl-incf saves)
+                         (error "two-file inverse attempted save"))))
+              (condition-case nil (org-air-edit-redo) ((error quit) nil)))
+            (ert-info ((format "two-file unsaved preflight saves=%S" saves))
+              (should (= saves 0)))
+            (should (equal a-disk (org-air-r90--text "a.org")))
+            (should (equal b-disk (org-air-r90--text "b.org")))
+            (should (equal a-live (org-air-r90--live-text "a.org")))
+            (should (equal b-live (org-air-r90--live-text "b.org")))
+            (should (eq a-undo (buffer-local-value 'buffer-undo-list a)))
+            (should (eq b-undo (buffer-local-value 'buffer-undo-list b)))
+            (should (eq pending pending-undo-list))
+            (should (eq equiv undo-equiv-table))
+            (should (org-air-r90--same-object-order-p
+                     undo-order org-air-view--edit-ring))
+            (should (org-air-r90--same-object-order-p
+                     redo-order org-air-view--edit-redo-ring))))))))
+
+(ert-deftest org-air-r90-60-normal-compound-order-and-ui-paths-have-no-guard ()
+  "Compound order is reverse/forward and non-save board paths add no guard."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      '(("a.org" . "#+title: a\n\n* TODO A1\n* TODO A2\n")
+        ("b.org" . "#+title: b\n\n* TODO B1\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let ((a (find-file-noselect (org-air-r90--file "a.org")))
+          (b (find-file-noselect (org-air-r90--file "b.org"))))
+      (org-air-view--refresh-current)
+      (org-air-r90--goto-row "A1")
+      (org-air-toggle-mark)
+      (org-air-toggle-mark)
+      (org-air-view-sort-cycle)
+      (setq org-air-view--tag-filter '("#missing"))
+      (org-air-view--render-current)
+      (setq org-air-view--tag-filter nil)
+      (org-air-view--render-current)
+      (goto-char (point-min))
+      (org-air-next-section)
+      (org-air-toggle-section)
+      (org-air-view--panes-resync-now)
+      (should (= 0 (with-current-buffer a
+                       (org-air-r90--undo-disk-guard-count))))
+      (should (= 0 (with-current-buffer b
+                       (org-air-r90--undo-disk-guard-count))))
+      (dolist (title '("A1" "A2" "B1")) (org-air-r90--mark-title title))
+      (org-air-item-backlog)
+      (let ((original
+             (symbol-function 'org-air-view--history-apply-operation))
+            calls)
+        (cl-letf (((symbol-function 'org-air-view--history-apply-operation)
+                   (lambda (part operation)
+                     (push (list operation
+                                 (file-name-nondirectory
+                                  (plist-get part :file)))
+                           calls)
+                     (funcall original part operation))))
+          (org-air-edit-undo)
+          (org-air-edit-redo))
+        (should (equal (nreverse calls)
+                       '((undo "b.org") (undo "a.org")
+                         (redo "a.org") (redo "b.org"))))))))
 
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

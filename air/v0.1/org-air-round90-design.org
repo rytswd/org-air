@@ -1355,6 +1355,67 @@ no query or refile-engine behavior changes.
   tests, README, known-failures, fixtures and goldens are byte-pristine against
   =zuzkzktrxxvk=; golden movement is zero and no repository probe exists.
 
+- 2026-07-27: Independent FIX-7 TEST/AUDIT completed *BLOCKED*.  Parent
+  topology is exact: =qpwtvspoytvx= is directly on =zuzkzktrxxvk=; the FIX-7
+  change contains source plus this Air document only, with tests byte-pristine
+  in that change.  Existing =r90-49= is unchanged and GREEN.  Added eight
+  permanent ERTs =r90-54..61= plus guard-count assertions on the existing
+  1k/5k seam.  Healthy evidence pins one exact function-only old-edge guard,
+  save-state-before-guard execution order, no ring/registry/source retention
+  after kill+GC, undo/save/redo/save/undo modified-state lifecycle, zero guards
+  on ordinary/no-op/nonrecursive signal/non-signalling hooks and cached UI
+  paths, normal two-file reverse/forward order, one same-file multi-item part,
+  and exact equivalence-table restoration on success, error and quit.
+
+  Five permanent tests expose three root defects and their compound breadth.
+  First, after independently undoing only the recursive hook group, all marked
+  initial =b=/=t= and compound =u=/=U= directions correctly reach disk/live
+  inequality with =buffer-modified-p=t=, but the immediate org-air inverse
+  treats the exposed expected tail as permission: it reaches =save-buffer=
+  once instead of blocking, disturbs history, and cannot preserve the manual
+  save+retry path (=r90-54=).  The same missing durability preflight attempts a
+  source save for deleted, mode-unreadable, externally replaced, stale-modtime
+  and comparison-handler-error files; all five cases move ring machinery even
+  though the injected save failure preserves bytes (=r90-55=).  A two-file
+  compound with one guarded part and one ordinary part likewise attempts the
+  guarded file before a zero-byte all-part refusal (=r90-59=).
+
+  Second, =org-air-view--undo-disk-truth-guard-install= walks malformed cyclic
+  undo lists forever.  A bounded child Emacs is still live after two seconds
+  and must be killed (=r90-57=).  Its nil/t/atomic/dotted, missing save-state,
+  second-boundary, pre-existing custom =apply=, insertion-failure and missing
+  identity counterparts are conservative; the same test proves the temporary
+  =undo-equiv-table= mapping is restored exactly after success, =error= and
+  =quit=.  Third, two separately byte-mutating recursive saves retain the
+  first guard and still publish =:identity-known=t= with a resolvable expected
+  tail.  The implementation never revalidates that the guard remains on the
+  newest isolated group, so it accepts a stale first guard instead of making
+  identity unavailable (=r90-58=).  Before that RED row, the full single-group
+  matrix is GREEN for =save-buffer=/=basic-save-buffer= × comment/title/native
+  underscore tag/move/delete × signalling/non-signalling.
+
+  Operation-based mutation/revert evidence is independent: bypassing old-edge
+  insertion makes unchanged r90-49 RED 1/1 at disk/live split; moving the guard
+  to the head makes r90-56 RED 1/1; adding it to the ordinary outer boundary
+  makes r90-61 RED 1/1; a temporary conservative modified/modtime/readability/
+  byte-equality preflight makes r90-54/55/59 GREEN 3/3 and restoring FIX-7's
+  expected-tail-only acceptance makes them RED 3/3; removing the special redo
+  primitive/equivalence route makes r90-49 RED 1/1; removing unconditional
+  equivalence restoration makes r90-57 RED independently for =error= and
+  =quit=.  The supplied FIX-6 conservative, native-tag and six-row nested
+  matrix probes are GREEN; its ambient compound probe also reproduced a
+  disk/live split in one source-loaded run, corroborating the permanent
+  durability failures without being used as a flaky gate.
+
+  Final clean gate: all 11 modules compile (only the pre-existing project
+  wide-docstring warning), lint 0, 1169 tests / 1156 expected / exactly the
+  five named unexpected failures / 8 GUI skips.  Manifest active=0 and
+  =make regen-mockups= is a no-op.  Implementation =.el= is byte-identical to
+  =qpwtvspoytvx=; README, known-failures, fixtures and goldens are unchanged;
+  no repository probe remains and =.deps= is retained.  State remains
+  work-in-progress pending a source correction; no implementation defect was
+  blessed or manifested.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

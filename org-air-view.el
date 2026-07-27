@@ -11209,26 +11209,45 @@ an error or a quit anywhere in the comparison would leave divergent live/disk
 bytes falsely clean, making the user's ordinary `save-buffer' a no-op and the
 documented manual save + retry path unreachable.  Only a POSITIVELY PROVEN
 full-buffer equality with the visited file may leave the buffer clean; every
-other outcome conservatively restores modified state.  The whole predicate/
-read/compare path is protected and this never signals out of the undo
-machinery."
-  (let ((proven nil))
-    (condition-case nil
-        (let ((file buffer-file-name))
-          (when (and (stringp file) (file-readable-p file))
-            (let ((live (org-air-view--visited-buffer-full-text)))
-              (setq proven
-                    (with-temp-buffer
-                      (let ((read-result (insert-file-contents file)))
-                        (and (consp read-result)
-                             (equal live
-                                    (buffer-substring-no-properties
-                                     (point-min) (point-max))))))))))
-      ((error quit) (setq proven nil)))
-    (unless proven
-      (condition-case nil
-          (restore-buffer-modified-p t)
-        ((error quit) nil)))))
+other outcome conservatively restores modified state.
+
+The SUBJECT is resolved to the CANONICAL visited buffer first.  An indirect
+clone (notably an `org-tree-to-indirect-buffer' clone) shares its base's text
+and `buffer-undo-list' but has no visited file of its own, so an ordinary
+`C-/' inside such a clone runs this guard with the clone current; the
+comparison subject must be the base, whose widened full text is compared
+against the base's own visited file.  If, AFTER that resolution, there is
+genuinely no visited file, the guard is a strict no-op: with no disk truth
+there is nothing to be dishonest about, and inventing modified state would
+only raise a spurious dirty-buffer prompt.  The whole predicate/read/compare
+path is protected and this never signals out of the undo machinery."
+  (condition-case nil
+      (let* ((subject (or (org-air-view--source-canonical-buffer
+                           (current-buffer))
+                          (current-buffer)))
+             (file (and (buffer-live-p subject)
+                        (buffer-local-value 'buffer-file-name subject))))
+        ;; No visited file after canonicalization: no disk truth, no claim.
+        (when (stringp file)
+          (let ((proven nil))
+            (condition-case nil
+                (when (file-readable-p file)
+                  (let ((live (with-current-buffer subject
+                                (org-air-view--visited-buffer-full-text))))
+                    (setq proven
+                          (with-temp-buffer
+                            (let ((read-result (insert-file-contents file)))
+                              (and (consp read-result)
+                                   (equal live
+                                          (buffer-substring-no-properties
+                                           (point-min) (point-max)))))))))
+              ((error quit) (setq proven nil)))
+            (unless proven
+              (condition-case nil
+                  (with-current-buffer subject
+                    (restore-buffer-modified-p t))
+                ((error quit) nil))))))
+    ((error quit) nil)))
 
 (defun org-air-view--undo-disk-truth-guard-install (expected-tail)
   "Install one disk-truth guard before EXPECTED-TAIL's boundary.
@@ -13212,8 +13231,8 @@ after disk commit is finalized as success and only emits a bounded warning."
                     'org-air-view--edit-redo-ring))
           (message "Cannot %s: %s — %s"
                    operation desc (mapconcat #'identity blockers "; ")))
-      (let ((remaining ordered) (successes nil) (failed nil) warnings
-            hooked-buffers (generation-invalidated nil))
+      (let ((remaining ordered) (successes nil) (committed nil) (failed nil)
+            warnings hooked-buffers (generation-invalidated nil))
         (while (and remaining (not failed) (not generation-invalidated))
           (let* ((part (pop remaining))
                  (buffer (plist-get part :buffer))
@@ -13327,6 +13346,18 @@ after disk commit is finalized as success and only emits a bounded warning."
                 (remhash file relocations-by-file)
                 (setq snapshot nil))
               (unless ok (setq failed part)))))
+        ;; THE COMMITTED SET IS READ MANY TIMES BELOW, SO IT IS BUILT ONCE,
+        ;; NON-DESTRUCTIVELY.  SUCCESSES is accumulated newest-first by
+        ;; `push'; every incomplete branch needs it in commit order for the
+        ;; redo residual, needs to iterate it for the forgotten identities
+        ;; and the committed-buffer restamp sweep, and needs its LENGTH for
+        ;; the honest K/N echo.  A destructive `nreverse' would leave the
+        ;; accumulator naming the original head cons — a one-element tail —
+        ;; so the echo would claim `1/N' however many files really moved and
+        ;; the sweep would restamp only one of several committed buffers.
+        ;; `reverse' keeps this structurally identical to the undo residual's
+        ;; own non-destructive `reverse' forms.
+        (setq committed (reverse successes))
         (maphash (lambda (_file relocations)
                    (org-air-view--relocation-release relocations))
                  relocations-by-file)
@@ -13350,7 +13381,7 @@ after disk commit is finalized as success and only emits a bounded warning."
                      ;; untouched suffix remain undoable.
                      (reverse (cons failed remaining))
                    ;; Successfully reapplied parts alone are undoable.
-                   (nreverse successes))))
+                   committed)))
             (when residual
               (org-air-view--bulk-history-requeue
                (list :desc (format "%s (residual %d file%s)"
@@ -13359,11 +13390,11 @@ after disk commit is finalized as success and only emits a bounded warning."
                      :kind 'bulk :parts residual :time (current-time))
                'org-air-view--edit-ring)))
           (dolist (part (if (eq operation 'undo)
-                            successes
+                            committed
                           (cons failed remaining)))
             (org-air-view--history-part-forget-identities part))
-          (when successes
-            (dolist (part successes)
+          (when committed
+            (dolist (part committed)
               (unless (memq (plist-get part :buffer) hooked-buffers)
                 (org-air-view--edit-ring-restamp
                  (plist-get part :buffer))))
@@ -13371,7 +13402,7 @@ after disk commit is finalized as success and only emits a bounded warning."
             (org-air-view--panes-resync-now))
           (message "%s incomplete: %d/%d files %s; failed %s"
                    (if (eq operation 'undo) "Undo" "Redo")
-                   (length successes) (length parts)
+                   (length committed) (length parts)
                    (if (eq operation 'undo) "reverted" "reapplied")
                    (file-name-nondirectory (plist-get failed :file))))
          ((and generation-invalidated remaining)
@@ -13382,7 +13413,7 @@ after disk commit is finalized as success and only emits a bounded warning."
            'org-air-view--edit-redo-ring)
           (let ((residual (if (eq operation 'undo)
                               (reverse remaining)
-                            (nreverse successes))))
+                            committed)))
             (when residual
               (org-air-view--bulk-history-requeue
                (list :desc (format "%s (residual %d file%s)"
@@ -13390,9 +13421,9 @@ after disk commit is finalized as success and only emits a bounded warning."
                                    (if (= (length residual) 1) "" "s"))
                      :kind 'bulk :parts residual :time (current-time))
                'org-air-view--edit-ring)))
-          (dolist (part (if (eq operation 'undo) successes remaining))
+          (dolist (part (if (eq operation 'undo) committed remaining))
             (org-air-view--history-part-forget-identities part))
-          (dolist (part successes)
+          (dolist (part committed)
             (unless (memq (plist-get part :buffer) hooked-buffers)
               (org-air-view--edit-ring-restamp
                (plist-get part :buffer))))
@@ -13401,11 +13432,11 @@ after disk commit is finalized as success and only emits a bounded warning."
           (org-air-view--panes-resync-now)
           (message "%s incomplete: %d/%d files %s; cache generation rebuilt"
                    (if (eq operation 'undo) "Undo" "Redo")
-                   (length successes) (length parts)
+                   (length committed) (length parts)
                    (if (eq operation 'undo) "reverted" "reapplied")))
          (t
           ;; Complete success: one compound record crosses rings as a unit.
-          (dolist (part successes)
+          (dolist (part committed)
             (unless (memq (plist-get part :buffer) hooked-buffers)
               (org-air-view--edit-ring-restamp (plist-get part :buffer))))
           (if (eq operation 'undo)

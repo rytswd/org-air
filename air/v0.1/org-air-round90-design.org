@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: blocked
+#+state: work-in-progress
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -2004,6 +2004,132 @@ no query or refile-engine behavior changes.
   work-in-progress → blocked pending a source correction and independent
   closeout.
 
+- 2026-07-27: FIX-11 — close the retest-10 blocker and the FIX-10 file-less
+  guard regression.  Production =org-air-view.el= only (two functions) plus
+  this history; tests, README, fixtures, goldens and the known-failures
+  manifest are byte-pristine against =tvplxtqsvpoy=; no repository probe file
+  exists and =.deps= is retained.  Final source SHA-256
+  =297b44210f55a2b1a45591313e9185569629d3092e2c4fa33993242b9812a012=.
+
+  ROOT 1 (blocker, =org-air-view--bulk-history-operation=) — a destructive
+  =nreverse= corrupted the COMMITTED SET, not merely the message.  The
+  accumulator =successes= is built newest-first with =push=; both redo
+  residual computations were =(nreverse successes)=, after which the variable
+  named the ORIGINAL head cons whose cdr is nil.  Every later read therefore
+  saw a ONE-ELEMENT tail: =(length successes)= echoed =1/N files reapplied=
+  however many files really moved (contradicting the residual record's own
+  =residual K files=), and the committed-buffer
+  =org-air-view--edit-ring-restamp= sweep visited exactly ONE buffer, so the
+  other genuinely committed buffers kept pre-write, two-sided-stale stamps in
+  violation of the R75 Decision-5 restamp law (a later ring op on those
+  buffers is then refused with an honest-looking but wrong "changed since").
+  The fix is structural, not cosmetic: the committed set is now bound ONCE,
+  non-destructively, immediately after the per-part loop —
+  =(setq committed (reverse successes))= — and EVERY subsequent read (redo
+  residual parts, forgotten identities, the restamp sweep, the K/N echo, and
+  the complete-success sweep) reads =committed=.  =successes= is now
+  write-only after the loop.  Both directions are structurally symmetric: the
+  undo residual keeps its non-destructive =(reverse (cons failed remaining))=
+  / =(reverse remaining)= and the redo residual is the same non-destructive
+  =reverse= shape.  Consequences, all verified: on both incomplete paths
+  (=failed= and =generation-invalidated=) and in both directions every
+  genuinely committed buffer is restamped exactly once (compound records hold
+  one part per file, so the sweep cannot double-visit a buffer, and the
+  =hooked-buffers= exclusion is unchanged), the echo's =K= equals the true
+  committed count and equals the residual record's file count, and residual
+  parts/order/eq identity, redo-ring clearing and the forgotten-identity sets
+  are byte-for-byte the previously specified ones.
+
+  Destructive-list audit.  The whole function and all sibling history code
+  were audited for =nreverse=/=nconc=/=delq=/=sort= applied to a list that is
+  read again afterwards; a mechanical scan over all eleven modules was used to
+  enumerate candidates.  Result: the two =(nreverse successes)= sites were the
+  ONLY defects.  Every other destructive call is safe by construction —
+  immediately rebound to the same variable (=(setq blockers (nreverse
+  blockers))=, =changed=/=noops=/=parts=/=files=/=rest=,
+  =(setq org-air-view--marked-keys (nreverse out))=,
+  =(setq X (nconc X …))=, =(setq X (delq … X))=), in return position with no
+  later read (=--bulk-history-blockers=, =--relocation-markers=,
+  =--marked-preflight='s =:stale=/=:ineligible=/=:failed= plist),
+  evaluated once in a branch whose sibling branch is unreachable
+  (=(dolist (warning (nreverse warnings)) …)= in both
+  =--bulk-history-operation= and =--marked-tag-action=; the =if= test in
+  =--bulk-message= reads =extras= BEFORE its =nreverse=), protected by
+  =copy-sequence= (the per-file record sort, the tag sort), or deliberately
+  and now-documented use of the pre-=nreverse= head cons (the O(1)
+  first/last locator witness in =--hydrate-source-items=, which is correct
+  and stays).  No further change was required.
+
+  ROOT 2 (regression introduced by FIX-10) — the undo disk-truth guard gave
+  FILE-LESS buffers spurious modified state.  FIX-10 restored modified=t
+  whenever full-file equality could not be PROVEN, but read
+  =buffer-file-name= from whatever buffer happened to be current.  An
+  =org-tree-to-indirect-buffer= clone shares its base's text and
+  =buffer-undo-list= yet has no visited file, so an ordinary =C-/= inside the
+  clone ran the guard with no file, proved nothing, and marked the base dirty
+  even when live bytes equalled disk — a new spurious dirty-buffer prompt on a
+  common Org workflow (retest-10 non-blocking observation (i)).  Guard
+  resolution rule, now explicit: (1) resolve the SUBJECT with the existing
+  canonicalization helper =org-air-view--source-canonical-buffer=
+  (=buffer-base-buffer= or the buffer itself); (2) take the subject's own
+  =buffer-file-name= and compare the SUBJECT's widened full text
+  (=--visited-buffer-full-text=, restriction/point/mark preserved) against
+  that file; (3) if, AFTER resolution, there is genuinely no visited file, the
+  guard is a strict no-op — with no disk truth there is nothing to be
+  dishonest about and nothing to restore; (4) when a visited file does exist,
+  review-4 ROOT-3 conservatism is unchanged: unreadable, failed read, =error=
+  and =quit= all leave the SUBJECT modified=t so an ordinary =save-buffer=
+  converges and the documented manual save + retry stays reachable; (5) the
+  whole body — canonicalization, liveness, predicate, read, compare and the
+  =restore-buffer-modified-p= itself — is wrapped so the guard can never
+  signal out of the undo machinery.  The entry stays bounded, function-only
+  and source-free; the installer, its shape validation and the R90 no-guard
+  paths are untouched.
+
+  Mutation / revert evidence, every mutant compiled fresh over the whole
+  =r90-*= selector plus the two =/tmp= probes and then restored byte-
+  identically (SHA-256 =297b4421…12a012= verified after each restore).
+  (A) ROOT-1 reverted to =(nreverse successes)= → 2 unexpected: =r90-66= RED
+  (=Redo incomplete: 1/4 files reapplied= for three committed files) and the
+  stale-stamp probe RED.  (B) honest echo kept but the committed-buffer
+  restamp sweep restricted to the last committed part (exactly what the
+  destructive call left behind) → =r90-66= stays GREEN and the stale-stamp
+  probe alone is RED, isolating the restamp correction: =a.org='s pre-existing
+  ring record still carries tick 23 while the buffer is at 27.  (C) ROOT-2
+  reverted to the FIX-10 guard → the file-less probe RED, reproducing the
+  spurious modified state on the clone path.  (D) unprovable equality treated
+  as proven → =r90-64= RED (=unreadable= shape).  (E) canonicalization kept,
+  file-less no-op dropped → probe RED (a never-visited buffer is marked
+  modified).  (F) file-less no-op kept, canonical base resolution dropped →
+  probe RED (a divergent base stays falsely clean when the guard runs from
+  the clone).  Both halves of the guard rule are therefore load-bearing.
+
+  Probes (=/tmp/org-air-ace/r90-fix11-probe.el=, never in the repository, two
+  tests).  =r90-fix11-incomplete-redo-restamps-every-committed-buffer= drives
+  the real product — three ordinary single-buffer records, a four-file marked
+  =b=, =u=, then a blocked incomplete =U= — and asserts the honest =3/4=
+  echo, the three files on disk, and that NO ring entry naming any of the
+  three committed buffers keeps a stale tick.  It is reported here because no
+  permanent test covers the stale-stamp half (the reachable product harm is
+  narrower than the echo's: the residual sits at the ring head and a fully
+  successful residual undo re-heals the stamps, but a partial residual undo
+  leaves the earlier records permanently refused).
+  =r90-fix11-guard-is-a-no-op-without-a-visited-file= covers the clone
+  (narrowed, restriction/point preserved), the never-visited buffer, the
+  clone-resolved conservative case, the clone-resolved equal case, and
+  no-signal/no-undo-entry totality.
+
+  Verification.  =r90-66= GREEN; =r90-49= and =r90-54..65= all GREEN;
+  complete R90 72/72 (74/74 with the two probes).  R73/R75 history 28/28.
+  Owner rename/mode lifecycle (=r90-51=), native v6 tags (=r90-52=), total
+  finalizer (=r90-53=), bounded retention/guard lifecycle (=r90-56=) and 1k/5k
+  scaling (=r90-50=) all GREEN.  Final gate after =make clean= with all stale
+  =.elc= deleted: all 11 modules compile with only the pre-existing
+  =org-air-project.el= wide-docstring warning, lint 0, =make check= 1174 tests
+  / 1166 expected / 0 unexpected / 8 GUI skips, loaded known-failures active
+  length 0, =make regen-mockups= a byte no-op.  State: blocked →
+  work-in-progress pending independent review closeout.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -2014,3 +2140,7 @@ no query or refile-engine behavior changes.
 - 2026-07-27: State: work-in-progress → blocked (independent audit retest 10
   proved an incomplete compound redo reports a false committed count;
   permanent RED =r90-66=).
+- 2026-07-27: State: blocked → work-in-progress (FIX-11 removed the
+  destructive =nreverse= from the compound redo committed set and made the
+  undo disk-truth guard canonical/file-less-safe; =r90-66= green, gate
+  1174/0).

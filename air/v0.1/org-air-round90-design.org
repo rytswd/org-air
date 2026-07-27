@@ -1459,6 +1459,55 @@ no query or refile-engine behavior changes.
   and goldens are byte-pristine against =xxwqnqnwkwop=; no repository probe
   exists and =.deps= remains retained.
 
+- 2026-07-27: Fresh GPT-5.6 Sol FIX-8 independent retest 7 completed
+  *BLOCKED*.  Topology and scope were exact: =qrtmtslkonku= is directly on
+  =xxwqnqnwkwop=, contains only =org-air-view.el= plus this Air document,
+  and the new workspace began clean/conflict-free with tests, README,
+  known-failures, fixtures and goldens pristine.  Unchanged permanent =r90-49=
+  plus =r90-54..61= first passed 9/9, including every intermediate zero-byte,
+  ring-order, modified-state, guard-position, retry and equivalence fact.
+
+  Independent temporary coverage was GREEN 7/7 for nil/renamed/mismatched/
+  symlink-alias/missing source forms, error/quit and byte-only comparison
+  failures, identity-before-durability ordering, a first-file comparison that
+  externally invalidates the second file, same-file blocker positions,
+  all-part zero-undo/save/relocation behavior, cached UI zero-read behavior,
+  deep/shared/multi-node-cycle/duplicate-handler guard shapes, and repeated
+  sentinel/custom-handler sticky unavailability.  R73/R75 dead, stale,
+  structural refile/archive behavior remained GREEN 4/4; bounded token/
+  retention audits =r90-30/36/37/56= remained GREEN 4/4.  Supplied native-tag,
+  conservative, six-row nested matrix, finalizer-stop, owner lifecycle and
+  native 1k/5k probes retained their required facts.  The older ambient
+  sequential compound script reaches FIX-8's conservative sticky-unavailable
+  state on its second recursive cycle (=raw=nil= and a zero-byte inverse), then
+  incorrectly demands that unavailable identity re-arm; unchanged permanent
+  =r90-49= remains the authoritative isolated two-direction oracle.
+
+  The audit found one new totality blocker.  If the exact =expected-tail=
+  itself is a self-cycle behind an otherwise proper newest-group boundary,
+  =org-air-view--undo-disk-truth-guard-install= returns true and splices a guard
+  into that malformed history.  The seen table checks only nodes traversed
+  before the boundary, so it never validates the older expected tail.  A
+  bounded child terminates (no suite hang) and prints =(t nil)=: accepted plus
+  old-edge-mutated.  Strengthened permanent =r90-57= requires =(nil t)=:
+  conservative rejection plus byte/object-identical topology.  Current source
+  is therefore RED exactly 1/1 at that added assertion; no source repair or
+  manifestation was made.
+
+  Independent mutation evidence remained sensitive: bypassing durability made
+  r90-54 RED in all four directions; omitting modtime, byte comparison, or the
+  explicit readability predicate made their focused seams RED; pre-blocker
+  pop reconstructed order but lost exact ring-cons identity; FIX-7 without
+  seen-node detection hit a bounded timeout; and re-arming an unavailable
+  identity made repeated-group r90-58 RED.  All mutations were dynamic or
+  external and the implementation was restored/pristine.  Final clean gate:
+  all 11 modules compile (only the pre-existing project docstring warning),
+  lint 0, 1169 tests / 1160 expected / exactly the strengthened r90-57
+  unexpected / 8 GUI skips; manifest active=0.  Regen is a no-op.  README,
+  known-failures, fixtures and goldens are unchanged; no repository probe
+  remains and =.deps= is retained.  State remains work-in-progress pending a
+  source correction and independent closeout.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

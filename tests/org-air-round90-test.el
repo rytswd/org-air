@@ -4620,6 +4620,22 @@ CELL is a mutable one-element list used as the recursion guard."
     "   (setcdr node node) (setq buffer-undo-list node)"
     "   (prin1 (org-air-view--undo-disk-truth-guard-install '(tail))))))")))
 
+(defun org-air-r90--cyclic-expected-tail-child-result ()
+  "Run a cyclic expected-tail guard audit in a bounded child Emacs."
+  (org-air-r90--guard-child-result
+   "cyclic-expected-tail"
+   (concat
+    "(progn (require 'org-air-view)"
+    " (with-temp-buffer"
+    "  (let* ((expected (cons 'tail nil)) (boundary (cons nil expected))"
+    "         (second (cons '(t . 0) boundary))"
+    "         (head (cons '(1 . 2) second)))"
+    "   (setcdr expected expected) (setq buffer-undo-list head)"
+    "   (let ((old-edge (cdr second)))"
+    "    (prin1 (list"
+    "     (org-air-view--undo-disk-truth-guard-install expected)"
+    "     (eq old-edge (cdr second)))))))))")))
+
 (defun org-air-r90--insertion-failure-child-result ()
   "Run interpreted guard insertion failure in a child Emacs."
   (let ((source (expand-file-name "org-air-view.el" default-directory)))
@@ -4710,7 +4726,14 @@ CELL is a mutable one-element list used as the recursion guard."
     (ert-info ((format "cyclic guard child: %S" child))
       (should-not (plist-get child :timeout))
       (should (zerop (plist-get child :status)))
-      (should (string-match-p "nil" (plist-get child :output))))))
+      (should (string-match-p "nil" (plist-get child :output)))))
+  ;; The exact older expected tail is also untrusted structure.  A cycle
+  ;; behind the terminating boundary must neither be blessed nor gain a guard.
+  (let ((child (org-air-r90--cyclic-expected-tail-child-result)))
+    (ert-info ((format "cyclic expected-tail child: %S" child))
+      (should-not (plist-get child :timeout))
+      (should (zerop (plist-get child :status)))
+      (should (string-match-p "(nil t)" (plist-get child :output))))))
 
 (defun org-air-r90--recursive-matrix-mutate (shape index)
   "Mutate recursive save SHAPE for matrix iteration INDEX."

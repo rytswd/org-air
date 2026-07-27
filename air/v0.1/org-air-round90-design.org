@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: work-in-progress
+#+state: blocked
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -1796,6 +1796,214 @@ no query or refile-engine behavior changes.
   =nplmlmowtvuk=; no repository probe file exists and =.deps= is retained.
   State remains work-in-progress pending independent review closeout.
 
+- 2026-07-27: TEST/AUDIT retest 10 — independent audit of FIX-10 against
+  =mvnykpusrqrw=.  Tests and this history only; no production =.el=, README,
+  fixture, golden or known-failure byte changed.  Verdict BLOCKED on one
+  newly proven root: an incomplete compound REDO understates the number of
+  files it just rewrote.  New permanent RED =r90-66=.
+
+  Scope and ancestry.  =nplmlmowtvuk= is FIX-10's parent; the FIX-10 change
+  touches exactly =org-air-view.el= and this Air document.  The repository
+  has one substantive head (all other heads are empty working copies), no
+  conflicts and no divergent changes.  Working copy clean; production
+  =org-air-view.el= SHA-256
+  =820fdeae69de77f9fa40412dbe6ecb2a1d336bfaa98f9cdfb2dc2f7d545ed733= before
+  and after every mutation in this audit; all other production modules,
+  README, =tests/fixtures=, goldens and =tests/org-air-known-failures.el= are
+  byte-identical to =mvnykpusrqrw=; no repository probe file exists; =.deps=
+  retained.  Reproduced baseline gate on the unchanged candidate: all 11
+  modules compile with only the pre-existing =org-air-project.el=
+  wide-docstring warning, lint 0, =make clean && make check= 1173 tests /
+  1165 expected / 0 unexpected / 8 GUI skips, loaded known-failures active
+  length 0.
+
+  BLOCKER, incomplete compound REDO reports a false committed count
+  (=org-air-view.el=, =org-air-view--bulk-history-operation=, the =failed=
+  and =generation-invalidated= branches).  Both redo residual computations
+  are =(nreverse successes)=.  =nreverse= is destructive, so after it the
+  variable =successes= names the ORIGINAL head cons, whose cdr is now nil —
+  a one-element tail — while =residual= correctly holds every committed part.
+  The mangled variable is then used for the committed-buffer
+  =org-air-view--edit-ring-restamp= sweep and, worse, for the honest echo:
+
+  : (message "%s incomplete: %d/%d files %s; failed %s" ... (length successes) ...)
+
+  Consequently EVERY incomplete redo claims exactly =1/N files reapplied= no
+  matter how many files org-air actually wrote.  Independently reproduced at
+  1k of resolution with three unrelated stop causes on a four-file record
+  whose redo order is =a b c d=:
+
+  : blocked later part   disk a=t b=t c=t d=nil  "Redo incomplete: 1/4 files reapplied; failed d.org"
+  : pre-write save error disk a=t b=t c=t d=nil  "Redo incomplete: 1/4 files reapplied; failed d.org"
+  : generation rebuild   disk a=t b=t c=t d=nil  "Redo incomplete: 1/4 files reapplied; cache generation rebuilt"
+
+  In every case the residual record itself says =residual 3 files=, so the
+  product contradicts itself: the record knows three files moved and the only
+  statement the user ever sees says one did.  The echo is the user's sole
+  account of how many source files org-air just rewrote after a partial
+  operation, so understating it is a disk-truth honesty violation of the
+  round-90 partial-failure law and of FIX-10's own stated invariant that the
+  echo is the honest =K/N=.  The corresponding UNDO direction uses
+  non-destructive =reverse= and is correct (=3/4 files reverted= observed),
+  which is why the defect had never surfaced.
+
+  The defect is PRE-EXISTING at =nplmlmowtvuk= (the FIX-10 diff changes only
+  comments in that =cond=), but FIX-10 makes the =failed= branch dramatically
+  more reachable: any committed =after-save-hook= that touches a later part
+  now produces a blocked stop, which is exactly this branch.  Existing
+  coverage never reaches it — =r90-53= and =r90-62= both stop a redo after a
+  single committed part, where =1= happens to be correct.
+
+  Minimal fix direction: do not destroy =successes=.  Use =(reverse
+  successes)= in both redo residual computations (or bind the residual before
+  reading =successes=), so the restamp sweep visits every committed buffer
+  and =(length successes)= is the true committed count.  Verified: with that
+  one-word change in both sites, =r90-66= is GREEN and the complete R90 suite
+  is 72/72 GREEN; the source was then restored byte-identically.
+
+  New permanent test.  =r90-66-incomplete-redo-counts-every-committed-file=
+  drives the real product (four marked items in four files, =b=, =u=, then an
+  incomplete =U=) for both compound redo stop shapes, asserts the three
+  really committed files on disk, asserts the residual record agrees at three, and
+  requires the echo to say =3/4 files reapplied=.  It is RED against the
+  candidate for exactly this root.
+
+  Independent verification of the four FIX-10 claims, all CONFIRMED.
+
+  1. Compound revalidation.  An instrumented three-file undo shows the
+     per-part check strictly interleaved with each part's own work:
+     =check(a b c) check(c) snapshot(c) primitive(c) arm save(c) check(b)
+     snapshot(b) primitive(b) arm save(b) check(a) ...=.  Blocked middle and
+     blocked last parts were exercised in both directions on three-file
+     records; the committed prefix is byte-exact, the blocked part moves zero
+     bytes, keeps the user's newest group live and unsaved, keeps its exact
+     identity and tick unrestamped, the untouched suffix is byte-identical and
+     unmodified, the residual holds the ORIGINAL eq part objects in the right
+     order with the right =desc=, and no speculative redo survives.  Hostile
+     later-source shapes (kill the buffer, unrelated unsaved edit) block
+     honestly.  Relocation markers were audited by advice on
+     =org-air-view--relocation-markers= / =--relocation-release=: on every
+     stop path each created marker is released exactly once (0 double, 0
+     leaked, 0 still live).  A first-processed blocked part is only reachable
+     through the command-wide preflight, which requeues the whole record with
+     zero parts touched (=r90-59=).  A hook mutating an ALREADY-committed part
+     completes both org-air steps honestly and leaves the user's later edit
+     live/unsaved, after which the now-stale inverse blocks with zero writes.
+     Compound records are structurally one part per file (verified with three
+     same-file items plus one cross-file item), so same-file duplicate parts
+     do not arise.  Disk-level attacks on a TICK-based later part (rename,
+     unreadable, modtime-only) are not detected — that is the established
+     R73/R75 law that ordinary records perform no durability read, identical
+     at the command-wide preflight, and unchanged by FIX-10.
+
+  2. Widened comparisons.  Across =--buffer-matches-visited-file-p=, the
+     undo guard and =--history-expected-durable-p=, with the mark inside the
+     restriction, outside it, unset, and with the region active or inactive,
+     =point-min=/=point-max=/=point=/=mark=/=mark-active= are restored
+     byte-exactly, including on forced =error= and =quit= comparison paths
+     and when called from inside a caller's own =save-mark-and-excursion=.  A
+     narrowed indirect clone does not disturb the base's comparison and a
+     narrowed base does not disturb a wide clone's.  Multibyte (UTF-8),
+     CRLF (=undecided-dos=) and =latin-1= cookie sources all compare EQUAL
+     honestly against =insert-file-contents= and still detect a real
+     divergence, so the equality logic is neither accidentally lenient nor
+     accidentally strict.
+
+  3. Guard conservatism.  Unreadable, =error= and =quit= each leave
+     modified=t with manual save + retry reachable; a genuinely equal buffer
+     stays clean over repeated invocations, wide or narrowed with a mark set;
+     a deleted visited file leaves modified=t so the live text survives an
+     ordinary save.  The guard is total even when =restore-buffer-modified-p=
+     itself signals =error= or =quit=, both standalone and inside a real
+     =undo-only= — nothing escapes the undo machinery.  Read-only buffers
+     behave sanely (equal stays clean, unprovable stays modified, no signal).
+
+  4. Canonical ownership and the O(1) witness.  WITNESS SUFFICIENCY was
+     attacked directly: with FIRST and LAST live but the INTERIOR locator
+     killed, and separately retargeted into a foreign buffer,
+     =--source-locators-live-p= still reports live and same-generation
+     hydration stays an O(1) no-op — but the package CANNOT act through the
+     stale interior locator.  Both consumers fall back to the durable cached
+     position and revalidate with =--source-heading-exact-p=, so the marked
+     action fails conservatively (=Backlogged 0 marked items; 1 failed — run
+     g r=) with zero disk change, the wrong heading is never tagged, and the
+     user's unsaved drift survives.  The bounded witness is therefore
+     sufficient for safety.  Clone lifecycle matrix — clone-of-clone (whose
+     base is the ultimate base), two simultaneous clones, renamed clone,
+     renamed base, =fundamental-mode= on the base, and killing the base while
+     a clone is live — always leaves exactly three live base-owned markers, a
+     live witness, and an owner roster holding the canonical base exactly once
+     and a clone never; a real base kill dehydrates exactly once and kills all
+     three markers.  Hydrating a CLONE canonicalizes to the base and never
+     rosters or re-indexes the clone.  A genuinely dead witness rebuilds a
+     fresh, wholly disjoint, base-owned locator set.
+
+  Performance.  Same-generation hydration on the hot path: 0.0000114 s at 1k
+  and 0.0000173 s at 5k averaged over 500 calls, with 0 file opens, 0 org-ql
+  queries, 0 timers, 0 prune sweeps and 0 exactness checks; the witness is
+  consulted exactly once per hydration.  A full =org-air-refresh= at either
+  size performs exactly 1 witness call and 1 prune, so the witness adds no
+  per-render scan, open, query or O(n) sweep.  Rebuild after a genuine
+  dehydration: 0.0237 s / 1k and 0.3063 s / 5k with exactly n exactness
+  checks.  Render 0.335 s / 1k and 2.303 s / 5k.
+
+  Regressions.  Complete R90 71/71 on the candidate; =r90-49= plus
+  =r90-54..61= 9/9 and with =r90-62..65= 13/13 (the FIX-10 note's
+  "=r90-49= and =r90-54..61= 13/13" is a label slip for that 9+4 set — the
+  substance is green); R73/R75 28/28; native v6 tags, total finalizer, owner
+  rename/mode lifecycle, weak-registry retention after kill+GC and the timer
+  identity seam all green inside the 71.
+
+  Independent mutation evidence, each reverted against freshly byte-compiled
+  production over the whole R90 selector and then restored byte-identically
+  (SHA-256 =820fdeae...ed733= verified after every restore).  Forcing the
+  per-part revalidation to nil → 1 unexpected, =r90-62= RED.  Dropping
+  =widen= from =--visited-buffer-full-text= → 1 unexpected, =r90-63= RED.
+  Widening in the GUARD ONLY, leaving the save-boundary and durability
+  comparisons narrow → 1 unexpected, =r90-63= RED.  Treating an
+  unreadable/failed comparison as proven → 1 unexpected, =r90-64= RED.
+  Treating =quit= alone as proven → 1 unexpected, =r90-64= RED.  Letting a
+  clone's teardown release the shared marker objects → 1 unexpected,
+  =r90-65= RED.  Removing the witness validation from the fast path → 2
+  unexpected, =r90-50= and =r90-65= RED.  Two further mutations produce NO
+  RED and are reported honestly as EQUIVALENT MUTANTS rather than coverage
+  gaps: (a) dropping the durability term from the per-part revalidation and
+  keeping only the identity term — a guarded (=:expected-undo=) part is
+  created only by a recursive commit, which invalidates the generation and
+  stops the loop, so a guarded part is always the LAST part processed by the
+  operation that created it and therefore the FIRST part processed by the
+  inverse, where the per-part check is state-identical to the command-wide
+  preflight that just ran; every construction attempted (including a
+  three-step guarded chain) collapsed to a one-part record, so the dropped
+  term has no reachable observable effect; (b) letting a clone's teardown
+  edit the owner roster — the roster provably never contains a clone after
+  canonicalization, so =(delq clone roster)= is a no-op, and the clone's other
+  =setq= forms only touch clone-local =defvar-local= bindings.  The one
+  genuinely dangerous thing a clone teardown can do is release the shared
+  markers, and that IS covered by =r90-65=.
+
+  Non-blocking observations (no test filed).  (i) FIX-10 changed the undo
+  guard in a FILE-LESS buffer from a silent no-op to =restore-buffer-modified-p
+  t=.  Because an indirect clone shares the base's =buffer-undo-list= but has
+  no =buffer-file-name=, a user who presses =C-/= inside an =org-tree-to-
+  indirect-buffer= clone now marks the base modified even when live bytes
+  equal disk.  This is conservative, loses no bytes and stays fully
+  recoverable through an ordinary save, but it is a new spurious dirty-buffer
+  prompt on a common Org workflow.  (ii) After a blocked compound part whose
+  record is TICK-based, resolving the user's edit does not restore the chars
+  tick, so the residual stays permanently blocked with the honest =… changed
+  since= message.  That is the established R73/R75 stale-edit law, identical
+  before FIX-10.
+
+  Gate with the new test.  =make clean && make check= after deleting stale
+  =.elc=: all 11 modules compile with only the pre-existing
+  =org-air-project.el= wide-docstring warning, lint 0, 1174 tests / 1165
+  expected / 1 unexpected / 8 GUI skips — the single unexpected result is
+  exactly the intended new =r90-66= RED, deliberately NOT manifested; loaded
+  known-failures active length 0; =make regen-mockups= a byte no-op.  State:
+  work-in-progress → blocked pending a source correction and independent
+  closeout.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -1803,3 +2011,6 @@ no query or refile-engine behavior changes.
 - 2026-07-25: State: ready → work-in-progress.
 - 2026-07-25: Implementation completed and gated; state remains
   work-in-progress pending independent test/review closeout.
+- 2026-07-27: State: work-in-progress → blocked (independent audit retest 10
+  proved an incomplete compound redo reports a false committed count;
+  permanent RED =r90-66=).

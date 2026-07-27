@@ -5459,5 +5459,90 @@ and `complete' state may never refer to dead or wrong-buffer markers."
                 (let ((kill-buffer-query-functions nil))
                   (kill-buffer clone))))))))))
 
+;;;; r90-66 — review-5 permanent root: an incomplete compound REDO must
+;;;; report the true number of files it wrote to disk.
+
+(defun org-air-r90--four-file-redo-order ()
+  "Commit a four-file bulk, undo it, and return its redo processing order."
+  (dolist (title '("A1" "B1" "C1" "D1")) (org-air-r90--mark-title title))
+  (org-air-item-backlog)
+  (org-air-edit-undo)
+  (mapcar (lambda (part)
+            (file-name-nondirectory (plist-get part :file)))
+          (plist-get (car org-air-view--edit-redo-ring) :parts)))
+
+(ert-deftest org-air-r90-66-incomplete-redo-counts-every-committed-file ()
+  "An incomplete compound redo may never understate its committed prefix.
+The partial-failure law is that the already-committed prefix stays committed
+and the echo is the HONEST `K/N files reapplied'.  Both compound redo stop
+shapes — a blocked/failed later part and a cache-generation rebuild — must
+report the same K that the residual record and the disk agree on, because K
+is the user's only statement of how many files org-air just rewrote."
+  (skip-unless (locate-library "org-air"))
+  (dolist (shape '(blocked invalidated))
+    (org-air-r90--with-board
+        '(("a.org" . "#+title: a\n\n* TODO A1\n")
+          ("b.org" . "#+title: b\n\n* TODO B1\n")
+          ("c.org" . "#+title: c\n\n* TODO C1\n")
+          ("d.org" . "#+title: d\n\n* TODO D1\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      (let* ((order (org-air-r90--four-file-redo-order))
+             (first-buffer (find-file-noselect
+                            (org-air-r90--file (nth 0 order))))
+             (last-buffer (find-file-noselect
+                           (org-air-r90--file (nth 3 order))))
+             (write-orig
+              (symbol-function 'org-air-view--cache-sync-write-slots))
+             (ran 0)
+             (hook (lambda ()
+                     (cl-incf ran)
+                     (when (= ran 1)
+                       (with-current-buffer last-buffer
+                         (undo-boundary)
+                         (save-excursion
+                           (goto-char (point-max))
+                           (insert "# late unsaved user note\n")))))))
+        (ert-info ((format "incomplete redo shape=%S order=%S" shape order))
+          (should (equal '("a.org" "b.org" "c.org" "d.org") order))
+          (when (eq shape 'blocked)
+            (with-current-buffer first-buffer
+              (add-hook 'after-save-hook hook nil t)))
+          (org-air-r90--record-messages collected
+            (unwind-protect
+                (cl-letf (((symbol-function
+                            'org-air-view--cache-sync-write-slots)
+                           (lambda (item file position tags)
+                             (if (and (eq shape 'invalidated)
+                                      (equal "C1" (org-air-item-title item)))
+                                 (error "mandatory C1 slot failure")
+                               (funcall write-orig item file position tags))))
+                          ((symbol-function 'display-warning)
+                           (lambda (&rest _) nil)))
+                  (org-air-edit-redo))
+              (when (eq shape 'blocked)
+                (with-current-buffer first-buffer
+                  (remove-hook 'after-save-hook hook t))))
+            (let ((messages (nreverse collected)))
+              ;; Exactly three files really were rewritten; the fourth is not.
+              (dolist (name '("a.org" "b.org" "c.org"))
+                (should (org-air-r90--disk-has-tag-p
+                         name (concat (upcase (substring name 0 1)) "1")
+                         "backlog")))
+              (should-not (org-air-r90--disk-has-tag-p "d.org" "D1" "backlog"))
+              ;; The residual record already agrees that three files moved.
+              (let ((residual (car org-air-view--edit-ring)))
+                (should (= 3 (length (plist-get residual :parts))))
+                (should (string-match-p "residual 3 files"
+                                        (plist-get residual :desc))))
+              ;; The echo is the user's ONLY statement of that fact and must
+              ;; never understate it.
+              (ert-info ((format "incomplete messages: %S" messages))
+                (should (= 1 (seq-count
+                              (lambda (text)
+                                (string-match-p
+                                 "\\`Redo incomplete: 3/4 files reapplied"
+                                 text))
+                              messages)))))))))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

@@ -1684,6 +1684,118 @@ no query or refile-engine behavior changes.
   clean state, and indirect clone canonical locator teardown.  State remains
   work-in-progress pending a source correction and independent closeout.
 
+- 2026-07-27: FIX-10 — review-4 blockers closed at the root in
+  =org-air-view.el= only (source + this history; no test, README, fixture,
+  golden or known-failure byte changed).
+
+  ROOT 1, cross-file compound TOCTOU
+  (=org-air-view--bulk-history-operation=).  The one command-wide preflight is
+  no longer treated as permission for a later file.  Immediately before each
+  part's own undo primitive — and therefore before its attempt snapshot,
+  relocation arming and save — the loop re-runs
+  =org-air-view--bulk-history-command-blockers= for that single part, which
+  revalidates its exact identity (=:expected-undo= token / tick / head as
+  applicable) and, for expected-history parts, the command durability
+  predicate.  The check pops and touches nothing.  A non-empty result is a
+  BLOCKED STOP, not a pre-write failure: no snapshot is taken, no undo
+  primitive runs, zero bytes move in that part, its exact retry identity/tick
+  is deliberately NOT restamped (restamping would bless the user's newly-ahead
+  step and let a later retry eat it), and the loop stops.  The blocked part
+  shares the established partial-failure residual law exactly, since both
+  shapes moved zero of their own bytes: the already-committed prefix stays
+  committed; for undo the blocked part plus the untouched suffix are requeued
+  as the canonical residual undo record, for redo only the successfully
+  reapplied prefix is; the speculative redo ring is cleared; identities of the
+  now-unreachable parts are forgotten; committed buffers are restamped and one
+  cached repaint + pane resync runs; and the echo is the honest
+  ="<Undo|Redo> incomplete: K/N files <reverted|reapplied>; failed <file>"=
+  — the record can never cross as complete.  The blocked part's relocation
+  markers stay owned by =relocations-by-file= and are released exactly once by
+  the command-wide sweep.
+
+  ROOT 2, narrowed sources compare as full buffers.  New
+  =org-air-view--visited-buffer-full-text= takes every visited-buffer byte
+  snapshot under =save-mark-and-excursion= + =save-restriction= + =widen= and
+  restores the user's exact restriction, point and mark.  It is now the only
+  live-image source for =org-air-view--buffer-matches-visited-file-p=, the
+  custom undo guard and =org-air-view--history-expected-durable-p=, so a
+  narrowed source is compared whole-buffer against a whole-file read: no
+  false durability block, no invented modified state, and a real divergence
+  outside the restriction is still detected.  The audit of every remaining
+  =(point-min)/(point-max)= snapshot on these paths found only the attempt
+  snapshot (already widened) and temp-buffer file reads.
+
+  ROOT 3, guard comparison failure may not leave false-clean state.  The
+  custom undo entry's whole path — =buffer-file-name=, =file-readable-p=, the
+  =insert-file-contents= read and the comparison — is inside one
+  =(error quit)= handler and drives a single =proven= flag.  Only a
+  POSITIVELY PROVEN full-buffer equality with the visited file leaves the
+  buffer clean; unreadable files, failed reads, errors and quits all
+  conservatively =restore-buffer-modified-p t=, so the hook group's already
+  reset save-state can no longer make an ordinary =save-buffer= a no-op and
+  the documented manual save + retry path stays reachable.  The restore is
+  itself protected, so the guard never signals out of the undo machinery, and
+  the installed entry remains the bounded, function-only, source-free
+  =(apply org-air-view--undo-disk-truth-guard)= — no closure, text, marker or
+  raw undo tail.  Command-time comparison-error blocking is unchanged.
+
+  ROOT 4, indirect clones never own or tear down canonical locators.  Source
+  tracking is canonicalized to the visited base: =org-air-view--hydrate-
+  source-items= maps its argument through the new
+  =org-air-view--source-canonical-buffer= (=buffer-base-buffer=), so only
+  canonical bases are hydrated, owned, indexed and rostered.
+  =org-air-view--dehydrate-source-markers= is ownership-exact: in a clone
+  (copied locals + copied local =kill-buffer-hook=) it clears only its own
+  clone-local aliases and must not =set-marker nil= the shared marker
+  objects, edit the owner's roster, or reset the base's generation/complete
+  facts; a real base kill still performs full teardown exactly once.  The
+  same-generation fast path no longer trusts a =complete= index on faith: a
+  new bounded =(FIRST . LAST)= marker witness must still be live and owned by
+  that very buffer (=org-air-view--source-locators-live-p=), otherwise
+  hydration prunes and rebuilds instead of returning a false O(1) no-op.
+
+  Performance.  ROOT 1 adds only identity checks plus, for expected-history
+  parts, one whole-file read per part inside =u=/=U= on compound records that
+  already performed the identical command-wide read — at most 2N reads for an
+  N-file record, and nothing on render/filter/mark/collapse/navigation.  ROOT
+  2/3 do the same work as before for unnarrowed buffers and introduce no new
+  read anywhere.  ROOT 4 costs one =buffer-base-buffer= call per hydration
+  entry and an O(1) two-marker witness test on the fast path instead of an
+  O(n) sweep; the witness itself is computed in O(1) at hydration completion
+  (from the pre-=nreverse= head cons) and inside the pre-existing O(n) prune
+  walk.  No per-render scans, no extra opens/queries/timers, and the linear
+  1k/5k behaviour is unchanged (=r90-50= green).
+
+  Mutation/revert evidence, each fix reverted independently against freshly
+  byte-compiled production and then restored byte-identically (SHA-256
+  =820fdeae69de77f9fa40412dbe6ecb2a1d336bfaa98f9cdfb2dc2f7d545ed733= after
+  every restore): forcing the per-part revalidation to nil → exactly 1
+  unexpected, =r90-62= RED; dropping =widen= from the full-text snapshot →
+  exactly 1 unexpected, =r90-63= RED; making an unreadable/failed comparison
+  count as proven → exactly 1 unexpected, =r90-64= RED; making clone teardown
+  release the shared markers → exactly 1 unexpected, =r90-65= RED.  Each
+  mutation was run over the whole =r90-62..65= selector, so every fix is
+  attributable to its own permanent test.
+
+  Verification.  =r90-62..65= 4/4 green interpreted and byte-compiled
+  (=byte-code-function-p= confirmed on both the guard and the compound
+  operator).  Complete R90 71/71.  Canonical FIX-6..9 coverage =r90-49= and
+  =r90-54..61= 13/13 together with =r90-50= (1k/5k scaling), =r90-51= (owner
+  rename/mode lifecycle), =r90-52= (native v6 tags) and =r90-53= (total
+  finalizer).  R73/R75 history 28/28.  Throwaway =/tmp=-only probes (never in
+  the repository) additionally proved the dead-marker fast path rehydrates
+  with fresh base-owned markers, hydrating a clone canonicalizes to the base
+  without rostering the clone, a renamed clone's kill leaves the base's
+  markers/roster/complete facts intact, and the guard stays conservative in a
+  file-less buffer while adding no undo entry.  Final gate after
+  =make clean=: all 11 modules compile with only the pre-existing
+  =org-air-project.el= wide-docstring warning, lint 0, =make check= 1173
+  tests / 1165 expected / 0 unexpected / 8 GUI skips, loaded known-failures
+  active length 0, =make regen-mockups= a byte no-op.  Tests, README,
+  fixtures, goldens and the known-failures manifest are byte-pristine against
+  =nplmlmowtvuk=; no repository probe file exists and =.deps= is retained.
+  State remains work-in-progress pending independent review closeout.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

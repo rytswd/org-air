@@ -2088,6 +2088,12 @@ participate and no file is read.  Return nil when the source is malformed."
 (defvar-local org-air-view--source-locator-owner nil
   "Canonical board buffer owning this source's tracked locators.")
 
+(defvar-local org-air-view--source-locator-witness nil
+  "O(1) liveness witness `(FIRST . LAST)' for this source's locator set.
+Cloned indirect buffers copy locator buffer-locals and hooks, so a
+`complete' same-generation index must never be trusted on faith: the fast
+path validates this bounded witness instead of sweeping every marker.")
+
 (defvar org-air-view--source-projection-index nil
   "Dynamic eq item to `(POSITION . PROJECTION)' hydration index.")
 
@@ -2120,21 +2126,54 @@ Return non-nil only when the generation identity changed."
             org-air-view--source-items-by-file by-file))
     t))
 
+(defun org-air-view--source-canonical-buffer (buffer)
+  "Return the canonical visited base buffer tracking BUFFER's source text.
+An indirect buffer shares its base's text and markers but is a distinct
+buffer with its own locals; source locators are owned by the base ALONE."
+  (and (buffer-live-p buffer)
+       (or (buffer-base-buffer buffer) buffer)))
+
 (defun org-air-view--dehydrate-source-markers ()
-  "Release this source buffer's ephemeral tracked locators and ownership."
-  (let ((source (current-buffer))
-        (owner org-air-view--source-locator-owner))
-    (dolist (entry org-air-view--source-tracked-locators)
-      (set-marker (cdr entry) nil))
+  "Release this source buffer's ephemeral tracked locators and ownership.
+Teardown is OWNERSHIP-EXACT.  A cloned indirect buffer copies these
+buffer-locals and this local `kill-buffer-hook', and its copied locator
+entries hold the very marker objects still indexed by the canonical base, so
+a clone's kill or mode change may only drop its own clone-local aliases:
+releasing those markers, editing the owner's roster, or resetting the base's
+generation/complete facts would destroy the base's live locators."
+  (let* ((source (current-buffer))
+         (clone (and (buffer-base-buffer source) t)))
+    (unless clone
+      (dolist (entry org-air-view--source-tracked-locators)
+        (set-marker (cdr entry) nil)))
     (setq org-air-view--source-tracked-locators nil
           org-air-view--source-locator-index nil
           org-air-view--source-locator-generation 'unset
           org-air-view--source-locator-complete nil
-          org-air-view--source-locator-owner nil)
-    (when (buffer-live-p owner)
-      (with-current-buffer owner
-        (setq org-air-view--source-tracked-buffers
-              (delq source org-air-view--source-tracked-buffers))))))
+          org-air-view--source-locator-witness nil)
+    (let ((owner org-air-view--source-locator-owner))
+      (setq org-air-view--source-locator-owner nil)
+      (unless clone
+        (when (buffer-live-p owner)
+          (with-current-buffer owner
+            (setq org-air-view--source-tracked-buffers
+                  (delq source org-air-view--source-tracked-buffers))))))))
+
+(defun org-air-view--source-locators-live-p (source)
+  "Return non-nil when SOURCE's tracked locator set is still usable.
+This is the O(1) fast-path guard: a bounded first/last witness must still be
+live and owned by SOURCE itself.  An empty locator set is trivially usable."
+  (let ((witness (buffer-local-value 'org-air-view--source-locator-witness
+                                     source)))
+    (if (null witness)
+        (null (buffer-local-value 'org-air-view--source-tracked-locators
+                                  source))
+      (let ((first (car witness))
+            (last (cdr witness)))
+        (and (markerp first) (markerp last)
+             (marker-position first) (marker-position last)
+             (eq (marker-buffer first) source)
+             (eq (marker-buffer last) source))))))
 
 (defun org-air-view--source-prune-buffer
     (source items owner &optional membership)
@@ -2155,10 +2194,14 @@ MEMBERSHIP is the generation's prebuilt eq index."
                        (not (gethash item seen)))
                   (progn (puthash item marker seen) (push entry keep))
                 (when (markerp marker) (set-marker marker nil)))))
-          (setq org-air-view--source-tracked-locators (nreverse keep)
+          (setq keep (nreverse keep)
+                org-air-view--source-tracked-locators keep
                 org-air-view--source-locator-index seen
                 org-air-view--source-locator-generation items
-                org-air-view--source-locator-complete nil))))))
+                org-air-view--source-locator-complete nil
+                org-air-view--source-locator-witness
+                (when keep
+                  (cons (cdr (car keep)) (cdr (car (last keep)))))))))))
 
 (defun org-air-view--source-prune-generation (items)
   "Release stale/deduplicated owner locators before hydrating ITEMS."
@@ -2176,7 +2219,13 @@ MEMBERSHIP is the generation's prebuilt eq index."
   "Track cached numeric locators belonging to live SOURCE ephemerally.
 Only the exact cached position is accepted; this never searches by title and
 never changes the durable cons stored in an item or rendered row property.
-A source already indexed for the same generation is an O(1) no-op."
+SOURCE is canonicalized to its visited BASE buffer first: an indirect clone
+shares text and markers but is a separate buffer, and only the canonical base
+may be hydrated, owned, indexed or tracked.  A source already indexed for the
+same generation is an O(1) no-op, validated (also in O(1)) against a bounded
+liveness witness so a stale `complete' flag can never bless dead or
+wrong-buffer markers."
+  (setq source (org-air-view--source-canonical-buffer source))
   (when (and (eq (current-buffer) org-air-view--source-tracking-owner)
              (buffer-live-p source)
              (buffer-local-value 'buffer-file-name source))
@@ -2206,13 +2255,15 @@ A source already indexed for the same generation is an O(1) no-op."
                       'org-air-view--source-locator-complete source)
                      (hash-table-p
                       (buffer-local-value 'org-air-view--source-locator-index
-                                          source)))
+                                          source))
+                     (org-air-view--source-locators-live-p source))
           (unless (and (eq (buffer-local-value
                             'org-air-view--source-locator-generation source)
                            items)
                        (hash-table-p
                         (buffer-local-value
-                         'org-air-view--source-locator-index source)))
+                         'org-air-view--source-locator-index source))
+                       (org-air-view--source-locators-live-p source))
             (org-air-view--source-prune-buffer
              source items owner org-air-view--source-item-membership))
           (with-current-buffer source
@@ -2263,10 +2314,17 @@ A source already indexed for the same generation is an O(1) no-op."
                                  org-air-view--source-tracked-locators)
                            (puthash item marker
                                     org-air-view--source-locator-index))))))))
-             (setq org-air-view--source-tracked-locators
-                   (nreverse org-air-view--source-tracked-locators)
-                   org-air-view--source-locator-generation items
-                   org-air-view--source-locator-complete t))))))))
+             (let* ((newest org-air-view--source-tracked-locators)
+                    (entries (nreverse newest)))
+               (setq org-air-view--source-tracked-locators entries
+                     org-air-view--source-locator-generation items
+                     org-air-view--source-locator-complete t
+                     ;; NEWEST is the pre-`nreverse' head cons, which is now
+                     ;; the final entry: the bounded witness costs O(1) here
+                     ;; and keeps the hot repaint fast path sweep-free.
+                     org-air-view--source-locator-witness
+                     (when entries
+                       (cons (cdr (car entries)) (cdr (car newest)))))))))))))
 
 (defun org-air-view--source-tracking-release-owner (owner)
   "Release global tracking and all source locators owned exactly by OWNER."
@@ -11116,34 +11174,61 @@ lookup there fails)."
 (defvar org-air-view--save-attempt-token nil
   "Dynamic identity of the org-air save attempt currently running hooks.")
 
+(defun org-air-view--visited-buffer-full-text ()
+  "Return the current buffer's COMPLETE live text, ignoring any narrowing.
+Save-boundary, durability and undo-guard logic compare a visited buffer
+against a WHOLE file read, so a user's restriction is never truth about the
+file: a narrowed source must still be compared as a full buffer.  The user's
+exact restriction, point and mark are restored before returning."
+  (save-mark-and-excursion
+    (save-restriction
+      (widen)
+      (buffer-substring-no-properties (point-min) (point-max)))))
+
 (defun org-air-view--buffer-matches-visited-file-p ()
-  "Return non-nil when current live text conservatively matches its file."
+  "Return non-nil when current live text conservatively matches its file.
+The comparison is always whole-buffer against whole-file; narrowing neither
+hides a real divergence nor invents one."
   (and buffer-file-name
        (file-readable-p buffer-file-name)
        (condition-case nil
            (let ((file buffer-file-name)
-                 (live (buffer-substring-no-properties (point-min) (point-max))))
+                 (live (org-air-view--visited-buffer-full-text)))
              (with-temp-buffer
                (insert-file-contents file)
                (equal live (buffer-substring-no-properties
                             (point-min) (point-max)))))
-         (error nil))))
+         ((error quit) nil))))
 
 (defun org-air-view--undo-disk-truth-guard ()
   "Keep modified state truthful after undoing a recursively saved hook group.
 This function is installed as a source-free custom undo entry.  It runs after
-that group's text and save-state entries; only a successful comparison showing
-that live characters differ from the visited file restores modified state."
-  (when (and buffer-file-name (file-readable-p buffer-file-name))
+that group's text and save-state entries — which have ALREADY reset modified
+state — so success-by-omission is unsafe: an unreadable file, a failed read,
+an error or a quit anywhere in the comparison would leave divergent live/disk
+bytes falsely clean, making the user's ordinary `save-buffer' a no-op and the
+documented manual save + retry path unreachable.  Only a POSITIVELY PROVEN
+full-buffer equality with the visited file may leave the buffer clean; every
+other outcome conservatively restores modified state.  The whole predicate/
+read/compare path is protected and this never signals out of the undo
+machinery."
+  (let ((proven nil))
     (condition-case nil
-        (let ((file buffer-file-name)
-              (live (buffer-substring-no-properties (point-min) (point-max))))
-          (unless (with-temp-buffer
-                    (insert-file-contents file)
-                    (equal live (buffer-substring-no-properties
-                                 (point-min) (point-max))))
-            (restore-buffer-modified-p t)))
-      (error nil))))
+        (let ((file buffer-file-name))
+          (when (and (stringp file) (file-readable-p file))
+            (let ((live (org-air-view--visited-buffer-full-text)))
+              (setq proven
+                    (with-temp-buffer
+                      (let ((read-result (insert-file-contents file)))
+                        (and (consp read-result)
+                             (equal live
+                                    (buffer-substring-no-properties
+                                     (point-min) (point-max))))))))))
+      ((error quit) (setq proven nil)))
+    (unless proven
+      (condition-case nil
+          (restore-buffer-modified-p t)
+        ((error quit) nil)))))
 
 (defun org-air-view--undo-disk-truth-guard-install (expected-tail)
   "Install one disk-truth guard before EXPECTED-TAIL's boundary.
@@ -12588,8 +12673,9 @@ against the displayed board; `org-cut-subtree' is prompt-free."
 This command-time predicate is intentionally separate from identity/status
 polling: it reads the visited file only for an inverse operation governed by
 `:expected-undo'.  Live source bytes must already be an unmodified, current-
-modtime, readable and byte-exact image of the recorded visited file.  Any nil,
-error or quit is conservative failure."
+modtime, readable and byte-exact image of the recorded visited file.  The live
+image is always the COMPLETE buffer: a user narrowing is not a durability
+failure.  Any nil, error or quit is conservative failure."
   (and (plist-member record :expected-undo)
        (let ((buffer (plist-get record :buffer))
              (recorded-file (plist-get record :file)))
@@ -12605,8 +12691,8 @@ error or quit is conservative failure."
                            (file-readable-p file)
                            (not (buffer-modified-p))
                            (verify-visited-file-modtime (current-buffer))
-                           (let ((live (buffer-substring-no-properties
-                                        (point-min) (point-max))))
+                           (let ((live
+                                  (org-air-view--visited-buffer-full-text)))
                              (with-temp-buffer
                                (let ((read-result
                                       (insert-file-contents file)))
@@ -13132,9 +13218,24 @@ after disk commit is finalized as success and only emits a bounded warning."
           (let* ((part (pop remaining))
                  (buffer (plist-get part :buffer))
                  (file (plist-get part :file))
+                 ;; CROSS-FILE COMPOUND TOCTOU.  One command-wide preflight is
+                 ;; not permission for a LATER file: an earlier part's own
+                 ;; committed `after-save-hook' can mutate this part's source
+                 ;; between that preflight and this iteration.  Applying the
+                 ;; stale authorization would consume the user's newly-ahead
+                 ;; undo group and still cross the whole record as complete.
+                 ;; Revalidate this exact part's identity (`:expected-undo'
+                 ;; token / tick / head as applicable) and, for expected-
+                 ;; history parts, the command durability predicate, strictly
+                 ;; before its own undo primitive, attempt snapshot,
+                 ;; relocation arming and save.  No state is popped or
+                 ;; touched by the check itself.
+                 (stale (org-air-view--bulk-history-command-blockers
+                         (list part) operation))
                  ;; Undo walkers do not compose safely with change groups.
                  ;; Keep only ephemeral attempt state, never history payload.
-                 (snapshot (org-air-view--buffer-attempt-snapshot buffer))
+                 (snapshot (unless stale
+                             (org-air-view--buffer-attempt-snapshot buffer)))
                  (relocations (gethash file relocations-by-file))
                  (intervening
                   (eq (gethash part org-air-view--cache-sync-history)
@@ -13142,78 +13243,90 @@ after disk commit is finalized as success and only emits a bounded warning."
                  (operation-error nil)
                  (save-result nil)
                  (ok nil))
-            (unwind-protect
-                (progn
-                  (condition-case err
+            (if stale
+                ;; A BLOCKED STOP, never a pre-write failure: zero bytes move
+                ;; in this part, no wrong undo group is consumed, and its
+                ;; exact retry identity/tick is deliberately left untouched
+                ;; (restamping here would bless the user's ahead step).  The
+                ;; already-committed prefix stays committed and the record
+                ;; can never cross as complete; this part's relocation
+                ;; markers are still owned by RELOCATIONS-BY-FILE and are
+                ;; released exactly once by the command-wide sweep below.
+                (setq failed part)
+              (unwind-protect
+                  (progn
+                    (condition-case err
+                        (with-current-buffer buffer
+                          (org-with-wide-buffer
+                           (undo-boundary)
+                           (org-air-view--history-apply-operation
+                            part operation)))
+                      ((error quit) (setq operation-error err)))
+                    (unless operation-error
+                      (org-air-view--relocation-arm-save-hooks relocations)
                       (with-current-buffer buffer
                         (org-with-wide-buffer
-                         (undo-boundary)
-                         (org-air-view--history-apply-operation
-                          part operation)))
-                    ((error quit) (setq operation-error err)))
-                  (unless operation-error
-                    (org-air-view--relocation-arm-save-hooks relocations)
-                    (with-current-buffer buffer
-                      (org-with-wide-buffer
-                       (let ((org-air-view--bulk-source-write t))
-                         (setq save-result
-                               (org-air-view--save-attempt
-                                (unless intervening
-                                  (lambda ()
-                                    (org-air-view--cache-sync-capture
-                                     relocations)))))))))
-                  (if (or operation-error
-                          (not (plist-get save-result :committed)))
-                      (progn
-                        ;; Only a true pre-write/undo failure restores the
-                        ;; attempt.  Disk and live bytes therefore stay equal.
-                        (org-air-view--buffer-attempt-restore buffer snapshot)
-                        (org-air-view--bulk-history-restamp-part
-                         part operation)
-                        (org-air-view--edit-ring-restamp buffer)
-                        (setq failed part))
-                    (let ((status
-                           (org-air-view--bulk-history-sync-file
-                            part relocations (plist-get save-result :state)
-                            (when (or intervening
-                                      (plist-get save-result :recursive-commit))
-                              (format
-                               "intervening committed save hook%s"
-                               (if-let* ((failure
-                                          (plist-get save-result :error)))
-                                   (format ": %s"
-                                           (error-message-string failure))
-                                 ""))))))
-                      (when (eq status 'invalidated)
-                        (setq generation-invalidated t)
-                        (when (plist-get save-result :recursive-commit)
-                          (plist-put save-result
-                                     :intervening-warning-reported t)
-                          (puthash part 'intervening-commit
-                                   org-air-view--cache-sync-history))))
-                    (org-air-view--bulk-history-restamp-part
-                     part operation save-result)
-                    (when (not (eql (plist-get save-result :expected-tick)
-                                    (buffer-chars-modified-tick buffer)))
-                      (cl-pushnew buffer hooked-buffers :test #'eq)
-                      (org-air-view--history-arm-next
-                       (if (eq operation 'undo)
-                           'org-air-view--edit-ring
-                         'org-air-view--edit-redo-ring)
-                       buffer
-                       (plist-get save-result
-                                  (if (eq operation 'undo)
-                                      :expected-undo :expected-redo))
-                       (plist-get save-result :expected-tick)))
-                    (push part successes)
-                    (when (or (plist-get save-result :error)
-                              (plist-get save-result :recursive-commit))
-                      (push save-result warnings))
-                    (setq ok t)))
-              (org-air-view--relocation-release relocations)
-              (remhash file relocations-by-file)
-              (setq snapshot nil))
-            (unless ok (setq failed part))))
+                         (let ((org-air-view--bulk-source-write t))
+                           (setq save-result
+                                 (org-air-view--save-attempt
+                                  (unless intervening
+                                    (lambda ()
+                                      (org-air-view--cache-sync-capture
+                                       relocations)))))))))
+                    (if (or operation-error
+                            (not (plist-get save-result :committed)))
+                        (progn
+                          ;; Only a true pre-write/undo failure restores the
+                          ;; attempt.  Disk and live bytes stay equal.
+                          (org-air-view--buffer-attempt-restore
+                           buffer snapshot)
+                          (org-air-view--bulk-history-restamp-part
+                           part operation)
+                          (org-air-view--edit-ring-restamp buffer)
+                          (setq failed part))
+                      (let ((status
+                             (org-air-view--bulk-history-sync-file
+                              part relocations (plist-get save-result :state)
+                              (when (or intervening
+                                        (plist-get save-result
+                                                   :recursive-commit))
+                                (format
+                                 "intervening committed save hook%s"
+                                 (if-let* ((failure
+                                            (plist-get save-result :error)))
+                                     (format ": %s"
+                                             (error-message-string failure))
+                                   ""))))))
+                        (when (eq status 'invalidated)
+                          (setq generation-invalidated t)
+                          (when (plist-get save-result :recursive-commit)
+                            (plist-put save-result
+                                       :intervening-warning-reported t)
+                            (puthash part 'intervening-commit
+                                     org-air-view--cache-sync-history))))
+                      (org-air-view--bulk-history-restamp-part
+                       part operation save-result)
+                      (when (not (eql (plist-get save-result :expected-tick)
+                                      (buffer-chars-modified-tick buffer)))
+                        (cl-pushnew buffer hooked-buffers :test #'eq)
+                        (org-air-view--history-arm-next
+                         (if (eq operation 'undo)
+                             'org-air-view--edit-ring
+                           'org-air-view--edit-redo-ring)
+                         buffer
+                         (plist-get save-result
+                                    (if (eq operation 'undo)
+                                        :expected-undo :expected-redo))
+                         (plist-get save-result :expected-tick)))
+                      (push part successes)
+                      (when (or (plist-get save-result :error)
+                                (plist-get save-result :recursive-commit))
+                        (push save-result warnings))
+                      (setq ok t)))
+                (org-air-view--relocation-release relocations)
+                (remhash file relocations-by-file)
+                (setq snapshot nil))
+              (unless ok (setq failed part)))))
         (maphash (lambda (_file relocations)
                    (org-air-view--relocation-release relocations))
                  relocations-by-file)
@@ -13224,13 +13337,17 @@ after disk commit is finalized as success and only emits a bounded warning."
           (org-air-view--report-save-warning warning))
         (cond
          (failed
-          ;; A runtime split never creates a speculative redo branch.
+          ;; A runtime split never creates a speculative redo branch.  BLOCKED
+          ;; parts share this residual law exactly: whether the part was
+          ;; restored after a true pre-write failure or was never touched at
+          ;; all, zero of its bytes moved.
           (org-air-view--history-ring-clear
            'org-air-view--edit-redo-ring)
           (let ((residual
                  (if (eq operation 'undo)
-                     ;; FAILED was restored to its committed pre-attempt state,
-                     ;; so it and every untouched suffix remain undoable.
+                     ;; FAILED was restored to its committed pre-attempt state
+                     ;; (or, when BLOCKED, never left it), so it and every
+                     ;; untouched suffix remain undoable.
                      (reverse (cons failed remaining))
                    ;; Successfully reapplied parts alone are undoable.
                    (nreverse successes))))

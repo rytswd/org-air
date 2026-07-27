@@ -1305,6 +1305,56 @@ no query or refile-engine behavior changes.
   against =krwkxupznmuu= and README/fixtures/goldens are byte-identical.  State
   remains work-in-progress pending a source fix and review approval.
 
+- 2026-07-27: REVIEW FIX 7 closed the compound recursive-hook resolution
+  blocker in source.  The recursive after-save sentinel now isolates the
+  newest hook undo group by the exact boundary whose cdr is the previously
+  captured org-air tail.  When that group contains its committed save-state
+  marker and no foreign custom handler, it inserts exactly one bounded undo
+  entry, =(apply org-air-view--undo-disk-truth-guard)=, at the group's old
+  edge: after all text/save-state entries and immediately before the
+  terminating boundary.  The entry contains only a function symbol—no
+  closure, buffer, marker, source text, snapshot or raw undo tail—and never
+  enters either org-air history ring.  Repeated =save-buffer= and
+  =basic-save-buffer= recursion reuse that one edge entry.  Missing identity,
+  disabled undo, a non-isolated boundary, absent save-state marker or another
+  custom handler leaves both expected identities unregistered, so the record
+  remains conservatively zero-byte blocked.
+
+  Undo-list instrumentation for compound =u= observed the failing hook group
+  as =inserted-range, save-state, boundary, org-air-tail=.  Stock
+  =primitive-undo= deleted the hook text and then the save-state marker reset
+  modified state to nil because visited modtime still matched, despite disk and
+  live characters differing; ordinary =save-buffer= therefore no-op'd.  The
+  shipped shape is =inserted-range, save-state, disk-truth-guard, boundary=.
+  The guard runs last, compares transient live characters with the visited
+  file, and calls =restore-buffer-modified-p t= only on a proven difference.
+  Evidence after hook-only undo is now disk/live unequal + modified=t; the
+  following ordinary save writes, yielding disk/live equal + modified=nil.
+  A source-file comparison bug discovered by that probe was also corrected by
+  retaining =buffer-file-name= before entering the temporary read buffer.
+
+  Independently undoing a hook during compound =u= creates a hook redo group
+  ahead of the bounded org-air redo tail.  Exact =U= now accepts that tail only
+  for =intervening-commit= parts through Emacs' undo-equivalence chain, starts
+  a fresh =undo-only= walk, temporarily stops the chain at the token-resolved
+  raw tail, and restores the older mapping unconditionally.  This skips only
+  the resolved hook redo and reapplies the exact org-air step; ordinary redo,
+  normal deep history and missing weak identities retain their prior behavior.
+
+  Permanent =r90-49= is GREEN unchanged in both compound directions, including
+  explicit modified-state/disk equality and one honest one-part bulk record.
+  Complete R90 =59/59= is GREEN; r90-46..53, bounded r90-30/36/37, native
+  1k/5k, owner/native/finalizer and prior review/pass-2 coverage all pass.
+  A temporary guard-count probe found exactly one entry for recursive
+  =save-buffer=, =basic-save-buffer= and two-level recursion, and zero for
+  normal saves, non-signalling unsaved hooks and ordinary signalling hooks.
+  Removing guard insertion while falsely reporting success makes unchanged
+  r90-49 RED at its explicit disk/live split.  Final
+  =make clean && make check=: 1161 tests / 1153 expected / 0 unexpected / 8
+  GUI skips; lint 0; manifest active=0.  =make regen-mockups= is a no-op;
+  tests, README, known-failures, fixtures and goldens are byte-pristine against
+  =zuzkzktrxxvk=; golden movement is zero and no repository probe exists.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

@@ -11121,12 +11121,74 @@ lookup there fails)."
   (and buffer-file-name
        (file-readable-p buffer-file-name)
        (condition-case nil
-           (let ((live (buffer-substring-no-properties (point-min) (point-max))))
+           (let ((file buffer-file-name)
+                 (live (buffer-substring-no-properties (point-min) (point-max))))
              (with-temp-buffer
-               (insert-file-contents buffer-file-name)
+               (insert-file-contents file)
                (equal live (buffer-substring-no-properties
                             (point-min) (point-max)))))
          (error nil))))
+
+(defun org-air-view--undo-disk-truth-guard ()
+  "Keep modified state truthful after undoing a recursively saved hook group.
+This function is installed as a source-free custom undo entry.  It runs after
+that group's text and save-state entries; only a successful comparison showing
+that live characters differ from the visited file restores modified state."
+  (when (and buffer-file-name (file-readable-p buffer-file-name))
+    (condition-case nil
+        (let ((file buffer-file-name)
+              (live (buffer-substring-no-properties (point-min) (point-max))))
+          (unless (with-temp-buffer
+                    (insert-file-contents file)
+                    (equal live (buffer-substring-no-properties
+                                 (point-min) (point-max))))
+            (restore-buffer-modified-p t)))
+      (error nil))))
+
+(defun org-air-view--undo-disk-truth-guard-install (expected-tail)
+  "Install one disk-truth guard before EXPECTED-TAIL's boundary.
+The current undo head must be one isolated recursively committed group ending
+at the exact boundary whose cdr is EXPECTED-TAIL.  A save-state entry must be
+present and no other custom undo handler may precede that boundary.  Return
+non-nil only when the bounded function-only guard is exactly at the old edge."
+  (when (and (consp expected-tail) (consp buffer-undo-list))
+    (let ((tail buffer-undo-list)
+          previous boundary guard-node
+          save-state custom-handler)
+      ;; Inspect only the newest group.  Crossing any earlier boundary would
+      ;; guess which recursively committed step belongs to this save attempt.
+      (while (and (consp tail) (car tail))
+        (let ((entry (car tail)))
+          (cond
+           ((and (consp entry) (eq (car entry) t))
+            (setq save-state t))
+           ((and (consp entry) (eq (car entry) 'apply))
+            (if (eq (cadr entry) #'org-air-view--undo-disk-truth-guard)
+                (setq guard-node tail)
+              (setq custom-handler t)))))
+        (setq previous tail
+              tail (cdr tail)))
+      (when (and (consp tail) (null (car tail))
+                 (eq (cdr tail) expected-tail))
+        (setq boundary tail))
+      (cond
+       ((or (null boundary) (null previous) (null save-state)
+            custom-handler)
+        nil)
+       (guard-node
+        ;; Repeated/nested saves may observe the group again.  Accept only the
+        ;; one guard already occupying the exact old edge; never duplicate it.
+        (and (eq guard-node previous) (eq (cdr guard-node) boundary)))
+       (t
+        (condition-case nil
+            (let ((node
+                   (cons (list 'apply
+                               #'org-air-view--undo-disk-truth-guard)
+                         boundary)))
+              (setcdr previous node)
+              (and (eq (cdr previous) node)
+                   (eq (cdr node) boundary)))
+          (error nil)))))))
 
 (defun org-air-view--save-attempt (&optional prepare)
   "Save current buffer and return an explicit irreversible-boundary result.
@@ -11143,6 +11205,7 @@ failures.  Sentinels are buffer-local and removed unconditionally."
          (after-save-began nil)
          (recursive-commit nil)
          (recursive-before-boundary nil)
+         (recursive-guard-state nil)
          (expected-undo nil)
          (expected-redo nil)
          (expected-tick nil)
@@ -11155,13 +11218,17 @@ failures.  Sentinels are buffer-local and removed unconditionally."
                ((> save-depth 1)
                 (setq recursive-commit t
                       recursive-before-boundary
-                      (not after-save-began)))
+                      (or recursive-before-boundary
+                          (not after-save-began))))
                ((and prepare prepared)
                 ;; A handler that recursively calls `basic-save-buffer' skips
                 ;; the wrapped `save-buffer' depth counter.  Repeated prepare
-                ;; is still detected and made conservatively non-guessing.
+                ;; still records recursion; only a repeat before the outer
+                ;; identity is known makes that identity nonstandard.
                 (setq recursive-commit t
-                      recursive-before-boundary t))
+                      recursive-before-boundary
+                      (or recursive-before-boundary
+                          (not after-save-began))))
                (prepare
                 ;; One-shot: a recursive callback cannot replace STATE.
                 (setq state (funcall prepare)
@@ -11172,10 +11239,21 @@ failures.  Sentinels are buffer-local and removed unconditionally."
               (if (or (> save-depth 1) after-save-began)
                   ;; A user hook committed another save step.  Preserve the
                   ;; first outer identity and make callers rebuild disk truth.
-                  (setq recursive-commit t
-                        recursive-before-boundary
-                        (or recursive-before-boundary
-                            (not after-save-began)))
+                  ;; Its save-state marker would otherwise make a later
+                  ;; independent undo report the buffer unmodified after its
+                  ;; text entries ran.  Put one function-only guard after that
+                  ;; marker, at the old edge of this isolated hook group.
+                  (progn
+                    (setq recursive-commit t
+                          recursive-before-boundary
+                          (or recursive-before-boundary
+                              (not after-save-began)))
+                    (unless recursive-guard-state
+                      (setq recursive-guard-state
+                            (if (org-air-view--undo-disk-truth-guard-install
+                                 expected-undo)
+                                'installed
+                              'unavailable))))
                 ;; Close the org-air edit group before ordinary after-save
                 ;; hooks mutate bytes, then capture its exact outer identity.
                 (undo-boundary)
@@ -11232,13 +11310,22 @@ failures.  Sentinels are buffer-local and removed unconditionally."
               expected-redo
               (org-air-view--expected-redo-step (current-buffer))
               expected-tick (buffer-chars-modified-tick)))
-      (list :committed committed :state state :error failure
-            :expected-undo expected-undo :expected-redo expected-redo
-            :expected-tick expected-tick
-            :identity-known (and standard-boundary
-                                 (not recursive-before-boundary))
-            :recursive-commit recursive-commit
-            :intervening-commit recursive-commit))))
+      (let ((guarded-identity
+             (or (not recursive-commit)
+                 (and (eq recursive-guard-state 'installed)
+                      (not recursive-before-boundary)))))
+        ;; Without the exact old-edge guard, persist no resolvable identity:
+        ;; the intervening record must stay conservatively zero-byte blocked.
+        (unless guarded-identity
+          (setq expected-undo nil
+                expected-redo nil))
+        (list :committed committed :state state :error failure
+              :expected-undo expected-undo :expected-redo expected-redo
+              :expected-tick expected-tick
+              :identity-known (and standard-boundary guarded-identity)
+              :recursive-commit recursive-commit
+              :intervening-commit recursive-commit
+              :undo-disk-guard recursive-guard-state)))))
 
 (defun org-air-view--persistent-warning (text)
   "Persistently surface bounded org-air warning TEXT without signaling."
@@ -12459,8 +12546,18 @@ direction is accepted for read-only status callers.  Legacy/synthetic raw
                   (org-air-view--history-identity-match-p
                    expected (org-air-view--expected-undo-step buffer)))
                  ('redo
-                  (org-air-view--history-identity-match-p
-                   expected (org-air-view--expected-redo-step buffer)))
+                  (or (org-air-view--history-identity-match-p
+                       expected (org-air-view--expected-redo-step buffer))
+                      ;; Independently undoing a recursively committed hook
+                      ;; creates a redo group ahead of the org-air redo.  Its
+                      ;; exact equivalence chain exposes the expected org-air
+                      ;; tail to `undo-only', which safely skips that hook redo.
+                      (and (eq (gethash record
+                                        org-air-view--cache-sync-history)
+                               'intervening-commit)
+                           (org-air-view--history-identity-match-p
+                            expected
+                            (org-air-view--expected-undo-step buffer)))))
                  (_
                   (or (org-air-view--history-identity-match-p
                        expected (org-air-view--expected-undo-step buffer))
@@ -12513,6 +12610,54 @@ OPERATION, when non-nil, selects the exact undo or redo identity."
                 (org-air-view--undo-head buffer)))
           (push (format "%s history step missing" name) out)))))
     (nreverse out)))
+
+(defun org-air-view--history-operation-function (record operation)
+  "Return the exact Emacs undo function for RECORD's OPERATION.
+Ordinary redo uses `undo-redo'.  After an independently undone recursive hook,
+the bounded expected org-air redo tail is instead exposed through Emacs' undo
+equivalence chain; `undo-only' skips the hook redo and applies that exact tail."
+  (if (eq operation 'undo)
+      #'undo-only
+    (let ((expected (plist-get record :expected-undo))
+          (buffer (plist-get record :buffer)))
+      (if (and expected
+               (eq (gethash record org-air-view--cache-sync-history)
+                   'intervening-commit)
+               (not (org-air-view--history-identity-match-p
+                     expected (org-air-view--expected-redo-step buffer)))
+               (org-air-view--history-identity-match-p
+                expected (org-air-view--expected-undo-step buffer)))
+          #'undo-only
+        #'undo-redo))))
+
+(defun org-air-view--history-apply-operation (record operation)
+  "Apply RECORD OPERATION through its exact undo primitive.
+A resolved recursive-hook redo starts a fresh `undo-only' sequence.  Its
+expected raw tail is temporarily made the end of the redo-equivalence skip:
+this skips only the independently undone hook group, applies the exact org-air
+tail, and then restores Emacs' older mapping unconditionally."
+  (let ((function (org-air-view--history-operation-function record operation)))
+    (if (and (eq operation 'redo) (eq function #'undo-only))
+        (let* ((expected
+                (org-air-view--history-identity-resolve
+                 (plist-get record :expected-undo)))
+               (missing (list 'missing))
+               (mapping (and (consp expected)
+                             (gethash expected undo-equiv-table missing))))
+          (unless (consp expected)
+            (user-error "Expected recursive-hook history step is unavailable"))
+          (unwind-protect
+              (progn
+                ;; `undo-only' normally follows the desired org-air redo tail's
+                ;; own equivalence too and skips it.  Stop exactly at the
+                ;; bounded token's raw tail for this one operation.
+                (remhash expected undo-equiv-table)
+                (let ((last-command nil))
+                  (funcall function)))
+            (if (eq mapping missing)
+                (remhash expected undo-equiv-table)
+              (puthash expected mapping undo-equiv-table))))
+      (funcall function))))
 
 (defun org-air-view--buffer-attempt-snapshot (buffer)
   "Capture BUFFER state needed to recover one ephemeral history attempt.
@@ -12708,7 +12853,7 @@ cut must never be made automatically undoable through an older record."
                 (with-current-buffer buffer
                   (org-with-wide-buffer
                    (undo-boundary)
-                   (if (eq operation 'undo) (undo-only) (undo-redo))))
+                   (org-air-view--history-apply-operation record operation)))
               ((error quit) (setq operation-error err)))
             (unless operation-error
               (org-air-view--relocation-arm-save-hooks relocations)
@@ -12878,7 +13023,8 @@ after disk commit is finalized as success and only emits a bounded warning."
                       (with-current-buffer buffer
                         (org-with-wide-buffer
                          (undo-boundary)
-                         (if (eq operation 'undo) (undo-only) (undo-redo))))
+                         (org-air-view--history-apply-operation
+                          part operation)))
                     ((error quit) (setq operation-error err)))
                   (unless operation-error
                     (org-air-view--relocation-arm-save-hooks relocations)

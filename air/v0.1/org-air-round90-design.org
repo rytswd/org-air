@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: work-in-progress
+#+state: blocked
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -2258,6 +2258,118 @@ no query or refile-engine behavior changes.
   tests are green interpreted AND freshly byte-compiled.  No source seam was
   found: FIX-11 is correct, and the audit result is PASS.
 
+- 2026-07-28: TEST/AUDIT retest 12 — REVIEW-5 BLOCKED.  Distinguished review 5
+  (=REPORT-r90e.md=) reproduced a release blocker in the compound history
+  committed-buffer restamp sweep: silent destruction of unsaved user text plus
+  a false "Undid" claim.  This retest adds the permanent coverage that was
+  missing and leaves the candidate's implementation untouched: tests and this
+  history only, =tests/org-air-round90-test.el= the single changed file besides
+  this document.  All eleven production modules are byte-identical to
+  =qsnxrlstnkyp= (=org-air-view.el= SHA-256
+  =297b44210f55a2b1a45591313e9185569629d3092e2c4fa33993242b9812a012=); README,
+  fixtures, goldens and the known-failures manifest are untouched; no
+  repository probe file exists and =.deps= is retained.  Claimed gate
+  reproduced before any change: 1176 tests / 0 unexpected / 8 GUI skips /
+  manifest length 0 / lint 0 / R90 74/74.
+
+  THE ROOT (reproduced interpreted AND byte-compiled).
+  =org-air-view--bulk-history-operation= restamps ALREADY-COMMITTED buffers
+  with a COMMAND-END tick.  =hooked-buffers= (=org-air-view.el:13235=,
+  populated only at =13326-13337=) records each part's OWN commit-time
+  mismatch, but the three sweeps (=13398=, =13427=, =13440=) call
+  =org-air-view--edit-ring-restamp=, which samples
+  =buffer-chars-modified-tick= at SWEEP time (=11120-11146=).  So when a LATER
+  part's committed =after-save-hook= edits an EARLIER, already-committed part's
+  buffer, that unsaved user-visible change falls into the gap between the two
+  and is absorbed into the new stamp — blessed as if org-air had produced it.
+  Observed on this candidate: =stamped=28 buffer-tick=28 safe-p=t= while the
+  honest commit tick was =23=; the next =u= then runs =undo-only= on the USER's
+  group, saves it away, and echoes =Undid: done "C2"= although =C2= is still
+  =DONE= on disk and the note is gone from both buffer and file.  The same late
+  stamp lands on the =failed= branch (=commit-tick=23 now=27 stamped=27=).
+  This violates R75 Decision 5: a ring op may never bless a NON-ring change.
+
+  NEW PERMANENT COVERAGE (three tests, one shared three-file board; every
+  scenario is driven through the real product — marked items, =b=, =u=, =U= —
+  with real buffer-local =after-save-hook= edits and intermediate state
+  asserted, not just the end state).
+
+  =r90-69-committed-restamp-records-only-its-own-commit= — RED (intended).
+  The full matrix: both directions (=undo=, =redo=) x all three sweep branches
+  (complete success, =failed=, =generation-invalidated=), six combinations.  In
+  each, the SECOND processed part's own committed hook inserts one isolated
+  unsaved user group into the FIRST processed part's already-written buffer
+  (=failed= additionally blocks the third file with the user's own edit;
+  =generation-invalidated= fails the second file's mandatory cache slot).  Per
+  combination it first asserts the scenario really happened — hook ran exactly
+  once, victim modified with the note live and NOT on disk, its live text
+  exactly =disk + note=, the honest branch echo (=3 files= / =2/3 files … failed
+  X= / =2/3 files … cache generation rebuilt=), disk tags, board cache tags and
+  "no buffer unmodified yet divergent" all consistent with what really moved,
+  marks cleared, no pending landing — and THEN the law: while a foreign unsaved
+  change sits ahead in a committed buffer, NO ring entry naming it may be
+  =org-air-view--history-expected-safe-p= in either direction, and no
+  tick-guarded entry may carry the post-hook tick.  On the complete-success
+  branch it also pins the counterfactual that the honest value was available
+  all along: the compound's OWN part for the very same buffer, restamped from
+  the save result at commit time, carries exactly the post-commit tick.
+  Current result: RED in all six combinations (first reported:
+  =undo/complete=, =done "C2"= stamped 28, commit 23, post-hook 28, safe-p t).
+
+  =r90-70-blessed-buffer-keeps-its-unsaved-user-text= — RED (intended).  The
+  user-visible half, same matrix.  After the compound operation it keeps
+  pressing the ring the user would press next (stopping as soon as a record is
+  honestly refused and stays at the head) and asserts at EVERY step: the user's
+  unsaved text is still live; a refusal moved zero bytes in buffer AND file;
+  and a claimed step on the victim's own ordinary record really took that step
+  in that buffer.  Current result: RED — =undo/complete= step 0 pops
+  =done "C2"=, echoes =Undid: done "C2" (2 more)=, and the user's note is gone
+  while =C2= never left =DONE=.  (=undo/invalidated= reproduces the same harm
+  one step later; the four remaining combinations refuse honestly today, so the
+  blessing there is latent rather than immediately destructive.)
+
+  =r90-71-complete-compound-never-restamps-a-dirtied-buffer= — GREEN on the
+  candidate, and the M10 fence.  A part's OWN committed hook leaves unsaved
+  text in its OWN buffer on a COMPLETE-SUCCESS compound; that buffer holds two
+  ordinary records, so only the newest can be exact-armed and the older one is
+  exactly what a too-wide sweep would bless.  It asserts the newest record is
+  armed with a bounded opaque token, the older one keeps precisely the stamp it
+  had (never the post-hook tick) and is not safe, =a.org=/=b.org= are still
+  restamped normally (the sweep keeps doing its ordinary job), and the next =u=
+  is refused with "ahead of the expected org-air step", moving zero bytes and
+  leaving the record at the ring head.
+
+  M10 GAP PROOF, independently reproduced.  Mutation M10 (delete the
+  =hooked-buffers= exclusion on the complete-success sweep,
+  =org-air-view.el:13440=) applied to a pristine =/tmp= copy: the 74
+  pre-existing R90 tests are 74/74 GREEN — the reviewer's coverage-gap claim
+  holds — while the new =r90-71= goes RED (=done "C3"= stamped 35 instead of
+  its honest 13) and =r90-69=/=r90-70= stay RED.  M10 is therefore RED against
+  the new tests, and =r90-71= is the fence that keeps it red after the blocker
+  is fixed.
+
+  ROOT-SCOPING COUNTERFACTUAL (verified, NOT committed).  In a separate =/tmp=
+  copy the reviewer's minimal fix direction was applied — remember each part's
+  authoritative =(plist-get save-result :expected-tick)= at commit, and
+  immediately before the sweeps re-verify every committed buffer's current
+  tick, treating a mismatch exactly like a =hooked-buffers= member (skip the
+  restamp, arm the one exact next identity via
+  =org-air-view--history-arm-next=).  With that change and NOTHING else, R90 is
+  77/77 and the whole suite is 1179 tests / 0 unexpected / 8 GUI skips.  The
+  new REDs are therefore caused by this root alone — not by teardown, timing or
+  an over-constrained assertion — and they are satisfiable by an honest fix.
+
+  Gate after =make clean= with every stale =.elc= deleted: all 11 modules
+  compile with only the pre-existing =org-air-project.el= wide-docstring
+  warning; lint 0 findings; =make check= 1179 tests / 1169 expected /
+  2 unexpected / 8 GUI skips (1176 + the three new permanent tests, with
+  exactly =r90-69= and =r90-70= unexpected); loaded known-failures active
+  length 0 — the two REDs are deliberately NOT manifested, because they mark a
+  real release blocker; =make regen-mockups= a byte no-op.  All three tests
+  behave identically interpreted and freshly byte-compiled.  Result: BLOCKED —
+  the candidate cannot ship until the command-end restamp stops blessing later
+  hook edits to already-committed buffers.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -2277,3 +2389,13 @@ no query or refile-engine behavior changes.
   permanently covered by =r90-67= (incomplete-compound restamp law) and
   =r90-68= (canonical, file-less-safe undo guard); gate 1176 tests /
   0 unexpected / 8 GUI skips.
+- 2026-07-28: State: work-in-progress → blocked (distinguished review 5
+  reproduced a release blocker: the command-end committed-buffer restamp sweep
+  blesses a LATER part's committed save-hook edit to an EARLIER, already-
+  committed buffer, so the next =u= destroys unsaved user text and claims a
+  step it did not take).  Permanent coverage added: =r90-69= (restamp records
+  only its own commit state — directions x all three sweep branches) and
+  =r90-70= (no unsaved user text is lost, no false claim) are RED; =r90-71=
+  (complete-success =hooked-buffers= exclusion) is GREEN and makes mutation
+  M10 RED, which all 74 previous R90 tests survived.  Gate 1179 tests /
+  2 unexpected / 8 GUI skips / manifest 0 / lint 0.

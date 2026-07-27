@@ -6063,5 +6063,438 @@ manufacture modified state and a spurious dirty-buffer prompt."
           (when (eq shape 'unreadable)
             (set-file-modes file #o600)))))))
 
+;;;; r90-69/70/71 — review-5 permanent root: a committed-buffer restamp may
+;;;; only ever record that buffer's OWN authoritative post-commit state.
+
+(defconst org-air-r90--bless-board
+  '(("a.org" . "#+title: a\n\n* TODO A1\n* TODO A2\n* TODO A3\n")
+    ("b.org" . "#+title: b\n\n* TODO B1\n* TODO B2\n* TODO B3\n")
+    ("c.org" . "#+title: c\n\n* TODO C1\n* TODO C2\n* TODO C3\n")
+    ("inbox.org" . "#+title: inbox\n"))
+  "Three three-heading sources plus an inbox for the restamp blessing law.")
+
+(defconst org-air-r90--bless-note "# UNRELATED UNSAVED USER NOTE\n"
+  "Unsaved user text a committed save hook leaves in an ALREADY WRITTEN file.")
+
+(defconst org-air-r90--bless-claim-re "\\`\\(Undid\\|Redid\\): "
+  "Echo shape of a ring step org-air claims it completed.")
+
+(defconst org-air-r90--bless-refusal-re "\\`Cannot \\(undo\\|redo\\): "
+  "Echo shape of an honest ring refusal that moves zero bytes.")
+
+(defun org-air-r90--bless-note-live-p (buffer)
+  "Return non-nil when the user's unsaved note is live in BUFFER."
+  (and (string-match-p (regexp-quote org-air-r90--bless-note)
+                       (org-air-r90--full-live-text buffer))
+       t))
+
+(defun org-air-r90--bless-note-disk-p (name)
+  "Return non-nil when the user's note reached corpus file NAME on disk."
+  (and (string-match-p (regexp-quote org-air-r90--bless-note)
+                       (org-air-r90--text name))
+       t))
+
+(defun org-air-r90--bless-ring-entries (buffer)
+  "Return every ring entry naming BUFFER, exact-armed ones included.
+Unlike `org-air-r90--tick-guarded-records' this keeps `:expected-undo'
+entries: while a foreign unsaved change sits ahead in a committed buffer, NO
+record for it may be safe, however it is guarded."
+  (let (out)
+    (dolist (rec (append org-air-view--edit-ring org-air-view--edit-redo-ring))
+      (if (eq (plist-get rec :kind) 'bulk)
+          (dolist (part (plist-get rec :parts))
+            (when (eq (plist-get part :buffer) buffer) (push part out)))
+        (when (eq (plist-get rec :buffer) buffer) (push rec out))))
+    (nreverse out)))
+
+(defun org-air-r90--find-record-by-desc (desc)
+  "Return the single ring record described exactly by DESC."
+  (let ((found (seq-find (lambda (record)
+                           (equal desc (plist-get record :desc)))
+                         (append org-air-view--edit-ring
+                                 org-air-view--edit-redo-ring))))
+    (should found)
+    found))
+
+(defun org-air-r90--bless-names (direction)
+  "Return (VICTIM HOST THIRD) corpus names in compound DIRECTION order.
+Compound undo processes files in reverse commit order and redo in commit
+order.  VICTIM is the FIRST processed file — already written and committed by
+the time HOST, the second, runs its own `after-save-hook'."
+  (if (eq direction 'undo)
+      '("c.org" "b.org" "a.org")
+    '("a.org" "b.org" "c.org")))
+
+(defun org-air-r90--bless-title (name suffix)
+  "Return corpus NAME's heading title numbered SUFFIX."
+  (format "%s%d" (upcase (substring name 0 1)) suffix))
+
+(defun org-air-r90--bless-setup (direction)
+  "Arm one three-file compound record plus one ordinary record per source.
+Leaves the compound at the head of the ring DIRECTION pops from.  Return it."
+  (org-air-r90--expand-section 'attention)
+  (dolist (title '("A2" "B2" "C2"))
+    (org-air-r90--goto-row title)
+    (org-air-item-done))
+  (dolist (title '("A1" "B1" "C1")) (org-air-r90--mark-title title))
+  (org-air-item-backlog)
+  ;; A redo case needs the record on the redo ring first: one COMPLETE undo,
+  ;; which legitimately restamps all three buffers.
+  (when (eq direction 'redo) (org-air-edit-undo))
+  (let ((record (car (if (eq direction 'undo)
+                         org-air-view--edit-ring
+                       org-air-view--edit-redo-ring))))
+    (should (eq 'bulk (plist-get record :kind)))
+    (should (equal '("a.org" "b.org" "c.org")
+                   (mapcar (lambda (part)
+                             (file-name-nondirectory (plist-get part :file)))
+                           (plist-get record :parts))))
+    record))
+
+(defun org-air-r90--bless-echo-re (direction shape)
+  "Return the exact final echo the compound DIRECTION of SHAPE must produce."
+  (pcase shape
+    ('complete (format "\\`%s: backlog 3 marked items (3 files)\\'"
+                       (if (eq direction 'undo) "Undid" "Redid")))
+    ('failed (format "\\`%s incomplete: 2/3 files %s; failed %s\\'"
+                     (if (eq direction 'undo) "Undo" "Redo")
+                     (if (eq direction 'undo) "reverted" "reapplied")
+                     (if (eq direction 'undo) "a\\.org" "c\\.org")))
+    ('invalidated (format "\\`%s incomplete: 2/3 files %s; cache generation"
+                          (if (eq direction 'undo) "Undo" "Redo")
+                          (if (eq direction 'undo) "reverted" "reapplied")))))
+
+(defun org-air-r90--bless-run (direction shape)
+  "Run one compound DIRECTION of SHAPE under a FOREIGN committed hook edit.
+The hook is a real buffer-local `after-save-hook' on the SECOND processed
+source.  It runs strictly after that file's own irreversible write and
+inserts one isolated unsaved user undo group into the FIRST processed
+source — a buffer this very command already wrote and committed.  SHAPE
+`failed' additionally blocks the third file with the user's own unsaved edit;
+SHAPE `invalidated' makes the second file's mandatory cache slot fail so
+final disk truth replaces the generation.  Return the audited facts."
+  (let* ((names (org-air-r90--bless-names direction))
+         (victim-name (nth 0 names))
+         (host-name (nth 1 names))
+         (third-name (nth 2 names))
+         (record (org-air-r90--bless-setup direction))
+         (victim (find-file-noselect (org-air-r90--file victim-name)))
+         (host (find-file-noselect (org-air-r90--file host-name)))
+         (third (find-file-noselect (org-air-r90--file third-name)))
+         (write-orig (symbol-function 'org-air-view--cache-sync-write-slots))
+         (invalidate-title (org-air-r90--bless-title host-name 1))
+         (ran 0)
+         (commit-tick nil)
+         (hook (lambda ()
+                 (cl-incf ran)
+                 (when (= ran 1)
+                   (with-current-buffer victim
+                     ;; The victim's AUTHORITATIVE post-commit tick: exactly
+                     ;; what org-air itself left behind in that buffer.
+                     (setq commit-tick (buffer-chars-modified-tick))
+                     (undo-boundary)
+                     (save-excursion
+                       (goto-char (point-max))
+                       (insert org-air-r90--bless-note)))
+                   (when (eq shape 'failed)
+                     (with-current-buffer third
+                       (undo-boundary)
+                       (save-excursion
+                         (goto-char (point-max))
+                         (insert "# blocking unsaved user edit\n")))))))
+         messages)
+    (with-current-buffer host (add-hook 'after-save-hook hook nil t))
+    (org-air-r90--record-messages collected
+      (unwind-protect
+          (cl-letf (((symbol-function 'org-air-view--cache-sync-write-slots)
+                     (lambda (item file position tags)
+                       (if (and (eq shape 'invalidated)
+                                (equal invalidate-title
+                                       (org-air-item-title item)))
+                           (error "mandatory %s slot failure" invalidate-title)
+                         (funcall write-orig item file position tags))))
+                    ((symbol-function 'display-warning) (lambda (&rest _) nil)))
+            (if (eq direction 'undo) (org-air-edit-undo) (org-air-edit-redo)))
+        (with-current-buffer host (remove-hook 'after-save-hook hook t)))
+      (setq messages (nreverse collected)))
+    (list :direction direction :shape shape :record record
+          :victim victim :victim-name victim-name
+          :host host :host-name host-name
+          :third third :third-name third-name
+          ;; The committed set: the victim and the host always commit; the
+          ;; third file only survives the complete-success shape.
+          :committed (if (eq shape 'complete) names (seq-take names 2))
+          :ran ran :commit-tick commit-tick :messages messages)))
+
+(defun org-air-r90--bless-assert-scenario (facts)
+  "Assert FACTS describe the exact intended foreign-hook scenario.
+Every statement here is about what really happened, so a later law failure
+can only be the restamp itself."
+  (let* ((direction (plist-get facts :direction))
+         (shape (plist-get facts :shape))
+         (victim (plist-get facts :victim))
+         (victim-name (plist-get facts :victim-name))
+         (committed (plist-get facts :committed))
+         (commit-tick (plist-get facts :commit-tick)))
+    ;; 1. The hook ran exactly once, on an already-committed buffer, and left
+    ;;    live-only user text there.
+    (should (= 1 (plist-get facts :ran)))
+    (should (integerp commit-tick))
+    (should (> (buffer-chars-modified-tick victim) commit-tick))
+    (should (buffer-modified-p victim))
+    (should (org-air-r90--bless-note-live-p victim))
+    (should-not (org-air-r90--bless-note-disk-p victim-name))
+    ;; The victim's live buffer is EXACTLY org-air's committed disk truth plus
+    ;; the user's own unsaved note.
+    (should (equal (org-air-r90--full-live-text victim)
+                   (concat (org-air-r90--text victim-name)
+                           org-air-r90--bless-note)))
+    ;; 2. The command's own echo is the honest one for its branch.
+    (should (= 1 (org-air-r90--count-messages
+                  (plist-get facts :messages)
+                  (org-air-r90--bless-echo-re direction shape))))
+    ;; 3. Disk, cache and marks agree with what really moved.
+    (dolist (name '("a.org" "b.org" "c.org"))
+      (let* ((title (org-air-r90--bless-title name 1))
+             (moved (and (member name committed) t))
+             (tagged (if (eq direction 'undo) (not moved) moved))
+             (item (org-air-test-find-item title org-air-view--items))
+             (buffer (find-file-noselect (org-air-r90--file name))))
+        (ert-info ((format "%s moved=%S tagged=%S" name moved tagged))
+          (should (eq (and (org-air-r90--disk-has-tag-p name title "backlog") t)
+                      tagged))
+          (should item)
+          (should (eq (and (member "backlog" (org-air-r90--sorted-tags item)) t)
+                      tagged))
+          ;; No source buffer is ever left simultaneously unmodified and
+          ;; divergent from its own file.
+          (unless (buffer-modified-p buffer)
+            (should (equal (org-air-r90--full-live-text buffer)
+                           (org-air-r90--text name)))))))
+    (should-not org-air-view--marked-keys)
+    (should-not org-air-view--pending-mutation-landing)))
+
+(ert-deftest org-air-r90-69-committed-restamp-records-only-its-own-commit ()
+  "A restamp may only ever record a buffer's OWN authoritative commit state.
+R75 Decision 5 gives the chars-tick guard its whole meaning: after a ring op
+writes a buffer, that buffer's other ring records are restamped so the guard
+keeps saying \"no NON-ring change intervened\".  The op may therefore only
+ever stamp the state IT produced.  A compound `u'/`U' commits its files one
+by one but sweeps the committed buffers ONCE, at command end, so a LATER
+part's own committed `after-save-hook' can move an EARLIER, already-written
+part's buffer in between.  That movement is a NON-ring change by a third
+party; absorbing it into the new stamp blesses it, and the guard then says
+\"nothing intervened\" about the user's own unsaved text.  Every branch that
+sweeps must obey this: complete success, a blocked later part, and a cache
+generation rebuild, in both directions."
+  (skip-unless (locate-library "org-air"))
+  (dolist (direction '(undo redo))
+    (dolist (shape '(complete failed invalidated))
+      (let ((pending-undo-list nil)
+            (undo-equiv-table (make-hash-table :test #'eq))
+            (last-command nil)
+            (this-command nil))
+        (org-air-r90--with-board org-air-r90--bless-board
+          (let* ((facts (org-air-r90--bless-run direction shape))
+                 (victim (plist-get facts :victim))
+                 (commit-tick (plist-get facts :commit-tick))
+                 (post-tick (buffer-chars-modified-tick victim))
+                 (entries (org-air-r90--bless-ring-entries victim)))
+            (ert-info ((format "%S/%S messages=%S" direction shape
+                               (plist-get facts :messages)))
+              (org-air-r90--bless-assert-scenario facts)
+              ;; THE LAW.  A foreign unsaved change sits ahead in the victim,
+              ;; so NO record naming it may pass the guard in either
+              ;; direction, and no TICK-guarded record may carry the
+              ;; post-hook tick the sweep happens to read at command end —
+              ;; only a tick org-air itself produced in that buffer.
+              (should entries)
+              (dolist (entry entries)
+                (ert-info ((format "entry %S in %s stamped=%S commit=%S post=%S"
+                                   (plist-get entry :desc)
+                                   (file-name-nondirectory
+                                    (or (plist-get entry :file) "?"))
+                                   (plist-get entry :tick)
+                                   commit-tick post-tick))
+                  (should-not (org-air-view--history-expected-safe-p
+                               entry 'undo))
+                  (should-not (org-air-view--history-expected-safe-p
+                               entry 'redo))
+                  (unless (plist-member entry :expected-undo)
+                    (should-not (eql (plist-get entry :tick) post-tick)))))
+              ;; The honest value was available to the sweep all along: on the
+              ;; complete-success branch the compound's OWN part for the very
+              ;; same buffer — restamped at commit time from the save result —
+              ;; carries exactly the post-commit tick.
+              (when (eq shape 'complete)
+                (let ((part (seq-find (lambda (candidate)
+                                        (eq (plist-get candidate :buffer)
+                                            victim))
+                                      (plist-get (plist-get facts :record)
+                                                 :parts))))
+                  (should part)
+                  (should (eql (plist-get part :tick) commit-tick)))))))))))
+
+(ert-deftest org-air-r90-70-blessed-buffer-keeps-its-unsaved-user-text ()
+  "A ring walk after a compound op may never eat a foreign unsaved edit.
+This is the user-visible half of the restamp law.  When the command-final
+sweep stamps a later hook's edit onto an already-committed buffer's other
+records, the very next `u' passes a guard that should have refused it: it
+runs `undo-only' on the USER's newest group instead of org-air's, saves that
+away, and still echoes `Undid: …'.  So for every branch and both directions:
+the user's unsaved text survives each following ring press, a refusal moves
+zero bytes, and a claimed step on the victim's own record must really have
+happened in that buffer."
+  (skip-unless (locate-library "org-air"))
+  (dolist (direction '(undo redo))
+    (dolist (shape '(complete failed invalidated))
+      (let ((pending-undo-list nil)
+            (undo-equiv-table (make-hash-table :test #'eq))
+            (last-command nil)
+            (this-command nil))
+        (org-air-r90--with-board org-air-r90--bless-board
+          (let* ((facts (org-air-r90--bless-run direction shape))
+                 (victim (plist-get facts :victim))
+                 (victim-name (plist-get facts :victim-name))
+                 (reverted-title (org-air-r90--bless-title victim-name 2)))
+            (ert-info ((format "%S/%S messages=%S" direction shape
+                               (plist-get facts :messages)))
+              (org-air-r90--bless-assert-scenario facts)
+              ;; Keep pressing the ring the user would press next, stopping as
+              ;; soon as a record is honestly refused and stays at the head.
+              (catch 'org-air-r90--bless-done
+                (dotimes (index 3)
+                  (let* ((ring (if (and (eq direction 'redo)
+                                        org-air-view--edit-redo-ring)
+                                   'org-air-view--edit-redo-ring
+                                 'org-air-view--edit-ring))
+                         (next (car (symbol-value ring)))
+                         (before-live (org-air-r90--full-live-text victim))
+                         (before-disk (org-air-r90--text victim-name)))
+                    (unless next (throw 'org-air-r90--bless-done nil))
+                    (org-air-r90--record-messages walked
+                      (if (eq ring 'org-air-view--edit-ring)
+                          (org-air-edit-undo)
+                        (org-air-edit-redo))
+                      (let* ((steps (nreverse walked))
+                             (after (org-air-r90--full-live-text victim))
+                             (claims (org-air-r90--count-messages
+                                      steps org-air-r90--bless-claim-re))
+                             (refusals (org-air-r90--count-messages
+                                        steps org-air-r90--bless-refusal-re)))
+                        (ert-info ((format "step %d popped %S: %S"
+                                           index (plist-get next :desc) steps))
+                          ;; 1. The user's unsaved text is never destroyed.
+                          (should (org-air-r90--bless-note-live-p victim))
+                          ;; 2. An honest refusal moves zero bytes anywhere.
+                          (when (> refusals 0)
+                            (should (equal before-live after))
+                            (should (equal before-disk
+                                           (org-air-r90--text victim-name))))
+                          ;; 3. A claimed step on the victim's own ordinary
+                          ;;    record must really have taken that step.
+                          (when (and (> claims 0)
+                                     (not (eq (plist-get next :kind) 'bulk))
+                                     (eq (plist-get next :buffer) victim))
+                            (should (string-match-p
+                                     (format "^\\*+ %s %s"
+                                             (if (eq direction 'undo)
+                                                 "TODO" "DONE")
+                                             reverted-title)
+                                     after))))))
+                    ;; A refused record stays at the head: stop rather than
+                    ;; press the same key forever.
+                    (when (eq next (car (symbol-value ring)))
+                      (throw 'org-air-r90--bless-done nil))))))))))))
+
+(ert-deftest org-air-r90-71-complete-compound-never-restamps-a-dirtied-buffer ()
+  "The complete-success sweep must skip a buffer its own hook left ahead.
+When a part's own committed `after-save-hook' leaves unsaved text in the part's
+own buffer, that buffer's commit-time tick already disagrees with reality, so
+the command-final sweep must not restamp it: the one exact next identity is
+armed instead and every other record for that buffer keeps its old stamp, so
+the guard still refuses honestly.  Dropping that exclusion silently blesses
+the user's ahead text on the whole-success path — the one branch where no
+other permanent test looks."
+  (skip-unless (locate-library "org-air"))
+  (let ((pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--bless-board
+      (org-air-r90--expand-section 'attention)
+      ;; Two ordinary records in the SAME source: only the newest can be armed
+      ;; with an exact identity, so the older one is exactly what a too-wide
+      ;; sweep would bless.
+      (dolist (title '("C3" "C2"))
+        (org-air-r90--goto-row title)
+        (org-air-item-done))
+      (dolist (title '("A1" "B1" "C1")) (org-air-r90--mark-title title))
+      (org-air-item-backlog)
+      (let* ((victim (find-file-noselect (org-air-r90--file "c.org")))
+             (newest (org-air-r90--find-record-by-desc "done \"C2\""))
+             (older (org-air-r90--find-record-by-desc "done \"C3\""))
+             (older-tick (plist-get older :tick))
+             (ran 0)
+             (commit-tick nil)
+             (hook (lambda ()
+                     (cl-incf ran)
+                     (when (= ran 1)
+                       (setq commit-tick (buffer-chars-modified-tick))
+                       (undo-boundary)
+                       (save-excursion
+                         (goto-char (point-max))
+                         (insert org-air-r90--bless-note))))))
+        (should (integerp older-tick))
+        (with-current-buffer victim (add-hook 'after-save-hook hook nil t))
+        (org-air-r90--record-messages collected
+          (unwind-protect (org-air-edit-undo)
+            (with-current-buffer victim (remove-hook 'after-save-hook hook t)))
+          (let ((messages (nreverse collected)))
+            (ert-info ((format "complete compound messages: %S" messages))
+              (should (= 1 (org-air-r90--count-messages
+                            messages
+                            (org-air-r90--bless-echo-re 'undo 'complete)))))))
+        (let ((post-tick (buffer-chars-modified-tick victim)))
+          (should (= 1 ran))
+          (should (> post-tick commit-tick))
+          (should (buffer-modified-p victim))
+          (should (org-air-r90--bless-note-live-p victim))
+          (should-not (org-air-r90--bless-note-disk-p "c.org"))
+          ;; The one exact next identity is armed, so it is governed by the
+          ;; opaque token and not by any tick at all.
+          (should (plist-member newest :expected-undo))
+          (org-air-r90--assert-history-token (plist-get newest :expected-undo))
+          ;; THE LAW: every remaining tick-guarded record for that buffer keeps
+          ;; the stamp it had, and none of them absorbs the ahead user edit.
+          (should (equal (list older)
+                         (org-air-r90--tick-guarded-records victim)))
+          (should (eql (plist-get older :tick) older-tick))
+          (should-not (eql (plist-get older :tick) post-tick))
+          (should-not (org-air-view--history-expected-safe-p older 'undo))
+          ;; The sweep still does its ordinary job for every buffer whose own
+          ;; commit was the last word.
+          (dolist (name '("a.org" "b.org"))
+            (let ((buffer (find-file-noselect (org-air-r90--file name))))
+              (should (null (org-air-r90--stale-stamped-records buffer)))
+              (should-not (buffer-modified-p buffer))))
+          ;; Product: the next `u' is refused honestly and moves zero bytes.
+          (let ((before-live (org-air-r90--full-live-text victim))
+                (before-disk (org-air-r90--text "c.org")))
+            (org-air-r90--record-messages walked
+              (org-air-edit-undo)
+              (let ((messages (nreverse walked)))
+                (ert-info ((format "refusal messages: %S" messages))
+                  (should (= 1 (org-air-r90--count-messages
+                                messages org-air-r90--bless-refusal-re)))
+                  (should (= 1 (org-air-r90--count-messages
+                                messages "ahead of the expected org-air step")))
+                  (should (= 0 (org-air-r90--count-messages
+                                messages org-air-r90--bless-claim-re))))))
+            (should (equal before-live (org-air-r90--full-live-text victim)))
+            (should (equal before-disk (org-air-r90--text "c.org")))
+            (should (org-air-r90--bless-note-live-p victim))
+            (should (eq newest (car org-air-view--edit-ring)))))))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

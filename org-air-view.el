@@ -11149,10 +11149,11 @@ that live characters differ from the visited file restores modified state."
   "Install one disk-truth guard before EXPECTED-TAIL's boundary.
 The current undo head must be one isolated recursively committed group ending
 at the exact boundary whose cdr is EXPECTED-TAIL.  A save-state entry must be
-present and no other custom undo handler may precede that boundary.  Cyclic,
-shared, dotted and otherwise malformed group shapes return nil without
-mutation.  Return non-nil only when the bounded function-only guard is exactly
-at the old edge."
+present and no other custom undo handler may precede that boundary.  The whole
+cdr spine through EXPECTED-TAIL must be proper, eq-unique and disjoint from the
+newest group.  Cyclic, shared, dotted and otherwise malformed shapes return nil
+without mutation.  Return non-nil only when the bounded function-only guard is
+exactly at the old edge."
   (when (and (consp expected-tail) (consp buffer-undo-list))
     (let ((tail buffer-undo-list)
           (seen (make-hash-table :test #'eq))
@@ -11186,6 +11187,20 @@ at the old edge."
                  (not (gethash expected-tail seen))
                  (eq (cdr tail) expected-tail))
         (setq boundary tail))
+      ;; The old tail is untrusted too.  Validate its complete cdr spine before
+      ;; installing anything: it must be proper, acyclic, and disjoint from
+      ;; every node in the newest group (including its boundary).  Undo entries
+      ;; may themselves be cons data, so deliberately inspect no car payload.
+      (when boundary
+        (puthash boundary t seen)
+        (let ((older expected-tail))
+          (while (and (consp older) (not ambiguous))
+            (if (gethash older seen)
+                (setq ambiguous t)
+              (puthash older t seen)
+              (setq older (cdr older))))
+          (unless (null older)
+            (setq ambiguous t))))
       (cond
        ((or ambiguous (null boundary) (null previous) (null save-state)
             custom-handler)

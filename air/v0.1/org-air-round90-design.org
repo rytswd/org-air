@@ -1508,6 +1508,43 @@ no query or refile-engine behavior changes.
   remains and =.deps= is retained.  State remains work-in-progress pending a
   source correction and independent closeout.
 
+- 2026-07-27: REVIEW FIX 9 closed the cyclic expected-tail totality blocker
+  with a minimal installer-only source change.  Before any =setcdr=, guard
+  installation now continues the same eq seen-node audit from the isolated
+  newest group through the *entire* cdr spine reachable from the exact
+  =EXPECTED-TAIL=.  It first includes the nil boundary as a newest-group node;
+  the older spine must then terminate at nil, visit every cons node exactly
+  once, and remain disjoint from every newest-group node.  Atomic/dotted tails,
+  self- or multi-node cycles, and shared/back-edge structures reject with nil
+  and leave the old edge unchanged.  The walk follows cdrs only—ordinary cons
+  undo-entry payloads remain opaque—uses no numeric depth cap, does not copy or
+  rewrite the exact tail, and is O(total inspected spine).  Its local eq table
+  retains nothing; the existing inserted record remains only the bounded
+  function symbol.  This one-time recursive-save path adds no work to normal
+  save, render, repaint, filter, cached UI, or native 1k/5k paths, and preserves
+  exact old-edge placement, duplicate-own-guard confirmation, foreign handler
+  rejection, and sticky repeated-group unavailability.
+
+  Permanent =r90-57= is GREEN 1/1: both the newest-group self-cycle and cyclic
+  expected-tail children terminate within their two-second bound, and the new
+  child prints =(nil t)= (reject plus unchanged old edge).  An independent
+  source-loaded audit accepted a 50,000-node proper older spine and a cyclic
+  cons payload, rejected atomic, dotted, multi-node cyclic and newest-group
+  back-edge tails without mutation, and reconfirmed an exact-edge duplicate
+  own guard without copying it.  Mutation evidence is direct: temporarily
+  removing only the older-tail validation made unchanged r90-57 RED 1/1 with
+  child output =(t nil)=; restoring the source returned it GREEN.
+
+  Unchanged =r90-49= plus =r90-54..61= are GREEN 9/9 (the required
+  =r90-54..61= set is 8/8), and complete R90 is 67/67, including durability,
+  order, repeated-group, registry/source-free, cached-UI and native 1k/5k
+  coverage.  Final =make clean && make check=: all 11 modules compile (only
+  the pre-existing project wide-docstring warning), lint 0, 1169 tests / 1161
+  expected / 0 unexpected / 8 GUI skips.  The known-failures manifest loads
+  with active length 0 and =make regen-mockups= is byte-no-op.  Tests, README,
+  known-failures, fixtures and goldens are byte-pristine against
+  =rsmoprwnuwrn=; no probe file exists and =.deps= remains retained.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

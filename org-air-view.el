@@ -11149,35 +11149,50 @@ that live characters differ from the visited file restores modified state."
   "Install one disk-truth guard before EXPECTED-TAIL's boundary.
 The current undo head must be one isolated recursively committed group ending
 at the exact boundary whose cdr is EXPECTED-TAIL.  A save-state entry must be
-present and no other custom undo handler may precede that boundary.  Return
-non-nil only when the bounded function-only guard is exactly at the old edge."
+present and no other custom undo handler may precede that boundary.  Cyclic,
+shared, dotted and otherwise malformed group shapes return nil without
+mutation.  Return non-nil only when the bounded function-only guard is exactly
+at the old edge."
   (when (and (consp expected-tail) (consp buffer-undo-list))
     (let ((tail buffer-undo-list)
+          (seen (make-hash-table :test #'eq))
           previous boundary guard-node
-          save-state custom-handler)
-      ;; Inspect only the newest group.  Crossing any earlier boundary would
-      ;; guess which recursively committed step belongs to this save attempt.
-      (while (and (consp tail) (car tail))
-        (let ((entry (car tail)))
-          (cond
-           ((and (consp entry) (eq (car entry) t))
-            (setq save-state t))
-           ((and (consp entry) (eq (car entry) 'apply))
-            (if (eq (cadr entry) #'org-air-view--undo-disk-truth-guard)
-                (setq guard-node tail)
-              (setq custom-handler t)))))
-        (setq previous tail
-              tail (cdr tail)))
-      (when (and (consp tail) (null (car tail))
+          save-state custom-handler ambiguous)
+      ;; Inspect only the newest group.  Eq membership makes this traversal
+      ;; total for arbitrarily deep valid groups without imposing a size cap.
+      (while (and (consp tail) (car tail) (not ambiguous))
+        (if (gethash tail seen)
+            (setq ambiguous t)
+          (puthash tail t seen)
+          (let ((entry (car tail)))
+            (cond
+             ((and (consp entry) (eq (car entry) t))
+              (setq save-state t))
+             ((and (consp entry) (eq (car entry) 'apply))
+              (let ((arguments (cdr entry)))
+                (if (and (consp arguments)
+                         (eq (car arguments)
+                             #'org-air-view--undo-disk-truth-guard)
+                         (null (cdr arguments)))
+                    (if guard-node
+                        (setq ambiguous t)
+                      (setq guard-node tail))
+                  (setq custom-handler t))))))
+          (setq previous tail
+                tail (cdr tail))))
+      (when (and (not ambiguous)
+                 (consp tail) (null (car tail))
+                 (not (eq tail expected-tail))
+                 (not (gethash expected-tail seen))
                  (eq (cdr tail) expected-tail))
         (setq boundary tail))
       (cond
-       ((or (null boundary) (null previous) (null save-state)
+       ((or ambiguous (null boundary) (null previous) (null save-state)
             custom-handler)
         nil)
        (guard-node
-        ;; Repeated/nested saves may observe the group again.  Accept only the
-        ;; one guard already occupying the exact old edge; never duplicate it.
+        ;; Repeated observation of the SAME isolated group confirms only the
+        ;; one guard already occupying its exact old edge.
         (and (eq guard-node previous) (eq (cdr guard-node) boundary)))
        (t
         (condition-case nil
@@ -11188,7 +11203,7 @@ non-nil only when the bounded function-only guard is exactly at the old edge."
               (setcdr previous node)
               (and (eq (cdr previous) node)
                    (eq (cdr node) boundary)))
-          (error nil)))))))
+          ((error quit) nil)))))))
 
 (defun org-air-view--save-attempt (&optional prepare)
   "Save current buffer and return an explicit irreversible-boundary result.
@@ -11206,6 +11221,8 @@ failures.  Sentinels are buffer-local and removed unconditionally."
          (recursive-commit nil)
          (recursive-before-boundary nil)
          (recursive-guard-state nil)
+         (recursive-guard-head nil)
+         (recursive-guard-tick nil)
          (expected-undo nil)
          (expected-redo nil)
          (expected-tick nil)
@@ -11248,12 +11265,33 @@ failures.  Sentinels are buffer-local and removed unconditionally."
                           recursive-before-boundary
                           (or recursive-before-boundary
                               (not after-save-began)))
-                    (unless recursive-guard-state
-                      (setq recursive-guard-state
-                            (if (org-air-view--undo-disk-truth-guard-install
-                                 expected-undo)
-                                'installed
-                              'unavailable))))
+                    ;; Revalidate every recursive save observation.  A repeat
+                    ;; of the same isolated group confirms its one old-edge
+                    ;; guard; any distinct/ambiguous later group makes identity
+                    ;; permanently unavailable for this attempt.
+                    (unless (eq recursive-guard-state 'unavailable)
+                      (if (and
+                           ;; A repeated sentinel may confirm the exact same
+                           ;; group head.  New text/save-state entries mean a
+                           ;; distinct recursive save even when they happen to
+                           ;; share the old terminating boundary.
+                           (or (null recursive-guard-state)
+                               (and (eq recursive-guard-head buffer-undo-list)
+                                    (eql recursive-guard-tick
+                                         (buffer-chars-modified-tick))))
+                           (condition-case nil
+                               (org-air-view--undo-disk-truth-guard-install
+                                expected-undo)
+                             ((error quit) nil)))
+                          (setq recursive-guard-state 'installed
+                                recursive-guard-head buffer-undo-list
+                                recursive-guard-tick
+                                (buffer-chars-modified-tick))
+                        (setq recursive-guard-state 'unavailable
+                              recursive-guard-head nil
+                              recursive-guard-tick nil
+                              expected-undo nil
+                              expected-redo nil))))
                 ;; Close the org-air edit group before ordinary after-save
                 ;; hooks mutate bytes, then capture its exact outer identity.
                 (undo-boundary)
@@ -12530,6 +12568,54 @@ against the displayed board; `org-cut-subtree' is prompt-free."
       (org-air-refresh)
       (message "Deleted \"%s\"" (org-air-item-title item)))))
 
+(defun org-air-view--history-expected-durable-p (record)
+  "Return non-nil when expected-history RECORD is safe to write now.
+This command-time predicate is intentionally separate from identity/status
+polling: it reads the visited file only for an inverse operation governed by
+`:expected-undo'.  Live source bytes must already be an unmodified, current-
+modtime, readable and byte-exact image of the recorded visited file.  Any nil,
+error or quit is conservative failure."
+  (and (plist-member record :expected-undo)
+       (let ((buffer (plist-get record :buffer))
+             (recorded-file (plist-get record :file)))
+         (and (buffer-live-p buffer)
+              (with-current-buffer buffer
+                (condition-case nil
+                    (let ((file buffer-file-name))
+                      (and (stringp file) (> (length file) 0)
+                           (stringp recorded-file)
+                           (equal (expand-file-name file)
+                                  (expand-file-name recorded-file))
+                           (file-exists-p file)
+                           (file-readable-p file)
+                           (not (buffer-modified-p))
+                           (verify-visited-file-modtime (current-buffer))
+                           (let ((live (buffer-substring-no-properties
+                                        (point-min) (point-max))))
+                             (with-temp-buffer
+                               (let ((read-result
+                                      (insert-file-contents file)))
+                                 (and (consp read-result)
+                                      (equal live
+                                             (buffer-substring-no-properties
+                                              (point-min) (point-max)))))))))
+                  ((error quit) nil)))))))
+
+(defun org-air-view--history-durability-blocker (record)
+  "Return a source-free command blocker when expected RECORD is not durable."
+  (when (and (plist-member record :expected-undo)
+             (not (org-air-view--history-expected-durable-p record)))
+    (let* ((buffer (plist-get record :buffer))
+           (name (file-name-nondirectory
+                  (or (plist-get record :file) "source"))))
+      (cond
+       ((not (buffer-live-p buffer)) (format "%s gone" name))
+       ((buffer-modified-p buffer)
+        (format "unsaved edit in %s is not durably saved" name))
+       (t
+        (format "%s visited file is unavailable, stale, or differs from live source"
+                name))))))
+
 (defun org-air-view--history-expected-safe-p (record &optional operation)
   "Return non-nil when RECORD's exact OPERATION identity is safe.
 New pass-2 records use bounded opaque tokens.  For undo, exact comparison
@@ -12610,6 +12696,30 @@ OPERATION, when non-nil, selects the exact undo or redo identity."
                 (org-air-view--undo-head buffer)))
           (push (format "%s history step missing" name) out)))))
     (nreverse out)))
+
+(defun org-air-view--bulk-history-command-blockers (parts operation)
+  "Return all command-time blockers for PARTS and OPERATION.
+Identity/tick checks run for every part first.  Only when those pass does the
+expected-history durability predicate read each governed source file, still
+before any undo primitive, relocation marker, save, or ring mutation."
+  (or (org-air-view--bulk-history-blockers parts operation)
+      (delq nil (mapcar #'org-air-view--history-durability-blocker parts))))
+
+(defun org-air-view--history-command-blockers (record operation)
+  "Return command-time blockers for RECORD's inverse OPERATION.
+Ordinary records without `:expected-undo' deliberately retain the R73/R75
+stale-edit law and perform no durability reads here."
+  (if (eq (plist-get record :kind) 'bulk)
+      (org-air-view--bulk-history-command-blockers
+       (plist-get record :parts) operation)
+    (when (plist-member record :expected-undo)
+      (cond
+       ((not (org-air-view--history-expected-safe-p record operation))
+        (list (org-air-view--history-ahead-edit-name record)))
+       (t
+        (when-let* ((blocker
+                     (org-air-view--history-durability-blocker record)))
+          (list blocker)))))))
 
 (defun org-air-view--history-operation-function (record operation)
   "Return the exact Emacs undo function for RECORD's OPERATION.
@@ -13214,48 +13324,49 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
   (interactive)
   (unless org-air-view--edit-ring
     (user-error "Nothing to undo"))
-  (let* ((rec (pop org-air-view--edit-ring))
+  (let* ((rec (car org-air-view--edit-ring))
          (desc (plist-get rec :desc))
-         (buf (plist-get rec :buffer))
-         (kind (plist-get rec :kind))
-         (next (car org-air-view--edit-ring)))
-    (cond
-     ;; R90 compound metadata history: preflight every file before one
-     ;; reverse-commit-order undo and one final cached repaint.
-     ((eq kind 'bulk)
-      (org-air-view--bulk-history-operation rec 'undo))
-     ;; Decision 6: structural honesty — named, never a duplicate-making
-     ;; partial undo.
-     ((memq kind '(refile archive))
-      (org-air-view--history-record-discard rec)
-      (message "Not simply undoable: %s — it moved; %s%s"
-               desc
-               (if (eq kind 'refile)
-                   "refile it back (e) from there."
-                 "restore it from the archive file.")
-               (if next
-                   (format "  Next u: %s" (plist-get next :desc))
-                 "")))
-     ;; Decision 5 step 1: liveness — consumed, the press ENDS.
-     ((not (buffer-live-p buf))
-      (org-air-view--history-record-discard rec)
-      (message "Cannot undo: %s — source buffer gone" desc))
-     ;; Only records whose save actually observed a later hook mutation carry
-     ;; an exact identity.  Such an ahead step blocks without consumption.
-     ((and (plist-member rec :expected-undo)
-           (not (org-air-view--history-expected-safe-p rec 'undo)))
-      (push rec org-air-view--edit-ring)
-      (message "Cannot undo: %s — %s"
-               desc (org-air-view--history-ahead-edit-name rec)))
-     ;; Preserve R73's established stale-user-edit degrade for ordinary
-     ;; records: consume it, move zero bytes, and name the changed buffer.
-     ((and (not (plist-member rec :expected-undo))
-           (not (eql (plist-get rec :tick)
-                     (buffer-chars-modified-tick buf))))
-      (org-air-view--history-record-discard rec)
-      (message "Cannot undo: %s — %s changed since" desc (buffer-name buf)))
-     (t
-      (org-air-view--single-history-operation rec 'undo)))))
+         (blockers (org-air-view--history-command-blockers rec 'undo)))
+    (if blockers
+        ;; Leave the exact ring cons, record, tokens and every source/UI fact
+        ;; untouched when command-time identity or durability preflight fails.
+        (message "Cannot undo: %s — %s"
+                 desc (mapconcat #'identity blockers "; "))
+      (setq rec (pop org-air-view--edit-ring))
+      (let ((buf (plist-get rec :buffer))
+            (kind (plist-get rec :kind))
+            (next (car org-air-view--edit-ring)))
+        (cond
+         ;; R90 compound metadata history: preflight every file before one
+         ;; reverse-commit-order undo and one final cached repaint.
+         ((eq kind 'bulk)
+          (org-air-view--bulk-history-operation rec 'undo))
+         ;; Decision 6: structural honesty — named, never a duplicate-making
+         ;; partial undo.
+         ((memq kind '(refile archive))
+          (org-air-view--history-record-discard rec)
+          (message "Not simply undoable: %s — it moved; %s%s"
+                   desc
+                   (if (eq kind 'refile)
+                       "refile it back (e) from there."
+                     "restore it from the archive file.")
+                   (if next
+                       (format "  Next u: %s" (plist-get next :desc))
+                     "")))
+         ;; Decision 5 step 1: ordinary dead records are consumed.
+         ((not (buffer-live-p buf))
+          (org-air-view--history-record-discard rec)
+          (message "Cannot undo: %s — source buffer gone" desc))
+         ;; Preserve R73's established stale-user-edit degrade for ordinary
+         ;; records: consume it, move zero bytes, and name the changed buffer.
+         ((and (not (plist-member rec :expected-undo))
+               (not (eql (plist-get rec :tick)
+                         (buffer-chars-modified-tick buf))))
+          (org-air-view--history-record-discard rec)
+          (message "Cannot undo: %s — %s changed since"
+                   desc (buffer-name buf)))
+         (t
+          (org-air-view--single-history-operation rec 'undo)))))))
 
 (defalias 'org-air-triage-undo #'org-air-edit-undo
   "Renamed to `org-air-edit-undo' (R73) — `u' now undoes every board
@@ -13302,33 +13413,33 @@ read-only board where isearch is a real navigation path)."
   (interactive)
   (unless org-air-view--edit-redo-ring
     (user-error "Nothing to redo"))
-  (let* ((rec (pop org-air-view--edit-redo-ring))
+  (let* ((rec (car org-air-view--edit-redo-ring))
          (desc (plist-get rec :desc))
-         (kind (plist-get rec :kind))
-         (buf (plist-get rec :buffer)))
-    (cond
-     ;; R90 compound metadata history: forward commit order, all-part
-     ;; preflight, one final cached repaint.
-     ((eq kind 'bulk)
-      (org-air-view--bulk-history-operation rec 'redo))
-     ;; Decision 5 step 2: liveness — consumed, the press ENDS.
-     ((not (buffer-live-p buf))
-      (org-air-view--history-record-discard rec)
-      (message "Cannot redo: %s — source buffer gone" desc))
-     ;; As on undo, only a captured post-save hook step blocks/retries.
-     ((and (plist-member rec :expected-undo)
-           (not (org-air-view--history-expected-safe-p rec 'redo)))
-      (push rec org-air-view--edit-redo-ring)
-      (message "Cannot redo: %s — %s"
-               desc (org-air-view--history-ahead-edit-name rec)))
-     ;; Ordinary later user edits retain R75's consumed stale-record law.
-     ((and (not (plist-member rec :expected-undo))
-           (not (eql (plist-get rec :tick)
-                     (buffer-chars-modified-tick buf))))
-      (org-air-view--history-record-discard rec)
-      (message "Cannot redo: %s — %s changed since" desc (buffer-name buf)))
-     (t
-      (org-air-view--single-history-operation rec 'redo)))))
+         (blockers (org-air-view--history-command-blockers rec 'redo)))
+    (if blockers
+        (message "Cannot redo: %s — %s"
+                 desc (mapconcat #'identity blockers "; "))
+      (setq rec (pop org-air-view--edit-redo-ring))
+      (let ((kind (plist-get rec :kind))
+            (buf (plist-get rec :buffer)))
+        (cond
+         ;; R90 compound metadata history: forward commit order, all-part
+         ;; preflight, one final cached repaint.
+         ((eq kind 'bulk)
+          (org-air-view--bulk-history-operation rec 'redo))
+         ;; Decision 5 step 2: ordinary dead records are consumed.
+         ((not (buffer-live-p buf))
+          (org-air-view--history-record-discard rec)
+          (message "Cannot redo: %s — source buffer gone" desc))
+         ;; Ordinary later user edits retain R75's consumed stale-record law.
+         ((and (not (plist-member rec :expected-undo))
+               (not (eql (plist-get rec :tick)
+                         (buffer-chars-modified-tick buf))))
+          (org-air-view--history-record-discard rec)
+          (message "Cannot redo: %s — %s changed since"
+                   desc (buffer-name buf)))
+         (t
+          (org-air-view--single-history-operation rec 'redo)))))))
 
 (defun org-air-view--goto-first-inbox-item ()
   "Move point to the first Inbox item row, if any."

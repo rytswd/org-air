@@ -1416,6 +1416,49 @@ no query or refile-engine behavior changes.
   work-in-progress pending a source correction; no implementation defect was
   blessed or manifested.
 
+- 2026-07-27: REVIEW FIX 8 closed all three FIX-7 blockers in source.
+  Expected-history durability is now a command-operation predicate, separate
+  from identity/status polling and therefore absent from render, navigation,
+  hydration and cached UI paths.  Before the public =u=/=U= commands pop a
+  ring record—or compound history creates any relocation marker or applies an
+  undo primitive—every =:expected-undo= source must have a live visiting
+  buffer, the exact recorded readable existing filename, unmodified live
+  state, verified visited modtime, and a protected successful byte-for-byte
+  live/file comparison.  Nil, =error=, =quit=, deletion, unreadability,
+  replacement, stale modtime or unequal bytes leaves the exact ring cons/order,
+  record/token, undo list, cache, marks and panes untouched.  This preserves
+  the immediate ahead-hook block, blocks the hook-only unsaved resolution,
+  preflights all compound parts before touching the first, and allows the exact
+  retry only after an explicit ordinary save converges disk and live truth.
+  Ordinary no-=:expected-undo= R73/R75 stale-edit behavior performs no new
+  disk read and remains unchanged.
+
+  Guard installation now uses eq seen-node membership while walking only the
+  newest group, so arbitrarily deep proper groups remain O(group length) with
+  no numeric cap, while atomic, nil, dotted, malformed, shared and cyclic
+  structures terminate conservatively without mutation.  Exact custom-entry
+  shape checks are bounded and multiple/foreign =apply= handlers are ambiguous.
+  Recursive save callbacks now revalidate on every observation, recording the
+  exact group head and chars tick.  Only the same isolated group can reconfirm
+  its one old-edge guard; a later distinct group, changed group, malformed tail
+  or custom handler makes guard state sticky =unavailable=, clears expected
+  identities, and can never be promoted again by a later callback.
+
+  Mutation/revert proof: bypassing durability made r90-54 RED in all four
+  initial/compound directions; omitting modtime or byte comparison made r90-55
+  RED, and an independent readable-file seam made omission of the explicit
+  readability predicate RED; removing seen-node detection produced the bounded
+  r90-57 child timeout/RED without hanging the parent; restoring once-only
+  guard acceptance made repeated-group r90-58 RED.  Restored source is green:
+  unchanged r90-49 plus r90-54..61 are 9/9, the required r90-54..61 set is
+  8/8, complete R90 is 67/67, and owner/native/finalizer/performance plus the
+  conservative/native-tag/nested-matrix probes remain green.  All 11 modules
+  compile (only the pre-existing project docstring warning), lint is 0, and
+  =make clean && make check= is 1169 tests / 0 unexpected / 8 GUI skips with
+  manifest active=0.  Regen is a no-op; tests, README, known-failures, fixtures
+  and goldens are byte-pristine against =xxwqnqnwkwop=; no repository probe
+  exists and =.deps= remains retained.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

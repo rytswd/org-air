@@ -4935,5 +4935,529 @@ CELL is a mutable one-element list used as the recursion guard."
                        '((undo "b.org") (undo "a.org")
                          (redo "a.org") (redo "b.org"))))))))
 
+;;;; r90-62..65 — review-4 permanent roots: cross-file per-part TOCTOU,
+;;;; narrowed full-buffer truth, guard comparison failure recovery, and
+;;;; indirect-clone canonical source ownership.
+
+(defun org-air-r90--full-live-text (buffer)
+  "Return BUFFER's COMPLETE live text regardless of any user narrowing."
+  (with-current-buffer buffer
+    (save-restriction
+      (widen)
+      (buffer-substring-no-properties (point-min) (point-max)))))
+
+(defun org-air-r90--cross-hook-processing-order (operation)
+  "Return (FIRST . NEXT) corpus names for compound OPERATION processing.
+Compound undo runs in reverse commit order and redo in commit order, so the
+first processed file differs per direction."
+  (if (eq operation 'undo) '("b.org" . "a.org") '("a.org" . "b.org")))
+
+(defun org-air-r90--cross-hook-run (operation)
+  "Run compound OPERATION while the first part's save hook edits the next part.
+The hook is a real buffer-local `after-save-hook' on the first processed
+source; it runs strictly after the command-wide preflight and inserts one
+isolated unsaved user undo group into the next, not-yet-processed source.
+Return audited facts observed at that exact instant and after the command."
+  (dolist (title '("A1" "B1")) (org-air-r90--mark-title title))
+  (org-air-item-backlog)
+  (when (eq operation 'redo) (org-air-edit-undo))
+  (let* ((order (org-air-r90--cross-hook-processing-order operation))
+         (first-name (car order))
+         (next-name (cdr order))
+         (first-title (if (eq operation 'undo) "B1" "A1"))
+         (next-title (if (eq operation 'undo) "A1" "B1"))
+         (first-buffer (find-file-noselect (org-air-r90--file first-name)))
+         (next-buffer (find-file-noselect (org-air-r90--file next-name)))
+         (note "# late unsaved user note\n")
+         (next-disk (org-air-r90--text next-name))
+         (next-tags (org-air-r90--live-tags next-name next-title t))
+         (ran 0)
+         next-tick next-live messages
+         (hook
+          (lambda ()
+            (cl-incf ran)
+            (with-current-buffer next-buffer
+              (undo-boundary)
+              (save-excursion (goto-char (point-max)) (insert note))
+              (setq next-tick (buffer-chars-modified-tick)
+                    next-live (buffer-substring-no-properties
+                               (point-min) (point-max)))))))
+    (with-current-buffer first-buffer (add-hook 'after-save-hook hook nil t))
+    (unwind-protect
+        (org-air-r90--record-messages collected
+          (if (eq operation 'undo) (org-air-edit-undo) (org-air-edit-redo))
+          (setq messages (nreverse collected)))
+      (with-current-buffer first-buffer (remove-hook 'after-save-hook hook t)))
+    (list :operation operation :ran ran :note note
+          :first first-buffer :next next-buffer
+          :first-name first-name :next-name next-name
+          :first-title first-title :next-title next-title
+          :next-tick next-tick :next-live next-live
+          :next-disk next-disk :next-tags next-tags
+          :messages messages)))
+
+(ert-deftest org-air-r90-62-cross-file-save-hook-cannot-eat-the-next-part ()
+  "A committed part's save hook must never let the next part erase user text.
+The command-wide preflight is not permission for a later file: every part must
+still be safe at the moment its own bytes would move.  The committed prefix is
+honest unavoidable partiality; the record must not cross as complete."
+  (skip-unless (locate-library "org-air"))
+  (dolist (operation '(undo redo))
+    (org-air-r90--with-board
+        '(("a.org" . "#+title: a\n\n* TODO A1\n")
+          ("b.org" . "#+title: b\n\n* TODO B1\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      (let* ((facts (org-air-r90--cross-hook-run operation))
+             (first-buffer (plist-get facts :first))
+             (next-buffer (plist-get facts :next))
+             (first-name (plist-get facts :first-name))
+             (next-name (plist-get facts :next-name))
+             (next-title (plist-get facts :next-title))
+             (first-title (plist-get facts :first-title))
+             (note (plist-get facts :note))
+             (residual (car org-air-view--edit-ring)))
+        (ert-info ((format "cross-file %s: ran=%S messages=%S"
+                           operation (plist-get facts :ran)
+                           (plist-get facts :messages)))
+          ;; The hook ran exactly once, after preflight and after the first
+          ;; processed file already committed its bytes.
+          (should (= 1 (plist-get facts :ran)))
+          (should (stringp (plist-get facts :next-live)))
+          ;; Honest unavoidable partiality: the first file really moved.
+          (should (equal (org-air-r90--text first-name)
+                         (org-air-r90--live-text first-name)))
+          (should-not (buffer-modified-p first-buffer))
+          (should (eq (eq operation 'redo)
+                      (org-air-r90--disk-has-tag-p
+                       first-name first-title "backlog")))
+          ;; ZERO bytes may move in the next part: the user's text stays live,
+          ;; disk stays at its pre-user state, and the buffer stays modified.
+          (should (string-match-p (regexp-quote note)
+                                  (org-air-r90--live-text next-name)))
+          (should-not (string-match-p (regexp-quote note)
+                                      (org-air-r90--text next-name)))
+          (should (equal (plist-get facts :next-live)
+                         (org-air-r90--live-text next-name)))
+          (should (equal (plist-get facts :next-disk)
+                         (org-air-r90--text next-name)))
+          (should (= (plist-get facts :next-tick)
+                     (with-current-buffer next-buffer
+                       (buffer-chars-modified-tick))))
+          (should (buffer-modified-p next-buffer))
+          ;; No false backlog result: the next part's org-air metadata is
+          ;; exactly what it was before the command on disk and live.
+          (should (eq (eq operation 'undo)
+                      (org-air-r90--disk-has-tag-p
+                       next-name next-title "backlog")))
+          (should (equal (plist-get facts :next-tags)
+                         (org-air-r90--live-tags next-name next-title t)))
+          ;; Exactly one honest incomplete message; never a complete claim.
+          (should (= 1 (seq-count
+                        (lambda (text)
+                          (string-match-p
+                           (format "\\`%s incomplete: 1/2 files %s; failed %s\\'"
+                                   (if (eq operation 'undo) "Undo" "Redo")
+                                   (if (eq operation 'undo)
+                                       "reverted" "reapplied")
+                                   (regexp-quote next-name))
+                           text))
+                        (plist-get facts :messages))))
+          (should-not (seq-some
+                       (lambda (text)
+                         (string-match-p "\\`\\(Undid\\|Redid\\):" text))
+                       (plist-get facts :messages)))
+          ;; Undo exposes the blocked current part plus untouched suffix as
+          ;; canonical residual; redo exposes only the reapplied prefix.  A
+          ;; runtime split never leaves a speculative redo branch.
+          (should (= 1 (length org-air-view--edit-ring)))
+          (should-not org-air-view--edit-redo-ring)
+          (should (eq 'bulk (plist-get residual :kind)))
+          (should (string-match-p "residual 1 file" (plist-get residual :desc)))
+          (should (= 1 (length (plist-get residual :parts))))
+          (should (equal (list (if (eq operation 'undo) next-name first-name))
+                         (mapcar (lambda (part)
+                                   (file-name-nondirectory
+                                    (plist-get part :file)))
+                                 (plist-get residual :parts))))
+          ;; No wrong undo group was consumed: the user's own group is still
+          ;; the newest undoable step in the next source.
+          (with-current-buffer next-buffer
+            (undo-boundary)
+            (undo-only)
+            (should-not (string-match-p (regexp-quote note) (buffer-string)))
+            (should (equal (plist-get facts :next-disk)
+                           (save-restriction
+                             (widen)
+                             (buffer-substring-no-properties
+                              (point-min) (point-max)))))))))))
+
+(ert-deftest org-air-r90-63-narrowed-source-is-compared-as-full-buffer ()
+  "Narrowed sources are compared as complete visited buffers everywhere.
+The custom undo guard must not invent modified state, the durability
+predicate must not false-block, and the user's restriction must survive."
+  (skip-unless (locate-library "org-air"))
+  ;; Direct guard/predicate invocation on a narrowed but byte-equal source.
+  (org-air-r90--with-corpus
+      '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (let ((source (find-file-noselect (org-air-r90--file "tasks.org"))))
+      (with-current-buffer source
+        (should-not (buffer-modified-p))
+        (goto-char (point-min))
+        (re-search-forward "^\\* TODO Alpha")
+        (narrow-to-region (line-beginning-position) (line-end-position))
+        (let ((beg (point-min))
+              (end (point-max)))
+          (should (< (- end beg) (buffer-size)))
+          (should (equal (org-air-r90--text "tasks.org")
+                         (save-restriction
+                           (widen)
+                           (buffer-substring-no-properties
+                            (point-min) (point-max)))))
+          ;; Full live bytes equal disk, so both comparison surfaces agree.
+          (should (org-air-view--buffer-matches-visited-file-p))
+          (org-air-view--undo-disk-truth-guard)
+          (should-not (buffer-modified-p))
+          (should (= beg (point-min)))
+          (should (= end (point-max)))
+          ;; A real divergence outside the restriction is still detected.
+          (save-restriction
+            (widen)
+            (save-excursion
+              (goto-char (point-max))
+              (insert "# divergence outside the user's restriction\n")))
+          (should (= beg (point-min)))
+          (should (= end (point-max)))
+          (should-not (org-air-view--buffer-matches-visited-file-p))
+          (restore-buffer-modified-p nil)
+          (org-air-view--undo-disk-truth-guard)
+          (should (buffer-modified-p))
+          (should (= beg (point-min)))
+          (should (= end (point-max)))
+          (restore-buffer-modified-p nil)))))
+  ;; Integrated guarded initial `b'/`t' and compound `u'/`U': the user
+  ;; independently resolves the recursive hook group and performs the
+  ;; documented ordinary save, all while the source stays narrowed.
+  (dolist (direction '(initial-backlog initial-tag undo redo))
+    (let ((pending-undo-list nil)
+          (undo-equiv-table (make-hash-table :test #'eq))
+          (last-command nil)
+          (this-command nil))
+      (org-air-r90--with-board
+          '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+            ("inbox.org" . "#+title: inbox\n"))
+        (let* ((facts (org-air-r90--arm-recursive-compound direction))
+               (source (plist-get facts :source))
+               (record (plist-get facts :record))
+               (part (car (plist-get record :parts)))
+               (source-ring (if (eq (plist-get facts :source-ring) 'redo)
+                                'org-air-view--edit-redo-ring
+                              'org-air-view--edit-ring))
+               (other-ring (if (eq (plist-get facts :source-ring) 'redo)
+                               'org-air-view--edit-ring
+                             'org-air-view--edit-redo-ring))
+               (head-before (car (symbol-value source-ring)))
+               beg end before-disk)
+          (ert-info ((format "narrowed guarded direction: %S" direction))
+            (org-air-r90--assert-guard-old-edge source part)
+            (with-current-buffer source
+              (goto-char (point-min))
+              (forward-line 3)
+              (narrow-to-region (point-min) (point))
+              (undo-boundary)
+              (undo-only)
+              ;; The guard proves a genuine full-buffer divergence here.
+              (should (buffer-modified-p))
+              (save-buffer)
+              (setq beg (point-min) end (point-max))
+              (should (< (- end beg) (buffer-size))))
+            (should-not (buffer-modified-p source))
+            (should (equal (org-air-r90--text "tasks.org")
+                           (org-air-r90--full-live-text source)))
+            (should (with-current-buffer source
+                      (org-air-view--buffer-matches-visited-file-p)))
+            ;; The exact expected identity is still reachable and the record
+            ;; is durable: narrowing is not a durability failure.
+            (should (consp (org-air-view--history-identity-resolve
+                            (plist-get part :expected-undo))))
+            (should (org-air-view--history-expected-durable-p part))
+            (should-not (org-air-view--history-durability-blocker part))
+            (setq before-disk (org-air-r90--text "tasks.org"))
+            (org-air-r90--invoke-inverse direction)
+            ;; The retry succeeds exactly once instead of false-blocking.
+            (should-not (eq head-before (car (symbol-value source-ring))))
+            (should (= 0 (length (symbol-value source-ring))))
+            (should (= 1 (length (symbol-value other-ring))))
+            (should-not (equal before-disk (org-air-r90--text "tasks.org")))
+            (should (equal (org-air-r90--text "tasks.org")
+                           (org-air-r90--full-live-text source)))
+            (should-not (buffer-modified-p source))
+            ;; The user's restriction is preserved exactly.
+            (should (with-current-buffer source
+                      (and (= beg (point-min)) (= end (point-max)))))))))))
+
+(ert-deftest org-air-r90-64-guard-comparison-failure-keeps-recovery-reachable ()
+  "An unprovable guard comparison must stay modified and stay recoverable.
+The custom undo handler's inability to prove full-file equality may never
+produce false clean state, because an ordinary `save-buffer' would then be a
+no-op and the documented manual save + retry path becomes unreachable."
+  (skip-unless (locate-library "org-air"))
+  ;; Distinct, already-green seam: a COMMAND-TIME comparison read error blocks
+  ;; with zero writes and recovers on an honest retry.  It is asserted here
+  ;; only to keep it separate from the custom-undo-handler seam below.
+  (let ((pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board
+        '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+          ("inbox.org" . "#+title: inbox\n"))
+      (let* ((facts (org-air-r90--arm-recursive-compound 'undo))
+             (source (plist-get facts :source))
+             (record (plist-get facts :record))
+             (file (org-air-r90--file "tasks.org"))
+             (insert-orig (symbol-function 'insert-file-contents))
+             (saves 0))
+        (with-current-buffer source (undo-boundary) (undo-only) (save-buffer))
+        (should-not (buffer-modified-p source))
+        (should (equal (org-air-r90--text "tasks.org")
+                       (org-air-r90--live-text "tasks.org")))
+        (cl-letf (((symbol-function 'insert-file-contents)
+                   (lambda (name &rest args)
+                     (if (and (stringp name)
+                              (equal (expand-file-name name) file))
+                         (error "command-time compare failed")
+                       (apply insert-orig name args))))
+                  ((symbol-function 'save-buffer)
+                   (lambda (&rest _)
+                     (cl-incf saves)
+                     (error "command-time compare error reached save"))))
+          (condition-case nil (org-air-edit-redo) ((error quit) nil)))
+        (should (= 0 saves))
+        (should (eq record (car org-air-view--edit-redo-ring)))
+        (org-air-edit-redo)
+        (should (eq record (car org-air-view--edit-ring)))
+        (should-not org-air-view--edit-redo-ring))))
+  ;; The custom undo handler seam: a transient readability/read/compare
+  ;; failure during an independent hook-only undo.
+  (dolist (shape '(error quit unreadable))
+    (let ((pending-undo-list nil)
+          (undo-equiv-table (make-hash-table :test #'eq))
+          (last-command nil)
+          (this-command nil))
+      (org-air-r90--with-board
+          '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
+            ("inbox.org" . "#+title: inbox\n"))
+        (let* ((facts (org-air-r90--arm-recursive-compound 'undo))
+               (source (plist-get facts :source))
+               (record (plist-get facts :record))
+               (part (car (plist-get record :parts)))
+               (file (org-air-r90--file "tasks.org"))
+               (label "nested committed hook")
+               (committed-disk (org-air-r90--text "tasks.org"))
+               (insert-orig (symbol-function 'insert-file-contents))
+               (readable-orig (symbol-function 'file-readable-p)))
+          (ert-info ((format "guard comparison failure shape: %S" shape))
+            (org-air-r90--assert-guard-old-edge source part)
+            ;; Undo ONLY the recursively committed hook group while the
+            ;; guard's readability/read/compare path fails transiently.
+            (condition-case nil
+                (cl-letf (((symbol-function 'insert-file-contents)
+                           (lambda (name &rest args)
+                             (if (and (stringp name)
+                                      (equal (expand-file-name name) file))
+                                 (pcase shape
+                                   ('error (error "guard compare failed"))
+                                   ('quit (signal 'quit nil))
+                                   (_ (apply insert-orig name args)))
+                               (apply insert-orig name args))))
+                          ((symbol-function 'file-readable-p)
+                           (lambda (name &rest args)
+                             (if (and (eq shape 'unreadable)
+                                      (stringp name)
+                                      (equal (expand-file-name name) file))
+                                 nil
+                               (apply readable-orig name args)))))
+                  (with-current-buffer source (undo-boundary) (undo-only)))
+              ((error quit) nil))
+            ;; Disk and live have really diverged and no byte was written.
+            (should (equal committed-disk (org-air-r90--text "tasks.org")))
+            (should (string-match-p label (org-air-r90--text "tasks.org")))
+            (should-not (string-match-p label
+                                        (org-air-r90--live-text "tasks.org")))
+            (should-not (equal (org-air-r90--text "tasks.org")
+                               (org-air-r90--live-text "tasks.org")))
+            ;; Equality could not be proven, so the buffer must stay modified.
+            (should (buffer-modified-p source))
+            ;; With the failure gone, an ORDINARY save converges full bytes.
+            (with-current-buffer source (save-buffer))
+            (should (equal (org-air-r90--text "tasks.org")
+                           (org-air-r90--live-text "tasks.org")))
+            (should-not (string-match-p label (org-air-r90--text "tasks.org")))
+            (should-not (buffer-modified-p source))
+            ;; The exact org-air retry then succeeds on the same record.
+            (should (org-air-view--history-expected-durable-p part))
+            (org-air-edit-redo)
+            (should (eq record (car org-air-view--edit-ring)))
+            (should-not org-air-view--edit-redo-ring)
+            (should (equal (org-air-r90--text "tasks.org")
+                           (org-air-r90--live-text "tasks.org")))
+            (should-not (buffer-modified-p source))
+            (should (org-air-r90--disk-has-tag-p
+                     "tasks.org" "Alpha" "backlog"))))))))
+
+(defun org-air-r90--base-locator-markers (base)
+  "Return BASE's tracked locator markers in order."
+  (mapcar #'cdr (buffer-local-value 'org-air-view--source-tracked-locators
+                                    base)))
+
+(defun org-air-r90--assert-canonical-base-locators (board base markers)
+  "Assert BASE still owns exactly MARKERS for BOARD as live base locators."
+  (should (= (length markers) (seq-count #'marker-position markers)))
+  (should (= (length markers)
+             (seq-count (lambda (marker) (eq (marker-buffer marker) base))
+                        markers)))
+  (should (eq board (buffer-local-value 'org-air-view--source-locator-owner
+                                        base)))
+  (should (buffer-local-value 'org-air-view--source-locator-complete base))
+  (should (eq (buffer-local-value 'org-air-view--items board)
+              (buffer-local-value 'org-air-view--source-locator-generation
+                                  base)))
+  (should (org-air-r90--same-object-order-p
+           markers (org-air-r90--base-locator-markers base)))
+  (let ((index (buffer-local-value 'org-air-view--source-locator-index base)))
+    (should (hash-table-p index))
+    (should (= (length markers) (hash-table-count index)))
+    (maphash (lambda (_item marker)
+               (should (marker-position marker))
+               (should (eq (marker-buffer marker) base)))
+             index))
+  (let ((roster (buffer-local-value 'org-air-view--source-tracked-buffers
+                                    board)))
+    (should (= 1 (seq-count (lambda (buffer) (eq buffer base)) roster)))))
+
+(ert-deftest org-air-r90-65-indirect-clone-never-owns-canonical-locators ()
+  "A cloned indirect source must not steal or tear down base ownership.
+Killing or re-moding a clone created with copied locals/hooks may only clear
+clone-local aliases; the canonical base keeps exactly one usable locator set,
+and `complete' state may never refer to dead or wrong-buffer markers."
+  (skip-unless (locate-library "org-air"))
+  (dolist (phase '(before-history after-history))
+    (dolist (disposal '(kill mode))
+      (org-air-r90--with-board
+          '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Middle\n* TODO Later\n")
+            ("inbox.org" . "#+title: inbox\n"))
+        (let* ((board (current-buffer))
+               (base (find-file-noselect (org-air-r90--file "tasks.org")))
+               (dehydrate-orig
+                (symbol-function 'org-air-view--dehydrate-source-markers))
+               (dehydrations 0)
+               (clone nil)
+               markers)
+          (ert-info ((format "indirect phase=%S disposal=%S" phase disposal))
+            (when (eq phase 'after-history)
+              (org-air-r90--mark-title "Alpha")
+              (org-air-item-backlog))
+            (setq markers (org-air-r90--base-locator-markers base))
+            (should (= 3 (length markers)))
+            (org-air-r90--assert-canonical-base-locators board base markers)
+            (unwind-protect
+                (progn
+                  ;; A normal cloned + narrowed indirect buffer: CLONE copies
+                  ;; buffer-local variables and hooks, including org-air's.
+                  (setq clone (make-indirect-buffer
+                               base "org-air-r90-indirect" t))
+                  (with-current-buffer clone
+                    (goto-char (point-min))
+                    (re-search-forward "^\\* TODO Middle")
+                    (narrow-to-region (line-beginning-position) (point-max)))
+                  ;; The owner roster holds the base exactly once, never the
+                  ;; clone, before and after the clone is disposed of.
+                  (should-not (memq clone (buffer-local-value
+                                           'org-air-view--source-tracked-buffers
+                                           board)))
+                  (org-air-r90--assert-canonical-base-locators
+                   board base markers)
+                  (when (eq disposal 'mode)
+                    (with-current-buffer clone (fundamental-mode))
+                    (org-air-r90--assert-canonical-base-locators
+                     board base markers))
+                  (let ((kill-buffer-query-functions nil))
+                    (kill-buffer clone))
+                  (setq clone nil)
+                  (org-air-r90--assert-canonical-base-locators
+                   board base markers)
+                  (should-not (memq clone (buffer-local-value
+                                           'org-air-view--source-tracked-buffers
+                                           board)))
+                  ;; Same-generation hydration is an O(1) no-op and must never
+                  ;; bless dead or wrong-buffer markers.
+                  (with-current-buffer board
+                    (org-air-view--hydrate-source-items base))
+                  (org-air-r90--assert-canonical-base-locators
+                   board base markers)
+                  ;; Unsaved drift before a later heading still resolves
+                  ;; through the exact marker, with no scan/query fallback.
+                  (let* ((later (org-air-r90--item "Later"))
+                         (durable (cdr (org-air-view--item-source-key later)))
+                         (tracked
+                          (cdr (assq later
+                                     (buffer-local-value
+                                      'org-air-view--source-tracked-locators
+                                      base))))
+                         (queries 0)
+                         (query-orig (symbol-function 'org-air-query-items)))
+                    (should (markerp tracked))
+                    (should (= durable (marker-position tracked)))
+                    (with-current-buffer base
+                      (goto-char (point-min))
+                      (re-search-forward "^\\* TODO Middle")
+                      (beginning-of-line)
+                      (insert "# unsaved user drift above the third heading\n"))
+                    (should (= durable
+                               (cdr (org-air-view--item-source-key later))))
+                    (should-not (= durable
+                                   (org-air-r90--actual-heading-position
+                                    "tasks.org" "Later")))
+                    (should (= (marker-position tracked)
+                               (org-air-r90--actual-heading-position
+                                "tasks.org" "Later")))
+                    (org-air-r90--mark-title "Later")
+                    (cl-letf (((symbol-function 'org-air-query-items)
+                               (lambda (&rest args)
+                                 (cl-incf queries)
+                                 (apply query-orig args))))
+                      (org-air-item-backlog))
+                    (should (= 0 queries))
+                    (should-not org-air-view--marked-keys)
+                    (should (org-air-r90--disk-has-tag-p
+                             "tasks.org" "Later" "backlog"))
+                    (should-not (org-air-r90--disk-has-tag-p
+                                 "tasks.org" "Middle" "backlog"))
+                    (should (string-match-p "unsaved user drift"
+                                            (org-air-r90--text "tasks.org")))
+                    (should (equal (org-air-r90--text "tasks.org")
+                                   (org-air-r90--full-live-text base)))
+                    (should (equal (org-air-r90--text "tasks.org")
+                                   (org-air-r90--live-text "tasks.org"))))
+                  ;; A base kill still performs real teardown exactly once.
+                  (setq markers (org-air-r90--base-locator-markers base))
+                  (cl-letf (((symbol-function
+                              'org-air-view--dehydrate-source-markers)
+                             (lambda (&rest args)
+                               (cl-incf dehydrations)
+                               (apply dehydrate-orig args))))
+                    (let ((kill-buffer-query-functions nil))
+                      (with-current-buffer base (set-buffer-modified-p nil))
+                      (kill-buffer base)))
+                  (should (= 1 dehydrations))
+                  (should (= 0 (seq-count #'marker-position markers)))
+                  (should-not (memq base (buffer-local-value
+                                          'org-air-view--source-tracked-buffers
+                                          board))))
+              (when (buffer-live-p clone)
+                (let ((kill-buffer-query-functions nil))
+                  (kill-buffer clone))))))))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

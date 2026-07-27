@@ -1585,6 +1585,105 @@ no query or refile-engine behavior changes.
   byte-identical to =lvmrynwuyupr=; README, tests, known-failures, fixtures and
   goldens stayed unchanged; no repository probe remained and =.deps= was kept.
 
+- 2026-07-27: INDEPENDENT REVIEW-4 PERMANENT RED AUDIT — BLOCKED.  Candidate
+  =ksymwszqovmv= is unchanged: every implementation =.el= is byte-identical to
+  it and README, fixtures, goldens and the known-failures manifest are
+  untouched.  Only =tests/org-air-round90-test.el= and this Air history
+  changed.  The distinguished reviewer's probe files were lost with =/tmp=;
+  each described probe was reconstructed from =REPORT-r90d.md= and reproduced
+  its recorded output byte-for-byte before being converted into permanent ERT.
+
+  Four new permanent tests, all RED against the unchanged candidate under
+  explicitly interpreted source AND freshly byte-compiled production (verified
+  =byte-code-function-p= on the guard and the compound operator):
+
+  1. =org-air-r90-62-cross-file-save-hook-cannot-eat-the-next-part= — RED.
+     Maps reviewer probe
+     =r90d-first-compound-save-hook-cannot-eat-later-source-edit=
+     (=r90d-adversarial-probe.el=).  A two-file backlog record with known
+     processing order (undo =b.org= then =a.org=, redo =a.org= then =b.org=);
+     after the command-wide preflight the first processed file's real
+     =after-save-hook= inserts one isolated unsaved user undo group into the
+     next source.  Reconstructed observation matched the report exactly:
+     =ran=t a-disk-backlog=t b-disk-backlog=nil late-live=nil late-disk=nil
+     a-modified=nil undo=nil redo=("a.org" "b.org")= with the false complete
+     echo =Undid: backlog 2 marked items (2 files)=.  The test fails first at
+     the erased user text in =a.org='s live buffer.  It asserts the committed
+     prefix as honest unavoidable partiality, then zero touched bytes in the
+     next part (identical live text, identical disk text, identical
+     =buffer-chars-modified-tick=, modified=t, unchanged org-air disk/live
+     tags), exactly one =Undo/Redo incomplete: 1/2 files ...; failed <next>=
+     message, no =Undid:=/=Redid:= claim, a one-part residual undo record
+     naming the blocked part (undo) or only the reapplied prefix (redo), a
+     cleared speculative redo ring, and — behaviourally — that the user's own
+     group is still the newest undoable step.  The redo direction alone is
+     already GREEN on the candidate, so the test's RED is attributable solely
+     to the undo TOCTOU.
+
+  2. =org-air-r90-63-narrowed-source-is-compared-as-full-buffer= — RED.
+     Maps =r90d-narrowed-guard-compares-full-visited-buffer= and
+     =r90d-narrowed-manual-save-keeps-expected-history-retry-reachable=.
+     Reproduced =NARROW-GUARD full-equal=t narrowed=t modified=t= and
+     =NARROW-RETRY full-equal=t modified=nil identity-safe=t durable=nil
+     same-ring=t= for all four guarded directions.  The test covers
+     =org-air-view--buffer-matches-visited-file-p=, the custom guard and
+     =org-air-view--history-expected-durable-p= through behaviour only: a
+     direct guard call on a narrowed but byte-equal source must leave
+     modified=nil and preserve =point-min=/=point-max= exactly, while a real
+     divergence outside the restriction must still be detected; and guarded
+     initial =b=/=t= plus compound =u=/=U= must let the user independently
+     resolve the recursive hook group and perform the documented ordinary save
+     while narrowed, keep the exact identity reachable, report durable, and
+     make the retry succeed exactly once with the restriction preserved.
+
+  3. =org-air-r90-64-guard-comparison-failure-keeps-recovery-reachable= — RED.
+     Maps =r90d-guard-read-error-keeps-manual-save-recovery-reachable=.
+     Reproduced =divergent-before=t modified-before=nil equal-after-save=nil
+     same-ring=t= for bounded error, quit and unreadable shapes (the failure
+     is scoped by file name to the guard's own readability/read/compare path).
+     The test asserts a genuine disk/live divergence with zero writes, then
+     modified=t because full equality could not be proven, then that an
+     ordinary =save-buffer= after recovery converges full bytes to modified=nil
+     and that the exact org-air retry succeeds on the same record object.  The
+     already-green COMMAND-TIME comparison-error seam is asserted separately in
+     the same test (zero saves, same ring, honest retry succeeds) so the two
+     seams stay explicitly distinct.
+
+  4. =org-air-r90-65-indirect-clone-never-owns-canonical-locators= — RED.
+     Maps =r90d-indirect-kill-must-not-destroy-base-source-locators=.
+     Reproduced =live-markers-after-kill=0 base-complete=t mark-remains=t
+     backlog=nil=.  Covered for phases before and after an edit/history record
+     exists and for both clone disposals (kill, and major-mode change followed
+     by kill).  A normal cloned+narrowed =make-indirect-buffer ... t= must not
+     take canonical ownership: base locators stay live and in the base, owner/
+     index/generation/complete facts stay truthful, the roster holds the base
+     exactly once and never the clone, same-generation rehydration never
+     blesses dead or wrong-buffer markers, unsaved drift before a later
+     heading still resolves through the exact marker (mark cleared, intended
+     heading written, neighbour untouched, zero =org-air-query-items= calls,
+     disk=live), and a base kill still performs real teardown exactly once.
+
+  Precision evidence (throwaway, never in the repository): applying the
+  report's minimal fix directions to a =/tmp=-only copy of =org-air-view.el=
+  (full-buffer =save-restriction=+=widen= snapshots, a conservative
+  =(error quit)= guard that restores modified state when equality is
+  unprovable, per-part tick/head/durability revalidation immediately before
+  each compound part moves bytes, and clone-aware teardown) turned all four
+  new tests GREEN and left the 67 pre-existing R90 tests GREEN.  Each new test
+  therefore fails for its own root and not for teardown leakage.  The
+  repository source was never modified.
+
+  Gate on the unchanged candidate: all 11 modules compile (only the
+  pre-existing =org-air-project.el= wide-docstring warning), lint 0,
+  =make clean && make check= 1173 tests / 1161 expected / 4 unexpected /
+  8 GUI skips — the four unexpected results are exactly =r90-62..65=.  The
+  loaded known-failures manifest length is 0 (the new blockers are deliberately
+  NOT manifested), =make regen-mockups= is a byte no-op, no repository probe
+  file exists and =.deps= is retained.  Release blockers: cross-file per-part
+  TOCTOU, narrowed full-buffer comparisons, guard comparison failure false
+  clean state, and indirect clone canonical locator teardown.  State remains
+  work-in-progress pending a source correction and independent closeout.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.

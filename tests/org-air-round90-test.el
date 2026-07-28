@@ -7022,5 +7022,230 @@ drops marks on either of these paths breaks the round's durable marks."
                     "t.org" '("E1" "E2" "E3") "later")))
     (should-not (org-air-r90--disk-has-tag-p "t.org" "E2" "later"))))
 
+;;;; r90-79 — retest-15 permanent root: the paired guard's HEAD half must be
+;;;; the authoritative post-commit identity org-air itself produced, never a
+;;;; value re-sampled when the command-final sweep gets around to it.
+
+(defconst org-air-r90--head-only-property 'org-air-r90-foreign-property
+  "Text property a committed hook adds to move the undo head and nothing else.")
+
+(ert-deftest org-air-r90-79-late-sampled-undo-head-can-never-bless-a-part ()
+  "A restamp may only ever record the head org-air itself left behind.
+R90 guards a compound part with TWO facts about ONE buffer state: the chars
+tick and the `:undo-head' identity `org-air-view--bulk-history-blockers'
+checks straight after it.  Both are refreshed together, from the one save
+result captured INSIDE the save attempt, right after org-air's own
+`undo-boundary'.
+
+The head half is load-bearing exactly where the tick cannot speak.  R73
+deliberately guards with `buffer-chars-modified-tick' so text-property churn
+cannot trip it, so a committed `after-save-hook' doing `put-text-property'
+pushes a real FOREIGN user undo group while the chars tick stands still.  A
+head re-derived at sweep time is then trivially equal to that foreign group's
+own tail: the part gets blessed, and the next `u' runs `undo-only' over the
+USER's property group, moves not one byte of the file, and still echoes
+`Undid: backlog 1 marked item'.  That is the FIX-12 class of false claim one
+level down.  No proof of what org-air left behind means stamp NEITHER half
+and leave the record honestly blocked at the ring head."
+  (skip-unless (locate-library "org-air"))
+  (let ((pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (org-air-r90--mark-title "A1")
+      (org-air-item-backlog)
+      (let ((committed (org-air-r90--text "a.org")))
+        (org-air-r90--goto-row "A3")
+        (org-air-item-done)
+        (let* ((buffer (find-file-noselect (org-air-r90--file "a.org")))
+               (compound (nth 1 org-air-view--edit-ring))
+               (single (nth 0 org-air-view--edit-ring))
+               (part (car (plist-get compound :parts)))
+               (stamped-tick (plist-get part :tick))
+               (stamped-head (plist-get part :undo-head))
+               (ran 0) (tick-before nil) (tick-after nil)
+               (hook (lambda ()
+                       (cl-incf ran)
+                       (when (= ran 1)
+                         (with-current-buffer buffer
+                           (setq tick-before (buffer-chars-modified-tick))
+                           (undo-boundary)
+                           (put-text-property
+                            (point-min) (1+ (point-min))
+                            org-air-r90--head-only-property t)
+                           (setq tick-after
+                                 (buffer-chars-modified-tick)))))))
+          (should (eq 'bulk (plist-get compound :kind)))
+          (should-not (eq 'bulk (plist-get single :kind)))
+          (should (equal (list buffer)
+                         (mapcar (lambda (p) (plist-get p :buffer))
+                                 (plist-get compound :parts))))
+          (should (plist-member part :undo-head))
+          (with-current-buffer buffer (add-hook 'after-save-hook hook nil t))
+          (unwind-protect
+              ;; The ordinary same-file record comes back first; its save runs
+              ;; the hook on a buffer org-air has just written and committed.
+              (org-air-r90--assert-ring-claim 'undo "done \"A3\"")
+            (with-current-buffer buffer (remove-hook 'after-save-hook hook t)))
+          (ert-info ((format "hook ran=%S tick %S->%S part tick=%S/%S"
+                             ran tick-before tick-after
+                             (plist-get part :tick)
+                             (buffer-chars-modified-tick buffer)))
+            ;; 1. The scenario really is the one the head exists for: a
+            ;;    foreign undo group ahead of org-air's own, at EQUAL chars
+            ;;    tick, changing no byte that can ever reach the file.
+            (should (= 1 ran))
+            (should (integerp tick-before))
+            (should (eql tick-before tick-after))
+            (should (equal committed (org-air-r90--text "a.org")))
+            (should (with-current-buffer buffer
+                      (get-text-property (point-min)
+                                         org-air-r90--head-only-property)))
+            ;; 2. THE LAW: with no proof of what org-air left there, NEITHER
+            ;;    half of the pair moves.  A late sample would refresh both
+            ;;    against the user's own group.
+            (should (eql stamped-tick (plist-get part :tick)))
+            (should (eq stamped-head (plist-get part :undo-head)))
+            (should (plist-member part :undo-head))
+            ;; 3. And the next `u' therefore refuses, by name, moving zero
+            ;;    bytes and making no `Undid:' claim at all.
+            (let ((messages (org-air-r90--ring-press 'undo)))
+              (ert-info ((format "refusal messages: %S" messages))
+                (should (= 1 (org-air-r90--count-messages
+                              messages org-air-r90--bless-refusal-re)))
+                (should (= 0 (org-air-r90--count-messages
+                              messages org-air-r90--bless-claim-re)))
+                (should (= 1 (org-air-r90--count-messages
+                              messages (regexp-quote
+                                        "backlog 1 marked item"))))))
+            (should (equal committed (org-air-r90--text "a.org")))
+            ;; 4. The user's own group is still theirs — not consumed by a
+            ;;    ring press that claimed to undo an org-air step.
+            (should (with-current-buffer buffer
+                      (get-text-property (point-min)
+                                         org-air-r90--head-only-property)))
+            ;; 5. Ring and identity integrity: the record is requeued at the
+            ;;    head of the side it came from, still carrying its own
+            ;;    unblessed pair, and nothing migrated to the other side.
+            (should (equal (list compound) org-air-view--edit-ring))
+            (should (equal (list single) org-air-view--edit-redo-ring))
+            (should (eq part (car (plist-get compound :parts))))
+            (should (eql stamped-tick (plist-get part :tick)))
+            (should (eq stamped-head (plist-get part :undo-head)))))))))
+
+;;;; r90-80 — retest-15 permanent root: a mark's witness must travel with its
+;;;; key through org-air's OWN relocation, or the very next generation swap
+;;;; re-targets the surviving mark with nothing left to catch it.
+
+(defun org-air-r90--rewrite-source (name text)
+  "Rewrite corpus NAME to exactly TEXT behind org-air's back and revert it.
+An ordinary outside tool: the user's other Emacs, a formatter, a script.
+Org-air is not involved in either the edit or the revert; only a buffer that
+is already visiting the file is reverted, so nothing here can prompt."
+  (let ((coding-system-for-write 'utf-8-unix)
+        (path (org-air-r90--file name)))
+    (write-region text nil path nil 'silent)
+    (when-let* ((buffer (get-file-buffer path)))
+      (with-current-buffer buffer (revert-buffer t t t))))
+  (should (equal text (org-air-r90--text name))))
+
+(defun org-air-r90--refresh-messages ()
+  "Run the real `g r' and return everything it told the user."
+  (let (out)
+    (org-air-r90--record-messages collected
+      (org-air-refresh)
+      (setq out (nreverse collected)))
+    out))
+
+(ert-deftest org-air-r90-80-mark-witness-survives-org-airs-own-rekey ()
+  "A mark org-air's own write relocated must still be caught when it drifts.
+A marked command does not always spend every mark: a heading finished outside
+org-air is no longer board-active, so marked `b' reports it as
+`1 ineligible remains marked' and it stays selected — while org-air's write to
+the SAME file moves its byte offset, and `org-air-view--bulk-rekey-marks'
+rekeys it.  The key survives that move; the witness that makes the key an
+identity must survive it too.
+
+If the rekey drops witnesses, the surviving mark is witness-free, the next
+generation swap adopts whatever heading now sits at the offset, and an
+outside edit that inserts a heading immediately above the marked one hands
+the user's next `b'/`t' a heading they never selected — one that did not even
+exist when they marked.  Decision 2: a source mismatch is a failed/stale
+target, NEVER silently relocated."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board org-air-r90--drift-board
+    (org-air-r90--expand-section 'attention)
+    (org-air-r90--mark-title "D3")
+    (org-air-r90--mark-title "D1")
+    (should (equal '("D1" "D3")
+                   (sort (org-air-r90--marked-row-titles) #'string<)))
+    ;; 1. Outside org-air, D3 is finished.  Title and tags are untouched, so
+    ;;    the mark must SURVIVE this generation swap (no over-prune) even
+    ;;    though D3 no longer renders anywhere on the board.
+    (org-air-r90--rewrite-source
+     "t.org" "#+title: t\n\n* TODO D1\n* TODO D2\n* DONE D3\n")
+    (let ((messages (org-air-r90--refresh-messages)))
+      (ert-info ((format "finish refresh messages: %S" messages))
+        (should-not (seq-find (lambda (text)
+                                (string-match-p
+                                 org-air-r90--stale-mark-re text))
+                              messages))))
+    (should (equal '("D1") (org-air-r90--marked-row-titles)))
+    (should (= 2 (length org-air-view--marked-keys)))
+    ;; 2. Marked `b': D1 commits and clears; D3 is ineligible, stays marked,
+    ;;    and org-air's own write to t.org moves its offset.
+    (let ((messages (org-air-r90--run-marked-verb 'backlog "backlog")))
+      (ert-info ((format "backlog messages: %S" messages))
+        (should (seq-find
+                 (lambda (text)
+                   (string-match-p "1 ineligible remains marked" text))
+                 messages))))
+    (should (equal '("D1") (org-air-r90--tagged-titles
+                            "t.org" '("D1" "D2" "D3") "backlog")))
+    (should (= 1 (length org-air-view--marked-keys)))
+    (let ((key (car org-air-view--marked-keys)))
+      ;; The rekey really did move the key: it names D3's NEW position.
+      (should (= (cdr key) (org-air-r90--actual-heading-position
+                            "t.org" "D3")))
+      ;; 3. An outside tool inserts a heading immediately above D3, so that
+      ;;    very offset now names a heading that did not exist when the user
+      ;;    marked anything.
+      (let* ((text (org-air-r90--text "t.org"))
+             (anchor "* DONE D3\n"))
+        (should (string-match-p (regexp-quote anchor) text))
+        (org-air-r90--rewrite-source
+         "t.org"
+         (replace-regexp-in-string (regexp-quote anchor)
+                                   (concat "* TODO D25\n" anchor)
+                                   text t t)))
+      (should (= (cdr key) (org-air-r90--actual-heading-position
+                            "t.org" "D25"))))
+    ;; 4. THE LAW: `g r' must prune the drifted mark through the existing
+    ;;    bounded message, exactly once, with the right count.
+    (let ((messages (org-air-r90--refresh-messages)))
+      (ert-info ((format "drift refresh messages: %S" messages))
+        (should (= 1 (org-air-r90--count-messages
+                      messages org-air-r90--stale-mark-re)))
+        (should (= 1 (org-air-r90--count-messages
+                      messages
+                      (regexp-quote "Pruned 1 stale marked item"))))))
+    (should-not org-air-view--marked-keys)
+    (should-not (org-air-r90--marked-row-titles))
+    ;; 5. And the next verb is an ordinary point action in ANOTHER file: it
+    ;;    can neither reach the re-targeted heading nor claim marked work.
+    (org-air-r90--goto-row "Park row")
+    (let ((messages (org-air-r90--run-marked-verb 'tag "zzz")))
+      (ert-info ((format "tag messages: %S" messages))
+        (should-not (seq-find (lambda (text)
+                                (string-match-p
+                                 org-air-r90--marked-success-re text))
+                              messages))))
+    (should-not (org-air-r90--tagged-titles
+                 "t.org" '("D1" "D2" "D3" "D25") "zzz"))
+    (should (equal '("D1") (org-air-r90--tagged-titles
+                            "t.org" '("D1" "D2" "D3" "D25") "backlog")))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

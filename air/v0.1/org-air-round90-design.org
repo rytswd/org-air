@@ -2894,6 +2894,141 @@ no query or refile-engine behavior changes.
   fixture files.  No repository probe file exists and =.deps= is retained.
   State: blocked → work-in-progress pending the next independent audit.
 
+- 2026-07-28: TEST/AUDIT retest 15 — independent audit of FIX-13 plus
+  PERMANENT COVER for the two mutations FIX-13 honestly reported as unfenced.
+  Tests-and-Air only: =tests/org-air-round90-test.el= (+225) and this file.
+  Every production =.el= is byte-identical to =mlzutkpzqqou= (verified per
+  file by SHA-256; =org-air-view.el=
+  =b348b118cb4da6b36d017bd196cba9041b738b64380a7864e3a8d1774947f2d8=), and
+  README, fixtures, goldens and the known-failures manifest are untouched
+  (=jj st= lists the two files above alone).  Parent =zqxzkspzprpz= confirmed;
+  =main..candidate= has ONE head, no conflicts, no divergence.
+
+  NEW PERMANENT TEST 1 — =r90-79= (the late-sampled head, FIX-13's M2).  The
+  head half of the pair is load-bearing only where the chars tick cannot
+  speak, so the smallest honest shape is a committed =after-save-hook= that
+  does =put-text-property=: a real FOREIGN user undo group at an UNCHANGED
+  =buffer-chars-modified-tick= (26 → 26, the documented R73 non-text
+  residue), reached entirely through the product (marked =b=, then =d= in the
+  same file, then =u=).  The test asserts, in order: the hook ran exactly once
+  and moved no chars tick; NEITHER half of the part's guard was stamped (the
+  =:tick= integer is unchanged AND the =:undo-head= token is the SAME object,
+  so no proof really did mean no stamp); the next =u= refuses by name with
+  zero =Undid:=/=Redid:= claims; the file's bytes did not move; the user's
+  property group is still theirs; and the record is requeued at the head of
+  the side it came from with its unblessed pair intact.  Under the M2
+  mutation this is the false claim it fences, reproduced independently:
+  =part tick=26 now=26 head-ok=t blockers=nil=, =u2 → "Undid: backlog 1
+  marked item (1 file)"=, =disk changed=nil A1-backlog=t prop-live=nil= — a
+  complete-success echo for a step that moved no byte and ate the user's
+  group instead.
+
+  NEW PERMANENT TEST 2 — =r90-80= (the rekey that drops witnesses, FIX-13's
+  M5).  FIX-13 recorded M5 as unobservable "because every key a marked write
+  commits is cleared by that same command".  That is true of COMMITTED keys
+  only: a marked command routinely leaves keys behind, and one of them is
+  relocated by org-air's own write.  The observable scenario is entirely
+  product-level: the user marks D3 and D1; outside org-air D3 is finished
+  (=TODO= → =DONE=, same byte length, title and tags untouched) and =g r=
+  keeps BOTH marks — a no-over-prune control in its own right, even though D3
+  now renders nowhere; marked =b= then commits D1, reports =1 ineligible
+  remains marked= for D3, and org-air's own write to that same file moves
+  D3's offset, so =--bulk-rekey-marks= rekeys the surviving mark (the test
+  asserts the new key really is D3's new live position).  An outside tool then
+  inserts one heading immediately above D3, making that very offset name a
+  heading that did not exist when the user marked anything.  The law asserted:
+  =g r= prunes exactly once with the right count (="Pruned 1 stale marked
+  item"=), the selection is empty, and the next verb is an ordinary point
+  action in ANOTHER file that neither reaches the re-targeted heading nor
+  claims marked work.  Under M5, reproduced independently: the mark silently
+  adopts the inserted heading (=witnesses=((43 "A25")) rows=("A25")=) and =t=
+  echoes ="Added #zzz to 1 marked item"= while writing =:zzz:= to it.  So M5
+  is NOT unobservable; it is now fenced.
+
+  INDEPENDENT MUTATION EVIDENCE (fresh =/tmp= copy, compiled per mutation,
+  source restored and re-hashed to
+  =b348b118cb4da6b36d017bd196cba9041b738b64380a7864e3a8d1774947f2d8= after
+  every one).  BASE R90 86/86.  M1 revert the =:undo-head= refresh →
+  =r90-73/74/75= RED (3).  M2 late-sampled head → =r90-79= RED (1, the ONLY
+  test).  M3 remove the mark witness → =r90-76/77/80= RED (3).  M4a prune
+  every mark on every generation swap → =r90-7= AND =r90-80= RED — the
+  reconcile-side over-prune gap FIX-13 recorded is closed, because =r90-80=
+  performs a generation swap its marks must SURVIVE.  M4b fail closed when a
+  witness is absent → =r90-7= RED.  M4c exactness against the raw byte offset
+  instead of the tracked locator → =r90-65= + =r90-78= RED.  M5 rekey drops
+  witnesses → =r90-80= RED (1, the ONLY test).  Two mutations remain green and
+  are reported as PROVABLY EQUIVALENT rather than as coverage: M2b
+  (=--edit-ring-requeue= writes a bare =:tick= again) — its callers only ever
+  pass ordinary single-buffer records, which carry no =:undo-head=, so no
+  product path can distinguish it; and M2c (=--edit-ring-restamp= restamps
+  =:expected-undo= parts too) — both consumers of the pair
+  (=--bulk-history-blockers= and =--history-expected-safe-p=) branch on
+  =:expected-undo= FIRST and never read =:tick=/=:undo-head= for such a part.
+
+  PAIRED-GUARD VERIFICATION (unit matrix over the one writer, real buffers):
+  no =:undo-head= → tick only; authoritative head == buffer head → BOTH
+  refreshed and matching; head nil → NEITHER, returns nil; authoritative head
+  stale → NEITHER, returns nil.  The =--edit-ring-requeue= twin IS genuinely
+  fixed: given a =:undo-head=-bearing record it writes both halves from one
+  same-instant sample and the pair it leaves is self-consistent; given an
+  ordinary record it writes the tick and introduces no =:undo-head=; given an
+  =:expected-undo= record it writes nothing.  =--edit-ring-restamp= skips an
+  =:expected-undo= part (tick stays 7) while restamping its plain sibling in
+  the same record.  A twelve-press =u/U= walk over two compound records and
+  two ordinary records across two SHARED buffers is honest at every press and
+  leaves zero starved parts (no part anywhere with a fresh tick and a stale
+  head).
+
+  WITNESS PRECISION (all through the real product).  On-mark recording is
+  exactly =(TITLE . SORTED-EFFECTIVE-TAGS)= including inherited filetags,
+  deep-copied, property-free, and nil for a non-item.  Resolution is
+  FIRST-ITEM-WINS and returns the very same item object =--bulk-preflight='s
+  own =(car (gethash key index))= would target.  NO OVER-PRUNE: tag ORDER
+  change, tag-column reformat, reformatting after the marked heading, a
+  =TODO=→=DONE= state change, an inherited tag re-expressed as a local tag at
+  a fixed offset with identical effective tags, and org-air's own relocating
+  write all KEEP the mark.  (An ANCESTOR's tag change does prune, correctly:
+  it changes the marked heading's effective tags, which is precisely what
+  =--source-heading-exact-p= would refuse to spend the mark on anyway.)  NO
+  UNDER-PRUNE: title-only change, tag-only change, a dropped tag, a heading
+  REPLACED by a different heading at the identical offset, and a vanished
+  heading all prune.  MESSAGE HONESTY: the bounded report fires exactly once
+  per swap with the exact count (=Pruned 2 stale marked items= for two of
+  three), a second identical =g r= is silent, and after a prune the next =b=
+  is the ordinary point action echoing =Backlogged "P3"= — never an
+  N-marked-items claim.
+
+  RETENTION.  Witnesses are confined to the live key set by unmark (3→2),
+  clear-all (→0), a direct table rebuild (→1) and generation invalidation
+  (→nil).  Payload audit of the whole table: 21 nodes, 7 strings, zero
+  markers, buffers, items, overlays or propertized strings; the longest string
+  anywhere is the corpus file PATH, which belongs to the key, not the witness.
+  After board kill + GC the table itself is collected from a weak registry and
+  no source buffer survives.
+
+  REGRESSIONS AND COST.  =r90-49= + =r90-54..80= 28/28; R73/R75 history 28/28;
+  owner lifecycle (=r90-44/51=) 2/2; native v6 tags (=r90-31/38/52=) 3/3;
+  total finalizer (=r90-41/42/43/53=) 4/4; retention after kill+GC
+  (=r90-37/56=) 2/2; indirect clone (=r90-65=) 1/1.  Scaling, medians of 3,
+  =zqxzkspzprpz= vs this candidate compiled in the same =/tmp= parent: cold
+  build 1k 0.2657s → 0.2629s, 5k 1.6688s → 1.6366s; warm repaint 5k 0.0178s →
+  0.0181s; hydrate 5k 0.0845s → 0.0845s.  The reported reconcile cost is
+  CONFIRMED: a generation swap at 5k with 200 marks is 7.26 ms → 7.69 ms
+  (+5.9%), with 0 opens and 0 file reads on both trees, and the
+  same-generation path stays at 1 µs.  Per-render work is unchanged: COLD
+  opens=2 maps=1 exacts=N hydrates=1 org-air-timers=0, WARM x5 opens=10 maps=0
+  exacts=0 — byte-identical between the two trees.
+
+  GATE after =make clean= with every stale =.elc= deleted: all 11 modules
+  compile with only the pre-existing =org-air-project.el:946= wide-docstring
+  warning; lint 0 findings; =make check= 1188 tests / 1180 expected /
+  0 unexpected / 8 GUI skips, reproduced three times; loaded known-failures
+  active length 0; =make regen-mockups= in a =/tmp= copy exit 0 and a byte
+  no-op across all 49 fixture files; the two new tests also pass interpreted
+  with no bytecode present.  No repository probe file exists and =.deps= is
+  retained.  VERDICT: pass — no new blocker found; state stays
+  work-in-progress.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -2961,3 +3096,13 @@ no query or refile-engine behavior changes.
   message instead of silently re-targeting.  =r90-73..77= green, =r90-78=
   still green, R90 84/84, gate 1186 tests / 0 unexpected / 8 GUI skips /
   manifest 0 / lint 0).
+- 2026-07-28: Independent audit retest 15 — PASS, no new blocker.  FIX-13's
+  two honestly-reported unfenced mutations are now permanently fenced by
+  =r90-79= (a sweep-time re-sampled =:undo-head= blesses a compound part at an
+  unchanged chars tick and fakes =Undid:=) and =r90-80= (a rekey that drops
+  witnesses lets a surviving ineligible mark re-target to a heading inserted
+  after the user marked); each is the ONLY test its mutation reddens, and
+  =r90-80= additionally closes the reconcile-side over-prune gap.  Tests + Air
+  only; every production =.el= byte-identical to =mlzutkpzqqou=.  R90 86/86,
+  gate 1188 tests / 0 unexpected / 8 GUI skips / manifest 0 / lint 0 / regen a
+  byte no-op.

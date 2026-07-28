@@ -2479,6 +2479,125 @@ no query or refile-engine behavior changes.
   exists and =.deps= is retained.  State back to work-in-progress pending the
   next independent audit.
 
+- 2026-07-28: INDEPENDENT AUDIT retest 13 of FIX-12 — PASS.  Tests + this
+  Air entry only; all 11 production =.el= files verified byte-identical to
+  =splqtlwnrkly= (=org-air-view.el= SHA-256
+  =87df637b6eb490de40dc13d2f617eee52f26a3a7e48a969d4fde42bce0a8c4b0=, the
+  value the FIX-12 entry claims; parent =pywsrmtlqoyx= is
+  =297b44210f55a2b1a45591313e9185569629d3092e2c4fa33993242b9812a012=).
+  README, fixtures, goldens and the known-failures manifest untouched; single
+  head, no conflicts, no divergence; scope of =splqtlwnrkly= is exactly
+  =org-air-view.el= (+95/-41) and this design document.
+
+  SUBSUMPTION (=hooked-buffers= removal) — SOUND.  Probed 21 mutation shapes
+  for =buffer-chars-modified-tick=: it never decreased in any of them (insert,
+  insert+delete in one command, insert+undo, =with-silent-modifications= text,
+  =replace-buffer-contents=, save, EOL/coding rewrite at save, revert,
+  indirect-clone edit — all strictly up; the clone edit correctly bumps the
+  BASE tick because =CHARS_MODIFF= lives in the shared buffer text).  Monotony
+  is exactly the premise the removal needs: a commit-time mismatch is still a
+  mismatch at sweep time, so =hooked-buffers= ⊆ {authority mismatch}, and the
+  last-writer-wins authority entry is strictly MORE accurate for a buffer the
+  same command commits twice.  The residual class — foreign changes that leave
+  the chars tick EQUAL — is exactly the NON-TEXT set (text properties,
+  overlays, =set-buffer-modified-p=, narrowing, coding-system, plus
+  =set-buffer-multibyte=, which is the one representation-level text change
+  that does not bump).  Every one of them is invisible to the same chars-tick
+  comparison the parent's =hooked-buffers= used, so FIX-12 neither widens nor
+  narrows the class; an end-to-end property-only foreign-hook probe produces a
+  byte-identical transcript on the candidate and on =pywsrmtlqoyx=.  That
+  residue is the deliberate R73 choice documented on
+  =org-air-view--edit-ring-push= ("fontification/text-property churn can never
+  trip the =u= guard"), NOT a FIX-12 seam — recorded as a non-blocking
+  observation, no RED filed.
+
+  AUTHORITY / ARMING / OVER-BLOCK — verified by instrumenting the real choke
+  point.  A hook-free complete compound gates each of its three committed
+  buffers exactly once, every gate matches, all three are restamped with an
+  explicit integer authoritative tick and nothing is armed.  Under the
+  cross-part foreign hook, the victim is armed exactly once, on the SOURCE
+  ring for the direction (=u= → undo ring, =U= → redo ring), with a real
+  expected step, and NOTHING is stamped into it; no other buffer is armed.
+  =AUTHORITY= is a =let*= local — no global was added (=defvar= count in the
+  diff: 0) — so no entry can survive a command; a second compound gates only
+  its own buffers.  A committed part whose buffer a later hook KILLS is a
+  total no-op (=buffer-live-p= gate) and the dead record degrades to "source
+  buffer gone".  A committed buffer that also appears in the redo residual is
+  covered by the two-sided restamp.  A ten-scenario transcript differential
+  against =pywsrmtlqoyx= (single-buffer =u=/=U= chains, mixed single/compound,
+  compound two-sided stamping, single-path own-hook edit, post-undo redo
+  stamping, archive/structural, dead record, killed committed buffer,
+  property-only foreign change) is IDENTICAL except for the intended fix:
+  where the parent blessed =done "C2"= with the post-hook tick and the next
+  =u= silently destroyed the user's note, the candidate arms one exact token,
+  refuses with "unsaved edit in c.org is ahead of the expected org-air step"
+  and moves zero bytes.  Repeated compound→compound in one buffer is refused
+  identically on both revisions (the pre-existing =:undo-head= guard) — no new
+  over-blocking.
+
+  MUTATION EVIDENCE (independent driver, pristine =/tmp= copy, source restored
+  byte-identically — SHA-256 re-verified after every run).  Sweep-time
+  sampling restored at the choke point: =r90-69/70/71= (+ =r90-35=) RED;
+  restricted to the compound sweep only: =r90-69/70/71= RED.  Unconditional
+  complete-success restamp (the reviewer's M10 in post-fix form):
+  =r90-69/70/71= RED.  No restamping at all: =r90-67= RED and nothing else —
+  independently proving the fix does NOT over-block, since a normal completed
+  compound must still restamp every one of its own buffers.  Complete-success
+  sweep skipped: =r90-67= RED.  Sweep arming a LATE-sampled identity instead
+  of the recorded one: =r90-69/71= RED.  A STALE authority entry reused across
+  commands: =r90-67= RED.  Two mutants are honestly EQUIVALENT and reported as
+  such: (i) hoisting =AUTHORITY= into a global that is still overwritten per
+  buffer — unobservable, because the sweep only ever consults entries for
+  buffers the CURRENT command committed and every committed part writes its
+  entry on the same success path that pushes it into =successes=; (ii) making
+  =--edit-ring-restamp= ignore its explicit TICK and re-sample — unobservable,
+  because the gate has just proven the sample equals the argument, which shows
+  the load-bearing half is the VERIFY, not the write.
+
+  ONE GENUINE COVERAGE GAP, now fenced.  Two conservative mutants survived all
+  77 R90 tests: the compound sweep arming on the WRONG ring, and the compound
+  sweep never arming at all.  Neither blesses anything, so r90-69/70/71 cannot
+  see them; both turn "refused but retryable" into "refused forever", i.e. an
+  unreachable step.  New permanent test
+  =org-air-r90-72-skipped-committed-buffer-is-armed-not-abandoned= closes it:
+  across both directions and all three sweep branches it asserts that nothing
+  is armed on the non-source ring, that at most one identity is armed per
+  skipped buffer, that no other committed buffer is armed or left stale, that
+  the undo direction arms exactly one bounded token on the entry the next =u=
+  reaches first and that entry is still refused in both directions, that the
+  redo direction (no further redo step exists in a source just re-applied)
+  arms nothing AND stamps nothing, that a part with no authority entry is
+  neither stamped nor armed, and — the reachability half — that after the
+  user's own =undo-only= + =save-buffer= resolution the SAME record is handed
+  back and really takes its step on disk.  It kills both surviving mutants
+  plus the no-restamp, complete-skip and stale-authority ones.
+
+  SINGLE-PATH ROUTING — equivalent-or-safer.  Its transcript is identical to
+  the parent on every audited shape (stale-edit law, refile/archive,
+  dead-record, post-undo redo stamping); the choke point is load-bearing there
+  too (a sampling mutant reddens =r90-35=).  =--edit-ring-requeue= runs
+  immediately before the gate with nothing between its =ahead-p= test and its
+  tick write, so the re-sample cannot differ.
+
+  REGRESSIONS / COST.  =r90-49= and =r90-50..71= 23/23; R90 78/78; R73/R75
+  28/28; owner lifecycle, native v6 tags, total finalizer and bounded
+  retention after kill + GC all GREEN; reviewer probes =r90e-0/1a/1b/1c/1d/2/
+  3a..3d/4a/4b/5a..5d/6a..6c/7/8/10a/10b= all PASS, and only the two
+  defect-demonstration probes =r90e-2b= and =r90e-9= FAIL — they assert the
+  old blessing and now report =stamped=23= (the honest commit tick) with
+  =safe-p=nil=.  Instrumented compound =u=/=U=: 0 =insert-file-contents=, 3
+  =file-readable-p=, 1 refresh, 3 intrinsic timers — identical to the parent,
+  so no disk read and no per-render work were added.  A 12-file compound
+  =u=/=U= is 0.0253s/0.0245s against the parent's 0.0324s/0.0312s; 1k/5k
+  hydrate, O(1) fast path and full generation replace are at parity.
+
+  GATE after =make clean= with every stale =.elc= deleted: 11/11 modules
+  compile with only the pre-existing =org-air-project.el:946= wide-docstring
+  warning; lint 0 findings; =make check= 1180 tests / 1172 expected /
+  0 unexpected / 8 GUI skips; loaded known-failures active length 0;
+  =make regen-mockups= in a =/tmp= copy exit 0 and recursively byte-identical
+  fixtures.  No repository probe file; =.deps= retained.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -2514,3 +2633,13 @@ no query or refile-engine behavior changes.
   later part's save-hook edit to an already-committed buffer can no longer be
   blessed; =r90-69=/=r90-70= green, =r90-71= still green, R90 77/77, gate
   1179 tests / 0 unexpected / 8 GUI skips / manifest 0 / lint 0).
+- 2026-07-28: Independent audit retest 13 PASSED: FIX-12 verified at the root
+  against independently rebuilt evidence — the =hooked-buffers= subsumption is
+  sound (chars ticks are monotone; the equal-tick residue is the pre-existing
+  R73 non-text class, byte-identical on the parent), authority bookkeeping is
+  command-scoped and leak-free, arming is one-identity-on-the-correct-ring,
+  and a transcript differential against =pywsrmtlqoyx= shows no over-blocking.
+  The one surviving coverage gap — the sweep's arm-next fallback, whose
+  wrong-ring and never-arm mutants passed all 77 R90 tests — is now fenced by
+  =r90-72=.  Gate 1180 tests / 0 unexpected / 8 GUI skips / manifest 0 /
+  lint 0.

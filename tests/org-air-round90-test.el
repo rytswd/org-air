@@ -6496,5 +6496,161 @@ other permanent test looks."
             (should (org-air-r90--bless-note-live-p victim))
             (should (eq newest (car org-air-view--edit-ring)))))))))
 
+(defun org-air-r90--ring-entries-for (ring buffer)
+  "Return every entry on RING naming BUFFER, in the order a press reaches them.
+Compound parts count: the next same-buffer step can live inside one."
+  (let (out)
+    (dolist (rec (symbol-value ring))
+      (if (eq (plist-get rec :kind) 'bulk)
+          (dolist (part (plist-get rec :parts))
+            (when (eq (plist-get part :buffer) buffer) (push part out)))
+        (when (eq (plist-get rec :buffer) buffer) (push rec out))))
+    (nreverse out)))
+
+(defun org-air-r90--armed-records (ring buffer)
+  "Return RING entries for BUFFER that carry an exact `:expected-undo' identity.
+Arming is exactly how the restamp law leaves a skipped buffer retryable, so
+counting these is how a caller observes what the sweep really armed."
+  (seq-filter (lambda (entry) (plist-member entry :expected-undo))
+              (org-air-r90--ring-entries-for ring buffer)))
+
+(ert-deftest org-air-r90-72-skipped-committed-buffer-is-armed-not-abandoned ()
+  "A buffer the restamp law skips must be left RETRYABLE, on the RIGHT side.
+Refusing to stamp is only half of the law.  `org-air-view--history-restamp-committed'
+must also arm the ONE exact next identity for that buffer — the identity its
+OWN commit-time save result captured — on the ring a same-direction next press
+pops from (`u' pops the undo side, `U' the redo side).  Arm nothing and the
+buffer's records stay frozen behind a stale tick that no user action can ever
+satisfy: the step becomes unreachable instead of retryable.  Arm the WRONG
+side and the record the user will actually press is left unprotected while an
+unrelated one is rewritten.  Neither mutation blesses anything, so every
+no-blessing assertion (r90-69/70/71) stays green through both — this is where
+they are caught, together with the sweep's proof requirement: a committed part
+with NO authority entry is neither stamped nor armed."
+  (skip-unless (locate-library "org-air"))
+  ;; NO PROOF, NO STAMP.  Driving the real sweep with an empty authority alist
+  ;; must leave every ring entry for those buffers exactly as it found them.
+  (let ((pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--bless-board
+      (org-air-r90--expand-section 'attention)
+      (org-air-r90--goto-row "A2")
+      (org-air-item-done)
+      (dolist (title '("A1" "B1")) (org-air-r90--mark-title title))
+      (org-air-item-backlog)
+      (let* ((older (org-air-r90--find-record-by-desc "done \"A2\""))
+             (stamped (plist-get older :tick))
+             (parts (plist-get (car org-air-view--edit-ring) :parts)))
+        (should (integerp stamped))
+        (org-air-view--bulk-history-restamp-committed
+         parts nil 'org-air-view--edit-ring)
+        (should (eql stamped (plist-get older :tick)))
+        (should-not (plist-member older :expected-undo)))))
+  (dolist (direction '(undo redo))
+    (dolist (shape '(complete failed invalidated))
+      (let ((pending-undo-list nil)
+            (undo-equiv-table (make-hash-table :test #'eq))
+            (last-command nil)
+            (this-command nil))
+        (org-air-r90--with-board org-air-r90--bless-board
+          (let* ((facts (org-air-r90--bless-run direction shape))
+                 (victim (plist-get facts :victim))
+                 (victim-name (plist-get facts :victim-name))
+                 (source-ring (if (eq direction 'undo)
+                                  'org-air-view--edit-ring
+                                'org-air-view--edit-redo-ring))
+                 (other-ring (if (eq direction 'undo)
+                                 'org-air-view--edit-redo-ring
+                               'org-air-view--edit-ring))
+                 (reachable (org-air-r90--ring-entries-for source-ring victim))
+                 (armed (org-air-r90--armed-records source-ring victim)))
+            (ert-info ((format "%S/%S messages=%S armed=%d reachable=%d"
+                               direction shape (plist-get facts :messages)
+                               (length armed) (length reachable)))
+              (org-air-r90--bless-assert-scenario facts)
+              ;; 1. Never the wrong side, and never more than one identity.
+              (should-not (org-air-r90--armed-records other-ring victim))
+              (should (>= 1 (length armed)))
+              ;; 2. No OTHER buffer this command committed is disturbed: none
+              ;;    is armed and each carries its own authoritative stamp.
+              (dolist (name (plist-get facts :committed))
+                (unless (equal name victim-name)
+                  (let ((buffer (find-file-noselect (org-air-r90--file name))))
+                    (ert-info ((format "committed %s" name))
+                      (should-not (org-air-r90--armed-records
+                                   source-ring buffer))
+                      (should-not (org-air-r90--armed-records
+                                   other-ring buffer))
+                      (should (null (org-air-r90--stale-stamped-records
+                                     buffer)))))))
+              (cond
+               ((eq direction 'undo)
+                ;; 3. A next same-buffer UNDO step demonstrably exists here, so
+                ;;    exactly one bounded token is armed, and it is armed on the
+                ;;    very entry the next `u' would reach first.
+                (should (= 1 (length armed)))
+                (should (eq (car armed) (car reachable)))
+                (org-air-r90--assert-history-token
+                 (plist-get (car armed) :expected-undo))
+                ;; 4. Armed is not blessed: the foreign edit still sits ahead.
+                (should-not (org-air-view--history-expected-safe-p
+                             (car armed) 'undo))
+                (should-not (org-air-view--history-expected-safe-p
+                             (car armed) 'redo)))
+               (t
+                ;; 5. A compound `U' leaves no further redo step in a source it
+                ;;    has just finished re-applying, so its save result carries
+                ;;    no redo identity and there is nothing to arm.  The law
+                ;;    then degrades to "stamp NOTHING": every remaining
+                ;;    tick-guarded entry for that buffer must still be stale.
+                (should-not armed)
+                (should (org-air-r90--tick-guarded-records victim))
+                (dolist (entry (org-air-r90--tick-guarded-records victim))
+                  (should-not (eql (plist-get entry :tick)
+                                   (buffer-chars-modified-tick victim))))))
+              ;; 6. ARMED MEANS RETRYABLE, not abandoned.  The user's own
+              ;;    resolution must hand the exact step back — otherwise
+              ;;    "refuse" would silently mean "lose the step forever".
+              (when (and (eq direction 'undo) (eq shape 'complete))
+                (let ((record (car armed))
+                      (before-disk (org-air-r90--text victim-name)))
+                  (org-air-r90--record-messages refused
+                    (org-air-edit-undo)
+                    (let ((messages (nreverse refused)))
+                      (ert-info ((format "refusal messages: %S" messages))
+                        (should (= 1 (org-air-r90--count-messages
+                                      messages
+                                      org-air-r90--bless-refusal-re)))
+                        (should (= 0 (org-air-r90--count-messages
+                                      messages
+                                      org-air-r90--bless-claim-re))))))
+                  (should (equal before-disk (org-air-r90--text victim-name)))
+                  (should (org-air-r90--bless-note-live-p victim))
+                  ;; The user resolves their OWN group and saves, exactly as
+                  ;; r90-54 prescribes for the same-buffer hook path.
+                  (with-current-buffer victim
+                    (undo-boundary)
+                    (undo-only)
+                    (save-buffer))
+                  (should-not (org-air-r90--bless-note-live-p victim))
+                  (should-not (buffer-modified-p victim))
+                  (should (eq record (car org-air-view--edit-ring)))
+                  (org-air-r90--record-messages walked
+                    (org-air-edit-undo)
+                    (let ((messages (nreverse walked)))
+                      (ert-info ((format "retry messages: %S" messages))
+                        (should (= 1 (org-air-r90--count-messages
+                                      messages org-air-r90--bless-claim-re)))
+                        (should (= 0 (org-air-r90--count-messages
+                                      messages
+                                      org-air-r90--bless-refusal-re))))))
+                  ;; and the retry really took ITS step, on disk.
+                  (should (string-match-p
+                           (format "^\\*+ TODO %s"
+                                   (org-air-r90--bless-title victim-name 2))
+                           (org-air-r90--text victim-name))))))))))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

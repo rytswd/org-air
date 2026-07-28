@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: blocked
+#+state: work-in-progress
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -2718,6 +2718,182 @@ no query or refile-engine behavior changes.
   No repository probe file; =.deps= retained.  State: work-in-progress →
   blocked.
 
+- 2026-07-28: FIX-13 — close both review-6 blockers at their roots: a paired
+  history guard may only ever be refreshed as ONE authoritative fact, and a
+  mark is not a byte offset.  Source-only change (=org-air-view.el=,
+  +212/-26); tests, README, fixtures, goldens and the known-failures manifest
+  are byte-pristine against =zqxzkspzprpz= (verified per file by SHA-256;
+  =jj diff --summary= lists =org-air-view.el= alone).
+
+  ROOT 1 — THE HALF-REFRESHED GUARD.  R90 gave every compound part a SECOND
+  guard component beside =:tick=, the =:undo-head= identity that
+  =--bulk-history-blockers= checks immediately after the tick.  Only
+  =--bulk-history-restamp-part= (the part being processed) and
+  =--history-arm-next= (the one armed record) ever refreshed it; R75 Decision
+  5's two-sided neighbour restamp, =--edit-ring-restamp=, refreshed =:tick=
+  alone.  So any org-air ring op in one of a bulk record's buffers left that
+  record's part saying "a change intervened" about a change org-air itself had
+  just made through the ring, its preflight could never pass again, and
+  because a blocked compound is requeued at the head of the SAME ring it
+  shadowed every older record: =u= was dead for the session
+  (=X.org history step missing=), and the refusal was pure over-blocking — the
+  identical press byte-restores the corpus once the head is refreshed.
+
+  THE AUTHORITATIVE-PAIR RULE (fix 1).  =:tick= and =:undo-head= are two
+  halves of one statement about one buffer state, so they now move together
+  through one writer, =org-air-view--history-restamp-pair=, and never apart.
+  Its inputs come from the SAME authoritative post-commit state: the new
+  accessor =org-air-view--save-result-undo-head= reads the head tail out of
+  the very save result =:expected-tick= comes from, captured inside the save
+  attempt right after the org-air edit group's own =undo-boundary=.  Which of
+  the two identities that result holds is decidable without knowing the
+  direction and is proved in the docstring: =--expected-redo-step= IS the head
+  tail whenever it is non-nil, and when it is nil the head carries no redo
+  equivalence, so =--expected-undo-step= has nothing to follow and is that
+  same tail — hence =(or :expected-redo :expected-undo)=, which after an undo
+  is deliberately NOT the =EXPECTED= next-step tail armed on the ring.  The
+  head is therefore never re-derived at sweep time: a late sample is
+  trivially equal to whatever sits at the buffer's head and would bless a
+  foreign group, exactly as a re-sampled tick blesses foreign text (FIX-12).
+  =--edit-ring-restamp= and =--history-restamp-committed= carry the pair
+  (=HEAD= beside =TICK=), and the compound sweep's AUTHORITY alist grew to
+  =(BUFFER TICK EXPECTED HEAD)=, still one entry per committed buffer written
+  at ITS commit instant.  NO PROOF, NO STAMP is preserved and extended: when a
+  buffer has no authority entry, or the result persisted no resolvable
+  identity (=HEAD= nil), or the authoritative head is no longer the buffer's
+  head, a =:undo-head=-bearing part is stamped in NEITHER half and stays
+  honestly blocked/armed and retryable — FIX-12 behaviour, one level down.
+  The one caller that legitimately samples (=--edit-ring-restamp= with no
+  TICK, after =--buffer-attempt-restore= has just put the buffer back itself)
+  samples BOTH halves in one instant, never one now and one later.
+
+  PAIRED-FIELD AUDIT.  Every site that writes a history =:tick= was audited
+  for the same one-sided defect: =--edit-ring-push= / =--edit-ring-push-bulk=
+  construct the whole plist at once (bulk parts set =:undo-head= there from
+  =:expected-undo=); =--bulk-history-restamp-part= and =--history-arm-next=
+  already wrote =:tick= + =:undo-head= (+ =:expected-undo=) together;
+  =--single-history-restamp= and the single-path failure branch write =:tick=
+  (+ =:expected-undo=) on ordinary records, which carry no =:undo-head=;
+  =--edit-ring-restamp= was the one defective site.  =--edit-ring-requeue= was
+  the one latent twin — it wrote a bare =:tick= and is only ever called with
+  ordinary records today — so it now goes through the same pair writer with an
+  atomic same-instant sample, and no production path can write half a guard
+  again.  =:expected-undo= parts are still skipped by every restamp: exact
+  opaque-token identity governs them alone.
+
+  ROOT 2 — A MARK THAT SILENTLY RE-TARGETS.  A mark was a bare
+  =(FILE . BYTE-POSITION)= with no content component, and
+  =--marked-reconcile= kept every key that merely EXISTED in the new item
+  generation.  An ordinary edit made outside org-air shifts every later
+  heading's offset, so after =g r= — the action org-air's own stale-target
+  message recommends — the key re-bound to whatever heading now occupies that
+  offset; the write path re-resolves key → item from the rebuilt index, so
+  =--source-heading-exact-p= compared that re-resolved item against itself and
+  could never fire, and =b=/=t= tagged a heading the user never selected while
+  echoing complete success.
+
+  THE WITNESS (fix 2).  Each mark now carries a bounded projection witness
+  beside its key, in a buffer-local =equal= table
+  =org-air-view--marked-witnesses=.  SHAPE: =(TITLE . SORTED-EFFECTIVE-TAGS)=,
+  built by =org-air-view--item-mark-witness= from the marked item's own
+  already-cached fields — exactly the two fields =--source-heading-exact-p=
+  compares, deep-copied and sorted so tag order never decides survival, and
+  nothing else: no buffer text beyond that projection, no markers, no items,
+  no undo objects, no file read.  =m= records it; =--marked-reconcile=, on a
+  generation swap only, resolves each surviving key FIRST-ITEM-WINS (the same
+  resolution =--bulk-preflight= uses, so the witness gates precisely the item
+  a write would target) and keeps the key only when the newly resolved item
+  still matches — a mismatch is pruned as stale and surfaced through the
+  EXISTING bounded message, ="Pruned %d stale marked item%s"=, never silently
+  re-bound.  A key that predates its witness (reachable only by setting the
+  mark list directly, never by =m=) adopts the resolved projection once rather
+  than vanishing.  CONTROLS PRESERVED: without =g r= there is no generation
+  swap at all, so the tracked source locator still writes the original
+  heading; and org-air's OWN write relocates marks correctly because
+  =--bulk-rekey-marks= now moves each witness with its own key.  COSTS: the
+  generation pass still only indexes keys (one extra =gethash= per item),
+  exactly one witness is derived per surviving MARK, storage is confined to
+  the live key set by =--marked-table-rebuild= (so every drop/clear/reconcile
+  releases witnesses too), and rendering is untouched — no new file read, no
+  per-render scan, no new timer.  After an honest prune the selection is
+  empty, so the next =b=/=t= is the ordinary single-item action at point and
+  echoes that heading BY NAME; it can never claim "N marked items".
+
+  MUTATION / REVERT EVIDENCE (all in a pristine =/tmp= copy compiled fresh per
+  mutation, source restored and re-hashed byte-identically after each;
+  =org-air-view.el= SHA-256
+  =b348b118cb4da6b36d017bd196cba9041b738b64380a7864e3a8d1774947f2d8=).
+  (M1) Revert the =:undo-head= refresh (the pair writer writes only =:tick=):
+  R90 81/84 — =r90-73=, =r90-74=, =r90-75= RED, nothing else.  (M2) Write a
+  LATE-SAMPLED head instead of the authoritative one: R90 84/84 — it reddens
+  NO permanent test, including =r90-69/70/71=, and this is reported as a
+  coverage gap rather than a passing grade.  The reason is exact: the head is
+  only ever consulted on the path where the authoritative TICK already
+  verified, and every scenario in the permanent corpus moves the chars tick
+  together with the head, so the tick gate refuses first.  The rule is
+  nevertheless load-bearing and was proved so by probe =q23= (=/tmp=), which
+  builds the one divergent shape — a committed =after-save-hook= that does
+  =put-text-property=, moving the undo head with the chars tick UNCHANGED
+  (26 → 26, the documented R73 non-text residue).  Authoritative pair:
+  =head-ok=nil=, blockers =("a.org changed since")=, next =u= refused, zero
+  bytes moved, the property group intact.  Late sample: the part is blessed
+  (=tick=26 now=26 head-ok=t=, blockers nil) and the next =u= echoes
+  "Undid: backlog 1 marked item (1 file)" while the disk does not change and
+  the USER's property group is consumed instead — a false claim of exactly the
+  FIX-12 class.  (M3) Remove the mark witness (membership-only reconcile):
+  =r90-76=, =r90-77= RED.  (M4a) Prune every mark on every generation swap and
+  (M4b) fail closed when a witness is absent: =r90-7= RED (exact generation
+  reconciliation) — the =r90-78= controls are NOT sensitive to reconcile-side
+  over-pruning because neither control performs a generation swap, which is
+  itself worth recording.  (M4c) The over-aggressive variant that IS fenced by
+  the controls — check the witness/exactness against the mark's raw byte
+  offset instead of the tracked locator: =r90-78= RED (with =r90-65=), i.e.
+  the tracked-relocation control does catch a fix that prunes beyond the
+  generation swap that really lost the heading.  (M5) =--bulk-rekey-marks=
+  drops witnesses instead of moving them: R90 84/84 — no permanent test
+  observes it, because every key a marked write commits is cleared from the
+  selection by that same command; the move is kept as defensive correctness
+  for surviving ineligible/failed marks and is recorded as unfenced.
+
+  VERIFICATION.  =r90-73/74/75/76/77= now GREEN, =r90-78= stays GREEN, R90
+  84/84.  The reviewer's own probes re-run against the fixed source:
+  =q6-1..q6-4= all 4 PASS (previously three dead-ended), =q7-3= restores the
+  corpus (=A1 backlog on disk=nil ring=0=), =q7-1= now walks
+  =u1 done "A3" → u2 backlog 2 marked items → u3 done "C3"= so the older
+  record is reachable (its own =should= fails only because it asserts the
+  dead end is permanent and the 4th press now hits an empty ring), =q9-1= and
+  =q5-2/q5-3= PASS, =q5-1= walks all twelve u/U/u steps with no refusal (its
+  final assertion compares the fully-unwound corpus against the all-applied
+  snapshot, so it too could only hold while the walk was blocked); =q16-1= and
+  =q15-1= show =after g r marked=nil keys=nil= — the re-target is gone, and
+  what remains is an ordinary point action naming its own heading; =q14-2=
+  (org-air's own write relocates marks) still PASSES; =q1-bless=, =q2=,
+  =q2b-main=, =q3-toctou=, =q4-guard=, =q17-double-arm= unchanged and green;
+  =q12= retention byte-identical to =zqxzkspzprpz= (nodes=87, strings=5,
+  markers=0, live-buffers=0, the sole "leak" the record's own bounded =:desc=)
+  and =q11= cold/warm work identical (cold opens=2 maps=1 exacts=N hydrates=1,
+  warm x5 opens=10 maps=0 exacts=0, org-air timers 0).  New controls: plain
+  =g r= x4 with no drift keeps every mark and the write hits exactly the two
+  marked headings; an external tag edit ON the marked heading prunes with the
+  bounded message.  Canonical coverage: =r90-49= and =r90-54..72= 24/24, R73
+  and R75 history 28/28, owner lifecycle (=r90-44=/=r90-51=), native v6 tags
+  (=r90-31=/=r90-38=/=r90-52=), total finalizer (=r90-41=/=r90-42=/=r90-43=/
+  =r90-53=), retention after kill + GC (=r90-37=/=r90-56=), indirect clone
+  (=r90-65=) 12/12 GREEN.  Scaling (medians of 3, both trees compiled in the
+  same =/tmp= parent so the comparison is fair): cold build 1k 0.362s →
+  0.365s, 5k 1.676s → 1.677s; warm repaint 5k 0.0177s → 0.0177s; hydrate 5k
+  0.324s → 0.312s; O(1) same-generation fast path 5 µs both; generation-swap
+  reconcile at 5k with 200 marks 10.9 ms → 11.5 ms (+6%, all of it
+  proportional to the marks), 0 opens and 0 file reads in both.
+
+  Gate after =make clean= with every stale =.elc= deleted: all 11 modules
+  compile with only the pre-existing =org-air-project.el:946= wide-docstring
+  warning; lint 0 findings; =make check= 1186 tests / 1178 expected /
+  0 unexpected / 8 GUI skips; loaded known-failures active length 0;
+  =make regen-mockups= in a =/tmp= copy exit 0 and a byte no-op across all 49
+  fixture files.  No repository probe file exists and =.deps= is retained.
+  State: blocked → work-in-progress pending the next independent audit.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -2774,3 +2950,14 @@ no query or refile-engine behavior changes.
   and =r90-76=, =r90-77= (root 2) are RED; the =r90-78= relocation controls
   are GREEN.  Gate 1186 tests / 5 unexpected / 8 GUI skips / manifest 0 /
   lint 0.
+- 2026-07-28: State: blocked → work-in-progress (FIX-13 closed both review-6
+  roots: a compound part's =:tick= and =:undo-head= are now refreshed as one
+  atomic pair from the SAME authoritative post-commit save result, with no
+  stamp at all when that proof is missing, so an org-air ring op in a bulk
+  record's buffer can no longer starve the record or shadow older history;
+  and every mark carries a bounded =(TITLE . SORTED-EFFECTIVE-TAGS)= witness
+  that must still match the newly resolved item on a generation swap, so a
+  drifted key is pruned through the existing "Pruned N stale marked item(s)"
+  message instead of silently re-targeting.  =r90-73..77= green, =r90-78=
+  still green, R90 84/84, gate 1186 tests / 0 unexpected / 8 GUI skips /
+  manifest 0 / lint 0).

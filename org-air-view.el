@@ -1093,6 +1093,17 @@ Keys:
   "Insertion-ordered exact source keys currently marked in this board.")
 (defvar-local org-air-view--marked-key-table nil
   "Equal hash table mirroring `org-air-view--marked-keys' for membership.")
+(defvar-local org-air-view--marked-witnesses nil
+  "Equal hash of marked source key to the projection witness it was made on.
+A source key is `(FILE . POSITION)' and a position is not an identity: an
+edit made outside org-air shifts every later heading's offset, so the same
+key can name a DIFFERENT heading in the next item generation.  The witness is
+the bounded `(TITLE . SORTED-EFFECTIVE-TAGS)' projection of the heading the
+user really marked (`org-air-view--item-mark-witness') — the same two fields
+`org-air-view--source-heading-exact-p' compares and nothing more: no buffer
+text beyond that projection, no markers, no items, no undo objects.  Confined
+to the live key set by `org-air-view--marked-table-rebuild', so mark storage
+stays proportional to the number of marks.")
 (defvar-local org-air-view--marked-generation nil
   "The cached item-list object last reconciled with the marked key set.")
 (defvar-local org-air-view--pending-mutation-landing nil
@@ -2397,11 +2408,40 @@ wrong-buffer markers."
   (when (eq (current-buffer) org-air-view--source-tracking-owner)
     (org-air-view--source-tracking-release-owner (current-buffer))))
 
+(defun org-air-view--marked-witness-table ()
+  "Return this board's mark witness table, creating it once."
+  (unless (hash-table-p org-air-view--marked-witnesses)
+    (setq org-air-view--marked-witnesses (make-hash-table :test #'equal)))
+  org-air-view--marked-witnesses)
+
+(defun org-air-view--item-mark-witness (item)
+  "Return ITEM's bounded mark witness `(TITLE . SORTED-EFFECTIVE-TAGS)'.
+Exactly the projection `org-air-view--source-heading-exact-p' compares an
+item against its source heading with, read from the item's own already-cached
+fields: no file is opened, no marker is captured, and nothing unbounded or
+source-side is retained.  Tags are sorted copies, so tag ORDER never decides
+whether a mark survives."
+  (when (org-air-item-p item)
+    (cons (substring-no-properties (or (org-air-item-title item) ""))
+          (sort (mapcar #'substring-no-properties (org-air-item-tags item))
+                #'string<))))
+
 (defun org-air-view--marked-table-rebuild ()
-  "Rebuild the exact-key membership table from the ordered mark list."
+  "Rebuild the exact-key membership table from the ordered mark list.
+The witness table is confined to the same key set in the same pass, so every
+path that drops, clears or reconciles marks releases their witnesses too and
+mark storage stays proportional to the number of marks."
   (setq org-air-view--marked-key-table (make-hash-table :test #'equal))
   (dolist (key org-air-view--marked-keys)
     (puthash key t org-air-view--marked-key-table))
+  (when (hash-table-p org-air-view--marked-witnesses)
+    (let (drop)
+      (maphash (lambda (key _witness)
+                 (unless (gethash key org-air-view--marked-key-table)
+                   (push key drop)))
+               org-air-view--marked-witnesses)
+      (dolist (key drop)
+        (remhash key org-air-view--marked-witnesses))))
   org-air-view--marked-key-table)
 
 (defun org-air-view--marked-key-p (key)
@@ -2430,16 +2470,46 @@ wrong-buffer markers."
 (defun org-air-view--marked-reconcile (items)
   "Reconcile the exact source-key selection with a new ITEMS generation.
 Missing source keys are pruned, with no title fallback and no file read.
-Ordinary cached repaints keep the identical list object and do no work."
+Ordinary cached repaints keep the identical list object and do no work.
+
+MEMBERSHIP IS NOT IDENTITY.  A key is `(FILE . POSITION)', so an ordinary
+edit made outside org-air shifts every later heading's offset and the very
+same key names a DIFFERENT heading in the replacement generation this call
+reconciles against.  Keeping it would silently RE-TARGET the user's mark:
+the write path re-resolves key to item from the rebuilt index, so every
+downstream exactness check would compare that re-resolved item against
+itself, could never fire, and the marked backlog/tag write would move a
+heading the user never selected while echoing complete success.  So a
+surviving key must still resolve to the heading it was made on: its witness
+\(`org-air-view--item-mark-witness') is compared with the newly resolved
+item's, and a mismatch is pruned as stale through the same bounded message a
+vanished key uses — never silently re-bound.  Resolution is first-item-wins,
+exactly like `org-air-view--bulk-preflight''s own key lookup, so the witness
+gates precisely the item a write would target.  Costs stay proportional to
+the marks: the generation pass only indexes keys, and one witness is derived
+per surviving mark.  Still no file read, no title fallback, no per-render
+work — an unchanged generation returns above."
   (unless (eq items org-air-view--marked-generation)
     (let ((live (make-hash-table :test #'equal))
+          (witnesses (org-air-view--marked-witness-table))
           (before (length org-air-view--marked-keys)))
       (dolist (item items)
         (when-let* ((key (org-air-view--item-source-key item)))
-          (puthash key t live)))
+          (unless (gethash key live)
+            (puthash key item live))))
       (setq org-air-view--marked-keys
-            (seq-filter (lambda (key) (gethash key live))
-                        org-air-view--marked-keys)
+            (seq-filter
+             (lambda (key)
+               (when-let* ((item (gethash key live)))
+                 (let ((witness (org-air-view--item-mark-witness item))
+                       (marked (gethash key witnesses)))
+                   (cond
+                    ;; A key older than the witness rule (only reachable by
+                    ;; setting the mark list directly, never by `m') adopts
+                    ;; the resolved projection once instead of vanishing.
+                    ((null marked) (puthash key witness witnesses) t)
+                    ((equal marked witness) t)))))
+             org-air-view--marked-keys)
             org-air-view--marked-generation items)
       (org-air-view--marked-table-rebuild)
       (let ((pruned (- before (length org-air-view--marked-keys))))
@@ -10837,7 +10907,10 @@ header and never toggles or hangs."
 (defun org-air-toggle-mark ()
   "Toggle the item at point in the exact source-key bulk selection (R90).
 Every mirror occurrence renders together; the selection survives cached
-repaints, filters, sorts, folds and view changes in this live board."
+repaints, filters, sorts, folds and view changes in this live board.
+The mark records the bounded projection witness of the heading actually
+selected, so a later generation can never re-bind the key to another
+heading (`org-air-view--marked-reconcile')."
   (interactive)
   (let* ((item (org-air-view--item-at-point))
          (key (or (org-air-view--item-source-key item)
@@ -10849,7 +10922,9 @@ repaints, filters, sorts, folds and view changes in this live board."
             (append org-air-view--marked-keys (list key)))
       (unless (hash-table-p org-air-view--marked-key-table)
         (org-air-view--marked-table-rebuild))
-      (puthash key t org-air-view--marked-key-table))
+      (puthash key t org-air-view--marked-key-table)
+      (puthash key (org-air-view--item-mark-witness item)
+               (org-air-view--marked-witness-table)))
     (org-air-view--refresh-current)
     (message "%s %d item%s — b backlog, t add tag, M clears"
              (if marked "Unmarked" "Marked")
@@ -11117,7 +11192,38 @@ through here (`org-air-view--edit-ring-requeue' pushes directly)."
          'org-air-view--edit-ring))
     (error nil)))
 
-(defun org-air-view--edit-ring-restamp (buffer &optional tick)
+(defun org-air-view--history-restamp-pair (plist buffer tick head)
+  "Refresh PLIST's paired BUFFER history guard to TICK and HEAD, or not at all.
+R90 gave a compound part a SECOND guard component beside `:tick' — the
+`:undo-head' identity `org-air-view--bulk-history-blockers' checks straight
+after the tick — so the two are ONE fact about one buffer state and may only
+ever move together.  Refreshing half of the pair leaves the other half saying
+\"a change intervened\" about a change org-air itself made through the ring; a
+compound record can then never pass its own preflight again, and because a
+blocked compound is requeued at the head of the same ring it shadows every
+older record too.
+
+HEAD is the authoritative post-commit undo head identity for the SAME buffer
+state TICK names (`org-air-view--save-result-undo-head', captured inside the
+save attempt).  When PLIST carries no `:undo-head' there is no pair and the
+tick alone is the whole guard.  When it does and HEAD is nil — no proof of
+what org-air last left there — or when HEAD is no longer the buffer's head,
+stamp NOTHING and leave the part honestly blocked and retryable rather than
+blessing a state org-air did not produce.  `:undo-head' is already a member
+wherever it is refreshed, so both writes mutate PLIST in place.  Return
+non-nil when the pair was refreshed."
+  (if (plist-member plist :undo-head)
+      (when (and head
+                 (eq (car-safe head)
+                     (car-safe
+                      (org-air-view--history-undo-head-step buffer))))
+        (plist-put plist :tick tick)
+        (org-air-view--history-identity-put plist :undo-head head 'head)
+        t)
+    (plist-put plist :tick tick)
+    t))
+
+(defun org-air-view--edit-ring-restamp (buffer &optional tick head)
   "Re-stamp BUFFER's ring records with its current chars tick (R73/R75).
 Run after every successful ring op in BUFFER (`u' undo, `U' redo): the
 op restored exactly the content state the neighbouring records were
@@ -11137,19 +11243,33 @@ left in BUFFER (`:expected-tick', captured inside the save attempt),
 and is written verbatim instead of a fresh sample: a committed-buffer
 restamp must record the state org-air PRODUCED, never whatever the
 buffer happens to hold when a command-final sweep gets around to it
-\(see `org-air-view--history-restamp-committed')."
+\(see `org-air-view--history-restamp-committed').
+
+HEAD is that same authoritative state's undo head identity, and the
+restamp is TWO-SIDED IN THE OTHER SENSE TOO: a compound part's
+`:tick' and `:undo-head' are refreshed as one atomic pair
+\(`org-air-view--history-restamp-pair'), so they can never disagree
+and starve the record.  TICK and HEAD always travel together: with
+TICK given, HEAD must come from the same save result; with TICK nil
+\(the caller has just restored BUFFER itself) BOTH are sampled from
+BUFFER here, in one instant, never one now and one later."
   (when (buffer-live-p buffer)
-    (let ((tick (or tick (buffer-chars-modified-tick buffer))))
+    (let* ((sampled (null tick))
+           (tick (or tick (buffer-chars-modified-tick buffer)))
+           (head (if sampled
+                     (org-air-view--history-undo-head-step buffer)
+                   head)))
       (dolist (rec (append org-air-view--edit-ring
                            org-air-view--edit-redo-ring))
         (if (eq (plist-get rec :kind) 'bulk)
             (dolist (part (plist-get rec :parts))
               (when (and (eq (plist-get part :buffer) buffer)
                          (not (plist-member part :expected-undo)))
-                (plist-put part :tick tick)))
+                (org-air-view--history-restamp-pair
+                 part buffer tick head)))
           (when (and (eq (plist-get rec :buffer) buffer)
                      (not (plist-member rec :expected-undo)))
-            (plist-put rec :tick tick)))))))
+            (org-air-view--history-restamp-pair rec buffer tick head)))))))
 
 (defun org-air-view--edit-ring-requeue (rec buffer ring)
   "Re-stamp REC to BUFFER's current chars tick and push it onto RING.
@@ -11163,9 +11283,17 @@ it back onto the undo side — deliberately NOT via
 makes the record's tick guard mean \"no non-ring change since the
 ring op\" on its new side; the same defensive push-and-truncate to
 `org-air-view--edit-ring-max' applies (Decision 6: the bound is
-enforced on BOTH sides, not merely argued by conservation)."
+enforced on BOTH sides, not merely argued by conservation).
+
+The re-stamp goes through the same atomic pair as every other one
+\(`org-air-view--history-restamp-pair'): REC is an ordinary
+single-buffer record today and carries no `:undo-head', but a
+one-sided tick write is exactly the defect that starved compound
+records, so no path writes half a guard."
   (unless (plist-member rec :expected-undo)
-    (plist-put rec :tick (buffer-chars-modified-tick buffer)))
+    (org-air-view--history-restamp-pair
+     rec buffer (buffer-chars-modified-tick buffer)
+     (org-air-view--history-undo-head-step buffer)))
   (org-air-view--history-track-buffer buffer)
   (set ring (cons rec (symbol-value ring)))
   (org-air-view--history-ring-truncate ring))
@@ -11810,6 +11938,18 @@ verified candidate records.  Distinct files are opened at most once."
   (with-current-buffer buffer
     (seq-find #'identity buffer-undo-list)))
 
+(defun org-air-view--history-undo-head-step (buffer)
+  "Return BUFFER's current first non-boundary undo list tail, or nil.
+A stored `head' identity resolves to its raw tail's car, which is exactly
+`org-air-view--undo-head', so this is the tail shape a `:undo-head' stamp
+and its later check both speak.  Buffers with undo disabled, empty or
+all-boundary lists honestly return nil rather than signalling."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let ((tail (org-air-view--undo-list-without-boundaries
+                   buffer-undo-list)))
+        (and (consp tail) (car tail) tail)))))
+
 (defun org-air-view--undo-list-without-boundaries (list)
   "Return LIST advanced past leading undo boundaries."
   (while (and (consp list) (null (car list)))
@@ -11855,6 +11995,26 @@ guessed."
           (not (eq expected current))
           (not (eql (plist-get result :expected-tick)
                     (buffer-chars-modified-tick buffer)))))))
+
+(defun org-air-view--save-result-undo-head (result)
+  "Return the authoritative post-commit undo head tail RESULT captured.
+Both `:expected-undo' and `:expected-redo' are sampled in ONE instant inside
+the save attempt, right after the org-air edit group's own `undo-boundary'
+and before any later hook can move the buffer, so either one is a fact about
+the state org-air PRODUCED — never a late re-sample of whatever the buffer
+holds when a command-final sweep gets around to it.
+
+Exactly one of them is the buffer's own head tail, and which one is
+decidable without knowing the direction: `org-air-view--expected-redo-step'
+returns that head tail itself whenever the head carries a redo equivalence,
+and when it does not — so this returns nil — `org-air-view--expected-undo-step'
+has no cons equivalence to follow and returns that same head tail.  Return
+nil exactly when RESULT persisted no resolvable identity at all (undo
+disabled, a nonstandard handler, an unguarded recursive commit): the
+no-proof case, where nothing may be stamped."
+  (when result
+    (or (plist-get result :expected-redo)
+        (plist-get result :expected-undo))))
 
 (defun org-air-view--relocation-markers (file buffer)
   "Create a total exact relocation set in BUFFER for cached headings in FILE.
@@ -11950,6 +12110,7 @@ rather than retain a wrong-target item generation."
         org-air-view--items-key nil
         org-air-view--marked-keys nil
         org-air-view--marked-key-table (make-hash-table :test #'equal)
+        org-air-view--marked-witnesses nil
         org-air-view--marked-generation nil
         org-air-view--classify-cache nil
         org-air-view--classify-cache-day nil)
@@ -12069,14 +12230,24 @@ cosmetic work.  Parser and `remhash' failures retain their total semantics."
     key))
 
 (defun org-air-view--bulk-rekey-marks (old-index)
-  "Rekey the surviving selection through OLD-INDEX after source relocation."
-  (let ((seen (make-hash-table :test #'equal)) out)
+  "Rekey the surviving selection through OLD-INDEX after source relocation.
+Each mark's bounded witness travels with its own key: org-air's OWN write
+moved that heading, so the mark still names the heading the user selected and
+must follow it, exactly as the key does."
+  (let ((seen (make-hash-table :test #'equal))
+        (witnesses (org-air-view--marked-witness-table))
+        (moved (make-hash-table :test #'equal))
+        out)
     (dolist (key org-air-view--marked-keys)
       (let ((new (org-air-view--bulk-key-after-relocation key old-index)))
         (unless (gethash new seen)
           (puthash new t seen)
-          (push new out))))
+          (push new out))
+        (when-let* ((witness (gethash key witnesses)))
+          (unless (gethash new moved) (puthash new witness moved)))))
     (setq org-air-view--marked-keys (nreverse out))
+    (clrhash witnesses)
+    (maphash (lambda (key witness) (puthash key witness witnesses)) moved)
     (org-air-view--marked-table-rebuild)))
 
 (defun org-air-view--bulk-rekey-landing (plan old-index)
@@ -13040,7 +13211,8 @@ cut must never be made automatically undoable through an older record."
                       (org-air-view--history-identity-put
                        record :expected-undo expected))))))))))
 
-(defun org-air-view--history-restamp-committed (buffer tick expected ring)
+(defun org-air-view--history-restamp-committed
+    (buffer tick expected head ring)
   "Restamp BUFFER's ring records only against its OWN authoritative TICK.
 TICK is the post-commit `buffer-chars-modified-tick' org-air itself left in
 BUFFER — `:expected-tick', captured INSIDE the save attempt at commit time,
@@ -13059,17 +13231,27 @@ So verify before stamping.  When BUFFER is still exactly where org-air left
 it, restamp with that authoritative TICK.  On any mismatch stamp NOTHING and
 arm the one exact EXPECTED next identity on RING instead — precisely what the
 same-buffer hook path does — leaving every other record for BUFFER honestly
-blocked and retryable rather than blessed."
+blocked and retryable rather than blessed.
+
+HEAD is the SAME commit instant's undo head identity
+\(`org-air-view--save-result-undo-head'), and it is what a compound part's
+`:undo-head' half of the guard is refreshed to, atomically with its `:tick'.
+The two authoritative facts are never split and never re-derived here: a head
+sampled at sweep time would be trivially equal to the buffer's head and would
+bless a foreign group that moved it, exactly as a re-sampled tick would bless
+foreign text.  EXPECTED remains the next SAME-DIRECTION step armed on RING,
+which after an undo is a different tail from HEAD."
   (when (buffer-live-p buffer)
     (if (eql tick (buffer-chars-modified-tick buffer))
-        (org-air-view--edit-ring-restamp buffer tick)
+        (org-air-view--edit-ring-restamp buffer tick head)
       (org-air-view--history-arm-next ring buffer expected tick))))
 
 (defun org-air-view--bulk-history-restamp-committed (parts authority ring)
   "Sweep committed compound PARTS, restamping only truly untouched buffers.
-AUTHORITY is the command's `(BUFFER TICK EXPECTED)' alist, one entry per
+AUTHORITY is the command's `(BUFFER TICK EXPECTED HEAD)' alist, one entry per
 committed buffer, recorded from that buffer's OWN save result at ITS commit
-instant.  A part whose buffer has no authority entry is never stamped: with no
+instant.  TICK and HEAD are the two halves of one guard and travel as one
+fact.  A part whose buffer has no authority entry is never stamped: with no
 proof of what org-air last left there, blessing is not an option.  RING is the
 side a same-buffer next step would be popped from, so a skipped buffer's exact
 next identity is armed there (`org-air-view--history-restamp-committed')."
@@ -13077,7 +13259,7 @@ next identity is armed there (`org-air-view--history-restamp-committed')."
     (let* ((buffer (plist-get part :buffer))
            (entry (assq buffer authority)))
       (org-air-view--history-restamp-committed
-       buffer (nth 1 entry) (nth 2 entry) ring))))
+       buffer (nth 1 entry) (nth 2 entry) (nth 3 entry) ring))))
 
 (defun org-air-view--single-history-restamp (record save-result operation)
   "Restamp RECORD from SAVE-RESULT for inverse of committed OPERATION."
@@ -13206,6 +13388,7 @@ next identity is armed there (`org-air-view--history-restamp-committed')."
                (plist-get save-result
                           (if (eq operation 'undo)
                               :expected-undo :expected-redo))
+               (org-air-view--save-result-undo-head save-result)
                source-ring)
               (if cache-sync
                   (progn
@@ -13386,11 +13569,14 @@ after disk commit is finalized as success and only emits a bounded warning."
                             (expected
                              (plist-get save-result
                                         (if (eq operation 'undo)
-                                            :expected-undo :expected-redo))))
+                                            :expected-undo :expected-redo)))
+                            (head (org-air-view--save-result-undo-head
+                                   save-result)))
                         ;; Record what org-air really left in this buffer
-                        ;; before any later part can move it again.
+                        ;; before any later part can move it again — both
+                        ;; halves of the guard, from the one save result.
                         (setq authority
-                              (cons (list buffer tick expected)
+                              (cons (list buffer tick expected head)
                                     (assq-delete-all buffer authority)))
                         (when (not (eql tick
                                         (buffer-chars-modified-tick buffer)))

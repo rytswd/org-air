@@ -493,5 +493,184 @@ and FAIL on =main=:
   first-row-landing repaint the view's banner is visible; after a
   preserving repaint the row holds its screen line).
 
+- 2026-07-28: PERMANENT R92 COVERAGE + INDEPENDENT AUDIT + THE TWO MISSING
+  INVARIANT FAMILIES (independent test seat; no production byte touched).
+
+  *Independent audit first.*  Every claim in this document was re-measured
+  on a clean checkout of the parent =main= (=pppqmqrtvqyz=, R91) built at
+  =/tmp/org-air-r92t-parent= from that revision's own eleven modules,
+  BEFORE a line of test was written.  All of them reproduce:
+
+  | claim                        | parent (R91)                          | this working copy        |
+  |------------------------------+---------------------------------------+--------------------------|
+  | project chrome, shared repaint | =ws= 1 → 178 / 154 / 81 / 80, banner GONE at pre-offsets 0/2/3/4 | =ws= 1, banner VISIBLE   |
+  | revisit chrome               | =ws= 1 → 81, banner GONE              | =ws= 1, banner VISIBLE   |
+  | review chrome                | =ws= 1 → 98, banner + =+ Completed 30= GONE | =ws= 1, both VISIBLE |
+  | project TAB fold row         | =ws= 2041 → 1, off 4 → *32* in an 11-row window (off-screen) | off 4 → 4 |
+  | review TAB section header    | =ws= 2549 → 1, off 5 → *40* in a 10-row window (off-screen) | off 5 → 5 |
+  | project =g= / =s= / group / =(= / resize | row =Document number 33= → =…00= every time | row kept, off 5 → 5 |
+  | revisit =g= / =m= / =z c= / TAB page | row =Note number 09= → =Note 00=, TAB page landed on =Note 00= | row kept |
+  | review =g= / =f= / =+= / =-= / =m= / =s= / =S= / =/= | row =Task number 23= → =Task 00= | row kept |
+  | review =b= backlog           | row =Task number 17= → =Task number 00= | row kept, tag written |
+  | bookmark bystander window    | =ws= 1493 → 1, banner under its point  | =ws= 1493, own row kept  |
+  | repaint that SIGNALS         | =ws= 2736 → 1, off 6 → 47 (off-screen) | =ws= 2736, off 6        |
+  | one =m=                      | =set-window-start= installed *twice*   | *once*                   |
+  | point ABOVE =window-start=   | fictitious offset 10 anchored at =ws= 2442 | not anchored         |
+
+  *PART A — permanent R92 coverage.*  =tests/org-air-round92-test.el=,
+  *19 tests*, of which *17 are RED on the parent revision* (verified by
+  building the parent tree, not by in-process neutering; the 2 that pass
+  on both are the deliberate "unchanged behaviour" pair — the vanished-row
+  first-row fallback and the R26-5 view entry).  The assertion R91 could
+  not make is the file's spine: =org-air-landing-test-visible-lines= walks
+  the window's real display lines from =window-start= with
+  =vertical-motion= and returns their TEXT, so a test can say *"the banner
+  is visible"* instead of the toothless =offset < window-body-height=.
+  Row IDENTITY is read out of the BUFFER TEXT (=Document number 33=,
+  =Note number 09=, =Task number 23=), never out of a struct or a text
+  property, so no assertion names an org-air internal.  Covered: the
+  chrome of all three non-board views after a shared repaint; both TAB
+  seams; the uniform landing rule across =g=, sort, the group-by keys,
+  =(=, filter, period / range / surface nav, rollup, scope, paging, the
+  debounced resize repaint (driven through the public
+  =org-air-layout-refresh-function= seam) and the shared =b= verb; the
+  vanished-row half of the rule (first row AND the chrome back on screen);
+  the per-window bookmark exclusion; and the three seam-correctness fixes.
+  No new GUI skip: the 8 pre-existing skips are unchanged.
+
+  *PART B — INVARIANT FAMILY P2, cursor landing after every command.*
+  =tests/org-air-invariant-landing-test.el=, *7 tests*, *3 RED on the
+  parent*.  =org-air-landing-invariant-table= classifies *every* command
+  =map-keymap= yields over the four mode maps (parents included, so the
+  shared view-core map and the =special-mode-map= inheritance are covered)
+  as STABLE, JUMP or NOT-RUN-with-a-written-reason;
+  =…-table-is-complete= fails if a bound command is missing and
+  =…-table-has-no-dead-rows= fails if a classified command no longer
+  exists, so a NEW key cannot be added without someone deciding, in
+  writing, where its cursor lands.  The four runners drive every
+  STABLE/JUMP command through =pre-command-hook= → =call-interactively= →
+  =post-command-hook= (so the views' own point normalisation runs exactly
+  as it does for a user), on a realistic corpus, with a fresh anchor row
+  per command so a mutating verb cannot starve the next one, and assert:
+  point on a VISIBLE GLYPH of a row, =window-point= = =point=, and the
+  same row identity for STABLE unless that row genuinely vanished.
+  Prompting commands get deterministic readers; a refusal is a legitimate
+  outcome and the landing law applies to it too.  Commands exercised:
+  board 46, project 20, revisit 18, review 27 (of 65 / 36 / 34 / 43
+  bindings; the rest are the NOT-RUN rows, each with its reason).
+
+  *PART C — INVARIANT FAMILY P1, echo-area correctness.*
+  =tests/org-air-invariant-echo-test.el=, *18 tests*.  These are GREEN on
+  the parent by design: P1 is a NEW family, not a fence for an R92 fix, so
+  it is reported as coverage rather than as RED evidence.
+  =org-air-landing-test-echo-of= prefers =current-message= and falls back
+  to the last line the keystroke appended to the message log — stated
+  plainly in the file because =current-message= is ALWAYS nil in =--batch=
+  (a batch Emacs has no echo area); a unique sentinel is logged first so
+  Emacs's consecutive-duplicate collapsing cannot make a real message look
+  like silence.  The instrument is pinned by its own test before anything
+  relies on it.  Asserted TEXT: =Marked N item(s) — b backlog, t add tag,
+  M clears= (and the =Unmarked= form, and the running count),
+  =No marked items= / =Cleared all marks=,
+  =Pruned 2 stale marked items= (driven by really moving the marked
+  headings' byte positions), the bulk-verb buckets
+  (=Backlogged 2 marked items=, =…; 1 already backlog=,
+  =Un-backlogged 2 marked items=), the single-item claims
+  (=Backlogged "…"=, =Marked DONE "…"=, =Archived "…"=,
+  =Todo "…": TODO → DONE=, =Todo unchanged=), the undo/redo claims
+  (=Undid: … (0 more)= / =Redid: … (0 more redoable)=, =Nothing to undo=,
+  =Nothing to redo=), and the refusals (=No org-air item at point=,
+  =No note at point=, =No Air document on this line=,
+  =Marking DONE is single-item while 2 marks are active; M clears marks=,
+  =Not in an org-air board or project buffer=), plus the R91/R92 view
+  verbs' state lines.  Coverage is MECHANICAL: the file scrapes every
+  literal =(message …)= / =(user-error …)= format string out of the four
+  view modules (*66 found*) and fails if this suite claims to cover a
+  string the source does not contain.
+
+  *The gap, stated rather than implied.*  31 of the 66 inventory entries
+  are covered; the *37 remaining* are: the load / refresh failure paths
+  (=org-air: refresh failed: %s (g r retries)=, =org-air: load failed: %s=,
+  =Still loading your board…=, =Still refreshing this file…=,
+  =org-air: scanned %d file%s (%d item%s)%s=), the bookmark-degraded
+  warning (=org-air: bookmark restore degraded: %s=), the history
+  partial-commit and blocker lines (=Cannot %s: %s — %s=,
+  =Cannot undo/redo: …= ×6, =Not simply undoable: …=,
+  =%s incomplete: %d/%d files …= ×2, =%s: %s (%d file%s)=), the inbox
+  triage prompts (=Inbox zero — nice work.=, =Unknown key: %c=), the
+  section-motion notes (=org-air: no next heading=, =…no previous
+  heading=, =…point is before the first heading=, =org-air: %s column %s=),
+  the pane/session errors (=org-air: could not display the view pane=,
+  =No org-air board to focus=, =No org-air dashboard to return to=,
+  =No project doc session in this buffer=, =The project tree buffer is
+  gone=), and =Item has no source identity=,
+  =Incomplete source locator in %s; run g r=, =Unknown quick-date key: %c=,
+  =%s "%s"%s=, =Backlog: %s=, =Deleted "%s"=,
+  =Expected recursive-hook history step is unavailable=,
+  =org-air warning: %s=, =org-air project: sort by %s=.  Most need a
+  fault-injection corpus (a mid-refresh stale file, a killed source
+  buffer, a tripped chars-tick) and belong with the round that owns each
+  path; naming them here keeps the gap visible.
+
+  *Mutation evidence.*  Each R92 element reverted in its own tree under
+  =/tmp/org-air-r92t-mut/=, the three new files run against it:
+
+  | reverted element                                   | tests that redden |
+  |----------------------------------------------------+-------------------|
+  | the uniform landing rule (=--landing-save= → nil)   | 11: =org-air-r92-project-refresh-keeps-the-row-and-the-column=, =…-project-sort-group-and-filenames-keep-the-row=, =…-project-resize-repaint-keeps-the-row=, =…-revisit-refresh-surface-and-created-keep-the-row=, =…-revisit-paging-keeps-the-fold-row=, =…-review-refresh-rollup-and-range-keep-the-row=, =…-review-scope-and-filter-keep-the-row=, =…-review-backlog-verb-keeps-the-row-it-acted-on=, and the P2 runners =org-air-landing-invariant-{project,revisit,review}-commands-land-on-a-row= |
+  | the render never REPORTS its first-row fallback     | 4: =…-project-repaint-keeps-banner-and-state-summary-visible=, =…-revisit-repaint-keeps-banner-visible=, =…-review-repaint-keeps-banner-and-section-header-visible=, =…-vanished-row-lands-on-first-row-and-says-so= |
+  | the project TAB seam                               | 1: =org-air-r92-project-tab-fold-row-holds-its-screen-line= |
+  | the review TAB seam ALONE                          | *0* — see the honest finding below |
+  | the review TAB seam AND the landing rule           | 1: =org-air-r92-review-tab-section-header-holds-its-screen-line= (plus the 8 landing-rule tests) |
+  | the per-window bookmark exclusion                   | 1: =org-air-r92-bookmark-jump-leaves-bystander-window-alone= |
+  | =unwind-protect= → =prog1=                          | 1: =org-air-r92-repaint-that-signals-keeps-the-viewport= |
+  | the nested-seam pass-through (two pairs again)      | 1: =org-air-r92-one-anchor-restore-pair-per-keystroke= |
+  | the point-above-=window-start= guard                | 1: =org-air-r92-point-above-window-start-is-not-given-a-fictitious-offset= |
+
+  *Honest finding for the next reviewer.*  Removing the seam from
+  =org-air-review-toggle-section= ALONE reddens nothing.  With the R92
+  landing rule in place, the review's own =--render= already preserves the
+  toggled section (=org-air-section= is one of its identity properties)
+  inside its own seam, so the command's outer seam is defence in depth on
+  this path rather than load-bearing — unlike the project's TAB, whose
+  EXPAND branch deliberately lands on a DIFFERENT row (the revealed
+  group's first row) that the render's landing cannot resolve, and which
+  therefore reddens on its own.  Removing BOTH mechanisms does redden the
+  review TAB test, so the behaviour IS fenced; only the redundancy is
+  reported.  This is stated rather than papered over with a test written
+  to the mutation.
+
+  *Gate.*  =rm -f *.elc=; all 11 modules byte-compile with only the one
+  pre-existing =org-air-project.el:946 docstring wider than 80 characters=
+  warning; =make clean && make check= → *1279 tests, 1271 as expected, 0
+  unexpected, 8 skipped* (1235 + 44 new; the SAME 8 pre-existing GUI-only
+  skips — nothing here is pixel-dependent, so nothing joined the skip
+  set).  =make lint=: =ok (0 findings, all baselined)=.  Loaded
+  known-failures active length 0.  =make regen-mockups= produced zero
+  fixture churn.  The four production modules are byte-identical to
+  =uwuoxlnlnpnq= (=org-air-view.el=
+  =69d3111d6f23a7a252040819f78c845716a75aab47a3eb5189fea22e67ed31ae=,
+  =org-air-project.el=
+  =53a44c0f3c2e0b71945e1f5ede0506080e9f06869cb73fb28bb0f233c4bf0672=,
+  =org-air-revisit.el=
+  =2bd6aeac8067864ffc186de9f5309fc308cc7768a8aebbe7643acae5314d1f0c=,
+  =org-air-review.el=
+  =e2562b0e065e4f5dd299a1ffd2852ec548636deb126d4df275a6fa01fb871810=), as
+  are the other seven; README, fixtures, goldens and the known-failures
+  manifest are untouched; no probe file was written into the repo.  The
+  only changed paths are the four new test files
+  (=tests/org-air-landing-helpers.el=, =tests/org-air-round92-test.el=,
+  =tests/org-air-invariant-landing-test.el=,
+  =tests/org-air-invariant-echo-test.el=) and this history entry.
+
+  *Still open* (named, not implied): P3 viewport stability generalised as
+  a table over the other three keymaps (PART A fences the R92 instances
+  but not every command × every view), P4 repaint idempotence, P5 view
+  state survives a refresh, P6 prompt behaviour, P7 the STRUCTURAL half of
+  the window-layout claims (the pixel half stays a GUI skip), P9
+  accidental-edit safety and P10 resource leaks after =q=.  The
+  multi-FRAME case (=C-x 5 2=) still has no automated proof —
+  =make-frame= signals in =--batch= — and stays on the hand-check list.
+
 * History
 - 2026-07-28: State: draft → work-in-progress.

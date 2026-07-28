@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: work-in-progress
+#+state: complete
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -3987,6 +3987,99 @@ no query or refile-engine behavior changes.
   no-op across the whole fixture set.  No repo probe file was ever created and
   =.deps= is untouched.
 
+- 2026-07-28: RELEASE-REQUIRED README UPDATE (documentation only — no =.el=
+  module, test, fixture, golden or known-failures byte changed).  DISTINGUISHED
+  REVIEW 9 (sixth pass, after FIX-15) APPROVED candidate =onuznmkszxur= with no
+  release blocker: its 8-shape × 2-verb × {=g r=, no-=g r=} re-targeting matrix
+  is closed, all ten previously blocking roots are fenced by named permanent
+  tests re-derived from a 19-mutant battery of the reviewer's own design, and
+  FIX-15 is confined exactly as claimed.  Its five remaining findings are all
+  non-blocking, but one of them (Finding 2) is blocking as DOCUMENTATION:
+  =README.org= still described marks as merely surviving repaint/filter/sort
+  and said nothing about validation, pruning, the =N failed — run g r= bucket,
+  or the duplicate-projection rule this round introduced.  Applied review-9
+  §7(b): two paragraphs inserted after the =~m~ builds a live source-heading
+  selection…= paragraph, and that paragraph's last sentence amended to say
+  marks are not saved in the scan cache or bookmarks AND do not survive killing
+  the board buffer.  The =m=/=M=/=t= key rows and the marked-=b= set-all
+  sentence were left untouched, as review-9 verified them already correct.
+
+  EVERY SENTENCE VERIFIED AGAINST THE RUNNING PRODUCT BEFORE IT WAS WRITTEN
+  (drivers under =/tmp=, run against a byte copy of the working tree,
+  =org-air-view.el= sha256 =aa493db4…=; nothing landed in the repo).
+
+  1. STRINGS, checked verbatim in the source and then re-observed as the user
+     sees them: ="Pruned %d stale marked item%s"= (=org-air-view.el:2767=) →
+     "Pruned 1 stale marked item"; ="%d failed%s — run g r"= (=12639=) →
+     "1 failed — run g r" (the =%s= inserts = in FILE= only for a RUNTIME
+     commit failure, never for a verification failure); ="%d ineligible
+     remains marked"= (=12637=); and the whole one-line summary observed from a
+     real marked =b= over three files: "Backlogged 1 marked item; 1 ineligible
+     remains marked; 1 failed — run g r".
+  2. PRUNE SHAPES.  A unique-projection mark whose heading MOVED (an edit
+     ABOVE it shifted its offset), was RETITLED, RETAGGED, or VANISHED each
+     reported "Added #zzz to 0 marked items; 1 failed — run g r" without a
+     refresh and "Pruned 1 stale marked item" on =g r=, with every heading on
+     disk left byte-unchanged.  Control: the untouched mark writes normally.
+  3. THE DUPLICATE-PROJECTION RULE, and that it is genuinely STRICTER rather
+     than general.  Two identical =* TODO Standup= headings in one file, mark
+     one, then tag an UNRELATED heading BELOW it in the user's own Emacs and
+     save → "1 failed — run g r", then "Pruned 1 stale marked item".  Control:
+     a UNIQUE-projection mark in the same file survives exactly that unrelated
+     edit (no prune) and its next marked =t= writes it.
+  4. OWN WRITE vs OWN =u=.  A spared ambiguous mark ("Backlogged 1 marked
+     item; 1 ineligible remains marked") survives the following =g r=
+     (=r90-96='s law), and one =org-air-edit-undo= plus a =g r= then prunes it
+     ("Pruned 1 stale marked item") with the heading itself untouched —
+     review-9 Finding 1 reproduced independently, and the reason the README now
+     says org-air's own =u=/=U= currently reads as foreign.
+  5. NO FILE READ TO MAKE A MARK, NO =ID= EVER WRITTEN.  Tracing
+     =find-file-noselect=, =insert-file-contents= and =file-attributes= across
+     one =m= press on an ambiguous row and on a unique row: the marked file is
+     never opened and never stat'd — the ambiguous witness takes its mtime from
+     the scan's already-recorded file meta — and the only open at all is the
+     rail inspector's pre-existing =:CREATED:= read (=--item-created= ←
+     =--inspector-item-fields= ← =--inspector-rail-lines=).  No org-air module
+     writes an =ID= or =CUSTOM_ID= property: =:ID:= appears only as a READ in
+     =org-air-query.el=, and the only property writes anywhere are
+     =(org-set-property "CATEGORY" …)= in the inbox.
+  6. NOT PERSISTED.  Marks never reach the written cache file, and reopening
+     the board after killing it yields 0 marks.
+
+  TWO REVIEWER SENTENCES CORRECTED AGAINST ACTUAL BEHAVIOUR rather than copied.
+  (a) "never opens your files to make a mark" is true of the mark, but not of
+  the =m= KEYSTROKE as a whole — the rail inspector opens the point row's file
+  for its =:CREATED:= line, which is pre-existing and unrelated to marks.
+  Shipped as "never re-reads your files to derive a mark's identity", which is
+  exactly what the trace proves.  (b) "no heading you did not select is ever
+  written" is contradicted by review-9's own Judgment 1 and §6 limitation 4:
+  inside org-air's own ≈1 ms save tick a foreign byte-preserving sibling
+  exchange is indistinguishable from our own work, so an absolute "ever" is not
+  a claim the product can keep.  Shipped as the fail-closed promise that DOES
+  hold everywhere: "org-air would rather lose a selection than write a heading
+  you did not pick".
+
+  NOTHING ELSE IN =README.org= IS STALE FOR R90 — re-checked against the
+  product, not assumed: the =m=/=M=/=t= key rows; the marked-=b= set-all
+  sentence and its "one =u=/=U= round-trips the whole marked command" (the
+  compound ring, exercised above); the banner claim (the board really composes
+  ="• %d marked · %d shown"=, =--marked-status-segment=) and the help explainer
+  (="%d marked · %d shown; hidden marks are included"=); the Backlog
+  header-only / =TAB= / exact-=is:backlog= chrome; and the bookmark contract
+  (view, scope, filter, sort and point — no marks).  The README makes no
+  performance claim about =g r=, so review-9's ~1.5×-vs-R89 note (Finding 6)
+  needs no README edit.  Nothing was restructured or padded.
+
+  GATE.  Stale bytecode deleted first; =make clean && make check=: compile
+  clean but for the pre-existing =org-air-project.el:946= wide-docstring
+  warning; =lint: ok (0 findings, all baselined)=; **1204 tests / 1196 as
+  expected / 0 unexpected / 8 GUI skips**.  Loaded known-failures active length
+  0.  =make regen-mockups= in a =/tmp= copy: exit 0 and a byte no-op across the
+  whole fixture set.  All 11 =.el= modules plus the tests, fixtures, goldens
+  and =tests/org-air-known-failures.el= are sha256-identical to
+  =onuznmkszxur=; the only changed files are =README.org= and this document.
+  No repo probe file was created and =.deps= is untouched.  State: complete.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -4141,3 +4234,11 @@ no query or refile-engine behavior changes.
   re-measured with the CWD equalised: preflight +5–6%, everything else within
   noise.  Gate 1204 tests / 0 unexpected / 8 GUI skips / manifest 0 / lint 0 /
   regen a byte no-op.)
+- 2026-07-28: State: work-in-progress → complete (distinguished review 9
+  APPROVED the candidate with no release blocker, requiring only the README
+  additions before release; those additions are made and every claim in them
+  was verified against the running product, with two reviewer sentences
+  corrected to match actual behaviour.  Documentation-only change: all 11
+  modules, tests, fixtures, goldens and known-failures byte-identical to
+  =onuznmkszxur=.  Gate 1204 tests / 0 unexpected / 8 GUI skips / manifest 0 /
+  lint 0 / regen a byte no-op.)

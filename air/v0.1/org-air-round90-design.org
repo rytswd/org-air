@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: work-in-progress
+#+state: blocked
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -3508,6 +3508,139 @@ no query or refile-engine behavior changes.
   The stored witness is =(("D2") 0 . 1)= — one title string, a sorted tag
   copy and two fixnums, with no printed object reference anywhere in it.
 
+- 2026-07-28: Round 90 TEST/AUDIT retest 18 — distinguished review 8
+  permanent coverage.  VERDICT: BLOCKED.  Tests + Air only: every production
+  =.el= is byte-identical to =zqpxkkuoltvy= (=org-air-view.el= sha256
+  =ab0baf084a752c884c99a70db4fe29863f0fcf4feb122e8246bcc03f91375a43=,
+  =org-air-query.el= =44ef495f…=, =org-air-inbox.el= =b7cd5162…=, all equal
+  before and after every mutation), and README, fixtures, goldens and the
+  known-failures manifest are untouched.  =jj st= shows exactly two modified
+  paths: =tests/org-air-round90-test.el= and this design file.  No repository
+  probe file was created and =.deps= is retained.
+
+  BLOCKER F1 — A BYTE-PRESERVING REARRANGEMENT OF TWO SAME-PROJECTION
+  SIBLINGS RE-TARGETS A MARK.  Retest 17 recorded the neighbouring shape as a
+  residual limitation of a "byte-compensating rotation" and concluded that
+  only a durable per-heading =ID= could close it.  The reachability half of
+  that record is WRONG and the class is wider than a rotation.  Exchange two
+  siblings that share a title and effective tags and have equal-width blocks
+  and NOTHING moves: ordinal, arity, projection, every byte offset in the
+  file and therefore the entire scan generation come back byte-identical, so
+  the mark simply re-binds to the twin that slid into its offset and marked
+  =b=/=t= writes the heading the user did NOT select while echoing complete
+  success.  Reproduced on the candidate for BOTH verbs and THREE shapes:
+  (a) the everyday gesture — =M-<down>= (=org-move-subtree-down=) on the
+  MARKED heading in the user's own Emacs, saved, then =g r=, then the verb;
+  (b) the same with NO =g r= at all, source buffer open and its tracked
+  locator live; (c) a plain two-way swap by an outside tool followed by =g r=.
+  Precondition: two templated recurring headings ("Standup", "Weekly review")
+  — the round's own docstring names them.  It fires WITH and WITHOUT =g r=
+  because =--source-heading-exact-p= compares exactly the two fields the
+  witness does, so the write-time and preflight exactness gates cannot see it
+  either; and the live tracked marker does not help, because it faithfully
+  tracks the offset whose occupant changed.  Violated: Decision 2 (a source
+  mismatch is a failed/stale target, NEVER silently relocated) and
+  =README.org:292= (the marked write is exactly the marked set).
+
+  NEW PERMANENT REDS (both RED interpreted AND byte-compiled, never
+  manifested).  =r90-88-rearranged-sibling-never-backlogs-wrong-heading= and
+  =r90-89-rearranged-sibling-never-tags-wrong-heading= drive the full 3-shape
+  × 2-verb matrix through the real product — real =m=, a real
+  =org-move-subtree-down= + =save-buffer= in the visited source, a real =g r=
+  where the shape has one, point parked on a row in ANOTHER file, and the real
+  =b=/=t=.  They assert only user-visible facts and disk truth: the sibling
+  now at the marked offset is BYTE-IDENTICAL on disk, no other unmarked
+  heading moved, no echo claims marked work that did not land on the heading
+  the user marked (a new =org-air-r90--marked-wrote-re= matches only a claim
+  of ≥1 written marked item, so an honest =0 marked items; 1 failed= is not
+  mistaken for success), and the user is never left trusting an unresolvable
+  mark — either org-air says so (stale / pruned / failed) or the write really
+  landed where they marked.  No fix shape is encoded and NO MTIME WITNESS IS
+  ASSERTED: pruning, refusing, or genuinely hitting the marked heading all
+  pass.
+
+  FOUR NEW SEAM PINS, each GREEN on the candidate and RED under its own
+  deletion, each the ONLY test its mutation reddens.
+  1. =r90-90-every-part-restamp-records-the-live-head= — ROOT-1 defence D1.
+     Spies the real =--bulk-history-restamp-part= across =u u U u= on the
+     shape where head and next-step diverge (an ordinary same-buffer =d= made
+     AFTER the compound and undone BEFORE it) and demands that at EVERY
+     per-part restamp — the redo included — the part already carries the head
+     its buffer really has; the command-end state is checked too.  RED under
+     the faithful pre-FIX-14 body (=mut-P1=) AND under the narrower "pass
+     =expected= to the pair writer" variant (=mut-D1=); GREEN under =mut-P2=.
+  2. =r90-91-committed-sweep-sees-the-requeued-record= — ROOT-1 defence D2.
+     Spies =--bulk-history-restamp-committed= and demands the compound is
+     already on the REDO ring when the sweep runs after a complete-success
+     =u=, and already back on the UNDO ring after a complete-success =U= — the
+     sweep finds its work by iterating the two rings, so a record swept while
+     on neither is structurally invisible to the one pair writer.  RED under
+     =mut-P2= (sweep before requeue); GREEN under =mut-P1=.
+  3. =r90-92-underivable-witness-is-pruned-never-adopted= — the fail-closed
+     nil-witness prune (=org-air-view.el:2654-2656=).  With a real outside
+     insert above the mark (so the marked key really resolves to a DIFFERENT
+     heading) and the identity made underivable for the generation swap, =g r=
+     must say =Pruned 1 stale marked item= and the drifted file must gain no
+     tag at all.  RED under =((null witness) t)=, where the adopted mark makes
+     =b=/=t= write =D1= and echo complete success.
+  4. =r90-93-dead-locator-set-is-never-reused-on-faith= — the O(1)
+     =(FIRST . LAST)= locator liveness witness (=2175-2189=).  Kills every
+     tracked marker while the generation identity, the =complete= flag and the
+     index all still say "usable", re-enters the real visit-time hydration
+     entry point (=--hydrate-open-source-markers=, the =find-file-hook=
+     function), then drives the r90-78 control-1 path: the user edits t.org in
+     their own Emacs and saves with no =g r=, and the marked write must still
+     land on =D2= and on nothing else.  RED under
+     =--source-locators-live-p → t=, where the dead set is reused and the verb
+     degrades to =Backlogged 0 marked items; 1 failed — run g r=.
+
+  MUTATION MATRIX (whole R90 selector, interpreted and byte-compiled, each
+  mutant rebuilt from this working tree and re-hashed).  Candidate 97/99 with
+  exactly =r90-88=/=r90-89= RED.  =mut-P1= → +=r90-90=.  =mut-D1= →
+  +=r90-90=.  =mut-P2= → +=r90-91=.  =mut-P1P2= → +=r90-81..84=, =r90-90=,
+  =r90-91= (8 RED) — confirming both that the two defences are jointly
+  necessary and that each now has its own fence.  =((null witness) t)= →
+  +=r90-92=.  =--source-locators-live-p → t= → +=r90-93=.  No mutation moved
+  any other test, and no new test reddens for a mutation that is not its own.
+
+  CONTROLS.  =r90-78= (tracked + org-air-owned relocations), =r90-80=
+  (witness survives org-air's own rekey) and =r90-87= (no over-prune from an
+  unrelated heading) are GREEN on the candidate and GREEN under every mutation
+  above; unique-projection marks are untouched by anything added here.
+  =r90-49= + =r90-54..87= 35/35.  R90 selector 97/99 — the two intended REDs
+  and nothing else.
+
+  MTIME PROTOTYPE, VERIFIED IN A =/tmp= COPY (reported, NOT landed and NOT
+  asserted by any test).  The reviewer's ambiguous-projection-only =:mtime=
+  witness — binding the arity cell to =(gethash file
+  org-air-query--file-meta) :mtime= only when =(> (length positions) 1)=, so a
+  unique heading keeps exactly today's =(0 . 1)= — greens the =g r= shapes but
+  NOT the no-refresh shape: without a scan the stored file meta still names
+  the mtime the scan saw, so the re-derived witness matches and
+  =move-down-no-refresh= still writes the wrong heading (R90 97/99, the two
+  new REDs surviving on that shape alone — independently confirming the
+  review's own =h-rot-7= observation).  Adding the second half the review
+  describes — =--bulk-preflight= re-deriving the candidate's witness and
+  comparing it to the stored one, with the mtime component taken from a FRESH
+  stat rather than the scan's copy — turns ALL of =r90-88=/=r90-89= green with
+  the rest of the gate unchanged: R90 99/99 and =make check= 1201 tests /
+  0 unexpected / 8 GUI skips / lint 0 / zero fixture churn.  So a bounded,
+  non-inventive fix does exist, it needs BOTH halves, and the design owner
+  must still rule on the interaction retest 17 flagged: org-air's own marked
+  write bumps the file mtime, so an ambiguous-projection mark that survives
+  its own command (=r90-80='s "ineligible remains marked") would prune on the
+  next =g r= unless =--bulk-rekey-marks= refreshes the component.  Whatever is
+  chosen must be pinned; =r90-88=/=r90-89= deliberately do not presume it.
+
+  GATE (candidate, unchanged production =.el=).  =rm -f *.elc tests/*.elc &&
+  make check=: compile clean but for the pre-existing
+  =org-air-project.el:946= wide-docstring warning; =lint: ok (0 findings, all
+  baselined)=; 1201 tests / 1191 as expected / 2 unexpected / 8 GUI skips.
+  =make clean && make test= (interpreted, no =.elc= on disk) reproduces the
+  same 1201 / 2 / 8.  Loaded known-failures active length 0 — the two REDs are
+  deliberately NOT manifested.  =make regen-mockups= in a =/tmp= copy exit 0
+  and a byte no-op across the fixture set.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -3628,3 +3761,11 @@ no query or refile-engine behavior changes.
   can close it).  Tests + Air only; every production =.el= byte-identical to
   =nylomqpvqvvr=.  Gate 1195 tests / 0 unexpected / 8 GUI skips / manifest 0 /
   lint 0 / regen a byte no-op.)
+- 2026-07-28: State: work-in-progress → blocked (distinguished review 8
+  reproduced one release blocker against =zqpxkkuoltvy=: ANY BYTE-PRESERVING
+  REARRANGEMENT OF TWO SAME-PROJECTION SIBLINGS re-targets a mark, so marked
+  =b=/=t= writes the heading the user did NOT select while echoing complete
+  success.  Permanent coverage added and left RED: =r90-88=, =r90-89=.  Four
+  seam pins for load-bearing guards with no coverage at all were added GREEN:
+  =r90-90=, =r90-91=, =r90-92=, =r90-93=.  Gate 1201 tests / 2 unexpected /
+  8 GUI skips / manifest 0 / lint 0 / regen a byte no-op.)

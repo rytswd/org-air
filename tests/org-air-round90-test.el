@@ -7746,5 +7746,410 @@ premise is that `m' survives repaints, filters, folds and refreshes."
     (dolist (verb '(backlog tag))
       (org-air-r90--assert-unrelated-heading-keeps-the-mark shape verb))))
 
+;;;; r90-88/89 — review-8 permanent root: a BYTE-PRESERVING REARRANGEMENT of
+;;;; two same-projection siblings.  Ordinal, arity, offsets and every other
+;;;; field the scan generation can produce are invariant across it — the whole
+;;;; generation is byte-identical — so the mark simply re-binds to whichever
+;;;; sibling has slid into its offset and `b'/`t' writes the heading the user
+;;;; did NOT select while echoing complete success.  The trigger is an ordinary
+;;;; `M-<down>' (`org-move-subtree-down') in the user's own Emacs.
+
+(defconst org-air-r90--recurring-pair
+  (concat "#+title: t\n\n"
+          "* TODO Standup\nnote 16-jun\n"
+          "* TODO Standup\nnote 17-jun\n"
+          "* TODO Write report\nnote report\n")
+  "Two templated recurring headings of EQUAL byte length, plus one other.
+The heading lines are identical and the bodies are the same width, so any
+rearrangement of the two blocks preserves every byte offset in the file.")
+
+(defconst org-air-r90--recurring-pair-swapped
+  (concat "#+title: t\n\n"
+          "* TODO Standup\nnote 17-jun\n"
+          "* TODO Standup\nnote 16-jun\n"
+          "* TODO Write report\nnote report\n")
+  "`org-air-r90--recurring-pair' with the two Standup blocks exchanged.")
+
+(defconst org-air-r90--marked-wrote-re
+  (concat "\\`\\(?:Backlogged\\|Un-backlogged\\) [1-9][0-9]* marked item"
+          "\\|\\`Added #[^ ]+ to [1-9][0-9]* marked item")
+  "Echo claiming that at least one marked item really was written.")
+
+(defconst org-air-r90--mark-unresolved-re
+  "\\(?:[Ss]tale\\|[Pp]runed\\|[0-9]+ failed\\)"
+  "Any honest report that a mark could not be resolved to its own heading.")
+
+(defun org-air-r90--rearrange-recurring-pair (shape position)
+  "Rearrange t.org's two Standup blocks by SHAPE around marked POSITION.
+SHAPE `move-down-refresh'/`move-down-no-refresh' is the everyday gesture: the
+user presses `M-<down>' (`org-move-subtree-down') on the marked heading in
+their OWN Emacs and saves, with the source buffer left open.  SHAPE
+`swap-refresh' is a plain two-way exchange performed by an outside tool.
+Both are byte-preserving: not one offset in the file moves."
+  (pcase shape
+    ((or 'move-down-refresh 'move-down-no-refresh)
+     (with-current-buffer (find-file-noselect (org-air-r90--file "t.org"))
+       (org-with-wide-buffer
+        (goto-char position)
+        (org-move-subtree-down)
+        (let ((inhibit-message t)) (save-buffer)))))
+    ('swap-refresh
+     (org-air-r90--rewrite-source
+      "t.org" org-air-r90--recurring-pair-swapped))))
+
+(defun org-air-r90--assert-rearranged-sibling-never-retargets (shape verb)
+  "Mark one recurring sibling, rearrange by SHAPE, then run marked VERB.
+The marked heading and its twin share a title and effective tags, so they are
+rendered identically and are told apart only by their body text.  After the
+rearrangement the marked byte offset names the OTHER one.  Point is parked on
+a row in another file before the write, so the only route into t.org is the
+mark itself.  Shapes ending in `-refresh' press `g r' first — the very thing
+org-air's own stale-target message recommends; the `-no-refresh' shape does
+not, so the write meets the mark exactly as the user left it, with the source
+buffer open and its tracked locator live."
+  (let* ((tag (if (eq verb 'backlog) "backlog" "zzz"))
+         (tag-re (regexp-quote (format ":%s:" tag)))
+         (marked "note 16-jun")
+         (unintended "note 17-jun")
+         (refreshp (memq shape '(move-down-refresh swap-refresh))))
+    (org-air-r90--with-board
+        (list (cons "t.org" org-air-r90--recurring-pair)
+              (cons "park.org" "#+title: park\n\n* TODO Park row\n")
+              (cons "inbox.org" "#+title: inbox\n"))
+      (should (= 2 (length (org-air-r90--rendered-rows "Standup"))))
+      (let ((position (org-air-r90--dup-heading-position "t.org" marked)))
+        (org-air-r90--mark-source-position "t.org" position)
+        (org-air-r90--rearrange-recurring-pair shape position)
+        ;; The setup really is the collision this test exists for: not one
+        ;; byte of the file moved, and the marked offset now names the twin.
+        (should (= (length org-air-r90--recurring-pair)
+                   (length (org-air-r90--text "t.org"))))
+        (should (= position
+                   (org-air-r90--dup-heading-position "t.org" unintended)))
+        (let* ((refresh (and refreshp (org-air-r90--refresh-messages)))
+               (drifted (org-air-r90--dup-heading-lines "t.org")))
+          (org-air-r90--goto-row "Park row")
+          (let* ((write (org-air-r90--run-marked-verb verb tag))
+                 (messages (append refresh write))
+                 (lines (org-air-r90--dup-heading-lines "t.org")))
+            (ert-info ((format "%S/%S marked=%S messages=%S lines=%S"
+                               shape verb marked messages lines))
+              ;; 1. THE LAW: the sibling now sitting at the marked offset is
+              ;;    byte-identical on disk.  org-air may not spend a mark on
+              ;;    a heading the user never selected.
+              (should (equal (assoc unintended drifted)
+                             (assoc unintended lines)))
+              ;; 2. And neither may any other unmarked heading move.
+              (dolist (entry drifted)
+                (unless (equal (car entry) marked)
+                  (should (equal entry (assoc (car entry) lines)))))
+              ;; 3. No echo may claim marked work that did not land on the
+              ;;    heading the user marked.
+              (when (seq-find (lambda (text)
+                                (string-match-p
+                                 org-air-r90--marked-wrote-re text))
+                              messages)
+                (should (assoc marked lines))
+                (should (string-match-p tag-re (cdr (assoc marked lines)))))
+              ;; 4. The user is never left trusting a mark org-air cannot
+              ;;    resolve: either it says so (stale/pruned/failed), or the
+              ;;    write really did land on the heading they marked.
+              (should (or (seq-find (lambda (text)
+                                      (string-match-p
+                                       org-air-r90--mark-unresolved-re text))
+                                    messages)
+                          (and (assoc marked lines)
+                               (string-match-p
+                                tag-re (cdr (assoc marked lines)))))))))))))
+
+(ert-deftest org-air-r90-88-rearranged-sibling-never-backlogs-wrong-heading ()
+  "Marked `b' must survive an ordinary reorder of two recurring headings.
+Two templated entries — \"Standup\", \"Weekly review\", anything generated on a
+repeat — share a title and effective tags, and templated entries are the ones
+whose blocks are the same width.  Reordering them is an everyday Org gesture:
+`M-<down>' (`org-move-subtree-down') on the very heading the user marked, or
+a plain two-way swap by any tool.  Such a rearrangement moves NO byte offset
+at all, so the ordinal among same-projection siblings, the arity, the
+projection and in fact the entire scan generation come back byte-identical
+and the mark silently re-binds to the twin that slid into its offset.
+
+Decision 2 is unconditional: a source file/position/title mismatch is a
+failed/stale target, NEVER silently relocated.  Both the `g r' path and the
+no-refresh path are exercised, because the write-time exactness gate compares
+the same two fields the witness does and therefore cannot catch it either."
+  (skip-unless (locate-library "org-air"))
+  (dolist (shape '(move-down-refresh move-down-no-refresh swap-refresh))
+    (org-air-r90--assert-rearranged-sibling-never-retargets shape 'backlog)))
+
+(ert-deftest org-air-r90-89-rearranged-sibling-never-tags-wrong-heading ()
+  "The same law for marked `t': one shared value, never the wrong twin.
+`b' and `t' share the mark set, the preflight and the file-coordinated writer,
+so a mark that can re-point across a byte-preserving sibling rearrangement
+spends the user's single prompted tag on a heading they never selected while
+echoing `Added #zzz to 1 marked item'."
+  (skip-unless (locate-library "org-air"))
+  (dolist (shape '(move-down-refresh move-down-no-refresh swap-refresh))
+    (org-air-r90--assert-rearranged-sibling-never-retargets shape 'tag)))
+
+;;;; r90-90/91 — review-8 seam pins for the TWO ROOT-1 defences.  FIX-14 made
+;;;; a compound part's post-commit restamp record the AUTHORITATIVE head (D1)
+;;;; and moved the record back onto its ring BEFORE the committed sweep (D2).
+;;;; Each fully masks the other, so today either one can be deleted and the
+;;;; whole gate stays green — a future refactor could remove one, and a later
+;;;; one the other, with no red test in between.  These two pins give each
+;;;; defence its own fence at its own seam.
+
+(ert-deftest org-air-r90-90-every-part-restamp-records-the-live-head ()
+  "Defence D1: a part's OWN post-commit restamp must record the live head.
+A compound part is guarded by two facts about ONE buffer state: the chars
+tick and the `:undo-head' identity `org-air-view--bulk-history-blockers'
+checks straight after it.  `org-air-view--bulk-history-restamp-part' is the
+writer that runs at the part's own commit instant, and what it writes must
+already be the authoritative post-commit head — never the DIRECTION-DEPENDENT
+next step, which diverges from the head the moment a redo lands on a tail
+that already carries an `undo-equiv-table' entry.
+
+The command-final sweep happens to write the same pair a second time, so a
+wrong head here is invisible in the finished command; that is exactly why
+this needs its own pin.  The shape is the one where the two really differ: an
+ordinary same-buffer `d' made AFTER the marked command and undone BEFORE it,
+then `u' `u' `U' `u'.  Every press must stay honest and byte-exact, and at
+EVERY per-part restamp — the redo included — the part must be carrying the
+head its own buffer actually has."
+  (skip-unless (locate-library "org-air"))
+  (let ((names '("a.org"))
+        (pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--corpus-text names)))
+        (dolist (title '("A1" "A2")) (org-air-r90--mark-title title))
+        (org-air-item-backlog)
+        (let ((committed (org-air-r90--corpus-text names)))
+          (org-air-r90--goto-row "A3")
+          (org-air-item-done)
+          (let* ((compound (nth 1 org-air-view--edit-ring))
+                 (writer (symbol-function
+                          'org-air-view--bulk-history-restamp-part))
+                 (observed nil))
+            (should (eq 'bulk (plist-get compound :kind)))
+            (cl-letf (((symbol-function
+                        'org-air-view--bulk-history-restamp-part)
+                       (lambda (part operation &optional save-result)
+                         (prog1 (funcall writer part operation save-result)
+                           (let ((buffer (plist-get part :buffer)))
+                             (push
+                              (list operation
+                                    (file-name-nondirectory
+                                     (plist-get part :file))
+                                    (and
+                                     (org-air-view--history-identity-match-p
+                                      (plist-get part :undo-head)
+                                      (org-air-view--undo-head buffer))
+                                     t))
+                              observed))))))
+              (org-air-r90--assert-ring-step
+               'undo "done \"A3\"" names committed)
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names pristine)
+              (org-air-r90--assert-ring-step
+               'redo "backlog 2 marked items" names committed)
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names pristine))
+            (setq observed (nreverse observed))
+            (ert-info ((format "per-part restamp observations: %S" observed))
+              ;; The scenario really did drive the compound's own part three
+              ;; times, and the middle one is the redo the head/next-step
+              ;; divergence needs.
+              (should (equal '(undo redo undo) (mapcar #'car observed)))
+              (should (seq-every-p (lambda (entry) (equal (nth 1 entry)
+                                                          "a.org"))
+                                   observed))
+              ;; THE LAW, at the seam: every restamp left the part naming the
+              ;; head its buffer really has.
+              (dolist (entry observed)
+                (ert-info ((format "restamp %S" entry))
+                  (should (nth 2 entry)))))
+            ;; And the same law holds for every part when the command ends.
+            (dolist (part (plist-get compound :parts))
+              (let ((buffer (plist-get part :buffer)))
+                (should (org-air-view--history-identity-match-p
+                         (plist-get part :undo-head)
+                         (org-air-view--undo-head buffer)))))))))))
+
+(ert-deftest org-air-r90-91-committed-sweep-sees-the-requeued-record ()
+  "Defence D2: the record is on its ring BEFORE the committed sweep runs.
+The sweep (`org-air-view--bulk-history-restamp-committed' →
+`org-air-view--edit-ring-restamp') is the one authoritative pair writer, and
+it finds its work by ITERATING THE TWO RINGS.  A record swept while it sits
+on neither ring is structurally invisible to it: its parts keep whatever
+their own post-commit restamp happened to write, and the one restamp path
+every other record enjoys silently does not apply to compounds.
+
+That is a coverage hole rather than a live defect only because the other
+defence currently writes the right value anyway.  This pin fences the
+ordering itself: after a complete-success `u' the compound must already be on
+the REDO ring when the sweep runs, and after a complete-success `U' it must
+already be back on the UNDO ring — and both presses must stay honest and
+byte-exact."
+  (skip-unless (locate-library "org-air"))
+  (let ((names '("a.org" "b.org"))
+        (pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--corpus-text names)))
+        (dolist (title '("A1" "B1")) (org-air-r90--mark-title title))
+        (org-air-item-backlog)
+        (let* ((committed (org-air-r90--corpus-text names))
+               (compound (nth 0 org-air-view--edit-ring))
+               (sweep (symbol-function
+                       'org-air-view--bulk-history-restamp-committed))
+               (observed nil))
+          (should (eq 'bulk (plist-get compound :kind)))
+          (should (= 2 (length (plist-get compound :parts))))
+          (cl-letf (((symbol-function
+                      'org-air-view--bulk-history-restamp-committed)
+                     (lambda (&rest args)
+                       (push (cond
+                              ((memq compound org-air-view--edit-ring)
+                               'undo-ring)
+                              ((memq compound org-air-view--edit-redo-ring)
+                               'redo-ring)
+                              (t 'neither))
+                             observed)
+                       (apply sweep args))))
+            (org-air-r90--assert-ring-step
+             'undo "backlog 2 marked items" names pristine)
+            (org-air-r90--assert-ring-step
+             'redo "backlog 2 marked items" names committed))
+          (setq observed (nreverse observed))
+          (ert-info ((format "sweep observations: %S" observed))
+            ;; THE LAW: one sweep per press, each with the record already on
+            ;; the side that press moved it to.
+            (should (equal '(redo-ring undo-ring) observed))))))))
+
+;;;; r90-92 — review-8 seam pin: the FAIL-CLOSED nil-witness prune.  A mark
+;;;; whose identity cannot be derived from the replacement generation is an
+;;;; unresolvable mark, and an unresolvable mark is stale — never a guess.
+;;;; Adopting it instead hands the very next verb whatever heading now sits at
+;;;; the marked offset.
+
+(ert-deftest org-air-r90-92-underivable-witness-is-pruned-never-adopted ()
+  "An identity org-air cannot derive must prune the mark, not adopt it.
+The witness is the whole of a mark's identity, and it is deliberately allowed
+to be underivable — no source key, no resolvable position, an item missing
+from its own file's candidate set.  Those cases have no honest answer, so the
+only safe branch is to fail closed.
+
+The hazard is not theoretical the moment the generation really has drifted:
+an outside tool inserts one heading above the marked one, every later offset
+moves by exactly that heading's width, and the marked key now resolves to a
+DIFFERENT heading.  If an underivable witness is adopted rather than pruned,
+that re-resolved heading becomes the user's selection, every downstream
+exactness check compares it against itself, and the next `b'/`t' writes it
+while echoing complete success.  Point is parked in another file, so the only
+route into t.org is the mark."
+  (skip-unless (locate-library "org-air"))
+  (dolist (verb '(backlog tag))
+    (org-air-r90--with-board org-air-r90--drift-board
+      (let ((tag (if (eq verb 'backlog) "backlog" "zzz")))
+        (org-air-r90--mark-title "D2")
+        (should (equal '("D2") (org-air-r90--marked-row-titles)))
+        (org-air-r90--external-drift 'external)
+        ;; The one thing this pin controls: during the generation swap the
+        ;; identity cannot be derived at all.
+        (let ((refresh
+               (cl-letf (((symbol-function 'org-air-view--item-mark-witness)
+                          (lambda (&rest _) nil)))
+                 (org-air-r90--refresh-messages))))
+          (ert-info ((format "%S refresh=%S keys=%S rows=%S" verb refresh
+                             org-air-view--marked-keys
+                             (org-air-r90--marked-row-titles)))
+            ;; 1. THE LAW: pruned through the existing bounded message.
+            (should (= 1 (org-air-r90--count-messages
+                          refresh
+                          (regexp-quote "Pruned 1 stale marked item"))))
+            (should-not org-air-view--marked-keys)
+            (should-not (org-air-r90--marked-row-titles))))
+        (org-air-r90--goto-row "Park row")
+        (let* ((write (org-air-r90--run-marked-verb verb tag))
+               (tagged (org-air-r90--tagged-titles
+                        "t.org" '("D0" "D1" "D2" "D3") tag)))
+          (ert-info ((format "%S write=%S tagged=%S" verb write tagged))
+            ;; 2. And nothing in the drifted file was written at all — no
+            ;;    adopted mark, no marked claim.
+            (should-not tagged)
+            (should-not (seq-find (lambda (text)
+                                    (string-match-p
+                                     org-air-r90--marked-wrote-re text))
+                                  write))))))))
+
+;;;; r90-93 — review-8 seam pin: the O(1) `(FIRST . LAST)' locator liveness
+;;;; witness.  The hot path decides in O(1) whether a source's tracked locator
+;;;; set may be reused; a `complete' same-generation index is never trusted on
+;;;; faith, because a dead or wrong-buffer marker set would otherwise be reused
+;;;; forever and the tracked-locator rescue r90-26/78 depend on would be gone.
+
+(ert-deftest org-air-r90-93-dead-locator-set-is-never-reused-on-faith ()
+  "A locator set whose markers died must be rebuilt, not reused.
+Org-air tracks one live marker per cached heading in every open source, and
+that marker is what keeps a marked write on the right heading when the user
+edits the file in their own Emacs without refreshing the board (r90-26,
+r90-78 control 1).  Rehydration is an O(1) no-op when the generation and the
+`complete' flag agree — but agreement is not liveness, so the fast path also
+validates a bounded `(FIRST . LAST)' witness before trusting the set.
+
+Delete that validation and a dead locator set is reused for as long as the
+generation lasts: every write falls back to the stale cached offset, so the
+user's own unsaved-then-saved edit turns their marked verb into
+`0 marked items; 1 failed — run g r' — or worse, onto a heading that offset
+now names.  This drives the exact state the witness exists for through the
+real visit-time hydration entry point, then asserts the user-visible
+consequence: the marked write still lands on the marked heading and on
+nothing else."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board org-air-r90--drift-board
+    (let ((source (find-file-noselect (org-air-r90--file "t.org"))))
+      ;; The board owns a complete, live locator set for this open source.
+      (should (buffer-local-value 'org-air-view--source-locator-complete
+                                  source))
+      (should (org-air-view--source-locators-live-p source))
+      (should (buffer-local-value 'org-air-view--source-tracked-locators
+                                  source))
+      (org-air-r90--mark-title "D2")
+      ;; Every tracked marker dies, while the generation identity, the
+      ;; `complete' flag and the index all still say "usable".
+      (with-current-buffer source
+        (dolist (entry org-air-view--source-tracked-locators)
+          (set-marker (cdr entry) nil)))
+      (should-not (org-air-view--source-locators-live-p source))
+      ;; The real entry point a visit runs (`find-file-hook').
+      (with-current-buffer source
+        (org-air-view--hydrate-open-source-markers))
+      (should
+       (seq-every-p
+        (lambda (entry)
+          (and (marker-position (cdr entry))
+               (eq (marker-buffer (cdr entry)) source)))
+        (buffer-local-value 'org-air-view--source-tracked-locators source)))
+      ;; The user edits t.org in their own Emacs and saves; there is no `g r',
+      ;; so only a LIVE tracked locator can keep the write on target.
+      (org-air-r90--external-drift 'visited)
+      (org-air-r90--goto-row "Park row")
+      (let* ((write (org-air-r90--run-marked-verb 'backlog "backlog"))
+             (tagged (org-air-r90--tagged-titles
+                      "t.org" '("D0" "D1" "D2" "D3") "backlog")))
+        (ert-info ((format "write=%S tagged=%S" write tagged))
+          (should (seq-find (lambda (text)
+                              (string-match-p
+                               org-air-r90--marked-wrote-re text))
+                            write))
+          (should (equal '("D2") tagged)))))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

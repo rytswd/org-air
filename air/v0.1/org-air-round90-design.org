@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: blocked
+#+state: work-in-progress
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -3641,6 +3641,190 @@ no query or refile-engine behavior changes.
   deliberately NOT manifested.  =make regen-mockups= in a =/tmp= copy exit 0
   and a byte no-op across the fixture set.
 
+- 2026-07-28: Round 90 FIX-15 — the distinguished review-8 blocker closed at
+  its root.  Source only (=org-air-view.el=, sha256
+  =aa493db4ac39b553872beb0714c3497b62cef2ca7971f8e35fe6ad641f2eab25=); tests,
+  README, fixtures, goldens and the known-failures manifest are byte-identical
+  to =zvyrtkrpomup=.
+
+  ROOT.  Any BYTE-PRESERVING REARRANGEMENT of two headings that share a title
+  and effective tags re-targets a mark.  The everyday shape is =M-<down>=
+  (=org-move-subtree-down=) on the marked heading itself in the user's own
+  Emacs, in a file with two templated recurring entries of equal width
+  ("Standup", "Weekly review", anything generated on a repeat); a plain
+  two-way swap by any outside tool does the same.  Such a rearrangement moves
+  NO byte offset, so the projection, the same-projection ORDINAL, the ARITY —
+  and in fact the ENTIRE scan generation — come back byte-identical, the mark
+  silently re-binds to the twin that slid into its offset, and marked =b=/=t=
+  writes the heading the user did NOT select while echoing complete success.
+  It fires with =g r= (=--marked-reconcile= keeps the key because the witness
+  it re-derives is identical) and with NO refresh at all (the write-time
+  exactness gate compares exactly the two projection fields the witness's own
+  projection holds), and the live tracked marker does not save it — the marker
+  followed the heading org-air last saw at that offset, which after the
+  exchange is the twin.  Retest 18's impossibility argument about the
+  GENERATION is correct and was independently re-derived here; the conclusion
+  drawn from it ("only a durable per-heading =ID= could close it") is not, and
+  the review's counter-example is right: the file's own modification time is
+  already stat'd by the scan, is NOT part of the generation, invents no =ID=,
+  and opens no file.
+
+  FIX — BOTH HALVES ARE REQUIRED (each independently verified below).
+
+  1. MTIME IN THE WITNESS, FOR AMBIGUOUS PROJECTIONS ONLY.
+     =org-air-view--item-mark-witness= now returns
+     =((TITLE . TAGS) ORDINAL ARITY . MTIME)= when the marked heading's
+     projection is NOT unique in its file, and exactly today's
+     =((TITLE . TAGS) ORDINAL . 1)= when it is.  MTIME is the file's
+     ALREADY-SCANNED =:mtime= (=org-air-query-file-meta=, via the new bounded
+     =org-air-view--mark-witness-mtime=), so no user file is opened, no scan
+     or query runs, no =ID=/=CUSTOM_ID= is invented or written, the witness
+     stays bounded and source-free, and no per-render work is added.  The
+     confinement to ambiguous projections is structural, not a tuning choice:
+     a unique heading keeps the literal =(0 . 1)= arity cell in every
+     generation, so the =r90-87= no-over-prune fence is untouched BY
+     CONSTRUCTION rather than merely re-tested.
+
+  2. PREFLIGHT RE-DERIVATION AGAINST A FRESH STAT.
+     =org-air-view--bulk-preflight= now re-derives every resolvable mark's
+     witness from the live generation and compares it with the stored one
+     (=org-air-view--bulk-witness-current-p=), taking the mtime component from
+     a FRESH =file-attributes= stat.  Without the fresh stat this half is a
+     tautology on the no-refresh path — the stored per-file meta still names
+     the mtime the SCAN saw, so the comparison would compare a value with
+     itself and could never fire.  A mismatch lands in the existing
+     =N failed — run g r= bucket and writes nothing; an underivable witness
+     fails closed the same way.  Costs stay proportional to the marks: the
+     sibling table is built once per marked file (existing per-pass index) and
+     the stat is taken once per marked file (=STATS=, a per-pass FILE → mtime
+     cache; =--mark-witness-mtime= accepts a hash table as its FRESH argument
+     precisely for this).  Both the reconcile path and the write path now obey
+     ONE identity law instead of two.
+
+  OWNERSHIP RULING (required by the round, stated explicitly).  org-air's OWN
+  committed write bumps the file's mtime, and that must NOT evaporate the
+  user's surviving marks (=r90-80='s "ineligible remains marked").  THE RULE
+  IS: only FOREIGN change invalidates an ambiguous mark; org-air re-claims the
+  mtime its own write produced, for the marks that survive that write, as part
+  of the existing rekey path.
+
+  - THE SINGLE DECISION POINT is =org-air-view--mark-witness-owned-mtime=,
+    called from exactly one site — the committed branch of the marked-write
+    loop in =--marked-tag-action=, at the instant our own save completed — and
+    read from exactly one site, =--bulk-rekey-marks=.  It CANNOT be confused
+    by a foreign write interleaved with ours: the buffer's
+    =visited-file-modtime= is the modtime OUR SAVE ITSELF recorded, so a
+    foreign write landing afterwards cannot rewrite history into it.  The
+    recorded value is cross-checked against the file's current stat and the
+    STAT's value is what is returned, so the number is produced by exactly the
+    function the scan uses and compares =equal= to the next generation's
+    =:mtime=.  Any disagreement (a foreign write really did interleave), an
+    unrecorded modtime (0/-1) or an unstattable file returns nil, nothing is
+    claimed, and the affected marks prune through the ordinary bounded
+    =Pruned N stale marked item(s)= message.
+
+  - ONLY VERIFIED MARKS ARE RE-CLAIMED.  Implementing the ruling opened a hole
+    that had to be closed in the same change: a file can be written for a
+    DIFFERENT, unique-projection mark while an ambiguous mark in it has
+    already FAILED the preflight witness check.  Re-claiming that mark's mtime
+    would hand a stale identity a fresh-looking witness and resurrect it — the
+    very re-targeting this fix exists to stop, one command later.  So
+    =--bulk-preflight= returns =:verified= (every mark it PROVED still names
+    its own heading, ineligible marks included, since those are exactly the
+    marks the ownership rule exists for) and =--bulk-rekey-marks= re-claims
+    only those.  =--mark-witness-reown= touches nothing else: a
+    unique-projection witness carries no mtime and is returned untouched, so
+    unique marks are outside this machinery entirely.
+
+  - CONSEQUENCES.  org-air's own relocating write keeps surviving marks
+    (=r90-78=, =r90-80= green, and the ambiguous case is fenced by probe B
+    below); a foreign change to a file holding ambiguous marks fails closed
+    with the existing bounded prune message (probes C/D); a foreign write
+    interleaved with ours is never blessed (probe A).
+
+  RESIDUAL, stated plainly and also written into the code's own docstrings: an
+  AMBIGUOUS mark — one on a heading that shares its title AND its effective
+  tags with another heading in the same file — now prunes whenever its file
+  changes on disk at all, including changes that did not touch it, and fails
+  the marked write with =N failed — run g r= if the change lands with no
+  refresh in between.  That is strictly more pruning than before, and it is
+  the honest trade: the alternative is a mark that can silently spend the
+  user's =b=/=t= on the wrong heading.  UNIQUE marks — the overwhelmingly
+  common case — are completely unaffected: their witness is byte-identical to
+  the pre-FIX-15 one and no mtime enters it.  A durable per-heading =ID= would
+  remove the residual, and org-air still never invents or writes one.
+
+  MUTATION / REVERT EVIDENCE (selector: =r90-78/80/85/86/87/88..93= plus the
+  four =/tmp= ownership probes; each mutant rebuilt from this working tree,
+  =.elc= deleted before every run, source restored byte-identical afterwards
+  and re-hashed to =aa493db4…=).  Baseline 15/15.
+
+  - =M1= mtime half ALONE (preflight re-derivation reverted) → =r90-88=,
+    =r90-89= RED **on the =move-down-no-refresh= shape specifically**
+    (=Added #zzz to 1 marked item= with =:zzz:= on the twin), plus probe D.
+    Independently confirms retest 18's own finding that the mtime alone is not
+    enough.
+  - =M2= preflight half ALONE (mtime reverted from the witness) → =r90-88=,
+    =r90-89= RED on the =move-down-refresh= shape, plus probes C and D.
+  - =M3= BOTH reverted → =r90-88=, =r90-89= RED (the shipped-before state),
+    plus probes C and D.
+  - =M4= bind the mtime for UNIQUE projections too → =r90-87= RED, as
+    predicted, together with =r90-78=, =r90-80=, =r90-93= and probe D: the
+    over-prune is immediate and broad, which is exactly why the fix is
+    confined to ambiguity.
+  - =M5= treat a FOREIGN mtime as ours (drop the =visited-file-modtime=
+    cross-check in the single decision point) → NO permanent test moves; the
+    =/tmp= probe A added for this pass goes RED.  REPORTED as an unfenced
+    seam: the ownership decision point has no permanent coverage, and the
+    reachable product path for an ambiguous mark surviving org-air's own write
+    is narrow (it needs an INELIGIBLE ambiguous mark, i.e. a DONE or
+    non-task-routed heading, which does not render and so cannot be marked
+    through =m=).  A future test round should pin it at the seam the way
+    probes B/C do.
+  - =M6= never re-claim at all → probe B RED.  =M7= re-claim WITHOUT the
+    verified gate → probes C and D RED (D is the fully end-to-end resurrection
+    shape: mark one ambiguous sibling and one unique heading, =M-<down>= the
+    sibling, marked =t= writes the unique heading and honestly fails the
+    other, and the stale mark must still prune on the next =g r= and must
+    never let a second marked write reach the twin).
+  - No mutation moved any test that is not its own fence.
+
+  =/tmp= PROBES (not landed; drivers under =/tmp/org-air-r90fix15/=).  A —
+  =--mark-witness-owned-mtime= claims our own save's mtime, equal to the
+  scan's own producer, and refuses it after an interleaved foreign write.  B —
+  a VERIFIED ambiguous mark survives org-air's own write to its file across a
+  real =g r=.  C — the same mark, unverified, prunes.  D — the end-to-end
+  resurrection shape above.  All four green on the fix.
+
+  COVERAGE RE-RUN.  =r90-49= + =r90-54..93= 41/41.  Whole R90 selector 99/99.
+  R73 + R75 28/28.  Owner lifecycle (=r90-44=, =r90-51=, =r63-1/3/4=,
+  =r78-3=), native v6 tags/projection (=r90-12=, =r90-31=, =r90-38=,
+  =r90-40=, =r90-52=), finalizer (=r90-41=, =r90-53=), guard retention after
+  kill + GC (=r90-56=) and indirect clones (=r90-65=) 27/27.  Controls
+  =r90-78=, =r90-80=, =r90-87= green throughout; all four review-8 seam pins
+  =r90-90..93= green.
+
+  PERFORMANCE (byte-compiled, fully expanded boards, 200 real =m= presses,
+  half of every file's headings AMBIGUOUS so the discriminator is exercised
+  rather than bypassed; parent =zvyrtkrpomup= → FIX-15, medians).  1000 items
+  / 20 files: =m= press 96.6 → 93.3 ms (dominated by the fully-expanded
+  repaint, unchanged), reconcile over a new generation with 200 marks
+  9.10 → 9.40 ms, marked-write preflight 23.96 → 26.66 ms, =g r= 232.9 →
+  231.5 ms.  5000 items / 50 files: =m= press 496 → 508 ms, reconcile
+  29.1 → 30.5 ms, preflight 42.8 → 47.9 ms, =g r= 1177 → 1191 ms (+1.2%).
+  Witness retention stays exactly equal to the mark count at both scales.  The
+  added cost is one stat per marked FILE per write plus one float compare per
+  mark — proportional to marks, and no per-render scan, query or timer is
+  introduced.
+
+  GATE.  =make clean && make check= with all 11 modules recompiled: compile
+  clean but for the pre-existing =org-air-project.el:946= wide-docstring
+  warning; =lint: ok (0 findings, all baselined)=; 1201 tests / 1193 as
+  expected / 0 unexpected / 8 GUI skips.  Loaded known-failures active length
+  0.  =make regen-mockups= a byte no-op across the fixture set (zero fixture
+  churn); the only file this change touches is =org-air-view.el= plus this Air
+  history.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -3769,3 +3953,15 @@ no query or refile-engine behavior changes.
   seam pins for load-bearing guards with no coverage at all were added GREEN:
   =r90-90=, =r90-91=, =r90-92=, =r90-93=.  Gate 1201 tests / 2 unexpected /
   8 GUI skips / manifest 0 / lint 0 / regen a byte no-op.)
+- 2026-07-28: State: blocked → work-in-progress (FIX-15 closed the review-8
+  blocker at its root with both required halves — the file's already-scanned
+  =:mtime= bound into the witness's arity cell for AMBIGUOUS projections only,
+  and =--bulk-preflight= re-deriving the candidate's witness against a FRESH
+  stat — plus the explicit ownership ruling that only FOREIGN change
+  invalidates an ambiguous mark, decided in exactly one place
+  (=--mark-witness-owned-mtime=) and applied only to marks the preflight
+  verified.  =r90-88=/=r90-89= green; seam pins =r90-90..93= green; controls
+  =r90-78=/=r90-80=/=r90-87= green; R90 99/99.  Residual recorded: an
+  ambiguous mark now prunes whenever its file changes on disk.  Gate 1201
+  tests / 0 unexpected / 8 GUI skips / manifest 0 / lint 0 / regen a byte
+  no-op.)

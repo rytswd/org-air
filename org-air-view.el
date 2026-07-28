@@ -2495,9 +2495,38 @@ retained between generations, no file is opened, and no marker is captured."
                      table)))))
     table))
 
-(defun org-air-view--item-mark-witness (item &optional items index)
+(defun org-air-view--mark-witness-mtime (file &optional fresh)
+  "Return FILE's bounded modification-time component for a mark witness.
+With FRESH nil this is the file's ALREADY-SCANNED `:mtime' — the stat the
+generation itself paid (`org-air-query--file-meta'), so building a witness
+opens no user file and adds no I/O at all.  With FRESH non-nil it is one
+bounded `file-attributes' stat of the same file, which is what a caller needs
+when it must know whether the file changed SINCE the scan (the no-refresh
+write path: the stored meta still names the mtime the scan saw, so comparing
+against it would compare a value with itself and could never fire).
+
+FRESH may be a hash table, which is then used as a per-pass FILE -> mtime
+cache so one write pays exactly one stat per marked FILE, never one per mark
+and never one per render or row.  Return nil when the file cannot be stat'd or
+was never scanned; a nil component simply makes the witness disagree with any
+live one, so the mark fails closed."
+  (cond
+   ((hash-table-p fresh)
+    (let ((hit (gethash file fresh 'miss)))
+      (if (eq hit 'miss)
+          (puthash file (org-air-view--mark-witness-mtime file t) fresh)
+        hit)))
+   (fresh
+    (when-let* ((attributes (file-attributes file)))
+      (float-time (file-attribute-modification-time attributes))))
+   (t (plist-get (org-air-query-file-meta file) :mtime))))
+
+(defun org-air-view--item-mark-witness (item &optional items index fresh)
   "Return ITEM's bounded mark witness, or nil when it cannot be derived.
-The witness is `((TITLE . SORTED-EFFECTIVE-TAGS) ORDINAL . ARITY)'.
+The witness is `((TITLE . SORTED-EFFECTIVE-TAGS) ORDINAL . ARITY)' for a
+heading whose projection is UNIQUE in its file, and
+`((TITLE . SORTED-EFFECTIVE-TAGS) ORDINAL ARITY . MTIME)' when it is not.
+FRESH is passed straight to `org-air-view--mark-witness-mtime'.
 
 The projection alone — exactly the two fields
 `org-air-view--source-heading-exact-p' compares — is precise about the BOARD
@@ -2522,10 +2551,29 @@ discriminator costs nothing for the overwhelmingly common case and cannot
 over-prune it — a heading that merely moves, changes TODO state, gains body
 text or is reformatted keeps the identical witness.
 
+REARRANGEMENT.  ORDINAL/ARITY still cannot tell two same-projection siblings
+apart when they are merely EXCHANGED: `M-<down>' (`org-move-subtree-down') on
+one of two templated recurring headings of equal width, or any plain two-way
+swap, moves not one byte offset in the file, so the projection, the ordinal,
+the arity — in fact the ENTIRE scan generation — come back byte-identical and
+the mark would silently re-bind to the twin that slid into its offset.  No
+function of the generation can decide that case.  The file's own modification
+time can, it is NOT part of the generation, and the scan already paid the
+stat: so for an AMBIGUOUS projection only, the arity cell carries it.
+Ambiguity is the only case that needs it, and confining it there is what keeps
+the fix from becoming an over-prune: a UNIQUE heading keeps exactly `(0 . 1)'
+in every generation, so it is untouched by any edit anywhere in its file, and
+the r90-87 no-over-prune law stays structurally true rather than merely tested.
+The residual is stated plainly: a mark on a duplicate-titled, duplicate-tagged
+heading is pruned whenever its file changes on disk — except for org-air's own
+write, whose mtime `org-air-view--mark-witness-owned-mtime' claims exactly once
+so a surviving mark is not evaporated by the command that spared it.
+
 An Org `ID'/`CUSTOM_ID' would be stronger still, but no scan slot carries one
 today and reading it would mean opening the user's file at mark time; org-air
 also never invents or writes an `ID' property.  So the discriminator stays
-within what the generation already knows.
+within what the generation already knows plus the one bounded stat it already
+took.
 
 FAIL CLOSED.  Return nil whenever the witness cannot be derived from the
 generation — no source key, no resolvable position, or an item that does not
@@ -2561,9 +2609,53 @@ after the call."
       ;; Ambiguity or absence is a stale mark, never a guess: the item must
       ;; be one of the siblings the generation itself reports for its file.
       (when (memql position positions)
-        (cons projection
-              (cons (seq-count (lambda (other) (< other position)) positions)
-                    (length positions)))))))
+        (let ((ordinal (seq-count (lambda (other) (< other position))
+                                  positions))
+              (arity (length positions)))
+          (cons projection
+                (cons ordinal
+                      (if (= arity 1)
+                          ;; EXACTLY today's unique-heading witness.
+                          1
+                        (cons arity
+                              (org-air-view--mark-witness-mtime
+                               file fresh))))))))))
+
+(defun org-air-view--mark-witness-owned-mtime (buffer file)
+  "Return the modification time org-air's OWN just-committed write left on FILE.
+THE ONE PLACE that decides \"this mtime is ours\".  BUFFER is the buffer org-air
+just saved; `visited-file-modtime' is the modtime that SAVE ITSELF recorded, so
+it names org-air's write and nobody else's — a foreign write landing afterwards
+cannot rewrite history into it.  It is cross-checked against the file's current
+stat and the value returned is the stat's, so the number is produced by exactly
+the function the scan uses and compares `equal' to the next generation's
+`:mtime'.
+
+FAIL CLOSED on any disagreement: if a FOREIGN write interleaved with org-air's
+own, the recorded and current modtimes differ and this returns nil, so nothing
+is claimed as ours and the affected marks prune through the ordinary bounded
+`Pruned N stale marked item(s)' message instead of adopting someone else's
+change.  Also nil when the buffer never recorded a modtime (0/-1) or the file
+cannot be stat'd."
+  (when (and (buffer-live-p buffer) (stringp file))
+    (let* ((recorded (with-current-buffer buffer (visited-file-modtime)))
+           (attributes (file-attributes file))
+           (current (and attributes
+                         (file-attribute-modification-time attributes))))
+      (when (and current recorded
+                 (not (eql recorded 0)) (not (eql recorded -1))
+                 (ignore-errors (time-equal-p recorded current)))
+        (float-time current)))))
+
+(defun org-air-view--mark-witness-reown (witness owned)
+  "Return WITNESS with its mtime component replaced by OWNED, when it has one.
+A unique-projection witness (`(PROJECTION ORDINAL . 1)') carries no mtime and
+is returned untouched; so is any witness when OWNED is nil, so an unclaimable
+write leaves the mark to prune honestly rather than blessing it."
+  (let ((cell (and (consp witness) (consp (cdr witness)) (cddr witness))))
+    (if (and owned (consp cell))
+        (cons (car witness) (cons (cadr witness) (cons (car cell) owned)))
+      witness)))
 
 (defun org-air-view--marked-table-rebuild ()
   "Rebuild the exact-key membership table from the ordered mark list.
@@ -2625,7 +2717,13 @@ item's, and a mismatch is pruned as stale through the same bounded message a
 vanished key uses — never silently re-bound.  The witness carries the
 bounded same-projection discriminator too, so two headings that share a title
 and effective tags are NOT interchangeable identities and the one-block
-offset shift that aligns uniform siblings prunes instead of re-targeting.
+offset shift that aligns uniform siblings prunes instead of re-targeting; for
+an AMBIGUOUS projection it also carries the file's own already-scanned mtime,
+which is the only bounded fact that can decide a byte-preserving REARRANGEMENT
+of two such siblings (an `M-<down>' on the marked heading leaves the whole
+generation byte-identical, so nothing derived from it can).  Only FOREIGN
+change reaches here as a mismatch: org-air's own write re-claims the mtime
+through `org-air-view--bulk-rekey-marks'.
 Resolution is first-item-wins, exactly like `org-air-view--bulk-preflight''s
 own key lookup, so the witness gates precisely the item a write would target.
 A witness that cannot be derived at all FAILS CLOSED: the mark is pruned
@@ -12002,21 +12100,80 @@ writer, so inherited tags are never copied onto the child heading."
                                    (org-air-item-tags item))
                            #'string<))))))))
 
+(defconst org-air-view--mark-witness-missing (list 'missing)
+  "Unique sentinel for \"this key has no stored witness at all\".
+Distinguishes a key predating the witness rule from one whose witness was
+honestly stored as nil because it could not be derived.")
+
+(defun org-air-view--bulk-witness-current-p (key item witnesses index stats)
+  "Return non-nil when KEY's stored witness still names ITEM's own heading.
+WITNESSES is this board's stored witness table, INDEX is the per-pass sibling
+cache `org-air-view--item-mark-witness' reuses and STATS is the per-pass
+FILE -> mtime cache, so each marked file's sibling table is built once, each
+marked file is stat'd once, and costs stay proportional to the marks.
+
+THE NO-REFRESH HALF of the mark identity law.  `--marked-reconcile' can only
+speak when a generation swap happens; a marked `b' or tag verb pressed with no
+`g r' at all never reaches it, and the write-time exactness gate compares
+exactly the two projection fields the witness's own projection holds — so a
+byte-preserving rearrangement of two same-projection siblings would sail
+straight through both.  This re-derives the candidate's witness from the live
+generation and compares it with the stored one, so BOTH paths obey one
+identity law instead of two.
+
+The re-derivation takes its mtime from a FRESH stat: the stored per-file meta
+still names the mtime the SCAN saw, so deriving from it would compare a value
+with itself and could never fire.  One stat per marked file per write — no
+file is opened, nothing is scanned, and unique-projection marks carry no mtime
+at all, so their comparison is the pure projection/ordinal/arity one.
+
+A key with NO stored witness (only reachable by setting the mark list
+directly, never by `m') is accepted, exactly as `--marked-reconcile' adopts
+it; an underivable witness FAILS CLOSED."
+  (let ((stored (gethash key witnesses org-air-view--mark-witness-missing))
+        (witness (org-air-view--item-mark-witness
+                  item org-air-view--items index stats)))
+    (cond
+     ((null witness) nil)
+     ((eq stored org-air-view--mark-witness-missing) t)
+     (t (equal stored witness)))))
+
 (defun org-air-view--bulk-preflight (action)
   "Preflight every ordered mark for ACTION without changing source bytes.
 Return a plist carrying the old index, stale/ineligible/failed keys and
-verified candidate records.  Distinct files are opened at most once."
+verified candidate records.  Distinct files are opened at most once.
+EVERY resolvable mark's bounded witness is re-verified first
+\(`org-air-view--bulk-witness-current-p'), so a mark that no longer resolves
+to the heading the user selected is reported through the existing
+`N failed — run g r' bucket instead of being written.  The verified set is
+returned as `:verified' because it is also what makes org-air's own write
+re-claimable: only a mark this preflight PROVED still names its own heading
+may have its witness mtime refreshed to the mtime our write leaves behind
+\(`org-air-view--bulk-rekey-marks').  An INELIGIBLE mark is verified too — it
+survives the command by design, so it is exactly the mark the ownership rule
+exists for — but a mark that failed verification is never re-claimed, or the
+command would hand a stale identity a fresh-looking witness."
   (let* ((keys (copy-sequence org-air-view--marked-keys))
          (index (org-air-view--items-by-source-key))
+         (witnesses (org-air-view--marked-witness-table))
+         (siblings (make-hash-table :test #'equal))
+         (stats (make-hash-table :test #'equal))
+         (verified (make-hash-table :test #'equal))
          (buffers (make-hash-table :test #'equal))
          stale ineligible failed candidates)
     (dolist (key keys)
-      (let ((item (car (gethash key index))))
+      (let* ((item (car (gethash key index)))
+             (current (and item
+                           (org-air-view--bulk-witness-current-p
+                            key item witnesses siblings stats))))
+        (when current (puthash key t verified))
         (cond
          ((null item)
           (push key stale))
          ((not (org-air-view--bulk-eligible-p item action))
           (push key ineligible))
+         ((not current)
+          (push key failed))
          (t
           (condition-case nil
               (progn
@@ -12082,6 +12239,7 @@ verified candidate records.  Distinct files are opened at most once."
             :stale (nreverse stale)
             :ineligible (nreverse ineligible)
             :failed (nreverse failed)
+            :verified verified
             :candidates candidates
             :relocations relocations))))
 
@@ -12381,11 +12539,28 @@ cosmetic work.  Parser and `remhash' failures retain their total semantics."
       new
     key))
 
-(defun org-air-view--bulk-rekey-marks (old-index)
+(defun org-air-view--bulk-rekey-marks (old-index &optional owned-mtimes verified)
   "Rekey the surviving selection through OLD-INDEX after source relocation.
 Each mark's bounded witness travels with its own key: org-air's OWN write
 moved that heading, so the mark still names the heading the user selected and
-must follow it, exactly as the key does."
+must follow it, exactly as the key does.
+
+OWNERSHIP RULING.  An ambiguous-projection witness carries the file's mtime
+\(`org-air-view--item-mark-witness'), and org-air's own committed write bumps
+it — so without this step the very command that SPARED a mark (`r90-80': an
+ineligible heading stays selected) would evaporate it on the next refresh.
+The rule is: only FOREIGN change invalidates an ambiguous mark.  OWNED-MTIMES
+maps FILE to the mtime org-air's own write left there, claimed exactly once by
+`org-air-view--mark-witness-owned-mtime' — the single place that decides \"this
+mtime is ours\" — and a surviving mark in such a file has its witness's mtime
+component refreshed to it here.  A file org-air did not write, or one whose
+write could not be claimed (a foreign write interleaved with ours), keeps its
+old component and prunes honestly on the next generation swap.
+
+VERIFIED holds the marks this command's preflight PROVED still name their own
+heading.  Only those are re-claimed: a mark that already failed verification
+must not be handed a fresh-looking witness by the very write it did not take
+part in, or a stale identity would be blessed back to life."
   (let ((seen (make-hash-table :test #'equal))
         (witnesses (org-air-view--marked-witness-table))
         (moved (make-hash-table :test #'equal))
@@ -12396,7 +12571,15 @@ must follow it, exactly as the key does."
           (puthash new t seen)
           (push new out))
         (when-let* ((witness (gethash key witnesses)))
-          (unless (gethash new moved) (puthash new witness moved)))))
+          (unless (gethash new moved)
+            (puthash new
+                     (org-air-view--mark-witness-reown
+                      witness
+                      (and (hash-table-p owned-mtimes)
+                           (or (null verified)
+                               (gethash key verified))
+                           (gethash (car new) owned-mtimes)))
+                     moved)))))
     (setq org-air-view--marked-keys (nreverse out))
     (clrhash witnesses)
     (maphash (lambda (key witness) (puthash key witness witnesses)) moved)
@@ -12479,6 +12662,7 @@ files.  Earlier files remain committed and only successes/no-ops clear."
          (stale (plist-get pre :stale))
          (ineligible (plist-get pre :ineligible))
          (pre-failed (plist-get pre :failed))
+         (verified (plist-get pre :verified))
          (candidates (plist-get pre :candidates))
          (relocations-by-file (plist-get pre :relocations))
          (desired (if (eq action 'backlog)
@@ -12503,6 +12687,9 @@ files.  Earlier files remain committed and only successes/no-ops clear."
     (setq changed (nreverse changed)
           noops (nreverse noops))
     (let ((by-file (make-hash-table :test #'equal))
+          ;; FILE -> the mtime org-air's OWN committed write left there, or
+          ;; nil when it could not be claimed.  Read once, by the rekey.
+          (owned-mtimes (make-hash-table :test #'equal))
           (committed nil) (parts nil) (runtime-failed nil) warnings
           (failed-file nil) (stop nil) (unattempted 0)
           (generation-invalidated nil))
@@ -12586,6 +12773,15 @@ files.  Earlier files remain committed and only successes/no-ops clear."
                               (setq runtime-failed records
                                     failed-file file
                                     stop t))
+                          ;; Claim this file's new mtime as OURS, once, at the
+                          ;; instant our own write completed — so an ambiguous
+                          ;; mark this command spares is not evaporated by the
+                          ;; command that spared it, while any FOREIGN change
+                          ;; still prunes it (`--mark-witness-owned-mtime').
+                          (puthash file
+                                   (org-air-view--mark-witness-owned-mtime
+                                    buffer file)
+                                   owned-mtimes)
                           ;; A later hook signal is committed success.  A
                           ;; recursive commit or mandatory slot failure makes
                           ;; finalization one-way and stops later old-generation
@@ -12683,7 +12879,7 @@ files.  Earlier files remain committed and only successes/no-ops clear."
           (dolist (item (gethash (plist-get record :key) old-index))
             (when org-air-view--classify-cache
               (remhash item org-air-view--classify-cache))))
-        (org-air-view--bulk-rekey-marks old-index)
+        (org-air-view--bulk-rekey-marks old-index owned-mtimes verified)
         (setq landing (org-air-view--bulk-rekey-landing landing old-index))
         (let* ((clear-old
                 (append (mapcar (lambda (r) (plist-get r :key)) committed)

@@ -226,7 +226,9 @@ hard-wired (\"DONE\")."
   "A normalised Org heading (or R53 note file) for org-air views.
 R53 P2 (cache v2): `kind', `donep', `activity' and `body-deadline' are
 SCAN-TIME slots — everything classify/render needs lives in the struct,
-so painting a cache-hydrated board never opens a file."
+so painting a cache-hydrated board never opens a file.
+R93 (cache v7): `updated' joins them as the RECENCY fact backing the
+Needs-attention bucket."
   title tags file marker todo priority scheduled deadline group closed
   ;; R53 scan-time slots (data-pure render):
   kind          ; 'heading | 'file (P3 headingless note file-item)
@@ -269,8 +271,21 @@ so painting a cache-hydrated board never opens a file."
                 ; default) or nil (a plain "- Note taken on" stamp —
                 ; an activity signal only, never state inference)
   created       ; INTEGER epoch of the `:CREATED:' property, or nil
-  rtrunc)       ; t when either list above hit `org-air-log-cap' —
+  rtrunc        ; t when either list above hit `org-air-log-cap' —
                 ; truncation is never silent (the review "⚠" marker)
+  ;; R93 scan-time slot (cache v7) — the RECENCY fact:
+  updated)      ; INTEGER epoch of the NEWEST INACTIVE [timestamp] in the
+                ; heading's OWN body, or nil when it carries no history
+                ; at all.  One bounded `org-ts-regexp-inactive' pass over
+                ; the region the R61 harvest already walks, so it
+                ; subsumes LOGBOOK state changes and notes, CLOCK-out
+                ; ends, `CLOSED:' and `:CREATED:' as well as free-form
+                ; body stamps — every shape Org writes when something
+                ; HAPPENED.  Active <timestamps> are deliberately EXCLUDED
+                ; (a plan is not an update).  Stamps dated after the scan
+                ; day are ignored (a note ABOUT the future is not an
+                ; update).  The `attention' bucket's clock (R93); nil
+                ; falls back to the file mtime in classify, never here.
 
 (defun org-air-query-container-item-p (item)
   "Non-nil when ITEM is a pure CONTAINER heading (R59).
@@ -547,6 +562,47 @@ year 2100+ (measured), so the retained shapes carry no floats."
                                             (nth 3 d) (nth 4 d) (nth 5 d)
                                             nil -1 nil)))))))
 
+(defvar org-air-query--scan-today nil
+  "Today's `YYYY-MM-DD' string, bound per scan (R93).
+The future-stamp guard of the `updated' probe reads it instead of
+calling `format-time-string' once per heading; nil (outside a scan)
+makes the probe compute it itself.")
+
+(defun org-air-query--newest-inactive-stamp (start bound)
+  "Return the newest non-future inactive stamp epoch in [START, BOUND) (R93).
+ONE bounded `org-ts-regexp-inactive' pass over the region the R61
+harvest already walks — no second pass over the buffer, no file access.
+Every `[timestamp]' Org writes when something HAPPENED lives in that
+region: LOGBOOK `- State \"X\" … [TS]' / `- Note taken on [TS]' lines,
+`CLOCK: […]--[…]' ends, the `CLOSED:' planning stamp and the
+`:CREATED:' property, plus any stamp the user typed in the body.  Active
+`<timestamps>' are NOT matched by the regexp — a plan is not an update
+\(the R93 recency ruling).
+
+Stamps are compared as STRINGS, which is exact for Org's own
+`YYYY-MM-DD Dow HH:MM' shape (the date sorts first and a given date
+always carries the same day name), so the whole region costs one regexp
+walk plus ONE `org-parse-time-string' at the end instead of one per
+stamp.  A stamp dated AFTER today is skipped: a note about the future is
+not an update, and letting it win would silence the heading forever.
+Returns an INTEGER epoch, or nil when the region holds no usable stamp."
+  (let ((today (or org-air-query--scan-today (format-time-string "%Y-%m-%d")))
+        (newest nil))
+    (save-excursion
+      (goto-char start)
+      (while (re-search-forward org-ts-regexp-inactive bound t)
+        ;; Group 0 deliberately: whether `org-ts-regexp-inactive' group 1
+        ;; includes the brackets has differed across Org versions, and
+        ;; group 0 is the whole "[YYYY-MM-DD …]" in every one of them.
+        (let ((raw (match-string-no-properties 0)))
+          (when (> (length raw) 11)
+            (let ((inner (substring raw 1 -1)))
+              ;; A stamp dated after today is a note ABOUT the future.
+              (unless (string< today (substring inner 0 10))
+                (when (or (null newest) (string< newest inner))
+                  (setq newest inner))))))))
+    (and newest (org-air-query--stamp-epoch newest))))
+
 (defun org-air-query--harvest-at-point (child-pos end)
   "Collect the R61-1 review facts for the heading at point.
 Scans the heading's OWN body — the region above CHILD-POS (its first
@@ -555,9 +611,13 @@ so a child's clocks are never credited to the parent (rollups would
 double-count).  Point sits on the heading in the positioned scan buffer;
 the buffer's live `org-done-keywords' (the file's own vocabulary under
 the R57-1 merged default) classifies state-change targets at scan time.
-Returns (CLOCKS LOGS CREATED RTRUNC) — the four `org-air-item' review
-slots, integer epochs and interned symbols only, each list newest-first
-and truncated to `org-air-log-cap' (NEWEST kept; a cap hit sets RTRUNC).
+Returns (CLOCKS LOGS CREATED RTRUNC UPDATED) — the four `org-air-item'
+review slots plus the R93 recency slot, integer epochs and interned
+symbols only, each list newest-first and truncated to `org-air-log-cap'
+\(NEWEST kept; a cap hit sets RTRUNC).  UPDATED is
+`org-air-query--newest-inactive-stamp' over the same region — UNcapped
+by construction (it keeps one number, not a list), so a truncated
+LOGBOOK never truncates the recency fact.
 Per matched line the match strings are copied out BEFORE parsing:
 `org-parse-time-string' CLOBBERS the ambient match data (verified — the
 naive loop died with `args-out-of-range' after the first parse).
@@ -567,11 +627,16 @@ scans, the R53 P1b outer net is not consumed, nothing is echoed."
   (condition-case nil
       (let ((bound (if child-pos (min child-pos end) end))
             (cap (max 1 org-air-log-cap))
-            (clocks nil) (logs nil) (rtrunc nil))
+            (clocks nil) (logs nil) (rtrunc nil) (updated nil))
         (save-excursion
           (forward-line 1)
           (let ((body-start (point)))
             (when (< body-start bound)
+              ;; R93: the RECENCY probe — one more bounded walk over the
+              ;; SAME region, reusing BODY-START/BOUND (zero extra
+              ;; structural work) and riding the same never-error net.
+              (setq updated (org-air-query--newest-inactive-stamp
+                             body-start bound))
               (save-excursion
                 (goto-char body-start)
                 (while (re-search-forward org-air-query--clock-line-regexp
@@ -617,8 +682,9 @@ scans, the R53 P1b outer net is not consumed, nothing is echoed."
               ;; at RENDER time from the retained stamps — never baked.
               (when-let* ((value (org-entry-get (point) "CREATED")))
                 (org-air-query--stamp-epoch value))
-              rtrunc))
-    (error (list nil nil nil nil))))
+              rtrunc
+              updated))
+    (error (list nil nil nil nil nil))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R54-2 — the content-derived note-type model + denote READ compat.
@@ -1225,7 +1291,13 @@ retained by scanning; live positions resolve on demand)."
      :clocks (nth 0 harvest)
      :logs (nth 1 harvest)
      :created (nth 2 harvest)
-     :rtrunc (nth 3 harvest))))
+     :rtrunc (nth 3 harvest)
+     ;; R93: the recency fact.  nil means "this heading carries NO
+     ;; history at all"; classify then falls back to the file's
+     ;; scan-time mtime (`org-air-query-file-meta' `:mtime' — a hash
+     ;; lookup, never a stat), which is deliberately COARSE: one edit
+     ;; anywhere in the file refreshes every historyless heading in it.
+     :updated (nth 4 harvest))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R53 P1/P1b — the never-error work-buffer scan.
@@ -1361,7 +1433,9 @@ fallback), tags from `#+filetags', group = parent directory name, marker
            :own-active-ts nil
            ;; R61-1: nil review slots — a file blob has no per-heading
            ;; LOGBOOK; the review sections ignore 'file items entirely.
-           :clocks nil :logs nil :created nil :rtrunc nil
+           ;; R93: `updated' likewise — a 'file item routes to `notes'
+           ;; and never reaches the attention clock.
+           :clocks nil :logs nil :created nil :rtrunc nil :updated nil
            ;; R54-2: 'file items type from the FILE-level signals alone
            ;; (keyword/tag override → journal → knowledge); they route to
            ;; the 'notes bucket regardless, so this feeds the note
@@ -1379,6 +1453,9 @@ even when the buffer's own name differs (a symlinked visit)."
          ;; buffer" message on every refresh.
          (inhibit-message t)
          (message-log-max nil)
+         ;; R93: today's date string, computed ONCE per file instead of
+         ;; once per heading (the `updated' probe's future-stamp guard).
+         (org-air-query--scan-today (format-time-string "%Y-%m-%d"))
          ;; R54-2: the per-FILE type signals, computed ONCE per file.
          (org-air-query--scan-file-signals
           (with-current-buffer buffer
@@ -1420,6 +1497,8 @@ variables scans like the same Org file without them."
           (inhibit-message t)
           (message-log-max nil)
           (org-todo-keywords (org-air-query--scan-todo-keywords))
+          ;; R93: the `updated' probe's future-stamp guard, once per file.
+          (org-air-query--scan-today (format-time-string "%Y-%m-%d"))
           (org-air-query--scan-mtime
            (file-attribute-modification-time (file-attributes file))))
       (unwind-protect

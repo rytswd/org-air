@@ -1190,11 +1190,22 @@ of whether the wrapping pane margin is added later (D6).")
 
 (defconst org-air-view--sections
   '((inbox "Inbox" "Inbox zero — nothing to process.")
-    (attention "Needs attention" "Nothing overdue. Nice.")
+    (overdue "Overdue" "Nothing overdue. Nice.")
     (upcoming "Upcoming" org-air-view--empty-upcoming)
     (high-priority "High priority" "No #A items.")
-    (stale "Stale" "Nothing has gone stale."))
-  "Section descriptors in display order.")
+    (attention "Needs attention" "Nothing has gone quiet."))
+  "Section descriptors in display order (R93 order).
+Process, then repair, then plan, then choose, then sweep: Inbox (what
+has not been filed), Overdue (what a promise has already slipped past),
+Upcoming (what is coming), High priority (what matters most) and finally
+Needs attention (what has gone quiet past its priority's threshold —
+`org-air-attention-days').
+
+R93 retired the `stale' section: its \"dated but quiet\" rule is exactly
+what the aging Needs-attention rule now does for EVERY item, dated or
+not, so keeping both would have shown the same fact twice.  Overdue was
+split OUT of Needs attention for the same reason in reverse: a missed
+date and a quiet item are different problems and want different rows.")
 
 (defconst org-air-view--notes-descriptor
   '(notes "Notes" "No notes.")
@@ -2834,12 +2845,45 @@ position degrades to nil, never a crash."
                  (org-timestamp-from-string
                   (match-string-no-properties 0)))))))))))
 
+(defun org-air-view--attention-reason (item now)
+  "Return the (LABEL . FACE) REASON ITEM surfaced in Needs attention as of NOW.
+R93.  The section's promise is that the user can see WHY a row is there, and
+it is kept in the row's EXISTING date cell — no new column, no new
+chrome, no alignment change (the cell is measured board-wide like every
+other date label):
+
+  \"always\"     ITEM's threshold is 0 (`#A' under the defaults) — it
+                 surfaces unconditionally, and the row's own priority
+                 cookie says which priority did that.
+  \"Nd quiet\"   ITEM has gone N calendar days with no update, which has
+                 reached its priority's `org-air-attention-days'
+                 threshold.
+
+Both read in the quiet `org-air-face-date', never a heat colour: this
+section is a nudge, not an alarm (Overdue is the alarm).  With an
+unknown age the bare word \"quiet\" is used — the cell is never blank
+and org-air never invents a number.  The two public classify helpers are
+the SAME ones the bucket and the inspector read, so label, section
+membership and explanation cannot drift."
+  (let ((threshold (org-air-classify-attention-threshold item))
+        (age (org-air-classify-quiet-days item now)))
+    (cons (cond ((<= threshold 0) "always")
+                (age (format "%dd quiet" age))
+                (t "quiet"))
+          'org-air-face-date)))
+
 (defun org-air-view--date-label (item bucket)
   "Return (LABEL . FACE) date metadata for ITEM in BUCKET."
   (let* ((now (current-time))
          (scheduled (org-air-view--timestamp-time (org-air-item-scheduled item)))
          (deadline (org-air-view--timestamp-time (org-air-item-deadline item))))
     (cond
+     ;; R93: in Needs attention the date cell carries the REASON, ahead of
+     ;; every date arm.  A row is in that section because it went QUIET,
+     ;; not because of its dates — and its dates are never lost: an
+     ;; overdue or upcoming item has its own section row showing them, and
+     ;; the inspector always lists both.
+     ((eq bucket 'attention) (org-air-view--attention-reason item now))
      ((and deadline (> (org-air-view--days-between deadline now) 0))
       (cons (format "OVERDUE %dd" (abs (org-air-view--days-between deadline now)))
             'org-air-face-overdue))
@@ -2859,7 +2903,6 @@ position degrades to nil, never a crash."
             ;; R87: a scheduled today/tomorrow WINS its slot too (consistency).
             (or (org-air-view--day-relative-face scheduled now)
                 'org-air-face-scheduled)))
-     ((eq bucket 'attention) (cons "no date" 'org-air-face-date))
      ((eq bucket 'notes)
       ;; R53 P3: a note row's date pill is its scan-time activity.
       (when-let* ((activity (org-air-item-activity item)))
@@ -2867,21 +2910,7 @@ position degrades to nil, never a crash."
               ;; R85: a today/tomorrow neutral date stops reading as muted
               ;; grey; a non-today/tomorrow date keeps `org-air-face-date'.
               (or (org-air-view--day-relative-face activity now)
-                  'org-air-face-date))))
-     ((eq bucket 'stale)
-      ;; R53 P2: the scan-time `activity' slot answers data-pure (it IS
-      ;; the first-subtree-timestamp ‖ mtime value in this branch — the
-      ;; dated cond arms above already caught scheduled/deadline); the
-      ;; probe/mtime chain survives only for items built outside the scan.
-      (when-let* ((activity (or (org-air-item-activity item)
-                                (org-air-view--marker-timestamp-time item)
-                                (when-let* ((file (org-air-item-file item))
-                                            ((file-exists-p file)))
-                                  (file-attribute-modification-time
-                                   (file-attributes file))))))
-        (cons (format "%s %dd quiet" org-air-chrome-separator
-                      (org-air-view--days-between activity now))
-              'org-air-face-date))))))
+                  'org-air-face-date)))))))
 
 (defun org-air-view--priority-char (item)
   "Return ITEM priority character, or nil."
@@ -2961,17 +2990,35 @@ bare substring token."
    ((stringp org-air-view--tag-filter) (list org-air-view--tag-filter))))
 
 (defconst org-air-view--filter-is-values
-  '("overdue" "upcoming" "stale" "nodate" "hipri" "backlog")
+  '("overdue" "upcoming" "attention" "nodate" "hipri" "backlog")
   "The closed value set of the R72 `is:' status-token family.
 R83: `backlog' is the bucket-exact twin of the raw-tag `#backlog' — it
 selects exactly the `backlog' bucket (board-active ∧ task-routed ∧
 tagged), a strict subset of `#backlog' (which also hits done / archived /
-note-typed carriers of the tag).")
+note-typed carriers of the tag).
+R93: `attention' joins the family as the Needs-attention section's own
+token (the aging predicate), and `stale' LEAVES it — the Stale bucket is
+retired.  `is:stale' still PARSES, as a deprecated alias
+\(`org-air-view--filter-is-aliases'); it is simply no longer OFFERED by
+`/' completion, so the vocabulary the user is taught is the current one.
+This list is the OFFER set; the parser accepts it plus the aliases.")
+
+(defconst org-air-view--filter-is-aliases
+  '(("stale" . attention))
+  "Retired `is:' spellings kept alive as aliases (R93).
+Each (SPELLING . CURRENT-SYMBOL) still PARSES to CURRENT-SYMBOL, so a
+saved bookmark or a muscle-memory `is:stale' degrades honestly — it
+selects the aging Needs-attention set, the closest surviving meaning —
+instead of failing to parse and silently becoming a bare SUBSTRING
+search for the literal text \"is:stale\" (which would match nothing and
+read like a bug).  Aliases are NOT offered by `/' completion, so the
+vocabulary org-air teaches is always the current one.")
 
 (defun org-air-view--filter-token-parse (token)
   "Parse TOKEN as an R72 date/status filter token, or return nil.
 The closed `qualifier:value' grammar (case-insensitive throughout):
-  is:overdue / is:upcoming / is:stale / is:nodate / is:hipri
+  is:overdue / is:upcoming / is:attention / is:nodate / is:hipri
+  \(plus the retired `is:stale', aliased to `attention' — R93)
     => (is . SYMBOL)
   due:Nd / due:Nw (and the scheduled:/deadline: slot twins; the unit is
   REQUIRED, `w' = 7×N days)
@@ -2992,11 +3039,19 @@ errors; the label quoting is the tell —
       (cond
        ((string-match
          (concat "\\`is:\\("
-                 (mapconcat #'regexp-quote org-air-view--filter-is-values
+                 (mapconcat #'regexp-quote
+                            (append org-air-view--filter-is-values
+                                    (mapcar #'car
+                                            org-air-view--filter-is-aliases))
                             "\\|")
                  "\\)\\'")
          token)
-        (cons 'is (intern (downcase (match-string 1 token)))))
+        (let ((value (downcase (match-string 1 token))))
+          ;; R93: a retired spelling resolves to its current symbol here,
+          ;; ONCE, so every downstream consumer (the matcher, the lens,
+          ;; the bucket agreement) only ever sees current vocabulary.
+          (cons 'is (or (cdr (assoc value org-air-view--filter-is-aliases))
+                        (intern value)))))
        ((string-match
          "\\`\\(due\\|scheduled\\|deadline\\):\\([0-9]+\\)\\([dw]\\)\\'"
          token)
@@ -3128,13 +3183,18 @@ agreement law through the routing layer."
          (`(is . upcoming)
           ;; `is:upcoming' means the KNOB horizon (it widens nothing).
           (org-air-classify--due-within-p item now org-air-upcoming-days))
-         (`(is . stale) (org-air-classify--stale-p item now))
+         ;; R93: the Needs-attention section's OWN predicate — one
+         ;; definition shared by bucket and token, so `is:attention'
+         ;; selects EXACTLY the section's rows.  `is:stale' parses to
+         ;; this same symbol (the deprecated alias).
+         (`(is . attention) (org-air-classify--attention-p item now))
          (`(is . nodate)
-          ;; Deliberately the R54-1 eligibility NEGATION, not the attention
-          ;; bucket's narrower (null sched)(null dl): an item whose only
-          ;; date is a body <ts> is dated (it feeds the calendar and the
-          ;; stale clock) and must not answer "nodate".
-          (not (org-air-classify--stale-eligible-p item)))
+          ;; Deliberately the R54-1 date NEGATION, not "has no plan":
+          ;; an item whose only date is a body <ts> is dated (it feeds
+          ;; the calendar) and must not answer "nodate".  R93 renamed the
+          ;; predicate to `org-air-classify--dated-p'; the rule is
+          ;; unchanged.
+          (not (org-air-classify--dated-p item)))
          (`(is . hipri) (org-air-classify--hipri-p item))
          ;; R83: `is:backlog' is the bucket-exact twin of `#backlog'.  The
          ;; enclosing board-active ∧ task-routed conjunction already holds,
@@ -3190,7 +3250,9 @@ not require-match)."
 
 (defun org-air-view--filter-vocabulary ()
   "Return the date/status + R79 keyword token offer list for `/' completion.
-The five `is:' tokens plus knob-tracking window examples
+The `org-air-view--filter-is-values' `is:' tokens (R93: the RETIRED
+aliases in `org-air-view--filter-is-aliases' still parse but are
+deliberately NOT offered) plus knob-tracking window examples
 \(`due:7d' / `scheduled:7d' / `deadline:7d' where 7 is the LIVE
 `org-air-upcoming-days'), plus the R79 keyword axis: `is:done' and a
 `todo:<KW>' for each bare name in the merged scan vocabulary
@@ -3375,7 +3437,15 @@ repaint (a cheap slot-fold rebuild), never a cold file re-derive; a
 backlog-free default keys identically to before."
   (let ((key (list (time-to-days (or now (current-time)))
                    (org-air-view--filter-effective-horizon)
-                   org-air-backlog-tag)))
+                   org-air-backlog-tag
+                   ;; R93: the aging thresholds are a RENDER-time classify
+                   ;; input too (they read no file), so retuning
+                   ;; `org-air-attention-days' mid-session self-invalidates
+                   ;; the memo on the next repaint — a slot-fold rebuild,
+                   ;; never a rescan.  Default values key identically to
+                   ;; any other session at the same defaults.
+                   org-air-attention-days
+                   org-air-attention-default-days)))
     (unless (and org-air-view--classify-cache
                  (equal org-air-view--classify-cache-day key))
       (setq org-air-view--classify-cache (make-hash-table :test 'eq :size 700)
@@ -3423,6 +3493,9 @@ whole call so every item classifies against a single instant."
 (defun org-air-view--section-limit (bucket)
   "Return the row cap a section renders for BUCKET (used when not expanded)."
   (pcase bucket
+    ;; R93: Overdue inherits the cap Needs attention used to carry for
+    ;; its overdue disjunct — the same rows, in their own section.
+    ('overdue 6)
     ('attention 6)
     ('upcoming 5)
     ('notes org-air-notes-preview-limit)
@@ -5026,8 +5099,13 @@ rank, so it is ordered last."
 
 (defun org-air-view--item-activity (item)
   "Return ITEM's last-activity time for the `recency' sort (R22-3).
-Reuses `org-air-classify--last-activity' (the Stale-bucket signal); a
-missing signal is treated as the oldest (epoch)."
+Reuses `org-air-classify--last-activity' — the broad activity signal
+\(closed ‖ scheduled ‖ deadline ‖ first subtree stamp ‖ file mtime).
+R93 note: this is DELIBERATELY not `org-air-classify-updated', the
+Needs-attention clock.  Sorting by \"recency\" answers \"what has this
+item got going on lately\", where a plan legitimately counts; the
+attention clock answers \"when did something HAPPEN to it\", where a
+plan must not.  A missing signal is treated as the oldest (epoch)."
   (or (org-air-classify--last-activity item) '(0 0)))
 
 (defun org-air-view--sort-by (items lessp keyfn &optional desc)
@@ -5173,7 +5251,10 @@ chronological board default).  Direction carries unchanged."
            ;; other buckets), so badge/summary/body always agree.  `length'
            ;; is order-independent, so the unsorted member list is fine here.
            (count (length (org-air-view--items-for-bucket bucket items)))
-           (attentionp (and (> count 0) (memq bucket '(inbox attention))))
+           ;; R93: Overdue joins the attention-coloured badges — a missed
+           ;; date demands the eye at least as much as a quiet item.
+           (attentionp (and (> count 0)
+                            (memq bucket '(inbox overdue attention))))
            ;; R20-6: the displayed subset (date-sorted, section-capped) is the
            ;; SAME memoised list the meta-width pass measured — one sort+take.
            (visible (org-air-view--displayed-items-for-bucket bucket items)))
@@ -5517,7 +5598,7 @@ the descriptor is nil so the board summary stays byte-identical."
                (count (cdr entry))
                (number-face (cond
                              ((= count 0) 'org-air-face-faded)
-                             ((memq bucket '(inbox attention))
+                             ((memq bucket '(inbox overdue attention))
                               'org-air-face-summary-number-attention)
                              (t 'org-air-face-summary-number))))
           ;; D5b/D5d: spine inset + %3d number + 3-space gutter + label.
@@ -5953,11 +6034,20 @@ strict MAX; ties resolve logs > clocks > created (replace only on
 strictly greater), so an equal-second note outranks a clock-out with
 the more descriptive label.  Cap-invariant: `org-air-log-cap'
 truncation keeps the NEWEST entries, so a `rtrunc' item's heads are
-exactly the untruncated heads.  All three slots empty -> nil (the
-Decision 3 fallback takes over in `org-air-view--item-updated-line')."
+exactly the untruncated heads.
+R93: the scan's `updated' slot joins as a FOURTH candidate (SOURCE
+`stamp' — a bare inactive `[timestamp]' in the body), last and still
+strictly-greater, so it only ever wins when something genuinely NEWER
+than every classified stamp sits in the entry.  That makes this line the
+honest witness of the Needs-attention clock: `org-air-classify-updated'
+reads the same slot, and the labelled candidates above are all stamps
+that slot already contains.  All four empty -> nil (the Decision 3 file
+fallback takes over in `org-air-view--item-updated-line', where it is
+marked `~file' — the same coarse floor classify uses)."
   (let* ((log (car (org-air-item-logs item)))
          (clock-end (cdr (car (org-air-item-clocks item))))
          (created (org-air-item-created item))
+         (updated (org-air-item-updated item))
          (best (when log
                  (cons (car log)
                        (pcase (cdr log)
@@ -5968,6 +6058,8 @@ Decision 3 fallback takes over in `org-air-view--item-updated-line')."
       (setq best (cons clock-end 'clock)))
     (when (and created (or (null best) (> created (car best))))
       (setq best (cons created 'created)))
+    (when (and updated (or (null best) (> updated (car best))))
+      (setq best (cons updated 'stamp)))
     best))
 
 (defun org-air-view--item-updated-line (item inset now)
@@ -5991,7 +6083,8 @@ per debounced render, never in the classify/paint loop."
          (time (car slot))
          (label (pcase (cdr slot)
                   ('note "note") ('done "done") ('state "state")
-                  ('clock "clock") ('created "created"))))
+                  ('clock "clock") ('created "created")
+                  ('stamp "stamp"))))
     (unless slot
       ;; Decision 3: ONE bounded live stat, marked, future-clamped.
       (let* ((file (org-air-item-file item))
@@ -6019,7 +6112,7 @@ per debounced render, never in the classify/paint loop."
   "Return a compact display name for classify BUCKET (D-P7)."
   (pcase bucket
     ('inbox "Inbox") ('attention "Attention") ('upcoming "Upcoming")
-    ('high-priority "High-priority") ('stale "Stale")
+    ('high-priority "High-priority") ('overdue "Overdue")
     (_ (capitalize (symbol-name bucket)))))
 
 (defun org-air-view--inspector-bucket-line (item inset now)
@@ -6028,13 +6121,22 @@ The classification is computed against NOW (D-P7)."
   (let ((buckets (org-air-view--classify-cached item now)))
     (when buckets
       (let* ((names (mapconcat #'org-air-view--inspector-bucket-name
-                               (seq-remove (lambda (b) (eq b 'stale)) buckets)
-                               " · "))
-             (stale (when (memq 'stale buckets)
-                      (when-let* ((act (org-air-classify--last-activity item)))
-                        (format "stale %dd" (org-air-view--days-between act now)))))
+                               buckets " · "))
+             ;; R93: the attention REASON, spelled out where there is room
+             ;; for words — the age it reached and the threshold it
+             ;; reached, so the row's terse "12d quiet" is explainable
+             ;; without opening the manual.  Reads the SAME two public
+             ;; classify helpers the row label uses, so they cannot drift.
+             (reason
+              (when (memq 'attention buckets)
+                (let ((age (org-air-classify-quiet-days item now))
+                      (threshold (org-air-classify-attention-threshold item)))
+                  (if (<= threshold 0)
+                      "always surfaces"
+                    (format "quiet %s / %dd"
+                            (if age (format "%dd" age) "?") threshold)))))
              (text (string-join (delq nil (list (unless (string-empty-p names) names)
-                                                stale))
+                                                reason))
                                 " · ")))
         (unless (string-empty-p text)
           (org-air-view--inspector-kv
@@ -9987,7 +10089,7 @@ interrupt, but the guard is cheap and harmless."
 ;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
-(defconst org-air-view--cache-version 6
+(defconst org-air-view--cache-version 7
   "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
 v2 (R53): `org-air-item' gained the scan-time slots
 \(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
@@ -10018,7 +10120,15 @@ TRAILING slots ride the existing print/`read' machinery with zero new
 serialisation code — the version bump exists precisely for the record
 length.  R90 retains v6 because its final source projection is again Org's
 native title/tag semantics; the experimental broad projection was never a
-released cache contract.")
+released cache contract.
+v7 (R93): the struct gained the `updated' recency slot — the scan-time
+fact the Needs-attention aging rule classifies on.  Another new TRAILING
+slot, so again zero serialisation code and the same clean one-time cold
+miss for a v6 cache: skeleton + the R56 paced rescan, never a hang.  The
+bump is REQUIRED and not merely defensive: a v6 record would hydrate with
+no `updated' at all, and every historyless heading would then age off the
+file mtime — a whole board of wrong reasons rather than an honest
+refill.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.
@@ -13414,7 +13524,7 @@ exact source heading as one compound, file-atomic edit."
   "Toggle `org-air-backlog-tag' on the item at point — defer/un-defer (R83).
 Adds the tag when absent, REMOVES it when present (a reversible
 un-backlog): a board-active tagged item routes OFF the four task buckets
-\(Upcoming / Needs attention / High priority / Stale) and the Inbox into
+\(Overdue / Upcoming / High priority / Needs attention) and the Inbox into
 the single `backlog' bucket — off the attention surfaces, still trackable
 \(the Backlog section + a rail Summary count) and reachable everywhere
 non-attention (Notes, all-items, the day view, the calendar, `#backlog',

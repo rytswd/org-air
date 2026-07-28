@@ -20,8 +20,42 @@
 
 (defvar org-air-inbox-file)
 
-(defcustom org-air-stale-days 21
-  "Number of days without activity before an item is stale."
+(defcustom org-air-attention-days
+  '((?A . 0) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30))
+  "Days of NO UPDATE before a board item needs attention, by priority (R93).
+An alist mapping a priority CHARACTER (the letter inside `[#A]') to the
+number of calendar days the item may stay quiet before it surfaces in
+the Needs-attention section; the NIL key is the threshold for a
+heading carrying NO priority cookie.
+
+The defaults implement the user's ruling: `#A' surfaces ALWAYS
+\(threshold 0 — it never has to earn its place), `#B' after a week,
+`#C' after a fortnight, and `#D' / `#E' / no-priority after a month.
+
+The clock is the item's `updated' fact (`org-air-item-updated' — the
+newest INACTIVE Org timestamp in the heading's own body: LOGBOOK state
+changes and notes, clock-outs, CLOSED, CREATED; see
+`org-air-query--newest-inactive-stamp'), falling back to the source
+file's mtime for a heading with no history at all.  A SCHEDULED or
+DEADLINE date is a PLAN, not an update: it neither starts nor stops this
+clock, so nothing has to be scheduled to stay off this section — that
+rule (R93) replaced the pre-R93 \"dateless items need attention\"
+default, which pushed users to tag everything `:backlog:' just to stop
+seeing it.
+
+A priority not listed falls back to the NIL entry, then to
+`org-air-attention-default-days'.  Read LIVE at classify time and part
+of the render memo key, so a `setq' takes effect on the next repaint,
+never a rescan."
+  :type '(alist :key-type (choice (character :tag "Priority letter")
+                                  (const :tag "No priority" nil))
+                :value-type (integer :tag "Days"))
+  :group 'org-air)
+
+(defcustom org-air-attention-default-days 30
+  "Fallback quiet period for a priority missing from `org-air-attention-days'.
+Only consulted when that alist has neither the item's priority letter
+nor a NIL entry (R93)."
   :type 'integer
   :group 'org-air)
 
@@ -33,7 +67,7 @@
 (defcustom org-air-backlog-tag "backlog"
   "Org tag that defers a board item onto the Backlog lens (R83).
 A heading carrying this tag routes OUT of the task sections
-\(Upcoming / Needs attention / High priority / Stale) and the Inbox into
+\(Overdue / Upcoming / High priority / Needs attention) and the Inbox into
 the single `backlog' bucket -- off the \"needs attention\" surfaces while
 staying trackable (a Backlog section + a rail Summary count) and fully
 reachable elsewhere (Notes, all-items, the day view, the calendar).  The
@@ -149,16 +183,24 @@ instead of `org-ts-regexp-both'.  A cons (FILE . POS) marker returns nil
                    (org-timestamp-from-string
                     (match-string-no-properties 0))))))))))))
 
-(defun org-air-classify--stale-eligible-p (item)
-  "Non-nil when ITEM carries an actionable date (R54-1).
+(defun org-air-classify--dated-p (item)
+  "Non-nil when ITEM carries an actionable date (R54-1, renamed R93).
 Scheduled, deadline, or an active timestamp in the subtree; a live-marker
 item built outside the scan probes its buffer with `org-ts-regexp'
-\(bounded, mirroring `org-air-classify--marker-timestamp-time').  No
-date => not a task => never Stale."
+\(bounded, mirroring `org-air-classify--marker-timestamp-time').
+R93: Stale is retired, so this is no longer a bucket gate — it survives
+as the ONE definition of \"has a date\" behind the `is:nodate' filter
+token (its negation).  Renamed from `org-air-classify--stale-eligible-p',
+which is kept as a deprecated alias below."
   (or (org-air-item-scheduled item)
       (org-air-item-deadline item)
       (org-air-item-active-ts item)
       (org-air-classify--marker-active-ts item)))
+
+(defalias 'org-air-classify--stale-eligible-p #'org-air-classify--dated-p
+  "Deprecated R54-1 spelling of `org-air-classify--dated-p' (R93).
+The predicate is unchanged — only Stale, the bucket it used to gate, is
+retired.  Kept so existing callers keep working rather than signalling.")
 
 (defvar org-air-classify--truename-cache (make-hash-table :test #'equal)
   "Memo FILE -> truename for the inbox-membership test (R53 P2).
@@ -223,9 +265,11 @@ never resurrects what the board buries."
 
 (defun org-air-classify--overdue-p (item now)
   "Non-nil when ITEM's scheduled or deadline lies before today (NOW).
-The Needs-attention bucket's overdue disjunct, hoisted (R72) — also the
-board filter's `is:overdue' predicate, so filter and bucket share ONE
-definition of \"overdue\"."
+R93: this is now the `overdue' BUCKET's own body — Overdue is its own
+section, no longer a disjunct of Needs-attention — as well as the board
+filter's `is:overdue' predicate, so section and token share ONE
+definition of \"overdue\".  A missed date is a different fact from a
+quiet one and deserves its own place on the board."
   (or (org-air-classify--past-p (org-air-item-scheduled item) now)
       (org-air-classify--past-p (org-air-item-deadline item) now)))
 
@@ -247,17 +291,84 @@ bucket IS (org-air-classify--due-within-p ITEM NOW `org-air-upcoming-days')
            (org-air-classify--future-or-today-p
             (org-air-item-deadline item) now days)))))
 
-(defun org-air-classify--stale-p (item now)
-  "Non-nil when ITEM is stale as of NOW: R54-1 eligibility + the clock.
-The Stale bucket body hoisted whole (R72): eligible (scheduled ∨ deadline
-∨ active <ts> — `org-air-classify--stale-eligible-p') AND the activity gap
-\(`org-air-classify--last-activity') is >= `org-air-stale-days'.  Also the
-board filter's `is:stale' predicate."
-  (and (org-air-classify--stale-eligible-p item)
-       (when-let* ((activity (org-air-classify--last-activity item)))
-         (>= (org-air-classify--days-between activity now)
-             org-air-stale-days))
-       t))
+(defun org-air-classify--priority-char (item)
+  "Return ITEM's priority LETTER as a character, or nil (R93).
+The classify-layer twin of `org-air-view--priority-char': Org stores a
+cookie as (1000 × (`org-priority-lowest' - LETTER)), so the letter is
+recovered by inverting that.  A cookie-less heading answers nil, which
+is the `org-air-attention-days' NIL key."
+  (when-let* ((priority (org-air-item-priority item)))
+    (let ((char (- org-priority-lowest (/ priority 1000))))
+      (and (characterp char) char))))
+
+(defun org-air-classify-attention-threshold (item)
+  "Return ITEM's quiet period in days before it needs attention (R93).
+`org-air-attention-days' keyed by ITEM's priority letter, falling back
+to that alist's NIL (no-priority) entry and then to
+`org-air-attention-default-days'.  Never negative: 0 means \"always
+surfaces\" (the `#A' ruling).  Public because the row/inspector
+reason labels must show the SAME number the bucket applied."
+  (let* ((char (org-air-classify--priority-char item))
+         (cell (or (assq char org-air-attention-days)
+                   (assq nil org-air-attention-days))))
+    (max 0 (or (cdr cell) org-air-attention-default-days))))
+
+(defun org-air-classify-updated (item)
+  "Return the epoch of ITEM's last UPDATE, or nil (R93).  No file access.
+The scan-time `updated' slot (the newest non-future INACTIVE timestamp
+in the heading's own body — LOGBOOK state changes and notes, clock-outs,
+`CLOSED:', `:CREATED:', any body `[stamp]'), else the source file's
+scan-time mtime read out of `org-air-query-file-meta' (a hash lookup on
+the table the cache hydrates — never a `file-attributes' call).
+
+The mtime fallback is deliberately COARSE and applies ONLY to a heading
+with no history at all: one edit anywhere in the file refreshes every
+historyless heading in it.  That is the honest floor — org-air will not
+guess a per-heading date it was never given — and the moment such a
+heading gains a state change, a note or a CLOSED stamp it gets its own
+clock.  nil (no slot and no meta, e.g. an item built outside the scan)
+means UNKNOWN, never \"fresh\": see `org-air-classify--attention-p'.
+
+SCHEDULED / DEADLINE / active `<timestamps>' are excluded by
+construction: a plan is not an update (the R93 recency ruling)."
+  (or (org-air-item-updated item)
+      (when-let* ((file (org-air-item-file item))
+                  (meta (org-air-query-file-meta file)))
+        (plist-get meta :mtime))))
+
+(defun org-air-classify-quiet-days (item now)
+  "Return calendar days since ITEM was last updated as of NOW, or nil (R93).
+Floored at 0 so a clock skew or a stamp written slightly ahead can never
+read as negative age (which would silently suppress a `#A' item).  nil
+when `org-air-classify-updated' knows nothing."
+  (when-let* ((epoch (org-air-classify-updated item)))
+    (max 0 (org-air-classify--days-between epoch now))))
+
+(defun org-air-classify--attention-p (item now)
+  "Non-nil when ITEM has been quiet long enough, as of NOW, to need attention.
+The R93 Needs-attention bucket body AND the `is:attention' filter predicate
+\(with `is:stale' kept as a deprecated alias) — ONE definition, so
+section and token agree by construction.
+
+ITEM needs attention when its quiet period (`org-air-classify-quiet-days')
+has reached its priority threshold (`org-air-classify-attention-threshold').
+A threshold of 0 — `#A' under the defaults — surfaces UNCONDITIONALLY,
+including when the age is unknown: the highest priority never has to
+earn its row.  An UNKNOWN age at any other threshold does NOT surface:
+org-air refuses to nag about something it cannot date.
+
+What this rule deliberately does NOT do (the R93 problem statement): it
+never asks whether the item is scheduled.  The pre-R93 bucket surfaced
+EVERY dateless board item, so the only way to stop seeing a real-but-
+not-yet-plannable task was to date it (a lie) or tag it `:backlog:'
+\(gaming the board).  Overdue moved OUT to its own bucket
+\(`org-air-classify--overdue-p'); a date now grants no exemption and
+costs no penalty."
+  (let ((threshold (org-air-classify-attention-threshold item)))
+    (and (or (<= threshold 0)
+             (when-let* ((age (org-air-classify-quiet-days item now)))
+               (>= age threshold)))
+         t)))
 
 (defun org-air-classify--hipri-p (item)
   "Non-nil when ITEM carries the highest priority (R72).
@@ -305,9 +416,11 @@ definition both share, so filter⇔bucket agreement holds by construction."
 (defun org-air-classify-item (item &optional now)
   "Return bucket symbols for ITEM relative to NOW.
 
-Buckets are `upcoming', `stale', `attention', `high-priority', `inbox',
+Buckets are `upcoming', `overdue', `attention', `high-priority', `inbox',
 the R83 `backlog' (a board-active deferred item, off the task buckets),
 plus the non-board `notes', `container', `knowledge' and `journal'.
+R93: `overdue' is a bucket of its own and `stale' is RETIRED — its
+\"dated but quiet\" rule is subsumed by the aging `attention' rule.
 R53 P3: a `kind' `file' item (a headingless note synthesised by the scan)
 routes to the dedicated `notes' bucket FIRST and never enters the task
 buckets — the GTD board stays a GTD board.
@@ -341,15 +454,18 @@ the R72 date/status filter gate — any change here must land there too
   "Return the task-bucket symbols for a heading ITEM relative to NOW.
 R72: rewritten onto the hoisted named predicates — the top gate
 \(`org-air-classify--board-active-p'), Upcoming
-\(`org-air-classify--due-within-p'), overdue
+\(`org-air-classify--due-within-p'), Overdue
 \(`org-air-classify--overdue-p'), high priority
-\(`org-air-classify--hipri-p') and Stale (`org-air-classify--stale-p') —
-behaviour-neutral, so the buckets and the R72 date/status filter tokens
-share ONE definition of every date word (agreement by construction)."
+\(`org-air-classify--hipri-p') — so the buckets and the R72 date/status
+filter tokens share ONE definition of every date word (agreement by
+construction).
+R93: Overdue is its own bucket; Needs attention is the AGING rule
+\(`org-air-classify--attention-p'); Stale is gone.  Buckets stay
+NON-EXCLUSIVE, exactly as before: an item may hold several at once (an
+overdue `#A' that has been quiet a month is in Overdue, High priority
+AND Needs attention), and each section shows it."
   (let* ((now (or now (current-time)))
          (buckets nil)
-         (scheduled (org-air-item-scheduled item))
-         (deadline (org-air-item-deadline item))
          (inbox-p (org-air-classify--inbox-dweller-p item)))
     (when (org-air-classify--board-active-p item)
       (if (org-air-classify--backlog-p item)
@@ -362,26 +478,24 @@ share ONE definition of every date word (agreement by construction)."
           ;; R77's subtractive shape but keeps the item a TASK (a tag
           ;; overlay, not a re-typed note).
           (push 'backlog buckets)
+        ;; R93 board order: Overdue, Upcoming, High priority, Needs
+        ;; attention (Inbox is rendered first but classified here).
+        (when (org-air-classify--overdue-p item now)
+          (push 'overdue buckets))
         (when (org-air-classify--due-within-p item now org-air-upcoming-days)
           (push 'upcoming buckets))
-        ;; Real-signal membership ruling (xsqrnoyn): an overdue item needs
-        ;; attention, but the NO-DATE attention default is suppressed for
-        ;; inbox-dwellers — a schedule-less inbox capture is unfiled, not
-        ;; "needs attention" (it stays in Inbox).  Real scheduled/deadline/
-        ;; priority membership is still honoured everywhere.
-        (when (or (org-air-classify--overdue-p item now)
-                  (and (null scheduled) (null deadline) (not inbox-p)))
-          (push 'attention buckets))
         (when (org-air-classify--hipri-p item)
           (push 'high-priority buckets))
+        ;; R93: the AGING rule, total and date-free.  Deliberately NO
+        ;; inbox carve-out: the pre-R93 exemption existed only to keep
+        ;; schedule-less captures out of the NO-DATE default, and that
+        ;; default is gone.  A capture that has sat untouched past its
+        ;; threshold genuinely needs attention, and overlap is the
+        ;; standing rule — it simply shows in Inbox AND here.
+        (when (org-air-classify--attention-p item now)
+          (push 'attention buckets))
         (when inbox-p
-          (push 'inbox buckets))
-        ;; R54-1: the stale-ELIGIBILITY gate is the FIRST conjunct — an item
-        ;; with no actionable date is not a task and can never go Stale.
-        ;; The stale CLOCK (`org-air-classify--last-activity') is unchanged,
-        ;; so a dated-but-quiet item classifies byte-identically to before.
-        (when (org-air-classify--stale-p item now)
-          (push 'stale buckets))))
+          (push 'inbox buckets))))
     (nreverse buckets)))
 
 (provide 'org-air-classify)

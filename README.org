@@ -17,7 +17,7 @@ org-air is *two surfaces over your Org files*, sharing one visual language, one 
 
 | Surface              | Command               | What it is                                                                                                                                                                             |
 |----------------------+-----------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| *GTD dashboard*      | ~M-x org-air~         | A read-first board: capture → glance → process. Items grouped into Inbox / Needs attention / Upcoming / High priority / Stale, with a live calendar, filter, sort, and inbox workflow. |
+| *GTD dashboard*      | ~M-x org-air~         | A read-first board: capture → glance → process. Items grouped into Inbox / Overdue / Upcoming / High priority / Needs attention, with a live calendar, filter, sort, and inbox workflow. |
 | *Air project viewer* | ~M-x org-air-project~ | A planning-doc tree for repositories managed with [[https://github.com/withre/air][Air]] — state-grouped documents (~airctl status -Da~ parity), a side-rail inspector, and an in-place doc session.                             |
 
 The philosophy:
@@ -29,8 +29,8 @@ The philosophy:
 
 # Images are hosted on GitHub's user-content CDN (not committed, to keep clones lean).
 
-*The GTD dashboard* — ~M-x org-air~. Semantic buckets (Inbox, Needs attention,
-Upcoming, High priority, Stale), a month calendar with today highlighted, and the
+*The GTD dashboard* — ~M-x org-air~. Semantic buckets (Inbox, Overdue, Upcoming,
+High priority, Needs attention), a month calendar with today highlighted, and the
 context rail in a side window.
 
 #+HTML: <img src="https://github.com/user-attachments/assets/ac4c64ca-94cd-49cf-81bd-b05cce818b27" alt="org-air GTD dashboard" width="900">
@@ -59,17 +59,17 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 
 *Dashboard* (~org-air~)
 
-- Five semantic buckets: *Inbox* (~:inbox:~ capture queue), *Needs attention* (overdue, or active with no schedule/deadline), *Upcoming* (within ~org-air-upcoming-days~), *High priority* (~[#A]~ etc.), *Stale* (untouched for ~org-air-stale-days~).
+- Five semantic buckets, in board order: *Inbox* (~:inbox:~ capture queue), *Overdue* (a scheduled/deadline date already past), *Upcoming* (a date within ~org-air-upcoming-days~), *High priority* (~[#A]~ etc.), *Needs attention* (no update for longer than its priority allows — see [[#needs-attention][Needs attention]]). Buckets are *not* exclusive: an overdue ~[#A]~ that has gone quiet appears in all three of its sections.
 - A month *calendar* marking scheduled/deadline/created days, with today highlighted — navigate months without leaving the board.
 - The date cell is a *proximity heat-ramp* on *every* date slot (deadline / scheduled / neutral): *overdue* reads red, *today* orange, *tomorrow* a blend between today and this-week, anything *2–6 days out* a calmer amber, and a date *a week or more out* keeps its slot colour — warmer means nearer, so urgency is legible at a glance (text /and/ svg pill).
 - A *single-day view* — ~RET~ a calendar day (or ~g d~ to jump to any date) focuses that day's items grouped *Deadline / Scheduled / Logged*; ~<~ / ~>~ step to the adjacent day and ~q~ returns to the board. Rows wear your TODO-keyword faces (~org-air-keyword-face-source~) and re-sort by time / keyword / priority / title.
-- *Filtering* by tag /and/ free text /and/ date/status /and/ location: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:stale~ / ~is:nodate~ / ~is:hipri~ / ~is:done~ / ~is:backlog~, a ~todo:KEYWORD~ keyword-identity token, and ~due:7d~-style windows (with ~scheduled:~ / ~deadline:~ twins) match the planning and status slots; a ~path:tasks/re/air~ token scopes the board/day/review to a directory subtree of your source files (segment-aware — ~path:re~ hits ~…/tasks/re/…~ but not a sibling ~…/tasks/restore~ — and matched relative to your ~org-air-files~ root, no tagging required); multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
+- *Filtering* by tag /and/ free text /and/ date/status /and/ location: a bare token substring-matches the title/origin, a ~#tag~ token matches tags; ~is:overdue~ / ~is:upcoming~ / ~is:attention~ / ~is:nodate~ / ~is:hipri~ / ~is:done~ / ~is:backlog~ (the retired ~is:stale~ still parses, as an alias for ~is:attention~), a ~todo:KEYWORD~ keyword-identity token, and ~due:7d~-style windows (with ~scheduled:~ / ~deadline:~ twins) match the planning and status slots; a ~path:tasks/re/air~ token scopes the board/day/review to a directory subtree of your source files (segment-aware — ~path:re~ hits ~…/tasks/re/…~ but not a sibling ~…/tasks/restore~ — and matched relative to your ~org-air-files~ root, no tagging required); multi-term combines per ~org-air-filter-match~ (AND / OR, toggled live).
 - *Backlog* (~b~): ack-and-defer a not-urgent task off the attention surfaces onto a Backlog lens via an org-native ~:backlog:~ tag — still trackable (Notes, day view, calendar, ~is:backlog~/~#backlog~), never nagging. The normal board keeps a compact *Backlog N* header/count and hides its rows until ~TAB~; an exact ~is:backlog~ lens reveals them automatically.
 - *Scope* the whole dataset to one tag, group, or file.
 - *Sort* within each bucket (date / priority / title / recency).
 - One-keystroke *capture* to the inbox, a guided *refile / process* flow, and an *inbox walk* that dispositions items one at a time.
 - *Note types*, derived from content: an item with a TODO keyword or a schedule/deadline is a *task* and fills the board; prose *knowledge* notes and date-titled *journal* entries stay off it. Your ~org-todo-keywords~ (custom states, fast keys, logging) are respected — org-air reads your Org exactly as Org does. Prefer keyword-only tasks? ~(setq org-air-task-requires-todo t)~ narrows the task signal to the TODO keyword alone, so keyword-less scheduled routines (~* Water plants  SCHEDULED: <… ++2w>~) leave the task sections — they keep their day-view row and calendar mark, stay reachable via Notes/Revisit, and any single one comes back with a ~:task:~ tag or ~ORG_AIR_TYPE~ override.
-- *Staleness* flags only *dated* work that has gone quiet; dateless notes are never “stale”.
+- *Needs attention is age-based, never date-based.* Nothing has to be scheduled to stay off it, and scheduling something does not buy it an exemption — see [[#needs-attention][Needs attention]].
 - Toggleable *columns* — filename (origin), date/schedule, tags — that reflow and stay aligned.
 
 *Notes & Revisit* (~N~)
@@ -128,7 +128,10 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
   (org-air-inbox-file "~/org/inbox.org")
   ;; Classification horizons.
   (org-air-upcoming-days 7)
-  (org-air-stale-days 21)
+  ;; Needs attention: days of NO UPDATE per priority before an item surfaces.
+  ;; #A is 0 — it always surfaces; the nil key is "no priority cookie".
+  (org-air-attention-days '((?A . 0) (?B . 7) (?C . 14)
+                            (?D . 30) (?E . 30) (nil . 30)))
   ;; Board columns (defaults shown): filename OFF, dates + tags ON.
   (org-air-show-origin nil)
   (org-air-show-dates t)
@@ -208,7 +211,8 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | ~org-air-exclude-regexps~           | ~nil~                                        | Regexps (abs path) of files/dirs to skip; matching directories are pruned. |
 | ~org-air-inbox-file~                | =~/.emacs.d/org-air-inbox.org=               | Where ~c~ / ~org-air-capture~ stores items.                               |
 | ~org-air-upcoming-days~             | ~7~                                          | Horizon (days) for the Upcoming bucket.                                   |
-| ~org-air-stale-days~                | ~21~                                         | Quiet period before an item is Stale.                                     |
+| ~org-air-attention-days~            | ~((?A . 0) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30))~ | Days with no update, per priority letter, before Needs attention surfaces an item; the ~nil~ key is "no priority cookie". |
+| ~org-air-attention-default-days~    | ~30~                                         | Fallback quiet period for a priority missing from ~org-air-attention-days~. |
 | ~org-air-show-origin~               | ~nil~                                        | Show the board filename (origin) column.                                  |
 | ~org-air-show-dates~                | ~t~                                          | Show the board date/schedule column.                                      |
 | ~org-air-show-tags~                 | ~t~                                          | Show the board tags column.                                               |
@@ -287,9 +291,38 @@ Marks are validated, never guessed. A mark records the exact source heading you 
 
 One case needs a stricter rule. Two headings in the /same file/ that share a title /and/ the same effective tags — a recurring ~Standup~, a templated ~Weekly review~ — are indistinguishable to org-air, which never re-reads your files to derive a mark's identity and never writes an ~ID~ property into them. A mark on such a heading is therefore also validated against that file's modification time, so *any* change to that file on disk invalidates it, even a change to an unrelated heading. Org-air's own marked write is not foreign change; org-air's own ~u~/~U~ currently is, so an undo can drop such a mark. Re-mark and continue: org-air would rather lose a selection than write a heading you did not pick.
 
+***** Needs attention: recency × priority
+:PROPERTIES:
+:CUSTOM_ID: needs-attention
+:END:
+
+*Needs attention shows work that has gone quiet for longer than its priority allows.* Nothing else. It asks one question — /when was this last touched?/ — and compares the answer against a per-priority threshold:
+
+| Priority        | Surfaces after     |
+|-----------------+--------------------|
+| ~[#A]~          | always (0 days)    |
+| ~[#B]~          | 7 days of no update  |
+| ~[#C]~          | 14 days of no update |
+| ~[#D]~ / ~[#E]~ | 30 days of no update |
+| no cookie       | 30 days of no update |
+
+The table is the ~org-air-attention-days~ defcustom (an alist from the priority *letter* to days; the ~nil~ key is "no priority cookie", and ~org-air-attention-default-days~ is the last resort for a letter you have not listed). It is read live at repaint time — retune it with ~setq~ and the next repaint obeys, with no rescan.
+
+*What counts as an update.* The most recent /inactive/ Org timestamp in the heading's own body: LOGBOOK state changes and notes, clock-outs, ~CLOSED:~ and ~:CREATED:~, plus any ~[2026-06-15 Mon]~ stamp you typed there yourself. Turn on ~org-log-done~ / ~org-log-into-drawer~ and org-air simply reads the trail Org already writes.
+
+*What does not count.* ~SCHEDULED~, ~DEADLINE~ and active ~<timestamps>~ are /plans/, not updates — they neither start nor stop this clock. So *nothing has to be scheduled to stay off this section, and scheduling something buys it no exemption*: a task planned for next month that nobody has touched in sixty days still surfaces, and a brand-new dateless capture does not.
+
+*The coarse floor.* A heading with no history at all — no LOGBOOK, no CLOSED, no CREATED, no body stamp — falls back to its /file's/ modification time. That is deliberately coarse: one edit anywhere in the file resets the clock for every historyless heading in it. org-air would rather admit it does not know than invent a per-heading date. As soon as such a heading gains one real stamp it gets its own clock.
+
+*Why the row is legible.* In this section the date cell carries the /reason/, not a date: ~12d quiet~ (the age that crossed the threshold) or ~always~ (an item whose threshold is 0 — its ~[#A]~ cookie is right there in the same row). The rail inspector spells it out as ~quiet 12d / 7d~ (age over threshold) next to an ~Updated~ line naming the stamp it read.
+
+*Overdue is a separate section*, above Upcoming: a missed date is a different problem from a quiet item and gets its own rows, its own ~▲~ badge and its own ~is:overdue~ filter. Sections *overlap by design* — an overdue ~[#A]~ that has been quiet a month appears in Overdue, High priority /and/ Needs attention, once in each.
+
+*Stale is retired.* Its rule ("dated work that has gone quiet") is exactly what Needs attention now does for every item, dated or not, so the section and the ~org-air-stale-days~ knob are gone. Filter with ~is:attention~; a saved ~is:stale~ still parses as an alias for it, so old bookmarks keep working — they are simply no longer offered by ~/~ completion.
+
 ***** Backlog: ack-and-defer (~b~)
 
-Some tasks are real but not urgent — a placeholder heading you will fill in /anytime/. A dateless keyworded heading otherwise camps forever in *Needs attention* (the no-date attention default), burying the genuinely-urgent work. ~b~ (~org-air-item-backlog~) is the third verb between "date it" (a lie) and "drop the keyword" (no longer a task): it toggles an org-native ~:backlog:~ tag (~org-air-backlog-tag~, default ~"backlog"~) on the item at point — one keystroke, no prompt — and presses again to un-defer. A backlogged item routes /off/ the four task sections and the Inbox into a single *Backlog* lens at the bottom of the board, while staying fully trackable elsewhere: Notes, all-items, the day view and the calendar (if dated) are untouched.
+Some tasks are real but not urgent — a placeholder heading you will fill in /anytime/. ~b~ (~org-air-item-backlog~) is the third verb between "date it" (a lie) and "drop the keyword" (no longer a task): it toggles an org-native ~:backlog:~ tag (~org-air-backlog-tag~, default ~"backlog"~) on the item at point — one keystroke, no prompt — and presses again to un-defer. A backlogged item routes /off/ the four task sections and the Inbox into a single *Backlog* lens at the bottom of the board, while staying fully trackable elsewhere: Notes, all-items, the day view and the calendar (if dated) are untouched. (Before the recency model, ~b~ was also the only escape from a Needs-attention section that surfaced /every/ dateless task; it is now a genuine choice rather than a way to silence the board.)
 
 On a normal board the Backlog lens is *header-only*: ~Backlog N~ and its Summary count remain visible, but item/fold rows stay hidden until ~TAB~ expands all currently visible backlog rows; a second ~TAB~ collapses them. Expansion survives ordinary repaint/refresh in the live buffer and bookmark expansion state. An exact ~is:backlog~ filter forces the section and reveals it even when ~org-air-show-backlog-section~ is nil; raw ~#backlog~ does not auto-reveal. Outside that explicit lens, setting the show knob nil removes both the ordinary section and ordinary Summary row.
 
@@ -361,7 +394,7 @@ The global entry-point keys you bind yourself (e.g. ~C-c a~ → ~org-air~) are *
 
 **** The GTD dashboard — ~M-x org-air~
 
-A sticky header shows the date, a visible-item count, and any active filter or scope. Below it, items sit in five sections, each with an icon and a count badge (badges turn attention-coloured when a section demands it). Each row reads left to right: TODO state, priority cookie, title, a semantic date label, tag chips, and (optionally) an origin breadcrumb.
+A sticky header shows the date, a visible-item count, and any active filter or scope. Below it, items sit in five sections — *Inbox*, *Overdue*, *Upcoming*, *High priority*, *Needs attention*, plus the optional *Notes* and *Backlog* lenses last — each with an icon and a count badge (Inbox, Overdue and Needs attention badges turn attention-coloured when they are non-empty). Each row reads left to right: TODO state, priority cookie, title, a semantic date label, tag chips, and (optionally) an origin breadcrumb.
 
 The capture → process loop is two steps:
 

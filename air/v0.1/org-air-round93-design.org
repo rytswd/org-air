@@ -1,0 +1,690 @@
+#+title: org-air Round 93 — the planning surface: recency × priority attention, Overdue on its own, Stale retired
+#+state: complete
+#+tags: board classify planning attention recency overdue stale sections cache performance
+
+* Summary
+
+The board's =Needs attention= rule was *"board-active AND (overdue OR (no
+scheduled AND no deadline, non-inbox))"*.  The second disjunct made
+"not having a date" the single largest reason to be nagged, which
+inverted the product: the cheapest way to stop being nagged was to lie
+(invent a date) or to game the board (=:backlog:= everything).  R93
+deletes that disjunct outright and rebuilds the surface around what the
+user actually asked for:
+
+- *Needs attention* = board-active AND (days since last update) >=
+  threshold(priority).  =#A= threshold 0, so it always surfaces.  No date
+  is required, and no date grants an exemption.
+- *Overdue* is its own bucket and its own section.
+- *Stale* is retired; its "dated but quiet" rule is subsumed.
+- Section order is now *Inbox, Overdue, Upcoming, High priority, Needs
+  attention*, then Notes, then Backlog last.
+- Recency is a real per-heading scan-time fact (=updated=), not a guess.
+
+Design and implementation landed together, on 2026-07-29.
+
+*Parentage note (the brief was stale here).*  The brief said "main is
+R91; R92 is under audit and NOT yet on main".  In the actual repository
+=main= already pointed at =uwuoxlnlnpnq= ("R92 FIX: one landing rule for
+four views") when this round branched, and it advanced again to
+=vywkmurzkvyy= ("R92 TEST") while the round was in flight.  This change
+was branched from =main= as instructed, then *rebased onto the newer
+=main== so the failing-test handover is measured against the tree the
+audit seat will actually see.  R92 TEST adds only test files, so the
+rebase touched no source.  See [[*R92 overlap][R92 overlap]].
+
+* The problem statement (the user's words, verbatim)
+
+#+begin_quote
+The current logic would mean everything needs to be scheduled, otherwise
+it would be part of Needs attention — but that's not practical;
+everything would be sent to backlog because that would be the easiest to
+stop seeing them.  Instead, Needs attention should show items based on
+the last update date and priority — if the priority is highest it should
+show up all the time, if lower it should come up after some time of no
+update.  Overdue may be better handled separately.  Not sure what stale
+is about.
+#+end_quote
+
+And the governing goal:
+
+#+begin_quote
+org-air is a planning solution, and it must be designed so that it brings
+up what matters for planning at the top, and helps humans prioritise and
+plan.
+#+end_quote
+
+"Not sure what stale is about" is the most damning line in the report.
+Stale was *"has a date AND has been quiet >= 21 days"*.  Once attention
+ages every item, dated or not, Stale is a strictly narrower restatement
+of the same fact wearing a different name and a different knob.  Two
+sections cannot teach one idea.
+
+* Decisions and who made them
+
+** Made by the user (implemented, not relitigated)
+
+1. *Recency source*: Org logbook state changes + inactive timestamps,
+   with file mtime only as a last resort.
+2. *Aging thresholds*, tunable via defcustom: =#A= always; =#B= 7 days;
+   =#C= 14 days; =#D=, =#E= and no-priority 30 days.
+3. *Overlap stays*: buckets remain non-exclusive; an item may appear in
+   several sections, exactly as before.
+4. Design and implementation land in the same round.
+
+** Ruled by the requesting seat (design rulings, all followed)
+
+5. *Overdue is its own bucket and section*, no longer part of attention.
+6. *Needs attention = board-active AND age >= threshold(priority)*; =#A=
+   threshold 0 means it always surfaces; no date required, no date
+   exemption.
+7. *Stale is RETIRED.*  Keep =is:stale= as an alias for the new aging
+   predicate if cheap, else remove it and record the break.  → It was
+   cheap (one alist entry); kept as a *parse-only* alias.
+8. *Section order*: Inbox, Overdue, Upcoming, High priority, Needs
+   attention, then the rest (Backlog last).
+9. *Filter/bucket agreement by construction* preserved: one predicate per
+   section, shared with its =is:= token.  =is:overdue= is the Overdue
+   bucket's own predicate; a new aging predicate backs attention.
+
+** Judged by this seat (with reasons)
+
+10. *No inbox carve-out in the attention rule.*  The pre-R93 code
+    suppressed the no-date default for inbox dwellers (ruling
+    =xsqrnoyn=: "a schedule-less inbox capture is unfiled, not needs
+    attention").  That exemption existed only to protect captures from
+    the *no-date default*, and that default is gone.  Ruling 6 states a
+    *total* rule, and adding a carve-out would make it un-teachable.  A
+    capture that has sat untouched past its threshold genuinely does
+    need attention; it simply shows in *both* Inbox and Needs attention,
+    which is the standing overlap rule (decision 3), and a *fresh*
+    capture (age 0, or a =:CREATED:= stamp) never surfaces at all.  The
+    xsqrnoyn intent — "do not nag about brand-new captures" — is
+    preserved by the clock rather than by an exception.
+11. *=is:attention= added, =is:stale= kept but not offered.*  Ruling 9
+    asked for an aging predicate token; the honest spelling is
+    =is:attention=.  =is:stale= still parses (aliased) so bookmarks and
+    muscle memory degrade honestly, but it is *removed from ~/~
+    completion* so the vocabulary org-air teaches is the current one.
+12. *The row reason lives in the existing date cell*, not a new column
+    (see [[*Making the reason legible][Making the reason legible]]).
+13. *The R74 inspector =Updated= line gained the new fact as a fourth,
+    strictly-greater candidate* so that the number the inspector shows
+    and the number the bucket used cannot drift.  Not asked for; the
+    alternative was two adjacent numbers in the same pane disagreeing.
+
+* The recency fact
+
+** Definition
+
+=org-air-item-updated= — a new scan-time slot, an INTEGER epoch or nil:
+
+#+begin_quote
+The newest *non-future inactive* Org timestamp in the heading's *own
+body* (the region between the heading line and its first child),
+=nil= when the region holds none.
+#+end_quote
+
+That single definition subsumes every shape Org writes when something
+*happened*, because Org writes them all as inactive stamps in that
+region:
+
+| Shape                                   | Example                                     |
+|-----------------------------------------+---------------------------------------------|
+| LOGBOOK state change                    | =- State "DONE" from "TODO" [2026-06-15 …]= |
+| LOGBOOK note                            | =- Note taken on [2026-06-15 …]=            |
+| Clock-out                               | =CLOCK: [… 10:00]--[2026-06-15 11:00]=      |
+| Completion stamp                        | =CLOSED: [2026-06-15 …]=                    |
+| Capture stamp                           | =:CREATED: [2026-06-01 …]=                  |
+| A stamp the user typed in the body      | =[2026-06-14 Sun]=                          |
+
+Active =<timestamps>= are *not matched by the regexp at all*
+(=org-ts-regexp-inactive=), which is the mechanical guarantee behind the
+ruling: a =SCHEDULED=, a =DEADLINE= or a bare plan date can never move
+this clock.  A plan is not an update.
+
+Two deliberate refinements:
+
+- *Own body, not subtree.*  A child's LOGBOOK belongs to the child's
+  row; crediting it to the parent would make a busy child silence its
+  parent forever.  This matches R61's rollup reasoning exactly and reuses
+  its already-computed =child-pos= bound.
+- *Future stamps are skipped.*  A stamp dated after the scan day is a
+  note *about* the future, not an update; letting it win would silence
+  the heading until that date arrived.  Age is additionally floored at 0
+  at classify time, so clock skew can never read as negative (which
+  would have suppressed a =#A=).
+
+** The coarse fallback, stated plainly
+
+When a heading carries *no history at all* — no LOGBOOK, no =CLOSED:=,
+no =:CREATED:=, no body stamp — =org-air-classify-updated= falls back to
+the *file's* scan-time modification time, read out of the per-file meta
+table (=org-air-query-file-meta= =:mtime=): a hash lookup on a table the
+cache hydrates, never a =file-attributes= call at classify time.
+
+*This is coarse and we are not hiding it:* one edit anywhere in a file
+refreshes the clock for *every* historyless heading in that file.  A user
+with one 2000-line =tasks.org= of bare =* TODO= lines therefore sees
+Needs attention behave file-at-a-time until those headings gain real
+stamps.  We chose this over the alternatives:
+
+- Guessing a per-heading date from position or file order — dishonest.
+- Writing =:CREATED:= into the user's files on first sight — org-air
+  does not write to files it was not asked to write to.
+- Treating "no history" as infinitely old — every fresh corpus would
+  nag on day one.
+- Treating "no history" as fresh forever — an untouched file would never
+  surface, which is the exact failure the user reported.
+
+The floor self-heals: the moment a heading gains one state change, note
+or =CLOSED:= stamp it gets its own clock.  Turning on =org-log-done= and
+=org-log-into-drawer= is the one-line configuration that makes org-air's
+attention model per-heading accurate, and the README says so.
+
+Nil at both levels (no slot *and* no file meta — an item built outside
+the scan, e.g. in a capture buffer) means *unknown*, never "fresh": a
+=#A= still surfaces (threshold 0 is unconditional), everything else does
+not.  org-air refuses to nag about something it cannot date.
+
+** Cost: one pass, no extra reads, no timers
+
+The probe is one bounded =re-search-forward= walk over the *same*
+=[body-start, bound)= region =org-air-query--harvest-at-point= already
+walks twice (clock lines, log lines), reusing the same =end= and
+=child-pos= it already computed.  No second pass over the buffer, no
+extra file read, no new timer, no new buffer.
+
+Inside the walk, stamps are compared as *strings*: Org's
+=YYYY-MM-DD Dow HH:MM= shape sorts lexicographically by construction (the
+date sorts first, and a given date always carries the same day name), so
+the region costs one regexp walk plus *exactly one*
+=org-parse-time-string= per heading instead of one per stamp.  The whole
+thing rides the harvest's existing per-heading =condition-case= net, so a
+malformed entry degrades that heading to =nil= and nothing else.
+
+The probe reads =org-ts-regexp-inactive= *group 0*, not group 1:
+whether group 1 includes the brackets has differed across Org versions
+(Emacs 30's Org excludes them), and group 0 is the whole =[…]= in every
+version.  This was found by measurement, not by reading — the first
+implementation silently returned =nil= for every heading.
+
+* The classification rules
+
+** New / changed predicates (org-air-classify.el)
+
+| Predicate                               | Meaning                                        |
+|-----------------------------------------+------------------------------------------------|
+| =org-air-classify--overdue-p=           | unchanged body, now the *Overdue bucket* itself |
+| =org-air-classify--attention-p=         | NEW: age >= threshold(priority), or threshold 0 |
+| =org-air-classify-attention-threshold=  | NEW (public): the days for this item's priority |
+| =org-air-classify-updated=              | NEW (public): the recency epoch, no file access  |
+| =org-air-classify-quiet-days=           | NEW (public): age in days, floored at 0          |
+| =org-air-classify--priority-char=       | NEW: cookie value → letter                       |
+| =org-air-classify--dated-p=             | renamed from =--stale-eligible-p= (alias kept)   |
+| =org-air-classify--stale-p=             | *DELETED*                                        |
+| =org-air-stale-days=                    | *DELETED*                                        |
+
+Three of them are *public* on purpose: the row label, the rail inspector
+and the bucket must all quote the same number, so they call the same
+function rather than each re-deriving it.
+
+** The thresholds
+
+#+begin_src elisp
+(defcustom org-air-attention-days
+  '((?A . 0) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30)) …)
+(defcustom org-air-attention-default-days 30 …)
+#+end_src
+
+Keyed by the priority *letter* (Org stores the cookie as
+=1000 × (org-priority-lowest − letter)=; =--priority-char= inverts that),
+with the =nil= key for "no cookie".  =?D= and =?E= are listed explicitly
+even though they equal the =nil= fallback — a user reading the alist
+should see the whole table, not have to infer it.
+
+The alist joins the render-time classify memo key alongside
+=org-air-backlog-tag=, so retuning it mid-session self-invalidates on the
+next repaint (a slot-fold rebuild) and never forces a rescan.  It is not
+a *scan* key input: no threshold changes what a file means.
+
+** The bucket body, before and after
+
+#+begin_src elisp
+;; before (R83)
+(when (org-air-classify--due-within-p …) (push 'upcoming …))
+(when (or (org-air-classify--overdue-p item now)
+          (and (null scheduled) (null deadline) (not inbox-p)))
+  (push 'attention …))                       ; ← the deleted rule
+(when (org-air-classify--hipri-p item)       (push 'high-priority …))
+(when inbox-p                                (push 'inbox …))
+(when (org-air-classify--stale-p item now)   (push 'stale …))
+
+;; after (R93)
+(when (org-air-classify--overdue-p item now)   (push 'overdue …))
+(when (org-air-classify--due-within-p …)       (push 'upcoming …))
+(when (org-air-classify--hipri-p item)         (push 'high-priority …))
+(when (org-air-classify--attention-p item now) (push 'attention …))
+(when inbox-p                                  (push 'inbox …))
+#+end_src
+
+The DONE/archived top gate, the R83 backlog routing branch and the R54-2
+note routing layer are untouched.
+
+** Worked example (measured, not imagined)
+
+Frozen at the render clock, over a real scanned file:
+
+| Heading                          | updated    | age | thr | buckets                      |
+|----------------------------------+------------+-----+-----+------------------------------|
+| =TODO Quiet dateless task [#C]=  | 40d ago    |  40 |  14 | =(attention)=                |
+| =TODO Fresh dateless task=       | 1d ago     |   1 |  30 | =nil=  ← the whole point     |
+| =TODO Top priority [#A]=         | today      |   0 |   0 | =(high-priority attention)=  |
+| =TODO Overdue, freshly touched=  | today      |   0 |  30 | =(overdue)= ← not attention  |
+| =TODO Planned +3d, quiet 60d [#B]= | 60d ago  |  60 |   7 | =(upcoming attention)=       |
+| =TODO Historyless heading=       | (file mtime) | 0 |  30 | =nil=                        |
+
+Row 2 is the user's complaint fixed.  Row 5 is "a date grants no
+exemption".  Row 4 is "Overdue is its own thing".  Row 3 is "=#A= always".
+
+* Sections, order and presentation
+
+** Order
+
+#+begin_src elisp
+'((inbox         "Inbox"          "Inbox zero — nothing to process.")
+  (overdue       "Overdue"        "Nothing overdue. Nice.")
+  (upcoming      "Upcoming"       org-air-view--empty-upcoming)
+  (high-priority "High priority"  "No #A items.")
+  (attention     "Needs attention" "Nothing has gone quiet."))
+#+end_src
+
+Then the conditional *Notes* lens, then *Backlog* last — unchanged.
+The order reads as a sentence: process (Inbox), repair (Overdue), plan
+(Upcoming), choose (High priority), sweep (Needs attention).  Needs
+attention moved to the bottom of the task sections deliberately: it is
+the *slow* signal, and putting it under the three time-critical ones is
+what "brings up what matters for planning at the top" means in practice.
+
+** Empty-state lines
+
+=Nothing overdue. Nice.= moved from attention to *Overdue*, where it was
+always secretly about — a small piece of evidence that the old bucket was
+two ideas in a trench coat.  The new attention line is =Nothing has gone
+quiet.=, which matches the retired =Nothing has gone stale.= cadence and
+teaches the new vocabulary ("quiet") that the row labels also use.
+
+** Icons — no new glyph invented
+
+- *Overdue* takes the urgent =▲= (ASCII =!=) that Needs attention used to
+  carry.  A missed date IS the alarm.
+- *Needs attention* takes the retired Stale =○= (ASCII =~=).  A quiet
+  item is an absence, not an alarm.
+
+The glyph table gained =overdue= and lost =stale=; total entries
+unchanged.  =org-air-glyphs= is a defcustom, so a user override still
+carrying a =stale= key is simply never consulted.
+
+** Making the reason legible
+
+Ruling: "the user must be able to see WHY something surfaced … using
+existing row/rail affordances rather than new chrome … do not add a
+column that breaks alignment."
+
+*In the row*, the *existing* date cell carries the reason for
+Needs-attention rows only (the arm sits first in
+=org-air-view--date-label=, ahead of every date arm):
+
+- =12d quiet= — the age that crossed the threshold.
+- =always= — a threshold-0 item; the =[#A]= cookie in the same row's
+  prefix says which priority did it.
+
+No new column, no new glyph, no alignment change: the cell is measured
+board-wide by the existing =--compute-meta-widths= pass exactly like a
+date label, and both labels wear the quiet =org-air-face-date= — never a
+heat colour.  This section is a nudge; Overdue is the alarm.
+
+Nothing is lost by displacing the date there: an overdue or upcoming item
+has its *own* section row showing its date, and the inspector always
+lists both dates.
+
+*In the rail*, the inspector's =Bucket= line gained the same reason in
+words — =Attention · quiet 12d / 7d= (age over threshold) or
+=Attention · always surfaces= — computed from the same two public helpers
+the row uses, so they cannot drift.  It replaces the old =stale Nd=
+suffix in the same slot.  Directly above it, the R74 =Updated= line names
+the stamp the clock actually read (=state=, =note=, =clock=, =created=,
+=stamp=, or =~file= for the coarse fallback).
+
+* Filter / bucket agreement
+
+The R72 law is preserved by construction — each section body *is* the
+token's predicate:
+
+| Token           | Predicate                          | Bucket          |
+|-----------------+------------------------------------+-----------------|
+| =is:overdue=    | =org-air-classify--overdue-p=      | =overdue=       |
+| =is:upcoming=   | =org-air-classify--due-within-p=   | =upcoming=      |
+| =is:hipri=      | =org-air-classify--hipri-p=        | =high-priority= |
+| =is:attention=  | =org-air-classify--attention-p=    | =attention=     |
+| =is:stale=      | (alias) =--attention-p=            | =attention=     |
+| =is:backlog=    | =org-air-classify--backlog-p=      | =backlog=       |
+| =is:nodate=     | ¬ =org-air-classify--dated-p=      | (axis, no bucket) |
+
+Verified by probe over a scanned corpus: for every item, token ⇔ bucket
+membership, with *one* documented exception that is *pre-existing and
+shared by every sibling token*: a =:backlog:=-tagged item is routed to
+the single =backlog= bucket by R83, while =is:upcoming= / =is:hipri= /
+=is:overdue= / =is:attention= still match it on its own merits.  Measured
+on trunk-equivalent code: a backlogged =[#A]= scheduled +2d answers =t=
+to =is:upcoming=, =is:hipri= *and* =is:backlog= while classifying to
+=(backlog)= alone.  R93 adds no new inconsistency here; it makes the new
+token behave exactly like its siblings.  (Fixing that is an R83 question,
+not an R93 one, and would change what a filtered board shows.)
+
+=is:nodate= keeps its meaning exactly: it is the negation of "has a
+date", which survived the Stale retirement intact under its honest name
+=org-air-classify--dated-p= (=--stale-eligible-p= remains as a
+=defalias=, so existing callers do not signal).
+
+* Cache
+
+=org-air-view--cache-version= 6 → *7*.
+
+The struct gained one new *trailing* slot (=updated=), so serialisation
+rides the existing print/=read= machinery with zero new code — the bump
+exists precisely for the record length.  A v6 cache is the established
+clean one-time cold miss: skeleton + the R56 paced rescan, never a hang.
+
+The bump is *required*, not defensive.  A v6 record would hydrate with no
+=updated= at all, and *every* heading would then age off the coarse file
+mtime — a whole board of wrong reasons, silently, rather than an honest
+one-time refill.
+
+The per-file =:mtime= the fallback reads was already persisted and
+hydrated (R54-2), and hydration happens in =org-air-view--cache-load=
+*before* items are used, so the warm path answers with zero file opens.
+
+* Performance
+
+Corpora: 1000 and 5000 files × 4 headings each, every heading carrying a
+LOGBOOK state change, a closed CLOCK line, a body inactive stamp and a
+SCHEDULED date (i.e. the probe always has work to do).  Both trees
+byte-compiled; best-of-N per configuration to control machine noise.  The
+baseline is the *parent commit* (=uwuoxlnlnpnq=, R92 FIX — what =main=
+was at branch time), extracted with =jj file show= into a separate
+directory and byte-compiled there; verified byte-identical to =@-= for
+the three files R93 changes in the hot path.
+
+| Phase               | parent (R92 FIX) | R93     | Δ        |
+|---------------------+------------------+---------+----------|
+| SCAN 1k / 4k items  | 1.514 s          | 1.564 s | +3.3 %   |
+| SCAN 5k / 20k items | 7.530 s          | 7.633 s | +1.4 %   |
+| CLASSIFY 4k items   | 0.072 s          | 0.076 s | +0.004 s |
+| CLASSIFY 20k items  | 0.366 s          | 0.370 s | +0.004 s |
+
+Linear at both scales: 5×the files costs 4.9× the scan and 4.9× the
+classify.  The recency probe costs 1–3 % of scan wall time — one extra
+bounded regexp walk over a region already walked twice — and
+classification is unchanged (the retired Stale predicate's
+=--stale-eligible-p= + =--last-activity= chain came out; the aging rule is
+a slot read plus at most one hash lookup, so the two roughly cancel).
+
+No new file reads, no new timers, no new buffers, no second buffer pass.
+
+* Migration and honest degradation
+
+| What                      | Before                    | After                                                     |
+|---------------------------+---------------------------+-----------------------------------------------------------|
+| =Stale= section           | rendered                  | gone                                                      |
+| =org-air-stale-days=      | defcustom                 | removed; a stray =setq= in user config is inert           |
+| =is:stale= in a bookmark  | selected the Stale set    | parses as =is:attention=; prints back verbatim in the lens |
+| =is:stale= in ~/~ completion | offered                | not offered (=is:attention= is)                            |
+| =org-air-glyphs= =stale= key | consulted              | never consulted; harmless                                  |
+| Existing v6 scan cache    | loaded                    | clean cold miss + paced rescan                            |
+| =--stale-eligible-p= callers | worked                 | still work (=defalias= to =--dated-p=)                     |
+
+Nothing signals.  A bookmark carrying =is:stale= renders a board; it does
+not error and it does not silently decay into a bare substring search for
+the literal text "is:stale" (which would match nothing and read like a
+bug) — that is exactly why the alias was kept rather than dropped.
+
+* R92 overlap
+
+R92 turned out to be the *parent*, not a sibling, so there is no merge to
+reconcile.  The brief's instruction — "stay out of R92's files where you
+can; if you must touch the same regions, keep changes minimal and note
+it" — was honoured anyway:
+
+- =org-air-view.el= is touched by both, in *disjoint* regions.  R92 owns
+  the viewport/landing seams (=window-start= capture and restore around a
+  repaint).  R93 touches the sections table, the date label, the filter
+  token family, the inspector lines, the cache version and the classify
+  memo key.  R93 adds *no* repaint path, *no* landing code and *no*
+  window arithmetic.
+- =org-air-project.el=, =org-air-review.el= and =org-air-revisit.el= were
+  touched by R92 and are *untouched* by R93.
+- R93 additionally touches =org-air-query.el=, =org-air-classify.el= and
+  =org-air-layout.el=, none of which R92 touched.
+
+The R92 landing rule is verified intact under R93 in the handover below
+\(its own suites replay green on an aged corpus).
+
+* Gate
+
+- =rm -f *.elc=; all *11* modules byte-compile.  The only warning is the
+  pre-existing =org-air-project.el:946= docstring width, present on
+  =main= and untouched here.
+- =make lint= → =lint: ok (0 findings, all baselined)=.
+- =make check= → *1279 tests, 1074 as expected, 197 unexpected, 8
+  skipped, 0 errors*.  No test file, fixture, golden or known-failures
+  entry was edited.  The classification of all 197 is below.
+  \(Before the rebase onto the newer =main= the figures were 1235 / 181;
+  R92 TEST's four new files contribute the extra 44 tests and 16 of the
+  failures, all in one category — G5.)
+- Fixtures/goldens: the board bytes *legitimately* changed (section
+  order, two section titles, two icons, the new =Nd quiet= / =always=
+  labels).  =make regen-mockups= is therefore *NOT a no-op*: run against
+  this tree it rewrites *28 of the 41* files under =tests/fixtures/=
+  (~1190 diff lines) — every board mockup at every width/height tier plus
+  the two denote-origin mockups.  This was measured and then *reverted*:
+  per the round's instruction the goldens were not regenerated here, and
+  the working tree contains the fixtures exactly as they are on =main=.
+  The audit seat owns the re-bless.
+
+* Failing tests — the handover
+
+197 failures, 0 errors.  Every one was inspected.  *None reveals a defect
+in this change.*  Three independent replays support that claim.  In each,
+the suite is run *unmodified* — only the corpus TEXT is changed, giving
+each =* TODO= heading one LOGBOOK stamp 60 days before the frozen clock,
+i.e. what those corpora look like in a real user's files:
+
+1. *R91 (29 failures): replayed GREEN.*
+   =Ran 31 tests, 31 results as expected, 0 unexpected=.  R91's board is
+   76 lines tall again and every landing assertion holds.  *R91 scroll
+   stability is not regressed.*
+2. *R92 / landing / echo (16 failures): replayed GREEN.*
+   =Ran 44 tests, 39 as expected, 5 unexpected= — and all 16 tests that
+   fail in the real gate are among the 39.  The 5 remaining are
+   =review=-view tests that do NOT fail in the real gate; they use a
+   different corpus whose own clock/log fixtures the crude aging advice
+   corrupts.  Probe artefacts.  *The R92 landing rule is not regressed.*
+3. *R90 (88 failures): replayed mostly GREEN.*  88 failures down to 18,
+   and those 18 are dominated by tests that *rewrite their corpus
+   mid-test* (the drifted-mark / duplicate-sibling family), which the
+   aging advice corrupts by re-inserting drawers — again artefacts.  The
+   one genuine survivor is =r90-31=, which asserts =(= 6
+   org-air-view--cache-version)= and that "v7 is a clean miss".
+
+** G1 — the retired Stale bucket, asserted directly (7) — OBSOLETE
+
+Each asserts the =stale= bucket symbol, the =is:stale= → =(is . stale)=
+parse, or =org-air-stale-days=.
+
+- org-air-classify-stale
+- org-air-r54-1a-dateless-prose-never-stale
+- org-air-r54-1c-dated-quiet-is-stale
+- org-air-r54-1e-eligibility-first-conjunct-clock-unchanged
+- org-air-r72-1-token-grammar
+- org-air-r72-3-filter-bucket-agreement
+- org-air-ux-bare-timestamp-stale-signal-is-active-only
+
+Note for the re-bless: =r72-3='s upcoming/hipri legs still hold; only its
+=is:stale= ⇔ ='stale= leg is dead.  Its natural successor is
+=is:attention= ⇔ ='attention=, which a probe confirms holds exactly.
+
+** G2 — the deleted no-date attention default (23) — OBSOLETE
+
+Each asserts that a *dateless* board-active item classifies into
+=attention=, or that an *overdue* item does, or reads the old
+=("no date" . org-air-face-date)= label.
+
+- org-air-classify-no-schedule-is-attention
+- org-air-classify-overdue-is-attention
+- org-air-r57-2-user-done-twin-and-hold
+- org-air-r57-3-air-supplement-keywords
+- org-air-r57-10-archived-trees-off-board
+- org-air-r59-2-general-board-twin
+- org-air-r59-3-task-parent-kept
+- org-air-r59-5-child-date-trap
+- org-air-r59-10-override-wins
+- org-air-r59-12-capture-and-at-point-unaffected
+- org-air-r72-10-hoist-is-neutral
+- org-air-r72-13-overdue-agrees-with-attention-members
+- org-air-r73-15-bucket-graduates-empty-board-still-populated
+- org-air-r83-1-b-defers-off-attention
+- org-air-r83-2-b-again-round-trips-preserving-tags
+- org-air-r83-7-no-rescan-on-toggle
+- org-air-r83-8-classify-memo-drop
+- org-air-r83-9-edit-ring-in-place
+- org-air-r83-10-never-error
+- org-air-r83-15-summary-count-updates-live-on-toggle
+- org-air-r83-16-r68-clean-write-and-archive-structural
+- org-air-r83-17-r77-keywordless-and-dead-item
+- org-air-r85-8-non-emitting-neutral-arms-untouched
+
+The R83 family is worth re-blessing carefully: its *subject* (=b= routes
+an item off the task buckets into =backlog=) is untouched and still
+correct; only its expected *before* state (=(attention)=) changed.  Give
+its fixture headings a stamp older than 30 days and the assertions read
+=(attention)= → =(backlog)= again.
+
+** G3 — board BYTE goldens and section tables (13) — OBSOLETE, REGEN NEEDED
+
+The rendered board changed by design: section order, =Overdue= /
+=Needs attention= titles, the =▲= / =○= icons, and the new reason labels.
+
+- org-air-glyph-coverage-complete-with-ascii-fallbacks (asks for a
+  =stale= glyph; wants =overdue=)
+- org-air-layout-empty-board-holds-shape
+- org-air-layout-mockup-80 / -120 / -160 / -heights / -thresholds
+- org-air-layout-stacked-below-threshold
+- org-air-layout-summary-counts-match-sections (its helper table
+  =org-air-viewport-test-section-titles= still lists =stale=; the
+  summary/section counts themselves *do* agree — verified in the dump)
+- org-air-r13-board-only-byte-mockup
+- org-air-r17-denote-origin-byte-mockup
+- org-air-r49-5-batch-placement-blind
+- org-air-view-sections-present
+
+** G4 — cache version and classify memo key (5) — OBSOLETE
+
+- org-air-r59-13-cache-v6-and-key
+- org-air-r86-18-path-adds-no-cache-coherence-input
+- org-air-r90-31-cache-v6-native-projection-and-v7-clean-miss
+- org-air-r42-f2-no-change-repaints (memo key is now 5 elements)
+- org-air-r72-16-interactive-filter-apply-no-rescan (same)
+
+The two memo-key tests are *load-bearing* and should be re-blessed, not
+deleted: their real subject ("a filter apply must not rescan") still
+passes; only the key's literal shape moved.
+
+** G5 — fixture shape: a freshly-written dateless corpus renders no rows (148) — OBSOLETE
+
+These corpora are bare =* TODO Foo= headings written *now*: no LOGBOOK,
+no CREATED, so the file-mtime floor puts them at age 0 against a
+threshold of 30 — correctly invisible.  The tests then fail on a
+*precondition* ("find the row", "the board is taller than the window",
+"two sections are capped"), never on their actual subject.
+
+- org-air-r18-section-splice-byte-equivalent-to-full-render
+- org-air-r18-section-splice-leaves-header-and-earlier-sections
+- org-air-r51-3-tab-ret-on-fold-rows-expand
+- org-air-r58-2 / -3 / -8 / -9 / -10 / -11 / -12
+- org-air-r60-1-excluded-file-never-appears
+- org-air-r60-7-refresh-guard-never-resurrects
+- org-air-r68-2 / -6 / -13
+- org-air-triage-calendar-marks-have-date-bucket-rows
+- org-air-r90-* (87 of them)
+- org-air-r91-* (29 of them)
+- org-air-r92-* (4: =bookmark-jump-leaves-bystander-window-alone=,
+  =one-anchor-restore-pair-per-keystroke=,
+  =point-above-window-start-is-not-given-a-fictitious-offset=,
+  =repaint-that-signals-keeps-the-viewport=)
+- org-air-landing-invariant-board-commands-land-on-a-row
+- org-air-echo-* (11 of them)
+
+The R92-family entries all fail on the identical precondition
+=(> (line-number-at-pos (point-max)) (window-body-height win))= — 21 vs
+22 — i.e. "the board must be taller than the window", which a 60-row
+corpus of *fresh* dateless TODOs no longer satisfies.  Their shared
+corpus builder is =org-air-landing-test-with-board= in
+=tests/org-air-landing-helpers.el=; one stamp per heading there fixes the
+whole family at once (replay 2 above).
+
+Two of these deserve a note beyond "age the corpus":
+
+- =r18-section-splice-byte-equivalent-to-full-render= — its core
+  invariant (=spliced= equals a full render) still holds; the
+  *anti-tautology* guard =(should-not (equal spliced collapsed))= now
+  fails because the fixture's Needs attention holds 5 rows, under its cap
+  of 6, so collapsing is a no-op.  Re-target it at =upcoming= (8 rows,
+  cap 5, still capped) or age the corpus.
+- =r51-3-tab-ret-on-fold-rows-expand= — needs *two* capped sections; only
+  Upcoming caps now.
+
+** G6 — the R74 inspector Updated line (1) — CHANGED BY DESIGN
+
+- org-air-r74-6-future-clamp-golden-lemma
+
+=org-air-view--item-updated= gained the scan =updated= slot as a fourth,
+strictly-greater candidate labelled =stamp= (decision 13).  The
+standard fixture's inbox heading carries a body inactive stamp, so it now
+renders =Updated 2026-06-14 (1d ago · stamp)= where it previously
+rendered nothing.
+
+This test's *purpose* — golden determinism — is *strengthened*, not
+weakened: it existed because the only Updated source for that heading was
+the fixture copy's wall-clock mtime, which is unusable in a golden.  The
+new line is derived from the fixture's own *bytes* and is therefore
+deterministic.  Its slotless leg (=r74-5=, =~file=) still passes
+untouched, so the coarse-fallback path is still covered.
+
+* Files changed
+
+- =org-air-query.el= — the =updated= struct slot, the
+  =--newest-inactive-stamp= probe, its wiring into the harvest and both
+  scan paths, the per-scan today guard.
+- =org-air-classify.el= — the thresholds defcustoms, the recency/aging
+  predicates, the rebuilt bucket body, Stale removed,
+  =--dated-p= rename + alias.
+- =org-air-view.el= — sections table and order, section limit, attention
+  colouring, the reason label, the filter token family + aliases, the
+  inspector bucket/updated lines, cache v7, memo key.
+- =org-air-layout.el= — the two section icons.
+- =README.org= — the new model, thresholds table, retirement note,
+  section order, defcustom table rows.
+- =air/v0.1/org-air-round93-design.org= — this document.
+
+No test, fixture, golden or known-failures file was touched.
+
+* Implementation history
+
+- 2026-07-29 — Designed and implemented in one round (R93).  Branched
+  from =main= (which was R92 FIX, not R91 as the brief stated), then
+  rebased onto the newer =main= (R92 TEST).  1279 tests run, 197
+  failures, all classified above as obsolete-rule or design-changed; the
+  R90, R91 and R92 suites replay green on aged corpora.  Lint clean, 11
+  modules compile, goldens (28 of 41 fixture files) left for the audit
+  seat to re-bless.

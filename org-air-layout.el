@@ -34,10 +34,14 @@
 (defcustom org-air-glyphs
   '((origin . ("▤" . "."))
     (inbox . ("□" . "I"))
-    (attention . ("▲" . "!"))
+    ;; R93: the two icons follow the two meanings.  Overdue took the
+    ;; urgent ▲ that Needs attention used to carry (a missed date IS the
+    ;; alarm); Needs attention took the retired Stale ○ (a quiet item is
+    ;; an absence, not an alarm).  No new glyph was invented.
+    (overdue . ("▲" . "!"))
+    (attention . ("○" . "~"))
     (upcoming . ("◆" . ">"))
     (high-priority . ("★" . "*"))
-    (stale . ("○" . "~"))
     (notes . ("≣" . "="))
     ;; R83: the Backlog section icon — ▽ (deferred), the calm inverse of
     ;; attention's ▲; degrades by the S5b tier table, user-overridable.
@@ -83,8 +87,8 @@
     ;; degrades by the S5b tier table like every glyph.
     (dropped . ("⊘" . "x")))
   "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
-PREFERRED is the GUI glyph (already the safer S5b default: stale ○, today
-■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate
+PREFERRED is the GUI glyph (already the safer S5b default: attention ○,
+today ■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate
 SAFE tier for thin GUI fonts lives in `org-air-layout-safe-glyphs'.
 Selection is `org-air-layout-glyph'.  User-overridable."
   :type '(alist :key-type symbol

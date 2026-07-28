@@ -7691,6 +7691,142 @@ count (R16 D-P1)."
          t)))
 
 ;;;; ---------------------------------------------------------------------
+;;;; R91: scroll stability — a repaint never moves the cursor's ROW on
+;;;; screen.  Every org-air repaint is an erase + re-render, which drops
+;;;; each displaying window's `window-start' marker to `point-min'; the
+;;;; next redisplay then re-anchors the viewport (typically recentring),
+;;;; so the row the user is standing on visibly JUMPS.  R90 made `m' a
+;;;; real selection with a repaint, which turned that latent defect into
+;;;; a jump on a high-frequency keystroke ("pressing m scrolls the buffer
+;;;; to a weird position").  The rule below fixes it once, for every
+;;;; repaint, in every window.
+;;;; ---------------------------------------------------------------------
+
+(defun org-air-view--scroll-anchors ()
+  "Return the viewport anchor of every live window showing this buffer (R91).
+Each anchor is (WINDOW OFFSET OWNP TOKEN):
+
+- OFFSET is the point row's 0-based SCREEN line inside the window
+  \(`count-screen-lines' from `window-start' to that window's point), i.e.
+  exactly what must be reproduced after the repaint for the row to stay
+  visually stationary.  COUNT-FINAL-NEWLINE is non-nil deliberately: with
+  it nil `count-screen-lines' drops the last line whenever END sits right
+  after a newline, so a point at COLUMN 0 (a section header, an empty
+  board's landing) would measure one screen line too high and the repaint
+  would nudge its row UP by one — a small jump is still a jump;
+- OWNP marks the window whose point IS the buffer point the render's
+  `org-air-view--restore-position' will re-place (the acting window);
+- TOKEN is the ordinary save/restore token of a NON-acting window's own
+  point, so a board shown in several windows restores each window's row
+  independently.  Only taken in the board mode that owns that machinery;
+  every other mode restores its extra windows by line number.
+
+Returns nil — a total no-op — when the buffer is displayed in NO window
+\(batch/headless, an off-screen refresh), and never signals: a viewport
+is a display nicety and must not be able to break a repaint.
+
+R58 EXCEPTION: with a bookmark locator armed the jump OWNS the landing
+AND the viewport (the saved viewport belongs to the pre-restore
+skeleton), so no anchor is taken and redisplay re-anchors as it should —
+the same reason that path skips the point save/restore pair."
+  (condition-case nil
+      (unless org-air-view--bookmark-locator
+        (let* ((buffer (current-buffer))
+               (pt (point))
+               (boardp (derived-mode-p 'org-air-view-mode))
+               (anchors nil))
+          (dolist (win (get-buffer-window-list buffer 'nomini t))
+            (let* ((wpt (window-point win))
+                   (offset (max 0 (1- (count-screen-lines
+                                       (window-start win) wpt t win))))
+                   (ownp (eql wpt pt)))
+              (push (list win offset ownp
+                          (unless ownp
+                            (save-excursion
+                              (goto-char wpt)
+                              (if boardp
+                                  (org-air-view--save-position)
+                                (line-number-at-pos)))))
+                    anchors)))
+          anchors))
+    (error nil)))
+
+(defun org-air-view--scroll-restore (anchors)
+  "Re-anchor every window in ANCHORS onto its own saved screen line (R91).
+The repaint has finished and point is FINAL (restored to the same item,
+or to the replacement landing when the row was refiled/done/filtered
+away).  For each still-live window this recomputes `window-start' as the
+position OFFSET screen lines ABOVE that window's point and installs it,
+so the row the user is on is redrawn on the SAME screen line it occupied
+before — the column behaviour R21-1 already guarantees is untouched.
+
+Every hostile case degrades instead of jumping:
+
+- OFFSET is clamped to the window's CURRENT body height, so a window
+  that shrank (or a render that changed the total line count) can never
+  ask for a screen line that does not exist;
+- `vertical-motion' stops at `point-min', so a row near the top of the
+  buffer simply gets the largest offset that fits;
+- `set-window-start' is called with NOFORCE, so in the pathological case
+  where the computed start would still not show point, redisplay is free
+  to re-anchor — point is never left off-screen;
+- a window closed or re-bufferred during the repaint (the pane/rail
+  resync legitimately does this) is skipped;
+- errors are swallowed for the same reason as in
+  `org-air-view--scroll-anchors'."
+  (condition-case nil
+      (when anchors
+        (let ((buffer (current-buffer))
+              (pt (point)))
+          (dolist (anchor anchors)
+            (let ((win (nth 0 anchor))
+                  (offset (nth 1 anchor))
+                  (ownp (nth 2 anchor))
+                  (token (nth 3 anchor)))
+              (when (and (window-live-p win)
+                         (eq (window-buffer win) buffer))
+                (let* ((target
+                        (cond
+                         (ownp pt)
+                         ((consp token)
+                          (save-excursion
+                            (org-air-view--restore-position token)
+                            (point)))
+                         ((integerp token)
+                          (save-excursion
+                            (goto-char (point-min))
+                            (forward-line (1- token))
+                            (point)))
+                         (t pt)))
+                       (want (min offset
+                                  (max 0 (1- (window-body-height win)))))
+                       (start (save-excursion
+                                (goto-char target)
+                                (vertical-motion (- want) win)
+                                (point))))
+                  (set-window-point win target)
+                  (set-window-start win start t)))))
+          ;; `org-air-view--restore-position' above ran inside
+          ;; `save-excursion', but re-assert the acting landing explicitly:
+          ;; the buffer point is the render's contract, not a side effect.
+          (goto-char pt)
+          nil))
+    (error nil)))
+
+(defmacro org-air-view--with-scroll-stable (&rest body)
+  "Run BODY — a repaint — keeping every displaying window's row steady (R91).
+Anchors are taken BEFORE the erase and applied AFTER BODY has placed its
+final landing, so wrapping a whole command (not just the render call) is
+both allowed and preferred where the command moves point after rendering.
+Nesting is harmless: the inner pair anchors the intermediate landing and
+the outer pair recomputes from the final one."
+  (declare (indent 0) (debug t))
+  (let ((anchors (make-symbol "anchors")))
+    `(let ((,anchors (org-air-view--scroll-anchors)))
+       (prog1 (progn ,@body)
+         (org-air-view--scroll-restore ,anchors)))))
+
+;;;; ---------------------------------------------------------------------
 ;;;; R16 D-P1: cooperative, command-driven popout + reconciler.
 ;;;; ---------------------------------------------------------------------
 
@@ -7699,23 +7835,28 @@ count (R16 D-P1)."
 The shared rail-toggle uses this so it never hard-codes the board renderer:
 the board re-renders via `org-air-view--render-current'; the project via
 `org-air-project--render-current'; the revisit view via
-`org-air-revisit--render-current' (R54-3)."
-  (cond
-   ((derived-mode-p 'org-air-view-mode) (org-air-view--render-current))
-   ((derived-mode-p 'org-air-project-mode) (org-air-project--render-current))
-   ((and (derived-mode-p 'org-air-revisit-mode)
-         (fboundp 'org-air-revisit--render-current))
-    (org-air-revisit--render-current))
-   ;; R61-4: the review view re-renders in place (data untouched).
-   ((and (derived-mode-p 'org-air-review-mode)
-         (fboundp 'org-air-review--render-current))
-    (org-air-review--render-current))
-   ;; R26-5: a doc-session buffer "refreshes" by re-showing/hiding its
-   ;; DOC-context side rail per the popped flag (the buffer text is the
-   ;; user's file — never re-rendered by org-air).
-   ((and (bound-and-true-p org-air-project--session-tree)
-         (fboundp 'org-air-project--doc-rail-refresh))
-    (org-air-project--doc-rail-refresh (current-buffer)))))
+`org-air-revisit--render-current' (R54-3).
+R91: the shared dispatch is also the shared SCROLL seam — every mode
+reached from here (and every command that repaints through it: mark,
+unmark, clear-marks, the triage verbs, undo/redo, the rail toggle) keeps
+the cursor's row on its screen line."
+  (org-air-view--with-scroll-stable
+   (cond
+    ((derived-mode-p 'org-air-view-mode) (org-air-view--render-current))
+    ((derived-mode-p 'org-air-project-mode) (org-air-project--render-current))
+    ((and (derived-mode-p 'org-air-revisit-mode)
+          (fboundp 'org-air-revisit--render-current))
+     (org-air-revisit--render-current))
+    ;; R61-4: the review view re-renders in place (data untouched).
+    ((and (derived-mode-p 'org-air-review-mode)
+          (fboundp 'org-air-review--render-current))
+     (org-air-review--render-current))
+    ;; R26-5: a doc-session buffer "refreshes" by re-showing/hiding its
+    ;; DOC-context side rail per the popped flag (the buffer text is the
+    ;; user's file — never re-rendered by org-air).
+    ((and (bound-and-true-p org-air-project--session-tree)
+          (fboundp 'org-air-project--doc-rail-refresh))
+     (org-air-project--doc-rail-refresh (current-buffer))))))
 
 (defun org-air-rail-toggle ()
   "Toggle the context rail between inline and a side window (R16 D-P1; R22-5).
@@ -9353,68 +9494,72 @@ the footer and every earlier section stay byte-untouched, and the body
 height is reproduced from the stored target floor (S6).  The result is
 byte-identical to a full render with the same `org-air-view--expanded-
 sections' (proved by the equivalence golden).  Falls back to the cheap full
-render when the body band is unknown.  _BUCKET is accepted for API symmetry."
-  (let ((region (org-air-view--body-region)))
-    (if (not region)
-        (org-air-view--render-current)
-      (let* ((token (org-air-view--save-position))
-             (width org-air-view--rendered-width)
-             (items org-air-view--items)
-             (dims (org-air-view--char-dimensions))
-             (org-air-view--pill-char-w (car dims))
-             (org-air-view--pill-char-h (cdr dims))
-             (org-air-view--pill-style-sig
-              (list org-air-pill-pad-cols org-air-pill-radius
-                    org-air-pill-fill-alpha org-air-pill-font-scale
-                    org-air-pill-border-opacity org-air-pill-vinset))
-             (beg (car region))
-             (end (cdr region))
-             (old-lines (split-string (buffer-substring-no-properties beg end)
-                                      "\n"))
-             (raw (org-air-view--render-lines
-                   width
-                   (lambda () (org-air-view--insert-item-pane items width))))
-             (body-content (org-air-view--collapse-line-list raw))
-             (body-target (max (length body-content)
-                               (or org-air-view--body-target-floor 0)))
-             (body (org-air-view--pad-line-list
-                    body-content body-target
-                    (or org-air-view--body-fill-row "")))
-             (new-lines (mapcar (lambda (l)
-                                  (org-air-view--postprocess-line l width))
-                                body))
-             ;; common prefix: every byte-identical leading line (header +
-             ;; earlier sections) is left untouched.
-             (p 0)
-             (olen (length old-lines))
-             (nlen (length new-lines)))
-        (org-air-view--classify-cache-ensure)
-        (while (and (< p olen) (< p nlen)
-                    (string= (nth p old-lines) (nth p new-lines)))
-          (setq p (1+ p)))
-        ;; Replace [start-of-old-line-p, body-end) with the new tail.  Buffer
-        ;; positions are char-based; lines 0..p-1 each contribute len+1 chars
-        ;; (text + newline) EXCEPT the body's last line carries no trailing
-        ;; newline, so the running offset is clamped to END.
-        (let* ((inhibit-read-only t)
-               (pos beg))
-          (dotimes (i p)
-            (setq pos (+ pos (length (nth i old-lines)) 1)))
-          (setq pos (min pos end))
-          (delete-region pos end)
-          (goto-char pos)
-          (let ((tail (nthcdr p new-lines)))
-            (when tail
-              ;; appending after a kept last line (no trailing newline).
-              (when (and (> pos beg) (not (eq (char-before pos) ?\n)))
-                (insert "\n"))
-              (insert (mapconcat #'identity tail "\n"))))
-          ;; The body is the last band in board-only/side-window, so it must
-          ;; not end with a newline; drop a stray one left by a pure deletion.
-          (when (and (> (point) beg) (eq (char-before (point)) ?\n))
-            (delete-char -1))
-          (set-marker org-air-view--body-end (point)))
-        (org-air-view--restore-position token)))))
+render when the body band is unknown.  _BUCKET is accepted for API symmetry.
+R91: the splice deletes from the first CHANGED line down, so a
+`window-start' inside the rewritten span collapses to that line — the
+same visible jump the full render has; the scroll seam covers both."
+  (org-air-view--with-scroll-stable
+   (let ((region (org-air-view--body-region)))
+     (if (not region)
+         (org-air-view--render-current)
+       (let* ((token (org-air-view--save-position))
+              (width org-air-view--rendered-width)
+              (items org-air-view--items)
+              (dims (org-air-view--char-dimensions))
+              (org-air-view--pill-char-w (car dims))
+              (org-air-view--pill-char-h (cdr dims))
+              (org-air-view--pill-style-sig
+               (list org-air-pill-pad-cols org-air-pill-radius
+                     org-air-pill-fill-alpha org-air-pill-font-scale
+                     org-air-pill-border-opacity org-air-pill-vinset))
+              (beg (car region))
+              (end (cdr region))
+              (old-lines (split-string (buffer-substring-no-properties beg end)
+                                       "\n"))
+              (raw (org-air-view--render-lines
+                    width
+                    (lambda () (org-air-view--insert-item-pane items width))))
+              (body-content (org-air-view--collapse-line-list raw))
+              (body-target (max (length body-content)
+                                (or org-air-view--body-target-floor 0)))
+              (body (org-air-view--pad-line-list
+                     body-content body-target
+                     (or org-air-view--body-fill-row "")))
+              (new-lines (mapcar (lambda (l)
+                                   (org-air-view--postprocess-line l width))
+                                 body))
+              ;; common prefix: every byte-identical leading line (header +
+              ;; earlier sections) is left untouched.
+              (p 0)
+              (olen (length old-lines))
+              (nlen (length new-lines)))
+         (org-air-view--classify-cache-ensure)
+         (while (and (< p olen) (< p nlen)
+                     (string= (nth p old-lines) (nth p new-lines)))
+           (setq p (1+ p)))
+         ;; Replace [start-of-old-line-p, body-end) with the new tail.  Buffer
+         ;; positions are char-based; lines 0..p-1 each contribute len+1 chars
+         ;; (text + newline) EXCEPT the body's last line carries no trailing
+         ;; newline, so the running offset is clamped to END.
+         (let* ((inhibit-read-only t)
+                (pos beg))
+           (dotimes (i p)
+             (setq pos (+ pos (length (nth i old-lines)) 1)))
+           (setq pos (min pos end))
+           (delete-region pos end)
+           (goto-char pos)
+           (let ((tail (nthcdr p new-lines)))
+             (when tail
+               ;; appending after a kept last line (no trailing newline).
+               (when (and (> pos beg) (not (eq (char-before pos) ?\n)))
+                 (insert "\n"))
+               (insert (mapconcat #'identity tail "\n"))))
+           ;; The body is the last band in board-only/side-window, so it must
+           ;; not end with a newline; drop a stray one left by a pure deletion.
+           (when (and (> (point) beg) (eq (char-before (point)) ?\n))
+             (delete-char -1))
+           (set-marker org-air-view--body-end (point)))
+         (org-air-view--restore-position token))))))
 
 (defun org-air-view--render-calendar ()
   "Re-render ONLY the side-window rail buffer for the new month (R18 D-P1b).
@@ -9509,26 +9654,37 @@ renders the items AS-IS (the swap repaints once at the end), and a COLD
 refresh (`org-air-view--loading' t) repaints the loading skeleton — so
 the slice machine can never be raced by a second concurrent scan (whose
 `find-file-noselect'/`normal-mode' wipes the very buffer-locals the
-in-flight slice's org-ql predicate is reading)."
-  (cond
-   ((and (eq org-air-view--refresh-state 'refreshing)
-         org-air-view--loading)
-    (org-air-view--render-loading))
-   ((eq org-air-view--refresh-state 'refreshing)
-    (org-air-view--refresh-repaint))
-   (t
-    ;; R58: with a bookmark locator armed the locator owns the landing —
-    ;; the saved point belongs to the pre-restore skeleton, so the
-    ;; save/restore pair is skipped and the render tail's
-    ;; `org-air-view--bookmark-consume' places point instead.
-    (let* ((mutationp org-air-view--pending-mutation-landing)
-           (token (and (not mutationp)
-                       (not org-air-view--bookmark-locator)
-                       (org-air-view--save-position))))
-      (org-air-view--render (or org-air-view--items (org-air-query-items))
-                            org-air-view--tag-filter)
-      (when token
-        (org-air-view--restore-position token))))))
+in-flight slice's org-ql predicate is reading).
+R91: the erase + re-render drops every displaying window's
+`window-start' to `point-min', so the repaint is wrapped in the scroll
+seam — point is preserved AND the row it sits on is redrawn on the same
+screen line.  This is the funnel for the filter (`/'), sort, scope
+\(`s'/`S'), lens, calendar month nav and the resize repaint, so all of
+them inherit it.  The R90 mutation landing is deliberately included: the
+row that REPLACES a done/refiled row is exactly the row that slid into
+the old screen line, so anchoring keeps that landing stationary too."
+  (org-air-view--with-scroll-stable
+   (cond
+    ((and (eq org-air-view--refresh-state 'refreshing)
+          org-air-view--loading)
+     (org-air-view--render-loading))
+    ((eq org-air-view--refresh-state 'refreshing)
+     (org-air-view--refresh-repaint))
+    (t
+     ;; R58: with a bookmark locator armed the locator owns the landing —
+     ;; the saved point belongs to the pre-restore skeleton, so the
+     ;; save/restore pair is skipped and the render tail's
+     ;; `org-air-view--bookmark-consume' places point instead.  R91: the
+     ;; scroll seam stands down on that path for the same reason (see
+     ;; `org-air-view--scroll-anchors').
+     (let* ((mutationp org-air-view--pending-mutation-landing)
+            (token (and (not mutationp)
+                        (not org-air-view--bookmark-locator)
+                        (org-air-view--save-position))))
+       (org-air-view--render (or org-air-view--items (org-air-query-items))
+                             org-air-view--tag-filter)
+       (when token
+         (org-air-view--restore-position token)))))))
 
 (defun org-air-view--resize-refresh ()
   "Re-render only when the displaying window's width or height changed.
@@ -9851,18 +10007,23 @@ must not re-block the frame).
 R58: with a bookmark locator armed the locator OWNS the landing (the
 saved point belongs to the pre-restore skeleton), so the save/restore
 pair is skipped — the render tail's `org-air-view--bookmark-consume'
-places point instead."
-  (let ((token (and (not org-air-view--bookmark-locator)
-                    (org-air-view--save-position))))
-    (org-air-view--render org-air-view--items org-air-view--tag-filter)
-    (when token
-      (org-air-view--restore-position token))
-    ;; R73-1: the swap-tail resync — point is FINAL here (restored above,
-    ;; or bookmark-consumed inside the render), so the pane/inspector are
-    ;; nudged onto the item NOW at point.  Identity-limited: a repaint
-    ;; that changed nothing (failure/cancel/mid-machine marker paint)
-    ;; no-ops via the `eq' guards.
-    (org-air-view--panes-resync-now)))
+places point instead.
+R91: wrapped in the scroll seam, and the seam closes AFTER the resync
+below — the pane/inspector nudge may open or close the pane window,
+changing the board window's height, so the anchor must be applied
+against the FINAL window geometry, not the pre-resync one."
+  (org-air-view--with-scroll-stable
+   (let ((token (and (not org-air-view--bookmark-locator)
+                     (org-air-view--save-position))))
+     (org-air-view--render org-air-view--items org-air-view--tag-filter)
+     (when token
+       (org-air-view--restore-position token))
+     ;; R73-1: the swap-tail resync — point is FINAL here (restored above,
+     ;; or bookmark-consumed inside the render), so the pane/inspector are
+     ;; nudged onto the item NOW at point.  Identity-limited: a repaint
+     ;; that changed nothing (failure/cancel/mid-machine marker paint)
+     ;; no-ops via the `eq' guards.
+     (org-air-view--panes-resync-now))))
 
 (defconst org-air-view--refresh-pace 0.05
   "Bounded idle interval (seconds) pacing the chunked refresh slices (R34-3).
@@ -10810,7 +10971,11 @@ interactive `g' on the board IS the refresh machine — it cancels any
 pending slices (token bump) and restarts the chunked scan from the
 current file list, keeping the painted board (with the header marker)
 until the single swap.  Under `noninteractive' (the byte gate) it is the
-exact synchronous re-query it always was."
+exact synchronous re-query it always was.
+R91: the interactive arm repaints through `org-air-view--refresh-repaint'
+\(already scroll-stable); the synchronous arm is the board's SECOND swap
+tail, so it carries the seam itself — closed after the pane resync for
+the same window-geometry reason."
   (interactive)
   (if (and (not noninteractive) (eq major-mode 'org-air-view-mode))
       (progn
@@ -10820,26 +10985,27 @@ exact synchronous re-query it always was."
         ;; items (byte-identical rows), point preserved.
         (when (eq org-air-view--refresh-state 'refreshing)
           (org-air-view--refresh-repaint)))
-    (let ((token (org-air-view--save-position))
-          (filter org-air-view--tag-filter))
-      ;; a completed synchronous re-query supersedes any machine state
-      ;; (stale slices go stale via the token; failed/stale markers clear).
-      (org-air-view--refresh-teardown)
-      (setq org-air-view--cache-stale-files nil)
-      ;; R18 D-P1c: a re-query builds fresh item structs, so drop the
-      ;; classify cache (bounds memory; picks up a changed classify-tuning
-      ;; defcustom on the next refresh).  R42-1: refresh the incremental
-      ;; mtime baseline too (display-invisible local; no golden reads it).
-      (setq org-air-view--items (org-air-query-items)
-            org-air-view--classify-cache nil
-            org-air-view--items-mtimes
-            (org-air-view--mtimes-snapshot (org-air-query-files)))
-      (org-air-view--render org-air-view--items filter)
-      (org-air-view--restore-position token)
-      ;; R73-1: the second swap tail — the fully-synchronous (batch /
-      ;; byte-gate) re-query rebuilt every struct, so the resync redraws
-      ;; the panes for the restored point in the same motion.
-      (org-air-view--panes-resync-now))))
+    (org-air-view--with-scroll-stable
+     (let ((token (org-air-view--save-position))
+           (filter org-air-view--tag-filter))
+       ;; a completed synchronous re-query supersedes any machine state
+       ;; (stale slices go stale via the token; failed/stale markers clear).
+       (org-air-view--refresh-teardown)
+       (setq org-air-view--cache-stale-files nil)
+       ;; R18 D-P1c: a re-query builds fresh item structs, so drop the
+       ;; classify cache (bounds memory; picks up a changed classify-tuning
+       ;; defcustom on the next refresh).  R42-1: refresh the incremental
+       ;; mtime baseline too (display-invisible local; no golden reads it).
+       (setq org-air-view--items (org-air-query-items)
+             org-air-view--classify-cache nil
+             org-air-view--items-mtimes
+             (org-air-view--mtimes-snapshot (org-air-query-files)))
+       (org-air-view--render org-air-view--items filter)
+       (org-air-view--restore-position token)
+       ;; R73-1: the second swap tail — the fully-synchronous (batch /
+       ;; byte-gate) re-query rebuilt every struct, so the resync redraws
+       ;; the panes for the restored point in the same motion.
+       (org-air-view--panes-resync-now)))))
 
 (defun org-air--relevant-file-p (file)
   "Return non-nil when FILE is one of the configured org-air files."
@@ -11082,7 +11248,12 @@ THE HEADER so it can be re-collapsed immediately.  R51-3: on the
 teaches TAB, so TAB there must act, not drift; point lands on the first
 newly-revealed row (the rows replace the fold row, so point stays put
 visually).  On any other line TAB is safe — it moves to the next section
-header and never toggles or hangs."
+header and never toggles or hangs.
+R91: the two TOGGLE branches move point AFTER rendering, so each carries
+the scroll seam itself — wrapping the render alone would anchor the
+intermediate landing and leave the final one adrift.  The third branch
+\(plain motion to the next header) is deliberately NOT anchored: it is an
+explicit jump, and ordinary scrolling is the right answer there."
   (interactive)
   (org-air-view--loading-guard)
   (let* ((bucket (org-air-view--line-section))
@@ -11090,49 +11261,51 @@ header and never toggles or hangs."
                     (org-air-view--row-property 'org-air-more-row))))
     (cond
      (bucket
-      (setq org-air-view--expanded-sections
-            (if (memq bucket org-air-view--expanded-sections)
-                (delq bucket org-air-view--expanded-sections)
-              (cons bucket org-air-view--expanded-sections)))
-      ;; R18 D-P1b: in the full-width item-pane layouts (board-only /
-      ;; side-window) the toggled section is splice-replaceable in place
-      ;; (the rail is a separate buffer or absent), so redraw only the body
-      ;; band; the column-composed layouts fall back to the now-cheap full
-      ;; render (correctness first).
-      (if (memq org-air-view--orientation '(board-only side-window))
-          (org-air-view--render-section bucket)
-        (org-air-view--render (or org-air-view--items (org-air-query-items))
-                              org-air-view--tag-filter))
-      (let ((pos (org-air-view--find-property 'org-air-section bucket)))
-        (when pos
-          (goto-char pos)
-          ;; A section header has no title mark, so this falls back to
-          ;; first-visible (R21-2) — point stays on the header.
-          (org-air-view--goto-row-title))))
+      (org-air-view--with-scroll-stable
+       (setq org-air-view--expanded-sections
+             (if (memq bucket org-air-view--expanded-sections)
+                 (delq bucket org-air-view--expanded-sections)
+               (cons bucket org-air-view--expanded-sections)))
+       ;; R18 D-P1b: in the full-width item-pane layouts (board-only /
+       ;; side-window) the toggled section is splice-replaceable in place
+       ;; (the rail is a separate buffer or absent), so redraw only the body
+       ;; band; the column-composed layouts fall back to the now-cheap full
+       ;; render (correctness first).
+       (if (memq org-air-view--orientation '(board-only side-window))
+           (org-air-view--render-section bucket)
+         (org-air-view--render (or org-air-view--items (org-air-query-items))
+                               org-air-view--tag-filter))
+       (let ((pos (org-air-view--find-property 'org-air-section bucket)))
+         (when pos
+           (goto-char pos)
+           ;; A section header has no title mark, so this falls back to
+           ;; first-visible (R21-2) — point stays on the header.
+           (org-air-view--goto-row-title)))))
      (more
-      ;; R51-3: EXPAND the fold row's bucket (the row exists only while
-      ;; collapsed, so this branch never collapses).  Remember the first
-      ;; HIDDEN item — index `org-air-view--section-limit' of the bucket's
-      ;; displayed-order list — BEFORE the render so point can land on its
-      ;; revealed row after (never worse than the section header).
-      (let* ((sorted (org-air-view--sort-items
-                      (org-air-view--items-for-bucket
-                       more (or org-air-view--items '()))
-                      more))
-             (first-hidden (nth (org-air-view--section-limit more) sorted)))
-        (cl-pushnew more org-air-view--expanded-sections)
-        ;; The SAME render seam the header branch takes (R18 D-P1b).
-        (if (memq org-air-view--orientation '(board-only side-window))
-            (org-air-view--render-section more)
-          (org-air-view--render (or org-air-view--items (org-air-query-items))
-                                org-air-view--tag-filter))
-        (let ((pos (or (and first-hidden
-                            (org-air-view--find-property 'org-air-item
-                                                         first-hidden))
-                       (org-air-view--find-property 'org-air-section more))))
-          (when pos
-            (goto-char pos)
-            (org-air-view--goto-row-title)))))
+      (org-air-view--with-scroll-stable
+       ;; R51-3: EXPAND the fold row's bucket (the row exists only while
+       ;; collapsed, so this branch never collapses).  Remember the first
+       ;; HIDDEN item — index `org-air-view--section-limit' of the bucket's
+       ;; displayed-order list — BEFORE the render so point can land on its
+       ;; revealed row after (never worse than the section header).
+       (let* ((sorted (org-air-view--sort-items
+                       (org-air-view--items-for-bucket
+                        more (or org-air-view--items '()))
+                       more))
+              (first-hidden (nth (org-air-view--section-limit more) sorted)))
+         (cl-pushnew more org-air-view--expanded-sections)
+         ;; The SAME render seam the header branch takes (R18 D-P1b).
+         (if (memq org-air-view--orientation '(board-only side-window))
+             (org-air-view--render-section more)
+           (org-air-view--render (or org-air-view--items (org-air-query-items))
+                                 org-air-view--tag-filter))
+         (let ((pos (or (and first-hidden
+                             (org-air-view--find-property 'org-air-item
+                                                          first-hidden))
+                        (org-air-view--find-property 'org-air-section more))))
+           (when pos
+             (goto-char pos)
+             (org-air-view--goto-row-title))))))
      (t (org-air-next-section)))))
 
 (defun org-air-next-section ()

@@ -1,0 +1,343 @@
+#+title: org-air Round 91 — scroll stability: a repaint never moves the cursor's row on screen
+#+state: work-in-progress
+#+tags: board ux regression scroll viewport repaint marks urgent
+
+* Summary
+
+A user on a real Emacs 30 GUI frame reported: *"When I select any item with
+=m=, the buffer scrolls to a weird position."*  Bulk =b= behaved.  This was
+the highest-priority defect in the project.
+
+The root cause is *not* in the R90 mark model.  Every org-air board repaint
+is =erase-buffer= + re-render, and the render pipeline preserves *point
+only*.  Nothing in the package has ever recorded or restored the *window's*
+scroll position, so after the erase each displaying window's =window-start=
+marker collapses to =point-min= and the next redisplay re-anchors the
+viewport from scratch (typically recentring point).  The row the user is
+standing on therefore lands on a different screen line.  R90 turned =m= into
+a real selection with a repaint, which fired that latent defect on a
+high-frequency keystroke and made it impossible to ignore.
+
+R91 adds one rule and one seam: *a repaint must leave the cursor's row on the
+same screen line, in every window that shows the buffer*.  Measured on a
+board taller than the window, =m= went from =window-start 2821 → 1= (point's
+row falling from screen line 6 to screen line 47, off-screen) to
+=window-start 2821 → 2821=, screen line =6 → 6=.
+
+Implemented on 2026-07-28.
+
+* The user report and its verification
+
+Reproduced in batch with a real frame (=set-window-buffer=, =window-start=,
+=count-screen-lines=, =vertical-motion= and =set-window-start= all work in
+=--batch=; only =pos-visible-in-window-p= is unusable there because the glyph
+matrices of a batch frame are never realised — the sanity probe returns nil
+even for =point-min= of a plain 100-line buffer, so screen-line arithmetic is
+the honest instrument, not visibility).
+
+Harness: 60 =TODO= headings in one file, =Needs attention= expanded, window
+body 80x22, board buffer 76 lines (taller than the window), point parked on
+=Task 40= (buffer line 47) at screen line 6.
+
+#+begin_example
+BEFORE FIX (= R90 behaviour)
+  m  (mark)     window-start 2821 -> 1     row screen line  6 -> 47  (OFF-SCREEN)
+#+end_example
+
+The same jump fired on every repaint entry point, not just =m= — see the
+measurement table below.  =b= appeared to "work" only because the reporter's
+bulk action moved point to a different row anyway, masking the viewport
+reset.
+
+* Verified root cause
+
+1. =org-air-toggle-mark= ends in =org-air-view--refresh-current=, i.e. a full
+   erase + re-render (supervisor's diagnosis: confirmed).
+2. The render path preserves POINT only.  =org-air-view--save-position= /
+   =--restore-position= record =:marker :section :line :column=.  Nothing
+   records or restores =window-start=.
+3. =rg 'window-start|set-window-start|recenter|count-screen-lines|
+   pos-visible-in-window'= over the board modules found *nothing* except one
+   unrelated =recenter= in the visit path.  No repaint in this package has
+   ever preserved scroll.
+4. Consequence: =erase-buffer= drops every window's =window-start= (and every
+   non-selected window's =window-point=) to =point-min=; redisplay then
+   re-anchors, so the cursor's row jumps.  R90 made this fire on =m=.
+
+The diagnosis is correct as stated, with one addition R91 found while
+measuring: the same defect also hits the *non-selected* windows of a board
+shown twice, whose =window-point= is clobbered too — a fix that only touched
+=(selected-window)= would have left the second window at =point-min=.
+
+* Decision 1 — the scroll-stability rule
+
+#+begin_quote
+For every live window W showing the buffer, let OFFSET be the 0-based screen
+line of W's point inside W, measured before the repaint.  After the repaint
+has placed its FINAL landing, =window-start= of W is recomputed as the
+position OFFSET screen lines above W's point, and installed.  If the row
+survived, the user sees it on the SAME screen line, with the same column
+behaviour R21-1 already guarantees.  If it did not, the replacement landing
+inherits that screen line.
+#+end_quote
+
+Implemented as three functions in =org-air-view.el= (placed before the first
+use so the macro is available to the whole file):
+
+- =org-air-view--scroll-anchors= — returns =(WINDOW OFFSET OWNP TOKEN)= per
+  window, or nil;
+- =org-air-view--scroll-restore= — applies them;
+- =org-air-view--with-scroll-stable= — the macro used at each entry point.
+
+** Why OFFSET is measured with COUNT-FINAL-NEWLINE non-nil
+
+=(count-screen-lines BEG END)= with the third argument nil *drops the last
+line* whenever END sits immediately after a newline.  A board point at
+*column 0* (a section header, an empty board's landing) therefore measured
+one screen line too high and the repaint nudged its row UP by one line.  The
+first cut of this fix had that bug and the probe caught it (=filter on=
+reported =6 -> 5=).  =t= is passed deliberately; the anchor is
+=(max 0 (1- (count-screen-lines start wpt t win)))=, which is also correct in
+the =point = window-start= degenerate case (count 0 → offset 0).
+
+** Multiple windows
+
+=get-buffer-window-list BUFFER 'nomini t= walks *all* frames.  Each anchor
+records whether that window is the *acting* one (=OWNP=: its =window-point=
+equals the buffer point that =--restore-position= will re-place).  A
+non-acting window gets its own landing recomputed: in the board mode that
+owns the machinery, via an ordinary =org-air-view--save-position= token taken
+at that window's point (so it restores to the same ITEM, not the same line
+number, when the render shifts rows); in every other mode by line number,
+because =--restore-position= is board-specific.  =set-window-point= is then
+called explicitly — the erase clobbered that marker too.
+
+** Hostile cases, all measured
+
+| case                              | behaviour                                                     |
+|-----------------------------------+---------------------------------------------------------------|
+| buffer displayed in NO window     | =--scroll-anchors= returns nil; restore is a no-op            |
+| any error at all                  | both halves are wrapped in =condition-case=; a viewport is a display nicety and may never break a repaint |
+| point at buffer start             | =vertical-motion= stops at =point-min=; largest offset that fits |
+| point at buffer end               | anchored from point upward; offset preserved exactly           |
+| window smaller than the content   | OFFSET clamped to the window's CURRENT =window-body-height=     |
+| window shrank during the repaint  | same clamp — the clamp reads the geometry at RESTORE time      |
+| render changed the total line count | anchoring is relative to point, never to an absolute line    |
+| window closed / re-bufferred mid-repaint | skipped via =window-live-p= + =window-buffer= check      |
+| computed start still would not show point | =set-window-start= is called with NOFORCE, so redisplay may re-anchor: point is never left off-screen |
+
+* Decision 2 — repaint entry points covered
+
+The seam is applied where the *final landing* is known, not merely around the
+render call — a command that moves point after rendering must close the seam
+after that move, or it would anchor the intermediate landing.
+
+| seam site                          | covers                                                                 |
+|------------------------------------+------------------------------------------------------------------------|
+| =org-air-view--refresh-current=    | =m=, =M=, every triage verb, =u=/=U= repaints, the rail toggle, and the project/revisit/review dispatch legs |
+| =org-air-view--render-current=     | =/= filter, sort cycle/reverse, =s=/=S= scope, the =is:backlog= lens, calendar month nav (=<= =>= =.=), the debounced resize repaint |
+| =org-air-view--refresh-repaint=    | the R26-8 refresh machine's repaints, the finish swap, progressive/stream paints, failure & cancel repaints, and the panes/rail resync tail |
+| =org-air-view--render-section=     | the R18 D-P1b TAB body splice                                           |
+| =org-air-refresh= (synchronous arm) | the board's SECOND swap tail (=g=, after-save refresh, batch)          |
+| =org-air-toggle-section= (both toggle branches) | TAB's post-render landing on the section header / first revealed row |
+
+Two seam closures are deliberately placed *after* the pane/inspector resync
+(=org-air-view--panes-resync-now=): that resync legitimately opens or closes
+the pane window, changing the board window's height, so the anchor must be
+applied against the FINAL geometry.
+
+** Paths deliberately left to re-anchor, and why
+
+- *R58 bookmark locator armed.*  =--scroll-anchors= returns nil whenever
+  =org-air-view--bookmark-locator= is set.  A bookmark jump is an explicit
+  request to go somewhere else; the saved viewport belongs to the
+  pre-restore skeleton, and the render tail's =--bookmark-consume= owns the
+  landing.  This is the same reason that path already skips the point
+  save/restore pair — one rule, two halves.
+- *TAB's third branch* (=org-air-next-section= — plain motion, no repaint) is
+  not wrapped.  It is an explicit jump; ordinary Emacs scrolling is right.
+- *Board OPEN* (=org-air=, the cold/cached/deferred first paints, the
+  load-failure empty board).  There is no previous viewport to preserve; the
+  board is being created.
+- *=org-air-visit-item='s =recenter=* in the source buffer — a different
+  buffer, an explicit jump.
+
+** The R90 mutation landing is INCLUDED, on purpose
+
+=org-air-view--pending-mutation-landing= (done/refile/backlog) is *not*
+excluded.  The row that replaces a done row is exactly the row that slid into
+the old screen line, so anchoring keeps the board visually still while the
+row disappears — the requirement-3 case.  Measured: =D= on =Task 40= leaves
+=Task 41= on screen line 6, =window-start= unchanged; the following =u=
+re-inserts =Task 40= above and =window-start= moves 2821 → 2897 precisely so
+that =Task 41= stays on screen line 6.
+
+* Decision 3 — `m' keeps the full repaint
+
+A bounded row-level update was evaluated and rejected on evidence.  One =m=
+press does not change one row:
+
+- at 80 cols (board-only) it changes *2* lines — the row, *and the banner*,
+  whose count slot gains the R90 =• N marked · M shown= label;
+- at 120 cols (two-pane, the layout a real GUI frame gets) it changes *8*
+  lines across *three bands* — the banner, the row, and the whole rail
+  =Actions= block, which gains the three bulk verbs (=b backlog all=,
+  =t tag all=, =M clear marks=), grows by two rows and *reflows from 3
+  columns to 2*.  In the S6 full-height composition a rail band that changes
+  height re-pads the body.
+
+Measured diff at 120 cols:
+
+#+begin_example
+orientation=two-pane  buffer lines 76 -> 76 ; changed lines: 8
+  line  1  "…Mon 15 Jun ∙ 60 items"      -> "…Mon 15 Jun ∙ 60 items ∙ • 1 marked"
+  line 35  "… |    Bucket  Attention"    -> "… | | Actions             • 1 marked"
+  line 36  "… |"                         -> "… |    c capture     / filter"
+  line 37  "… | | Actions"               -> "… |    s source      g r refresh"
+  line 38  "… |    c capture  / filter"  -> "… |    TAB expand    ? help"
+  line 39  "… |    s source   g r refresh" -> "… |    b backlog all t tag all"
+  line 40  "… |    TAB expand ? help"    -> "… |    M clear marks"
+  line 47  "      TODO    Task 40"       -> "  •   TODO    Task 40"
+#+end_example
+
+A row-level splice would have to know about the banner count slot, the rail
+Actions block, its 3→2→1 column reflow and the S6 body padding — i.e. it
+would have to re-derive most of the render.  Worse, marks render on *every
+mirror occurrence* of a source key (R90), so it would also need a whole-board
+row scan.  The full repaint is the *correct* and the *simple* answer here.
+
+It is also cheap: *4.96 ms per full board repaint* (byte-compiled, 60 items,
+22-row window, 30 paints) — well inside one 60 Hz frame, with no new file
+read, scan, query or timer (the repaint runs off =org-air-view--items= with
+the classify + pill caches warm).  The R91 seam itself adds one
+=count-screen-lines= and one =vertical-motion= per displaying window, both
+bounded by the window height in the normal case.
+
+* Measurements
+
+Same harness for both columns: window body 80x22, board buffer 76 lines,
+point on =Task 40= (buffer line 47) at screen line 6 (TAB rows measured on
+the =Needs attention= header at screen line 4).  "BEFORE" is produced by
+neutering =org-air-view--scroll-restore= to =ignore= in the same process, so
+the two columns are strictly comparable.
+
+| entry point       | BEFORE window-start | BEFORE screen line | AFTER window-start | AFTER screen line |
+|-------------------+---------------------+--------------------+--------------------+-------------------|
+| =m= mark          |            2821 → 1 |     6 → 47 (off)   |       2821 → 2821  |             6 → 6 |
+| =m= unmark        |            2821 → 1 |     6 → 47 (off)   |       2821 → 2821  |             6 → 6 |
+| =M= clear         |            2821 → 1 |     6 → 47 (off)   |       2821 → 2821  |             6 → 6 |
+| =/= filter on     |            2821 → 1 |          6 → 22    |       2821 →  378  |             6 → 6 |
+| =/= filter off    |             378 → 1 |          6 → 22    |        378 →  921  |             6 → 6 |
+| sort cycle        |            2821 → 1 |     6 → 47 (off)   |       2821 → 2821  |             6 → 6 |
+| =S= scope clear   |            2821 → 1 |     6 → 47 (off)   |       2821 → 2821  |             6 → 6 |
+| =D= then =u=      |            2821 → 1 |     6 → 48 (off)   |       2821 → 2897  |             6 → 6 |
+| =g= refresh       |            2821 → 1 |     6 → 47 (off)   |       2821 → 2821  |             6 → 6 |
+| TAB collapse (splice) |       162 → 162 |             4 → 4  |         162 →  162 |             4 → 4 |
+| TAB collapse (full-render fallback) |  162 → 1 |    4 → 7  |         162 →  162 |             4 → 4 |
+
+Notes:
+
+- The board-only TAB *splice* was already stable by construction: the splice
+  deletes from the first CHANGED line down, and the toggled section's first
+  body row is always strictly below the header the cursor sits on, so
+  =window-start= is above the deleted span and its marker survives.  The
+  *fallback* path (body band unknown, or a column-composed two-pane layout
+  taking the full =org-air-view--render=) jumped =4 → 7=; the row above
+  proves the seam fixes it.  Both rows are measured, not assumed.
+- =/= filter on removes =Task 40= entirely (the tag matches nothing), so this
+  is the requirement-3 case: the row vanished, the replacement landing took
+  its screen line, and point was never left off-screen.
+
+Extra cases, all with the seam active:
+
+#+begin_example
+TWO windows on one board, `m' pressed in the upper one
+  w1 before  window-start=2973  screen line=4  row=Task 40
+  w2 before  window-start=1529  screen line=3  row=Task 20
+  w1 after   window-start=2973  screen line=4  row=Task 40
+  w2 after   window-start=1529  screen line=3  row=Task 20
+
+headless: board displayed in NO window
+  windows showing board: 0
+  anchors=nil ; m + repaint + TAB: no signal
+
+point at buffer START:  window-start 1 -> 1        screen line 1 -> 1
+point at buffer END:    window-start 3809 -> 3809  screen line 22 -> 22
+resize repaint:         window-start 2821 -> 2821  screen line 6 -> 6
+#+end_example
+
+* Invariants preserved
+
+- R90 mark semantics untouched: the witness, the generation reconciler and
+  the write preflight are byte-unchanged.  The seam only reads/writes window
+  properties.
+- R21-1 column preservation untouched: the seam runs *after*
+  =--restore-position= and never moves point within its row.
+- R29-2 explicit point normalisation untouched.
+- History/guard invariants untouched: no history, ring, cache or source path
+  is touched.
+- No new per-render file read, scan, query or timer.  Emacs 29.1+ only
+  (=count-screen-lines=, =vertical-motion=, =get-buffer-window-list=,
+  =set-window-start= are all long-standing core).  No org-agenda.
+
+* Test plan
+
+Per seat ownership no ERT or fixture payload was added in this round; the
+independent test seat owns the R91 acceptance tests.  The seams they should
+drive are already public:
+
+1. =org-air-view--scroll-anchors= returns nil with no displaying window, and
+   nil with =org-air-view--bookmark-locator= armed.
+2. =org-air-view--scroll-restore= is a no-op on nil, on a dead window, and on
+   a window re-bufferred during the repaint.
+3. Board taller than the window, point far down: =m=, =M=, =/=, sort, =s=,
+   =S=, TAB (splice AND =--body-region=-nil fallback), =u=, =g= each leave
+   =(count-screen-lines (window-start w) (window-point w) t w)= unchanged.
+4. Row vanished (=/= to an empty lens, =D=): the offset is preserved and the
+   landing is on-screen (=offset < window-body-height=).
+5. Two windows on one board: each keeps its own row and its own offset.
+6. Column-0 landing (a section header) does not drift by one line — the
+   COUNT-FINAL-NEWLINE regression.
+
+* Gate
+
+=make clean && make check=: *1204 tests, 1196 as expected, 0 unexpected, 8
+GUI-only skips*.  Byte-compile of all 11 modules clean (only the pre-existing
+free-variable/forward-declaration warnings).  =make lint=: 0 findings, all
+baselined.  Loaded known-failures active length 0.  =make regen-mockups=
+produced zero fixture churn.  =tests/=, =README.org=, fixtures, goldens and
+the known-failures manifest are byte-pristine against =main=; the only
+changed file is =org-air-view.el=.
+
+* Attractive deferrals
+
+- =scroll-conservatively=-style "keep the row within N lines of where it was"
+  softening for the case where the render legitimately shortens the buffer
+  above point: the current rule is exact, which is what the report asked for.
+- Extending the same seam to the project/revisit/review views' *own* render
+  entry points (they currently inherit it only through
+  =org-air-view--refresh-current=).  Their commands were not in the report.
+
+* Implementation History
+
+- 2026-07-28: Round 91 created and IMPLEMENTED.  Reproduced the reported
+  jump first in a real window (=window-start 2821 → 1=, point's row falling
+  from screen line 6 to 47, off-screen) and confirmed the supervisor's
+  diagnosis: the render preserves point only and no code in the package has
+  ever recorded window scroll.  Added the scroll-stability seam
+  (=org-air-view--scroll-anchors= / =--scroll-restore= /
+  =--with-scroll-stable=) and applied it at =--refresh-current=,
+  =--render-current=, =--refresh-repaint=, =--render-section=,
+  =org-air-refresh='s synchronous arm and both toggle branches of
+  =org-air-toggle-section=; left the R58 bookmark path, board open and
+  plain-motion TAB to re-anchor deliberately.  Found and fixed a
+  =count-screen-lines= COUNT-FINAL-NEWLINE off-by-one that drifted
+  column-0 landings up one line.  Kept =m='s full repaint with measured
+  justification (one press changes 8 lines across 3 bands at 120 cols,
+  including a 3→2 column rail reflow) at 4.96 ms/paint.  =make clean &&
+  make check=: 1204 tests, 0 unexpected, 8 skipped; lint 0; known-failures
+  empty; regen no-op; tests/goldens byte-pristine.  State:
+  work-in-progress for independent test/review closeout.
+
+* History
+- 2026-07-28: State: draft → work-in-progress.

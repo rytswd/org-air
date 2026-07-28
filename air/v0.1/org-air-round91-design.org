@@ -1,5 +1,5 @@
 #+title: org-air Round 91 — scroll stability: a repaint never moves the cursor's row on screen
-#+state: work-in-progress
+#+state: complete
 #+tags: board ux regression scroll viewport repaint marks urgent
 
 * Summary
@@ -282,9 +282,9 @@ resize repaint:         window-start 2821 -> 2821  screen line 6 -> 6
 
 * Test plan
 
-Per seat ownership no ERT or fixture payload was added in this round; the
-independent test seat owns the R91 acceptance tests.  The seams they should
-drive are already public:
+The independent test seat owns the R91 acceptance tests; they landed in
+=tests/org-air-round91-test.el= (31 ERT tests, see Implementation History).
+The seams they drive are already public:
 
 1. =org-air-view--scroll-anchors= returns nil with no displaying window, and
    nil with =org-air-view--bookmark-locator= armed.
@@ -298,6 +298,13 @@ drive are already public:
 5. Two windows on one board: each keeps its own row and its own offset.
 6. Column-0 landing (a section header) does not drift by one line — the
    COUNT-FINAL-NEWLINE regression.
+
+All six are covered, plus the exclusions, the shrunk-window clamp, the
+no-force contract and the two other views.  Every assertion is an
+OBSERVABLE viewport fact (=window-start=, the point row's screen-line
+offset via =count-screen-lines= with COUNT-FINAL-NEWLINE, =window-point=,
+=window-body-height=); no org-air-internal helper name is asserted on, so
+any correct implementation of the rule passes.
 
 * Gate
 
@@ -339,5 +346,138 @@ changed file is =org-air-view.el=.
   empty; regen no-op; tests/goldens byte-pristine.  State:
   work-in-progress for independent test/review closeout.
 
+- 2026-07-28 (independent test seat, R91 retest 1): VERIFIED and CLOSED
+  with permanent coverage.  Added =tests/org-air-round91-test.el= — 31
+  ERT tests, the first coverage this defect class has ever had.  No
+  production =.el=, README, fixture, golden or known-failures byte was
+  touched.
+
+  *Independent BEFORE/AFTER.*  Reproduced on the real parent revision
+  (=main=, a separate checkout of its =org-air-view.el=), not by
+  neutering the fix in-process.  Own harness: 60 TODO rows, =Needs
+  attention= expanded, board 76 lines, batch window body 80x22, point on
+  =Task 40= (buffer line 47) parked at screen line 6.  Own numbers, and
+  they differ slightly from the design's because the corpus differs
+  (=window-start= 2745 here vs 2821 there) — the behaviour is identical:
+
+  | entry point            | BEFORE (main)      | AFTER (candidate)  |
+  |------------------------+--------------------+--------------------|
+  | =m= mark               | ws 2745 → 1; 6 →46 | ws 2745 → 2745; 6→6 |
+  | =m= unmark             | ws 1 → 1; 46 → 46  | ws 2745 → 2745; 6→6 |
+  | =M= clear marks        | ws 1 → 1; 46 → 46  | ws 2745 → 2745; 6→6 |
+  | sort cycle / reverse   | ws 1 → 1; 46→41→32 | ws → 2365/1681; 6→6 |
+  | =S= scope clear        | ws 1 → 1; 32 → 32  | ws 1681 → 1681; 6→6 |
+  | =g= refresh            | ws 1 → 1; 32 → 32  | ws 1681 → 1681; 6→6 |
+  | =/= filter on (empty)  | ws 1 → 1; 32 → 21  | ws 1681 → 366; 6→6  |
+  | =/= filter off         | ws 1 → 1; 21 → 21  | ws 366 → 845; 6→6   |
+  | =D= / =u= / =U=        | ws 1 → 1; 21↔22    | ws 845↔921; 6→6     |
+  | rail toggle on/off     | ws 2745 → 1; 6→46  | ws 2745 → 2745; 6→6 |
+  | calendar =<= =>= =.=   | ws 2745 → 1; 6→46  | ws 2745 → 2745; 6→6 |
+  | =I= process-inbox      | ws 2745 → 1; 6→46  | ws 2745 → 2745; 6→6 |
+  | resize repaint         | ws 2745 → 1; 6→46  | ws 2745 → 2745; 6→6 |
+  | TAB collapse (splice)  | ws 162 → 162; 4→4  | ws 162 → 162; 4→4   |
+  | TAB collapse (fallback)| ws 162 → 1; 4 → 6  | ws 162 → 162; 4→4   |
+  | point at buffer END    | ws 3809 → 1; 21→75 | ws 3809 → 3809; 21→21 |
+  | 2 windows, =m= in w1   | w2 ws 1453 → 1, its point → point-min | w2 ws 1453 → 1453; 3→3 |
+  | window shrank 22→11    | off 15 → 46 (off-screen) | off 15 → 10 (clamped, on-screen) |
+
+  The design's "splice was already stable by construction" claim is
+  CONFIRMED independently: =org-air-r91-tab-splice-keeps-header-on-same-
+  screen-line= is one of only nine tests that pass on =main=.  The
+  =count-screen-lines= COUNT-FINAL-NEWLINE fix is CONFIRMED genuine: a
+  column-0 landing holds screen line 6 on the candidate, and drifts
+  =6 → 5= the moment the argument is dropped.
+
+  22 of the 31 new tests are RED on =main= and GREEN on the candidate.
+  The nine that pass on both are exactly the tests that assert UNCHANGED
+  behaviour (the exclusions, the headless no-op, board open, the splice,
+  and the two other views).
+
+  *Exclusions audited, all correct rather than convenient.*  Bookmark
+  jump: the locator owns the landing and the pre-repaint viewport belongs
+  to a different skeleton, so anchoring it would be meaningless; the
+  binding contract (lands on the bookmarked row, acting window follows)
+  is now pinned by a test.  Board open: creation, not repaint — pinned.
+  Plain =org-air-next-section= motion: pinned as "point moves, buffer
+  tick unchanged, =window-start= untouched" — a repaint-only seam must
+  never pin a deliberate jump.  =org-air-visit-item=: pinned as "the
+  board is not repainted and every window still showing it keeps its
+  exact =window-start=".
+
+  *Same class hunted elsewhere — nothing else to fix.*  Every
+  =erase-buffer= site in the package was driven in a real window:
+  =org-air-view--render=, =--render-loading=, the rail render, the pane
+  snapshot, help, and the project / revisit / review renders.  The board
+  paths are all covered by the seam (measured above).  The project,
+  revisit and review views' OWN commands (=org-air-project-refresh=,
+  =-sort-cycle=, =-group-by-tag=, =org-air-revisit-refresh=,
+  =-cycle-surface=, =-toggle-created=, =org-air-review-refresh=,
+  =-toggle-section=, =-cycle-rollup=) do move the viewport — but they do
+  so because those renders deliberately RE-LAND POINT on the first row
+  \(=goto-char (point-min)= + =--goto-first-row=, R14/R58/R61-4\).  The
+  viewport correctly follows that landing; it is a LANDING-POLICY
+  question, not the R91 scroll class (point preserved, viewport lost),
+  it predates R90/R91, and it is byte-for-byte identical on =main= and
+  on the candidate.  No RED is warranted, and none is filed.  What IS
+  pinned is that R91 did not make them worse:
+  =org-air-r91-review-shared-refresh-lands-on-screen= /
+  =...-revisit-...= assert the shared =--refresh-current= leaves those
+  views' landing inside the window with =window-point= = =point=.
+  Rail pop in/out, calendar month nav, process-inbox and the resize
+  repaint all go through the board seam and are pinned green.
+
+  *Panes/rail resync ordering CONFIRMED.*  A repaint whose tail shrinks
+  the board window (22 → 11 body rows) lands at offset 10, i.e. the
+  anchor is applied against the FINAL geometry and clamped to it
+  \(=org-air-r91-pane-resync-repaint-lands-on-final-geometry=).  Dropping
+  the clamp puts the row at offset 15 in an 11-row window — off-screen.
+
+  *Cost re-measured, claim upheld.*  Byte-compiled, 30 paints, warm
+  caches: 4.49–4.53 ms per full board repaint at 60 items (design
+  claimed 4.96 ms — same figure, different machine).  The parent
+  measures 4.24–6.55 ms on the same corpus, so the seam is inside the
+  noise there.  Isolated, the anchor+restore pair costs *0.0127 ms* and
+  is FLAT in buffer size (0.0127 / 0.0123 / 0.0125 ms at 60 / 1k / 5k
+  items) — it is bounded by the window height, as claimed.  Full repaint
+  at 1k items: 67.9 ms (parent 65.5); at 5k items: 347.7 ms (parent
+  337.9).  With =insert-file-contents=, =find-file-noselect=,
+  =org-air-query--scan-file=, =org-air-query-items= and =run-at-time= all
+  instrumented, a repaint performs *0 reads, 0 scans, 0 queries and 0
+  timers* at 60, 1000 and 5000 items — the "no new file read, scan,
+  query or timer" claim is verified, not assumed.
+
+  *Mutation evidence* (source restored byte-identical afterwards;
+  =org-air-view.el= SHA-256
+  =946dcd41446649a63cf2f0d36945f4c97a0d1a51f1ab99d94e97e57311df5f7b=):
+
+  | mutation                        | RED tests |
+  |---------------------------------+-----------|
+  | drop =--scroll-restore=         | 22 — the whole board set, led by =org-air-r91-mark-keeps-row-on-same-screen-line= |
+  | restore without the offset clamp | 2 — =org-air-r91-window-shorter-than-offset-lands-on-screen=, =org-air-r91-pane-resync-repaint-lands-on-final-geometry= |
+  | =set-window-start= with FORCE   | 1 — =org-air-r91-repaint-never-forces-window-start= |
+  | ignore non-selected windows     | 1 — =org-air-r91-two-windows-each-keep-own-viewport= |
+  | drop COUNT-FINAL-NEWLINE        | 1 — =org-air-r91-column-zero-landing-does-not-drift-one-line= |
+
+  The FORCE mutation has no viewport-state consequence in =--batch= (a
+  batch frame never redisplays, so NOFORCE is only observable at
+  redisplay); it is therefore pinned at the Emacs API level — any
+  =set-window-start= a repaint aims at the board window must carry a
+  non-nil NOFORCE.  That is a core-API contract, not an org-air
+  internal, so any correct implementation passes.
+
+  *Gate*: =make clean && make check= → *1235 tests* (1204 + 31),
+  *1227 as expected, 0 unexpected, 8 skipped* — the SAME 8 pre-existing
+  GUI-only skips; none of the new tests is a GUI skip, because viewport
+  arithmetic is fully testable in batch.  All 11 modules byte-compile
+  with only the one pre-existing docstring-width warning; =make lint= 0
+  findings; loaded known-failures active length 0; =make regen-mockups=
+  zero fixture churn.  Production =.el=, README, fixtures, goldens and
+  the known-failures manifest are byte-identical to =qoxkunqzxmuo=.
+  State: work-in-progress → complete.
+
 * History
 - 2026-07-28: State: draft → work-in-progress.
+- 2026-07-28: State: work-in-progress → complete (independent test seat:
+  31 permanent regression tests, 22 RED on the parent; before/after,
+  exclusions, other views, resync ordering, cost and mutation evidence
+  all reproduced independently).

@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: work-in-progress
+#+state: blocked
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -2598,6 +2598,126 @@ no query or refile-engine behavior changes.
   =make regen-mockups= in a =/tmp= copy exit 0 and recursively byte-identical
   fixtures.  No repository probe file; =.deps= retained.
 
+- 2026-07-28: REVIEW-6 BLOCKED — permanent RED coverage added for two
+  candidate-caused release blockers that all 78 previous R90 tests are
+  structurally blind to.  Distinguished review 6 verified the claimed gate
+  (1180 / 0 unexpected / 8 GUI skips / manifest 0 / lint 0 / R90 78/78, regen
+  a byte no-op) and re-derived every FIX-12 root as closed, then found two
+  defects outside the FIX-12 surface.  Both are reproduced here against the
+  unchanged candidate, interpreted AND byte-compiled, and each new test is RED
+  only for its own root.  Implementation is untouched: every =org-air*.el=,
+  =README.org=, fixture, golden and the known-failures manifest are
+  byte-identical to =ryxquunpmrmo=; this change is tests + this history only.
+
+  ROOT 1 — the two-sided restamp is INCOMPLETE for compound parts, so one
+  compound record becomes permanently un-undoable and shadows all older
+  history.  =org-air-view--edit-ring-restamp= (=org-air-view.el:11120-11152=)
+  refreshes a matching bulk part's =:tick= and nothing else, while
+  =org-air-view--bulk-history-blockers= (=12821-12824=) gates on =:tick= AND
+  =:undo-head=.  Every org-air ring op in one of a bulk record's buffers
+  therefore leaves that record's part saying "a change intervened" about a
+  change org-air itself made through the ring, and since a blocked compound is
+  requeued on the SAME ring side (=--bulk-history-requeue=), it sits at the
+  head forever: =u= is dead for the session and every older record beneath it
+  is unreachable.  Minimal repro: mark one item, =b=, then =done= on another
+  heading in the SAME file, then =u= =u= — the second =u= is refused with
+  "a.org history step missing" for the rest of the session.  This is pure
+  OVER-BLOCKING, not safety: refreshing only the stale =:undo-head= makes the
+  identical press succeed and byte-restore the corpus.  It violates the
+  round's own compound law ("all parts are two-sided-restamped") and
+  README:292 ("one =u=/=U= round-trips the whole marked command").
+
+  ROOT 2 — a mark silently re-targets to a DIFFERENT heading after =g r=, and
+  the next =b=/=t= writes that heading while echoing complete success.  A mark
+  is a bare =(FILE . BYTE-POSITION)= and =org-air-view--marked-reconcile=
+  (=2430-2449=) keeps every key that merely EXISTS in the new item generation,
+  with no content component.  After an external edit shifts source offsets and
+  the user presses =g r= — the action org-air's own stale-target message
+  recommends — the key is re-bound to whatever heading now occupies that
+  offset; =--bulk-preflight= (=11733-11734=) re-resolves =key -> item= from the
+  rebuilt index and =--source-heading-exact-p= (=11700=) then compares the
+  re-resolved item against itself, so the exactness check can never fire.
+  Marking =D2=, letting an outside edit insert a heading above =D1=, pressing
+  =g r= and then =b= renders =D1= as marked, writes =:backlog:= to =D1= and
+  echoes "Backlogged 1 marked item".  This violates Decision 2 ("a source
+  file/position/title mismatch ... is a failed/stale target, never silently
+  relocated"), design line 18 ("marks by durable source identity") and
+  README:284.
+
+  NEW PERMANENT TESTS (6; drive the real product — =m=, =b=, =t=, =u=, =U=,
+  =g r= — and assert disk truth, echo honesty and intermediate board/ring
+  state, never a fix's internal data shape).
+
+  - =r90-73-compound-survives-a-neighbour-ring-op= (RED, root 1).  Marked =b=
+    on =A1=, then =done "A3"= in the SAME file; =u= takes the ordinary record,
+    and the second =u= must take the compound and restore =a.org= byte for
+    byte, with an honest ring (undo empty, redo = compound then single, exact
+    record objects).  =U= =U= reapplies both and =u= =u= takes them again, so
+    the round trip is not single-shot.  Today the second =u= echoes "Cannot
+    undo: backlog 1 marked item — a.org history step missing".
+
+  - =r90-74-two-compounds-over-shared-files-round-trip= (RED, root 1).  Two
+    marked =b= commands over the SAME two files; both must undo and both must
+    redo, with both corpora byte-restored at each stage and the two record
+    objects in honest LIFO order.  Today the second =u= is refused for both
+    parts.
+
+  - =r90-75-older-record-stays-reachable-behind-a-compound= (RED, root 1).
+    =done "C3"= in a third file the marked command never touches, then a
+    two-file compound, then =done "A3"=; all three =u= presses must land, the
+    corpus must byte-restore, =C3= must still be DONE and queued while the
+    compound is taken, and the three =U= presses must put everything back.
+    Today the compound freezes at the head and =done "C3"= is unreachable
+    forever — this is the shadowing half of the blocker.
+
+  - =r90-76-drifted-mark-never-backlogs-another-heading= (RED, root 2) and
+    =r90-77-drifted-mark-never-tags-another-heading= (RED, root 2).  Each runs
+    both drift shapes — a visited-buffer insert + save (org-air's markers move)
+    and a purely external file rewrite + =revert-buffer= — followed by =g r=
+    and the marked verb.  Point is parked on a row in ANOTHER file before the
+    write so the ONLY route into =t.org= is the mark itself and a point
+    fallback can never be mistaken for one.  Four assertions: the unmarked
+    headings' lines are byte-identical on disk; no complete-success echo
+    unless the marked heading really carries the value; the user is told the
+    mark went stale rather than left believing the selection is live; and,
+    intermediate, the board never presented a heading the user did not mark as
+    their selection.  Today all four fail: the board renders =D1= as marked
+    and =b=/=t= writes =D1= while echoing "Backlogged 1 marked item" /
+    "Added #zzz to 1 marked item".
+
+  - =r90-78-marks-follow-tracked-and-org-air-owned-moves= (GREEN control).
+    Without a =g r= the tracked source locator still puts the write on =D2=
+    after the same outside edit (both =b= and =t=), and org-air's OWN bulk
+    write relocates the surviving selection exactly (=E1=/=E3= keep the mark
+    and get the value, =E2= does not).  Any fix that prunes beyond the
+    generation swap that really lost the heading reddens this.
+
+  ROOT ISOLATION AND FIX-DIRECTION CHECK (=/tmp= sandboxes, repository never
+  touched).  Applying ONLY the reviewer's root-1 direction — also refresh a
+  matching bulk part's =:undo-head= in =--edit-ring-restamp=, exactly as
+  =--bulk-history-restamp-part= already does for the part it processes —
+  turns =r90-73/74/75= GREEN and leaves =r90-76/77= RED.  Applying ONLY the
+  root-2 direction — give the mark a bounded content witness and keep a
+  surviving key in =--marked-reconcile= only when the new generation's item
+  at that key still matches it, pruning otherwise through the existing
+  "Pruned N stale marked item(s)" path — turns =r90-76/77= GREEN and leaves
+  =r90-73/74/75= RED.  With BOTH directions applied the whole suite is
+  1186 tests / 0 unexpected / 8 GUI skips: the new tests are load-bearing for
+  their own roots only, and no existing test regresses under either fix.
+
+  GATE on this change (production =.el= byte-identical to =ryxquunpmrmo=):
+  =make clean && make check= — compile 11/11 modules with only the
+  pre-existing =org-air-project.el:946= wide-docstring warning; lint 0
+  findings; 1186 tests / 1173 expected / 5 unexpected / 8 GUI skips.  The 5
+  unexpected are exactly =r90-73/74/75/76/77=, deliberately NOT manifested:
+  they are source defects, and the round's manifest stays genuinely empty
+  (loaded known-failures length 0).  =r90-78= and all 1180 pre-existing tests
+  stay green.  Byte-compiled re-run of =tests/org-air-round90-test.elc= gives
+  the identical 5 RED / 1 GREEN, so no finding depends on interpretation.
+  =make regen-mockups= in a =/tmp= copy: exit 0 and byte-identical fixtures.
+  No repository probe file; =.deps= retained.  State: work-in-progress →
+  blocked.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -2642,4 +2762,15 @@ no query or refile-engine behavior changes.
   The one surviving coverage gap — the sweep's arm-next fallback, whose
   wrong-ring and never-arm mutants passed all 77 R90 tests — is now fenced by
   =r90-72=.  Gate 1180 tests / 0 unexpected / 8 GUI skips / manifest 0 /
+  lint 0.
+- 2026-07-28: State: work-in-progress -> blocked (distinguished review 6
+  reproduced two release blockers outside the FIX-12 surface: the two-sided
+  restamp never refreshes a compound part's =:undo-head=, so one ordinary ring
+  op in a bulk record's buffer makes that record permanently un-undoable at
+  the ring head and shadows all older history; and a mark silently re-targets
+  to a different heading after =g r= when an external edit shifted source
+  offsets, so the next =b=/=t= writes the wrong heading and reports complete
+  success).  Permanent coverage added: =r90-73=, =r90-74=, =r90-75= (root 1)
+  and =r90-76=, =r90-77= (root 2) are RED; the =r90-78= relocation controls
+  are GREEN.  Gate 1186 tests / 5 unexpected / 8 GUI skips / manifest 0 /
   lint 0.

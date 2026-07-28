@@ -6652,5 +6652,375 @@ with NO authority entry is neither stamped nor armed."
                                    (org-air-r90--bless-title victim-name 2))
                            (org-air-r90--text victim-name))))))))))))
 
+;;;; r90-73/74/75 — retest-14 permanent root: the two-sided restamp law must
+;;;; be COMPLETE for compound parts, or one compound record dead-ends at the
+;;;; ring head and shadows every older record for the rest of the session.
+
+(defconst org-air-r90--neighbour-board
+  '(("a.org" . "#+title: a\n\n* TODO A1\n* TODO A2\n* TODO A3\n")
+    ("b.org" . "#+title: b\n\n* TODO B1\n* TODO B2\n* TODO B3\n")
+    ("c.org" . "#+title: c\n\n* TODO C1\n* TODO C2\n* TODO C3\n")
+    ("inbox.org" . "#+title: inbox\n"))
+  "Three independent sources for the compound-neighbour history tests.")
+
+(defun org-air-r90--corpus-text (names)
+  "Return an alist of the exact on-disk bytes of corpus NAMES."
+  (mapcar (lambda (name) (cons name (org-air-r90--text name))) names))
+
+(defun org-air-r90--ring-press (direction)
+  "Press the real `u' (DIRECTION `undo') or `U' and return its messages."
+  (let (out)
+    (org-air-r90--record-messages collected
+      (if (eq direction 'undo) (org-air-edit-undo) (org-air-edit-redo))
+      (setq out (nreverse collected)))
+    out))
+
+(defun org-air-r90--assert-ring-claim (direction expect)
+  "Press DIRECTION and assert one honest complete claim naming EXPECT.
+A refusal, an incomplete report, or a claim for some other record all fail:
+this is the whole user-visible contract of one `u'/`U' press."
+  (let ((messages (org-air-r90--ring-press direction)))
+    (ert-info ((format "%S press messages: %S" direction messages))
+      (should (= 1 (org-air-r90--count-messages
+                    messages org-air-r90--bless-claim-re)))
+      (should (= 0 (org-air-r90--count-messages
+                    messages org-air-r90--bless-refusal-re)))
+      (should (= 0 (org-air-r90--count-messages
+                    messages "\\`\\(Undo\\|Redo\\) incomplete")))
+      (should (= 1 (org-air-r90--count-messages
+                    messages (regexp-quote expect)))))
+    messages))
+
+(ert-deftest org-air-r90-73-compound-survives-a-neighbour-ring-op ()
+  "A compound record stays undoable after an ordinary ring op in its own file.
+R75 Decision 5 restamps BOTH ring sides after every successful ring op,
+because the op restored exactly the content state the neighbouring records
+were stamped against, so their guard keeps meaning \"no NON-ring change
+intervened\".  R90 gave compound parts a SECOND guard component beside the
+chars tick and made the compound preflight check both.  A restamp that
+refreshes only half of a part's state leaves the other half permanently
+saying \"a change intervened\" for a change org-air itself made through the
+ring — and because a blocked compound is requeued on the same ring side, it
+sits at the head forever.
+
+The shape is the smallest one a user can hit: one marked `b', then ANY other
+undoable org-air edit in the same file.  After `u' takes the ordinary record,
+the second `u' must take the compound, restore the corpus byte for byte, and
+leave an honest ring; `U' `U' must put both back, and the pair must round-trip
+again (README: \"one `u'/`U' round-trips the whole marked command\")."
+  (skip-unless (locate-library "org-air"))
+  (let ((pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--text "a.org")))
+        (org-air-r90--mark-title "A1")
+        (org-air-item-backlog)
+        (let ((committed (org-air-r90--text "a.org")))
+          (org-air-r90--goto-row "A3")
+          (org-air-item-done)
+          (let* ((both (org-air-r90--text "a.org"))
+                 (single (nth 0 org-air-view--edit-ring))
+                 (compound (nth 1 org-air-view--edit-ring)))
+            (should (eq 'bulk (plist-get compound :kind)))
+            (should-not (eq 'bulk (plist-get single :kind)))
+            (should-not (equal pristine committed))
+            (should-not (equal committed both))
+            ;; 1. The ordinary same-file record comes back first.
+            (org-air-r90--assert-ring-claim 'undo "done \"A3\"")
+            (should (equal committed (org-air-r90--text "a.org")))
+            (should (equal (list compound) org-air-view--edit-ring))
+            (should (equal (list single) org-air-view--edit-redo-ring))
+            ;; 2. THE LAW: the compound is still genuinely safe, so the very
+            ;;    next `u' must take it and byte-restore the corpus.
+            (org-air-r90--assert-ring-claim 'undo "backlog 1 marked item")
+            (should (equal pristine (org-air-r90--text "a.org")))
+            (should-not org-air-view--edit-ring)
+            (should (equal (list compound single) org-air-view--edit-redo-ring))
+            ;; 3. Both directions: `U' `U' reapplies exactly what `u' `u' took.
+            (org-air-r90--assert-ring-claim 'redo "backlog 1 marked item")
+            (should (equal committed (org-air-r90--text "a.org")))
+            (should (equal (list compound) org-air-view--edit-ring))
+            (org-air-r90--assert-ring-claim 'redo "done \"A3\"")
+            (should (equal both (org-air-r90--text "a.org")))
+            (should (equal (list single compound) org-air-view--edit-ring))
+            (should-not org-air-view--edit-redo-ring)
+            ;; 4. Not single-shot: the same round trip works again.
+            (org-air-r90--assert-ring-claim 'undo "done \"A3\"")
+            (org-air-r90--assert-ring-claim 'undo "backlog 1 marked item")
+            (should (equal pristine (org-air-r90--text "a.org")))))))))
+
+(ert-deftest org-air-r90-74-two-compounds-over-shared-files-round-trip ()
+  "Two compound records over the SAME files must both stay undoable/redoable.
+The first `u' commits both of the newer record's files, which is itself the
+ordinary ring op the restamp law exists for.  If that restamp leaves the older
+compound's parts half-stale, the round's headline capability — one marked
+command, one compound history step — is single-shot per file set, and the
+older marked command can never be taken back."
+  (skip-unless (locate-library "org-air"))
+  (let ((names '("a.org" "b.org"))
+        (pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--corpus-text names)))
+        (dolist (title '("A1" "B1")) (org-air-r90--mark-title title))
+        (org-air-item-backlog)
+        (let ((after-first (org-air-r90--corpus-text names)))
+          (dolist (title '("A2" "B2")) (org-air-r90--mark-title title))
+          (org-air-item-backlog)
+          (let* ((after-both (org-air-r90--corpus-text names))
+                 (second (nth 0 org-air-view--edit-ring))
+                 (first (nth 1 org-air-view--edit-ring)))
+            (should (eq 'bulk (plist-get first :kind)))
+            (should (eq 'bulk (plist-get second :kind)))
+            (should-not (equal pristine after-first))
+            (should-not (equal after-first after-both))
+            (org-air-r90--assert-ring-claim 'undo "backlog 2 marked items")
+            (should (equal after-first (org-air-r90--corpus-text names)))
+            (should (equal (list first) org-air-view--edit-ring))
+            ;; THE LAW: the older compound is untouched by the newer one's
+            ;; ring op and must still round-trip.
+            (org-air-r90--assert-ring-claim 'undo "backlog 2 marked items")
+            (should (equal pristine (org-air-r90--corpus-text names)))
+            (should-not org-air-view--edit-ring)
+            (should (equal (list first second) org-air-view--edit-redo-ring))
+            (org-air-r90--assert-ring-claim 'redo "backlog 2 marked items")
+            (should (equal after-first (org-air-r90--corpus-text names)))
+            (org-air-r90--assert-ring-claim 'redo "backlog 2 marked items")
+            (should (equal after-both (org-air-r90--corpus-text names)))
+            (should (equal (list second first) org-air-view--edit-ring))
+            (should-not org-air-view--edit-redo-ring)))))))
+
+(ert-deftest org-air-r90-75-older-record-stays-reachable-behind-a-compound ()
+  "A compound record must never shadow the history beneath it.
+A record whose preflight produces blockers is requeued on the SAME ring side,
+so it stays at the head.  That is correct only while the blockers are real: a
+compound that can never pass its own preflight again freezes the whole ring
+and every OLDER record — in files the compound never touched — becomes
+unreachable for the rest of the session.  Here the oldest record lives in a
+third file that no marked command ever wrote, so nothing about it can be
+unsafe; if `u' cannot reach it, the head is lying."
+  (skip-unless (locate-library "org-air"))
+  (let ((names '("a.org" "b.org" "c.org"))
+        (pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--corpus-text names)))
+        (org-air-r90--goto-row "C3")
+        (org-air-item-done)
+        (dolist (title '("A1" "B1")) (org-air-r90--mark-title title))
+        (org-air-item-backlog)
+        (org-air-r90--goto-row "A3")
+        (org-air-item-done)
+        (let* ((all (org-air-r90--corpus-text names))
+               (newest (nth 0 org-air-view--edit-ring))
+               (compound (nth 1 org-air-view--edit-ring))
+               (oldest (nth 2 org-air-view--edit-ring)))
+          (should (eq 'bulk (plist-get compound :kind)))
+          (should (equal "done \"C3\"" (plist-get oldest :desc)))
+          (org-air-r90--assert-ring-claim 'undo "done \"A3\"")
+          (should (equal (list compound oldest) org-air-view--edit-ring))
+          ;; Intermediate: the compound step must go through, and the oldest
+          ;; record must still be applied and still queued behind it.
+          (org-air-r90--assert-ring-claim 'undo "backlog 2 marked items")
+          (should (equal (list oldest) org-air-view--edit-ring))
+          (should (string-match-p "^\\*+ DONE C3" (org-air-r90--text "c.org")))
+          ;; THE LAW: the oldest record is reachable, not shadowed.
+          (org-air-r90--assert-ring-claim 'undo "done \"C3\"")
+          (should (equal pristine (org-air-r90--corpus-text names)))
+          (should-not org-air-view--edit-ring)
+          (should (equal (list oldest compound newest)
+                         org-air-view--edit-redo-ring))
+          (dolist (expect '("done \"C3\"" "backlog 2 marked items"
+                            "done \"A3\""))
+            (org-air-r90--assert-ring-claim 'redo expect))
+          (should (equal all (org-air-r90--corpus-text names)))
+          (should-not org-air-view--edit-redo-ring))))))
+
+;;;; r90-76/77/78 — retest-14 permanent root: a mark that no longer names the
+;;;; heading the user selected must never be spent on a different heading.
+
+(defconst org-air-r90--drift-board
+  '(("t.org" . "#+title: t\n\n* TODO D1\n* TODO D2\n* TODO D3\n")
+    ("park.org" . "#+title: park\n\n* TODO Park row\n")
+    ("inbox.org" . "#+title: inbox\n"))
+  "Drift corpus: three source headings plus one parking row in another file.")
+
+(defconst org-air-r90--stale-mark-re "\\(?:[Ss]tale\\|[Pp]runed\\)"
+  "Any honest user-facing report that a mark no longer names its heading.")
+
+(defconst org-air-r90--marked-success-re
+  "\\`\\(?:Backlogged\\|Un-backlogged\\|Added #\\).*[0-9]+ marked item"
+  "Echo shape claiming a COMPLETED marked bulk write.")
+
+(defun org-air-r90--marked-row-titles ()
+  "Return the titles of every rendered row the board presents as marked."
+  (save-excursion
+    (goto-char (point-min))
+    (let (out)
+      (while (not (eobp))
+        (when (and (org-air-view--row-property 'org-air-marked)
+                   (org-air-view--row-property 'org-air-item))
+          (push (org-air-item-title
+                 (org-air-view--row-property 'org-air-item))
+                out))
+        (forward-line 1))
+      (delete-dups (nreverse out)))))
+
+(defun org-air-r90--tagged-titles (name titles tag)
+  "Return which of TITLES carry exact TAG on disk in corpus NAME."
+  (seq-filter (lambda (title) (org-air-r90--disk-has-tag-p name title tag))
+              titles))
+
+(defconst org-air-r90--drifted-t-org
+  "#+title: t\n\n* TODO D0\n* TODO D1\n* TODO D2\n* TODO D3\n"
+  "Exact t.org bytes after an outside tool inserts one heading above D1.")
+
+(defun org-air-r90--external-drift (kind)
+  "Shift every t.org source offset the way an outside edit would.
+KIND `visited' edits and saves the live buffer (org-air's markers move with
+it); KIND `external' rewrites the file behind org-air's back and reverts."
+  (if (eq kind 'visited)
+      (with-current-buffer (find-file-noselect (org-air-r90--file "t.org"))
+        (goto-char (point-min))
+        (re-search-forward "^\\* TODO D1$")
+        (beginning-of-line)
+        (insert "* TODO D0\n")
+        (let ((inhibit-message t)) (save-buffer)))
+    (let ((coding-system-for-write 'utf-8-unix))
+      (write-region org-air-r90--drifted-t-org nil
+                    (org-air-r90--file "t.org") nil 'silent))
+    (with-current-buffer (find-file-noselect (org-air-r90--file "t.org"))
+      (revert-buffer t t t)))
+  (should (equal org-air-r90--drifted-t-org (org-air-r90--text "t.org"))))
+
+(defun org-air-r90--run-marked-verb (verb tag)
+  "Run the real marked VERB (`backlog' or `tag') and return its messages.
+TAG is the single value a marked `t' prompt reads."
+  (let (out)
+    (org-air-r90--record-messages collected
+      (if (eq verb 'backlog)
+          (org-air-item-backlog)
+        (cl-letf (((symbol-function 'read-string) (lambda (&rest _) tag)))
+          (org-air-set-tag)))
+      (setq out (nreverse collected)))
+    out))
+
+(defun org-air-r90--assert-drift-never-retargets (kind verb)
+  "Mark D2, drift t.org by KIND, press `g r', then run marked VERB.
+Point is parked on a row in ANOTHER file before the write, so the only route
+into t.org is the mark itself and a point fallback cannot be mistaken for it."
+  (org-air-r90--with-board org-air-r90--drift-board
+    (let ((tag (if (eq verb 'backlog) "backlog" "zzz"))
+          rendered refresh-messages)
+      (org-air-r90--mark-title "D2")
+      (should (equal '("D2") (org-air-r90--marked-row-titles)))
+      (org-air-r90--external-drift kind)
+      ;; `g r' is exactly what org-air's own stale-target message recommends.
+      (org-air-r90--record-messages collected
+        (org-air-refresh)
+        (setq refresh-messages (nreverse collected)))
+      (setq rendered (org-air-r90--marked-row-titles))
+      (org-air-r90--goto-row "Park row")
+      (let* ((write-messages (org-air-r90--run-marked-verb verb tag))
+             (messages (append refresh-messages write-messages))
+             (disk (org-air-r90--text "t.org"))
+             (tagged (org-air-r90--tagged-titles
+                      "t.org" '("D0" "D1" "D2" "D3") tag)))
+        (ert-info ((format "%S/%S rendered=%S tagged=%S messages=%S disk=%S"
+                           kind verb rendered tagged messages disk))
+          ;; 1. THE LAW: no heading the user did not mark may move a byte.
+          (dolist (title '("D0" "D1" "D3"))
+            (should (string-match-p (format "^\\* TODO %s$" title) disk)))
+          (should (seq-every-p (lambda (title) (equal title "D2")) tagged))
+          ;; 2. No complete-success echo for a write that did not happen.
+          (when (seq-find (lambda (text)
+                            (string-match-p
+                             org-air-r90--marked-success-re text))
+                          messages)
+            (should (member "D2" tagged)))
+          ;; 3. The user is told the mark went stale rather than left to
+          ;;    believe their selection is still live.
+          (should (seq-find (lambda (text)
+                              (string-match-p
+                               org-air-r90--stale-mark-re text))
+                            messages))
+          ;; 4. Intermediate: the board never presented a heading the user did
+          ;;    not mark as their selection.
+          (should (seq-every-p (lambda (title) (equal title "D2"))
+                               rendered)))))))
+
+(ert-deftest org-air-r90-76-drifted-mark-never-backlogs-another-heading ()
+  "A stale mark plus `g r' must never let `b' write a different heading.
+A mark is stored by source identity, and Decision 2 says a source
+file/position/title mismatch is a failed/stale target, NEVER silently
+relocated.  An outside edit that inserts a heading above the marked one
+shifts every later offset; the item generation the next `g r' builds then
+holds a DIFFERENT heading at the marked offset.  If reconciliation is
+membership-only, the mark survives pointing at that other heading, every
+downstream exactness check compares the re-resolved item against itself, and
+the bulk write silently tags a heading the user never selected while echoing
+complete success."
+  (skip-unless (locate-library "org-air"))
+  (dolist (kind '(visited external))
+    (org-air-r90--assert-drift-never-retargets kind 'backlog)))
+
+(ert-deftest org-air-r90-77-drifted-mark-never-tags-another-heading ()
+  "The same law for marked `t': one shared value, never the wrong heading.
+`b' and `t' share the mark set, the preflight and the file-coordinated
+writer, so a re-targeted mark spends the user's single prompted tag on a
+heading they never selected."
+  (skip-unless (locate-library "org-air"))
+  (dolist (kind '(visited external))
+    (org-air-r90--assert-drift-never-retargets kind 'tag)))
+
+(ert-deftest org-air-r90-78-marks-follow-tracked-and-org-air-owned-moves ()
+  "Controls for r90-76/77: the two relocations that MUST keep working.
+Without a `g r' the tracked source locator still names the marked heading
+after an outside edit moved it, and org-air's OWN bulk write relocates the
+surviving selection exactly.  Pruning honestly is only correct if it is
+confined to the generation swap that really lost the heading; a fix that
+drops marks on either of these paths breaks the round's durable marks."
+  (skip-unless (locate-library "org-air"))
+  ;; Control 1: no `g r' — the tracked locator keeps the write on D2.
+  (dolist (verb '(backlog tag))
+    (org-air-r90--with-board org-air-r90--drift-board
+      (let ((tag (if (eq verb 'backlog) "backlog" "zzz")))
+        (org-air-r90--mark-title "D2")
+        (org-air-r90--external-drift 'visited)
+        (let ((messages (org-air-r90--run-marked-verb verb tag)))
+          (ert-info ((format "control-1 %S messages=%S" verb messages))
+            (should (seq-find (lambda (text)
+                                (string-match-p
+                                 org-air-r90--marked-success-re text))
+                              messages))
+            (should (equal '("D2")
+                           (org-air-r90--tagged-titles
+                            "t.org" '("D0" "D1" "D2" "D3") tag))))))))
+  ;; Control 2: org-air's own write relocates the surviving selection.
+  (org-air-r90--with-board
+      '(("t.org" . "#+title: t\n\n* TODO E1\n* TODO E2\n* TODO E3\n")
+        ("inbox.org" . "#+title: inbox\n"))
+    (dolist (title '("E1" "E3")) (org-air-r90--mark-title title))
+    (org-air-item-backlog)
+    (org-air-r90--expand-section 'backlog)
+    (dolist (title '("E1" "E3")) (org-air-r90--mark-title title))
+    (should (equal '("E1" "E3")
+                   (sort (org-air-r90--marked-row-titles) #'string<)))
+    (cl-letf (((symbol-function 'read-string) (lambda (&rest _) "later")))
+      (org-air-set-tag))
+    (should (equal '("E1" "E3")
+                   (org-air-r90--tagged-titles
+                    "t.org" '("E1" "E2" "E3") "later")))
+    (should-not (org-air-r90--disk-has-tag-p "t.org" "E2" "later"))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

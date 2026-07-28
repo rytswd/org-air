@@ -3825,6 +3825,168 @@ no query or refile-engine behavior changes.
   churn); the only file this change touches is =org-air-view.el= plus this Air
   history.
 
+- 2026-07-28: Round 90 TEST/AUDIT retest 19 — INDEPENDENT AUDIT OF FIX-15:
+  **PASS**, and the unfenced ownership seam FIX-15 itself reported is now
+  closed by three permanent tests.  Tests + this Air history only; no
+  production =.el=, README, fixture, golden or manifest byte moved.
+  =org-air-view.el= re-hashed after every mutant run:
+  =aa493db4ac39b553872beb0714c3497b62cef2ca7971f8e35fe6ad641f2eab25=
+  (identical to the value FIX-15 records); the other ten modules, =README.org=
+  and =Makefile= are byte-identical to =zvyrtkrpomup=.  Parent confirmed
+  =zvyrtkrpomup=; one substantive head; no conflicts, no divergence; every
+  mutant was built in =/tmp= trees, never in the repository.
+
+  THE GAP FIX-15 REPORTED IS REAL AND IS NOW CLOSED.  Independently
+  reproduced on the shipped tree: =M5= (drop the =visited-file-modtime=
+  cross-check in =--mark-witness-owned-mtime=), =M6= (never re-claim) and
+  =M7= (re-claim without the =:verified= gate) each pass the ENTIRE
+  pre-existing 1201-test gate — 1201/0 unexpected/8 skipped, three times over.
+  The single decision point for "this mtime is ours", the ruling that org-air
+  re-claims its own write, and the gate that stops a stale mark being blessed
+  were all invisible to every test in the repository.
+
+  FIX-15's premise that the state is unreachable through the product is
+  WRONG, and that is what made the fence possible.  An ambiguous mark that is
+  SURVIVING, VERIFIED and in a file org-air itself writes is reached by an
+  ordinary gesture: the user marks one of two templated recurring headings and
+  then FINISHES IT IN THEIR OWN EMACS WITHOUT SAVING.  The scan reads the live
+  buffer, so the next =g r= classifies the heading DONE — board-inactive,
+  therefore ineligible for a marked =b= and rendered nowhere, yet still
+  selected (=r90-80='s shape) — while the file on disk has not moved, so the
+  ambiguous witness still verifies.  A marked =b= then writes the OTHER,
+  unique heading in the same file and the spared mark meets the ownership
+  rule.  All three new tests drive that state through the real board, the real
+  =m=, the real =b=/=t= and the real =g r=; none of them reaches into the
+  ownership functions.
+
+  NEW PERMANENT TESTS (no padding — each is the sole RED for its own mutant,
+  and each mutant reddens nothing else in the whole 1204-test gate):
+
+  - =r90-94-foreign-interleaved-write-is-never-ours= — a foreign writer
+    (buffer-local =after-save-hook=, so it lands AFTER our save recorded
+    =visited-file-modtime= and BEFORE org-air claims the mtime) exchanges the
+    two recurring blocks on disk, byte-preservingly, keeping our own
+    just-written =:backlog:=.  The spared ambiguous mark must not be blessed:
+    the next =g r= prunes it exactly once through the existing bounded
+    message, and the twin the foreign write slid into the marked offset stays
+    byte-identical under a following marked verb.  RED under =M5= only.
+  - =r90-95-unverified-mark-is-never-re-claimed= — one ambiguous mark that has
+    already FAILED the preflight witness check (=M-<down>= in the user's own
+    Emacs, no =g r=) plus one unique mark in the SAME file that is still good.
+    The command writes the good one and honestly reports =1 failed — run g r=;
+    the failed mark must not be handed a fresh witness by that write, must
+    still prune on the next =g r=, and must never let a second marked write
+    reach the twin.  RED under =M7= only (and under =M1=/=M2=/=M3=).
+  - =r90-96-own-write-keeps-the-ambiguous-mark-it-spared= — the honest
+    survival path: =1 ineligible remains marked=, no prune on the next =g r=,
+    the key still names the heading the user picked, and the mark is still a
+    WORKING selection (a following marked =t= lands on that heading and on
+    nothing else).  RED under =M6= only.
+
+  MUTATION BATTERY, INDEPENDENTLY REBUILT (selector =r90-49=, =r90-54..96=;
+  =.elc= deleted before every run).  Baseline 44/44.
+
+  | mutant | reverted | RED |
+  | =M1= | preflight re-derivation | =r90-88=, =89=, =95= |
+  | =M2= | mtime out of the witness | =r90-88=, =89=, =94=, =95=, =96= |
+  | =M3= | both halves | =r90-88=, =89=, =94=, =95=, =96= |
+  | =M4= | mtime for UNIQUE projections too | =r90-65=, =74=, =78=, =80=, =83=, =84=, =87=, =93=, =94=, =95=, =96= |
+  | =M5= | foreign mtime treated as ours | =r90-94= |
+  | =M6= | never re-claim | =r90-96= |
+  | =M7= | re-claim without the verified gate | =r90-95= |
+
+  The real parent tree =zvyrtkrpomup= itself reddens =r90-88=, =r90-89= and
+  all three new tests while =r90-85/86/87= and the seam pins =r90-90..93= stay
+  green — retest 18's RED re-derived from the shipped bytes, not from a
+  mutant.  Two corrections to FIX-15's own battery: =M4='s blast radius is
+  wider than recorded (it also reddens =r90-65=, =74=, =83=, =84= — all
+  genuinely mark-dependent, so the over-prune is broader still), and =M2=
+  reddens the =move-down-refresh= shape as well as the two shapes recorded.
+
+  INDEPENDENT VERIFICATION OF THE PAYLOAD (drivers in =/tmp=, nothing landed).
+
+  1. OWNERSHIP CORRECTNESS.  =visited-file-modtime= and a fresh
+     =file-attributes= stat return the IDENTICAL Lisp timestamp after a save;
+     =--mark-witness-owned-mtime= returns the STAT's =float-time=, which is
+     both =equal= and =eql= to the next scan's =:mtime= — one producer, one
+     comparison.  Fail-closed confirmed for a modtime of 0 and −1, an
+     unstattable file, a dead buffer and a nil file name.  A foreign write one
+     tick later is refused.
+  2. NEW RESIDUAL FOUND — THE SAME-TICK BLIND WINDOW (non-blocking, recorded).
+     The filesystem timestamp clock under the corpus ticks at ≈1 ms: 188 of
+     200 back-to-back =write-region= pairs share a modification time, and a
+     foreign write placed inside org-air's own tick IS claimed as ours
+     (=owned= non-nil).  This is intrinsic to ANY mtime rule, so it bounds the
+     whole ambiguity discriminator and not just the ownership half: a foreign
+     byte-preserving rearrangement whose write lands in the same tick as the
+     mtime the scan recorded is invisible to the witness too.  It is strictly
+     better than the shipped-before state (where the entire class was
+     invisible), the window is one filesystem tick wide, and closing it would
+     need content identity rather than time.  =r90-94= therefore stamps its
+     foreign write one tick on, and says so in its own helper docstring.
+     float-time is NOT the limit — it resolves ≈1.2 µs at this epoch, a
+     thousand times finer than the clock.
+  3. AMBIGUITY SCOPING.  Verified against the actual stored values: a heading
+     whose TITLE collides but whose TAGS differ stays UNIQUE and its witness
+     is exactly =((TITLE . TAGS) ORDINAL . 1)= with no mtime anywhere — the
+     pre-FIX-15 value byte for byte; only a real same-projection sibling
+     produces =((TITLE . TAGS) ORDINAL ARITY . MTIME)=, and both siblings
+     carry the same file mtime.  When a file's ambiguity STATUS changes
+     between mark and write the mark prunes in BOTH directions
+     (unique→ambiguous and ambiguous→unique) through the bounded message —
+     fail-closed, which is right, because the identity really did change kind.
+  4. PREFLIGHT RE-DERIVATION.  Instrumented over 4 marks across 2 files:
+     witness re-derivation costs EXACTLY one =file-attributes= per marked
+     FILE, ZERO =find-file-noselect=, ZERO =insert-file-contents= and ZERO
+     scans.  The whole preflight stats each candidate file twice — once for
+     the witness, once inside the pre-existing =find-file-noselect= — so
+     FIX-15 adds precisely one stat per marked file per pass, as claimed.  An
+     underivable witness at write time lands in
+     =Added #zzz to 0 marked items; 1 failed — run g r= and writes nothing.
+  5. RESIDUAL HONESTY.  A disk change that touches NEITHER marked heading (one
+     heading appended at the end of the file) prunes the AMBIGUOUS mark with
+     =Pruned 1 stale marked item= and leaves the UNIQUE mark untouched and
+     still rendered — exactly the recorded trade, and honest rather than
+     silent.  Witness retention equals the mark count exactly, holds no marker
+     or buffer, and =M= releases every witness.
+
+  REGRESSIONS.  =r90-49= + =r90-54..96= 44/44; whole R90 selector
+  **102/102**; R73 + R75 28/28; owner lifecycle (=r90-44=, =r90-51=,
+  =r63-1/3/4=, =r78-3=) 6/6; native v6 tags (=r90-12=, =31=, =38=, =40=,
+  =52=) 6/6; finalizer + retention after kill/GC + indirect clones (=r90-41=,
+  =53=, =56=, =65=) 4/4; timer seams 4/4.  Controls =r90-78=, =r90-80=,
+  =r90-87= green throughout.
+
+  PERFORMANCE, RE-MEASURED (byte-compiled, fully expanded boards, 200 real =m=
+  presses, half of every file's headings AMBIGUOUS, parent =zvyrtkrpomup= vs
+  FIX-15, two interleaved rounds, medians).  A HARNESS CORRECTION FIRST: mark
+  reconcile cost is dominated by =expand-file-name= over the whole generation
+  and therefore scales with the length of =default-directory= — measuring the
+  two trees from CWDs of different depth swings it by 4× and manufactures a
+  phantom regression.  This is pre-existing (identical in both trees) and out
+  of scope, but it invalidates any A/B run that does not equalise the CWD.
+  With equal CWD depth: 1000 items / 20 files — =m= press 169 → 170 ms, =g r=
+  (no marks) 312 → 307 ms, =g r= (200 marks) 194 → 195 ms, reconcile
+  1.99 → 2.02 ms, preflight 17.6 → 18.5 ms (+5%).  5000 items / 50 files —
+  =m= press 1429 → 1451 ms, =g r= (no marks) 1508 → 1486 ms, =g r= (200 marks)
+  1116 → 1075 ms, reconcile 7.06 → 7.32 ms, preflight 24.3 → 25.7 ms (+6%).
+  So the added cost is one bounded stat per marked FILE plus one float compare
+  per mark, it lands only on the explicit marked-write preflight, and no
+  per-keystroke or per-render path moved.  FIX-15's recorded figures name the
+  right shape and, if anything, overstate the cost: the true =g r= delta is
+  within noise rather than +1.2%, and the true 5k preflight baseline is
+  24.3 ms rather than the recorded 42.8 ms (its 47.9 ms candidate figure is
+  the one that reproduces).
+
+  GATE.  =make clean && make check= with all 11 modules recompiled: compile
+  clean but for the pre-existing =org-air-project.el:946= wide-docstring
+  warning; =lint: ok (0 findings, all baselined)=; **1204 tests / 1196 as
+  expected / 0 unexpected / 8 GUI skips**.  =make clean && make test=
+  interpreted, no =.elc= on disk: identical counts.  Loaded known-failures
+  active length 0.  =make regen-mockups= in a =/tmp= copy: exit 0 and a byte
+  no-op across the whole fixture set.  No repo probe file was ever created and
+  =.deps= is untouched.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -3965,3 +4127,17 @@ no query or refile-engine behavior changes.
   ambiguous mark now prunes whenever its file changes on disk.  Gate 1201
   tests / 0 unexpected / 8 GUI skips / manifest 0 / lint 0 / regen a byte
   no-op.)
+- 2026-07-28: State: work-in-progress (independent audit retest 19 of FIX-15 —
+  PASS.  Both halves and the ownership ruling verified against the product;
+  =M5=/=M6=/=M7= each independently confirmed to pass the ENTIRE pre-existing
+  1201-test gate, so the ownership seam really was unfenced, and it is now
+  closed by three new permanent tests =r90-94=, =r90-95=, =r90-96=, each the
+  sole RED for its own mutant.  The state FIX-15 believed unreachable —
+  a surviving, verified, ambiguous mark in a file org-air writes — is reached
+  through the product by finishing the marked heading in the user's own Emacs
+  without saving.  One new non-blocking residual recorded: a foreign write
+  inside org-air's own ≈1 ms filesystem timestamp tick is indistinguishable
+  from ours, which bounds every mtime rule and not just this one.  Performance
+  re-measured with the CWD equalised: preflight +5–6%, everything else within
+  noise.  Gate 1204 tests / 0 unexpected / 8 GUI skips / manifest 0 / lint 0 /
+  regen a byte no-op.)

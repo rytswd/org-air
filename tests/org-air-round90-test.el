@@ -8151,5 +8151,361 @@ nothing else."
                             write))
           (should (equal '("D2") tagged)))))))
 
+;;;; r90-94/95/96 — the OWNERSHIP seam FIX-15 opened.  An AMBIGUOUS mark's
+;;;; witness carries its file's mtime, and org-air's OWN committed write bumps
+;;;; that mtime, so the round had to rule on who owns the new value.  The rule
+;;;; has three moving parts and no permanent test could see any of them:
+;;;; `org-air-view--mark-witness-owned-mtime' is THE ONE PLACE that decides
+;;;; "this mtime is ours"; `org-air-view--bulk-rekey-marks' applies it to the
+;;;; marks that survive the command; and it does so ONLY for the marks this
+;;;; command's preflight proved still name their own heading.  Break the first
+;;;; and a FOREIGN write that interleaved with ours is blessed as our own work;
+;;;; break the third and a mark that already FAILED verification is handed a
+;;;; fresh-looking witness and resurrected — both are the silent re-targeting
+;;;; r90-85..89 exist to stop, one command later.  Break the middle one and the
+;;;; very command that SPARED a mark evaporates it.
+;;;;
+;;;; All three drive one ordinary state, reached only through the product: the
+;;;; user marks one of two templated recurring headings and then finishes it in
+;;;; their OWN Emacs without saving.  The scan reads the live buffer, so the
+;;;; next `g r' sees a DONE heading — board-inactive, therefore INELIGIBLE for
+;;;; a marked `b' and rendered nowhere, yet still selected (r90-80's shape) —
+;;;; while the file on disk has not moved and the ambiguous witness still
+;;;; verifies.  A marked `b' then writes the OTHER, unique heading in the same
+;;;; file, and the spared mark meets the ownership rule.
+
+(defconst org-air-r90--recurring-block-re
+  (concat "\\(\\* [A-Z]+ Standup\nnote [0-9]+-jun\n\\)"
+          "\\(\\* [A-Z]+ Standup\nnote [0-9]+-jun\n\\)")
+  "The two recurring blocks of `org-air-r90--recurring-pair', in order.
+The TODO keyword is matched as any word, so the pair is still addressable
+after one of the two has been finished.")
+
+(defun org-air-r90--exchange-recurring-blocks (text)
+  "Return TEXT with its two recurring Standup blocks exchanged.
+Byte-preserving by construction — the heading lines are the same width and so
+are the bodies — so not one offset in the file moves and nothing the scan
+generation can produce changes."
+  (let ((swapped (replace-regexp-in-string
+                  org-air-r90--recurring-block-re "\\2\\1" text t)))
+    (should-not (equal swapped text))
+    (should (= (length swapped) (length text)))
+    swapped))
+
+(defun org-air-r90--finish-in-live-buffer (name position)
+  "Finish the heading at POSITION of corpus NAME, LEAVING IT UNSAVED.
+The user completing a task in their own Emacs.  Org-air's scan reads the live
+buffer, so the next `g r' classifies the heading as DONE — board-inactive,
+hence INELIGIBLE for a marked `b' and rendered nowhere — while the file on
+disk is untouched and its modification time has not moved.  That is exactly
+what makes an ambiguous mark both SURVIVING and VERIFIED when the marked write
+reaches the rekey, which is the only state the ownership rule speaks about."
+  (with-current-buffer (find-file-noselect (org-air-r90--file name))
+    (org-with-wide-buffer
+     (goto-char position)
+     (should (re-search-forward "TODO" (line-end-position) t))
+     (replace-match "DONE")))
+  (should-not (string-match-p "DONE" (org-air-r90--text name))))
+
+(defun org-air-r90--arm-foreign-writer (name)
+  "Arm ANOTHER writer to rewrite corpus NAME the instant org-air saves it.
+A buffer-local `after-save-hook' is the deterministic way to place a foreign
+write exactly where the ownership decision has to survive it: after the save
+put the bytes on disk and recorded org-air's own `visited-file-modtime', and
+before org-air claims the file's new mtime as its own.  The hook never touches
+the buffer — it is another process, not a save hook of org-air's; it exchanges
+the two recurring blocks on DISK and leaves org-air's own just-written bytes
+in place, so the interleaving is provable from the resulting file.
+
+It then stamps the file one second on, because a filesystem timestamp clock is
+COARSE: the one under this corpus ticks at about a millisecond, so two writes
+inside one tick share a modification time and no mtime rule can tell them
+apart.  The stamp makes the ordinary case — a foreign write that lands a tick
+later — deterministic here."
+  (with-current-buffer (find-file-noselect (org-air-r90--file name))
+    (add-hook
+     'after-save-hook
+     (lambda ()
+       (let ((path (org-air-r90--file name))
+             (swapped (org-air-r90--exchange-recurring-blocks
+                       (org-air-r90--text name)))
+             (coding-system-for-write 'utf-8-unix))
+         (write-region swapped nil path nil 'silent)
+         (set-file-times path (time-add (current-time) 1))))
+     nil t)))
+
+(defun org-air-r90--revert-source (name)
+  "Pick an outside change to corpus NAME up in the buffer visiting it.
+What `auto-revert-mode' does, or the user simply revisiting the file: a READ,
+not a write, so the file's modification time does not move."
+  (when-let* ((buffer (get-file-buffer (org-air-r90--file name))))
+    (with-current-buffer buffer (revert-buffer t t t))))
+
+(defun org-air-r90--mark-witness (key)
+  "Return the witness this board stored for mark KEY."
+  (gethash key (org-air-view--marked-witness-table)))
+
+(defun org-air-r90--assert-witness-shapes (name ambiguous unique)
+  "Assert the two marks of corpus NAME really are the shapes under test.
+AMBIGUOUS must carry the file's own already-scanned mtime in its arity cell —
+the discriminator this whole seam exists for — and UNIQUE must be EXACTLY the
+pre-FIX-15 `(PROJECTION ORDINAL . 1)', with no mtime anywhere in it.  The
+second half is the structural reason r90-87's no-over-prune law cannot
+regress: a unique heading's witness is byte-identical in every generation, so
+no edit anywhere in its file can move it."
+  (let ((a (org-air-r90--mark-witness ambiguous))
+        (u (org-air-r90--mark-witness unique)))
+    (ert-info ((format "ambiguous=%S unique=%S" a u))
+      (should (consp (cddr a)))
+      (should (= 2 (car (cddr a))))
+      (should (equal (cdr (cddr a))
+                     (plist-get (org-air-query-file-meta
+                                 (org-air-r90--file name))
+                                :mtime)))
+      (should (eql 1 (cddr u))))))
+
+(ert-deftest org-air-r90-94-foreign-interleaved-write-is-never-ours ()
+  "A foreign write that raced org-air's own may never be claimed as ours.
+`org-air-view--mark-witness-owned-mtime' is the single place that decides
+whether the modification time a file now carries is the one ORG-AIR's write
+left there.  It is asked at the instant org-air's save completed, and between
+that save and that question another process can write the same file: a sync
+daemon, a formatter, the user's second Emacs.  The buffer's own
+`visited-file-modtime' is the modtime the SAVE ITSELF recorded, so the
+decision has a fact that a later foreign write cannot rewrite — and it must
+use it.  Take the current stat on faith instead and org-air adopts a stranger's
+change as its own work: the surviving ambiguous mark is stamped with the
+FOREIGN mtime, the next `g r' finds the witness in perfect agreement with the
+generation and keeps the mark — pointing at whatever heading the foreign write
+slid into that byte offset.
+
+The foreign write here is the byte-preserving exchange r90-88/89 are about, so
+the marked offset comes to name the TWIN, and the resurrected mark would spend
+the user's very next `b'/`t' on a heading they never selected while echoing
+complete success.  Failing closed is the whole of the rule: nothing is
+claimed, and the mark prunes through the existing bounded message."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      (list (cons "t.org" org-air-r90--recurring-pair)
+            (cons "park.org" "#+title: park\n\n* TODO Park row\n")
+            (cons "inbox.org" "#+title: inbox\n"))
+    (let ((marked (org-air-r90--dup-heading-position "t.org" "note 16-jun")))
+      (org-air-r90--mark-source-position "t.org" marked)
+      (org-air-r90--mark-title "Write report")
+      (org-air-r90--assert-witness-shapes
+       "t.org"
+       (cons (org-air-r90--file "t.org") marked)
+       (cons (org-air-r90--file "t.org")
+             (org-air-r90--actual-heading-position "t.org" "Write report")))
+      ;; The user finishes the marked recurring heading in their own Emacs and
+      ;; has not saved: it is ineligible and unrendered, and still selected.
+      (org-air-r90--finish-in-live-buffer "t.org" marked)
+      (let ((refresh (org-air-r90--refresh-messages)))
+        (ert-info ((format "pre-write refresh=%S" refresh))
+          (should-not (seq-find (lambda (text)
+                                  (string-match-p
+                                   org-air-r90--stale-mark-re text))
+                                refresh))
+          (should (= 2 (length org-air-view--marked-keys)))))
+      ;; Another process writes t.org the moment org-air's own save lands.
+      (org-air-r90--arm-foreign-writer "t.org")
+      (org-air-r90--goto-row "Park row")
+      (let ((write (org-air-r90--run-marked-verb 'backlog "backlog")))
+        (ert-info ((format "write=%S disk=%S" write
+                           (org-air-r90--text "t.org")))
+          ;; org-air's own work landed, and one mark was spared by design.
+          (should (seq-find (lambda (text)
+                              (string-match-p
+                               "1 ineligible remains marked" text))
+                            write))
+          (should (org-air-r90--disk-has-tag-p
+                   "t.org" "Write report" "backlog"))
+          ;; The interleave really happened, AFTER our save: the blocks are
+          ;; exchanged on disk and our own just-written tag is still there.
+          (should (equal (org-air-r90--text "t.org")
+                         (org-air-r90--exchange-recurring-blocks
+                          (org-air-r90--exchange-recurring-blocks
+                           (org-air-r90--text "t.org")))))
+          (should (equal "* DONE Standup"
+                         (cdr (assoc "note 16-jun"
+                                     (org-air-r90--dup-heading-lines
+                                      "t.org")))))))
+      ;; The user's Emacs notices the file changed underneath it.
+      (org-air-r90--revert-source "t.org")
+      (should (= marked (org-air-r90--dup-heading-position
+                         "t.org" "note 17-jun")))
+      (let ((drifted (org-air-r90--dup-heading-lines "t.org"))
+            (refresh (org-air-r90--refresh-messages)))
+        (ert-info ((format "refresh=%S keys=%S" refresh
+                           org-air-view--marked-keys))
+          ;; 1. THE LAW: nothing was claimed, so the mark fails closed through
+          ;;    the existing bounded message — exactly once.
+          (should (= 1 (org-air-r90--count-messages
+                        refresh
+                        (regexp-quote "Pruned 1 stale marked item"))))
+          (should-not org-air-view--marked-keys)
+          (should-not (org-air-r90--marked-row-titles)))
+        ;; 2. And the twin the foreign write slid into the marked offset is
+        ;;    never written: the next marked verb reaches nothing at all.
+        (org-air-r90--goto-row "Park row")
+        (let ((write (org-air-r90--run-marked-verb 'tag "zzz"))
+              (lines (org-air-r90--dup-heading-lines "t.org")))
+          (ert-info ((format "second write=%S lines=%S" write lines))
+            (should (equal drifted lines))
+            (should-not (seq-find (lambda (text)
+                                    (string-match-p
+                                     org-air-r90--marked-wrote-re text))
+                                  write))))))))
+
+(ert-deftest org-air-r90-95-unverified-mark-is-never-re-claimed ()
+  "A mark that FAILED verification may not be re-claimed by someone else's write.
+The ownership rule refreshes a surviving ambiguous mark's witness with the
+mtime org-air's own write left on its file.  A single command can write a file
+for ONE mark while ANOTHER mark in that same file has already failed the
+preflight witness check — the ordinary shape being a marked recurring heading
+the user then `M-<down>'-ed in their own Emacs, plus a second, unique mark in
+the same file that is still perfectly good.  Re-claiming indiscriminately
+would hand that stale identity a fresh-looking witness produced by a write it
+took no part in: the honest `1 failed — run g r' would be undone one
+millisecond later, the next `g r' would find the witness in agreement and keep
+the mark, and the user's next `b'/`t' would spend it on the twin.
+
+So `org-air-view--bulk-preflight' publishes the marks it PROVED still name
+their own heading and only those may be re-claimed.  This drives the whole
+shape end to end: the honest partial failure, the prune that must still
+happen, and the second marked write that must reach nothing."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      (list (cons "t.org" org-air-r90--recurring-pair)
+            (cons "park.org" "#+title: park\n\n* TODO Park row\n")
+            (cons "inbox.org" "#+title: inbox\n"))
+    (let ((marked (org-air-r90--dup-heading-position "t.org" "note 16-jun")))
+      (org-air-r90--mark-source-position "t.org" marked)
+      (org-air-r90--mark-title "Write report")
+      (org-air-r90--assert-witness-shapes
+       "t.org"
+       (cons (org-air-r90--file "t.org") marked)
+       (cons (org-air-r90--file "t.org")
+             (org-air-r90--actual-heading-position "t.org" "Write report")))
+      ;; `M-<down>' on the marked heading in the user's own Emacs, saved.
+      ;; No `g r', so the failure is discovered by the write's own preflight.
+      (org-air-r90--rearrange-recurring-pair 'move-down-no-refresh marked)
+      (should (= marked (org-air-r90--dup-heading-position
+                         "t.org" "note 17-jun")))
+      (org-air-r90--goto-row "Park row")
+      (let ((write (org-air-r90--run-marked-verb 'tag "zzz"))
+            (drifted (org-air-r90--dup-heading-lines "t.org")))
+        (ert-info ((format "write=%S lines=%S keys=%S" write drifted
+                           org-air-view--marked-keys))
+          ;; The command is honest and org-air really did write this file.
+          (should (seq-find (lambda (text)
+                              (string-match-p "1 failed — run g r" text))
+                            write))
+          (should (org-air-r90--disk-has-tag-p "t.org" "Write report" "zzz"))
+          (should (equal "* TODO Standup"
+                         (cdr (assoc "note 17-jun" drifted))))
+          (should (equal "* TODO Standup"
+                         (cdr (assoc "note 16-jun" drifted))))
+          ;; The failed mark survives the command by design — it must not
+          ;; survive it BLESSED.
+          (should (= 1 (length org-air-view--marked-keys))))
+        (let ((refresh (org-air-r90--refresh-messages)))
+          (ert-info ((format "refresh=%S keys=%S" refresh
+                             org-air-view--marked-keys))
+            ;; 1. THE LAW: the write it did not take part in changed nothing
+            ;;    about its identity, so it still prunes.
+            (should (= 1 (org-air-r90--count-messages
+                          refresh
+                          (regexp-quote "Pruned 1 stale marked item"))))
+            (should-not org-air-view--marked-keys)
+            (should-not (org-air-r90--marked-row-titles))))
+        ;; 2. And no second marked write can reach the twin.
+        (org-air-r90--goto-row "Park row")
+        (let ((second (org-air-r90--run-marked-verb 'tag "yyy"))
+              (lines (org-air-r90--dup-heading-lines "t.org")))
+          (ert-info ((format "second=%S lines=%S" second lines))
+            (should (equal drifted lines))
+            (should-not (seq-find (lambda (text)
+                                    (string-match-p
+                                     org-air-r90--marked-wrote-re text))
+                                  second))))))))
+
+(ert-deftest org-air-r90-96-own-write-keeps-the-ambiguous-mark-it-spared ()
+  "The command that SPARED a mark must not be the thing that evaporates it.
+The honest survival path, and the reason the ownership rule exists at all.  A
+marked `b' does not always spend every mark: a heading finished outside
+org-air is no longer board-active, so it is reported as
+`1 ineligible remains marked' and stays selected (r90-80).  When that heading
+shares a title and effective tags with a sibling its witness carries the
+file's mtime — and org-air's own write to the SAME file, for a different
+mark, bumps exactly that mtime.  Without the ownership rule the user's
+surviving selection would be pruned on the next `g r' by org-air's own work,
+with an honest-looking `Pruned 1 stale marked item' that names nothing the
+user did.
+
+Only FOREIGN change may invalidate an ambiguous mark.  This drives the
+survival end to end: no prune, the key still names the heading the user picked
+and not its twin, and the mark is still a WORKING selection — the next marked
+`t' lands on that heading and on nothing else."
+  (skip-unless (locate-library "org-air"))
+  (org-air-r90--with-board
+      (list (cons "t.org" org-air-r90--recurring-pair)
+            (cons "park.org" "#+title: park\n\n* TODO Park row\n")
+            (cons "inbox.org" "#+title: inbox\n"))
+    (let ((marked (org-air-r90--dup-heading-position "t.org" "note 16-jun")))
+      (org-air-r90--mark-source-position "t.org" marked)
+      (org-air-r90--mark-title "Write report")
+      (org-air-r90--assert-witness-shapes
+       "t.org"
+       (cons (org-air-r90--file "t.org") marked)
+       (cons (org-air-r90--file "t.org")
+             (org-air-r90--actual-heading-position "t.org" "Write report")))
+      (org-air-r90--finish-in-live-buffer "t.org" marked)
+      (let ((refresh (org-air-r90--refresh-messages)))
+        (ert-info ((format "pre-write refresh=%S" refresh))
+          ;; Control: the disk did not move, so nothing prunes yet.
+          (should-not (seq-find (lambda (text)
+                                  (string-match-p
+                                   org-air-r90--stale-mark-re text))
+                                refresh))
+          (should (= 2 (length org-air-view--marked-keys)))))
+      (org-air-r90--goto-row "Park row")
+      (let ((write (org-air-r90--run-marked-verb 'backlog "backlog")))
+        (ert-info ((format "write=%S keys=%S" write
+                           org-air-view--marked-keys))
+          (should (seq-find (lambda (text)
+                              (string-match-p
+                               "1 ineligible remains marked" text))
+                            write))
+          (should (org-air-r90--disk-has-tag-p
+                   "t.org" "Write report" "backlog"))
+          (should (equal (list (cons (org-air-r90--file "t.org") marked))
+                         org-air-view--marked-keys))))
+      (let ((refresh (org-air-r90--refresh-messages)))
+        (ert-info ((format "post-write refresh=%S keys=%S" refresh
+                           org-air-view--marked-keys))
+          ;; 1. THE LAW: org-air's own write is not foreign change.
+          (should-not (seq-find (lambda (text)
+                                  (string-match-p
+                                   org-air-r90--stale-mark-re text))
+                                refresh))
+          (should (equal (list (cons (org-air-r90--file "t.org") marked))
+                         org-air-view--marked-keys))
+          (should (= marked (org-air-r90--dup-heading-position
+                             "t.org" "note 16-jun")))))
+      ;; 2. And it is still a WORKING selection, not a husk: the next marked
+      ;;    verb lands on the user's own heading and on nothing else.
+      (org-air-r90--goto-row "Park row")
+      (let ((write (org-air-r90--run-marked-verb 'tag "zzz"))
+            (lines (org-air-r90--dup-heading-lines "t.org")))
+        (ert-info ((format "second write=%S lines=%S" write lines))
+          (should (seq-find (lambda (text)
+                              (string-match-p
+                               org-air-r90--marked-wrote-re text))
+                            write))
+          (should (equal "* DONE Standup :zzz:"
+                         (cdr (assoc "note 16-jun" lines))))
+          (should (equal "* TODO Standup" (cdr (assoc "note 17-jun" lines)))))))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

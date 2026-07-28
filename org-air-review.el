@@ -1318,12 +1318,27 @@ cached item slots — the render path opens no file, ever; period
 navigation and the rollup/threshold knobs repaint without touching
 `org-air-query--scan-file' at all.  Rail placement, popped side-window
 lifecycle and the foreign-rail sweep mirror the revisit view (one
-machinery, parameterised)."
+machinery, parameterised).
+R91/R92: every review repaint runs inside the shared scroll seam and
+PRESERVES the item or section the user is on — `g', `<' `>' `.' period
+nav, `m' range cycle, `+'/`-', `f' rollup, `/' filter, `s'/`S' scope and
+the shared `b' backlog verb all inherit it from here.  A mutation verb
+losing the row it just acted on was the worst of the landing defects."
+  (org-air-view--with-scroll-stable
+    (org-air-review--render-body)))
+
+(defun org-air-review--render-body ()
+  "Render the Review view (the seam-free body of `--render')."
   (when (and (not noninteractive)
              (eq org-air-view--rail-popped-out 'unset))
     (setq-local org-air-view--rail-popped-out
                 (eq (org-air-rail--placement 'review) 'side-window)))
   (let* ((inhibit-read-only t)
+         ;; R92: the item or section the user is on, named by IDENTITY
+         ;; (the item's (FILE . POS) marker, the section bucket) and taken
+         ;; BEFORE the erase.
+         (landing (unless org-air-view--landing-entry
+                    (org-air-view--landing-save)))
          (org-air-rail--reconciling t)
          (width (org-air-review--host-width))
          (org-air-view-width width)
@@ -1380,8 +1395,12 @@ machinery, parameterised)."
       (funcall left-fn width))
     (goto-char (point-max))
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
-    (goto-char (point-min))
-    (org-air-review--goto-first-row)
+    ;; R92: put the user back on the item / section they were on; the
+    ;; first row is the fallback ONLY when that identity has genuinely
+    ;; vanished (the period moved, the rollup basis changed, the filter
+    ;; removed it).
+    (org-air-view--landing-restore
+     landing #'org-air-review--goto-first-row)
     ;; R61-6: an armed bookmark locator owns the landing; it stays armed
     ;; while the paced cold fill is still running and clears on match or
     ;; fill-idle.
@@ -1521,11 +1540,17 @@ always safe, it never toggles blindly or hangs."
                   (if (memq section org-air-review--collapsed)
                       (delq section org-air-review--collapsed)
                     (cons section org-air-review--collapsed)))
-      (org-air-review--render-current)
-      (let ((pos (org-air-view--find-property 'org-air-section section)))
-        (when pos
-          (goto-char pos)
-          (org-air-view--goto-row-title))))))
+      ;; R92: the repaint AND the re-land on the toggled header run inside
+      ;; the shared scroll seam, so the header holds its screen line.
+      ;; Measured before the fix, 10-row window: `window-start' 1394 -> 1
+      ;; and the header from screen line 5 to 24 — off-screen.
+      (org-air-view--with-scroll-stable
+        (org-air-review--render-current)
+        (let ((pos (org-air-view--find-property 'org-air-section section)))
+          (when pos
+            (goto-char pos)
+            (org-air-view--goto-row-title)
+            (org-air-view--landing-claimed)))))))
 
 (defun org-air-review-filter (tags)
   "Filter the Review view to TAGS (the shared filter core, key `/').
@@ -1815,7 +1840,10 @@ BUFFER."
     (unless (derived-mode-p 'org-air-review-mode)
       (org-air-review-mode))
     (org-air-review--ensure-data)
-    (org-air-review--render)))
+    ;; R92: an ENTRY is an explicit jump — it owns its landing (the first
+    ;; item), exactly as board OPEN does.
+    (let ((org-air-view--landing-entry t))
+      (org-air-review--render))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R61-6 — Emacs bookmark support (see org-air-view.el's shared core).

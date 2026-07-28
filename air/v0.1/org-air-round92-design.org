@@ -1,0 +1,497 @@
+#+title: org-air Round 92 — one landing rule for four views: a repaint keeps the row you are on
+#+state: work-in-progress
+#+tags: ux regression scroll viewport repaint landing project revisit review bookmark urgent
+
+* Summary
+
+R91 fixed the reported board defect (=m= scrolled the buffer) and was
+approved.  The distinguished review of R91
+(=/tmp/org-air-ace/fable-review/REPORT-r91.md=) then found three things the
+round's own audit should have caught, one of them *introduced by R91*:
+
+1. *R91 regression.*  =org-air-view--refresh-current= wrapped the WHOLE mode
+   dispatch in the scroll seam, but the project / revisit / review renders
+   deliberately RE-LAND point on their first row.  Pinning a *stale* offset
+   onto a *deliberate new* landing scrolled those views' banner,
+   state-summary line and column header off the top of the window.
+2. *Two in-class misses, pre-existing.*  =org-air-review-toggle-section=
+   (TAB) and =org-air-project-toggle-dropped= (TAB) are the user's original
+   complaint verbatim in other views — point preserved on the very row the
+   user is standing on, =window-start= collapsed to =point-min=, the row
+   thrown off-screen.  R91's claim "same class hunted elsewhere — nothing
+   else to fix" is *retracted*.
+3. *The landing policy is itself the defect, and a worse one.*  =g=, sort,
+   group-by, rollup, surface, period nav and the shared =b= backlog verb in
+   the project / revisit / review views threw the cursor to row 1.  There
+   *point itself* is lost, not merely the viewport.
+
+R92 answers all three with ONE rule, plus the two per-window / correctness
+follow-ups the review filed:
+
+#+begin_quote
+*A repaint PRESERVES the row the user is on — in every org-air view.  It
+lands on the view's first row ONLY when that row's identity has genuinely
+vanished, and when it does, it says so, and the scroll seam stands down for
+the window that jumped.*
+#+end_quote
+
+Implemented on 2026-07-28.  Four production files changed
+(=org-air-view.el=, =org-air-project.el=, =org-air-revisit.el=,
+=org-air-review.el=); no test, fixture, golden, README or known-failures
+byte was touched.
+
+* Why the R91 suite could not see its own regression
+
+This matters more than the bug.  =tests/org-air-round91-test.el= is a good
+file — 31 tests, 22 RED on the parent, four mutations each pinned — and it
+is *blind to the regression the same round shipped*.  Two reasons:
+
+1. *The other-view tests assert only ON-SCREEN-NESS.*
+   =org-air-r91-review-shared-refresh-lands-on-screen= and its revisit twin
+   assert =offset < window-body-height= and =window-point = point=.  Both
+   are true *with* and *without* the header-scrolls-off behaviour: the
+   landing is on screen in both worlds; what differs is *what else is on
+   screen above it*.  The reviewer confirmed this independently — the
+   minimal fix changes the behaviour and all 31 tests still pass.
+2. *No test names the view's own chrome.*  The banner, the state-summary
+   line and the column header are the only things that disappear, and no
+   assertion in the file (or in the other 94) says "the banner is visible".
+   The suite asserts what the renderer PRODUCES; the regression is about
+   what the WINDOW SHOWS.
+
+The lesson R92 records: for a viewport rule, "the landing is visible" is
+not an assertion with teeth.  The assertion with teeth is *"row X is on
+screen line N AND the view's first line is/ is not above it"*.  Every
+measurement in this document is stated in that form.
+
+Green tests were therefore NOT treated as evidence in this round.  Every
+claim below is a measured number in a real window, taken twice: once on a
+clean checkout of =main= (=pppqmqrtvqyz=, R91) at =/tmp/org-air-r92-parent=,
+once on this working copy.
+
+* Decision 1 — the uniform landing rule
+
+The board has had =org-air-view--save-position= / =--restore-position=
+since D5.  The other three views ended their render with an unconditional
+
+: (goto-char (point-min))  +  --next-doc / --goto-first-row
+
+i.e. an unconditional JUMP.  R92 gives them the same pair, generalised.
+
+** The token
+
+=org-air-view--landing-save= returns
+
+: (:ids ((PROP . VALUE) ...) :line LINE :column COLUMN)
+
+taken from the row point is on, BEFORE the erase.  =:ids= is the row's
+identity properties in preference order, per mode:
+
+| mode      | identity properties, in order                            |
+|-----------+----------------------------------------------------------|
+| project   | =org-air-marker= (the doc's FILE), =org-air-dropped-fold=, =org-air-section= |
+| revisit   | =org-air-marker= (the note's FILE), =org-air-more-row=      |
+| review    | =org-air-marker= (the item's =(FILE . POS)=), =org-air-section= |
+
+Keying on =org-air-marker= rather than on the =org-air-doc= / entry /
+=org-air-item= value itself is load-bearing: those carry state and mtime
+slots that CHANGE under =g=, so an =equal= match on the whole value would
+make every refresh look like a vanished row and would have re-introduced
+the very defect being fixed.  The marker is the stable identity the render
+already puts on every row.
+
+The token is nil — so the render lands on its own first row exactly as
+before — when the buffer is empty (first paint), when point is not on a row
+(the banner, a blank line), or when the render is an explicit ENTRY.
+
+** The restore
+
+=org-air-view--landing-restore TOKEN FALLBACK=:
+
+- the first identity that still resolves wins; point lands on that row's
+  TITLE (R21-2) and then advances to the saved column *only when the column
+  is to the RIGHT of the title* (R21-1) — never into the gutter, never past
+  the row's last visible glyph.  This is the two-edged clamp
+  =org-air-view--normalize-point-now= applies on the board, expressed
+  directly, because that helper is board/project-only;
+- when nothing resolves, FALLBACK places the view's own first-row landing
+  and the buffer-local =org-air-view--landing-jumped= records that this
+  repaint JUMPED.
+
+** Where the pair is applied
+
+Inside each view's own =--render=, which is the single funnel every command
+in that view goes through.  =org-air-project--render=,
+=org-air-revisit--render= and =org-air-review--render= are now three-line
+wrappers around a =--render-body=; the wrapper also opens the R91 scroll
+seam (Decision 3).  Nothing else had to change for =g=, =s= sort, the
+group-by keys, =(= filenames, =/= filter, =<= =>= =.= period nav, =m=
+range/surface, =+= =-=, =f= rollup, =s= =S= scope, =z c=, paging, the
+debounced resize repaint, the paced cold-fill repaints and the shared =b=
+backlog verb to inherit it.
+
+** The exceptions that genuinely remain
+
+Every one is an explicit JUMP — the caller asked to go somewhere else, so
+it owns its landing:
+
+| exception                          | mechanism                                        |
+|------------------------------------+--------------------------------------------------|
+| bookmark restore (R58/R61-6)       | =--bookmark-consume= runs AFTER the landing restore and overrides it; the seam excludes the jumping window (Decision 4) |
+| view ENTRY: =org-air-project=, =org-air-revisit=, =org-air-review= (and their bookmark handlers, which share =--open-core=) | =org-air-view--landing-entry= bound to t: no token is taken, the first-row landing stands.  Board OPEN was already excluded for the same reason |
+| board OPEN (=org-air=, cold/cached/deferred first paints) | unchanged from R91                     |
+| =org-air-visit-item='s =recenter=  | a different buffer, an explicit jump; unchanged  |
+| plain motion (=org-air-next-section=, =n=/=p=, TAB's third branch) | no repaint, so no seam and no landing pair; ordinary Emacs scrolling is right |
+
+That is the whole list.  There is no per-view exception left: the
+"land on the first row" behaviour survives only where it is *correct*
+(nothing to preserve), not where it was merely *inherited*.
+
+* Decision 2 — the R91 regression dissolves into the rule
+
+The fix the reviewer verified (wrap only the board leg of
+=org-air-view--refresh-current=) restores parent behaviour, but it is a
+per-view exception in the shared dispatch — exactly the shape the review
+warned about.  With Decision 1 in place a better answer exists, and the
+brief asked for it: keep the dispatch UNIFORM and make the *render* say
+whether it preserved or jumped.
+
+- render PRESERVED the row → the seam anchors it.  That is now meaningful
+  in all four views, which it never was before.
+- render JUMPED (=org-air-view--landing-jumped=) → =--scroll-restore=
+  leaves the ACTING window's =window-start= to redisplay.  The window's
+  POINT is still repaired (the erase clobbered that marker too); only the
+  invented offset is dropped.
+
+That is what keeps the project banner on screen, and it keeps it on screen
+*by rule* rather than by mode dispatch.
+
+A command that re-lands point ITSELF after the render (the two TABs of
+Decision 3) calls =org-air-view--landing-claimed= to clear the mark: its
+landing is the user's row, so the seam must anchor it.
+
+** Measured — the reviewer's GUI repro, in a real window
+
+Project view, 70 docs, buffer 47 lines, window body 11 rows.  =M-<= (point
+on the banner at =point-min=), the viewport scrolled so point sits PRE
+screen lines below =window-start=, then the rail toggle (the shared
+=org-air-view--refresh-current=).
+
+| pre off | R91 (=main=) after       | R92 after                |
+|---------+--------------------------+--------------------------|
+|       0 | ws=173 off=0 banner *GONE* | ws=1 off=5 banner VISIBLE |
+|       1 | ws=154 off=1 banner *GONE* | ws=1 off=5 banner VISIBLE |
+|       2 | ws=153 off=2 banner *GONE* | ws=1 off=5 banner VISIBLE |
+|       3 | ws=81  off=3 banner *GONE* | ws=1 off=5 banner VISIBLE |
+|       5 | ws=1   off=5 banner VISIBLE | ws=1 off=5 banner VISIBLE |
+
+R92's first four visible lines after the repaint:
+
+#+begin_example
+  "  org-air ∙ project"
+  ""
+  "  DRAFT 0   READY 40   WIP   0   COMP  0   OUT   0   OFF   0"
+  ""
+#+end_example
+
+R91's, at pre-offset 0, were four =Document number ..= rows: banner,
+blank, state summary and column header all off the top.
+
+* Decision 3 — the two in-class TAB misses
+
+Both preserve point on the very row the user is standing on and both let
+=window-start= collapse to =point-min=.  Both branch bodies now run inside
+=org-air-view--with-scroll-stable=, closed AFTER the branch has placed its
+own landing (=--goto-dropped-row= / =--goto-fold-row= / the section
+header), with =org-air-view--landing-claimed= marking that landing as the
+user's row.  TAB's plain-motion branches stay unwrapped — board parity.
+
+** Measured — =org-air-project-toggle-dropped= (project TAB)
+
+70 docs (30 dropped, collapsed), buffer 47 lines, window body 10 rows,
+fold row parked at screen line 4:
+
+| step             | R91 (=main=)                          | R92                                   |
+|------------------+---------------------------------------+---------------------------------------|
+| before TAB       | ws=3089 off=4 =… 30 dropped — TAB to show= | ws=3089 off=4 (same)                  |
+| after TAB expand | ws=1 off=*45* =DROP Document number 00= — *OFF-SCREEN* | ws=3089 off=4 =DROP Document number 00= — on screen |
+| after TAB collapse | ws=1 off=*45* =… 30 dropped — TAB to show= — *OFF-SCREEN* | ws=3089 off=4 =… 30 dropped — TAB to show= — on screen |
+
+=off 4 → 45 in a 10-row window= is the user's original report character for
+character.
+
+** Measured — =org-air-review-toggle-section= (review TAB)
+
+30 review items, buffer 71 lines, window body 10 rows, the =Carried over=
+section header parked at screen line 5:
+
+| step       | R91 (=main=)                                   | R92                             |
+|------------+------------------------------------------------+---------------------------------|
+| before TAB | ws=4682 off=5 =~ Carried over 0=               | ws=4682 off=5 (same)            |
+| after TAB  | ws=1 off=*69* =~ Carried over 0= — *OFF-SCREEN* | ws=4682 off=5 — on screen       |
+
+* Decision 4 — the R58 bookmark exclusion is now PER WINDOW
+
+R91 returned nil from =--scroll-anchors= whenever a bookmark locator was
+armed, i.e. it dropped EVERY window on that board, not just the one
+jumping.  The rule is now stated the way the design always argued it: *the
+jumping window owns its landing AND its viewport; a bystander owns its
+own.*
+
+The jumping window is the SELECTED window when it displays the buffer (a
+bookmark jump runs there); otherwise the window whose point is the buffer
+point.  Every other window keeps its own identity token and its own offset.
+
+** Measured — a board shown in two windows, bookmark jump to =Task 12=
+
+| window                   | before          | R91 (=main=) after      | R92 after              |
+|--------------------------+-----------------+-------------------------+------------------------|
+| w1 (jumping, selected)   | ws=3322 off=5 =Task 40= | ws=1 off=18 =Task 12=   | ws=1 off=18 =Task 12=  |
+| w2 (bystander)           | ws=1864 off=3 =Task 20= | ws=*1* off=*0* =org-air= (the banner) | ws=1864 off=3 =Task 20= |
+
+The jumping window is byte-identical in both; only the bystander is fixed.
+
+* Decision 5 — three seam-correctness fixes
+
+** (a) =--with-scroll-stable= is UNWIND-protected, not =prog1=
+
+A repaint that signals mid-render skipped the restore entirely and left
+every displaying window's =window-start= at =point-min= — the erase had
+already clobbered it — so the one case where the user most needs their
+place kept was the one case that lost it.  Both halves still swallow their
+own errors, so the restore can never turn a render failure into a second
+failure.
+
+Measured (board, 60 rows, window body 22, row parked at screen line 6; a
+repaint that re-inserts the text and then signals in its tail):
+
+| revision | after the signal        |
+|----------+-------------------------|
+| R91      | ws=3241 → *1*, off 6 → *46* (off-screen) |
+| R92      | ws=3241 → 3241, off 6 → 6 |
+
+** (b) ONE anchor/restore pair per keystroke
+
+=--refresh-current= → =--render-current= nested two pairs per =m=.
+=org-air-view--scroll-stable-active= now records the BUFFER whose seam is
+open, and an inner seam over the SAME buffer is a pass-through.  The buffer
+is recorded rather than a bare flag so a repaint that renders a DIFFERENT
+org-air buffer inside the seam still anchors that buffer's own windows.
+The OUTER pair is by construction the one taken before the erase and closed
+after the final landing, so collapsing to it is not merely cheaper, it is
+the correct pair.
+
+Measured, one =m= on the board: =anchors=2 restores=2= (R91) →
+=anchors=1 restores=1= (R92).
+
+** (c) =--scroll-anchors= no longer invents an offset
+
+=count-screen-lines= takes the ABSOLUTE distance between its bounds, so a
+window whose point sits ABOVE its =window-start= (the user scrolled the row
+off the top) measured a fictitious offset and anchored it.  There is no
+screen line to preserve for a row that was not on screen.  OFFSET is now
+nil for such a window and the seam does not set its =window-start=;
+ordinary redisplay re-anchors, which is exactly what Emacs does for an
+off-screen point.  That window's POINT is still repaired.
+
+Measured (board, window scrolled 10 lines past point):
+
+| revision | offset recorded | after =m=                       |
+|----------+-----------------+---------------------------------|
+| R91      | 10 (fictitious) | ws=2917 (a made-up anchor)      |
+| R92      | nil             | seam does not set it — redisplay owns it |
+
+* Measurements — the landing policy (Decision 1)
+
+All numbers from a real window in =--batch= (=set-window-buffer=,
+=window-start=, =count-screen-lines=, =vertical-motion=,
+=window-body-height= all work there; =pos-visible-in-window-p= does not, so
+on-screen-ness is =offset < window-body-height=, which is exact).  Left
+column: clean checkout of =main= (R91).  Right column: this working copy.
+Same corpus, same window, same parked row.
+
+** Project — 70 docs, window body 11, row =Document number 55= at screen line 5
+
+| command        | R91 (=main=)                                             | R92                                          |
+|----------------+----------------------------------------------------------+----------------------------------------------|
+| =g= refresh    | ws 1793 → *1*; point *2212 → 187*; row =…55= → =…30=      | ws 1793 → 1793; point 2212 → 2212; row =…55= |
+| =s= sort-cycle | row =…55= → =…30=; ws=1 off=5                             | row =…55= → =…55=; ws=1793 off=5             |
+| group-by-tag   | row =…55= → =…30=; ws=1 off=5                             | row =…55= → =…55=; ws=1788 off=5             |
+| TAB expand     | ws 3089 → 1; off 4 → 45 (off-screen)                      | ws 3089 → 3089; off 4 → 4                    |
+
+** Review — 30 items, window body 10, row =Task number 29= at screen line 5
+
+| command          | R91 (=main=)                                        | R92                                         |
+|------------------+-----------------------------------------------------+---------------------------------------------|
+| =g= refresh      | ws 4520 → *1*; point *4933 → 106*; row → =Task 00=  | ws 4520 → 908; point 4933 → 1321; row =Task 29=, off 5 → 5 |
+| =f= cycle-rollup | row =Task 29= → =Task 00=; ws=1 off=3               | row =Task 29= → =Task 29=; ws=908 off=5     |
+| =b= backlog      | point *4933 → 106*; row → =Task 00=                 | row =Task 29= kept, off 5 → 5               |
+| TAB section      | ws 4682 → 1; off 5 → 69 (off-screen)                | ws 4682 → 4682; off 5 → 5                   |
+
+=b= is the one the review called indefensible: a mutation verb losing the
+row it just acted on.  It now keeps it.
+
+** Revisit — 30 notes, window body 10, row =Note number 29= at screen line 5
+
+| command           | R91 (=main=)                                        | R92                                    |
+|-------------------+-----------------------------------------------------+----------------------------------------|
+| =g= refresh       | ws 2025 → *1*; point *2436 → 87*; row → =Note 00=   | ws 2025 → 2025; point 2436 → 2436      |
+| =z c= toggle-created | row =Note 29= → =Note 00=; ws=1 off=2            | row =Note 29= → =Note 29=; ws=2025 off=5 |
+
+** The row genuinely VANISHES — the rule's other half
+
+Project, filter to a token that removes the parked row:
+
+#+begin_example
+BEFORE /   ws=1793 off=5  "+---- READY Document number 55"  banner GONE
+AFTER  /   ws=1    off=5  "+---- DROP  Document number 03"  banner VISIBLE   (R92: jumped=t)
+#+end_example
+
+Identical user-visible result on both revisions — but on R92 it is the
+*rule* speaking (identity vanished → first row → seam stands down), not an
+accident of an unconditional jump.
+
+* Invariants preserved
+
+- *R90 mark/history untouched.*  No mark, witness, generation, ring, cache
+  or source path byte is changed.  The board's own repaint pipeline
+  (=--render-current=, =--refresh-repaint=, =org-air-refresh=,
+  =org-air-toggle-section=) is byte-unchanged except for the seam macro it
+  expands.
+- *R91 board behaviour unchanged.*  =tests/org-air-round91-test.el= run
+  alone: *31 tests, 31 as expected, 0 unexpected*.  The R90 mutation landing
+  stays deliberately ANCHORED (the row that replaces a done row inherits the
+  screen line) — that is a board landing, not a first-row fallback, so it
+  never sets =--landing-jumped=.
+- *R21-1 column preservation* is extended, not weakened: the non-board
+  restore lands on the title and only advances to the saved column when it
+  is to the right of it.
+- *R58 / R61-6 bookmark landings unchanged* for the jumping window.
+- *R26-5 idempotent entry unchanged*: a re-entry still lands on the first
+  row (=org-air-view--landing-entry=).
+
+* Cost
+
+Measured byte-compiled, project view, 20 repaints, warm caches, the target
+row parked at the very END of the buffer (the worst case for the identity
+lookup):
+
+| docs | buffer lines | seam (anchors+restore) | landing (save+resolve) | full repaint |
+|------+--------------+------------------------+------------------------+--------------|
+|   60 |           37 | 0.0191 ms              | 0.0087 ms              | 15.7 ms      |
+|  300 |          277 | 0.0195 ms              | 0.0516 ms              | 77.7 ms      |
+| 1200 |         1177 | 0.0208 ms              | 0.3283 ms              | 323.6 ms     |
+
+- The R91 *seam* is still FLAT in buffer size (0.019 → 0.021 ms), as
+  claimed: it is bounded by the window height.
+- The *landing pair* is a text-property walk bounded by the rows ABOVE the
+  target — the same cost class the board's D5 =--restore-position= has had
+  for 90 rounds — and is *0.1 %* of the repaint it rides in.
+- *No new file read, scan, query or timer.*  Instrumented
+  =insert-file-contents=, =find-file-noselect=, =org-air-query--scan-file=,
+  =org-air-query-items= and =run-at-time= over 20 project repaints:
+  *0 scans, 0 queries, 0 timers* at 60 / 300 / 1200 docs, and the file-read
+  count is *byte-identical to =main== (120 / 600 / 2400 — the project's
+  pre-existing per-doc =--collect-docs=, untouched by this round).
+- Full repaint is inside the noise against =main= (15.6/82.8/341.1 ms on
+  =main= vs 15.7/77.7/323.6 ms here).
+
+* Retraction
+
+R91's design says:
+
+#+begin_quote
+"Same class hunted elsewhere — nothing else to fix. … The project, revisit
+and review views' OWN commands do move the viewport — but they do so
+because those renders deliberately RE-LAND POINT on the first row … it is a
+LANDING-POLICY question, not the R91 scroll class."
+#+end_quote
+
+That is *retracted*.  Two of those commands (=org-air-review-toggle-section=,
+=org-air-project-toggle-dropped=) are the R91 class exactly — point
+preserved, viewport lost — and the landing policy itself was a defect, not
+a policy.  R91's hunt drove every =erase-buffer= site and every view's
+=--render-current= entry point; it never drove the views' TAB commands,
+which repaint and THEN move point, so the miss was structural.
+
+* Gate
+
+=make clean && make check=: *1235 tests, 1227 as expected, 0 unexpected, 8
+skipped* — the same 8 pre-existing GUI-only skips.  All 11 modules
+byte-compile with only the one pre-existing
+=org-air-project.el:946 docstring wider than 80 characters= warning.
+=make lint=: =ok (0 findings, all baselined)=.  Loaded known-failures
+active length 0.  =make regen-mockups= produced zero fixture churn.
+=tests/=, =README.org=, fixtures, goldens and the known-failures manifest
+are byte-pristine against =main=; the only changed files are
+=org-air-view.el=, =org-air-project.el=, =org-air-revisit.el=,
+=org-air-review.el= and this document.
+
+* Hand-check list for a real GUI frame
+
+The R91 list still applies.  New to R92 — all four are expected to PASS now
+and FAIL on =main=:
+
+1. =M-x org-air-project=, =M-<=, then =z |= (rail toggle): the
+   =org-air ∙ project= banner and the =DRAFT/READY/WIP…= line must STAY.
+2. Project: scroll well down, =g= / =s= / group keys — your row must not
+   move a pixel.  Same in Revisit (=g=, =m=, =z c=) and Review (=g=, =<=
+   =>= =.=, =m=, =+= =-=, =f=, =/=, =s= =S=).
+3. Review: park on an item well down, press =b= — the row you acted on
+   stays under the cursor.
+4. Project: park on a dropped-group fold row near the top, TAB.  Review:
+   park a section header 2–3 lines below the window top, TAB.
+5. =C-x r b= into a board already shown in two windows: the bystander
+   window must keep its own row and scroll position.
+
+* Attractive deferrals
+
+- The review's §6 test-quality programme (P1 echo-area, P2 cursor landing,
+  P3 viewport generalised, P4 repaint idempotence, P5 view state survives a
+  refresh).  P2 and P3 would have fenced this whole round; they belong to
+  the independent test seat, which owns the permanent R92 coverage.
+- Softening =org-air-r91-repaint-never-forces-window-start='s
+  =(should (> calls 0))=, which pins =set-window-start= as the strategy
+  (review follow-up 8).  Test-owned; not touched here.
+- The degenerate "point above =window-start=" window could keep its own TOP
+  row instead of standing down entirely.  That needs a second token per
+  window for a case the user reaches only by scrolling their cursor off
+  screen; standing down is honest and costs nothing.
+
+* Implementation History
+
+- 2026-07-28: Round 92 created and IMPLEMENTED.  Read the R91 distinguished
+  review in full and reproduced all five defects on a clean checkout of
+  =main= (=/tmp/org-air-r92-parent=) before writing a line: the R91 banner
+  regression (=ws=173/154/153/81=, banner GONE at pre-offsets 0/1/2/3),
+  both TAB misses (=off 4 → 45= and =off 5 → 69=, both off-screen), the
+  first-row landings (project =g= point 2212 → 187; review =g= point
+  4933 → 106; review =b= point 4933 → 106; revisit =g= point 2436 → 87),
+  the bookmark bystander (=ws 1864 → 1=), the =prog1= signal path
+  (=ws 3241 → 1=, off 6 → 46), the double pair (=anchors=2 restores=2=)
+  and the fictitious offset (10 for a point ABOVE =window-start=).
+  Added =org-air-view--landing-save= / =--landing-position= /
+  =--landing-restore= / =--landing-claimed= plus
+  =org-air-view--landing-jumped= and =--landing-entry=; gave
+  =org-air-project--render=, =org-air-revisit--render= and
+  =org-air-review--render= the pair AND the R91 seam (each split into a
+  thin wrapper over a =--render-body=); wrapped both repainting branches
+  of =org-air-project-toggle-dropped= and the toggling branch of
+  =org-air-review-toggle-section=; made the R58 bookmark exclusion per
+  window; made the seam unwind-protected, single-pair and honest about a
+  point above =window-start=.  Kept =org-air-view--refresh-current=
+  UNIFORM across the four modes — the R91 regression dissolves into the
+  rule instead of becoming a per-view exception.  Re-measured everything
+  on both revisions (tables above).  Cost: seam still flat
+  (0.019 → 0.021 ms at 37 → 1177 buffer lines), landing pair 0.1 % of the
+  repaint, 0 new reads / scans / queries / timers.  =make clean && make
+  check=: 1235 tests, 1227 as expected, 0 unexpected, 8 skipped; lint 0;
+  known-failures active length 0; regen no-op; tests / README / fixtures /
+  goldens / known-failures byte-pristine.  =tests/org-air-round91-test.el=
+  alone: 31/31.  State: work-in-progress, for the independent test seat to
+  add the permanent R92 coverage (the assertion with teeth: after a
+  first-row-landing repaint the view's banner is visible; after a
+  preserving repaint the row holds its screen line).
+
+* History
+- 2026-07-28: State: draft → work-in-progress.

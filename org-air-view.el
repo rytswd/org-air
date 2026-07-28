@@ -7691,6 +7691,130 @@ count (R16 D-P1)."
          t)))
 
 ;;;; ---------------------------------------------------------------------
+;;;; R92: the uniform LANDING rule — a repaint keeps the ROW the user is
+;;;; standing on, in EVERY org-air view.
+;;;;
+;;;; The board has had the `org-air-view--save-position' /
+;;;; `--restore-position' pair since D5.  The project, revisit and review
+;;;; renders instead ended with an unconditional `goto-char (point-min)'
+;;;; + first-row jump, so `g', sort, group-by, rollup, surface, period
+;;;; nav and the SHARED `b' backlog verb threw the cursor to row 1 — a
+;;;; mutation verb losing the very row it acted on.  That is strictly
+;;;; worse than the R91 board defect: there POINT survived and only the
+;;;; viewport moved; here the user's place is gone outright.
+;;;;
+;;;; One rule, four views: PRESERVE the row unless its identity has
+;;;; genuinely vanished.  The deliberate exceptions are explicit JUMPS —
+;;;; a bookmark restore, a view ENTRY (`org-air', `org-air-project',
+;;;; `org-air-revisit', `org-air-review'), `org-air-visit-item' and
+;;;; plain motion — and each of them owns its own landing.
+;;;; ---------------------------------------------------------------------
+
+(defvar-local org-air-view--landing-jumped nil
+  "Non-nil when the last repaint could NOT preserve the user's row (R92).
+Set by `org-air-view--landing-restore' when the saved identity vanished
+and the view fell back to its own FIRST ROW.  A first-row fallback is a
+deliberate NEW landing, so the R91 scroll seam must stand down for the
+acting window rather than pin the previous row's screen-line offset onto
+it — doing exactly that is what scrolled the project view's banner and
+state-summary line off the top of the window in R91.  Reset by
+`org-air-view--with-scroll-stable' before each repaint and cleared by
+`org-air-view--landing-claimed'.")
+
+(defvar org-air-view--landing-entry nil
+  "Non-nil while a view ENTRY render runs (R92).
+`org-air-project', `org-air-revisit', `org-air-review' and their bookmark
+handlers are explicit JUMPS: they own their landing exactly as board OPEN
+does, so the render takes NO identity token and lands on the view's first
+row.  A refresh, a sort, a fold or a rail toggle is not an entry and must
+preserve.")
+
+(defun org-air-view--landing-properties ()
+  "Return the row-IDENTITY text properties of the current view, or nil (R92).
+Tried in order; the first that still resolves after the repaint wins.
+Every one is a value the render puts on the row that SURVIVES a re-scan:
+the project's `org-air-marker' is the doc's FILE, the revisit view's is
+the note's FILE and the review's is the item's (FILE . POS) — never the
+whole struct, whose state/mtime slots change under `g' and would make
+every refresh look like a vanished row."
+  (cond
+   ((derived-mode-p 'org-air-project-mode)
+    '(org-air-marker org-air-dropped-fold org-air-section))
+   ((derived-mode-p 'org-air-revisit-mode)
+    '(org-air-marker org-air-more-row))
+   ((derived-mode-p 'org-air-review-mode)
+    '(org-air-marker org-air-section))))
+
+(defun org-air-view--landing-save ()
+  "Return a LANDING token naming the row point is on, or nil (R92).
+The token is (:ids ((PROP . VALUE) …) :line LINE :column COLUMN) — the
+row's identity properties in preference order, plus the line number a
+NON-acting window falls back to and the column R21-1 preserves.
+
+Returns nil — so the render lands on its own first row — when the buffer
+is empty (first paint) or when point is not on a row at all (the banner,
+a blank line).  Cost is one text-property lookup per identity property on
+ONE line: no scan, no query, no file read, flat in buffer size."
+  (let ((ids (delq nil
+                   (mapcar (lambda (prop)
+                             (let ((value (org-air-view--row-property prop)))
+                               (and value (cons prop value))))
+                           (org-air-view--landing-properties)))))
+    (and ids (list :ids ids
+                   :line (line-number-at-pos)
+                   :column (current-column)))))
+
+(defun org-air-view--landing-position (token)
+  "Return the position of TOKEN's row in the current buffer, or nil (R92).
+Pure: resolves the first identity that still exists and never moves
+point, so the scroll seam can re-place a NON-acting window's row with it."
+  (and token
+       (seq-some (lambda (id)
+                   (org-air-view--find-property (car id) (cdr id)))
+                 (plist-get token :ids))))
+
+(defun org-air-view--landing-restore (token fallback)
+  "Put point back on TOKEN's row, else land via FALLBACK (R92).
+Returns non-nil when the row was PRESERVED.
+
+Point lands on that row's TITLE (R21-2) and then advances to the saved
+column when the column is to the RIGHT of the title (R21-1) — never into
+the gutter, never past the row's last visible glyph.
+
+When no identity resolves the row has genuinely vanished (a filter
+emptied it, a surface cycle dropped it, the doc was deleted): FALLBACK
+places the view's own first-row landing and `org-air-view--landing-jumped'
+records that this repaint JUMPED, so the R91 seam leaves the acting
+window's `window-start' to redisplay instead of anchoring a stale screen
+line onto a brand-new landing."
+  (let ((pos (org-air-view--landing-position token)))
+    (cond
+     (pos
+      (goto-char pos)
+      (org-air-view--goto-row-title)
+      (let ((title (current-column))
+            (want (or (plist-get token :column) 0)))
+        (when (> want title)
+          (move-to-column want)
+          (when (and (eolp) (> (current-column) title))
+            (backward-char 1))))
+      (setq org-air-view--landing-jumped nil)
+      t)
+     (t
+      (funcall fallback)
+      (setq org-air-view--landing-jumped t)
+      nil))))
+
+(defun org-air-view--landing-claimed ()
+  "Declare that the CALLER placed point deliberately after a repaint (R92).
+The project's and the review's TAB re-land point on a row they compute
+themselves AFTER the render (the revealed group's first row, the group's
+fold row, the toggled section header).  That landing IS the user's row,
+so the scroll seam must anchor it — clear the render's first-row-fallback
+mark."
+  (setq org-air-view--landing-jumped nil))
+
+;;;; ---------------------------------------------------------------------
 ;;;; R91: scroll stability — a repaint never moves the cursor's ROW on
 ;;;; screen.  Every org-air repaint is an erase + re-render, which drops
 ;;;; each displaying window's `window-start' marker to `point-min'; the
@@ -7716,39 +7840,62 @@ Each anchor is (WINDOW OFFSET OWNP TOKEN):
   would nudge its row UP by one — a small jump is still a jump;
 - OWNP marks the window whose point IS the buffer point the render's
   `org-air-view--restore-position' will re-place (the acting window);
-- TOKEN is the ordinary save/restore token of a NON-acting window's own
-  point, so a board shown in several windows restores each window's row
-  independently.  Only taken in the board mode that owns that machinery;
-  every other mode restores its extra windows by line number.
+- TOKEN is the identity token of a NON-acting window's own point, so a
+  view shown in several windows restores each window's row independently:
+  the board's `org-air-view--save-position' token in the board, the R92
+  `org-air-view--landing-save' token in the project / revisit / review
+  views, and a bare line number when neither resolves an identity.
+
+OFFSET is nil — that window's `window-start' is left to redisplay — when
+the window's point sits ABOVE its `window-start' (the user scrolled its
+row off the top).  `count-screen-lines' takes the ABSOLUTE distance
+between its bounds, so measuring there would anchor a FICTITIOUS offset
+for a row that was not on screen in the first place; there is no screen
+line to preserve, and saying so is more honest than inventing one.
 
 Returns nil — a total no-op — when the buffer is displayed in NO window
 \(batch/headless, an off-screen refresh), and never signals: a viewport
 is a display nicety and must not be able to break a repaint.
 
-R58 EXCEPTION: with a bookmark locator armed the jump OWNS the landing
-AND the viewport (the saved viewport belongs to the pre-restore
-skeleton), so no anchor is taken and redisplay re-anchors as it should —
-the same reason that path skips the point save/restore pair."
+R58/R92 EXCEPTION, now PER WINDOW: with a bookmark locator armed the
+JUMPING window owns its landing AND its viewport (the saved viewport
+belongs to the pre-restore skeleton), so no anchor is taken for it.  Every
+BYSTANDER window showing the same buffer is anchored as usual — a jump in
+one window is not a reason to drop another window to `point-min', which
+is what the all-or-nothing R58 exclusion did."
   (condition-case nil
-      (unless org-air-view--bookmark-locator
-        (let* ((buffer (current-buffer))
-               (pt (point))
-               (boardp (derived-mode-p 'org-air-view-mode))
-               (anchors nil))
-          (dolist (win (get-buffer-window-list buffer 'nomini t))
-            (let* ((wpt (window-point win))
-                   (offset (max 0 (1- (count-screen-lines
-                                       (window-start win) wpt t win))))
-                   (ownp (eql wpt pt)))
-              (push (list win offset ownp
+      (let* ((buffer (current-buffer))
+             (pt (point))
+             (boardp (derived-mode-p 'org-air-view-mode))
+             (jumpp (and org-air-view--bookmark-locator t))
+             ;; The jumping window is the SELECTED one when it shows this
+             ;; buffer (a bookmark jump runs there); otherwise fall back to
+             ;; the window whose point is the buffer point.
+             (acting (and jumpp
+                          (let ((sel (selected-window)))
+                            (and (window-live-p sel)
+                                 (eq (window-buffer sel) buffer)
+                                 sel))))
+             (anchors nil))
+        (dolist (win (get-buffer-window-list buffer 'nomini t))
+          (let* ((wpt (window-point win))
+                 (start (window-start win))
+                 (ownp (eql wpt pt)))
+            (unless (and jumpp (if acting (eq win acting) ownp))
+              (push (list win
+                          (and (>= wpt start)
+                               (max 0 (1- (count-screen-lines
+                                           start wpt t win))))
+                          ownp
                           (unless ownp
                             (save-excursion
                               (goto-char wpt)
-                              (if boardp
-                                  (org-air-view--save-position)
-                                (line-number-at-pos)))))
-                    anchors)))
-          anchors))
+                              (or (if boardp
+                                      (org-air-view--save-position)
+                                    (org-air-view--landing-save))
+                                  (line-number-at-pos)))))
+                    anchors))))
+        anchors)
     (error nil)))
 
 (defun org-air-view--scroll-restore (anchors)
@@ -7773,11 +7920,24 @@ Every hostile case degrades instead of jumping:
 - a window closed or re-bufferred during the repaint (the pane/rail
   resync legitimately does this) is skipped;
 - errors are swallowed for the same reason as in
-  `org-air-view--scroll-anchors'."
+  `org-air-view--scroll-anchors'.
+
+Two R92 stand-downs leave `window-start' to redisplay instead of pinning
+a screen line — the window's POINT is still repaired in both, since the
+erase clobbered that marker too:
+
+- OFFSET nil: the window's row was ABOVE its `window-start' before the
+  repaint, so it had no screen line to preserve;
+- the ACTING window when `org-air-view--landing-jumped' is set: the
+  render could not preserve the row and deliberately re-landed on the
+  view's FIRST row.  Anchoring a stale offset there pins that new first
+  row mid-window and scrolls the view's own banner, state-summary line
+  and column header off the top — the R91 regression."
   (condition-case nil
       (when anchors
         (let ((buffer (current-buffer))
-              (pt (point)))
+              (pt (point))
+              (jumped org-air-view--landing-jumped))
           (dolist (anchor anchors)
             (let ((win (nth 0 anchor))
                   (offset (nth 1 anchor))
@@ -7785,27 +7945,35 @@ Every hostile case degrades instead of jumping:
                   (token (nth 3 anchor)))
               (when (and (window-live-p win)
                          (eq (window-buffer win) buffer))
-                (let* ((target
-                        (cond
-                         (ownp pt)
-                         ((consp token)
-                          (save-excursion
-                            (org-air-view--restore-position token)
-                            (point)))
-                         ((integerp token)
-                          (save-excursion
-                            (goto-char (point-min))
-                            (forward-line (1- token))
-                            (point)))
-                         (t pt)))
-                       (want (min offset
-                                  (max 0 (1- (window-body-height win)))))
-                       (start (save-excursion
-                                (goto-char target)
-                                (vertical-motion (- want) win)
-                                (point))))
+                (let ((target
+                       (cond
+                        (ownp pt)
+                        ((and (consp token) (plist-member token :ids))
+                         (or (org-air-view--landing-position token)
+                             (save-excursion
+                               (goto-char (point-min))
+                               (forward-line
+                                (1- (or (plist-get token :line) 1)))
+                               (point))))
+                        ((consp token)
+                         (save-excursion
+                           (org-air-view--restore-position token)
+                           (point)))
+                        ((integerp token)
+                         (save-excursion
+                           (goto-char (point-min))
+                           (forward-line (1- token))
+                           (point)))
+                        (t pt))))
                   (set-window-point win target)
-                  (set-window-start win start t)))))
+                  (unless (or (null offset) (and ownp jumped))
+                    (let* ((want (min offset
+                                      (max 0 (1- (window-body-height win)))))
+                           (start (save-excursion
+                                    (goto-char target)
+                                    (vertical-motion (- want) win)
+                                    (point))))
+                      (set-window-start win start t)))))))
           ;; `org-air-view--restore-position' above ran inside
           ;; `save-excursion', but re-assert the acting landing explicitly:
           ;; the buffer point is the render's contract, not a side effect.
@@ -7813,18 +7981,45 @@ Every hostile case degrades instead of jumping:
           nil))
     (error nil)))
 
+(defvar org-air-view--scroll-stable-active nil
+  "The BUFFER whose `org-air-view--with-scroll-stable' seam is open, or nil.
+R92: the seam nests (`org-air-view--refresh-current' calls
+`--render-current', which calls `--refresh-repaint'), and every nesting
+level used to take its own anchor/restore pair — two per `m'.  Only the
+OUTERMOST pair matters: it is the one taken before the erase and closed
+after the FINAL landing, so an inner seam over the SAME buffer runs as a
+pass-through.  The buffer is recorded rather than a bare flag so a
+repaint that renders a DIFFERENT org-air buffer inside the seam still
+anchors that buffer's own windows.")
+
 (defmacro org-air-view--with-scroll-stable (&rest body)
   "Run BODY — a repaint — keeping every displaying window's row steady (R91).
 Anchors are taken BEFORE the erase and applied AFTER BODY has placed its
 final landing, so wrapping a whole command (not just the render call) is
 both allowed and preferred where the command moves point after rendering.
-Nesting is harmless: the inner pair anchors the intermediate landing and
-the outer pair recomputes from the final one."
+
+R92: exactly ONE anchor/restore pair runs per keystroke — a nested seam
+is a pass-through (`org-air-view--scroll-stable-active'), because the
+outer pair is by construction the one that spans the erase and the final
+landing.
+
+R92: the restore is UNWIND-protected, not `prog1'.  A repaint that
+signals mid-render used to skip the restore entirely and leave every
+displaying window's `window-start' at `point-min' — the erase had already
+clobbered it — so the one case where the user most needs their place kept
+was the one case that lost it.  Both halves swallow their own errors, so
+the restore can never turn a render failure into a second failure."
   (declare (indent 0) (debug t))
   (let ((anchors (make-symbol "anchors")))
-    `(let ((,anchors (org-air-view--scroll-anchors)))
-       (prog1 (progn ,@body)
-         (org-air-view--scroll-restore ,anchors)))))
+    `(if (eq org-air-view--scroll-stable-active (current-buffer))
+         (progn ,@body)
+       (let ((,anchors (org-air-view--scroll-anchors))
+             (org-air-view--scroll-stable-active (current-buffer)))
+         ;; A fresh repaint has not jumped until its render says so.
+         (setq org-air-view--landing-jumped nil)
+         (unwind-protect
+             (progn ,@body)
+           (org-air-view--scroll-restore ,anchors))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R16 D-P1: cooperative, command-driven popout + reconciler.
@@ -7839,7 +8034,15 @@ the board re-renders via `org-air-view--render-current'; the project via
 R91: the shared dispatch is also the shared SCROLL seam — every mode
 reached from here (and every command that repaints through it: mark,
 unmark, clear-marks, the triage verbs, undo/redo, the rail toggle) keeps
-the cursor's row on its screen line."
+the cursor's row on its screen line.
+R92: the seam stays UNIFORM across the four modes because the three
+non-board renders now PRESERVE point too (`org-air-view--landing-save' /
+`--landing-restore').  When a render genuinely cannot — the row vanished,
+so it re-lands on its own first row — it says so via
+`org-air-view--landing-jumped' and the seam stands down for the acting
+window, which is what keeps the project banner and state-summary line on
+screen (R91 pinned the stale offset onto that new landing and scrolled
+them away).  One rule, no per-view special case."
   (org-air-view--with-scroll-stable
    (cond
     ((derived-mode-p 'org-air-view-mode) (org-air-view--render-current))

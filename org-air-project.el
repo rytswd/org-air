@@ -1564,7 +1564,16 @@ spine prefix, CONTENT-W the wrap width, NOW the render clock."
 (defun org-air-project--render (root)
   "Render the Air project view for ROOT into the current buffer (R14 D-P1).
 Two-line doc blocks in state-bucket sections; two-pane (docs + a Summary/
-Inspector rail) above `org-air-rail-min-width', board-only below it."
+Inspector rail) above `org-air-rail-min-width', board-only below it.
+R91/R92: every project repaint runs inside the shared scroll seam, so the
+row the user is standing on is redrawn on the SAME screen line in every
+window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
+`/' filter and the debounced resize repaint all inherit it from here."
+  (org-air-view--with-scroll-stable
+    (org-air-project--render-body root)))
+
+(defun org-air-project--render-body (root)
+  "Render the project view for ROOT (the seam-free body of `--render')."
   ;; R26-5: seed the per-buffer rail placement ONCE (the `unset' sentinel)
   ;; — R49-2: through the ONE shared resolver `org-air-rail--placement'
   ;; (per-view override `org-air-project-rail-placement', else the shared
@@ -1581,6 +1590,12 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
     (setq-local org-air-view--rail-popped-out
                 (eq (org-air-rail--placement 'project) 'side-window)))
   (let* ((inhibit-read-only t)
+         ;; R92: the row the user is on, named by IDENTITY (the doc's file,
+         ;; the dropped-group fold key, the section) and taken BEFORE the
+         ;; erase.  nil on an ENTRY render, on the first paint, and when
+         ;; point is not on a row — those land on the first doc as before.
+         (landing (unless org-air-view--landing-entry
+                    (org-air-view--landing-save)))
          ;; R27-1 S3: latch the reconciler for the FULL render extent (the
          ;; board binds the same latch) so a nested reconcile timer can
          ;; never mutate rail state mid-render.
@@ -1705,8 +1720,14 @@ Inspector rail) above `org-air-rail-min-width', board-only below it."
     ;; Drop the trailing newline so the buffer is exactly its line count.
     (goto-char (point-max))
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
-    (goto-char (point-min))
-    (org-air-project--next-doc)
+    ;; R92: put the user back on the row they were on — same doc, same
+    ;; section, same column — and land on the FIRST doc only when that
+    ;; identity has genuinely vanished (a filter emptied it, the doc was
+    ;; deleted, or this is an entry/first paint).
+    (org-air-view--landing-restore
+     landing (lambda ()
+               (goto-char (point-min))
+               (org-air-project--next-doc)))
     ;; R58: an armed bookmark locator owns the landing (one text-property
     ;; scan; one-shot — the project render is synchronous, so it never
     ;; stays armed past this paint).
@@ -2264,7 +2285,14 @@ Board TAB-safety parity — never errors, never hangs:
    the fold row.  This is the re-collapse verb for expanded groups
    (which render no residual fold row).
 3. Anywhere else: move point to the NEXT fold row; a no-op with a
-   message when none exist."
+   message when none exist.
+
+R92: both REPAINTING branches run inside the shared scroll seam, closed
+AFTER the branch has placed its own landing, so the fold row holds its
+screen line.  Measured before the fix, 47-line project in a 23-row
+window: `window-start' 3095 -> 1 and the fold row from screen line 4 to
+45 — off-screen, the user's original report character for character.
+Branch 3 is plain motion and is deliberately NOT wrapped (board parity)."
   (interactive)
   (let* ((fold-key (org-air-view--row-property 'org-air-dropped-fold))
          (doc (and (not fold-key)
@@ -2278,10 +2306,15 @@ Board TAB-safety parity — never errors, never hangs:
                   (cons fold-key org-air-project--expanded-dropped)
                 (cl-remove fold-key org-air-project--expanded-dropped
                            :test #'equal)))
-        (org-air-project--render-current)
-        (if expandp
-            (org-air-project--goto-dropped-row fold-key)
-          (org-air-project--goto-fold-row fold-key))))
+        (org-air-view--with-scroll-stable
+          (org-air-project--render-current)
+          ;; The branch OWNS this landing (the revealed group's first row
+          ;; on expand, the fold row on collapse), so the seam anchors it
+          ;; rather than standing down on the render's first-doc fallback.
+          (when (if expandp
+                    (org-air-project--goto-dropped-row fold-key)
+                  (org-air-project--goto-fold-row fold-key))
+            (org-air-view--landing-claimed)))))
      ((and doc (equal (org-air-doc-state doc) "dropped")
            org-air-project-collapse-dropped
            (null org-air-view--tag-filter))
@@ -2289,8 +2322,10 @@ Board TAB-safety parity — never errors, never hangs:
         (setq org-air-project--expanded-dropped
               (cl-remove key org-air-project--expanded-dropped
                          :test #'equal))
-        (org-air-project--render-current)
-        (org-air-project--goto-fold-row key)))
+        (org-air-view--with-scroll-stable
+          (org-air-project--render-current)
+          (when (org-air-project--goto-fold-row key)
+            (org-air-view--landing-claimed)))))
      (t
       (let ((pos (text-property-not-all (line-end-position) (point-max)
                                         'org-air-dropped-fold nil)))
@@ -2509,7 +2544,11 @@ the flag only documents the caller).  Ensures the mode idempotently
   (with-current-buffer buffer
     (unless (derived-mode-p 'org-air-project-mode)
       (org-air-project-mode))
-    (org-air-project--render org-air-project--root)))
+    ;; R92: an ENTRY is an explicit jump — it owns its landing (the first
+    ;; doc), exactly as board OPEN does.  Only the entry; a later `g' or
+    ;; fold preserves the user's row.
+    (let ((org-air-view--landing-entry t))
+      (org-air-project--render org-air-project--root))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R58 — Emacs bookmark support (see org-air-view.el's shared core).

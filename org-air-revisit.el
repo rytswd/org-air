@@ -613,12 +613,25 @@ WIDTH (the R49-4 rule), inspector-free."
 DATA-PURE: every cell reads file-meta / ledger slots — zero per-row file
 opens; bounded to O(shown) via the page clamp.  Rail placement, popped
 side-window lifecycle and the foreign-rail sweep mirror the project view
-\(one machinery, parameterised)."
+\(one machinery, parameterised).
+R91/R92: every revisit repaint runs inside the shared scroll seam and
+PRESERVES the note the user is on — `g', `m' surface cycle, `z c', the
+filter and the paging all inherit it from here."
+  (org-air-view--with-scroll-stable
+    (org-air-revisit--render-body)))
+
+(defun org-air-revisit--render-body ()
+  "Render the Revisit view (the seam-free body of `--render')."
   (when (and (not noninteractive)
              (eq org-air-view--rail-popped-out 'unset))
     (setq-local org-air-view--rail-popped-out
                 (eq (org-air-rail--placement 'revisit) 'side-window)))
   (let* ((inhibit-read-only t)
+         ;; R92: the note the user is on, named by IDENTITY (the note's
+         ;; file) and taken BEFORE the erase; nil on an entry render, the
+         ;; first paint, or a point that is not on a row.
+         (landing (unless org-air-view--landing-entry
+                    (org-air-view--landing-save)))
          (org-air-rail--reconciling t)
          (width (org-air-revisit--host-width))
          (org-air-view-width width)
@@ -653,8 +666,11 @@ side-window lifecycle and the foreign-rail sweep mirror the project view
       (funcall left-fn width))
     (goto-char (point-max))
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
-    (goto-char (point-min))
-    (org-air-revisit--goto-first-row)
+    ;; R92: put the user back on the note they were on; the first row is
+    ;; the fallback ONLY when that note has genuinely vanished (a surface
+    ;; cycle dropped it, a filter emptied it, the file is gone).
+    (org-air-view--landing-restore
+     landing #'org-air-revisit--goto-first-row)
     ;; R58: an armed bookmark locator owns the landing; it stays armed
     ;; while the paced cold fill is still running (the row may not be
     ;; painted yet) and clears on match or fill-idle.
@@ -1077,7 +1093,10 @@ displays BUFFER."
       (org-air-revisit-mode))
     (org-air-revisit--ensure-data)
     (org-air-query-link-graph-ensure)
-    (org-air-revisit--render)))
+    ;; R92: an ENTRY is an explicit jump — it owns its landing (the first
+    ;; note), exactly as board OPEN does.
+    (let ((org-air-view--landing-entry t))
+      (org-air-revisit--render))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R58 — Emacs bookmark support (see org-air-view.el's shared core).

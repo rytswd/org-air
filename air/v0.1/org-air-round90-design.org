@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: blocked
+#+state: work-in-progress
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -3168,6 +3168,185 @@ no query or refile-engine behavior changes.
   exit 0 and byte-identical fixtures.  No repository probe file exists and
   =.deps= is retained.  VERDICT: BLOCKED — state work-in-progress → blocked.
 
+- 2026-07-28: Round 90 FIX-14 — both distinguished review 7 roots closed.
+  Source only (=org-air-view.el=); tests, README, fixtures, goldens and the
+  known-failures manifest are byte-identical to =rnqpoqxtmyyl=.
+
+  ROOT 1 — a compound died after ONE =u=/=U= round trip and froze the ring.
+  =org-air-view--bulk-history-restamp-part= stamped =:undo-head= from the
+  DIRECTION-DEPENDENT next step (=:expected-redo= when undoing,
+  =:expected-undo= when REDOING) instead of the authoritative post-commit
+  head.  For undo the two coincide; for redo they diverge whenever the head
+  tail already carries an =undo-equiv-table= entry — i.e. as soon as anything
+  in that buffer has been undone once — because
+  =org-air-view--expected-undo-step= follows the equivalence chain PAST the
+  head exactly as =undo-only= does.  The part was then left with an
+  authoritative =:tick= and a stale =:undo-head=: half a guard, precisely the
+  state FIX-13's pair rule exists to make impossible.
+  =--bulk-history-blockers= refused it forever ("NAME history step missing"),
+  and because a blocked compound is requeued at the head of the SAME ring it
+  shadowed every older record, including records in files the marked command
+  never touched.  Four documented presses reach it (=b=, =b=, =u u U u=).
+
+  Fix — TWO coordinated changes, both required by the round's own laws, and
+  the SINGLE-PAIR-WRITER decision behind them:
+
+  1. AUTHORITY.  =--bulk-history-restamp-part= now separates the two facts it
+     had conflated.  EXPECTED (direction-dependent) is used for
+     =:expected-undo= and NOTHING else.  HEAD is the authoritative
+     post-commit head: =org-air-view--save-result-undo-head= for a committed
+     part (sampled inside the save attempt, right after org-air's own
+     =undo-boundary=), or the restored buffer's own head — read in the same
+     instant as its tick — when the call is recovering an attempt org-air
+     itself just rolled back.  A committed part with NO proof (head nil)
+     stamps nothing: the FIX-13 no-blessing law is preserved verbatim, and
+     there is deliberately no =(or … late-sample)= fallback on the committed
+     branch, so the reviewer's suggested one-hunk =or= shape was tightened
+     rather than copied.  The =(:tick . :undo-head)= write itself now goes
+     through =org-air-view--history-restamp-pair= — the same writer every
+     other restamp path already uses — so "both halves or neither" is
+     enforced by construction here too, and =:expected-undo= is retired ONLY
+     when that writer really refreshed the pair (otherwise a part could be
+     handed back to a guard describing a buffer state that no longer exists).
+
+  2. STRUCTURE (the preferred repair, made safe).  The complete-success
+     branch of =--bulk-history-operation= requeued the record AFTER
+     =--bulk-history-restamp-committed=, so the command-end sweep — which
+     iterates the two rings — structurally could not see the record's own
+     parts and could never repair them.  The requeue now happens BEFORE the
+     sweep, which is the order the =failed= and =generation-invalidated=
+     branches already used, so all three branches are identical and EVERY
+     compound record, its own parts included, has exactly ONE restamp path.
+     Safety argument: the sweep's other branch arms the next step on
+     SOURCE-RING, which is the side the record just LEFT, so requeueing onto
+     the target ring first can never arm the record against itself; and both
+     writes now carry the identical authoritative =(TICK . HEAD)= fact, so
+     the sweep's pass over its own parts is an idempotent confirmation rather
+     than a second opinion.
+
+  3. =org-air-view--history-arm-next= no longer writes =:undo-head= (or the
+     tick) for a compound part.  That path exists precisely because org-air
+     can no longer prove what it left in the buffer, and EXPECTED there is a
+     next step, not a head.  It now arms the ONE exact identity and leaves
+     the =(:tick . :undo-head)= pair — one fact about one older buffer state
+     — exactly as it stands.  With this, NO direction-dependent identity
+     reaches =:undo-head= on any path in the round.
+
+  ONE OBVIOUS WRITER, stated as a law: =org-air-view--history-restamp-pair=
+  is the only function in the file that writes =:undo-head=, and it writes
+  =:tick= in the same call or writes neither.  Its callers are the two-sided
+  ring restamp, the ring requeue, and the part's own post-commit restamp; all
+  three hand it an authoritative post-commit head or nothing.
+
+  ROOT 2 — same-projection siblings allowed a silent wrong-target write.
+  The witness was =(TITLE . SORTED-EFFECTIVE-TAGS)= — exactly as precise as
+  the BOARD PROJECTION, not as precise as the heading — so two headings that
+  share a title and effective tags were interchangeable identities.  Those
+  are also exactly the siblings an outside edit can align byte for byte,
+  because structurally uniform blocks shift every later offset by one whole
+  block, so after =g r= a mark re-pointed and =b=/=t= wrote a heading the
+  user never selected while echoing complete success.
+
+  DISCRIMINATOR.  The witness is now
+  =((TITLE . SORTED-EFFECTIVE-TAGS) ORDINAL . ARITY)=, where ORDINAL is the
+  marked item's rank among the SAME-PROJECTION headings of its OWN file (how
+  many start before it) and ARITY is how many there are.  It must be the
+  PAIR, and the retest-16 note is confirmed in code: a delete above the mark
+  lowers the ordinal by exactly as much as the offset shift raises it, so the
+  ordinal alone re-aligns onto the wrong sibling; the arity moves with any
+  insert or delete of a same-projection sibling anywhere in the file, so the
+  two together disagree in BOTH drift directions.  A unique heading is
+  =(0 . 1)= in every generation, so the discriminator costs nothing and
+  cannot over-prune the common case — a heading that merely moves, changes
+  =TODO= state, gains body text, is reformatted, or has its tags reordered
+  keeps the identical witness.  An Org =ID=/=CUSTOM_ID= would be stronger,
+  and was rejected on the round's own constraints: no scan slot carries one
+  (adding one is a cache-version change), reading it would mean opening the
+  user's file at mark time, and org-air never invents or writes an =ID=
+  property into a user's file.  The discriminator therefore stays strictly
+  within what the generation already knows.
+
+  FAIL-CLOSED RULE.  =org-air-view--item-mark-witness= returns nil whenever
+  the identity cannot be recomputed from the generation — no source key, no
+  resolvable position, or an item that does not appear among its own file's
+  candidates (the ambiguous case).  =--marked-reconcile= treats a nil witness
+  as a stale mark and prunes it through the existing bounded "Pruned N stale
+  marked item(s)" message; it never adopts one and never guesses.  A STORED
+  nil is distinguished from an ABSENT entry (=gethash= with a private missing
+  sentinel), so the legacy "adopt once" path still covers mark lists set
+  directly, while a mark whose identity could not be derived when it was made
+  prunes instead of being blessed.
+
+  BOUNDED / SOURCE-FREE / COST.  The witness is one title string, a sorted
+  tag copy and two fixnums — no markers, items, buffers, undo objects or
+  source bytes beyond the projection, and it is still confined to the live
+  key set by =--marked-table-rebuild=.  No file is opened on any path.
+  Sibling tables are derived from the generation the renderer already built
+  (=org-air-view--source-items-by-file= when it really represents ITEMS, else
+  one bounded pass that memoizes =expand-file-name= per DISTINCT path
+  string), are bucketed by TITLE so only same-title items pay a tag sort, are
+  built at most once per file per reconciliation pass, and are RETAINED
+  NOWHERE.  There is no new per-render work: reconcile still returns
+  immediately on an unchanged generation.
+
+  MUTATION / REVERT EVIDENCE (each applied to the working tree, whole R90
+  selector run, then reverted; =org-air-view.el= restored BYTE-IDENTICAL and
+  re-hashed to sha256
+  =ab0baf084a752c884c99a70db4fe29863f0fcf4feb122e8246bcc03f91375a43=).
+  BASE R90 92/92.
+  - M1c "restore the direction-dependent head" (both ROOT-1 changes reverted
+    = the exact reviewed behaviour) → =r90-81=, =r90-82=, =r90-83=, =r90-84=
+    RED (88/92).
+  - M1 (authority reverted only) and M1b (requeue order reverted only) → 92/92
+    GREEN each.  Reported honestly: the two changes are defence in depth, so
+    neither half alone is fenced by a test; only the pair is.  M1b also proves
+    the structural repair cannot mask a wrong head once the head is right.
+  - M2 "late-sampled head" (the one pair writer re-derives the head at write
+    time instead of using the authority) → =r90-79= RED and nothing else
+    (91/92) — FIX-13's no-blessing law still has exactly one fence.
+  - M3 "remove the discriminator" (witness back to the bare projection) →
+    =r90-85= + =r90-86= RED (90/92).
+  - M4 "over-aggressive discriminator" (folds =TODO= state into the witness,
+    so a state change counts as a different heading) → =r90-80= RED (91/92).
+  - M5 "discriminator never derivable" (maximal fail-closed) → =r90-7= +
+    =r90-80= RED (90/92).
+  - =r90-78= is GREEN under M4 and M5, exactly as the retest-16 RECORD
+    CORRECTION states: neither of its controls crosses a generation swap, so
+    no reconcile-side over-prune can reach it.  What it does fence was
+    re-measured here: M7, the LOCATOR-side variant (bulk relocation ignores
+    the tracked marker and uses the raw cached offset), reddens =r90-26=,
+    =r90-35=, =r90-65= and =r90-78= (88/92).  The brief's
+    "over-aggressive ⇒ =r90-78= RED" expectation is therefore answered by
+    =r90-80=/=r90-7= plus this locator-side control, not by an over-prune.
+
+  CONTROLS AND COVERAGE.  =r90-81..86= 6/6 green; =r90-78= and =r90-80= stay
+  green; full R90 92/92; R73/R75 history 28/28; =r90-49= + =r90-54..86=
+  34/34; owner/lifecycle 10/10; tag + native v6 41/41; finalizer 2/2;
+  retention after kill/GC 11/11; indirect clones 4/4.  No starvation remains
+  on the longer alternating walks (=r90-84= runs an eleven-press walk over two
+  compounds and an ordinary record in an untouched third file, asserting the
+  exact corpus bytes at every press), and genuinely unsafe states still
+  refuse: =r90-79='s no-proof part stays blocked with NEITHER half stamped and
+  makes no =Undid:= claim.
+
+  PERFORMANCE (5 files, medians; this tree).  Cold scan 1 000 headings 0.27 s,
+  5 000 headings 1.64 s — unchanged shape, roughly linear.  Generation-swap
+  reconcile: 1 000 headings 5.4 ms with no marks and 11.6 ms with 200 marks;
+  5 000 headings 28.9 ms with no marks and 48.7 ms with 200 marks — i.e. the
+  discriminator adds ≈20 ms at 5 000 headings for 200 marks, proportional to
+  the marks plus one bounded pass over the files that actually hold them.
+  One =m= press derives one witness: 6.5 ms at 5 000 headings / 1.3 ms at
+  1 000 on the indexed path (≈1.5 % of the 5 000-heading warm repaint the
+  same press already pays), 20 ms at 5 000 on the degenerate no-index path.
+
+  GATE: =make clean && make check= with all 11 modules recompiled — compile
+  clean except the pre-existing =org-air-project.el:946= wide-docstring
+  warning; lint 0 findings; 1194 tests / 1186 as expected / 0 unexpected /
+  8 GUI skips; loaded known-failures active length 0; =make regen-mockups= in
+  a =/tmp= copy exit 0 and a byte no-op across the fixture set.  No repository
+  probe file exists and =.deps= is retained.  State: blocked →
+  work-in-progress.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -3263,3 +3442,14 @@ no query or refile-engine behavior changes.
   Tests + Air only; every production =.el= byte-identical to =kwnpzuyypomw=.
   Gate 1194 tests / 6 unexpected / 8 GUI skips / manifest 0 / lint 0 / regen a
   byte no-op.)
+- 2026-07-28: State: blocked → work-in-progress (FIX-14 closed both review-7
+  roots: a compound part's =:undo-head= is now written only from the
+  authoritative post-commit head, through the one =(tick, head)= pair writer,
+  and the complete-success branch requeues the record BEFORE the committed
+  sweep so every compound record — its own parts included — has exactly one
+  restamp path, ending the "dies after one =u=/=U= round trip" freeze; and
+  the mark witness gained a bounded same-projection =(ORDINAL . ARITY)=
+  discriminator with a fail-closed prune, so two headings that share a title
+  and effective tags are no longer interchangeable identities.  =r90-81..86=
+  green, =r90-78=/=r90-80= still green, R90 92/92, gate 1194 tests /
+  0 unexpected / 8 GUI skips / manifest 0 / lint 0 / regen a byte no-op.)

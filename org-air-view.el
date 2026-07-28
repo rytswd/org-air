@@ -1094,16 +1094,18 @@ Keys:
 (defvar-local org-air-view--marked-key-table nil
   "Equal hash table mirroring `org-air-view--marked-keys' for membership.")
 (defvar-local org-air-view--marked-witnesses nil
-  "Equal hash of marked source key to the projection witness it was made on.
+  "Equal hash of marked source key to the identity witness it was made on.
 A source key is `(FILE . POSITION)' and a position is not an identity: an
 edit made outside org-air shifts every later heading's offset, so the same
 key can name a DIFFERENT heading in the next item generation.  The witness is
-the bounded `(TITLE . SORTED-EFFECTIVE-TAGS)' projection of the heading the
-user really marked (`org-air-view--item-mark-witness') — the same two fields
-`org-air-view--source-heading-exact-p' compares and nothing more: no buffer
-text beyond that projection, no markers, no items, no undo objects.  Confined
-to the live key set by `org-air-view--marked-table-rebuild', so mark storage
-stays proportional to the number of marks.")
+the bounded `((TITLE . SORTED-EFFECTIVE-TAGS) ORDINAL . ARITY)' fingerprint of
+the heading the user really marked (`org-air-view--item-mark-witness'): the
+projection `org-air-view--source-heading-exact-p' compares, PLUS the one
+bounded discriminator that tells two same-projection siblings apart.  Nothing
+more: no buffer text beyond that projection, no markers, no items, no undo
+objects, two fixnums.  Confined to the live key set by
+`org-air-view--marked-table-rebuild', so mark storage stays proportional to
+the number of marks.")
 (defvar-local org-air-view--marked-generation nil
   "The cached item-list object last reconciled with the marked key set.")
 (defvar-local org-air-view--pending-mutation-landing nil
@@ -2414,10 +2416,10 @@ wrong-buffer markers."
     (setq org-air-view--marked-witnesses (make-hash-table :test #'equal)))
   org-air-view--marked-witnesses)
 
-(defun org-air-view--item-mark-witness (item)
-  "Return ITEM's bounded mark witness `(TITLE . SORTED-EFFECTIVE-TAGS)'.
-Exactly the projection `org-air-view--source-heading-exact-p' compares an
-item against its source heading with, read from the item's own already-cached
+(defun org-air-view--item-projection (item)
+  "Return ITEM's bounded `(TITLE . SORTED-EFFECTIVE-TAGS)' projection.
+Exactly the two fields `org-air-view--source-heading-exact-p' compares an item
+against its source heading with, read from the item's own already-cached
 fields: no file is opened, no marker is captured, and nothing unbounded or
 source-side is retained.  Tags are sorted copies, so tag ORDER never decides
 whether a mark survives."
@@ -2425,6 +2427,143 @@ whether a mark survives."
     (cons (substring-no-properties (or (org-air-item-title item) ""))
           (sort (mapcar #'substring-no-properties (org-air-item-tags item))
                 #'string<))))
+
+(defun org-air-view--mark-projection-candidates (file items headingp)
+  "Return the ITEMS-generation items that share FILE with a marked item.
+HEADINGP selects the SAME candidate set the renderer's own per-generation
+index holds (`org-air-view--source-generation-index-ensure': heading-kind
+items with a source file), so the O(1) index and the fallback pass can never
+disagree about which siblings exist — a discriminator that changed with the
+index's availability would prune marks for no reason at all.  The index is
+used only when it really represents ITEMS; otherwise ONE bounded pass over
+the generation rebuilds the same set.  No file is opened either way.
+
+The fallback pass memoizes `expand-file-name' per DISTINCT raw path string
+rather than per item: the answer it needs is exact (the same normalisation
+`org-air-view--item-source-key' pays) but a generation holds thousands of
+items and only a handful of file names, so the pass costs one expansion per
+file instead of one per heading."
+  (if (and headingp
+           (hash-table-p org-air-view--source-items-by-file)
+           (eq org-air-view--source-generation items))
+      (gethash file org-air-view--source-items-by-file)
+    (let ((memo (make-hash-table :test #'equal))
+          (absent (list 'absent))
+          out)
+      (dolist (item items)
+        (when (or (not headingp)
+                  (and (eq (org-air-item-kind item) 'heading)
+                       (stringp (org-air-item-file item))))
+          (let* ((marker (org-air-item-marker item))
+                 (raw (or (and (consp marker) (stringp (car marker))
+                               (car marker))
+                          (org-air-item-file item)))
+                 (same (when (stringp raw)
+                         (let ((cached (gethash raw memo absent)))
+                           (if (eq cached absent)
+                               (puthash raw
+                                        (equal (expand-file-name raw) file)
+                                        memo)
+                             cached)))))
+            (when (and same (org-air-view--item-source-key item))
+              (push item out)))))
+      (nreverse out))))
+
+(defun org-air-view--mark-sibling-table (file items headingp)
+  "Return FILE's `TITLE -> ((POSITION . ITEM) ...)' table in ITEMS.
+HEADINGP has the meaning documented by
+`org-air-view--mark-projection-candidates'.
+One entry per DISTINCT source position, so a heading rendered as several
+mirror rows counts once.  Bucketing by TITLE alone keeps this a plain string
+hash over the file's headings; the full projection (whose sorted tag copy is
+the only real cost) is derived exclusively for the handful of items that
+already share the marked title, so a unique heading pays for one bucket of
+one.  Built once per file per caller and thrown away — nothing here is
+retained between generations, no file is opened, and no marker is captured."
+  (let ((table (make-hash-table :test #'equal))
+        (seen (make-hash-table :test #'eql)))
+    (dolist (item (org-air-view--mark-projection-candidates
+                   file items headingp))
+      (when-let* ((key (org-air-view--item-source-key item)))
+        (when (and (equal (car key) file)
+                   (not (gethash (cdr key) seen)))
+          (puthash (cdr key) t seen)
+          (let ((title (substring-no-properties
+                        (or (org-air-item-title item) ""))))
+            (puthash title
+                     (cons (cons (cdr key) item) (gethash title table))
+                     table)))))
+    table))
+
+(defun org-air-view--item-mark-witness (item &optional items index)
+  "Return ITEM's bounded mark witness, or nil when it cannot be derived.
+The witness is `((TITLE . SORTED-EFFECTIVE-TAGS) ORDINAL . ARITY)'.
+
+The projection alone — exactly the two fields
+`org-air-view--source-heading-exact-p' compares — is precise about the BOARD
+PROJECTION, not about the heading: two headings that share a title and
+effective tags are common Org (\"Standup\", \"Weekly review\", generated or
+templated entries) and are interchangeable identities under it.  Those are
+also exactly the siblings an outside insert or delete can align byte for
+byte, because structurally uniform blocks shift every later offset by one
+whole block — so a mark could silently re-point at a sibling and spend the
+user's marked `b' or tag verb on a heading they never selected, with a
+complete-success echo.
+
+DISCRIMINATOR.  ORDINAL is the item's rank among the SAME-PROJECTION headings
+of its OWN file (how many of them start before it), and ARITY is how many
+there are.  The pair is what makes the sibling case decidable, and it must be
+the pair: a delete above the mark lowers the ordinal by exactly as much as
+the offset shift raises it, so the ordinal alone re-aligns onto the wrong
+sibling; the arity moves with any insert or delete of a same-projection
+sibling anywhere in the file, so the two together disagree in both drift
+directions.  A unique heading has `(0 . 1)' in every generation, so the
+discriminator costs nothing for the overwhelmingly common case and cannot
+over-prune it — a heading that merely moves, changes TODO state, gains body
+text or is reformatted keeps the identical witness.
+
+An Org `ID'/`CUSTOM_ID' would be stronger still, but no scan slot carries one
+today and reading it would mean opening the user's file at mark time; org-air
+also never invents or writes an `ID' property.  So the discriminator stays
+within what the generation already knows.
+
+FAIL CLOSED.  Return nil whenever the witness cannot be derived from the
+generation — no source key, no resolvable position, or an item that does not
+appear among its own file's candidates.  A nil witness is never adopted and
+never matches, so the mark is pruned as stale through the existing bounded
+message instead of being guessed at.
+
+ITEMS defaults to this board's current generation.  INDEX, when given, is an
+`equal' hash reused across one reconciliation pass so each file's sibling
+table is built at most once; costs stay proportional to the marks plus one
+bounded pass over the files that actually hold marks, and nothing is retained
+after the call."
+  (when-let* ((projection (org-air-view--item-projection item))
+              (key (org-air-view--item-source-key item)))
+    (let* ((file (car key))
+           (position (cdr key))
+           (items (or items org-air-view--items))
+           (headingp (and (eq (org-air-item-kind item) 'heading) t))
+           (slot (cons headingp file))
+           (table (or (and index (gethash slot index))
+                      (let ((built (org-air-view--mark-sibling-table
+                                    file items headingp)))
+                        (when index (puthash slot built index))
+                        built)))
+           (positions
+            (delq nil
+                  (mapcar
+                   (lambda (cell)
+                     (when (equal projection
+                                  (org-air-view--item-projection (cdr cell)))
+                       (car cell)))
+                   (gethash (car projection) table)))))
+      ;; Ambiguity or absence is a stale mark, never a guess: the item must
+      ;; be one of the siblings the generation itself reports for its file.
+      (when (memql position positions)
+        (cons projection
+              (cons (seq-count (lambda (other) (< other position)) positions)
+                    (length positions)))))))
 
 (defun org-air-view--marked-table-rebuild ()
   "Rebuild the exact-key membership table from the ordered mark list.
@@ -2483,15 +2622,22 @@ heading the user never selected while echoing complete success.  So a
 surviving key must still resolve to the heading it was made on: its witness
 \(`org-air-view--item-mark-witness') is compared with the newly resolved
 item's, and a mismatch is pruned as stale through the same bounded message a
-vanished key uses — never silently re-bound.  Resolution is first-item-wins,
-exactly like `org-air-view--bulk-preflight''s own key lookup, so the witness
-gates precisely the item a write would target.  Costs stay proportional to
-the marks: the generation pass only indexes keys, and one witness is derived
-per surviving mark.  Still no file read, no title fallback, no per-render
-work — an unchanged generation returns above."
+vanished key uses — never silently re-bound.  The witness carries the
+bounded same-projection discriminator too, so two headings that share a title
+and effective tags are NOT interchangeable identities and the one-block
+offset shift that aligns uniform siblings prunes instead of re-targeting.
+Resolution is first-item-wins, exactly like `org-air-view--bulk-preflight''s
+own key lookup, so the witness gates precisely the item a write would target.
+A witness that cannot be derived at all FAILS CLOSED: the mark is pruned
+rather than adopted.  Costs stay proportional to the marks plus one bounded
+sibling pass over each file that actually holds one (INDEX builds each such
+table once and is dropped when this call returns).  Still no file read, no
+title fallback, no per-render work — an unchanged generation returns above."
   (unless (eq items org-air-view--marked-generation)
     (let ((live (make-hash-table :test #'equal))
           (witnesses (org-air-view--marked-witness-table))
+          (index (make-hash-table :test #'equal))
+          (missing (list 'missing))
           (before (length org-air-view--marked-keys)))
       (dolist (item items)
         (when-let* ((key (org-air-view--item-source-key item)))
@@ -2501,13 +2647,19 @@ work — an unchanged generation returns above."
             (seq-filter
              (lambda (key)
                (when-let* ((item (gethash key live)))
-                 (let ((witness (org-air-view--item-mark-witness item))
-                       (marked (gethash key witnesses)))
+                 (let ((witness (org-air-view--item-mark-witness
+                                 item items index))
+                       (marked (gethash key witnesses missing)))
                    (cond
+                    ;; An underivable witness is an unresolvable mark, and an
+                    ;; unresolvable mark is stale — never a guess.
+                    ((null witness) nil)
                     ;; A key older than the witness rule (only reachable by
                     ;; setting the mark list directly, never by `m') adopts
-                    ;; the resolved projection once instead of vanishing.
-                    ((null marked) (puthash key witness witnesses) t)
+                    ;; the resolved identity once instead of vanishing.  A
+                    ;; STORED nil is not "older": it is a mark whose identity
+                    ;; could not be derived when it was made, so it is pruned.
+                    ((eq marked missing) (puthash key witness witnesses) t)
                     ((equal marked witness) t)))))
              org-air-view--marked-keys)
             org-air-view--marked-generation items)
@@ -13145,11 +13297,46 @@ the caller restamps every affected metadata record to that honest tick."
 
 (defun org-air-view--bulk-history-restamp-part
     (part operation &optional save-result)
-  "Restamp PART for the inverse of OPERATION using SAVE-RESULT identity."
+  "Restamp PART for the inverse of OPERATION using SAVE-RESULT identity.
+TWO DIFFERENT FACTS meet here and they must never be confused.  EXPECTED is
+the DIRECTION-DEPENDENT next step the inverse ring action will consume — the
+exact identity `:expected-undo' arms when a later hook has put a user step
+ahead of it.  HEAD is the AUTHORITATIVE POST-COMMIT undo head of the state
+org-air just left in this buffer: the one save result's own head
+\(`org-air-view--save-result-undo-head', sampled INSIDE the save attempt right
+after org-air's own `undo-boundary'), or — when this call is recovering an
+attempt org-air itself just rolled back — that restored buffer's head, taken
+in the same instant as its tick.  ONLY HEAD MAY EVER REACH `:undo-head'.
+
+After a REDO the two diverge, and that divergence was the defect: the head
+tail carries an `undo-equiv-table' entry whenever the previous change in that
+buffer was itself a ring undo, so `org-air-view--expected-undo-step' follows
+the equivalence chain PAST the head — exactly as `undo-only' does — and names
+the step beyond it.  Stamping that into `:undo-head' left the guard's two
+halves describing two different buffer states, so a compound that had been
+undone and redone once could never be undone again: it refused forever with
+\"history step missing\" and, because a blocked compound is requeued at the
+head of the same ring, it shadowed every older record too — including records
+in files the marked command never touched (README:292 promises one `u'/`U'
+round-trips the whole marked command; it round-tripped exactly once).
+
+The `:tick'/`:undo-head' pair therefore travels through THE ONE WRITER every
+other restamp path already uses (`org-air-view--history-restamp-pair'), which
+refuses to write half a guard: with no proof (HEAD nil) or a head that is no
+longer the buffer's own, it stamps NOTHING and leaves the part honestly
+blocked and retryable rather than blessing a state org-air did not produce.
+`:expected-undo' is retired only when that pair really was refreshed, so a
+part can never be left governed by a stale pair alone."
   (let* ((buffer (plist-get part :buffer))
          (inverse (if (eq operation 'undo) 'redo 'undo))
          (tick (or (plist-get save-result :expected-tick)
                    (buffer-chars-modified-tick buffer)))
+         ;; Committed: the save result's own head, or nil for the no-proof
+         ;; case.  Restored: org-air itself just put the buffer back, so its
+         ;; head IS the authority and is read in the same instant as TICK.
+         (head (if save-result
+                   (org-air-view--save-result-undo-head save-result)
+                 (org-air-view--history-undo-head-step buffer)))
          (expected
           (or (and save-result
                    (plist-get save-result
@@ -13157,11 +13344,9 @@ the caller restamps every affected metadata record to that honest tick."
                                   :expected-redo :expected-undo)))
               (if (eq operation 'undo)
                   (org-air-view--expected-undo-step buffer)
-                (org-air-view--expected-redo-step buffer)))))
-    (plist-put part :tick tick)
-    (setq part
-          (org-air-view--history-identity-put
-           part :undo-head expected 'head))
+                (org-air-view--expected-redo-step buffer))))
+         (paired
+          (org-air-view--history-restamp-pair part buffer tick head)))
     (cond
      ;; A restored failed attempt keeps its existing exact retry contract.
      ((and (null save-result) (plist-member part :expected-undo))
@@ -13174,7 +13359,10 @@ the caller restamps every affected metadata record to that honest tick."
       (setq part
             (org-air-view--history-identity-put
              part :expected-undo expected)))
-     ((plist-member part :expected-undo)
+     ;; Retire the exact identity ONLY when the pair really was refreshed:
+     ;; dropping it beside an unrefreshed pair would hand the part back to a
+     ;; guard describing a buffer state that no longer exists.
+     ((and paired (plist-member part :expected-undo))
       (setq part
             (org-air-view--history-identity-remove
              part :expected-undo))))))
@@ -13195,10 +13383,16 @@ cut must never be made automatically undoable through an older record."
                             (lambda (candidate)
                               (eq (plist-get candidate :buffer) buffer))
                             (plist-get record :parts))))
-                (plist-put part :tick tick)
-                (setq part
-                      (org-air-view--history-identity-put
-                       part :undo-head expected 'head))
+                ;; Arm the ONE exact identity and nothing else.  EXPECTED is
+                ;; the direction-dependent next step, NOT a head, and this
+                ;; path exists precisely because org-air can no longer prove
+                ;; what it left in BUFFER — so the part's `:tick'/`:undo-head'
+                ;; pair, one fact about one older buffer state, is left
+                ;; exactly as it stands rather than half-refreshed from a
+                ;; value that is not a head at all.  `:expected-undo' governs
+                ;; the part from here (`org-air-view--bulk-history-blockers'
+                ;; consults it first) and only an authoritative pair refresh
+                ;; (`org-air-view--bulk-history-restamp-part') retires it.
                 (setq part
                       (org-air-view--history-identity-put
                        part :expected-undo expected))
@@ -13677,13 +13871,25 @@ after disk commit is finalized as success and only emits a bounded warning."
                    (if (eq operation 'undo) "reverted" "reapplied")))
          (t
           ;; Complete success: one compound record crosses rings as a unit.
-          (org-air-view--bulk-history-restamp-committed
-           committed authority source-ring)
+          ;; THE RECORD GOES BACK ON ITS RING FIRST, BEFORE THE SWEEP — the
+          ;; same order the incomplete branches above already use.  The sweep
+          ;; (`org-air-view--edit-ring-restamp') iterates the two rings, so a
+          ;; record requeued AFTER it is structurally invisible to the one
+          ;; authoritative pair writer and its parts would be left to whatever
+          ;; their own post-commit restamp wrote.  Requeueing first gives
+          ;; every compound record — its own parts included — exactly ONE
+          ;; restamp path, and both writes carry the identical authoritative
+          ;; `(TICK . HEAD)' fact, so the second is an idempotent confirmation
+          ;; rather than a second opinion.  The sweep's other branch arms the
+          ;; next step on SOURCE-RING, which is the side the record just left,
+          ;; so nothing here can arm the record against itself.
           (if (eq operation 'undo)
               (org-air-view--bulk-history-requeue
                record 'org-air-view--edit-redo-ring)
             (org-air-view--bulk-history-requeue
              record 'org-air-view--edit-ring))
+          (org-air-view--bulk-history-restamp-committed
+           committed authority source-ring)
           (org-air-view--refresh-current)
           (org-air-view--panes-resync-now)
           (message "%s: %s (%d file%s)"

@@ -3347,6 +3347,167 @@ no query or refile-engine behavior changes.
   probe file exists and =.deps= is retained.  State: blocked →
   work-in-progress.
 
+- 2026-07-28: Round 90 TEST/AUDIT retest 17 — independent FIX-14 audit.
+  Tests + Air only: every production =.el= is byte-identical to
+  =nylomqpvqvvr= (=org-air-view.el= sha256
+  =ab0baf084a752c884c99a70db4fe29863f0fcf4feb122e8246bcc03f91375a43=, equal
+  before and after every mutation), and README, fixtures, goldens and the
+  known-failures manifest are untouched.  VERDICT: PASS with one permanent
+  test added (=r90-87=) and one residual limitation recorded below.
+
+  SCOPE / ANCESTRY.  Parent =rnqpoqxtmyyl= confirmed; =main..nylomqpvqvvr=
+  has exactly ONE head (=nylomqpvqvvr=), no conflicts, =divergent()= empty;
+  =jj diff -r nylomqpvqvvr= touches =org-air-view.el= and this design file
+  and nothing else.  Gate re-run from scratch (all stale =.elc= deleted, all
+  11 modules recompiled): compile clean but for the pre-existing
+  =org-air-project.el:946= wide-docstring warning; lint 0 findings; 1194
+  tests / 1186 as expected / 0 unexpected / 8 GUI skips; loaded
+  known-failures active length 0; R90 selector 92/92; =make regen-mockups= in
+  a =/tmp= copy exit 0 and a byte no-op across the fixture set.  Every
+  reported number reproduces exactly.
+
+  MUTATIONS re-derived independently (each applied to the working tree, whole
+  R90 selector, then restored and re-hashed).  BASE 92/92.  Combined ROOT-1
+  revert → =r90-81..84= RED (88/92).  Late-sampled head in the one pair
+  writer → =r90-79= RED and nothing else.  Discriminator removed →
+  =r90-85= + =r90-86= RED.  Over-aggressive projection (=TODO= state folded
+  in) → =r90-7= + =r90-80= RED (the FIX-14 note says =r90-80= alone; =r90-7=
+  also fires here, a slightly stronger fence than claimed).  Never-derivable
+  discriminator → =r90-7= + =r90-80= RED.  Locator-side variant → =r90-26=,
+  =r90-35=, =r90-65=, =r90-78= RED.  All match the FIX-14 record.
+
+  REDUNDANCY — the two ROOT-1 defences ARE observationally equivalent, and
+  the argument is now explicit rather than assumed.  Reverting AUTHORITY only
+  (92/92) and REQUEUE ORDER only (92/92) both reproduce.  Five adversarial
+  scenarios were scripted and their full press-by-press transcripts (echo
+  text plus a sha256 of the corpus bytes after every press) compared across
+  BASE / authority-only / requeue-only: a fourteen-press alternating walk
+  over two compounds and two ordinary records in three shared buffers; a
+  property-only hostile hook moving an already-committed part's head at EQUAL
+  chars tick on a diverging redo; a committed hook that puts a real user step
+  ahead and arms =:expected-undo=; a mid-compound rolled-back attempt (a real
+  =write-region= failure) followed by the residual retry; and a
+  =generation-invalidated= stop.  The transcripts are BYTE-IDENTICAL for all
+  three trees; only the combined revert diverges.  Why: both writers derive
+  the pair from the SAME save result, so the sweep's write can only ever
+  repeat the part's own.  The sweep cannot reach a part in exactly five
+  cases — the part carries =:expected-undo= (then =--bulk-history-blockers=
+  and =--history-expected-safe-p= consult the exact identity and never look
+  at =:undo-head=, so a stale head is DORMANT); the authority tick no longer
+  matches (chars ticks are monotonic, so that part is refused forever on the
+  tick, before the head is ever read); the live head moved at equal tick (the
+  pair writer refuses, and the part is refused on the head under BOTH trees);
+  the part was rolled back (its own restamp is the only writer under both);
+  or its buffer is not in the committed set.  In every one of them the part
+  is ALREADY blocked for an independent, honest reason, so no product
+  scenario can distinguish the two.  The equivalence is CONDITIONAL on the
+  blocker order (=:expected-undo= first, then tick, then head): if
+  =:undo-head= is ever consulted for an =:expected-undo= part, or the head is
+  ever checked before the tick, the authority change alone remains sound and
+  the structural one alone does not.  Recorded here so a future change to
+  =--bulk-history-blockers= is known to break the redundancy.  No test was
+  added for a difference that cannot be produced.
+
+  REQUEUE-BEFORE-SWEEP SAFETY, probed directly.  With a later part's
+  committed hook dirtying an earlier part's buffer so the sweep must arm
+  instead of stamp, =--history-arm-next= fires on =source-ring= — the side
+  the record just LEFT — and the just-requeued record is provably not on that
+  ring in either direction (undo: armed nothing; redo: armed on
+  =--edit-redo-ring= while the record sits on =--edit-ring=), and no part of
+  it gained an =:expected-undo=.  The double write is idempotent: for every
+  part of every complete-success compound, the part's own post-commit restamp
+  and the sweep's confirmation carry an =eql= tick and an =eq= head.  The
+  pair writer's refusal really is total — under a property-only hook it wrote
+  NEITHER half for the compound's own part or for an older same-buffer
+  record — and a no-proof commit (an unguarded recursive save) stamps nothing
+  and leaves =:expected-undo= untouched.
+
+  DISCRIMINATOR PRECISION.  No over-prune, verified end to end (mark, outside
+  rewrite, real =g r=, real verb with point parked in another file, disk
+  truth per heading): a neighbour going =TODO=→=DONE=; body text added below
+  the mark or under the marked heading; tag ORDER reversed on the marked
+  heading; an unrelated heading appended at the end of the file; an unrelated
+  heading deleted below the mark; org-air's own relocating write (=r90-78=
+  control 2).  Marks in several files at once: an outside insert above
+  everything in one file pruned exactly that file's three marks, left the
+  other file's two alone, and said =Pruned 3 stale marked items= once.  No
+  under-prune: both =g10= shapes (=r90-85/86=), a heading replaced at an
+  identical offset, and a deletion above the mark all prune; a deletion below
+  does not.  A same-projection sibling added or removed ELSEWHERE in the same
+  file DOES prune (the arity moves).  Judged HONEST FAIL-CLOSED, not a
+  usability defect: the arity is exactly what catches the =g10= shapes (in
+  both of them the ordinal is INVARIANT and only the arity disagrees), it is
+  =1= for every heading whose projection is unique, and it can therefore only
+  ever move in a file that already contains duplicate projections.
+
+  NEW PERMANENT TEST =r90-87-unrelated-heading-never-evaporates-a-mark=.  The
+  discriminator's own no-over-prune claim had no fence: counting ORDINAL and
+  ARITY over EVERY heading of the file instead of over the same-projection
+  siblings passes all 92 R90 tests, yet makes one capture, one script or one
+  heading typed in another Emacs evaporate every mark in that file on the
+  next =g r=.  =r90-87= marks a unique heading, adds (and, mirrored, removes)
+  an unrelated heading below it, and demands both that =g r= says nothing
+  about stale marks and that the marked verb still lands on the marked
+  heading and on nothing else, for both =b= and =t=.  It is RED under the
+  whole-file discriminator and under both over-prune mutations, and GREEN on
+  the candidate; nothing in it reads a witness field or any other internal.
+
+  RESIDUAL LIMITATION (recorded, not blocking) — A BYTE-COMPENSATING
+  ROTATION OF SAME-PROJECTION SIBLINGS.  When an outside rewrite deletes one
+  same-projection sibling ABOVE the mark AND creates another one anywhere in
+  the same file, the ordinal and the arity are BOTH restored, so the witness
+  is invariant and the mark re-points at the sibling that has slid into its
+  offset (probed: mark the middle of three identical =* TODO Sync= blocks,
+  drop the first and append a fourth → the marked verb writes the wrong
+  sibling with a complete-success echo and no stale report; the same holds
+  mirrored).  This is NOT a defect of FIX-14's discriminator and FIX-14 does
+  not overclaim it — its stated law is that the pair disagrees under a single
+  insert OR delete, which is exactly the review-7 shape and is closed.  It is
+  a bound on ANY bounded, source-free witness derivable from the scan
+  generation: the projection, the rank among same-projection siblings, the
+  arity, the rank/count over all headings in the file, the heading's own
+  extent and the offset deltas between siblings are ALL invariant under a
+  rotation of structurally uniform blocks.  Only a durable per-heading
+  identity closes it, and this round rejected =ID=/=CUSTOM_ID= on stated
+  grounds (no scan slot carries one, reading one would open the user's file
+  at mark time, org-air never writes one).  The harm is bounded: the wrong
+  target is byte-indistinguishable from the marked one in title and effective
+  tags (the board renders them identically), the write is in place, no bytes
+  are lost and one =u= reverts it.  A blanket policy — fail closed on every
+  generation swap whenever ARITY > 1 — would close it at the cost of making
+  duplicated headings unmarkable across a refresh; that is a product decision
+  for the design owner, so it is filed here rather than fixed under audit.
+  The neighbouring shape "two identical siblings whose BODIES are swapped" is
+  the same class and has the same bound (bodies are not in the item).
+
+  FAIL-CLOSED SENTINEL.  Confirmed distinct: an ABSENT witness entry (a mark
+  list set directly, never by =m=) adopts the resolved identity once and
+  survives with no stale message; a STORED nil prunes through the bounded
+  message.  A mark whose identity was underivable AT MARK TIME stores nil and
+  is pruned by the very next generation swap, with no wrong-target write.
+  Ambiguity fails closed: an item that is not among its own file's candidate
+  set yields no witness at all.  Degenerate items (no source key, no title,
+  nil) return nil rather than signalling.  An EMPTY replacement generation is
+  not a hazard even though =items= then falls back to the board's own list:
+  the key cannot resolve in the live index at all, so the mark is pruned
+  before the witness is consulted.
+
+  REGRESSIONS AND COST.  =r90-49= + =r90-54..86= 34/34; R73/R74/R75 40/40;
+  owner lifecycle, native/v6 tags, finalizer, weak-registry retention,
+  guard shape/scope/lifecycle and indirect clones 16/16; whole suite 1194 + 1
+  new = 1195, 0 unexpected, 8 GUI skips.  Independently measured on this tree
+  (medians of 3, 5 files): generation-swap reconcile 8.9 ms at 1 000 headings
+  with no marks and 11.5 ms with 200; 27.2 ms at 5 000 with no marks and
+  45.5 ms with 200 — i.e. the discriminator costs ≈18 ms at 5 000 headings
+  for 200 marks, matching the reported ≈20 ms.  One =m= press derives one
+  witness in 1.1 ms at 1 000 and 5.6 ms at 5 000 on the indexed path (16 ms
+  on the degenerate no-index path), matching the reported 1.3/6.5/20 ms.
+  Five warm repaints cost =opens=10 queries=0= and zero org-air timers, and
+  those counts are IDENTICAL with three marks active and with none: no new
+  per-render scan, query or timer, and no interactive path became slower.
+  The stored witness is =(("D2") 0 . 1)= — one title string, a sorted tag
+  copy and two fixnums, with no printed object reference anywhere in it.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -3453,3 +3614,17 @@ no query or refile-engine behavior changes.
   and effective tags are no longer interchangeable identities.  =r90-81..86=
   green, =r90-78=/=r90-80= still green, R90 92/92, gate 1194 tests /
   0 unexpected / 8 GUI skips / manifest 0 / lint 0 / regen a byte no-op.)
+- 2026-07-28: Independent audit retest 17 PASSED FIX-14 (state stays
+  work-in-progress).  Both ROOT-1 defences reproduce as observationally
+  equivalent and the equivalence argument — plus the blocker-ordering it
+  depends on — is now recorded instead of assumed; requeue-before-sweep is
+  probed safe in both directions with an idempotent double write; every
+  claimed mutation RED reproduces; the reported reconcile, =m=-press and
+  per-render costs reproduce.  One genuinely missing fence added,
+  =r90-87-unrelated-heading-never-evaporates-a-mark=, RED under a whole-file
+  discriminator that the existing 92 tests all accept.  One residual
+  limitation recorded (a byte-compensating rotation of same-projection
+  siblings keeps ordinal and arity invariant; no bounded source-free witness
+  can close it).  Tests + Air only; every production =.el= byte-identical to
+  =nylomqpvqvvr=.  Gate 1195 tests / 0 unexpected / 8 GUI skips / manifest 0 /
+  lint 0 / regen a byte no-op.)

@@ -7658,5 +7658,93 @@ the user's single prompted tag on a heading they never selected while echoing
   (dolist (shape '(delete-above insert-above))
     (org-air-r90--assert-dup-sibling-never-retargets shape 'tag)))
 
+;;;; r90-87 — retest-17 permanent root: the same-projection discriminator may
+;;;; not become a WHOLE-FILE one.  ORDINAL/ARITY are the marked heading's rank
+;;;; among the headings that share its projection and how many there are; if
+;;;; either is instead counted over every heading in the file, an outside tool
+;;;; that adds or removes ANY unrelated heading silently evaporates every mark
+;;;; in that file — the exact over-prune the discriminator claims it cannot
+;;;; cause, and one no existing test can see.
+
+(defconst org-air-r90--sibling-titles '("Alpha" "Bravo" "Delta" "Echo")
+  "Every heading title the unrelated-sibling corpus can hold.")
+
+(defun org-air-r90--sibling-source (titles)
+  "Return a t.org source holding exactly TITLES, one distinct heading each."
+  (concat "#+title: t\n\n"
+          (mapconcat (lambda (title) (format "* TODO %s\n" title)) titles "")))
+
+(defun org-air-r90--assert-unrelated-heading-keeps-the-mark (shape verb)
+  "Mark `Bravo', then add or remove an UNRELATED heading below it, then VERB.
+SHAPE `added' appends a heading the corpus did not have and `removed' takes
+one away again; in both cases the marked heading itself does not move one
+byte and no heading that shares its projection appears or disappears, so the
+mark must survive `g r' and the write must land on `Bravo' alone.  Point is
+parked on a row in another file before the write, so the only route into
+t.org is the mark itself."
+  (let* ((addp (eq shape 'added))
+         (before (org-air-r90--sibling-source
+                  (if addp '("Alpha" "Bravo" "Delta")
+                    '("Alpha" "Bravo" "Delta" "Echo"))))
+         (after (org-air-r90--sibling-source
+                 (if addp '("Alpha" "Bravo" "Delta" "Echo")
+                   '("Alpha" "Bravo" "Delta"))))
+         (tag (if (eq verb 'backlog) "backlog" "zzz")))
+    (org-air-r90--with-board
+        (list (cons "t.org" before)
+              (cons "park.org" "#+title: park\n\n* TODO Park row\n")
+              (cons "inbox.org" "#+title: inbox\n"))
+      (org-air-r90--mark-title "Bravo")
+      (should (equal '("Bravo") (org-air-r90--marked-row-titles)))
+      (let ((position (org-air-r90--actual-heading-position "t.org" "Bravo")))
+        (org-air-r90--rewrite-source "t.org" after)
+        ;; The setup really is the no-drift one: `Bravo' is still at exactly
+        ;; the byte offset the mark names.
+        (should (= position
+                   (org-air-r90--actual-heading-position "t.org" "Bravo")))
+        (let ((refresh (org-air-r90--refresh-messages)))
+          (ert-info ((format "%S/%S refresh=%S marked=%S"
+                             shape verb refresh
+                             (org-air-r90--marked-row-titles)))
+            ;; 1. Nothing about another heading may retire this mark.
+            (should-not (seq-find (lambda (text)
+                                    (string-match-p
+                                     org-air-r90--stale-mark-re text))
+                                  refresh))
+            (should (equal '("Bravo") (org-air-r90--marked-row-titles)))
+            (should (= 1 (length org-air-view--marked-keys)))))
+        (org-air-r90--goto-row "Park row")
+        (let* ((write (org-air-r90--run-marked-verb verb tag))
+               (tagged (org-air-r90--tagged-titles
+                        "t.org" org-air-r90--sibling-titles tag)))
+          (ert-info ((format "%S/%S write=%S tagged=%S" shape verb write tagged))
+            ;; 2. The mark still buys the marked write it was made for.
+            (should (seq-find (lambda (text)
+                                (string-match-p
+                                 org-air-r90--marked-success-re text))
+                              write))
+            ;; 3. And it lands on the marked heading, and on nothing else.
+            (should (equal '("Bravo") tagged))))))))
+
+(ert-deftest org-air-r90-87-unrelated-heading-never-evaporates-a-mark ()
+  "A mark survives any heading added or removed ELSEWHERE in its own file.
+The mark witness carries a bounded discriminator beside the projection so two
+same-projection siblings are not interchangeable identities (r90-85/86).  That
+discriminator is deliberately scoped to the SAME-PROJECTION headings of the
+marked heading's own file: a unique heading is rank 0 of 1 in every
+generation, so an unrelated heading appearing or disappearing anywhere in the
+file leaves its witness untouched.
+
+Counted over EVERY heading in the file instead, the discriminator would be
+correct on every wrong-target shape and still wrong as a product: one capture,
+one script, one heading typed in another Emacs, and `g r' reports `Pruned N
+stale marked items' for a selection whose headings never moved.  Marks that
+evaporate for reasons the user cannot see are not durable marks — R90's whole
+premise is that `m' survives repaints, filters, folds and refreshes."
+  (skip-unless (locate-library "org-air"))
+  (dolist (shape '(added removed))
+    (dolist (verb '(backlog tag))
+      (org-air-r90--assert-unrelated-heading-keeps-the-mark shape verb))))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

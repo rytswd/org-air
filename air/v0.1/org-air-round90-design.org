@@ -1,5 +1,5 @@
 #+title: org-air Round 90 — local backlog focus, first-class marked backlog batches, and a collapsed-by-default Backlog lens
-#+state: work-in-progress
+#+state: blocked
 #+tags: board triage backlog marks bulk undo focus collapse ux robustness
 
 * Summary
@@ -2692,6 +2692,20 @@ no query or refile-engine behavior changes.
     and get the value, =E2= does not).  Any fix that prunes beyond the
     generation swap that really lost the heading reddens this.
 
+    CORRECTED 2026-07-28 (retest 16, independently re-measured; see that
+    entry): that last sentence is too broad and is withdrawn.  Neither
+    control crosses a generation swap, so =r90-78= is blind to RECONCILE-side
+    over-pruning: under "prune every witnessed mark on every generation swap"
+    only =r90-80= reddens (86 → 85/86), and under the unconditional "prune
+    every mark on every generation swap" only =r90-7= and =r90-80= redden;
+    =r90-78= stays GREEN under both.  What =r90-78= actually fences is the
+    LOCATOR-side over-prune — exactness checked against the mark's raw byte
+    offset instead of the tracked source locator — which reddens =r90-65= and
+    =r90-78= (86 → 84/86).  The accurate statement is therefore: =r90-78=
+    fences a fix that prunes beyond the TRACKED LOCATOR; =r90-80= (and, for
+    the unconditional variant, =r90-7=) fences a fix that prunes beyond the
+    generation swap.
+
   ROOT ISOLATION AND FIX-DIRECTION CHECK (=/tmp= sandboxes, repository never
   touched).  Applying ONLY the reviewer's root-1 direction — also refresh a
   matching bulk part's =:undo-head= in =--edit-ring-restamp=, exactly as
@@ -3029,6 +3043,131 @@ no query or refile-engine behavior changes.
   retained.  VERDICT: pass — no new blocker found; state stays
   work-in-progress.
 
+- 2026-07-28: TEST/AUDIT retest 16 — REVIEW-7 BLOCKED.  Distinguished review
+  7 reproduced TWO release blockers against this exact candidate
+  (=kwnpzuyypomw=); both were independently re-derived here through the real
+  product and both are now permanently fenced.  Tests-and-Air only:
+  =tests/org-air-round90-test.el= and this file.  Every production =.el= is
+  byte-identical to =kwnpzuyypomw= (SHA-256 per file; =org-air-view.el=
+  =b348b118cb4da6b36d017bd196cba9041b738b64380a7864e3a8d1774947f2d8=), and
+  README, fixtures, goldens and the known-failures manifest are untouched
+  (=jj diff --summary= lists the two files above alone).
+
+  BLOCKER 1 — A COMPOUND DIES AFTER ONE =u=/=U= ROUND TRIP AND FREEZES THE
+  RING.  =org-air-view--bulk-history-restamp-part= (=org-air-view.el=
+  13146-13181) stamps =:undo-head= from the DIRECTION-DEPENDENT next step
+  (=:expected-redo= when undoing, =:expected-undo= when redoing) rather than
+  from the authoritative post-commit head.  After a redo whose head tail
+  carries an undo equivalence — i.e. as soon as anything in that buffer has
+  been undone once — the two halves of the part's guard describe DIFFERENT
+  buffer states, so =--bulk-history-blockers= refuses the record forever with
+  "X.org history step missing".  The command-end sweep cannot repair it: the
+  complete-success branch runs =--bulk-history-restamp-committed= BEFORE
+  =--bulk-history-requeue= (13678-13686), so the record is on neither ring
+  while =--edit-ring-restamp= — the site FIX-13 did repair — iterates
+  =(append edit-ring edit-redo-ring)=, and the one authoritative pair writer
+  never sees the record's own parts.  Reproduced with four documented
+  presses: =b=, =b= over two shared files, then =u u U u= → "Cannot undo:
+  backlog 2 marked items — a.org history step missing; b.org history step
+  missing", forever, with the corpus left dirty and an older =done "C1"= in
+  an UNTOUCHED third file unreachable behind the frozen head.  Over-blocking,
+  not safety: stamping the authoritative head makes the identical press claim
+  and byte-restore the corpus (re-derived here and again in the one-hunk
+  sandbox below).
+
+  BLOCKER 2 — SAME-PROJECTION SIBLINGS STILL ALLOW A SILENT WRONG-TARGET
+  WRITE.  The mark witness =(TITLE . SORTED-EFFECTIVE-TAGS)=
+  (=--item-mark-witness=, 2417-2427) is exactly as precise as the board's
+  PROJECTION, not as precise as the heading, so two headings sharing a title
+  and effective tags are interchangeable identities in =--marked-reconcile=
+  (2500-2512) and in the preflight's own =--source-heading-exact-p= re-check
+  (11733-11741 / 11828-11851).  Structurally uniform siblings are precisely
+  the ones an outside insert/delete aligns byte for byte: one same-shaped
+  block above the mark shifts every later offset by exactly one block.
+  Reproduced both ways on three identical =* TODO Sync= blocks differing only
+  in body text — delete the block above the mark, or insert one — and in both
+  directions =g r= keeps the mark with NO stale message and the next =b=/=t=
+  writes the WRONG sibling while echoing "Backlogged 1 marked item" /
+  "Added #zzz to 1 marked item".
+
+  NEW PERMANENT TESTS (6, all deliberately RED, none manifested).
+  =r90-81-one-file-compound-round-trips-more-than-once=,
+  =r90-82-two-file-compound-round-trips-more-than-once=,
+  =r90-83-two-compounds-over-shared-files-survive-a-redo= and
+  =r90-84-redone-compound-never-shadows-an-older-record= drive the real
+  product through =u u U u= for the one-file compound, the two-file compound
+  and two compounds over shared files, plus a longer alternating walk
+  (=u u U u u= and the full redo/undo sweep back).  Every press goes through
+  the new =org-air-r90--assert-ring-step=, which demands ONE honest claim
+  naming the record AND the exact corpus bytes that press must produce — so
+  it fails both at a refusal for a step that is really safe and at a
+  =Undid:=/=Redid:= claim that did not move the disk where it says it did.
+  Ring order is asserted by record identity at every stage, and =r90-84='s
+  oldest record lives in a file no marked command ever wrote, so a head that
+  cannot be passed is proved to be shadowing real history rather than
+  protecting it.  =r90-85-duplicate-sibling-never-backlogs-wrong-heading= and
+  =r90-86-duplicate-sibling-never-tags-wrong-heading= run BOTH drift
+  directions for BOTH verbs with point parked in ANOTHER file, and assert
+  disk truth per body line: the sibling now sitting at the marked offset is
+  byte-identical, no other unmarked heading moved, a complete-success echo
+  may only appear when the MARKED heading really carries the value, and the
+  user is never left trusting a mark that can no longer be resolved (either
+  it is reported stale/pruned, or the write really landed on the heading they
+  marked).  Nothing asserts a witness field, a restamp expression or any
+  history internal, so any correct repair passes.
+
+  RED-FOR-THE-ROOT AND ROOT ISOLATION.  All six are RED on the unchanged
+  candidate, interpreted AND byte-compiled (=tests/org-air-round90-test.elc=
+  built with =org-air= loaded: identical 92 tests / 86 expected / 6
+  unexpected), and each fails at its own labelled law — =ert-info= "fourth
+  press of `u u U u' ..." for 81-84, the unintended-sibling disk assertion
+  for 85-86 — never at teardown or on timing.  In a =/tmp= sandbox the
+  reviewer's ONE-HUNK blocker-1 fix (stamp =:undo-head= from
+  =(or (--save-result-undo-head save-result) (--history-undo-head-step
+  buffer))= in =--bulk-history-restamp-part=) turns =r90-81..84= GREEN and
+  leaves =r90-85/86= RED, with all 86 pre-existing R90 tests still green:
+  the two roots are independent and neither test set stands in for the other.
+  Adding ONE bounded distinguishing witness field (the marked item's file
+  arity in the generation the mark was made in — a fixnum, no new file read,
+  no new scan) turns =r90-85/86= GREEN too: R90 92/92 and a full gate of
+  1194 tests / 0 unexpected / 8 GUI skips / lint 0.  Note for the fix seat:
+  the reviewer's suggested ORDINAL-among-file-keys does NOT distinguish these
+  shapes — a delete above the mark lowers the sibling's ordinal by exactly as
+  much as the offset shift raises it (and same-length siblings defeat the
+  next-heading-extent variant too) — so the field must be one that changes
+  when a sibling is added or removed.
+
+  RECORD CORRECTION (independently measured, fresh =/tmp= copy per mutation,
+  =org-air-view.el= restored and re-hashed to =b348b118cb4da6b3...= after
+  each).  The review-6 seam note above claimed "any fix that prunes beyond
+  the generation swap that really lost the heading reddens =r90-78=".  It
+  does not, and that sentence is withdrawn in place.  BASE R90 86/86.  Prune
+  every WITNESSED mark on every generation swap → =r90-80= RED and nothing
+  else (85/86); prune EVERY mark on every generation swap → =r90-7= +
+  =r90-80= RED (84/86); =r90-78= is GREEN under both, because neither of its
+  controls performs a generation swap.  What =r90-78= really fences is the
+  LOCATOR-side variant — exactness against the mark's raw byte offset instead
+  of the tracked locator — which reddens =r90-65= + =r90-78= (84/86).  The
+  retest-15 M4a/M4c figures were themselves accurate; only the seam
+  description was wrong.
+
+  CONTROLS.  All 86 pre-existing R90 tests stay GREEN on the unchanged
+  candidate, specifically the marks that must SURVIVE: =r90-78= (no-=g r=
+  tracked locator for both =b= and =t=, and org-air's own relocating write
+  keeping =E1=/=E3= while sparing =E2=) and =r90-80= (a =TODO=→=DONE=
+  generation swap with no stale message, the rekey through org-air's own
+  write, tag order and harmless reformatting).  Both stay green under each
+  sandbox fix as well.  R73/R75 history 28/28; =r90-49= + =r90-54..80= 28/28.
+
+  GATE on this change: =make clean && make check= — all 11 modules compile
+  with only the pre-existing =org-air-project.el:946= wide-docstring warning;
+  lint 0 findings; 1194 tests / 1180 expected / 6 unexpected / 8 GUI skips.
+  The 6 unexpected are exactly =r90-81..86=, deliberately NOT manifested (they
+  are source defects and the round's manifest stays genuinely empty: loaded
+  known-failures active length 0).  =make regen-mockups= in a =/tmp= copy:
+  exit 0 and byte-identical fixtures.  No repository probe file exists and
+  =.deps= is retained.  VERDICT: BLOCKED — state work-in-progress → blocked.
+
 * History
 
 - 2026-07-25: Design completed and set ready for implementation.
@@ -3106,3 +3245,21 @@ no query or refile-engine behavior changes.
   only; every production =.el= byte-identical to =mlzutkpzqqou=.  R90 86/86,
   gate 1188 tests / 0 unexpected / 8 GUI skips / manifest 0 / lint 0 / regen a
   byte no-op.
+- 2026-07-28: State: work-in-progress → blocked (independent audit retest 16
+  reproduced distinguished review 7's two release blockers against
+  =kwnpzuyypomw=: =--bulk-history-restamp-part= writes a direction-dependent
+  =:undo-head=, so a compound record dies after ONE =u=/=U= round trip, sits
+  refusing at the ring head and shadows older records in files it never
+  touched — four documented presses, =b b u u U u=; and the projection-only
+  mark witness lets same-title/same-tag siblings swap identity across a
+  generation swap, so a one-block offset shift makes =b=/=t= write a heading
+  the user never selected while echoing complete success.  Permanent coverage
+  added and left RED: =r90-81=, =r90-82=, =r90-83=, =r90-84= (blocker 1) and
+  =r90-85=, =r90-86= (blocker 2); the reviewer's one-hunk head fix greens
+  81-84 only and one bounded distinguishing witness field greens 85-86, so
+  the roots are independent.  The review-6 claim that reconcile-side
+  over-pruning reddens =r90-78= is corrected: only =r90-80= (and =r90-7= for
+  the unconditional variant) fires; =r90-78= fences the locator-side variant.
+  Tests + Air only; every production =.el= byte-identical to =kwnpzuyypomw=.
+  Gate 1194 tests / 6 unexpected / 8 GUI skips / manifest 0 / lint 0 / regen a
+  byte no-op.)

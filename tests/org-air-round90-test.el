@@ -7247,5 +7247,416 @@ target, NEVER silently relocated."
     (should (equal '("D1") (org-air-r90--tagged-titles
                             "t.org" '("D1" "D2" "D3" "D25") "backlog")))))
 
+;;;; r90-81/82/83/84 — review-7 permanent root: a compound record must
+;;;; round-trip through `u'/`U' MORE THAN ONCE.  README:292 promises "one
+;;;; `u'/`U' round-trips the whole marked command"; today a compound that has
+;;;; been undone and redone once can never be undone again, sits at the head
+;;;; of the ring refusing forever, and shadows every older record — including
+;;;; records in files the marked command never touched.
+
+(defun org-air-r90--assert-ring-step (direction expect names snapshot)
+  "Press DIRECTION, demand one honest claim naming EXPECT, then check bytes.
+A ring press is honest only when its claim and the disk agree, so this fails
+in BOTH directions: a refusal (or an incomplete report) for a step that is
+really safe is over-blocking, and an `Undid:'/`Redid:' claim after which the
+on-disk bytes of NAMES are not exactly SNAPSHOT is a false claim.  Asserting
+the pair together is what makes the `u u U u' walks below meaningful: nothing
+here inspects history internals, so any correct repair passes."
+  (org-air-r90--assert-ring-claim direction expect)
+  (should (equal snapshot (org-air-r90--corpus-text names))))
+
+(ert-deftest org-air-r90-81-one-file-compound-round-trips-more-than-once ()
+  "A one-file compound must survive `u' `u' `U' `u', not just `u' `U'.
+R90 Decision 6 makes one marked command exactly one history step, and every
+compound part carries a two-half guard — the chars tick and the `:undo-head'
+identity `org-air-view--bulk-history-blockers' checks right after it — that
+is restamped after each ring op the part takes part in.  The two halves must
+describe the SAME buffer state org-air just left behind.  If the post-commit
+restamp records the direction-dependent NEXT step instead of the state it
+actually produced, the halves diverge the moment a redo lands on a head whose
+tail already carries an undo equivalence — i.e. as soon as anything in that
+buffer has been undone once before.  The record is then permanently blocked
+and, because a blocked compound is requeued on the SAME ring side, it never
+leaves the head.
+
+The shape is four documented key presses over one file: marked `b' on two
+headings, then `d' on a third, then `u' `u' `U' `u'.  The fourth press is the
+same record taking the same step as the second, from the same content state,
+so it must claim and byte-restore the corpus."
+  (skip-unless (locate-library "org-air"))
+  (let ((names '("a.org"))
+        (pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--corpus-text names)))
+        (dolist (title '("A1" "A2")) (org-air-r90--mark-title title))
+        (org-air-item-backlog)
+        (let ((committed (org-air-r90--corpus-text names)))
+          (org-air-r90--goto-row "A3")
+          (org-air-item-done)
+          (let* ((both (org-air-r90--corpus-text names))
+                 (single (nth 0 org-air-view--edit-ring))
+                 (compound (nth 1 org-air-view--edit-ring)))
+            (should (eq 'bulk (plist-get compound :kind)))
+            (should-not (eq 'bulk (plist-get single :kind)))
+            (should-not (equal pristine committed))
+            (should-not (equal committed both))
+            ;; `u' `u' — the ordinary record, then the compound.
+            (org-air-r90--assert-ring-step 'undo "done \"A3\"" names committed)
+            (org-air-r90--assert-ring-step
+             'undo "backlog 2 marked items" names pristine)
+            (should-not org-air-view--edit-ring)
+            (should (equal (list compound single) org-air-view--edit-redo-ring))
+            ;; `U' — the compound goes back on.
+            (org-air-r90--assert-ring-step
+             'redo "backlog 2 marked items" names committed)
+            (should (equal (list compound) org-air-view--edit-ring))
+            (should (equal (list single) org-air-view--edit-redo-ring))
+            ;; THE LAW: the fourth press is the second press again.
+            (ert-info ("fourth press of `u u U u' on a one-file compound")
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names pristine))
+            (should-not org-air-view--edit-ring)
+            (should (equal (list compound single) org-air-view--edit-redo-ring))
+            ;; And the walk keeps going honestly in both directions.
+            (org-air-r90--assert-ring-step
+             'redo "backlog 2 marked items" names committed)
+            (org-air-r90--assert-ring-step 'redo "done \"A3\"" names both)
+            (should (equal (list single compound) org-air-view--edit-ring))
+            (should-not org-air-view--edit-redo-ring)
+            (org-air-r90--assert-ring-step 'undo "done \"A3\"" names committed)
+            (org-air-r90--assert-ring-step
+             'undo "backlog 2 marked items" names pristine)
+            (should-not org-air-view--edit-ring)
+            (should (equal (list compound single)
+                           org-air-view--edit-redo-ring))))))))
+
+(ert-deftest org-air-r90-82-two-file-compound-round-trips-more-than-once ()
+  "The same law with the compound spanning TWO files.
+A cross-file compound commits one history step per file, so a per-part
+restamp defect starves each of its parts independently and the refusal names
+both files at once.  Nothing about the multi-file case may make the second
+round trip less available than the first: `u' `u' `U' `u' over a marked `b'
+across a.org and b.org plus an ordinary `d' in a.org must claim four times
+and put the corpus back byte for byte each time, and the ring order must stay
+exactly the order the presses imply."
+  (skip-unless (locate-library "org-air"))
+  (let ((names '("a.org" "b.org"))
+        (pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--corpus-text names)))
+        (dolist (title '("A1" "B1")) (org-air-r90--mark-title title))
+        (org-air-item-backlog)
+        (let ((committed (org-air-r90--corpus-text names)))
+          (org-air-r90--goto-row "A3")
+          (org-air-item-done)
+          (let* ((both (org-air-r90--corpus-text names))
+                 (single (nth 0 org-air-view--edit-ring))
+                 (compound (nth 1 org-air-view--edit-ring)))
+            (should (eq 'bulk (plist-get compound :kind)))
+            (should (= 2 (length (plist-get compound :parts))))
+            (should-not (equal pristine committed))
+            (should-not (equal committed both))
+            (org-air-r90--assert-ring-step 'undo "done \"A3\"" names committed)
+            (org-air-r90--assert-ring-step
+             'undo "backlog 2 marked items" names pristine)
+            (org-air-r90--assert-ring-step
+             'redo "backlog 2 marked items" names committed)
+            (should (equal (list compound) org-air-view--edit-ring))
+            (should (equal (list single) org-air-view--edit-redo-ring))
+            ;; THE LAW
+            (ert-info ("fourth press of `u u U u' on a two-file compound")
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names pristine))
+            (should-not org-air-view--edit-ring)
+            (should (equal (list compound single) org-air-view--edit-redo-ring))
+            (org-air-r90--assert-ring-step
+             'redo "backlog 2 marked items" names committed)
+            (org-air-r90--assert-ring-step 'redo "done \"A3\"" names both)
+            (should (equal (list single compound) org-air-view--edit-ring))
+            (should-not org-air-view--edit-redo-ring)))))))
+
+(ert-deftest org-air-r90-83-two-compounds-over-shared-files-survive-a-redo ()
+  "Two marked commands over the SAME files, and no ordinary record at all.
+This is the shape a user reaches with four documented presses after two `b's:
+`u' `u' `U' `u'.  The first `u' takes the newer compound, the second takes
+the older one, `U' puts the older one back — and the fourth press asks for
+exactly the step the second press already proved safe, from exactly the
+content state it was taken from.  A refusal here is over-blocking by
+construction, and it strands BOTH marked commands, because the blocked record
+is requeued at the ring head."
+  (skip-unless (locate-library "org-air"))
+  (let ((names '("a.org" "b.org"))
+        (pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--corpus-text names)))
+        (dolist (title '("A1" "B1")) (org-air-r90--mark-title title))
+        (org-air-item-backlog)
+        (let ((after-first (org-air-r90--corpus-text names)))
+          (dolist (title '("A2" "B2")) (org-air-r90--mark-title title))
+          (org-air-item-backlog)
+          (let* ((after-both (org-air-r90--corpus-text names))
+                 (second (nth 0 org-air-view--edit-ring))
+                 (first (nth 1 org-air-view--edit-ring)))
+            (should (eq 'bulk (plist-get first :kind)))
+            (should (eq 'bulk (plist-get second :kind)))
+            (should-not (equal pristine after-first))
+            (should-not (equal after-first after-both))
+            (org-air-r90--assert-ring-step
+             'undo "backlog 2 marked items" names after-first)
+            (org-air-r90--assert-ring-step
+             'undo "backlog 2 marked items" names pristine)
+            (org-air-r90--assert-ring-step
+             'redo "backlog 2 marked items" names after-first)
+            (should (equal (list first) org-air-view--edit-ring))
+            (should (equal (list second) org-air-view--edit-redo-ring))
+            ;; THE LAW
+            (ert-info ("fourth press of `u u U u' over two shared compounds")
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names pristine))
+            (should-not org-air-view--edit-ring)
+            (should (equal (list first second) org-air-view--edit-redo-ring))
+            (org-air-r90--assert-ring-step
+             'redo "backlog 2 marked items" names after-first)
+            (org-air-r90--assert-ring-step
+             'redo "backlog 2 marked items" names after-both)
+            (should (equal (list second first) org-air-view--edit-ring))
+            (should-not org-air-view--edit-redo-ring)))))))
+
+(ert-deftest org-air-r90-84-redone-compound-never-shadows-an-older-record ()
+  "A redone compound must not freeze the ring over untouched history.
+The long walk: an ordinary `d' in c.org, then two marked `b's over a.org and
+b.org, then `u' `u' `U' `u' `u' and the full redo/undo sweep back.  Two laws
+ride on it.  First, every press is honest — a claim only ever appears
+together with the exact corpus bytes that press is supposed to produce.
+Second, the oldest record lives in a file NO marked command ever wrote, so
+nothing about it can be unsafe; if a compound stuck at the head makes `done
+\"C1\"' unreachable, the head is lying about the whole session's history."
+  (skip-unless (locate-library "org-air"))
+  (let ((names '("a.org" "b.org" "c.org"))
+        (pending-undo-list nil)
+        (undo-equiv-table (make-hash-table :test #'eq))
+        (last-command nil)
+        (this-command nil))
+    (org-air-r90--with-board org-air-r90--neighbour-board
+      (org-air-r90--expand-section 'attention)
+      (let ((pristine (org-air-r90--corpus-text names)))
+        (org-air-r90--goto-row "C1")
+        (org-air-item-done)
+        (let ((after-oldest (org-air-r90--corpus-text names)))
+          (dolist (title '("A1" "B1")) (org-air-r90--mark-title title))
+          (org-air-item-backlog)
+          (let ((after-first (org-air-r90--corpus-text names)))
+            (dolist (title '("A2" "B2")) (org-air-r90--mark-title title))
+            (org-air-item-backlog)
+            (let* ((after-both (org-air-r90--corpus-text names))
+                   (second (nth 0 org-air-view--edit-ring))
+                   (first (nth 1 org-air-view--edit-ring))
+                   (oldest (nth 2 org-air-view--edit-ring)))
+              (should (eq 'bulk (plist-get first :kind)))
+              (should (eq 'bulk (plist-get second :kind)))
+              (should (equal "done \"C1\"" (plist-get oldest :desc)))
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names after-first)
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names after-oldest)
+              (org-air-r90--assert-ring-step
+               'redo "backlog 2 marked items" names after-first)
+              ;; THE LAW 1 — the redone compound is still undoable.
+              (ert-info ("fourth press of the long alternating walk")
+                (org-air-r90--assert-ring-step
+                 'undo "backlog 2 marked items" names after-oldest))
+              (should (equal (list oldest) org-air-view--edit-ring))
+              (should (string-match-p "^\\*+ DONE C1"
+                                      (org-air-r90--text "c.org")))
+              ;; THE LAW 2 — the older record in the untouched third file is
+              ;; reachable, not shadowed by whatever sits above it.
+              (ert-info ("older record in a file no marked command touched")
+                (org-air-r90--assert-ring-step
+                 'undo "done \"C1\"" names pristine))
+              (should-not org-air-view--edit-ring)
+              (should (equal (list oldest first second)
+                             org-air-view--edit-redo-ring))
+              ;; The whole walk replays in both directions.
+              (org-air-r90--assert-ring-step
+               'redo "done \"C1\"" names after-oldest)
+              (org-air-r90--assert-ring-step
+               'redo "backlog 2 marked items" names after-first)
+              (org-air-r90--assert-ring-step
+               'redo "backlog 2 marked items" names after-both)
+              (should-not org-air-view--edit-redo-ring)
+              (should (equal (list second first oldest)
+                             org-air-view--edit-ring))
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names after-first)
+              (org-air-r90--assert-ring-step
+               'undo "backlog 2 marked items" names after-oldest)
+              (org-air-r90--assert-ring-step
+               'undo "done \"C1\"" names pristine))))))))
+
+;;;; r90-85/86 — review-7 permanent root: two headings that share a title and
+;;;; effective tags must not be interchangeable mark identities.  A witness
+;;;; that is exactly the board's projection is exactly as precise as the
+;;;; projection, so an outside edit that shifts source offsets by exactly one
+;;;; same-shaped sibling re-points the mark at a heading the user never chose
+;;;; and `b'/`t' writes it while echoing complete success.
+
+(defconst org-air-r90--dup-three
+  (concat "#+title: t\n\n"
+          "* TODO Sync\nnote alpha\n"
+          "* TODO Sync\nnote bravo\n"
+          "* TODO Sync\nnote delta\n")
+  "Three structurally identical sibling blocks: same title, tags and length.")
+
+(defconst org-air-r90--dup-two
+  (concat "#+title: t\n\n"
+          "* TODO Sync\nnote bravo\n"
+          "* TODO Sync\nnote delta\n")
+  "`org-air-r90--dup-three' with the first block removed: offsets shift once.")
+
+(defun org-air-r90--dup-heading-lines (name)
+  "Return an alist of BODY-LINE -> its exact heading line on disk in NAME.
+The body line is the only thing that distinguishes these siblings, so it is
+the only honest way to name which heading a write landed on."
+  (with-temp-buffer
+    (insert (org-air-r90--text name))
+    (goto-char (point-min))
+    (let (out heading)
+      (while (not (eobp))
+        (let ((line (buffer-substring-no-properties
+                     (line-beginning-position) (line-end-position))))
+          (cond ((string-prefix-p "*" line) (setq heading line))
+                ((and heading (string-prefix-p "note " line))
+                 (push (cons line heading) out)
+                 (setq heading nil))))
+        (forward-line 1))
+      (nreverse out))))
+
+(defun org-air-r90--dup-heading-position (name body)
+  "Return the live source position of the heading above BODY in corpus NAME."
+  (with-current-buffer (find-file-noselect (org-air-r90--file name))
+    (org-with-wide-buffer
+     (goto-char (point-min))
+     (re-search-forward (concat "^" (regexp-quote body) "$"))
+     (forward-line -1)
+     (line-beginning-position))))
+
+(defun org-air-r90--mark-source-position (name position)
+  "Mark the rendered row whose exact source key is POSITION in corpus NAME.
+Siblings share their rendered text, so the row is chosen by source identity
+rather than by title: this is the heading the user really pointed at."
+  (let ((path (org-air-r90--file name)) found)
+    (save-excursion
+      (goto-char (point-min))
+      (while (and (not found) (not (eobp)))
+        (let* ((item (org-air-view--row-property 'org-air-item))
+               (key (and item (org-air-view--item-source-key item))))
+          (when (and key (equal (car key) path) (eql (cdr key) position))
+            (setq found (line-beginning-position))))
+        (forward-line 1)))
+    (should found)
+    (goto-char found)
+    (org-air-view--goto-row-title)
+    (org-air-toggle-mark)
+    (should (member (cons path position) org-air-view--marked-keys))))
+
+(defun org-air-r90--assert-dup-sibling-never-retargets (shape verb)
+  "Mark one of several identical siblings, drift by SHAPE, then run VERB.
+SHAPE `delete-above' removes the block above the mark and `insert-above' adds
+one, so in both cases every later offset moves by exactly one same-shaped
+block and the marked byte offset comes to name a DIFFERENT heading with the
+same title and the same effective tags.  Point is parked on a row in another
+file before the write, so the only route into t.org is the mark itself."
+  (let* ((deletep (eq shape 'delete-above))
+         (before (if deletep org-air-r90--dup-three org-air-r90--dup-two))
+         (after (if deletep org-air-r90--dup-two org-air-r90--dup-three))
+         (marked (if deletep "note bravo" "note delta"))
+         (unintended (if deletep "note delta" "note bravo"))
+         (tag (if (eq verb 'backlog) "backlog" "zzz"))
+         (tag-re (regexp-quote (format ":%s:" tag))))
+    (org-air-r90--with-board
+        (list (cons "t.org" before)
+              (cons "park.org" "#+title: park\n\n* TODO Park row\n")
+              (cons "inbox.org" "#+title: inbox\n"))
+      (should (= (if deletep 3 2)
+                 (length (org-air-r90--rendered-rows "Sync"))))
+      (let ((position (org-air-r90--dup-heading-position "t.org" marked)))
+        (org-air-r90--mark-source-position "t.org" position)
+        (org-air-r90--rewrite-source "t.org" after)
+        ;; The setup really is the collision: that very offset now names the
+        ;; sibling the user did NOT mark.
+        (should (= position
+                   (org-air-r90--dup-heading-position "t.org" unintended)))
+        (let* ((refresh (org-air-r90--refresh-messages))
+               (drifted (org-air-r90--dup-heading-lines "t.org")))
+          (org-air-r90--goto-row "Park row")
+          (let* ((write (org-air-r90--run-marked-verb verb tag))
+                 (messages (append refresh write))
+                 (lines (org-air-r90--dup-heading-lines "t.org")))
+            (ert-info ((format "%S/%S marked=%S messages=%S lines=%S"
+                               shape verb marked messages lines))
+              ;; 1. THE LAW: the sibling now sitting at the marked offset is
+              ;;    byte-identical on disk.  org-air may not write a heading
+              ;;    the user never selected.
+              (should (equal (assoc unintended drifted)
+                             (assoc unintended lines)))
+              ;; 2. And neither may any other unmarked heading move.
+              (dolist (entry drifted)
+                (unless (equal (car entry) marked)
+                  (should (equal entry (assoc (car entry) lines)))))
+              ;; 3. No complete-success echo for marked work that did not
+              ;;    happen on the heading the user marked.
+              (when (seq-find (lambda (text)
+                                (string-match-p
+                                 org-air-r90--marked-success-re text))
+                              messages)
+                (should (assoc marked lines))
+                (should (string-match-p tag-re (cdr (assoc marked lines)))))
+              ;; 4. The user is never left believing an untrustworthy mark is
+              ;;    live: either org-air reports it stale/pruned, or the write
+              ;;    really did land on the heading they marked.
+              (should (or (seq-find (lambda (text)
+                                      (string-match-p
+                                       org-air-r90--stale-mark-re text))
+                                    messages)
+                          (and (assoc marked lines)
+                               (string-match-p
+                                tag-re (cdr (assoc marked lines)))))))))))))
+
+(ert-deftest org-air-r90-85-duplicate-sibling-never-backlogs-wrong-heading ()
+  "Marked `b' must never spend a mark on a same-projection sibling.
+Repeated headings are ordinary Org (\"Standup\", \"Weekly review\", generated
+or templated entries), and structurally uniform siblings are exactly the ones
+an outside insert or delete can align byte for byte: removing or adding one
+block shifts every later offset by exactly one block.  The mark's identity
+must therefore be able to tell two same-titled, same-tagged headings apart —
+Decision 2 says a source mismatch is a failed/stale target, NEVER silently
+relocated.  Both drift directions are exercised; in each the marked heading
+and the heading now at its offset differ only in body text."
+  (skip-unless (locate-library "org-air"))
+  (dolist (shape '(delete-above insert-above))
+    (org-air-r90--assert-dup-sibling-never-retargets shape 'backlog)))
+
+(ert-deftest org-air-r90-86-duplicate-sibling-never-tags-wrong-heading ()
+  "The same law for marked `t': one shared value, never the wrong sibling.
+`b' and `t' share the mark set, the preflight and the file-coordinated
+writer, so a mark that can re-point across same-projection siblings spends
+the user's single prompted tag on a heading they never selected while echoing
+`Added #zzz to 1 marked item'."
+  (skip-unless (locate-library "org-air"))
+  (dolist (shape '(delete-above insert-above))
+    (org-air-r90--assert-dup-sibling-never-retargets shape 'tag)))
+
 (provide 'org-air-round90-test)
 ;;; org-air-round90-test.el ends here

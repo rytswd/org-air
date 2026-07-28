@@ -135,8 +135,15 @@ to the no-date attention default only."
 (ert-deftest org-air-triage-calendar-marks-have-date-bucket-rows ()
   "Every calendar mark corresponds to a visible row in some DATE bucket.
 The ruled calendar↔bucket consistency invariant (xsqrnoyn): a dotted
-day must be backed by an item rendered under Upcoming/Needs attention,
-never by a row-less phantom.  Data-variation board, GUI glyphs."
+day must be backed by an item rendered under one of the DATE sections,
+never by a row-less phantom.  Data-variation board, GUI glyphs.
+R93: the date sections are Overdue and Upcoming.  Needs attention is no
+longer one of them -- it is a RECENCY section now, and its rows need
+carry no date at all -- while Overdue, which used to be a disjunct
+inside it, is where every past date lands.  Naming the old pair here
+would have let an overdue mark be backed by a Needs-attention row that
+surfaced for being quiet, which is exactly the phantom this invariant
+exists to forbid."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-as-gui
     (org-air-viewport-test-with-alt-dashboard 120
@@ -146,7 +153,7 @@ never by a row-less phantom.  Data-variation board, GUI glyphs."
                (bucket-days ()))
           ;; June days of items actually rendered in a date bucket.
           (pcase-dolist (`(,bucket . ,item) rows)
-            (when (memq bucket '(upcoming attention))
+            (when (memq bucket '(overdue upcoming))
               (dolist (ts (list (org-air-item-scheduled item)
                                 (org-air-item-deadline item)))
                 (when ts

@@ -762,9 +762,10 @@ seam uses the live corpus, not the synthetic-item helper.)"
 (ert-deftest org-air-r86-18-path-adds-no-cache-coherence-input ()
   "`path:' adds no scan-key element or path-driven schema bump (r86-18).
 The feature reads the already-cached `org-air-item-file' slot plus the
-already-keyed `org-air-files' knob.  The current serialisation version remains
-native v6 after R90 discarded its unshipped broad projection; `path:' still
-adds no version transition of its own.  Thus (a) the version is 6; (b)
+already-keyed `org-air-files' knob.  The current serialisation version is v7 after R93
+added the `updated' recency slot to the struct; `path:' still
+adds no version transition of its own.  Thus (a) the version is the
+shipped one; (b)
 `org-air-view--cache-key' stays a SEVEN-element
 list (the R77 element count — R86 added none); (c) the key is INDEPENDENT
 of `org-air-view--tag-filter' AND `org-air-filter-match' — setting or
@@ -774,7 +775,7 @@ or key perturbation fails; the closing check confirms
 the key is NOT inert (a real source change DOES move it)."
   (skip-unless (locate-library "org-air"))
   ;; (a) current version, with no path-specific transition.
-  (should (= 6 org-air-view--cache-version))
+  (should (= 7 org-air-view--cache-version))
   (let ((org-air-files '("/home/u/org"))
         (org-air-inbox-file "/home/u/org/inbox.org"))
     ;; (b) still a SEVEN-element key (no path element added).

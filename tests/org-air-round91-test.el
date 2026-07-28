@@ -63,12 +63,21 @@ which is the only interesting case for a viewport regression.")
   "Return the round-91 corpus: TODO rows, every even one tagged `focus'.
 The tag split gives a filter that KEEPS the anchor row (`Task 40' is
 even) so the filter tests exercise a repaint that changes the buffer's
-total line count without removing the row under point."
-  (mapconcat (lambda (i)
-               (if (zerop (% i 2))
-                   (format "* TODO Task %d :focus:\n" i)
-                 (format "* TODO Task %d\n" i)))
-             (number-sequence 1 org-air-r91--task-count) ""))
+total line count without removing the row under point.
+
+R93: each row carries an inactive stamp in its own body, 60 days before
+the frozen clock.  Needs attention is an AGING rule now, so a corpus
+written a millisecond ago puts every heading at age 0 against a
+threshold of 30 and the section this suite expands would hold NO rows --
+the board would be shorter than the window and every viewport
+measurement below would fail on its precondition rather than on the
+scroll behaviour it exists to pin."
+  (let ((quiet (org-air-test-quiet-stamp)))
+    (mapconcat (lambda (i)
+                 (if (zerop (% i 2))
+                     (format "* TODO Task %d :focus:\n%s\n" i quiet)
+                   (format "* TODO Task %d\n%s\n" i quiet)))
+               (number-sequence 1 org-air-r91--task-count) "")))
 
 (defun org-air-r91--reset-query-state ()
   "Reset global query tables between round-91 corpora."

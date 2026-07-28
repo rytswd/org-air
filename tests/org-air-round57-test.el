@@ -101,8 +101,13 @@ Fast-access keys and `!'/`@' logging specs included — the merge must
 preserve them VERBATIM.")
 
 (defconst org-air-r57--task-buckets
-  '(attention upcoming stale high-priority inbox)
-  "The GTD board task buckets a done/archived item must never enter.")
+  '(overdue upcoming high-priority attention inbox backlog)
+  "The GTD board task buckets a done/archived item must never enter.
+R93 vocabulary, in section order: `overdue' became a bucket of its own
+and `stale' is retired.  `backlog' (R83) is listed too -- a done or
+archived item must not reach the deferred lens either, and leaving a
+live bucket out of this table would silently weaken every
+`should-not (org-air-r57--task-buckets-of ...)' below.")
 
 (defun org-air-r57--task-buckets-of (item)
   "Return the task buckets `org-air-classify-item' puts ITEM in.
@@ -165,7 +170,12 @@ pre-R57 by accident of overlap; locked as a fence against a future
 re-stomp)."
   (skip-unless (locate-library "org-air"))
   (org-air-r53--with-corpus
-      '(("history.org" . "* DROPPED Bar\nDEADLINE: <2022-06-01 Wed>\n* HOLD Baz\n")
+      ;; R93: `Baz' carries a quiet stamp of its own, months before the
+      ;; frozen now.  "A live not-done task IS board material" is asserted
+      ;; below through the Needs-attention bucket, which is an AGING rule
+      ;; now -- a heading written this instant is fresh and correctly holds
+      ;; no bucket, which would make that leg unfalsifiable.
+      '(("history.org" . "* DROPPED Bar\nDEADLINE: <2022-06-01 Wed>\n* HOLD Baz\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let* ((items (org-air-r57--scan-under-user-kws "history.org"))
            (dropped (org-air-test-find-item "Bar" items))
@@ -197,7 +207,9 @@ R57-2 Air-state keywords).  Reverting R57-2 (the keywords absent from
 old fixed vocabulary had none of them — title swallow)."
   (skip-unless (locate-library "org-air"))
   (org-air-r53--with-corpus
-      '(("air.org" . "* READY Qux\n* WIP Quux\n* COMP Shipped widget\n* DROP Abandoned widget\nDEADLINE: <2023-02-03 Fri>\n")
+      ;; R93: `Qux' carries a quiet stamp (see r57-2) so the "board
+      ;; material" leg below is about the KEYWORD, not about the clock.
+      '(("air.org" . "* READY Qux\n[2026-01-05 Mon 09:00]\n* WIP Quux\n* COMP Shipped widget\n* DROP Abandoned widget\nDEADLINE: <2023-02-03 Fri>\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let* ((items (org-air-r57--scan-under-user-kws "air.org"))
            (ready (org-air-test-find-item "Qux" items))
@@ -506,7 +518,9 @@ control sibling with the same years-old SCHEDULED stays on the board
       (should-not (org-air-r57--task-buckets-of child))
       ;; the unarchived control stays board material (anti-tautology).
       (should control)
-      (should (memq 'attention (org-air-r57--task-buckets-of control))))))
+      ;; R93: its years-old SCHEDULED puts it in OVERDUE, which is a
+      ;; bucket of its own now rather than a disjunct of Needs attention.
+      (should (memq 'overdue (org-air-r57--task-buckets-of control))))))
 
 (provide 'org-air-round57-test)
 ;;; org-air-round57-test.el ends here

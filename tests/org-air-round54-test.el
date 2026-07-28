@@ -124,12 +124,16 @@ touching file CONTENT (the pre-R54 stale-flood path)."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r54-1a-dateless-prose-never-stale ()
-  "A dateless prose heading is never Stale, however quiet (R54-1 seam 1a).
+  "A dateless prose heading carries no date and no Stale bucket (R54-1/R93).
 Scanned with the LEGACY `org-air-plain-heading-type' 'task so the plain
-heading still types task and routes through the task buckets — the
-R54-1 eligibility gate is then the ONLY thing between the 60-day-old
-mtime activity and 'stale.  Reverting the gate fails (pre-R54 the mtime
-fallback made exactly this item the Stale flood)."
+heading still types task and routes through the task buckets.  R93
+re-bless: the Stale bucket the seam was built against is RETIRED, so
+what survives here is the surviving half -- the item is not DATED
+\(`org-air-classify--dated-p', the R54-1 predicate under its honest
+name, still the `is:nodate' axis) -- plus the R93 rule that replaced it:
+a 60-day-old file with no per-heading history ages off the COARSE mtime
+floor and surfaces in Needs attention on the clock alone, with no date
+anywhere in the entry."
   (skip-unless (locate-library "org-air"))
   (org-air-r54--with-corpus
       '(("notes.org" . "* Evergreen prose note\nNo dates anywhere.\n")
@@ -141,12 +145,14 @@ fallback made exactly this item the Stale flood)."
            (buckets (org-air-classify-item item org-air-test-now)))
       ;; The legacy knob typed it a task (so it DID reach the buckets)...
       (should (eq (org-air-item-ntype item) 'task))
-      ;; ...its activity clock IS 60 days old (the mtime path)...
-      (should (>= (- (time-to-days org-air-test-now)
-                     (time-to-days (org-air-classify--last-activity item)))
-                  org-air-stale-days))
-      ;; ...and it is still NEVER Stale: no date => not stale-eligible.
-      (should-not (org-air-classify--stale-eligible-p item))
+      ;; ...it has NO per-heading history, so the R93 clock is the file...
+      (should-not (org-air-item-updated item))
+      (should (>= (org-air-classify-quiet-days item org-air-test-now)
+                  (org-air-classify-attention-threshold item)))
+      ;; ...it carries no date at all (the R54-1 predicate, renamed)...
+      (should-not (org-air-classify--dated-p item))
+      (should-not (org-air-classify--stale-eligible-p item)) ; kept alias
+      ;; ...`stale' is retired, and the quiet clock alone surfaces it.
       (should-not (memq 'stale buckets))
       (should (memq 'attention buckets)))))
 
@@ -169,32 +175,45 @@ old) and fails."
       (should-not (memq 'stale buckets)))))
 
 (ert-deftest org-air-r54-1c-dated-quiet-is-stale ()
-  "SCHEDULED-quiet, DEADLINE-quiet and active-<ts>-quiet ARE Stale (1b/1c).
-The stale CLOCK is unchanged for dated items — this locks the semantics
-table's eligible rows and guards against over-gating; the fresh-dated
-companion (SCHEDULED yesterday) stays un-stale (1d)."
+  "SCHEDULED-quiet, DEADLINE-quiet and active-<ts>-quiet surface (1b/1c, R93).
+R93 re-bless: the Stale bucket is retired and the aging Needs-attention
+rule subsumes it, so the three quiet DATED rows still surface -- as
+`attention' -- and the fresh dated companion still does not.  The corpus
+moved with the rule: \"quiet\" is now the heading's RECENCY (an inactive
+`[stamp]' in its own body), never its plan date, so each row states its
+own last-touched date instead of leaning on the file's mtime.  That is
+the R93 point restated from the other side: the SCHEDULED/DEADLINE dates
+below neither start nor stop this clock."
   (skip-unless (locate-library "org-air"))
   (org-air-r54--with-corpus
       '(("tasks.org" .
          "* TODO Quiet scheduled chore\nSCHEDULED: <2026-04-16 Thu>\n\
-Two months quiet.\n\
+Two months quiet.\n[2026-04-16 Thu 09:00]\n\
 * TODO Quiet deadline chore\nDEADLINE: <2026-04-16 Thu>\n\
-Two months quiet.\n\
+Two months quiet.\n[2026-04-16 Thu 09:00]\n\
 * TODO Quiet stamped chore\nLast touched <2026-03-15 Sun>, active stamp.\n\
-* TODO Fresh scheduled chore\nSCHEDULED: <2026-06-14 Sun>\nYesterday.\n")
+[2026-03-15 Sun 20:00]\n\
+* TODO Fresh scheduled chore\nSCHEDULED: <2026-06-14 Sun>\nYesterday.\n\
+[2026-06-14 Sun 18:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let ((items (org-air-query-items)))
-      (should (memq 'stale (org-air-r54--buckets "Quiet scheduled chore" items)))
-      (should (memq 'stale (org-air-r54--buckets "Quiet deadline chore" items)))
-      ;; The bare active <ts> grants ELIGIBILITY (and the clock reads the
-      ;; same stamp via `subtree-ts'): observable on this TODO-typed task.
+      (dolist (title '("Quiet scheduled chore" "Quiet deadline chore"))
+        (let ((buckets (org-air-r54--buckets title items)))
+          (ert-info ((format "%s => %S" title buckets))
+            (should (memq 'attention buckets))
+            (should-not (memq 'stale buckets)))))
+      ;; The bare active <ts> still grants DATE-eligibility (the R54-1
+      ;; predicate under its R93 name); the quiet clock comes from the
+      ;; inactive stamp beside it, never from the active one.
       (let ((item (org-air-r54--item "Quiet stamped chore" items)))
         (should (org-air-item-active-ts item))
-        (should (memq 'stale (org-air-classify-item item org-air-test-now))))
-      ;; Fresh dated: eligible but the clock says 1 day — not Stale.
+        (should (org-air-classify--dated-p item))
+        (should (memq 'attention (org-air-classify-item item org-air-test-now))))
+      ;; Fresh dated: dated, and touched yesterday — no nag.
       (let ((fresh (org-air-r54--item "Fresh scheduled chore" items)))
         (should (org-air-classify--stale-eligible-p fresh))
-        (should-not (memq 'stale
+        (should (= 1 (org-air-classify-quiet-days fresh org-air-test-now)))
+        (should-not (memq 'attention
                           (org-air-classify-item fresh org-air-test-now)))))))
 
 (ert-deftest org-air-r54-1d-inactive-created-drawer-never-stale ()
@@ -221,12 +240,21 @@ the item eligible with a 161-day clock, and fails."
       (should (memq 'attention buckets)))))
 
 (ert-deftest org-air-r54-1e-eligibility-first-conjunct-clock-unchanged ()
-  "The eligibility gate is the FIRST conjunct; the clock is unchanged (1e).
-An INELIGIBLE item never consults `org-air-classify--last-activity'
-(call count 0 — moving the gate inside/after the clock probe fails);
-an ELIGIBLE quiet item still consults it and goes 'stale.  The clock
-itself still answers mtime for the dateless item — the R54-1 fix is
-eligibility, not a clock that learned to return nil."
+  "The date predicate survives; the R22 activity chain is NOT the clock (1e/R93).
+R93 re-bless.  The seam this test was built for -- \"eligibility is the
+first conjunct of the Stale rule\" -- went with the Stale rule, but its
+two halves both have R93 successors that are worth more:
+
+  1. `org-air-classify--dated-p' (the R54-1 predicate, renamed, with the
+     old spelling kept as a working alias) still answers exactly as it
+     did: it is now the `is:nodate' axis rather than a bucket gate.
+  2. The aging rule reads `org-air-classify-updated' and NOTHING else.
+     `org-air-classify--last-activity' -- the broad \"what has this item
+     got going on\" chain that also counts SCHEDULED and DEADLINE -- is
+     never consulted while classifying, for either item.  Wiring the
+     attention clock to that chain (the obvious cheap implementation)
+     would make a PLAN silence the nag, which is the exact inversion R93
+     exists to remove; the call count pins it at zero."
   (skip-unless (locate-library "org-air"))
   (should (fboundp 'org-air-classify--stale-eligible-p))
   (org-air-r54--with-corpus
@@ -241,22 +269,24 @@ eligibility, not a clock that learned to return nil."
            (orig (symbol-function 'org-air-classify--last-activity))
            (calls 0))
       (should-not (org-air-classify--stale-eligible-p dateless))
+      (should-not (org-air-classify--dated-p dateless))
       (should (org-air-classify--stale-eligible-p dated))
+      (should (org-air-classify--dated-p dated))
       (cl-letf (((symbol-function 'org-air-classify--last-activity)
                  (lambda (item) (cl-incf calls) (funcall orig item))))
-        ;; Ineligible: the stale clock is NEVER consulted (gate first).
+        ;; Neither item's classification consults the R22 activity chain.
         (org-air-classify-item dateless org-air-test-now)
         (should (= calls 0))
-        ;; Eligible + quiet: the clock runs and says stale.
-        (should (memq 'stale (org-air-classify-item dated org-air-test-now)))
-        (should (> calls 0)))
-      ;; Clock byte-identity: `--last-activity' still answers the 60-day
-      ;; mtime for the dateless item (the chain never learned to say no).
+        (should (memq 'attention (org-air-classify-item dated org-air-test-now)))
+        (should (= calls 0)))
+      ;; And the chain itself is unchanged: it still answers the 60-day
+      ;; mtime for the dateless item (it never learned to say no; it is
+      ;; simply not what Needs attention asks any more).
       (let ((activity (org-air-classify--last-activity dateless)))
         (should activity)
         (should (>= (- (time-to-days org-air-test-now)
                        (time-to-days activity))
-                    org-air-stale-days))))))
+                    (org-air-classify-attention-threshold dateless)))))))
 
 (ert-deftest org-air-r54-1f-marker-active-ts-live-fallback-cons-nil ()
   "`--marker-active-ts': live active <ts> answers; inactive and cons nil (1f).

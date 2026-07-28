@@ -57,12 +57,18 @@
   (float-time (time-add org-air-test-now (days-to-time days))))
 
 (cl-defun org-air-r72--item (title &key scheduled deadline tags priority
-                                   todo donep active-ts activity)
+                                   todo donep active-ts activity updated)
   "Build a cache-hydrated-shape `org-air-item' relative to the frozen now.
 SCHEDULED / DEADLINE are day offsets (timestamp objects minted);
-ACTIVE-TS / ACTIVITY are day offsets (epoch floats).  The marker is a
-\(FILE . POS) cons — the R53 cache-hydrated shape, so any live-marker
-fallback must resolve to nil without opening a file."
+ACTIVE-TS / ACTIVITY / UPDATED are day offsets (epoch floats).  The
+marker is a (FILE . POS) cons — the R53 cache-hydrated shape, so any
+live-marker fallback must resolve to nil without opening a file.
+
+UPDATED is the R93 recency slot.  It is left nil on purpose for every
+item that is not deliberately quiet: this fixture's FILE is a fiction
+with no entry in the scan's file-meta table, so a nil slot means the
+age is UNKNOWN — and org-air refuses to nag about an item it cannot
+date, at every threshold except `#A''s 0."
   (org-air-item-create
    :title title
    :tags tags
@@ -75,6 +81,7 @@ fallback must resolve to nil without opening a file."
    :scheduled (and scheduled (org-air-r72--ts scheduled))
    :deadline (and deadline (org-air-r72--ts deadline))
    :active-ts (and active-ts (org-air-r72--epoch active-ts))
+   :updated (and updated (org-air-r72--epoch updated))
    :activity (org-air-r72--epoch (or activity 0))))
 
 (defun org-air-r72--fixture ()
@@ -91,8 +98,11 @@ fallback must resolve to nil without opening a file."
    (cons 'd8 (org-air-r72--item "Quarterly planning" :scheduled 8))
    (cons 'd10 (org-air-r72--item "Renew certificate" :scheduled 10))
    (cons 'dateless (org-air-r72--item "Untracked idea"))
+   ;; R93: quiet for 30 days by its OWN recency stamp (the aging rule's
+   ;; clock), on top of the dated-ness that used to be the Stale gate.
    (cons 'stale-active (org-air-r72--item "Quiet dated task"
-                                          :active-ts -30 :activity -30))
+                                          :active-ts -30 :activity -30
+                                          :updated -30))
    (cons 'done-past (org-air-r72--item "Old done chore"
                                        :scheduled -5 :todo "DONE" :donep t))
    (cons 'archived-past (org-air-r72--item "Archived history"
@@ -117,8 +127,7 @@ item — the exact board path (R53: pure slot work, no rescan)."
         (org-air-view--filter-now (or now org-air-test-now))
         (org-air-view--scope nil)
         (org-air-view--render-partition nil)
-        (org-air-upcoming-days 7)
-        (org-air-stale-days 21))
+        (org-air-upcoming-days 7))
     (mapcar #'car
             (seq-filter (lambda (pair)
                           (org-air-view--passes-filter-p (cdr pair)))
@@ -137,7 +146,21 @@ them forever)."
   (should (equal '(is . overdue) (org-air-view--filter-token-parse "is:overdue")))
   (should (equal '(is . overdue) (org-air-view--filter-token-parse "IS:Overdue")))
   (should (equal '(is . upcoming) (org-air-view--filter-token-parse "is:upcoming")))
-  (should (equal '(is . stale) (org-air-view--filter-token-parse "is:stale")))
+  (should (equal '(is . attention) (org-air-view--filter-token-parse "is:attention")))
+  (should (equal '(is . attention) (org-air-view--filter-token-parse "IS:Attention")))
+  ;; R93: `is:stale' is RETIRED as vocabulary but kept as a parse-only
+  ;; ALIAS, so a saved bookmark or muscle memory resolves to the current
+  ;; symbol -- once, here -- instead of falling through to a bare
+  ;; substring search for the literal text "is:stale" (which would match
+  ;; nothing and read like a bug).
+  (should (equal '(is . attention) (org-air-view--filter-token-parse "is:stale")))
+  (should (equal '(is . attention) (org-air-view--filter-token-parse "IS:Stale")))
+  ;; ...and the retired spelling is NOT offered, so the vocabulary
+  ;; org-air TEACHES is only ever the current one.
+  (should (member "is:attention" (org-air-view--filter-vocabulary)))
+  (should-not (member "is:stale" (org-air-view--filter-vocabulary)))
+  (should (member "attention" org-air-view--filter-is-values))
+  (should-not (member "stale" org-air-view--filter-is-values))
   (should (equal '(is . nodate) (org-air-view--filter-token-parse "is:nodate")))
   (should (equal '(is . hipri) (org-air-view--filter-token-parse "is:hipri")))
   (should (equal '(due . 7) (org-air-view--filter-token-parse "due:7d")))
@@ -148,7 +171,8 @@ them forever)."
   ;; The near-misses all return nil — the fall-through set (never-error).
   (dolist (miss '("overdue" "#overdue" "#is:overdue" "is:urgent"
                   "is:overdues" "due:7" "due:7x" "due:-1d" "due:"
-                  "due:7d " "xdue:7d" "is:overdue,"))
+                  "due:7d " "xdue:7d" "is:overdue,"
+                  "is:stales" "is:attentions"))
     (should-not (org-air-view--filter-token-parse miss))))
 
 ;;;; ---------------------------------------------------------------------
@@ -170,22 +194,35 @@ classify into no bucket either); today/+7d/dateless OUT."
 (ert-deftest org-air-r72-3-filter-bucket-agreement ()
   "R72-3: over EVERY fixture item the filter and the buckets agree EXACTLY.
 `due:7d' <=> `is:upcoming' <=> 'upcoming in `org-air-classify-item';
-`is:stale' <=> 'stale; `is:hipri' <=> 'high-priority.  Boundaries pinned:
-day 0 IN, day 7 IN, day 8 OUT, past OUT."
+`is:attention' <=> 'attention; `is:overdue' <=> 'overdue;
+`is:hipri' <=> 'high-priority.  Boundaries pinned:
+day 0 IN, day 7 IN, day 8 OUT, past OUT.
+
+R93 re-bless (honest — the theorem is STRONGER, not weaker): the
+`is:stale' <=> 'stale leg is dead with its bucket, and its natural
+successor `is:attention' <=> 'attention takes its seat.  `is:overdue'
+<=> 'overdue joins as a fourth leg for free, because Overdue is a
+bucket of its own now.  The retired spelling `is:stale' must select the
+SAME set as `is:attention' (it parses to that predicate), which is what
+makes the alias honest rather than a silent no-op."
   (let* ((fixture (org-air-r72--fixture))
          (org-air-upcoming-days 7)
-         (org-air-stale-days 21)
          (due7 (org-air-r72--pass-keys fixture '("due:7d")))
          (upcoming (org-air-r72--pass-keys fixture '("is:upcoming")))
-         (stale (org-air-r72--pass-keys fixture '("is:stale")))
+         (attention (org-air-r72--pass-keys fixture '("is:attention")))
+         (aliased (org-air-r72--pass-keys fixture '("is:stale")))
+         (overdue (org-air-r72--pass-keys fixture '("is:overdue")))
          (hipri (org-air-r72--pass-keys fixture '("is:hipri"))))
     (should (equal due7 upcoming))
+    (should (equal attention aliased))
     (pcase-dolist (`(,key . ,item) fixture)
       (let ((buckets (org-air-classify-item item org-air-test-now)))
         (should (eq (not (null (memq key due7)))
                     (not (null (memq 'upcoming buckets)))))
-        (should (eq (not (null (memq key stale)))
-                    (not (null (memq 'stale buckets)))))
+        (should (eq (not (null (memq key attention)))
+                    (not (null (memq 'attention buckets)))))
+        (should (eq (not (null (memq key overdue)))
+                    (not (null (memq 'overdue buckets)))))
         (should (eq (not (null (memq key hipri)))
                     (not (null (memq 'high-priority buckets)))))))
     ;; Boundary table inside the same test.
@@ -194,7 +231,10 @@ day 0 IN, day 7 IN, day 8 OUT, past OUT."
     (should-not (memq 'd8 due7))         ; day 8 OUT
     (should-not (memq 'past-sched due7)) ; past OUT of every window
     (should-not (memq 'past-dl due7))
-    (should (equal '(stale-active) stale))
+    ;; The quiet dated item and the `#A' (threshold 0) are the whole
+    ;; attention set; nothing is nagged for merely lacking a date.
+    (should (equal '(stale-active hipri-dateless) attention))
+    (should (equal '(past-sched past-dl) overdue))
     (should (equal '(hipri-dateless) hipri))))
 
 ;;;; ---------------------------------------------------------------------
@@ -414,7 +454,6 @@ the FULL fixture's `org-air-classify-item' bucket lists are pinned
 byte-equal to the pre-hoist answers; `--board-active-p' <=> the old
 `unless' gate."
   (let ((org-air-upcoming-days 7)
-        (org-air-stale-days 21)
         (fixture (org-air-r72--fixture)))
     ;; The no-DAYS boundary table (the pre-R72 signature's answers).
     (dolist (row '((-1 . nil) (0 . t) (3 . t) (7 . t) (8 . nil)))
@@ -423,18 +462,29 @@ byte-equal to the pre-hoist answers; `--board-active-p' <=> the old
                         (org-air-r72--ts (car row)) org-air-test-now)
                        t))))
     ;; The full fixture's bucket lists, pinned (golden-in-test).
-    (dolist (expected '((past-sched . (attention))
-                        (past-dl . (attention))
+    ;; R93 re-bless: the pinned answers move with the rule, in SECTION
+    ;; order (overdue, upcoming, high-priority, attention).  Read as a
+    ;; table this IS the round's product change:
+    ;;   past-sched / past-dl  overdue is its own bucket, and a missed
+    ;;                         date alone no longer nags.
+    ;;   dateless              the deleted no-date default: an undated
+    ;;                         item of unknown age is NOT nagged.
+    ;;   stale-active          quiet 30 days => attention (Stale's rule,
+    ;;                         subsumed).
+    ;;   hipri-dateless        `#A' surfaces unconditionally -- with an
+    ;;                         UNKNOWN age, and in BOTH sections.
+    (dolist (expected '((past-sched . (overdue))
+                        (past-dl . (overdue))
                         (today . (upcoming))
                         (dl3 . (upcoming))
                         (d7 . (upcoming))
                         (d8 . ())
                         (d10 . ())
-                        (dateless . (attention))
-                        (stale-active . (attention stale))
+                        (dateless . ())
+                        (stale-active . (attention))
                         (done-past . ())
                         (archived-past . ())
-                        (hipri-dateless . (attention high-priority))
+                        (hipri-dateless . (high-priority attention))
                         (tagged-overdue . (upcoming))))
       (should (equal (cdr expected)
                      (org-air-classify-item (cdr (assq (car expected) fixture))
@@ -560,44 +610,53 @@ The fixture answers differently under two frozen instants, and
 ;;;; ---------------------------------------------------------------------
 
 (ert-deftest org-air-r72-13-overdue-agrees-with-attention-members ()
-  "AUDIT GAP: `is:overdue' <=> the Needs-attention bucket's OVERDUE members.
-r72-3 drove the agreement theorem for upcoming/stale/hipri; the overdue
-token's bucket home was only asserted as a SET (r72-2), never against
-the attention bucket itself.  Pinned here: over EVERY fixture item,
-`is:overdue' <=> (attention-member AND `--overdue-p') — every filter hit
-has a home row in Needs-attention, and the attention members the filter
-does NOT select are exactly the dateless/stale/hipri remainder (the
-no-date default disjunct), so the token isolates the overdue disjunct
-alone."
+  "AUDIT GAP: `is:overdue' <=> the OVERDUE bucket, exactly and only.
+r72-3 drove the agreement theorem for upcoming/attention/hipri; the
+overdue token's bucket home was only asserted as a SET (r72-2), never
+against the bucket itself.
+
+R93 re-bless (honest — the law got SHARPER).  Pre-R93 overdue was a
+disjunct of Needs attention, so this test could only say \"every
+`is:overdue' hit has a home row in Needs attention, and the attention
+members it does not select are the no-date/stale/hipri remainder\".
+R93 split Overdue into its own bucket and its own section, so the
+statement is now an EXACT equivalence with no remainder to explain:
+`is:overdue' <=> 'overdue, member for member.  The two sections are
+independent — a freshly-touched overdue item is in Overdue and NOT in
+Needs attention, and a quiet item with no date is the reverse — which
+is the whole point of the split, so both directions are pinned."
   (let* ((fixture (org-air-r72--fixture))
          (org-air-upcoming-days 7)
-         (org-air-stale-days 21)
-         (overdue (org-air-r72--pass-keys fixture '("is:overdue"))))
+         (overdue (org-air-r72--pass-keys fixture '("is:overdue")))
+         (attention (org-air-r72--pass-keys fixture '("is:attention"))))
     (pcase-dolist (`(,key . ,item) fixture)
-      (let ((attention (memq 'attention
-                             (org-air-classify-item item org-air-test-now))))
+      (let ((buckets (org-air-classify-item item org-air-test-now)))
+        ;; token <=> bucket, by construction (one shared predicate).
         (should (eq (not (null (memq key overdue)))
-                    (not (null (and attention
-                                    (org-air-classify--overdue-p
-                                     item org-air-test-now))))))
-        ;; every `is:overdue' hit renders somewhere: attention is its home.
+                    (not (null (memq 'overdue buckets)))))
+        ;; and the bucket <=> the predicate the section body calls,
+        ;; under the two enclosing gates every sibling bucket shares
+        ;; (the R72 board-active top gate, the R83 backlog routing).
+        (should (eq (not (null (memq 'overdue buckets)))
+                    (and (org-air-classify--board-active-p item)
+                         (not (org-air-classify--backlog-p item))
+                         (org-air-classify--overdue-p item org-air-test-now)
+                         t)))
+        ;; every `is:overdue' hit renders somewhere: Overdue is its home.
         (when (memq key overdue)
-          (should attention))))
-    ;; the exact split of the attention bucket: overdue disjunct = the
-    ;; filter; no-date/stale/hipri remainder = untouched by it.
-    (let ((attention-members
-           (mapcar #'car
-                   (seq-filter
-                    (lambda (pair)
-                      (memq 'attention (org-air-classify-item
-                                        (cdr pair) org-air-test-now)))
-                    fixture))))
-      (should (equal '(past-sched past-dl dateless stale-active
-                                  hipri-dateless)
-                     attention-members))
-      (should (equal '(dateless stale-active hipri-dateless)
-                     (seq-remove (lambda (k) (memq k overdue))
-                                 attention-members))))))
+          (should (memq 'overdue buckets)))))
+    ;; The two sections are INDEPENDENT: neither contains the other.
+    (should (equal '(past-sched past-dl) overdue))
+    (should (equal '(stale-active hipri-dateless) attention))
+    (should-not (seq-intersection overdue attention))
+    ;; Overdue and freshly touched => Overdue only.  That is the R93
+    ;; ruling in one row: being LATE is not the same as having gone
+    ;; QUIET, and the board says so in two different places.
+    (let ((touched (org-air-r72--item "Overdue, freshly touched"
+                                      :deadline -3 :updated 0)))
+      (should (org-air-classify--overdue-p touched org-air-test-now))
+      (should (equal '(overdue)
+                     (org-air-classify-item touched org-air-test-now))))))
 
 (ert-deftest org-air-r72-14-due-2w-widens-and-shows ()
   "AUDIT GAP: the user's literal ask with the literal `due:2w' TOKEN.
@@ -714,6 +773,11 @@ clearing through the command restores the default (DAY . knob) key,
 still scan-free.  Revert-red: the pre-R72 memo key was the bare day
 integer, so the key conjuncts fail there.
 
+R93 re-bless (honest — no conjunct weakened): the memo key gained the
+two aging-threshold knobs, so the literal key shape below grew by two
+elements.  The SUBJECT — a filter apply repaints and never rescans — is
+untouched, and the widened-horizon element is still asserted in place.
+
 `org-air-show-inspector' is bound nil: the rail inspector's CREATED
 hydration is the ONE design-sanctioned bounded file probe (one file,
 for the single inspected item, user-driven — pre-R72 behaviour, fires
@@ -760,7 +824,9 @@ it out of frame the ZERO-opens assert pins the R72 contract exactly."
                   (should (> (buffer-chars-modified-tick) tick0))
                   ;; …the widened-horizon memo key landed (R83: the key is
                   ;; the LIST (DAY HORIZON BACKLOG-TAG), not a bare cons)…
-                  (should (equal (list today 14 org-air-backlog-tag)
+                  (should (equal (list today 14 org-air-backlog-tag
+                                       org-air-attention-days
+                                       org-air-attention-default-days)
                                  org-air-view--classify-cache-day))
                   ;; …and NOTHING was scanned or opened (R53).
                   (should (= 0 scans))
@@ -771,7 +837,9 @@ it out of frame the ZERO-opens assert pins the R72 contract exactly."
                     (should-not (org-air-view--filter-tags))
                     (should (> (buffer-chars-modified-tick) tick1))
                     (should (equal (list today org-air-upcoming-days
-                                          org-air-backlog-tag)
+                                          org-air-backlog-tag
+                                          org-air-attention-days
+                                          org-air-attention-default-days)
                                    org-air-view--classify-cache-day))
                     (should (= 0 scans))
                     (should (= 0 opens)))))))

@@ -296,11 +296,17 @@ With the clock frozen to `org-air-test-now', the month header is
 
 (defconst org-air-viewport-test-section-titles
   '((inbox . "Inbox")
-    (attention . "Needs attention")
+    (overdue . "Overdue")
     (upcoming . "Upcoming")
     (high-priority . "High priority")
-    (stale . "Stale"))
-  "Spec-frozen bucket display titles (design §3 mockups).")
+    (attention . "Needs attention"))
+  "Spec-frozen bucket display titles, in DISPLAY ORDER (design §3 mockups).
+R93: `overdue' became a section of its own, `stale' is retired, and the
+order reads process (Inbox), repair (Overdue), plan (Upcoming), choose
+(High priority), sweep (Needs attention).  The order matters: callers
+compare this list against `org-air-view--sections' position by position,
+so a table listing the right five titles in the wrong order is a
+failure, not a detail.")
 
 (defun org-air-viewport-test-divider-positions ()
   "Return (LINENO . COLUMN) for each line containing a pane divider.

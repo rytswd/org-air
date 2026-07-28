@@ -205,8 +205,7 @@ REAL fold `org-air-view--passes-filter-p', the board path."
         (org-air-view--filter-now org-air-test-now)
         (org-air-view--scope nil)
         (org-air-view--render-partition nil)
-        (org-air-upcoming-days 7)
-        (org-air-stale-days 21))
+        (org-air-upcoming-days 7))
     (and (org-air-view--passes-filter-p item) t)))
 
 ;;;; -------------------------------------------------------------------
@@ -215,17 +214,25 @@ REAL fold `org-air-view--passes-filter-p', the board path."
 
 (ert-deftest org-air-r83-1-b-defers-off-attention ()
   "`b' on a keyword-carrying dateless heading defers it (r83-1).
-Before: the placeholder task classifies `attention' (the no-date
-default).  After `org-air-item-backlog' at its row: the SOURCE heading
-gains `:backlog:', the cached item's `tags' slot carries it, and
-`org-air-classify-item' => (backlog) — NOT attention / upcoming /
-high-priority / stale / inbox.  Reverting the D4 gate fails."
+Before: the placeholder task classifies `attention'.  After
+`org-air-item-backlog' at its row: the SOURCE heading gains
+`:backlog:', the cached item's `tags' slot carries it, and
+`org-air-classify-item' => (backlog) — NOT overdue / upcoming /
+high-priority / attention / inbox.  Reverting the D4 gate fails.
+
+R93: the corpus states WHY the placeholder is on the attention surface.
+Pre-R93 it was there for having no date, which is the default R93
+deleted; it now carries a quiet stamp in its own body, months before the
+frozen now, so it is there for having gone QUIET.  The subject of this
+test -- `b' routes an item OFF the task buckets into the single backlog
+home -- is untouched, and it is now tested against the surface a real
+user would be deferring from."
   (skip-unless (locate-library "org-air"))
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n  fill in anytime\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n[2026-01-05 Mon 09:00]\n  fill in anytime\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let ((btrfs (org-air-r83--item "Btrfs" org-air-view--items)))
-      ;; before: the no-date attention default.
+      ;; before: quiet past its threshold => Needs attention.
       (should (equal '(attention)
                      (org-air-classify-item btrfs org-air-test-now)))
       (org-air-r83--goto-row "Btrfs")
@@ -238,7 +245,7 @@ high-priority / stale / inbox.  Reverting the D4 gate fails."
       ;; and classify routes to the SINGLE backlog home.
       (should (equal '(backlog)
                      (org-air-classify-item btrfs org-air-test-now)))
-      (dolist (bucket '(attention upcoming high-priority stale inbox))
+      (dolist (bucket '(overdue upcoming high-priority attention inbox))
         (should-not (memq bucket
                           (org-air-classify-item btrfs org-air-test-now)))))))
 
@@ -249,12 +256,13 @@ high-priority / stale / inbox.  Reverting the D4 gate fails."
 (ert-deftest org-air-r83-2-b-again-round-trips-preserving-tags ()
   "A second `b' removes `:backlog:'; a co-tag survives both (r83-2).
 From r83-1's deferred state, `org-air-item-backlog' again removes the
-tag from the source, the item re-classifies to `attention', and a
-pre-existing `:nix:' co-tag survives BOTH toggles.  Reverting the
-explicit on/off direction or the `org-toggle-tag' choice fails."
+tag from the source, the item re-classifies to `attention' (R93: on its
+own quiet stamp, months before the frozen now), and a pre-existing
+`:nix:' co-tag survives BOTH toggles.  Reverting the explicit on/off
+direction or the `org-toggle-tag' choice fails."
   (skip-unless (locate-library "org-air"))
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout :nix:\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout :nix:\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     ;; toggle ON.
     (org-air-r83--goto-row "Btrfs")
@@ -448,7 +456,7 @@ attention to backlog).  Replacing the repaint with `org-air-refresh'
 \(a re-query) fails the counter assertion."
   (skip-unless (locate-library "org-air"))
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let ((btrfs (org-air-r83--item "Btrfs" org-air-view--items))
           (queries 0))
@@ -477,7 +485,7 @@ item is (backlog) — proving the single-item `remhash' fired (else the
 warm `eq' entry would still read attention).  Removing the remhash fails."
   (skip-unless (locate-library "org-air"))
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let ((btrfs (org-air-r83--item "Btrfs" org-air-view--items)))
       ;; warm the memo with the pre-toggle bucketing.
@@ -504,7 +512,7 @@ source bytes round-tripping.  Marking the record structural, or
 bypassing the macro, fails."
   (skip-unless (locate-library "org-air"))
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout :nix:\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout :nix:\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let ((before (org-air-r83--text "docs.org")))
       (org-air-r83--goto-row "Btrfs")
@@ -545,7 +553,7 @@ push.  Reverting the guards / condition-case fails the never-error law."
     (should-error (org-air-item-backlog) :type 'user-error))
   ;; (b) mid-refresh stale file: the stale guard soft-errors, no write.
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let ((before (org-air-r83--text "docs.org")))
       (org-air-r83--goto-row "Btrfs")
@@ -558,7 +566,7 @@ push.  Reverting the guards / condition-case fails the never-error law."
       (should (null org-air-view--edit-ring))))
   ;; (c) a mid-body signal: rollback, no save, no ring push, no hard error.
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let ((before (org-air-r83--text "docs.org")))
       (org-air-r83--goto-row "Btrfs")
@@ -625,7 +633,7 @@ key DIFFERS across the rename (a mid-session slot-fold rebuild).  Adding
 the tag to the scan key, or omitting it from the memo key, fails."
   (skip-unless (locate-library "org-air"))
   (org-air-r83--with-corpus
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     ;; the SCAN key ignores the tag name (no version bump, no re-derive).
     (let ((key-a (let ((org-air-backlog-tag "backlog"))
@@ -771,7 +779,7 @@ returns to the fixed five.  Complements r83-4 (which only measured a
 STATIC board) and r83-7 (the spy) by pinning the DYNAMIC Summary update."
   (skip-unless (locate-library "org-air"))
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     ;; before: no backlog anywhere (data + rendered text).
     (should-not (assq 'backlog (org-air-view--section-counts org-air-view--items)))
@@ -821,6 +829,7 @@ or the macro's structural leg fails."
       '(("docs.org" . "#+title: docs\n\n\
 * TODO Btrfs partition layout :nix:\n\
 :PROPERTIES:\n:CUSTOM_ID: btrfs\n:END:\n\
+[2026-01-05 Mon 09:00]\n\
   body line stays.\n\
 * TODO Archive me\nDEADLINE: <2026-06-10 Wed>\n")
         ("inbox.org" . "#+title: inbox\n"))
@@ -918,7 +927,7 @@ file, each fails."
   ;; writes nothing (a distinct never-error leg from r83-10's no-item /
   ;; mid-refresh-stale cases).
   (org-air-r83--with-board
-      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n")
+      '(("docs.org" . "#+title: docs\n\n* TODO Btrfs partition layout\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (org-air-r83--goto-row "Btrfs")
     (dolist (b (buffer-list))

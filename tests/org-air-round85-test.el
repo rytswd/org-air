@@ -88,16 +88,19 @@ The `activity' slot is stored as an epoch float; DAYS = 0 is today,
 1 is tomorrow (relative to `org-air-test-now')."
   (float-time (time-add org-air-test-now (days-to-time days))))
 
-(cl-defun org-air-r85--note (&key activity)
-  "Build a dateless NOTE-shape `org-air-item' with ACTIVITY (day offset).
+(cl-defun org-air-r85--note (&key activity updated priority)
+  "Build a dateless NOTE-shape `org-air-item' for the neutral label arms.
 No scheduled/deadline, so `org-air-view--date-label' falls through to the
-NEUTRAL `notes' arm.  ACTIVITY is a day offset from the frozen now, stored
-as the epoch float the scan would have cached (R53 P3)."
+NEUTRAL `notes' / `attention' arms.  ACTIVITY and UPDATED are day offsets
+from the frozen now, stored as the epoch floats the scan would have
+cached (R53 P3 / the R93 recency slot); PRIORITY is an Org cookie value."
   (org-air-item-create
    :title "A quiet note"
    :file "/tmp/org-air-r85-note.org"
    :marker (cons "/tmp/org-air-r85-note.org" 1)
    :kind 'heading
+   :priority priority
+   :updated (and updated (org-air-r85--epoch updated))
    :activity (and activity (org-air-r85--epoch activity))))
 
 ;; (The rule-B slot builders `org-air-r85--org-ts' / `--dated' and the
@@ -248,26 +251,38 @@ FAILS."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r85-8-non-emitting-neutral-arms-untouched ()
-  "An `attention' item with no date → `(cons \"no date\"
-'org-air-face-date)'; a `stale' item → a \"Nd quiet\" label with
-`org-air-face-date' — neither ever carries a day face (they never emit a
-relative today/tomorrow).  Accidentally routing them through the day face
-FAILS."
+  "The two REASON labels of the Needs-attention arm are always neutral.
+R93 re-bless.  The arm this seam guards is the same one, in the same
+seat, with the same law -- it must never carry a day face, because it
+never emits a relative today/tomorrow -- but its LABEL changed with the
+section's meaning.  Pre-R93 a Needs-attention row was there for having
+no date, so the cell read the fixed literal \"no date\"; R93 makes it a
+quiet-age rule, so the cell carries the REASON the row surfaced:
+\"Nd quiet\" (the age that crossed the threshold) or \"always\" (a
+threshold-0 `#A').  Both are still fixed, still neutral
+`org-air-face-date', and the retired \"Nd quiet\" chip of the Stale arm
+is where the first of them came from.  Accidentally routing either
+through the day face FAILS."
   (skip-unless (and (locate-library "org-air")
                     (fboundp 'org-air-view--date-label)))
   (org-air-r85--frozen
-    ;; attention: "no date" is a fixed literal, always neutral.
-    (should (equal (org-air-view--date-label
-                    (org-air-r85--note :activity nil) 'attention)
-                   (cons "no date" 'org-air-face-date)))
-    ;; stale: even with `activity' = today the label is a "quiet" chip in
-    ;; the neutral face (it is never a relative today/tomorrow).
+    ;; attention, quiet 30 days: the age, in the neutral face.
     (pcase-let ((`(,label . ,face)
                  (org-air-view--date-label
-                  (org-air-r85--note :activity 0) 'stale)))
-      (should (string-match-p "quiet" label))
+                  (org-air-r85--note :updated -30) 'attention)))
+      (should (equal "30d quiet" label))
       (should-not (member label '("Today" "Tomorrow")))
-      (should (eq face 'org-air-face-date)))))
+      (should (eq face 'org-air-face-date)))
+    ;; attention, threshold 0 (`#A'): the fixed literal, same face.
+    (should (equal (org-air-view--date-label
+                    (org-air-r85--note :priority (org-get-priority "[#A]"))
+                    'attention)
+                   (cons "always" 'org-air-face-date)))
+    ;; attention with an UNKNOWN age: the cell is never blank and org-air
+    ;; never invents a number.
+    (should (equal (org-air-view--date-label
+                    (org-air-r85--note) 'attention)
+                   (cons "quiet" 'org-air-face-date)))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r85-9 — the change is FACE-only (label bytes identical)

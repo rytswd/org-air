@@ -4,7 +4,7 @@
   □ Inbox 1
       TODO    File the receipts         Tomorrow      #inbox         ▤ inbox.org
 
-  ▲ Needs attention 0
+  ▲ Overdue 0
       Nothing overdue. Nice.
 
   ◆ Upcoming 2
@@ -14,5 +14,5 @@
   ★ High priority 0
       No #A items.
 
-  ○ Stale 0
-      Nothing has gone stale.
+  ○ Needs attention 0
+      Nothing has gone quiet.

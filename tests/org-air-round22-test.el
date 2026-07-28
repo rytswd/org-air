@@ -356,9 +356,11 @@ the rest keep query order), so the goldens stay byte-identical."
     (should (org-air-view--sort-default-p))
     (let ((items (list (org-air-r22-3--mk "c") (org-air-r22-3--mk "a")
                        (org-air-r22-3--mk "b"))))
-      ;; date order on a non-attention bucket = identity (query order).
+      ;; date order on a non-date-sorted bucket = identity (query order).
+      ;; R93: `stale' is retired; `high-priority' is the surviving
+      ;; bucket the default `date' key deliberately leaves in query order.
       (should (equal (mapcar #'org-air-item-title
-                             (org-air-view--sort-items items 'stale))
+                             (org-air-view--sort-items items 'high-priority))
                      '("c" "a" "b"))))))
 
 (ert-deftest org-air-r22-3-sort-cycle-advances-keys ()
@@ -387,12 +389,12 @@ reordering the bucket itself."
       ;; priority ascending = #A (hottest) first, no-cookie last.
       (setq org-air-view--sort-key 'priority)
       (should (equal (mapcar #'org-air-item-title
-                             (org-air-view--sort-items items 'stale))
+                             (org-air-view--sort-items items 'high-priority))
                      '("Alpha" "Charlie" "None")))
       ;; title ascending = alphabetical.
       (setq org-air-view--sort-key 'title)
       (should (equal (mapcar #'org-air-item-title
-                             (org-air-view--sort-items items 'stale))
+                             (org-air-view--sort-items items 'high-priority))
                      '("Alpha" "Charlie" "None"))))))
 
 (ert-deftest org-air-r22-3-sort-reverse-flips-within-bucket ()
@@ -407,12 +409,12 @@ reversing the within-bucket order with a stable tiebreak."
                        (org-air-r22-3--mk "Alpha" 2000))))
       (should (eq org-air-view--sort-direction 'ascending))
       (should (equal (mapcar #'org-air-item-title
-                             (org-air-view--sort-items items 'stale))
+                             (org-air-view--sort-items items 'high-priority))
                      '("Alpha" "Charlie")))
       (org-air-view-sort-reverse)
       (should (eq org-air-view--sort-direction 'descending))
       (should (equal (mapcar #'org-air-item-title
-                             (org-air-view--sort-items items 'stale))
+                             (org-air-view--sort-items items 'high-priority))
                      '("Charlie" "Alpha"))))))
 
 (ert-deftest org-air-r22-3-sort-buckets-intact-across-keys ()

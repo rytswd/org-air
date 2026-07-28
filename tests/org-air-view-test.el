@@ -51,15 +51,27 @@ running on any wall-clock day buckets items identically."
     (should (> (buffer-size) 0))))
 
 (ert-deftest org-air-view-sections-present ()
-  "The dashboard shows the documented bucket sections."
+  "The dashboard shows the documented bucket sections, in ORDER.
+R93 re-bless: `Overdue' is a section of its own and `Stale' is retired,
+so the vocabulary moved -- and the ORDER became part of the contract
+(process, repair, plan, choose, sweep), so it is asserted rather than
+just the presence of five words."
   (skip-unless (locate-library "org-air"))
   (org-air-view-test--with-dashboard
     (let ((case-fold-search t)
           (text (buffer-string)))
       (should (string-match-p "upcoming" text))
-      (should (string-match-p "stale" text))
+      (should (string-match-p "overdue" text))
       (should (string-match-p "attention" text))
-      (should (string-match-p "priorit" text)))))
+      (should (string-match-p "priorit" text))
+      (should-not (string-match-p "stale" text))
+      ;; The five section headings appear in display order.
+      (let ((positions (mapcar (lambda (title)
+                                 (string-match (regexp-quote title) text))
+                               '("Inbox" "Overdue" "Upcoming"
+                                 "High priority" "Needs attention"))))
+        (should (seq-every-p #'identity positions))
+        (should (equal positions (sort (copy-sequence positions) #'<)))))))
 
 (ert-deftest org-air-view-item-lines-present ()
   "Known fixture items appear as lines in the dashboard."
@@ -68,8 +80,8 @@ running on any wall-clock day buckets items identically."
     (let ((text (buffer-string)))
       ;; One representative per bucket.
       (should (string-match-p "Prepare standup notes" text))      ; upcoming
-      (should (string-match-p "Fix production outage runbook" text)) ; attention
-      (should (string-match-p "Dust off old archive project" text)) ; attention (dateless; R54-1: never stale)
+      (should (string-match-p "Fix production outage runbook" text)) ; overdue + #A
+      (should (string-match-p "Dust off old archive project" text)) ; attention (R93: quiet since [2025-11-02])
       (should (string-match-p "Ship quarterly report" text)))))   ; high-prio
 
 (ert-deftest org-air-view-item-lines-have-faces ()

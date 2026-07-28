@@ -56,6 +56,26 @@
   "Default corpus: two inbox items, one OVERDUE item in a second file
 \(the untouched-file identity probe), and a refile target.")
 
+(defconst org-air-r73--graduate-specs
+  '(("inbox.org" . "#+title: inbox\n\n* TODO Alpha task :inbox:\n  alpha body\n* TODO Beta task :inbox:\n  beta body\n")
+    ("other.org" . "#+title: other\n\n* TODO Gamma chore\nSCHEDULED: <2026-01-05 Mon>\n[2026-01-05 Mon 09:00]\n  gamma body\n* TODO Delta chore\nSCHEDULED: <2026-02-05 Thu>\n  delta body\n")
+    ("target.org" . "#+title: target\n\n* Existing\n"))
+  "r73-15's corpus: a two-section item whose SECOND section it empties.
+The shape this seam needs, restated for R93.  Gamma is overdue AND
+quiet, so it renders twice: in Overdue (with Delta below it) and alone
+in Needs attention.  Point starts on its FIRST row, so DONE empties the
+Needs-attention bucket entirely -- \"the last item of one bucket
+graduates\" -- while Overdue, Inbox and the pane all survive, and the
+landing falls forward onto Delta.
+
+That is exactly the pre-R93 configuration, measured rather than assumed:
+there Gamma was overdue-and-dateless (Needs attention, with `Existing'
+below it) AND the sole Stale row, so DONE emptied Stale from a point
+sitting in Needs attention.  R93 retired Stale, so the doubled
+membership is now Overdue x Needs attention -- and the corpus has to
+say so, because a heading written this instant is fresh and would not
+reach either.")
+
 (defconst org-air-r73--single-specs
   '(("inbox.org" . "#+title: inbox\n\n* TODO Only task :inbox:\n  body\n"))
   "Single-item corpus for the r73-4 empty degrade.")
@@ -875,9 +895,13 @@ the board is NOT empty, so the Decision 2 degrade must NOT fire: the
 pane stays open (no hide) and the inspector keeps its render, never
 the nil placeholder (revert-RED against the bare `(null ctx)' gate)."
   (skip-unless (locate-library "org-air"))
-  (org-air-r73--with-board nil
-    ;; Gamma is the ONLY dated item in the corpus — done empties its
-    ;; bucket while the inbox items (and the plain heading) remain.
+  (org-air-r73--with-board org-air-r73--graduate-specs
+    ;; Gamma is the only QUIET item in the corpus — done empties the
+    ;; Needs-attention bucket while Overdue and Inbox still hold rows.
+    ;; (R93 note: the survivor is Delta, Gamma's neighbour in the
+    ;; OVERDUE section where point was sitting; the emptied bucket is
+    ;; the other one Gamma belonged to.  Pre-R93 the same shape read
+    ;; Needs-attention x Stale.)
     (let ((gamma (org-air-r73--goto-row "Gamma chore"))
           (hide-calls 0))
       (cl-letf (((symbol-function 'org-air-view-pane--window-live-p)

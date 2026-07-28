@@ -184,9 +184,13 @@ view buffer, every corpus-visiting buffer and the directory."
 
 (defconst org-air-r58--board-specs
   '(("inbox.org" . "* TODO Inbox capture\n")
-    ("alpha.org" . "* TODO Ship the grant report :work:\nGrant body line.\n* TODO Alpha follow-up :work:\nFollow-up body.\n")
-    ("beta.org" . "* TODO Beta errand\nBeta body.\n"))
-  "Board corpus: dateless TODO tasks (Attention rows) across three files.")
+    ("alpha.org" . "* TODO Ship the grant report :work:\nGrant body line.\n[2026-01-05 Mon 09:00]\n* TODO Alpha follow-up :work:\nFollow-up body.\n[2026-01-05 Mon 09:00]\n")
+    ("beta.org" . "* TODO Beta errand\nBeta body.\n[2026-01-05 Mon 09:00]\n"))
+  "Board corpus: dateless, QUIET TODO tasks (Attention rows) across three files.
+R93: each task carries an inactive stamp in its own body, months before
+the frozen now.  Needs attention is an aging rule now -- a heading
+written this instant is fresh and renders NO row -- and every bookmark
+record/jump law below needs rows on the board to record and land on.")
 
 (defconst org-air-r58--revisit-specs
   '(("inbox.org" . "* TODO Inbox capture\n")

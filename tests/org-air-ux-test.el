@@ -262,28 +262,52 @@ command on the live dashboard."
       (should (memq 'upcoming buckets))
       (should-not (memq 'attention buckets)))))
 
-(ert-deftest org-air-ux-bare-timestamp-stale-signal-is-active-only ()
-  "Bare ACTIVE <ts> stamps are a stale signal; inactive [ts] never are.
-R54-1 retarget of the old \"bare [inactive] timestamps count as
-activity\" contract: an inactive stamp is archival metadata (a CREATED
-drawer, a logbook line), never a task signal — so \"Learn lute\"
-([2025-09-15], nine months quiet) is NOT stale any more, while an
-equally old bare ACTIVE <ts> on a task still is."
+(ert-deftest org-air-ux-bare-timestamp-recency-is-inactive-only ()
+  "INACTIVE [ts] stamps are the recency clock; ACTIVE <ts> never are (R93).
+This seam has now been asserted in both directions across two rounds,
+and R93 INVERTS it, so the inversion is written down rather than
+quietly re-blessed.  R54-1 ruled that an inactive stamp is archival
+metadata and never a task signal, so \"Learn lute\" ([2025-09-15], nine
+months quiet) stopped being Stale while an equally old bare ACTIVE <ts>
+still was.  R93 retires Stale and asks a different question -- \"when
+did something HAPPEN to this heading?\" -- for which the answer is
+exactly the opposite: every shape Org writes when something happened is
+an INACTIVE stamp (LOGBOOK state changes and notes, clock-outs, CLOSED,
+CREATED), while an ACTIVE <ts> is a PLAN, and a plan is not an update.
+`org-ts-regexp-inactive' does not match an active stamp at all, which is
+the mechanical guarantee behind the ruling."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
-    ;; Dateless inbox TODO with a recent [ts]: not stale (and inactive
-    ;; stamps could not make it stale-eligible anyway).
-    (should-not (memq 'stale (org-air-ux-test--classify "Triage me later")))
-    ;; [2025-09-15] — nine months before — is INACTIVE: never stale now.
-    (should-not (memq 'stale (org-air-ux-test--classify "Learn lute")))
-    ;; The same age as an ACTIVE <ts> on a scratch task IS stale.
+    ;; A recent INACTIVE stamp is the heading's clock: two days quiet.
+    (let ((triage (org-air-test-find-item "Triage me later"
+                                          (org-air-query-items))))
+      (should (= 2 (org-air-classify-quiet-days triage org-air-test-now)))
+      (should-not (memq 'attention
+                        (org-air-classify-item triage org-air-test-now))))
+    ;; [2025-09-15] -- nine months before -- IS the clock, so this row
+    ;; surfaces (pre-R93 the same stamp bought it an exemption).
+    (should (memq 'attention (org-air-ux-test--classify "Learn lute")))
+    ;; The same age as a bare ACTIVE <ts> and nothing else: the stamp is
+    ;; invisible to the recency probe, so the heading has NO history of
+    ;; its own and falls back to the file's (fresh) mtime floor.  A plan
+    ;; can neither start nor stop this clock.
     (let ((scratch (expand-file-name
                     "someday.org" (file-name-directory org-air-inbox-file))))
       (with-temp-buffer
         (insert "\n* TODO Practice lute for real                     :hobby:\n"
                 "Session logged <2025-09-15 Mon>, an active stamp.\n")
-        (append-to-file (point-min) (point-max) scratch)))
-    (should (memq 'stale (org-air-ux-test--classify "Practice lute for real")))))
+        (append-to-file (point-min) (point-max) scratch))
+      ;; re-pin the mtime the append just refreshed (see
+      ;; `org-air-test-fixture-mtime'): the floor must not depend on the
+      ;; machine's real clock.
+      (set-file-times scratch org-air-test-fixture-mtime))
+    (let ((practice (org-air-test-find-item "Practice lute for real"
+                                            (org-air-query-items))))
+      (should (org-air-item-active-ts practice))
+      (should-not (org-air-item-updated practice))
+      (should (= 0 (org-air-classify-quiet-days practice org-air-test-now)))
+      (should-not (memq 'attention
+                        (org-air-classify-item practice org-air-test-now))))))
 
 (ert-deftest org-air-ux-done-items-have-no-buckets ()
   "DONE items classify into no bucket at all."

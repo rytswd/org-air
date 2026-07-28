@@ -175,11 +175,15 @@ archive/ (the file-level guard's anti-tautology twin).")
 
 (defconst org-air-r60--small-specs
   '(("inbox.org" . "#+title: Inbox\n\n* TODO Inbox capture\n")
-    ("top.org" . "* TODO Top task\n")
-    ("keep/a.org" . "* TODO Keep task\n")
-    ("keep/noise.org" . "* TODO Noise task\n"))
+    ("top.org" . "* TODO Top task\n[2026-01-05 Mon 09:00]\n")
+    ("keep/a.org" . "* TODO Keep task\n[2026-01-05 Mon 09:00]\n")
+    ("keep/noise.org" . "* TODO Noise task\n[2026-01-05 Mon 09:00]\n"))
   "A render-sized subset: every task fits the attention section cap, so
-board-row assertions can never be masked by the R48-3 fold row.")
+board-row assertions can never be masked by the R48-3 fold row.
+R93: each task carries a quiet stamp in its own body, months before the
+frozen now, so it reaches the aging Needs-attention rule and RENDERS --
+an exclusion test that proves nothing when the corpus renders no rows
+at all would be vacuous in both directions.")
 
 (defmacro org-air-r60--render-board (&rest body)
   "Render the real board over the bound corpus and run BODY in its buffer.

@@ -240,28 +240,36 @@ Runs in the current temp buffer at the frozen clock."
   "A TAB-expand splice yields a buffer BYTE-IDENTICAL to a full render.
 The equivalence golden: the incremental section splice can NEVER diverge
 from the source of truth (a full `org-air-view--render' with the same
-`org-air-view--expanded-sections')."
+`org-air-view--expanded-sections').
+
+R93 re-bless: the toggled section moved from `attention' to `upcoming'.
+The law is section-agnostic, but its ANTI-TAUTOLOGY guard is not: the
+splice must actually CHANGE the board, which needs a section whose row
+count exceeds its cap.  Under the R93 rules the standard fixture's
+Needs attention holds 5 rows under a cap of 6 -- expanding it is a
+no-op, so the guard would have been silently unfalsifiable.  Upcoming
+holds 8 under a cap of 5 and is genuinely capped."
   (org-air-test-with-fixtures
     (let ((org-air-view-width 80)
           (org-air-view-height 40)
           full-str)
-      ;; Source of truth: a full render with `attention' already expanded.
+      ;; Source of truth: a full render with `upcoming' already expanded.
       (with-temp-buffer
         (org-air-view-mode)
         (org-air-r18--frozen
-          (setq full-str (org-air-r18--render-board-only '(attention)))
+          (setq full-str (org-air-r18--render-board-only '(upcoming)))
           (should (eq org-air-view--orientation 'board-only))))
-      ;; Incremental: render collapsed, then TAB `attention' (splice path).
+      ;; Incremental: render collapsed, then TAB `upcoming' (splice path).
       (with-temp-buffer
         (org-air-view-mode)
         (org-air-r18--frozen
           (let ((collapsed (org-air-r18--render-board-only nil)))
             (should (eq org-air-view--orientation 'board-only))
-            (let ((pos (org-air-view--find-property 'org-air-section 'attention)))
+            (let ((pos (org-air-view--find-property 'org-air-section 'upcoming)))
               (should pos)
               (goto-char pos))
             (org-air-toggle-section)
-            (should (memq 'attention org-air-view--expanded-sections))
+            (should (memq 'upcoming org-air-view--expanded-sections))
             (let ((spliced (buffer-substring-no-properties
                             (point-min) (point-max))))
               ;; The splice actually changed the board…
@@ -270,7 +278,7 @@ from the source of truth (a full `org-air-view--render' with the same
               (should (equal spliced full-str))
               ;; Point landed back on the toggled section heading.
               (should (eq (get-text-property (point) 'org-air-section)
-                          'attention)))))))))
+                          'upcoming)))))))))
 
 (ert-deftest org-air-r18-section-splice-collapse-round-trip ()
   "Expand then collapse a section returns a buffer byte-identical to the start.
@@ -297,10 +305,18 @@ original collapsed full render."
                            start))))))))
 
 (ert-deftest org-air-r18-section-splice-leaves-header-and-earlier-sections ()
-  "Toggling a LATE section leaves the header + earlier sections byte-untouched.
-Expanding `stale' (the last section) rewrites only from its region to the
-end of the body; everything above its heading is identical to the
-pre-toggle buffer."
+  "Toggling a section leaves the header + EARLIER sections byte-untouched.
+Expanding a capped section rewrites only from its region to the end of
+the body; everything above its heading is identical to the pre-toggle
+buffer.
+
+R93 re-bless — and a real strengthening.  The section was `stale', \"the
+last section\", which the standard fixture renders with ZERO rows (R54-1
+made every dateless fixture item stale-ineligible), so the toggle under
+test changed NOTHING and the byte comparison below could not fail.
+`upcoming' is capped (8 rows, cap 5) and has two sections above it, so
+the splice really does rewrite a region — asserted explicitly now — and
+the prefix comparison finally means something."
   (org-air-test-with-fixtures
     (let ((org-air-view-width 80)
           (org-air-view-height 40))
@@ -309,20 +325,28 @@ pre-toggle buffer."
         (org-air-r18--frozen
           (org-air-r18--render-board-only nil)
           (should (eq org-air-view--orientation 'board-only))
-          (let* ((stale-pos (org-air-view--find-property 'org-air-section 'stale))
-                 (before-prefix (and stale-pos
+          (let* ((pos (org-air-view--find-property 'org-air-section 'upcoming))
+                 (before (buffer-substring-no-properties (point-min) (point-max)))
+                 (before-prefix (and pos
                                      (buffer-substring-no-properties
-                                      (point-min) stale-pos))))
-            (should stale-pos)
-            (goto-char stale-pos)
+                                      (point-min) pos))))
+            (should pos)
+            ;; Two sections really are above it (Inbox, Overdue).
+            (should (org-air-view--find-property 'org-air-section 'inbox))
+            (should (< (org-air-view--find-property 'org-air-section 'overdue)
+                       pos))
+            (goto-char pos)
             (org-air-toggle-section)
-            ;; The prefix up to `stale's heading is byte-identical (the
+            ;; Anti-tautology: the splice really rewrote something.
+            (should-not (equal before (buffer-substring-no-properties
+                                       (point-min) (point-max))))
+            ;; The prefix up to the toggled heading is byte-identical (the
             ;; splice never rewrote the header or earlier sections).
-            (let ((after-stale-pos (org-air-view--find-property
-                                    'org-air-section 'stale)))
-              (should after-stale-pos)
+            (let ((after-pos (org-air-view--find-property
+                              'org-air-section 'upcoming)))
+              (should after-pos)
               (should (equal (buffer-substring-no-properties
-                              (point-min) after-stale-pos)
+                              (point-min) after-pos)
                              before-prefix)))))))))
 
 (ert-deftest org-air-r18-month-nav-side-window-leaves-board ()

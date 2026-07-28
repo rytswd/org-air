@@ -518,6 +518,13 @@ alone (not a shape mismatch), and the post-render key is asserted to be
 (TODAY . `org-air-upcoming-days') — the unfiltered board's effective
 horizon is the knob.  The rollover/repaint contract itself is unchanged.
 
+R93 re-bless (honest — no conjunct weakened): the key gained the two
+aging-threshold knobs (`org-air-attention-days' and
+`org-air-attention-default-days'), which are classify inputs that read
+no file.  The stale stamp below uses the FULL current shape with
+yesterday's day, so the rebuild is still driven by the DAY rollover
+alone and the rollover contract is asserted exactly as before.
+
 Revert-fails: the pre-R42.1 `had-marker' guard SKIPPED the repaint when no
 `refreshing'/`failed'/`loading' marker was up — the tick would not advance
 and the classify day would stay YESTERDAY, so both `should's FAIL."
@@ -535,7 +542,8 @@ and the classify day would stay YESTERDAY, so both `should's FAIL."
       ;; yesterday's day so ONLY the day is stale.
       (setq org-air-view--classify-cache-day
             (list yesterday (org-air-view--filter-effective-horizon)
-                  org-air-backlog-tag))
+                  org-air-backlog-tag org-air-attention-days
+                  org-air-attention-default-days))
       (should org-air-view--classify-cache)      ; a table is present to rebuild
       (org-air-view--refresh-start)
       ;; no-change: synchronous, no paced machine, state stays nil.
@@ -548,7 +556,8 @@ and the classify day would stay YESTERDAY, so both `should's FAIL."
       ;; board is unfiltered, so no window token widens it).
       (should (equal org-air-view--classify-cache-day
                      (list today org-air-upcoming-days
-                           org-air-backlog-tag))))))
+                           org-air-backlog-tag org-air-attention-days
+                           org-air-attention-default-days))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; 9. R42.1 F3 — sync fast-path scan error => `failed', never stranded

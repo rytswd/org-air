@@ -48,9 +48,9 @@
 
 (defconst org-air-r68--default-specs
   '(("inbox.org" . "#+title: inbox\n")
-    ("vocab.org" . "#+TODO: TODO(t) DRAFT(d) READY(r) WIP(w) | COMP(c!) DROPPED(x@)\n\n* TODO Fix the widget :inbox:\n  body\n")
-    ("wait.org" . "#+TODO: WAIT | ARCHIVED\n\n* TODO Jot\n  body\n")
-    ("atdone.org" . "#+TODO: TODO | DONE(d@)\n\n* TODO At-done thing\n  body\n")
+    ("vocab.org" . "#+TODO: TODO(t) DRAFT(d) READY(r) WIP(w) | COMP(c!) DROPPED(x@)\n\n* TODO Fix the widget :inbox:\n  body\n[2026-01-05 Mon 09:00]\n")
+    ("wait.org" . "#+TODO: WAIT | ARCHIVED\n\n* TODO Jot\n  body\n[2026-01-05 Mon 09:00]\n")
+    ("atdone.org" . "#+TODO: TODO | DONE(d@)\n\n* TODO At-done thing\n  body\n[2026-01-05 Mon 09:00]\n")
     ("sched.org" . "#+title: sched\n\n* TODO Dated thing :inbox:\nSCHEDULED: <2026-07-25 Sat>\n  body\n")
     ("target.org" . "#+TODO: TODO(t) DRAFT(d) READY(r) WIP(w) | COMP(c!) DROPPED(x@)\n\n* Existing\n"))
   "The spec fixture: `vocab.org' carries the user's EXACT fast-key
@@ -59,7 +59,11 @@
 there — TODO is not in that file's vocabulary); `atdone.org' an
 `@'-carrying FIRST done keyword; `sched.org' an already-SCHEDULED item
 for the reschedule-note seam; `target.org' a refile target declaring
-the same fast-key vocabulary.")
+the same fast-key vocabulary.
+R93: the three dateless task files carry a quiet stamp in each
+heading's own body, months before the frozen now, so their rows reach
+the aging Needs-attention rule and RENDER -- `T' and `-done' need a row
+to stand on, and a corpus written this instant is fresh.")
 
 (defmacro org-air-r68--with-corpus (specs &rest body)
   "Create a temp Org corpus from SPECS and run BODY against it.

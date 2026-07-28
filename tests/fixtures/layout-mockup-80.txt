@@ -6,14 +6,10 @@
               Call plumber                                 #inbox
       TODO    Triage me later                              #inbox
 
-  ▲ Needs attention 7
-      TODO    Chase missing invoice          OVERDUE 7d    #projects   #admin
-      TODO  ■ Fix production outage runbook  OVERDUE 5d    #projects   #work  …
+  ▲ Overdue 3
       TODO    Book dentist appointment       OVERDUE 3d    #personal   #health
-      TODO    Dust off old archive project   no date       #projects   #archive
-      TODO    Untracked idea with no dates   no date       #projects   #someday
-      TODO    Learn lute                     no date       #someday   #hobby
-      …and 1 more — press TAB on the title to expand
+      TODO  ■ Fix production outage runbook  OVERDUE 5d    #projects   #work  …
+      TODO    Chase missing invoice          OVERDUE 7d    #projects   #admin
 
   ◆ Upcoming 8
       TODO    Renew library card             Today         #personal   #admin
@@ -28,5 +24,9 @@
       TODO  ■ Fix production outage runbook  OVERDUE 5d    #projects   #work  …
       TODO  ■ Prep client presentation       Tomorrow      #work   #client
 
-  ○ Stale 0
-      Nothing has gone stale.
+  ○ Needs attention 5
+      TODO  ■ Fix production outage runbook  always        #projects   #work  …
+      TODO  ■ Prep client presentation       always        #work   #client
+      TODO  ■ Ship quarterly report          always        #projects   #work  …
+      TODO    Dust off old archive project   225d quiet    #projects   #archive
+      TODO    Learn lute                     273d quiet    #someday   #hobby

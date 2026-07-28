@@ -45,8 +45,25 @@
                    (coding-system-for-write 'utf-8-unix)
                    (file-name-handler-alist nil))
                (make-directory (file-name-directory path) t)
-               (write-region (or content "") nil path nil 'silent)))
+               (write-region (or content "") nil path nil 'silent)
+               ;; R93: the corpus is 60 days old, so its dateless headings
+               ;; reach the Needs-attention thresholds and render rows at
+               ;; all.  Byte-for-byte the TEXT is untouched: this suite
+               ;; pins exact corpus bytes and heading offsets, and several
+               ;; tests rewrite those bytes mid-test.
+               (org-air-test-age-file path)))
            (let ((org-air-files (list org-air-r90--dir))
+                 ;; R93: this suite's subject is marks / history / write
+                 ;; discipline, never the Needs-attention aging rule (that
+                 ;; has its own suite, org-air-round93-test.el).  Its
+                 ;; corpora are DATELESS by design and several tests
+                 ;; rewrite them, and org-air's OWN write refreshes the
+                 ;; file-mtime floor back to today -- which would make the
+                 ;; rows under test vanish halfway through.  Pin the
+                 ;; thresholds at 0 (a real, supported user configuration:
+                 ;; "surface every board-active task") so every heading has
+                 ;; a row to mark, drift and undo, whatever the clock did.
+                 (org-air-attention-days '((nil . 0)))
                  (org-air-inbox-file
                   (expand-file-name "inbox.org" org-air-r90--dir))
                  (org-air-cache-file
@@ -2356,10 +2373,16 @@ to be small: it keeps every older undo entry alive after buffer death."
               (should (< (plist-get summary :string-bytes) 8192))
               (should (< (plist-get summary :conses) 256)))))))))
 
-;;;; r90-31 — native v6 roundtrip and discarded v7 clean miss.
+;;;; r90-31 — native current-version roundtrip and foreign-version clean miss.
 
 (ert-deftest org-air-r90-31-cache-v6-native-projection-and-v7-clean-miss ()
-  "Native v6 tags/literal titles round-trip; unshipped v7 cleanly misses."
+  "Native tags/literal titles round-trip; a foreign cache version cleanly misses.
+R93 re-bless: the shipped version moved 6 -> 7 (the `updated' recency
+slot), so the round's subject swaps sides — the CURRENT version is what
+round-trips, and the RETIRED v6 is what must miss cleanly.  The name is
+kept so the R90 record stays traceable; the law is version-agnostic and
+now reads the constant instead of a literal, so the next bump cannot
+leave this test asserting a version nobody ships."
   (skip-unless (locate-library "org-air"))
   (org-air-r90--with-corpus
       '(("tasks.org" . "#+title: tasks\n\n* TODO Native task :shared_tag:\n* TODO Literal hyphen :shared-tag:\n* TODO Literal slash :not/a/tag:\n")
@@ -2370,7 +2393,7 @@ to be small: it keeps every older undo entry alive after buffer death."
            (hyphen (org-air-r90--item "Literal hyphen" items))
            (slash (org-air-r90--item "Literal slash" items))
            (mtimes (org-air-view--mtimes-snapshot files)))
-      (should (= 6 org-air-view--cache-version))
+      (should (= 7 org-air-view--cache-version))
       (should (equal "Native task" (org-air-item-title native)))
       (should (equal '("shared_tag") (org-air-item-tags native)))
       ;; Org does not parse these suffixes as tags; they are literal titles.
@@ -2383,7 +2406,7 @@ to be small: it keeps every older undo entry alive after buffer death."
       (org-air-view--cache-write items mtimes)
       (let* ((data (org-air-view--cache-read))
              (hydrated (plist-get data :items)))
-        (should (= 6 (plist-get data :version)))
+        (should (= org-air-view--cache-version (plist-get data :version)))
         (should (equal '("shared_tag")
                        (org-air-item-tags
                         (org-air-r90--item "Native task" hydrated))))
@@ -2393,16 +2416,20 @@ to be small: it keeps every older undo entry alive after buffer death."
         (should (equal "Literal slash :not/a/tag:"
                        (org-air-item-title
                         (org-air-r90--item "Literal slash" hydrated)))))
-      ;; The discarded experimental broad-projection schema was never shipped.
-      (let ((print-length nil) (print-level nil) (print-circle t))
-        (write-region
-         (prin1-to-string
-          (list :version 7 :key (org-air-view--cache-key)
-                :mtimes mtimes :file-meta nil :visits nil
-                :items (mapcar #'org-air-view--item-serialise items)))
-         nil org-air-cache-file nil 'silent))
-      (should-not (org-air-view--cache-read))
-      (should-not (org-air-view--cache-load)))))
+      ;; Any version that is not the shipped one is a clean cold miss: the
+      ;; retired v6 (R93 left it behind when `updated' joined the struct)
+      ;; and the discarded experimental broad projection alike.
+      (dolist (foreign (list 6 (1+ org-air-view--cache-version)))
+        (ert-info ((format "foreign cache version %d" foreign))
+          (let ((print-length nil) (print-level nil) (print-circle t))
+            (write-region
+             (prin1-to-string
+              (list :version foreign :key (org-air-view--cache-key)
+                    :mtimes mtimes :file-meta nil :visits nil
+                    :items (mapcar #'org-air-view--item-serialise items)))
+             nil org-air-cache-file nil 'silent))
+          (should-not (org-air-view--cache-read))
+          (should-not (org-air-view--cache-load)))))))
 
 ;;;; r90-32..35 — mutating after-save hooks and deep bounded history.
 

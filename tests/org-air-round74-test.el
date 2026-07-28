@@ -336,28 +336,57 @@ line helper, zero scans, zero `find-file-noselect'."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r74-6-future-clamp-golden-lemma ()
-  "A slotless heading whose file mtime post-dates the frozen NOW
-renders NO Updated line, no error — the exact configuration of every
-inspector-bearing x50 golden (the fixture copy's mtime at render is the
-real wall clock, permanently AFTER frozen 2026-06-15), pinned here so a
-future regen surprise has a named cause.  The standard-fixture board
-leg re-creates the golden configuration end to end."
+  "The Updated line is derived from FIXTURE BYTES, never the wall clock.
+The golden-determinism lemma, in two legs.
+
+Leg 1 (unchanged): a heading with NO recency of its own -- no LOGBOOK,
+no clock, no `:CREATED:', no body stamp -- and a file mtime that
+post-dates the frozen NOW renders NO Updated line and no error.  The
+FUTURE CLAMP is what keeps a scratch copy's mtime out of a golden.
+
+Leg 2 (R93 re-bless).  This leg used to assert that the x50 inspector
+goldens carry NO `Updated' line at all, because the inspected row --
+\"Quick note about org-air idea\" -- was slotless and its only candidate
+was that clamped-away mtime.  R93 gave the scan an `updated' slot (the
+newest non-future INACTIVE stamp in the heading's own body), and that
+fixture heading carries `[2026-06-14 Sun]' in its body, so the line now
+renders -- from the fixture's own BYTES, at a fixed date, labelled
+`stamp'.  The test's PURPOSE is therefore strengthened, not weakened:
+the golden line is now derived from text under version control instead
+of being absent because a wall-clock value had to be suppressed.  Both
+halves are pinned: the deterministic line for the stamped row, and the
+surviving clamp for a slotless one (r74-5's `~file' leg still covers
+the coarse fallback itself)."
   (skip-unless (locate-library "org-air"))
   (org-air-r74--with-corpus
       '(("inbox.org" . "#+title: inbox\n\n* Bare heading :inbox:\n  just text\n"))
     (let* ((items (org-air-query-items))
            (item (org-air-r74--item "Bare heading" items)))
+      (should-not (org-air-item-updated item))
       (set-file-times (org-air-r74--file "inbox.org")
                       (encode-time (list 0 0 12 20 6 2026 nil -1 nil)))
       (should-not (org-air-view--item-updated-line
                    item "" org-air-test-now))))
-  ;; the golden leg: the x50 mockup configuration — the inspected
-  ;; "Quick note about org-air idea" is slotless, its scratch-copy
-  ;; mtime is the REAL clock (after the frozen NOW), so the clamp
-  ;; suppresses the line and the board never shows "Updated".
+  ;; the golden leg: the x50 mockup configuration -- the inspected
+  ;; "Quick note about org-air idea" carries a body inactive stamp, so
+  ;; the board shows exactly ONE Updated line and its bytes are fixed.
   (org-air-viewport-test-with-dashboard (cons 100 50)
     (should (string-match-p "Quick note" (buffer-string)))
-    (should-not (string-match-p "Updated" (buffer-string)))))
+    (let ((text (buffer-string)))
+      (should (string-match-p "Updated 2026-06-14  (1d" text))
+      (should (= 1 (cl-count-if (lambda (line)
+                                  (string-match-p "Updated " line))
+                                (split-string text "\n"))))))
+  ;; and the fixture heading really is the source of that date.
+  (org-air-test-with-fixtures
+    (let* ((items (org-air-query-items))
+           (note (org-air-test-find-item "Quick note about org-air idea" items)))
+      (should note)
+      (should (equal '(2026 6 14)
+                     (let ((d (decode-time (org-air-item-updated note))))
+                       (list (decoded-time-year d) (decoded-time-month d)
+                             (decoded-time-day d)))))
+      (should (eq 'stamp (cdr (org-air-view--item-updated note)))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r74-7 — rtrunc invariance: the cap keeps NEWEST, heads unmoved

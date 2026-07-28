@@ -296,8 +296,8 @@ from the render while the TODO children keep their 'attention rows."
 :CREATED: [2026-06-01 Mon 09:00]\n\
 :END:\n\
 Structure only — the children are the tasks.\n\
-** TODO File the taxes\n\
-** TODO Shred the papers\n")
+** TODO File the taxes\n[2026-01-05 Mon 09:00]\n\
+** TODO Shred the papers\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let* ((items (org-air-query-items))
            (pile (org-air-r59--item "Paperwork pile" items)))
@@ -308,7 +308,10 @@ Structure only — the children are the tasks.\n\
       (let ((org-air-skip-container-headings nil))
         (should (equal (org-air-classify-item pile org-air-test-now)
                        '(knowledge))))
-      ;; The children keep the full task treatment (dateless => attention).
+      ;; The children keep the full task treatment.  R93: each child
+      ;; carries its OWN quiet stamp, months before the frozen now, so
+      ;; "dateless => attention" (the deleted pre-R93 default) is now
+      ;; "quiet past its threshold => attention".
       (should (memq 'attention (org-air-r59--buckets "File the taxes" items)))
       (should (memq 'attention (org-air-r59--buckets "Shred the papers" items))))
     (org-air-r59--render-board
@@ -328,9 +331,11 @@ an implementation that skips ALL parents FAILS here."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       '(("release.org" .
-         "* TODO Ship v1\n\
-** TODO Write the changelog\n\
-** TODO Tag the release\n")
+         ;; R93: each heading carries its OWN quiet stamp (a parent is
+         ;; never credited with a child's, so the parent needs one too).
+         "* TODO Ship v1\n[2026-01-05 Mon 09:00]\n\
+** TODO Write the changelog\n[2026-01-05 Mon 09:00]\n\
+** TODO Tag the release\n[2026-01-05 Mon 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let* ((items (org-air-query-items))
            (parent (org-air-r59--item "Ship v1" items)))
@@ -401,9 +406,10 @@ SCHEDULED: <2026-01-01 Thu>\n")
       (should (org-air-query-container-item-p parent))
       (should (equal (org-air-classify-item parent org-air-test-now)
                      '(container)))
-      ;; The child's date belongs to the child's row (overdue => attention);
-      ;; for a LEAF, own-active-ts is the active-ts value itself.
-      (should (memq 'attention (org-air-classify-item child org-air-test-now)))
+      ;; The child's date belongs to the child's row — R93: to the OVERDUE
+      ;; bucket, which is its own section now rather than a disjunct of
+      ;; Needs attention.  For a LEAF, own-active-ts is the active-ts value.
+      (should (memq 'overdue (org-air-classify-item child org-air-test-now)))
       (should (equal (org-air-item-own-active-ts child)
                      (org-air-item-active-ts child))))))
 
@@ -594,10 +600,12 @@ treatment ('attention, rendered).  Reverting the ntype conjunct FAILS."
 :ORG_AIR_TYPE: task\n\
 :END:\n\
 Structure the user SAYS is a task.\n\
+[2026-01-05 Mon 09:00]\n\
 ** TODO Prop child\n")
         ("override-tag.org" .
          "* Tag forced group :task:\n\
 Prose.\n\
+[2026-01-05 Mon 09:00]\n\
 ** TODO Tag child\n")
         ("inbox.org" . "#+title: inbox\n"))
     (let ((items (org-air-query-items)))
@@ -697,7 +705,21 @@ doubt, render."
       (should-not (org-air-item-childp item))
       (should-not (org-air-item-ntype item))
       (should-not (org-air-query-container-item-p item))
-      ;; nil ntype keeps the full task treatment (the R54 precedent).
+      ;; nil ntype keeps the full task treatment (the R54 precedent): it
+      ;; passes the board-active gate and is not routed off the task
+      ;; buckets.
+      (should (org-air-classify--board-active-p item))
+      ;; R93: an item built OUTSIDE the scan has neither an `updated' slot
+      ;; nor a file in the scan's meta table, so its age is UNKNOWN --
+      ;; and org-air refuses to nag about something it cannot date.  It
+      ;; is not "fresh" either: raise its priority to `#A' (threshold 0)
+      ;; and it surfaces unconditionally, unknown age and all.
+      (should-not (org-air-classify-updated item))
+      (should-not (org-air-classify-quiet-days item org-air-test-now))
+      (should-not (memq 'attention
+                        (org-air-classify-item item org-air-test-now)))
+      (setf (org-air-item-priority item)
+            (* 1000 (- org-priority-lowest ?A)))
       (should (memq 'attention
                     (org-air-classify-item item org-air-test-now))))))
 
@@ -748,7 +770,17 @@ R90 final re-bless: version 6 remains the released native title/tag contract.
 The experimental v7 broad projection was discarded before integration; the
 dedicated R90 cache test pins native roundtrip plus a clean miss for that
 unshipped payload.  This historical test keeps every older shape/key fence
-unchanged."
+unchanged.
+R93 re-bless (honest — no conjunct weakened): the version is 7.  The
+`org-air-item' struct gained the trailing `updated' recency slot, so a
+v6 record has the wrong record length and MUST cold-miss rather than
+hydrate with no recency at all — which would silently age every heading
+off the coarse file-mtime floor.  The retired v6 joins v4 as a pinned
+clean cold miss below.  The KEY is untouched at seven elements: no
+threshold changes what a file MEANS, so `org-air-attention-days' is a
+render-time (classify-memo) input, never a scan-cache one — pinned by
+its own conjunct here so a future round cannot quietly promote it and
+force a rescan on every retune."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       (append org-air-r59--inbox-specs
@@ -761,10 +793,16 @@ Body.\n")))
     ;; element; R61: `org-air-log-cap' is the SIXTH; R77:
     ;; `org-air-task-requires-todo' is the SEVENTH; this corpus runs at
     ;; the nil-exclude / default-cap / nil-knob baseline).
-    (should (= org-air-view--cache-version 6))
+    (should (= org-air-view--cache-version 7))
     (let ((key (org-air-view--cache-key)))
       (should (= (length key) 7))
       (should (eq (nth 3 key) t))
+      ;; R93: the aging thresholds are NOT a scan-cache input — retuning
+      ;; them must never invalidate the scan (it invalidates the classify
+      ;; memo instead, which is a repaint, not a rescan).
+      (let ((org-air-attention-days '((?A . 3) (nil . 99)))
+            (org-air-attention-default-days 99))
+        (should (equal (org-air-view--cache-key) key)))
       ;; The fifth element IS the live exclude set (nil here)…
       (should (eq (nth 4 key) org-air-exclude-regexps))
       ;; …tracks a let-bound set, and DETECTS the flip: different
@@ -849,17 +887,20 @@ Body.\n")))
         (should-not (org-air-view--cache-load)))
       ;; …while the original (nil) knob still hydrates.
       (should (org-air-view--cache-read))
-      ;; A v4 cache (the pre-R59 struct shape) is a clean cold miss even
-      ;; with the CURRENT key: no hydration, no error, no hang.
-      (let ((print-length nil) (print-level nil))
-        (write-region
-         (prin1-to-string
-          (list :version 4
-                :key (org-air-view--cache-key)
-                :mtimes nil :file-meta nil :visits nil :items nil))
-         nil (expand-file-name org-air-cache-file) nil 'silent))
-      (should-not (org-air-view--cache-read))
-      (should-not (org-air-view--cache-load)))))
+      ;; A v4 cache (the pre-R59 struct shape) and a v6 one (the pre-R93
+      ;; shape, one `updated' slot short) are clean cold misses even with
+      ;; the CURRENT key: no hydration, no error, no hang.
+      (dolist (retired '(4 6))
+        (ert-info ((format "retired cache version %d" retired))
+          (let ((print-length nil) (print-level nil))
+            (write-region
+             (prin1-to-string
+              (list :version retired
+                    :key (org-air-view--cache-key)
+                    :mtimes nil :file-meta nil :visits nil :items nil))
+             nil (expand-file-name org-air-cache-file) nil 'silent))
+          (should-not (org-air-view--cache-read))
+          (should-not (org-air-view--cache-load)))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r59-14 — T14: data purity over cache-hydrated containers

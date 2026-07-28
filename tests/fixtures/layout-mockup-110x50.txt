@@ -6,35 +6,35 @@
               Call plumber                                #inbox                │         1  2  3  4  5  6
       TODO    Triage me later                             #inbox                │      7  8● 9 10◆11 12◆13
                                                                                 │     14 15◆16◆17◆18●19◆20●
-  ▲ Needs attention 7                                                           │     21 22 23 24 25 26 27
-      TODO    Chase missing invoice         OVERDUE 7d    #projects   #admin    │     28 29 30
+  ▲ Overdue 3                                                                   │     21 22 23 24 25 26 27
+      TODO    Book dentist appointment      OVERDUE 3d    #personal   #health   │     28 29 30
       TODO  ■ Fix production outage runbo…  OVERDUE 5d    #projects   #work  …  │
-      TODO    Book dentist appointment      OVERDUE 3d    #personal   #health   │     ◆ due    ● sched
-      TODO    Dust off old archive project  no date       #projects   #archive  │
-      TODO    Untracked idea with no dates  no date       #projects   #someday  │ ▌ Filter
-      TODO    Learn lute                    no date       #someday   #hobby     │  none
-      …and 1 more — press TAB on the title to expand                            │
-                                                                                │ ▌ Source
-  ◆ Upcoming 8                                                                  │  all items ∙ 23 loaded
-      TODO    Renew library card            Today         #personal   #admin    │
-      TODO    Water the garden              Today         #projects   #home     │ ▌ Summary
-      TODO  ■ Prep client presentation      Tomorrow      #work   #client       │    3   Inbox
-      TODO    Prepare standup notes         Tomorrow      #projects   #work     │    7   Needs attention
-      TODO    Email finance about budget    Tomorrow      #work                 │    8   Upcoming
-      …and 3 more — press TAB on the title to expand                            │    3   High priority
-                                                                                │    0   Stale
-  ★ High priority 3                                                             │  ────
-      TODO  ■ Ship quarterly report         Wed           #projects   #work  …  │   23   total
-      TODO  ■ Fix production outage runbo…  OVERDUE 5d    #projects   #work  …  │
-      TODO  ■ Prep client presentation      Tomorrow      #work   #client       │ ▌ Inspector
-                                                                                │  Quick note about org-air
-  ○ Stale 0                                                                     │  idea
-      Nothing has gone stale.                                                   │  #inbox
+      TODO    Chase missing invoice         OVERDUE 7d    #projects   #admin    │     ◆ due    ● sched
+                                                                                │
+  ◆ Upcoming 8                                                                  │ ▌ Filter
+      TODO    Renew library card            Today         #personal   #admin    │  none
+      TODO    Water the garden              Today         #projects   #home     │
+      TODO  ■ Prep client presentation      Tomorrow      #work   #client       │ ▌ Source
+      TODO    Prepare standup notes         Tomorrow      #projects   #work     │  all items ∙ 23 loaded
+      TODO    Email finance about budget    Tomorrow      #work                 │
+      …and 3 more — press TAB on the title to expand                            │ ▌ Summary
+                                                                                │    3   Inbox
+  ★ High priority 3                                                             │    3   Overdue
+      TODO  ■ Ship quarterly report         Wed           #projects   #work  …  │    8   Upcoming
+      TODO  ■ Fix production outage runbo…  OVERDUE 5d    #projects   #work  …  │    3   High priority
+      TODO  ■ Prep client presentation      Tomorrow      #work   #client       │    5   Needs attention
+                                                                                │  ────
+  ○ Needs attention 5                                                           │   23   total
+      TODO  ■ Fix production outage runbo…  always        #projects   #work  …  │
+      TODO  ■ Prep client presentation      always        #work   #client       │ ▌ Inspector
+      TODO  ■ Ship quarterly report         always        #projects   #work  …  │  Quick note about org-air
+      TODO    Dust off old archive project  225d quiet    #projects   #archive  │  idea
+      TODO    Learn lute                    273d quiet    #someday   #hobby     │  #inbox
                                                                                 │
                                                                                 │  ▤ inbox.org
+                                                                                │  Updated 2026-06-14  (1d ag…
                                                                                 │
                                                                                 │  Bucket  Inbox
-                                                                                │
                                                                                 │
                                                                                 │
                                                                                 │

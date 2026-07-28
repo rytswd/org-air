@@ -688,3 +688,355 @@ No test, fixture, golden or known-failures file was touched.
   R90, R91 and R92 suites replay green on aged corpora.  Lint clean, 11
   modules compile, goldens (28 of 41 fixture files) left for the audit
   seat to re-bless.
+
+- 2026-07-29 — *R93 TEST (independent audit, re-bless and permanent
+  coverage).*  Tests, fixtures/goldens and this history only; production
+  =.el= and =README.org= verified byte-identical to =tmslvlpkkkso=
+  (=jj diff= over =org-air*.el= + =README.org= = 0 files changed).
+
+** 1. Independent classification of the 197 — CONFIRMED, with one caveat
+
+  Reproduced exactly: *1279 tests, 197 unexpected, 8 skipped, 0 errors*.
+  Every failure was classified from its own assertion and then *proved*
+  by repair: each was made green either by moving the corpus to a shape
+  the NEW rules can see, or by re-blessing the assertion to the new rule
+  — never by weakening one.
+
+  | Class                                                | Count | Verdict            |
+  |------------------------------------------------------+-------+--------------------|
+  | Corpus precondition: dateless-and-fresh renders no rows |  132 | obsolete           |
+  | Corpus precondition: board no longer taller than window |   45 | obsolete           |
+  | Deleted rule asserted directly (no-date default, Stale) |   19 | obsolete           |
+  | Board byte goldens + section/glyph tables               |   13 | design-changed     |
+  | Cache version / classify-memo key shape                 |    5 | design-changed     |
+  | R74 inspector =Updated= line (new =stamp= candidate)     |    1 | design-changed     |
+  | *Total*                                                 | *197* | *0 real defects*  |
+
+  So the seat's headline is confirmed: *none of the 197 hides a defect.*
+
+  *But "0 real defects" is not true of the change as a whole.*  Auditing
+  the failures is not the same as auditing the diff, and one real
+  regression sits outside the failing set entirely — see §2.
+
+  Three findings the seat's classification missed, all in the direction
+  of *tests that keep passing while asserting a dead rule*:
+
+  1. =org-air-r77-4= asserted =is:stale= ⇔ the ='stale= bucket.  After the
+     retirement both sides are permanently nil on that corpus, so it
+     passed *vacuously* — it was not in the 197 and a re-bless limited to
+     the 197 would have left it lying.  Re-pointed at =is:attention= ⇔
+     ='attention=, with the alias asserted to select the same set.
+  2. =org-air-r22-3-*= (5 assertions) used ='stale= as its "a bucket the
+     default date sort leaves alone" symbol.  Harmless but dead;
+     re-pointed at ='high-priority=.
+  3. =org-air-r18-section-splice-leaves-header-and-earlier-sections= was
+     *already vacuous before R93*: it toggled =stale=, which R54-1 had
+     made a permanently EMPTY section, so its byte comparison could not
+     fail.  Re-targeted at =upcoming= (capped 8-of-5) with an explicit
+     anti-tautology guard, which is a strengthening, not a re-bless.
+
+** 2. REAL DEFECT FOUND — the Overdue section lost its date sort
+
+  =org-air-view--sort-items= date-sorts only ='(attention upcoming)=.
+  Before R93 the overdue rows lived *inside* =attention=, so the board's
+  default =date= sort showed them *worst-first*.  R93 moved them into the
+  new =overdue= bucket and did not extend that list, so the *alarm*
+  section now renders in file/query order.  Measured on the standard
+  fixture at width 120, R93 vs the parent commit:
+
+  | parent (R92 FIX)                | R93                             |
+  |---------------------------------+---------------------------------|
+  | Chase missing invoice OVERDUE 7d | Book dentist          OVERDUE 3d |
+  | Fix production runbook OVERDUE 5d | Fix production runbook OVERDUE 5d |
+  | Book dentist          OVERDUE 3d | Chase missing invoice OVERDUE 7d |
+
+  The least urgent row now leads the section that exists to shout.  No
+  test in either seat covers it, and the 28 regenerated goldens now
+  *contain* the query order — precisely the shape of regression a golden
+  re-bless buries.  The audit seat may not edit production =.el=, so it
+  is pinned instead by
+  =org-air-r93-16-audit-overdue-section-lost-its-date-sort=, a deliberate
+  *tripwire*: its docstring states plainly that it does not bless the
+  behaviour and must be deleted or inverted by the round that fixes it
+  (add =overdue= to the =date= arm; the board goldens move again).
+
+  Related presentational note, *not* filed as a defect: Needs attention
+  is still date-sorted, so a *recency* section orders by *plan* date.
+  That predates R93 (attention was date-sorted before) but reads oddly
+  now that the section's own promise is quietness.
+
+** 3. Re-blessing record — 47 tests, and how each was repaired
+
+  *Corpus, not assertion* (the rule for anything that failed on a
+  precondition).  Not one assertion was relaxed to accommodate a fresh
+  corpus:
+
+  - =tests/org-air-test-helpers.el= — new shared R93 recency helpers:
+    =org-air-test-quiet-days= (60), =org-air-test-quiet-time= (anchored
+    on the EARLIER of the real clock and the frozen =org-air-test-now=,
+    so a corpus is unambiguously old under either), =org-air-test-age-file=,
+    =org-air-test-age-directory=, =org-air-test-quiet-stamp=,
+    =org-air-test-stamp-org-text=.
+  - *Determinism hardening* (=org-air-test-with-fixtures=): every scratch
+    fixture copy's mtime is now pinned to =org-air-test-fixture-mtime=
+    (2026-06-16 12:00, one day after the frozen now).  R74 already leaned
+    on "the copy's mtime is the wall clock, which is after the frozen
+    now" (its future-clamp lemma); R93 made the same fact load-bearing a
+    *second* time, because the mtime is now the coarse floor of the
+    attention clock.  Unpinned, the *section membership* of the byte
+    goldens would have depended on the date the suite was run.  Verified
+    to change nothing today (identical failure set before and after).
+  - Corpora given a per-heading inactive stamp (their own recency clock,
+    which survives the writes these suites drive): the R91 board corpus,
+    the shared landing/echo/R92 board corpus
+    (=org-air-landing-test-with-board=), R58's bookmark corpus, R60's
+    exclusion corpus, R68's vocabulary corpus, R83's Btrfs corpora,
+    R57's HOLD/READY headings, R59's container children, R54-1c's quiet
+    chores, R73-15's graduating corpus.
+  - =tests/org-air-round90-test.el= — corpus text left BYTE-UNTOUCHED on
+    purpose (this suite pins exact corpus bytes and heading offsets, and
+    several tests rewrite them mid-test).  Its files are backdated 60
+    days AND its harness pins =org-air-attention-days= to =((nil . 0))=,
+    a real supported user configuration meaning "surface every
+    board-active task".  Rationale, stated plainly because it is the one
+    place the audit chose a knob over a corpus: R90's subject is marks /
+    history / write discipline, and *org-air's own write refreshes the
+    file-mtime floor back to today*, so an mtime-aged corpus loses its
+    rows halfway through a test.  Measured both ways: with mtime aging
+    alone and DEFAULT thresholds, 73 of the 88 R90 failures recover; the
+    remaining 14 are exactly the write-refresh cases and 1 is the cache
+    version.  With the knob, 102/102 pass.
+  - =tests/org-air-round73-test.el= — r73-15 got its own corpus
+    (=org-air-r73--graduate-specs=).  What the seam actually needed was
+    measured on the parent, not assumed: there Gamma was overdue-and-
+    dateless (Needs attention, with a row below it) AND the sole *Stale*
+    row, so DONE emptied Stale from a point sitting in Needs attention.
+    Its R93 twin is Overdue × Needs attention.  (Its docstring's claim
+    that the landing resolves "onto a neighbour from another bucket" was
+    never literally true; corrected.)
+  - =tests/org-air-round51-test.el= — r51-3's per-bucket ISOLATION leg
+    needs TWO capped sections; under the aging rule the fixture caps only
+    Upcoming, so =org-air-section-max= is tightened to 2 for that test,
+    which caps High priority as well.
+
+  *Assertion re-blessed to the NEW rule* (each states the new rule and
+  says what the old one was):
+
+  - =org-air-classify-overdue-is-attention= → *renamed*
+    =org-air-classify-overdue-is-its-own-bucket=; a freshly-touched
+    overdue item is =(overdue)= and nothing else.
+  - =org-air-classify-no-schedule-is-attention= → *renamed*
+    =org-air-classify-no-schedule-is-not-attention-until-quiet=; the
+    user's complaint, as a test, in both halves.
+  - =org-air-classify-stale= → *renamed* =org-air-classify-stale-is-retired=;
+    the old positive cases surface as ='attention=, nothing answers
+    ='stale=, and =org-air-classify--stale-p= / =org-air-stale-days= are
+    asserted GONE.
+  - =org-air-classify-not-stale-when-active= → *renamed*
+    =org-air-classify-fresh-and-scheduled-is-not-attention=.
+  - =org-air-ux-bare-timestamp-stale-signal-is-active-only= → *renamed*
+    =org-air-ux-bare-timestamp-recency-is-inactive-only=.  This seam is a
+    genuine *inversion* across two rounds (R54-1: inactive stamps are
+    never a signal; R93: inactive stamps are the ONLY signal), so the
+    inversion is written down in the docstring rather than quietly
+    re-blessed.
+  - r54-1a / r54-1c / r54-1e, r57-2 / -3 / -10 (its shared
+    =org-air-r57--task-buckets= table gained =overdue= AND =backlog= —
+    leaving a live bucket out silently weakens every =should-not= that
+    uses it), r59-5 / -12 (now pins the unknown-age rule and its =#A=
+    twin), r72-1 / -3 / -10 / -13, r83-1 / -2, r85-8, r18-1, r74-6,
+    =org-air-view-sections-present= (now asserts section ORDER),
+    =org-air-triage-calendar-marks-have-date-bucket-rows= (the date
+    sections are Overdue and Upcoming now — naming the old pair would
+    have let an overdue mark be backed by a row that surfaced for being
+    quiet, the exact phantom the invariant forbids),
+    =org-air-glyph-coverage-*= and
+    =org-air-viewport-test-section-titles= (now order-bearing).
+  - Cache/memo: r59-13 (v7, plus a NEW conjunct that the thresholds are
+    *not* a scan-key input), r86-18, r90-31 (re-targeted so the CURRENT
+    version round-trips and both retired v6 and a future version cold-miss;
+    it now reads the constant instead of a literal), r42-f2, r72-16.
+
+** 4. Fixture churn
+
+  *28 of 41* files under =tests/fixtures/= moved (1190 diff lines): every
+  =layout-mockup-*= tier (widths 70…160 × the 24/50 height variants), the
+  empty-board mockup and both =denote-origin-*= mockups.  The other 13
+  (project-view ×3, entry-view ×2, review-mockup, the 5 =.org= corpora,
+  air-project tree) were regenerated and came back *byte-identical*.
+
+  Why they legitimately move: the section table (=Overdue= split out,
+  =Stale= gone), the two section titles, the two swapped icons (▲/! to
+  Overdue, ○/~ to Needs attention), the new =Nd quiet= / =always= reason
+  labels in the date cell, the Summary row order, and the membership
+  change itself (dateless-and-fresh rows leave the board; the two
+  months-quiet rows arrive).  =make regen-mockups= is a *byte no-op*
+  after the update, verified by md5 over the whole fixture set.
+
+** 5. New permanent coverage — tests/org-air-round93-test.el (16 ERTs)
+
+  | ERT     | Invariant                                                        |
+  |---------+------------------------------------------------------------------|
+  | r93-1   | the threshold TABLE is the user's ruling; fallbacks; never < 0   |
+  | r93-2   | the boundary day-before / day-of / day-after, per priority letter INCLUDING no-cookie, as predicate AND as bucket |
+  | r93-3   | =#A= surfaces unconditionally incl. UNKNOWN age; every other threshold refuses an unknown age |
+  | r93-4   | recency reads state changes, notes, clock-outs, CLOSED, CREATED and free body stamps; newest wins |
+  | r93-5   | ACTIVE =<timestamps>= never count, in any position; the paired heading ages as if the plan were absent |
+  | r93-6   | a FUTURE inactive stamp never counts, alone or beside an old one |
+  | r93-7   | OWN BODY only — a child's stamp never refreshes its parent       |
+  | r93-8   | the mtime floor: last resort only, ZERO file access at classify time, self-heals on the first real stamp |
+  | r93-9   | LIVE retuning: =setq= changes the next repaint, memo key moves, scan key does not, ZERO rescans |
+  | r93-10  | Overdue is its own bucket/section/predicate, independent both ways |
+  | r93-11  | =is:overdue= / =is:attention= agree with their sections over a scanned corpus; =is:stale= parses as the alias, selects the same set, is NOT offered, prints back verbatim |
+  | r93-12  | section ORDER exactly; Notes conditional; Backlog last            |
+  | r93-13  | cache v7; a GENUINE v6 record (current serialisation minus the trailing slot) is a clean cold miss |
+  | r93-14  | row cell and rail Bucket line quote the same two public helpers   |
+  | r93-15  | the OVERLAP the user chose: Needs attention ⊇ High priority        |
+  | r93-16  | AUDIT TRIPWIRE for §2 (Overdue lost its date sort)                |
+
+** 6. Mutation evidence — every mutation reddens a NAMED new test
+
+  Each mutation was applied to the production source, the named tests
+  run, then the source restored and re-verified.
+
+  | # | Mutation                                                   | Red                                     |
+  |---+------------------------------------------------------------+-----------------------------------------|
+  | 1 | =#B= threshold 7 → 8                                        | r93-1, r93-2                            |
+  | 1a | =#A= threshold 0 → 1                                       | r93-1, r93-3                            |
+  | 1b | =#C= threshold 14 → 13                                      | r93-1, r93-2                            |
+  | 1c | no-cookie threshold 30 → 29                                 | r93-1, r93-2                            |
+  | 2 | unknown age SURFACES instead of being refused                | r93-3                                   |
+  | 2b | =(<= threshold 0)= → =(< threshold 0)= (0 no longer unconditional) | r93-3                          |
+  | 3 | =org-ts-regexp-inactive= → =org-ts-regexp-both=              | r93-5                                   |
+  | 4 | probe bound =bound= → =end= (whole subtree, not own body)    | r93-7                                   |
+  | 5 | future-stamp guard removed                                   | r93-6                                   |
+  | 6a | mtime floor deleted                                         | r93-8                                   |
+  | 6b | mtime floor OVERRIDES the stamp                             | r93-8                                   |
+  | 7 | thresholds dropped from the classify memo key                | r93-9, r42-f2, r72-16                   |
+  | 8 | section order: Overdue ↔ Needs attention swapped             | r93-12, org-air-view-sections-present   |
+  | 9 | =is:stale= alias removed                                     | r93-11, r72-1, r72-3                    |
+  | 9b | =is:stale= re-OFFERED in completion                         | r93-11, r72-1                           |
+  | 10 | cache version 7 → 6                                         | r93-13, r59-13, r86-18, r90-31          |
+
+  Source restored *byte-identical*; SHA-256 (unchanged before and after
+  the whole mutation run):
+
+  #+begin_example
+  f6d51018e1af98d842fb2176cc0433ee21b46e8794b07b3f41e72c38128e1bdf  org-air-classify.el
+  1d1c7f10949b8dbd8564a37bd849d35713645d7748474f34ba631d4194da643b  org-air-query.el
+  ce127e18d09a1534a1780c019132d71118c267957e27835fe36c92bac2fcdb94  org-air-view.el
+  0e7e0746511a62ac63dcd3853745deb317f20bdcf9952cdf02c2b9713f1a4bdd  org-air-layout.el
+  80d7520577792299b231b48365fb9eb0b4bc003c62332969dc6c682d00556118  org-air-calendar.el
+  caba7dac6e9f2d2e98754c2b9672b58724689e4bdfcc8f247bb311e3ad9c4e80  org-air.el
+  74cb76d9f162a50519b963d201d32545ac264f474b5687f72d8d1f7f5f444c2f  org-air-faces.el
+  b7cd5162ea8e141d86e1bc9b0ccbd27ef20565fc71dac2b8e339c32cf37a0777  org-air-inbox.el
+  53a44c0f3c2e0b71945e1f5ede0506080e9f06869cb73fb28bb0f233c4bf0672  org-air-project.el
+  e2562b0e065e4f5dd299a1ffd2852ec548636deb126d4df275a6fa01fb871810  org-air-review.el
+  2bd6aeac8067864ffc186de9f5309fc308cc7768a8aebbe7643acae5314d1f0c  org-air-revisit.el
+  2d97646a8dde864722f29efa605a1defd7fbe6c5961d3de0a8b84ad5db607293  README.org
+  #+end_example
+
+** 7. Other rounds intact — reproduced, not taken on trust
+
+  | Suite                | Result                       |
+  |----------------------+------------------------------|
+  | R90 mark / history   | 102 tests, 0 unexpected      |
+  | R91 scroll stability | 31 tests, 0 unexpected       |
+  | R92 landing          | 19 tests, 0 unexpected       |
+  | echo family          | 18 tests, 0 unexpected       |
+  | landing invariants   | 7 tests, 0 unexpected        |
+
+  All on corpora that suit the NEW rules (a per-heading recency stamp),
+  with every assertion unmodified.
+
+** 8. Performance — the claim reproduced
+
+  Independent re-measure, best-of-3, both trees byte-compiled from the
+  same =.deps=; baseline = the parent commit extracted into
+  =/tmp/r93/parent=.  Corpus = N files × 4 headings, each carrying a
+  LOGBOOK state change, a closed CLOCK line, a body inactive stamp and a
+  SCHEDULED date.
+
+  | Phase                | parent   | R93      | Δ        |
+  |----------------------+----------+----------+----------|
+  | SCAN 1k / 4k items   | 1.384 s  | 1.421 s  | +2.7 %   |
+  | SCAN 5k / 20k items  | 7.398 s  | 7.550 s  | +2.1 %   |
+  | CLASSIFY 4k items    | 0.072 s  | 0.073 s  | +0.001 s |
+  | CLASSIFY 20k items   | 0.377 s  | 0.377 s  | 0        |
+
+  Inside the seat's claimed 1.4–3.3 % scan band; classify flat.
+
+  *No new reads, buffers, passes or timers* — measured, not asserted.
+  Over an identical corpus, with =insert-file-contents=,
+  =find-file-noselect=, =file-attributes= and =get-buffer-create= spied
+  and =timer-list= / =timer-idle-list= sampled:
+
+  #+begin_example
+  PARENT SCAN     ifc=40 ffns=0 file-attributes=81 get-buffer-create=482 buffers+2 timers+0 idle+1
+  R93    SCAN     ifc=40 ffns=0 file-attributes=81 get-buffer-create=482 buffers+2 timers+0 idle+1
+  PARENT CLASSIFY ifc=0  ffns=0 file-attributes=0  get-buffer-create=0   buffers+0 timers+0
+  R93    CLASSIFY ifc=0  ffns=0 file-attributes=0  get-buffer-create=0   buffers+0 timers+0
+  #+end_example
+
+  Identical in every column: one read per file, no extra stat, no extra
+  buffer, no new timer, and classify does zero I/O — the mtime floor
+  really is a hash lookup.
+
+** 9. PRODUCT JUDGMENT (reported, NOT acted on)
+
+  *The finding.*  High priority is exactly the =#A= set and =#A= has
+  threshold 0, so *every High-priority row is permanently also a
+  Needs-attention row*: Needs attention is a superset of High priority,
+  by construction, forever.  Pinned as an invariant by r93-15 so it is a
+  decision rather than a surprise.
+
+  *Quantified.*  Standard fixture (23 items): High priority 3 rows, Needs
+  attention 5 rows, of which *3 (60 %) are the whole High priority
+  section repeated* — 5 board lines (header + 3 rows + separator) of a
+  33-line board, ~15 % of the vertical budget, teaching nothing new.  On
+  a larger realistic corpus (66 tasks, 12 % =#A=, mixed recency and
+  planning): High priority 7, Needs attention 27 — *7 of 27 (26 %)
+  duplicated when expanded, 100 % of High priority duplicated always*;
+  collapsed at the cap of 6 only 1 of 6 visible rows happened to be a
+  duplicate there, because the section is date-sorted.  So the cost is
+  *variable and unpredictable*: between 17 % and 60 % of the visible
+  Needs-attention budget, depending on nothing the user controls.
+
+  Two further tells that the overlap is a seam, not a feature:
+  - the row label has to *make an excuse* for those rows — =always= is
+    the section admitting the row is not there for having gone quiet;
+  - the section's cap (6) is spent re-showing rows that are already on
+    screen a few lines above.
+
+  *Recommendation: raise the =#A= threshold above 0* (=(?A . 3)= would
+  do), of the three options offered:
+
+  - /Keep the overlap/ — cheapest, and the user chose it, but it leaves
+    two sections teaching one set and makes Needs attention's promise
+    ("what has gone quiet") false for up to 60 % of its rows.
+  - /Exclude what a section above already showed/ — *do not do this*.  It
+    breaks the R72 law that each section body IS its =is:= token's
+    predicate (=is:attention= would stop equalling the Needs-attention
+    section), which is load-bearing across R72, R77, R83 and R93 itself,
+    and it makes a row's membership depend on what else is on the board.
+  - /Raise =#A= above 0/ — *recommended*.  Each section keeps one job:
+    High priority owns "always visible", Needs attention owns "gone
+    quiet".  An =#A= is still seen instantly (it is in High priority),
+    and it *additionally* surfaces in Needs attention only once it has
+    genuinely been ignored for a few days — which is more informative
+    than a permanent duplicate.  The =always= label then disappears from
+    the board, the reason cell always carries a real number, and no law
+    is bent.  Cost: one defcustom default changes; nothing else moves.
+
+** 10. Gate
+
+  - =rm -f *.elc=; =make clean && make check= → *1295 tests, 1287 as
+    expected, 0 unexpected, 8 skipped* (the 8 GUI skips).  11 modules
+    byte-compile; the only warning is the pre-existing
+    =org-air-project.el:946= docstring width.
+  - =make lint= → =lint: ok (0 findings, all baselined)=.
+  - Loaded known-failures manifest: *active length 0*.
+  - =make regen-mockups= → *byte no-op* after the intended fixture
+    updates (md5 over the whole fixture set, before == after).
+  - Production =.el= and =README.org= byte-identical to =tmslvlpkkkso=;
+    no probe files in the repo; =.deps= untouched.

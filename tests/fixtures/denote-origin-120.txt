@@ -4,7 +4,7 @@
   □ Inbox 1                                                                           │ ▌ June 2026                  ‹ ›
       TODO    File the receipts         Tomorrow      #inbox              ▤ inbox.org │       Su Mo Tu We Th Fr Sa
                                                                                       │           1  2  3  4  5  6
-  ▲ Needs attention 0                                                                 │        7  8  9 10 11 12 13
+  ▲ Overdue 0                                                                         │        7  8  9 10 11 12 13
       Nothing overdue. Nice.                                                          │       14 15 16●17 18 19 20
                                                                                       │       21 22 23 24 25 26 27
   ◆ Upcoming 2                                                                        │       28 29 30
@@ -14,15 +14,15 @@
   ★ High priority 0                                                                   │ ▌ Filter
       No #A items.                                                                    │    none
                                                                                       │
-  ○ Stale 0                                                                           │ ▌ Source
-      Nothing has gone stale.                                                         │    all items ∙ 2 loaded
+  ○ Needs attention 0                                                                 │ ▌ Source
+      Nothing has gone quiet.                                                         │    all items ∙ 2 loaded
                                                                                       │
                                                                                       │ ▌ Summary
                                                                                       │      1   Inbox
-                                                                                      │      0   Needs attention
+                                                                                      │      0   Overdue
                                                                                       │      2   Upcoming
                                                                                       │      0   High priority
-                                                                                      │      0   Stale
+                                                                                      │      0   Needs attention
                                                                                       │    ────
                                                                                       │      2   total
                                                                                       │

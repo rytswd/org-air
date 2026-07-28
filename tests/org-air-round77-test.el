@@ -252,7 +252,7 @@ scanned item, token <=> bucket.  Reverting the
       (should-not (org-air-r77--passes-p routine '("is:upcoming")))
       (should-not (org-air-r77--passes-p routine '("due:7d")))
       (should-not (org-air-r77--passes-p overdue-routine '("is:overdue")))
-      (should-not (org-air-r77--passes-p overdue-routine '("is:stale")))
+      (should-not (org-air-r77--passes-p overdue-routine '("is:attention")))
       ;; The twin passes both — no over-gating.
       (should (org-air-r77--passes-p twin '("is:upcoming")))
       (should (org-air-r77--passes-p twin '("due:7d")))
@@ -264,15 +264,20 @@ scanned item, token <=> bucket.  Reverting the
                       (not (null (memq 'upcoming buckets)))))
           (should (eq (org-air-r77--passes-p item '("due:7d"))
                       (not (null (memq 'upcoming buckets)))))
+          ;; R93 re-bless: `is:stale' <=> the retired 'stale bucket was a
+          ;; VACUOUS pass after the retirement (nothing answers 'stale,
+          ;; and nothing in this corpus is quiet), so both legs move to
+          ;; the live vocabulary: `is:attention' <=> 'attention, with
+          ;; the retired spelling asserted to select the SAME set.
+          (should (eq (org-air-r77--passes-p item '("is:attention"))
+                      (not (null (memq 'attention buckets)))))
           (should (eq (org-air-r77--passes-p item '("is:stale"))
-                      (not (null (memq 'stale buckets)))))
+                      (org-air-r77--passes-p item '("is:attention"))))
           (should (eq (org-air-r77--passes-p item '("is:hipri"))
                       (not (null (memq 'high-priority buckets)))))
-          ;; is:overdue isolates the attention bucket's overdue disjunct.
+          ;; R93: `is:overdue' is the Overdue BUCKET's own token now.
           (should (eq (org-air-r77--passes-p item '("is:overdue"))
-                      (not (null (and (memq 'attention buckets)
-                                      (org-air-classify--overdue-p
-                                       item org-air-test-now)))))))))))
+                      (not (null (memq 'overdue buckets))))))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r77-5 — the override hole closes at knob NIL.

@@ -337,16 +337,28 @@ period arithmetic stay real."
 (defmacro org-air-landing-test-with-board (&rest body)
   "Open the BOARD over a 60-row corpus in a real window; run BODY in it.
 The `Needs attention' section is expanded so the board outgrows the
-window, which is the only interesting geometry for a viewport rule."
+window, which is the only interesting geometry for a viewport rule.
+
+R93: every task carries an inactive stamp in its OWN body, 60 days
+before the frozen clock.  Needs attention is now an AGING rule (quiet
+for >= the priority's `org-air-attention-days' threshold, 30 by default
+for a cookie-less heading), so a corpus written a millisecond ago holds
+no rows at all and the section this macro expands would be EMPTY -- the
+board would then be shorter than the window and every viewport law below
+would fail on its precondition instead of on its subject.  A stamp per
+heading is what a real user's files carry (`org-log-into-drawer'), and
+it is the heading's OWN clock, so it survives the writes these suites
+drive."
   (declare (indent 0) (debug t))
   `(org-air-landing-test--with-corpus "org-air-lb-"
      (org-air-landing-test--write
       "tasks.org"
-      (mapconcat (lambda (i)
-                   (if (zerop (% i 2))
-                       (format "* TODO Task number %02d :focus:\n" i)
-                     (format "* TODO Task number %02d\n" i)))
-                 (number-sequence 0 (1- org-air-landing-test-board-count)) ""))
+      (let ((quiet (org-air-test-quiet-stamp)))
+        (mapconcat (lambda (i)
+                     (if (zerop (% i 2))
+                         (format "* TODO Task number %02d :focus:\n%s\n" i quiet)
+                       (format "* TODO Task number %02d\n%s\n" i quiet)))
+                   (number-sequence 0 (1- org-air-landing-test-board-count)) "")))
      (org-air-landing-test--write "inbox.org" "")
      (let ((org-air-files (list org-air-landing-test--dir))
            (org-air-inbox-file

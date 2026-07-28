@@ -129,8 +129,8 @@ failure is the diagnosed BEHAVIOUR: point drifts, no expansion."
                                               line))
                         (string-to-number (match-string 1 line))))
          (before (org-air-r51--section-item-lines bucket)))
-    ;; the fixture board really renders a capped section (probe-verified:
-    ;; attention caps at 6 of 8) — the expansion below is observable.
+    ;; the fixture board really renders a capped section (R93: Upcoming
+    ;; caps at 5 of 8) — the expansion below is observable.
     (should mpos)
     (should (symbolp bucket))
     (should bucket)
@@ -304,17 +304,26 @@ nothing opens, no pane.  PROJECT (lock — passes on trunk, guards the
 affordance both sides): TAB and RET dispatched on the v0.2 `… 1 dropped'
 fold row still reveal the hidden doc (visible docs +1, fold row gone)."
   (skip-unless (locate-library "org-air"))
-  ;; BOARD — TAB on the more row expands (the row finally does what its
-  ;; own label teaches).
-  (org-air-viewport-test-with-dashboard 100
-    (org-air-r51--assert-board-more-row-expands "TAB"))
-  ;; BOARD — RET on a FRESH render's more row: the same expansion, and
-  ;; ONLY that — no doc opens, no source pane (the more-row branch runs
-  ;; BEFORE the pane logic in `org-air-view-pane-return').
-  (org-air-viewport-test-with-dashboard 100
-    (org-air-r51--assert-board-more-row-expands "RET")
-    (should-not (org-air-view-pane--window-live-p))
-    (should-not (get-buffer "*org-air-view*")))
+  ;; R93: the per-bucket ISOLATION leg needs TWO capped sections.  The
+  ;; standard fixture used to cap Needs attention (8 of 6, back when a
+  ;; dateless item was nagged) and Upcoming; under the aging rule Needs
+  ;; attention holds 5 rows under its cap of 6, so only Upcoming caps.
+  ;; Tighten the GENERIC cap (`org-air-section-max', which Upcoming's own
+  ;; 5 and Overdue/attention's own 6 all override) so High priority caps
+  ;; too — a second capped section, from the knob rather than from a
+  ;; corpus change that would move every board golden.
+  (let ((org-air-section-max 2))
+    ;; BOARD — TAB on the more row expands (the row finally does what its
+    ;; own label teaches).
+    (org-air-viewport-test-with-dashboard 100
+      (org-air-r51--assert-board-more-row-expands "TAB"))
+    ;; BOARD — RET on a FRESH render's more row: the same expansion, and
+    ;; ONLY that — no doc opens, no source pane (the more-row branch runs
+    ;; BEFORE the pane logic in `org-air-view-pane-return').
+    (org-air-viewport-test-with-dashboard 100
+      (org-air-r51--assert-board-more-row-expands "RET")
+      (should-not (org-air-view-pane--window-live-p))
+      (should-not (get-buffer "*org-air-view*"))))
   ;; PROJECT — LOCK (R48-3, no code this round): the `… 1 dropped' fold
   ;; row keeps answering both keys through the live bindings.
   (dolist (key '("TAB" "RET"))

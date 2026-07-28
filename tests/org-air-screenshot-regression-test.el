@@ -256,12 +256,18 @@ re-render — not just the first open (screenshot-3 finding 2)."
 ;;;; Glyph coverage.
 
 (defconst org-air-screenshot-test--spec-glyphs
-  '(origin inbox attention upcoming high-priority stale
+  '(origin inbox overdue upcoming high-priority attention
     calendar-item today clear more
     vrule hrule cal-prev cal-next
     box-top-left box-top-right box-bottom-left box-bottom-right
     box-tee-left box-tee-right)
-  "Every glyph name the design spec requires (v0.1 set + §6.1 table).")
+  "Every glyph name the design spec requires (v0.1 set + §6.1 table).
+R93: the section glyph names follow the sections.  `overdue' joined and
+`stale' left, and the two icons SWAPPED meaning rather than inventing a
+new one -- Overdue took the urgent triangle Needs attention used to
+carry (a missed date IS the alarm) and Needs attention took the retired
+Stale circle (a quiet item is an absence, not an alarm).  Total entries
+unchanged.")
 
 (ert-deftest org-air-glyph-coverage-complete-with-ascii-fallbacks ()
   "Every spec'd glyph conforms to the reconciled S5b shape:

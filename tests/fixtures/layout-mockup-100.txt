@@ -6,29 +6,29 @@
               Call plumber                            #inbox          │         1  2  3  4  5  6
       TODO    Triage me later                         #inbox          │      7  8● 9 10◆11 12◆13
                                                                       │     14 15◆16◆17◆18●19◆20●
-  ▲ Needs attention 7                                                 │     21 22 23 24 25 26 27
-      TODO    Chase missing invoice     OVERDUE 7d    #projects   #a… │     28 29 30
+  ▲ Overdue 3                                                         │     21 22 23 24 25 26 27
+      TODO    Book dentist appointment  OVERDUE 3d    #personal   #h… │     28 29 30
       TODO  ■ Fix production outage r…  OVERDUE 5d    #projects   #w… │
-      TODO    Book dentist appointment  OVERDUE 3d    #personal   #h… │     ◆ due    ● sched
-      TODO    Dust off old archive pr…  no date       #projects   #a… │
-      TODO    Untracked idea with no …  no date       #projects   #s… │ ▌ Filter
-      TODO    Learn lute                no date       #someday   #ho… │  none
-      …and 1 more — press TAB on the title to expand                  │
-                                                                      │ ▌ Source
-  ◆ Upcoming 8                                                        │  all items ∙ 23 loaded
-      TODO    Renew library card        Today         #personal   #a… │
-      TODO    Water the garden          Today         #projects   #h… │ ▌ Summary
-      TODO  ■ Prep client presentation  Tomorrow      #work   #clien… │    3   Inbox
-      TODO    Prepare standup notes     Tomorrow      #projects   #w… │    7   Needs attention
-      TODO    Email finance about bud…  Tomorrow      #work           │    8   Upcoming
-      …and 3 more — press TAB on the title to expand                  │    3   High priority
-                                                                      │    0   Stale
-  ★ High priority 3                                                   │  ────
-      TODO  ■ Ship quarterly report     Wed           #projects   #w… │   23   total
-      TODO  ■ Fix production outage r…  OVERDUE 5d    #projects   #w… │
-      TODO  ■ Prep client presentation  Tomorrow      #work   #clien… │ ▌ Inspector
+      TODO    Chase missing invoice     OVERDUE 7d    #projects   #a… │     ◆ due    ● sched
                                                                       │
-  ○ Stale 0                                                           │ ▌ Actions
-      Nothing has gone stale.                                         │  c capture  / filter
+  ◆ Upcoming 8                                                        │ ▌ Filter
+      TODO    Renew library card        Today         #personal   #a… │  none
+      TODO    Water the garden          Today         #projects   #h… │
+      TODO  ■ Prep client presentation  Tomorrow      #work   #clien… │ ▌ Source
+      TODO    Prepare standup notes     Tomorrow      #projects   #w… │  all items ∙ 23 loaded
+      TODO    Email finance about bud…  Tomorrow      #work           │
+      …and 3 more — press TAB on the title to expand                  │ ▌ Summary
+                                                                      │    3   Inbox
+  ★ High priority 3                                                   │    3   Overdue
+      TODO  ■ Ship quarterly report     Wed           #projects   #w… │    8   Upcoming
+      TODO  ■ Fix production outage r…  OVERDUE 5d    #projects   #w… │    3   High priority
+      TODO  ■ Prep client presentation  Tomorrow      #work   #clien… │    5   Needs attention
+                                                                      │  ────
+  ○ Needs attention 5                                                 │   23   total
+      TODO  ■ Fix production outage r…  always        #projects   #w… │
+      TODO  ■ Prep client presentation  always        #work   #clien… │ ▌ Inspector
+      TODO  ■ Ship quarterly report     always        #projects   #w… │
+      TODO    Dust off old archive pr…  225d quiet    #projects   #a… │ ▌ Actions
+      TODO    Learn lute                273d quiet    #someday   #ho… │  c capture  / filter
                                                                       │  s source   g r refresh
                                                                       │  TAB expand ? help

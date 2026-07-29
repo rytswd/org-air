@@ -49,13 +49,19 @@ the DEFAULT moved; the mechanism did not.
 The clock is the item's `updated' fact (`org-air-item-updated' — the
 newest INACTIVE Org timestamp in the heading's own body: LOGBOOK state
 changes and notes, clock-outs, CLOSED, CREATED; see
-`org-air-query--newest-inactive-stamp'), falling back to the source
-file's mtime for a heading with no history at all.  A SCHEDULED or
-DEADLINE date is a PLAN, not an update: it neither starts nor stops this
-clock, so nothing has to be scheduled to stay off this section — that
-rule (R93) replaced the pre-R93 \"dateless items need attention\"
-default, which pushed users to tag everything `:backlog:' just to stop
-seeing it.
+`org-air-query--newest-inactive-stamp').  A SCHEDULED or DEADLINE date is
+a PLAN, not an update: it neither starts nor stops this clock, so nothing
+has to be scheduled to stay off this section — that rule (R93) replaced
+the pre-R93 \"dateless items need attention\" default, which pushed users
+to tag everything `:backlog:' just to stop seeing it.
+
+R94: the clock is MEASURED ONLY.  It no longer falls back to the source
+file's mtime, because that is a file fact answering a heading question —
+it moved whenever org-air itself wrote the file, it made a one-file setup
+all-or-nothing, and it made recovery a burst.  A heading with no recorded
+history of its own is never aged here at all; if it also has no date it
+gets its own row in the Untracked section instead
+\(`org-air-classify--untracked-p').
 
 A priority not listed falls back to the NIL entry, then to
 `org-air-attention-default-days'.  Read LIVE at classify time and part
@@ -329,34 +335,87 @@ reason labels must show the SAME number the bucket applied."
     (max 0 (or (cdr cell) org-air-attention-default-days))))
 
 (defun org-air-classify-updated (item)
-  "Return the epoch of ITEM's last UPDATE, or nil (R93).  No file access.
-The scan-time `updated' slot (the newest non-future INACTIVE timestamp
-in the heading's own body — LOGBOOK state changes and notes, clock-outs,
-`CLOSED:', `:CREATED:', any body `[stamp]'), else the source file's
-scan-time mtime read out of `org-air-query-file-meta' (a hash lookup on
-the table the cache hydrates — never a `file-attributes' call).
+  "Return the epoch of ITEM's own last UPDATE, or nil (R93; R94).  No I/O.
+The scan-time `updated' slot: the newest non-future INACTIVE timestamp
+in the HEADING'S OWN BODY — LOGBOOK state changes and notes, clock-outs,
+`CLOSED:', `:CREATED:', any body `[stamp]'.  A MEASURED, per-heading
+fact or nothing.  nil means org-air has no record of anything ever
+happening to this heading (see `org-air-classify--untracked-p').
 
-The mtime fallback is deliberately COARSE and applies ONLY to a heading
-with no history at all: one edit anywhere in the file refreshes every
-historyless heading in it.  That is the honest floor — org-air will not
-guess a per-heading date it was never given — and the moment such a
-heading gains a state change, a note or a CLOSED stamp it gets its own
-clock.  nil (no slot and no meta, e.g. an item built outside the scan)
-means UNKNOWN, never \"fresh\": see `org-air-classify--attention-p'.
+R94 REMOVED the file-mtime fallback from this function.  It is a
+FILE-level fact and it was silently answering a HEADING-level question:
+because the mtime moves whenever ANY byte of the file moves — including
+when org-air itself writes it (the board's state-change and backlog
+keys, refile, capture, archive) — a
+historyless heading in a file you are working in read as age 0 and
+vanished from every clock-driven surface.  Measured by the R93 review: a
+`tasks.org' edited today hid 15 of its 20 headings, and the project's own
+demo fixture lost 2 of 23.  The floor survives, honestly scoped, as
+`org-air-classify-updated-floor'.
 
 SCHEDULED / DEADLINE / active `<timestamps>' are excluded by
-construction: a plan is not an update (the R93 recency ruling)."
-  (or (org-air-item-updated item)
-      (when-let* ((file (org-air-item-file item))
-                  (meta (org-air-query-file-meta file)))
-        (plist-get meta :mtime))))
+construction: a plan is not an update (the R93 recency ruling, made
+mechanical for the inactive spelling too by R94's
+`org-air-query--plan-stamp-p')."
+  (org-air-item-updated item))
+
+(defun org-air-classify-updated-floor (item)
+  "Return ITEM's FILE-level quiet floor as an epoch, or nil (R94).  No I/O.
+The source file's scan-time mtime, read out of `org-air-query-file-meta'
+\(a hash lookup on the table the cache hydrates — never a
+`file-attributes' call).
+
+WHAT THIS NUMBER IS.  Any edit to the heading is an edit to the file, so
+the heading's last change is never LATER than the file's mtime: the age
+derived from it is a sound LOWER BOUND on the heading's real age (\"quiet
+for at LEAST N days\").  It is sound when it ACCUSES and unsound when it
+EXCUSES — a fresh mtime proves nothing whatsoever about a heading that
+has no history of its own.
+
+WHERE org-air USES IT (R94).  Only where a lower bound is meaningful:
+ranking and labelling the Untracked section, where it prints with a
+leading `~' to say it is file-level, never heading-level.  It no longer
+decides membership of ANY section, which is what makes org-air's own
+writes, and the single-file all-or-nothing behaviour, harmless."
+  (when-let* ((file (org-air-item-file item))
+              (meta (org-air-query-file-meta file)))
+    (plist-get meta :mtime)))
+
+(defun org-air-classify-updated-source (item)
+  "Return WHERE ITEM's recency number comes from: `measured', `file' or nil.
+R94, public: the row label, the sort and the rail inspector must all be
+able to say whether a number is a HEADING fact or a FILE bound, and they
+must agree, so they ask this one function instead of each re-deriving it.
+
+  `measured'  the heading's own `updated' slot answered
+              \(`org-air-classify-updated');
+  `file'      only the file-level floor answered
+              \(`org-air-classify-updated-floor') — a LOWER BOUND,
+              printed with a leading `~';
+  nil         neither — UNKNOWN, and org-air never invents a number."
+  (cond ((org-air-classify-updated item) 'measured)
+        ((org-air-classify-updated-floor item) 'file)))
 
 (defun org-air-classify-quiet-days (item now)
-  "Return calendar days since ITEM was last updated as of NOW, or nil (R93).
+  "Return calendar days since ITEM's OWN last update as of NOW, or nil.
+R93, narrowed by R94 to the MEASURED clock: the number this returns is
+always a fact about the heading, never about its file, so the Needs
+attention section's rows print heading history and nothing else.
 Floored at 0 so a clock skew or a stamp written slightly ahead can never
 read as negative age (which would silently suppress a `#A' item).  nil
-when `org-air-classify-updated' knows nothing."
+when the heading has no recorded history at all — UNKNOWN, never
+\"fresh\": see `org-air-classify--attention-p' and
+`org-air-classify--untracked-p'."
   (when-let* ((epoch (org-air-classify-updated item)))
+    (max 0 (org-air-classify--days-between epoch now))))
+
+(defun org-air-classify-quiet-floor-days (item now)
+  "Return the FILE-level lower bound on ITEM's quiet days as of NOW, or nil.
+R94: `org-air-classify-updated-floor' in days, floored at 0.  Read as
+\"quiet for at LEAST this long\" — it is the Untracked section's ranking
+and label fact and nothing else's.  nil when the item has no file meta
+\(an item built outside the scan)."
+  (when-let* ((epoch (org-air-classify-updated-floor item)))
     (max 0 (org-air-classify--days-between epoch now))))
 
 (defun org-air-classify--attention-p (item now)
@@ -372,6 +431,25 @@ unknown: at 0 the user has said \"never make this earn its row\", so
 there is nothing left to measure.  An UNKNOWN age at any POSITIVE
 threshold does NOT surface: org-air refuses to nag about something it
 cannot date.
+
+R94 — THE CLOCK IS MEASURED ONLY.  `org-air-classify-quiet-days' no
+longer falls back to the source file's mtime, so membership of this
+section is decided entirely by the heading's OWN recorded history.  Three
+consequences, all of them the point:
+
+  * org-air's own writes (the board's state-change and backlog keys,
+    refile, capture, archive) can no
+    longer change who is in this section — acting on one row cannot
+    silence another;
+  * a one-file user no longer gets all-or-nothing behaviour, and there is
+    no BURST when a file finally goes quiet (ten headings arriving on the
+    same day carrying the same number);
+  * every number this section prints is a fact about the heading it is
+    printed next to.
+
+Work with no history of its own is not silently dropped for it: it is
+exactly `org-air-classify--untracked-p', which gives it a permanent,
+non-accusing home of its own.
 
 R93 FIX-3 note — since the `#A' default is now 3, not 0, an `#A' whose
 age is UNKNOWN no longer surfaces here.  That is DELIBERATE and follows
@@ -393,6 +471,42 @@ costs no penalty."
              (when-let* ((age (org-air-classify-quiet-days item now)))
                (>= age threshold)))
          t)))
+
+(defun org-air-classify--untracked-p (item)
+  "Non-nil when org-air knows NOTHING about ITEM: no plan and no record (R94).
+The Untracked bucket's body AND the `is:untracked' filter predicate — ONE
+definition, so section and token agree by construction.
+
+  no plan    `org-air-classify--dated-p' is nil: no SCHEDULED, no
+             DEADLINE, no active timestamp anywhere in the subtree;
+  no record  `org-air-classify-updated' is nil: no LOGBOOK state change
+             or note, no clock-out, no `CLOSED:', no `:CREATED:', no body
+             stamp — nothing Org writes when something happens.
+
+WHY THE SECTION EXISTS.  R93 replaced \"a dateless item needs attention\"
+with an aging rule, which was right, and R94 took the file mtime out of
+that rule, which was also right — but between them they leave a set of
+headings with no clock and no date, and therefore no row anywhere.  The
+R93 review measured the cost: a `tasks.org' edited today hid 15 of 20
+headings; the shipped demo board lost 2 of 23.  This bucket is that set,
+named.
+
+WHY IT IS NOT THE DELETED RULE COMING BACK.  It makes no claim of
+neglect: it does not say the work is late, it says org-air cannot rank it
+\(quiet `◌' glyph, last of the task sections, never an attention badge).
+It cannot grow over time — only shrink — and one Org stamp (any state
+change with `org-log-done' / `org-log-into-drawer' on) or one date empties
+a heading out of it permanently.  The pre-R93 rule did the opposite: it
+put undated work in the ALARM lane, ranked above real overdue work, with
+no exit except inventing a date or tagging `:backlog:'.
+
+TOTAL, no carve-outs (R93 decision 3, the standing overlap rule): a
+heading that is also an inbox dweller or a `#A' shows in both places, and
+the two rows say different things.  A `:backlog:' heading routes out of
+this bucket with all the others (`org-air-classify--heading-buckets')."
+  (and (null (org-air-classify--dated-p item))
+       (null (org-air-classify-updated item))
+       t))
 
 (defun org-air-classify--hipri-p (item)
   "Non-nil when ITEM carries the highest priority (R72).
@@ -441,10 +555,14 @@ definition both share, so filter⇔bucket agreement holds by construction."
   "Return bucket symbols for ITEM relative to NOW.
 
 Buckets are `upcoming', `overdue', `attention', `high-priority', `inbox',
-the R83 `backlog' (a board-active deferred item, off the task buckets),
-plus the non-board `notes', `container', `knowledge' and `journal'.
+the R94 `untracked', the R83 `backlog' (a board-active deferred item, off
+the task buckets), plus the non-board `notes', `container', `knowledge'
+and `journal'.
 R93: `overdue' is a bucket of its own and `stale' is RETIRED — its
 \"dated but quiet\" rule is subsumed by the aging `attention' rule.
+R94: `untracked' — no plan and no recorded history — joins, so that
+removing the file-mtime floor from the aging rule cannot make work
+invisible.
 R53 P3: a `kind' `file' item (a headingless note synthesised by the scan)
 routes to the dedicated `notes' bucket FIRST and never enters the task
 buckets — the GTD board stays a GTD board.
@@ -487,7 +605,11 @@ R93: Overdue is its own bucket; Needs attention is the AGING rule
 \(`org-air-classify--attention-p'); Stale is gone.  Buckets stay
 NON-EXCLUSIVE, exactly as before: an item may hold several at once (an
 overdue `#A' that has been quiet a month is in Overdue, High priority
-AND Needs attention), and each section shows it."
+AND Needs attention), and each section shows it.
+R94: `untracked' (`org-air-classify--untracked-p') closes the covering —
+every board-active, non-deferred task heading now has a row somewhere
+UNLESS its own plan puts it in the future beyond the Upcoming horizon,
+which is a promise org-air keeps rather than a hiding place."
   (let* ((now (or now (current-time)))
          (buckets nil)
          (inbox-p (org-air-classify--inbox-dweller-p item)))
@@ -518,6 +640,13 @@ AND Needs attention), and each section shows it."
         ;; standing rule — it simply shows in Inbox AND here.
         (when (org-air-classify--attention-p item now)
           (push 'attention buckets))
+        ;; R94: the home of last resort.  A heading with no plan AND no
+        ;; recorded history has no clock to age off and no date to be due
+        ;; on, so before R94 it had no row anywhere once the file-mtime
+        ;; floor stopped excusing it.  It gets one here — a statement, not
+        ;; an accusation.
+        (when (org-air-classify--untracked-p item)
+          (push 'untracked buckets))
         (when inbox-p
           (push 'inbox buckets))))
     (nreverse buckets)))

@@ -23,19 +23,19 @@
       TODO  ■ Ship quarterly report     Wed           #projects   #work … │    8   Upcoming
       TODO  ■ Fix production outage r…  OVERDUE 5d    #projects   #work … │    3   High priority
       TODO  ■ Prep client presentation  Tomorrow      #work   #client     │    2   Needs attention
-                                                                          │  ────
-  ○ Needs attention 2                                                     │   23   total
-      TODO    Learn lute                273d quiet    #someday   #hobby   │
-      TODO    Dust off old archive pr…  225d quiet    #projects   #archi… │ ▌ Inspector
-                                                                          │  Quick note about org-air
-                                                                          │  idea
-                                                                          │  #inbox
-                                                                          │
+                                                                          │    3   Untracked
+  ○ Needs attention 2                                                     │  ────
+      TODO    Learn lute                273d quiet    #someday   #hobby   │   23   total
+      TODO    Dust off old archive pr…  225d quiet    #projects   #archi… │
+                                                                          │ ▌ Inspector
+  ◌ Untracked 3                                                           │  Quick note about org-air
+              Call plumber              no history    #inbox              │  idea
+      TODO    Untracked idea with no …  no history    #projects   #somed… │  #inbox
+      TODO    Read Structure and Inte…  no history    #someday   #readin… │
                                                                           │  ▤ inbox.org
                                                                           │  Updated 2026-06-14  (1d ag…
                                                                           │
                                                                           │  Bucket  Inbox
-                                                                          │
                                                                           │
                                                                           │
                                                                           │

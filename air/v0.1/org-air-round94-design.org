@@ -1,0 +1,775 @@
+#+title: org-air Round 94 — the recency signal made honest: the file floor leaves the clock, Untracked gives homeless work a home
+#+state: complete
+#+tags: board classify planning attention recency untracked provenance overdue cache
+
+* Summary
+
+R93 built a real recency model and then let a *file* fact answer a
+*heading* question.  When a heading carried no history of its own, its
+age came from the source file's mtime — which moves whenever any byte of
+that file moves, org-air's own writes included.  The R93 review measured
+what that cost:
+
+- a =tasks.org= edited today hid *15 of its 20 headings*;
+- the project's shipped demo board lost =Untracked idea with no dates=
+  and =Read Structure and Interpretation= entirely — *2 of 23*;
+- *52 %* of Needs-attention members and *83 %* of the rows visible under
+  its cap were floor-derived numbers wearing the same clothes as measured
+  ones;
+- three amplifiers the R93 design never named: org-air's own writes
+  (=t=, =b=, refile, capture, archive) reset the floor; for a one-file
+  user it is all-or-nothing; recovery is a *burst* where ten headings
+  arrive on the same day with the same number and outrank every measured
+  age.
+
+R94's answer is structural rather than cosmetic.
+
+1. *The attention clock is MEASURED ONLY.*  =org-air-classify-updated=
+   no longer falls back to the file mtime.  Membership of Needs
+   attention is decided entirely by the heading's own recorded history,
+   so org-air's own writes cannot change who is in it, a one-file setup
+   is no longer all-or-nothing, and there is no burst.
+2. *A new =untracked= bucket and conditional section* — no plan and no
+   record — gives the work that removal would otherwise strand a
+   permanent, non-accusing row.  Nothing became invisible; two of the
+   demo board's own headings became visible for the first time since
+   R93.
+3. *The floor survives, honestly scoped*, as
+   =org-air-classify-updated-floor=: a sound LOWER bound used only to
+   rank and label Untracked rows, printed with a leading =~= so a
+   file-level number can never be read as a heading-level one.
+
+Plus the four correctness follow-ups the review filed: the Overdue sort
+key now reads the slot the row's own label chose; inactive
+=SCHEDULED:=/=DEADLINE:= values and quoted old plan dates inside
+reschedule log lines stop moving the recency clock; and the rail
+inspector reads the SCAN mtime instead of a live stat, so decision 13
+("one number everywhere") holds for the file path too.
+
+Parent =rqvllzqvouxq= (= =main=, R93 RETEST-2).  Source + README +
+goldens + this document only.  *No =tests/*.el= byte was touched.*
+
+* The primary problem, and the answer
+
+** What the floor actually is
+
+Any edit to a heading is an edit to its file, so:
+
+: last-change(heading)  <=  mtime(file)
+
+The age derived from the mtime is therefore a *sound LOWER bound* on the
+heading's real age.  Restating that as a rule about use:
+
+#+begin_quote
+The file mtime is *sound when it accuses* ("this file has not changed in
+210 days, so this heading has been quiet at least that long") and
+*unsound when it excuses* ("this file changed today, so this heading is
+fresh").  R93 used it for both.
+#+end_quote
+
+Every measured symptom in the review is the excuse direction.  The
+accusation direction was never wrong — it was merely *coarse*, and it is
+the half worth keeping.
+
+** The options, weighed
+
+The brief offered four.  All four were implemented or costed; two were
+taken, one was dissolved, one was rejected with arithmetic.
+
+*** (a) Render floor-derived ages as =~210d quiet=, tie-break toward measured — TAKEN, but relocated
+
+Marking an estimate is right.  But annotating a number does not stop it
+deciding *membership*, which is where the hiding happened: an item at
+=~0d= is not shown with a tilde, it is not shown at all.  R94 therefore
+does the stronger thing — a floor-derived number never reaches Needs
+attention, so that section prints *no* estimates and needs no marker —
+and puts the =~= where a file-level bound is the honest answer: the
+Untracked row (=~210d quiet=) and the rail (=file quiet ~210d=, next to
+the =~file= label R74 already shipped).
+
+The tie-break is implemented anyway, in =org-air-view--sort-by-quiet=:
+equal ages order MEASURED first
+(=org-air-classify-updated-source=).  Under the defaults it is dormant
+on the board; it is kept so the ordering law does not depend on the
+current bucket wiring.
+
+*Where this seat disagrees with the review, and why.*  §9.2 recommends
+that a measured age ALWAYS outrank a bound — "ranking a measured 87d
+above a guessed 210d is defensible".  It is not, and the lower-bound
+argument above says why: =~210d= means "at least 210 days", which is a
+*stronger* claim of neglect than a measured 87.  Systematically demoting
+bounds would re-hide exactly the oldest work, which is constraint 1's
+failure mode in a new dress.  What made the review's five identical
+=210d= rows useless was not that they were bounds; it was that they came
+from one =someday.org= and were being asked to compete in a section about
+heading history.  R94 removes them from that competition entirely
+instead of demoting them inside it.
+
+*** (b) Cap how much freshness a file mtime may grant — REJECTED, with the arithmetic
+
+A cap means =effective-age = max(mtime-age, X)= for some floor-of-the-floor
+=X=.  Against the shipped thresholds (=#A= 3, =#B= 7, =#C= 14, everything
+else 30) there is no value of =X= that works:
+
+| =X=      | effect                                                                      |
+|----------+-----------------------------------------------------------------------------|
+| =X < 3=  | changes nothing for anybody — every threshold is larger                      |
+| =3..29=  | every historyless =#A=/=#B=/=#C= surfaces permanently; the common no-cookie case (threshold 30) is still hidden |
+| =X >= 30= | every historyless heading is a permanent Needs-attention row — the deleted "undated means attention" rule, restored |
+
+The knob cannot separate "hidden" from "nagged" because the quantity it
+adjusts is the wrong one: the problem is not the SIZE of the excuse, it
+is that an excuse exists at all.  Rejected.
+
+*** (c) Treat org-air's own writes as not refreshing the floor — DEFANGED, not implemented
+
+This attacks one amplifier and needs new state: a per-file "the mtime
+bump at T was ours" ledger, threaded through every write path (=t=, =b=,
+refile, capture, archive), fragile against any concurrent user edit, and
+touching the R90 write-discipline seams.  High risk, partial cure.
+
+Under R94 it is *unnecessary*: the floor no longer decides membership, so
+an org-air write cannot hide anything.  The amplifier is removed by
+construction rather than tracked.  (It is still named in the README,
+because users were told the floor existed and deserve to be told what
+changed.)
+
+*** (d) Surface historyless items through a distinct, quiet affordance — TAKEN
+
+This is the only option that satisfies constraint 1 without touching
+constraint 2, because Needs attention IS the accusation surface: anything
+put there is, by definition, a nag.  A separate section can show the same
+work while claiming nothing about it.
+
+** The ruling
+
+1. *Needs attention is measured-only.*  =org-air-classify-quiet-days=
+   reads the heading's own =updated= slot and nothing else.
+2. *=untracked= = no plan AND no record.*  A new bucket, a new
+   conditional section, a new =is:untracked= token — one predicate,
+   =org-air-classify--untracked-p=, shared by all three (the R72 law).
+3. *The floor is a bound, and it is marked.*
+   =org-air-classify-updated-floor= ranks and labels Untracked rows only.
+4. *Provenance is public.*  =org-air-classify-updated-source= returns
+   =measured= / =file= / nil; the row, the sort and the rail all ask it
+   rather than each re-deriving it.
+
+** The coverage theorem this buys
+
+#+begin_quote
+Every board-active, non-deferred task heading has a row somewhere —
+UNLESS its own plan puts it beyond the Upcoming horizon, which is a
+promise org-air keeps rather than a hiding place.
+#+end_quote
+
+Proof by exhaustion of the two facts a heading can carry:
+
+| has a plan? | has a record? | home                                                                |
+|-------------+---------------+---------------------------------------------------------------------|
+| yes         | either        | Overdue (past), Upcoming (<= 7d), or *its own future date*, on time   |
+| no          | yes           | Needs attention, once it crosses its priority's threshold             |
+| no          | no            | *Untracked*, permanently, from the first repaint                       |
+
+Inbox, High priority and Backlog overlay this table without changing it.
+
+** Why Untracked is not the deleted rule under a new name
+
+The pre-R93 rule and this section share a membership overlap; they share
+nothing else.
+
+| Axis                | pre-R93 "undated means attention"                      | R94 Untracked                                        |
+|---------------------+--------------------------------------------------------+------------------------------------------------------|
+| Claim it makes      | this work is *neglected*                                | org-air *cannot rank* this work                       |
+| Lane                | the alarm lane, mixed with genuinely overdue rows       | last of the task sections, own quiet =◌= glyph        |
+| Badge               | attention-coloured                                      | never attention-coloured                              |
+| Cap                 | 6 rows, competing with real overdue work                | 4 rows, competing with nothing                        |
+| Over time           | grows and re-fires forever                              | can only shrink; never re-fires                       |
+| Exit                | invent a date (a lie) or =:backlog:= (gaming the board) | one date, or one stamp Org writes for you             |
+| Empty board         | still a section                                         | not rendered at all                                   |
+| Membership rule     | "no date"                                               | "no date AND no record" — strictly narrower           |
+
+The last row matters: an undated heading with a LOGBOOK trail was in the
+old rule and is *not* here, which is exactly the R93 improvement being
+preserved.
+
+** What a user will now see
+
+Standard fixture, width 120, frozen clock — the golden diff, in full:
+
+#+begin_example
+  ○ Needs attention 2                                    │      2   Needs attention
+      TODO  Learn lute                   273d quiet      │      3   Untracked        ← NEW
+      TODO  Dust off old archive project 225d quiet      │    ────
+                                                          │     23   total
+  ◌ Untracked 3                                    ← NEW SECTION
+            Call plumber                     no history    #inbox
+      TODO  Untracked idea with no dates     no history    #projects  #someday
+      TODO  Read Structure and Interpretation no history   #someday   #reading
+#+end_example
+
+Needs attention is untouched (both its rows were always measured).  The
+two headings the R93 review found on *no* section of the shipped demo
+board are on it again.  =Call plumber= is a bare inbox capture with no
+stamp: it shows in Inbox and here, the standing overlap rule, and the two
+rows say different things.
+
+* Measured: before and after
+
+All figures reproduced under the frozen clock with the real classifier;
+the "before" column is =main= (=eb510755=), measured by the review and
+re-measured here.
+
+** The review's four corpora (20 headings each: 5 worked 2d, 5 quiet 106d, 10 bare)
+
+| corpus                                   | before: attention | before: NO section | after: attention | after: Untracked | after: NO section |
+|------------------------------------------+-------------------+--------------------+------------------+------------------+-------------------|
+| one =tasks.org=, edited *today*           |                 5 |             *15*   |                5 |               10 |                 5 |
+| one =tasks.org=, edited *5 days ago*      |                 5 |             *15*   |                5 |               10 |                 5 |
+| one =tasks.org=, edited *31 days ago*     |                15 |                  5 |                5 |               10 |                 5 |
+| two files, only the active one edited today |             10 |                 10 |               10 |               20 |                10 |
+
+Read the first three rows as a time series for one user.  Before: silence
+(15 hidden), silence, then a burst (15 → 5 hidden and 10 new attention
+rows on one day).  After: *the three rows are identical* — the file clock
+moves nothing at all.  The 5 that remain in no section in every row are
+the five genuinely-fresh, actively-worked headings (2 days quiet against
+a 30-day threshold), which is the R93 rule working exactly as designed.
+
+*Hidden → shown: 10 of 20 per file, from invisible to a permanent row.*
+
+** The project's own demo board
+
+| item                                    | before   | after                       |
+|-----------------------------------------+----------+-----------------------------|
+| =Untracked idea with no dates=          | no section | Untracked                   |
+| =Read Structure and Interpretation=     | no section | Untracked                   |
+| =Call plumber=                          | Inbox      | Inbox + Untracked           |
+
+*2 of 23 recovered*; total board rows 20 → 23 members represented.
+
+** The Needs-attention honesty numbers
+
+| metric (review's 48-item corpus shape)                | before | after |
+|-------------------------------------------------------+--------+-------|
+| attention members whose age is floor-derived           |   52 % |   0 % |
+| rows visible under the 6-cap that are floor-derived    |   83 % |   0 % |
+| rows in the section that print an unmarked estimate    |   83 % |   0 % |
+
+Not by annotation — by construction: a floor-derived number can no longer
+reach that section at all.
+
+* The four follow-ups
+
+** FIX-1 — the Overdue sort key is now the slot the label chose
+
+=org-air-view--item-sort-time= keys on =(or deadline scheduled)=
+unconditionally; =org-air-view--date-label= prints =OVERDUE Nd= from
+whichever slot is actually PAST, deadline first.  For a heading overdue
+by its SCHEDULE while its DEADLINE is still in the future the two
+disagree, and the worst row in the alarm section sorts LAST — where the
+6-row cap can hide it behind "…and N more".  Reproduced by the review
+through the real renderer, and re-reproduced here on =main=:
+
+#+begin_example
+* TODO C   SCHEDULED: <2026-05-06 Wed>   DEADLINE: <2026-06-20 Sat>
+
+main (R93):  OVERDUE 30d  OVERDUE 20d  OVERDUE 4d  OVERDUE 2d  OVERDUE 40d
+R94:         OVERDUE 40d  OVERDUE 30d  OVERDUE 20d  OVERDUE 4d  OVERDUE 2d
+#+end_example
+
+*The fix.*  =org-air-view--overdue-time= hoists the label's own arm order
+(deadline-if-past, else scheduled-if-past) into one function; the label
+composes its number from it and =org-air-view--sort-by-date= keys on it
+when =bucket= is =overdue=.  The FIX-2 law — *each section is ordered
+worst-first by the very number its own rows print* — is now true by
+construction rather than by coincidence of slot order.
+
+*This is pre-existing, not an R93 regression*: the same order renders on
+the parent, where those rows lived in =attention= under the same key with
+the same labels.  But FIX-2 elevated the law to a stated rule and
+=r93-21= claims to fence it, and *=r93-21='s corpus does not contain this
+shape* — a heading carrying BOTH slots with only the scheduled one past.
+Neither does any other corpus in the suite.  Measured directly: mutation
+M1 (revert the key to =--item-sort-time=) reddens *nothing*.  The test
+seat owns adding the shape; §"Handover" lists it first.
+
+** FIX-2 — inactive planning stamps are plans, not updates
+
+Org accepts =DEADLINE: [2026-06-14 Sun]=.  =org-ts-regexp-inactive=
+matches it, so R93 read one stamp as both a deadline (the row went to
+Overdue) and an update (age 1) — while the R93 design and README both
+claimed the exclusion was *mechanical*: "a SCHEDULED, a DEADLINE or a
+bare plan date can never move this clock."  That was true only of the
+=<…>= spelling.
+
+*The fix* (=org-air-query--plan-stamp-p=): the nearest planning keyword
+to the LEFT of the match on the same line decides whose value the stamp
+is.  =SCHEDULED:= / =DEADLINE:= own it → skip; =CLOSED:= owns it → keep
+(it is the one planning keyword that records something that happened); no
+keyword → an ordinary body or LOGBOOK stamp → keep.  Keyword-by-keyword,
+not line-by-line, so a mixed planning line resolves correctly.
+
+| corpus line                                       | main | R94       |
+|---------------------------------------------------+------+-----------|
+| =DEADLINE: [2026-06-14 Sun]=                      |    1 | UNKNOWN   |
+| =SCHEDULED: [2026-06-14 Sun]=                     |    1 | UNKNOWN   |
+| =CLOSED: [2026-06-14 Sun 09:00]=                  |    1 | 1         |
+| =CLOSED: [2026-06-01 …] DEADLINE: [2026-06-14 …]= |    1 | 14        |
+
+Both inactive-plan rows stay in Overdue, as they should; they simply stop
+claiming to be updates.  The documentation's promise is now the code's.
+
+** FIX-3 — a quoted old plan date is not the log's own moment
+
+Org's default =org-log-note-headings= quote the OLD value with =%S=:
+
+: - Rescheduled from "[2026-06-14 Sun]" on [2026-06-01 Mon 08:00]
+: - New deadline from "[2026-06-13 Sat]" on [2026-05-01 Fri 08:00]
+
+The quoted date is newer than the log's own whenever a task is moved
+*earlier*, so newest-wins picked the abandoned plan.
+
+*The fix* (=org-air-query--quoted-stamp-p=): a stamp wrapped in double
+quotes is never this clock's witness.  This is the "prefer the stamp
+after ` on `" rule stated as punctuation rather than wording, which makes
+it independent of the note-heading format string — =%s= and =%S= are
+quoted in every default heading, =%t= never is.
+
+| line                                                      | main | R94 |
+|-----------------------------------------------------------+------+-----|
+| =- Rescheduled from "[2026-06-14 Sun]" on [2026-06-01 …]=  |    1 |  14 |
+| =- New deadline from "[2026-06-13 Sat]" on [2026-05-01 …]= |    2 |  45 |
+
+Both guards are constant-cost per match (one bounded backward search on
+the current line; two character reads).  No new pass, no new read.
+
+** FIX-4 — the inspector reads the SCAN mtime, not a live stat
+
+Classify read the scan-time =:mtime= from =org-air-query-file-meta=; the
+rail's =~file= line did a live =file-attributes=.  After an on-disk edit
+with no rescan they disagreed — the review measured 165d vs 1d — breaking
+decision 13 ("the number the inspector shows and the number the bucket
+used cannot drift"), which held for the slot path but not the file path.
+
+=org-air-view--item-updated-line= now reads
+=org-air-classify-updated-floor= first and falls back to ONE bounded live
+stat only for an item the scan never saw (built outside the scan).
+Re-measured:
+
+#+begin_example
+                              main                     R94
+AFTER SCAN (mtime 2026-01-01) bucket 165d / rail 165d   165d / 165d
+AFTER on-disk edit, NO rescan bucket 165d / rail   1d   165d / 165d
+#+end_example
+
+Both numbers now move together on the next rescan, which is the only
+moment either of them learns anything.
+
+* Implementation
+
+** =org-air-query.el=
+
+| Added / changed                              | What                                                            |
+|----------------------------------------------+-----------------------------------------------------------------|
+| =org-air-query--planning-keyword-regexp=     | the three planning keywords, for nearest-keyword resolution      |
+| =org-air-query--plan-stamp-p=                | FIX-2: an inactive SCHEDULED/DEADLINE value is a plan            |
+| =org-air-query--quoted-stamp-p=              | FIX-3: a quoted stamp is an abandoned plan, not a log moment     |
+| =org-air-query--newest-inactive-stamp=       | both guards wired into the existing single walk                  |
+
+The match bounds are copied out *before* either guard runs (the R61
+match-data clobber rule); =--plan-stamp-p= runs under =save-match-data=
+and =save-excursion=, so the walk is untouched.
+
+** =org-air-classify.el=
+
+| Function                              | Status | Meaning                                                   |
+|---------------------------------------+--------+-----------------------------------------------------------|
+| =org-air-classify-updated=            | NARROWED | the heading's own =updated= slot; the mtime fallback is gone |
+| =org-air-classify-updated-floor=      | NEW public | the file-level LOWER bound (scan =:mtime=, hash lookup)   |
+| =org-air-classify-updated-source=     | NEW public | =measured= / =file= / nil                                  |
+| =org-air-classify-quiet-days=         | NARROWED | measured days, or nil                                      |
+| =org-air-classify-quiet-floor-days=   | NEW public | bound days, or nil                                         |
+| =org-air-classify--untracked-p=       | NEW      | ¬dated ∧ ¬updated — the bucket AND =is:untracked=          |
+| =org-air-classify--attention-p=       | body unchanged | its clock is now measured-only by consequence         |
+| =org-air-classify--heading-buckets=   | +1 arm   | =untracked= pushed after =attention=, before =inbox=       |
+
+Four helpers are public on purpose, for the same reason R93 made three
+public: the row label, the sort and the rail must quote the SAME number,
+so they call one function rather than each re-deriving it.
+
+** =org-air-view.el=
+
+- =org-air-view--untracked-descriptor= — conditional, appended by
+  =--section-descriptors= ahead of Notes/Backlog, so a board with no
+  untracked items renders byte-identically to the R93 five.
+- =--summary-buckets= gains the same conditional row; =--bucket-title=
+  and =--first-actionable-item= resolve it.
+- =--section-limit= =untracked= → *4* (the smallest of any task section:
+  a standing statement, not a queue to work down).
+- =--untracked-reason= — the row cell: =~210d quiet= (bound > 0) or
+  =no history=.
+- =--overdue-time= — FIX-1, shared by the label and the sort.
+- =--sort-by-date= takes an optional BUCKET and keys =overdue= on it.
+- =--sort-by-quiet= gains the measured-first tie-break.
+- =--sort-by-floor= — the Untracked order.
+- =--filter-is-values= gains ="untracked"=; the matcher gains its arm.
+- =--inspector-bucket-name= / =--inspector-bucket-line= gain the
+  Untracked name and reason.
+- =--item-updated-line= — FIX-4.
+- =--cache-version= 7 → *8*.
+
+** =org-air-layout.el=
+
+One glyph: =(untracked . ("◌" . "."))= — attention's =○= with its outline
+broken, which is exactly the relation between the two sections (one has a
+clock that ran out; the other has no clock at all).  No SAFE middle tier,
+like every other section icon.
+
+** The per-section sort table (FIX-2's deliverable, updated)
+
+| Section         | Sorted by            | The number its rows print | Change in R94                                          |
+|-----------------+----------------------+---------------------------+--------------------------------------------------------|
+| Inbox           | QUERY order          | none                      | —                                                      |
+| Overdue         | =--sort-by-date=     | =OVERDUE Nd=              | *keys on =--overdue-time=*, the slot the label chose     |
+| Upcoming        | =--sort-by-date=     | =Today= / =Wed=           | —                                                      |
+| High priority   | QUERY order          | a date, incidentally      | —                                                      |
+| Needs attention | =--sort-by-quiet=    | =Nd quiet= / =always=     | measured-first tie-break; every key is now measured     |
+| *Untracked*     | =--sort-by-floor=    | =~Nd quiet= / =no history=| *NEW* — longest bound first, =no history= last          |
+| Notes           | =--notes-by-recency= | none                      | —                                                      |
+| Backlog         | QUERY order          | none                      | —                                                      |
+
+* Cache
+
+=org-air-view--cache-version= 7 → *8*.
+
+*No new slot.*  The record shape is byte-identical to v7 and the bump is
+about MEANING: R94 narrowed what =updated= may contain (FIX-2, FIX-3).  A
+v7 record is well-formed but was harvested under the OLD rule, so
+hydrating it would keep a heading looking fresher than it is — and,
+because =org-air-classify--untracked-p= now reads the same slot, would
+also keep it out of the Untracked section it belongs in.  Wrong answers
+that look right are worse than a cold miss, so v7 is discarded: skeleton
++ the R56 paced rescan, never a hang.
+
+The =:mtime= the floor reads was already persisted and hydrated (R54-2),
+so the warm path still answers with zero file opens.
+
+* Performance and cost
+
+Corpora: 1000 and 5000 files × 4 headings, each heading carrying a
+SCHEDULED date, a closed CLOCK line, a LOGBOOK state change, a
+*reschedule log line with a quoted old date* (so both new guards always
+have work to do) and a body inactive stamp.  Both trees byte-compiled;
+best-of-3.  Baseline = =main= extracted with =jj file show= into
+=/tmp/r94/parent=.
+
+| Phase               | main (R93) | R94     | Δ        |
+|---------------------+------------+---------+----------|
+| SCAN 1k / 4k items  | 1.626 s    | 1.658 s | +2.0 %   |
+| SCAN 5k / 20k items | 8.710 s    | 8.862 s | +1.7 %   |
+| CLASSIFY 4k items   | 0.074 s    | 0.077 s | +0.003 s |
+| CLASSIFY 20k items  | 0.389 s    | 0.401 s | +0.012 s |
+
+Classify's +3 % is the one extra predicate per item
+(=--untracked-p= = a slot read plus =--dated-p=, both already computed
+facts).  No new I/O — measured, not asserted, with
+=insert-file-contents= / =find-file-noselect= / =file-attributes= /
+=get-buffer-create= spied over an identical corpus:
+
+#+begin_example
+main SCAN     ifc=10 ffns=0 file-attributes=21 gbc=122
+R94  SCAN     ifc=10 ffns=0 file-attributes=21 gbc=122
+main CLASSIFY ifc=0  ffns=0 file-attributes=0  gbc=0
+R94  CLASSIFY ifc=0  ffns=0 file-attributes=0  gbc=0
+#+end_example
+
+Identical in every column: classify still does *zero* I/O, and the floor
+really is a hash lookup.
+
+* Filter / bucket agreement
+
+The R72 law is preserved by construction — each section body IS the
+token's predicate:
+
+| Token           | Predicate                          | Bucket      |
+|-----------------+------------------------------------+-------------|
+| =is:untracked=  | =org-air-classify--untracked-p=    | =untracked= |
+
+=is:untracked= is deliberately NOT a synonym for =is:nodate=: the latter
+is the date negation alone, so an undated heading with a LOGBOOK trail
+answers =is:nodate= and not =is:untracked=.  It inherits exactly one
+documented exception, the *pre-existing* one every sibling token shares:
+a =:backlog:=-tagged item classifies to =(backlog)= alone while still
+answering =t= to the raw token on its own merits.  R94 adds no new
+inconsistency there.
+
+* Migration and honest degradation
+
+| What                                        | Before                          | After                                                        |
+|---------------------------------------------+---------------------------------+--------------------------------------------------------------|
+| historyless dateless heading, file hot       | *no section at all*             | Untracked                                                    |
+| historyless dateless heading, file 210d old  | Needs attention at =210d quiet= | Untracked at =~210d quiet= (the number is marked as a bound)  |
+| historyless DATED heading, file 210d old     | Needs attention at =210d quiet= | its own date section, when the date arrives                  |
+| heading with history                         | unchanged                       | unchanged                                                    |
+| =org-air-classify-updated= callers           | slot ‖ file mtime               | slot only; =…-updated-floor= is the mtime                     |
+| existing v7 scan cache                       | loaded                          | clean cold miss + paced rescan                                |
+| a board with no untracked items              | five sections                   | five sections, byte-identical (the descriptor is conditional) |
+| =org-air-glyphs= without an =untracked= key  | n/a                             | user overrides keep working; the key is simply consulted      |
+
+Nothing signals.  The one behaviour a user could miss is row 3: a
+historyless heading that *is* dated no longer surfaces for its file's
+age.  That is deliberate — it has a plan, and org-air keeps the plan
+rather than second-guessing it — and it is stated in the README.
+
+* Gate
+
+- =rm -f *.elc tests/*.elc=; all *11* modules byte-compile.  The only
+  warning is the pre-existing =org-air-project.el:946= docstring width,
+  present on =main= and untouched here.
+- =make lint= → =lint: ok (0 findings, all baselined)=.
+- =make clean && make check= → *1300 tests, 1265 as expected, 27
+  unexpected, 8 skipped* (the 8 GUI skips).  No test file, fixture
+  corpus or known-failures entry was edited; the manifest is still
+  empty.
+- =make regen-mockups= → *byte no-op* after the 25 intended golden
+  updates.
+- Changed: =org-air-query.el=, =org-air-classify.el=, =org-air-view.el=,
+  =org-air-layout.el=, =README.org=, 25 board goldens, this document.
+  Every =tests/*.el= byte-pristine; no probe files; =.deps= kept.
+
+** Golden churn — 25 files, ADDITIVE ONLY
+
+=make regen-mockups= moved *25 of 41* fixture files: every
+=layout-mockup-{70,80,90,96,100,104,110,120,160}= tier and their =x24= /
+=x50= variants.  The other 16 (=layout-mockup-empty-120x50=, both
+=denote-origin-*=, the three =project-view-*=, both =entry-view*=,
+=review-mockup-170= and the five =.org= corpora) regenerated
+byte-identical.
+
+The complete delta, per moved golden, is:
+
+#+begin_example
+BOARD  + 1 blank line
+       + 1 '  ◌ Untracked 3'          (section header)
+       + 3 item rows, each 'no history' in the date cell
+RAIL   + 1 '      3   Untracked'      (Summary row)
+#+end_example
+
+*Zero removed lines.  Zero edited content lines.*  Every existing row,
+count, badge, calendar cell and inspector line is byte-identical — the
+regeneration is purely additive, which is itself the evidence that R94
+took nothing off the board.  (The narrow 70/80 tiers gain 5 lines rather
+than 6: they render board-only, with no rail Summary.)
+
+* Failing tests — the handover
+
+*27 failures, 0 errors.  Every one was inspected.  None reveals a defect
+in this change; every one pins a fact this round was asked to change.*
+The classification below is per test, with the exact assertion.
+
+** G1 — the mtime floor asserted as the attention clock (7) — OBSOLETE
+
+Each asserts that a historyless heading in an OLD file surfaces in Needs
+attention, or reads =org-air-classify-quiet-days= expecting the floor.
+That is precisely the excuse/accusation coupling R94 severed; each of
+these items is now in =untracked= instead.
+
+| Test                                             | Pins                                                        |
+|--------------------------------------------------+-------------------------------------------------------------|
+| =org-air-r93-8-mtime-floor-is-a-last-resort…=    | =quiet-days= = the file mtime for a slotless heading         |
+| =org-air-r54-1a-dateless-prose-never-stale=      | a 60-day-old file surfaces a plain heading in attention      |
+| =org-air-r54-1b-dateless-todo-attention-never-stale= | same, for a dateless =TODO=                              |
+| =org-air-r54-1e-eligibility-first-conjunct…=     | a DATED heading aged off its 60-day-old file is in attention |
+| =org-air-ux-bare-timestamp-recency-is-inactive-only= | =quiet-days= non-nil for a heading with no own stamp     |
+| =org-air-classify-overdue-is-its-own-bucket=     | =(should age)= for a slotless fixture heading                |
+| =org-air-r93-15-attention-overlap-is-earned-not-granted= | same =(should age)= precondition                     |
+
+*Re-bless shape:* give the heading one stamp (=org-air-test-quiet-stamp=
+already exists) instead of only aging the file, and the assertions read
+true again — measured.  The floor's surviving behaviour belongs in a new
+assertion against =org-air-classify-updated-floor= /
+=org-air-classify-quiet-floor-days=.
+
+** G2 — a bucket list that predates =untracked= (10) — OBSOLETE
+
+Each pins an exact bucket list for a heading that has no plan and no
+record, so the list grew by one symbol.  The *subject* of every one of
+them is unaffected.
+
+| Test                                              | Was                     | Is now                              |
+|---------------------------------------------------+-------------------------+-------------------------------------|
+| =org-air-r54-2h-board-shows-tasks-only=           | =(inbox)=               | =(untracked inbox)=                 |
+| =org-air-r59-7-inbox-leaf-surfaces=               | =(inbox)=               | =(untracked inbox)=                 |
+| =org-air-r59-12-capture-and-at-point-unaffected=  | =(high-priority)=       | =(high-priority untracked)=         |
+| =org-air-r72-10-hoist-is-neutral=                 | =nil=                   | =(untracked)=                       |
+| =org-air-r93-3-hipri-always-unknown-age-never=    | =(high-priority)=       | =(high-priority untracked)=         |
+| =org-air-r93-17-hipri-three-day-boundary…=        | =(high-priority attention)= | =(high-priority attention untracked)= |
+| =org-air-r90-42-remhash-failure-poisons…=         | =(attention)=           | =(attention untracked)=             |
+| =org-air-layout-summary-counts-match-sections=    | =(= (length counts) 5)= | 6 (the conditional Summary row)     |
+| =org-air-s4-badge-row-consistency=                | =(= (length sections) 5)= | 6 (the conditional section)        |
+| =org-air-r73-15-bucket-graduates-empty-board…=    | =M->= parks below the last row | its =* Existing= heading now has an Untracked row |
+
+Two notes for the re-bless:
+
+- =r72-10= is worth strengthening rather than merely updating: its
+  13-row bucket table is the natural place to pin that
+  =hipri-dateless= ⇒ =(high-priority untracked)= and that an item with a
+  LOGBOOK stamp is =(high-priority)= alone.
+- =r73-15='s seam ("the last item of one bucket graduates while other
+  buckets still hold items") passed in full; only its final
+  point-below-the-last-row leg lost its precondition, because the board
+  grew a section under it.  It needs a corpus whose last section really
+  is the last row — or a =target.org= heading carrying a stamp.
+
+** G3 — bucket-list counts in the R90 mark-discipline corpus (4) — OBSOLETE
+
+| Test                                                    | Pins                                   |
+|---------------------------------------------------------+----------------------------------------|
+| =org-air-r90-85-duplicate-sibling-never-backlogs-wrong-heading= | =(= 3 (rendered-rows "Sync"))= → 6 |
+| =org-air-r90-86-duplicate-sibling-never-tags-wrong-heading=     | same                               |
+| =org-air-r90-88-rearranged-sibling-never-backlogs-wrong-heading= | =(= 2 …)= → 4                     |
+| =org-air-r90-89-rearranged-sibling-never-tags-wrong-heading=     | same                               |
+
+All four fail on the *setup precondition* — the corpus's identical
+dateless =Sync= headings now render in Untracked as well as in attention
+(the harness pins =org-air-attention-days= to =((nil . 0))=), so each
+heading contributes two rows instead of one.  *The law each test exists
+to prove — org-air never writes a heading the user did not mark — is not
+reached, not weakened, and not in question.*  Deriving the expected count
+from the render (as =r47-2= was repaired in R93 RETEST-2) fixes all four.
+
+** G4 — the cache version literal (4) — OBSOLETE BY DESIGN
+
+| Test                                                | Pins       |
+|-----------------------------------------------------+------------|
+| =org-air-r59-13-cache-v6-and-key=                   | =(= v 7)=  |
+| =org-air-r86-18-path-adds-no-cache-coherence-input= | =(= 7 v)=  |
+| =org-air-r90-31-cache-v6-native-projection-and-v7-clean-miss= | =(= 7 v)= |
+| =org-air-r93-13-cache-v7-and-v6-clean-cold-miss=    | =(= 7 v)=  |
+
+All four are load-bearing for their real subjects (the memo key is not a
+scan input; =path:= adds no coherence input; a stale record cold-misses)
+and should be re-pointed at the constant, not deleted — =r90-31= already
+reads the constant for one of its legs, which is the right shape for all
+four.
+
+** G5 — the inspector's live stat (2) — CHANGED BY DESIGN (FIX-4)
+
+| Test                                    | Pins                                                                |
+|-----------------------------------------+---------------------------------------------------------------------|
+| =org-air-r74-5-fallback-one-bounded-stat= | scan, THEN =set-file-times=, THEN expect the rail to show the NEW mtime |
+| =org-air-r74-10-uniform-degrade=          | the same shape for a =kind= =file= item                              |
+
+These two encode the drift the review filed as follow-up 5: they change
+the file on disk *after* the scan and require the rail to read it live,
+which is exactly what makes the rail disagree with the bucket.  Under
+FIX-4 the rail shows what the scan knew, so both now render nothing (the
+scan mtime is the harness's wall clock, which the R74 future-clamp
+correctly suppresses).
+
+*Re-bless shape:* set the mtime BEFORE the scan.  Both tests then assert
+the same string and additionally prove the no-drift property.  Their
+sibling =r74-6= (the future-clamp golden lemma) and the =~file= label
+itself are untouched and still green.
+
+** Summary
+
+| Class                                                  | Count | Verdict          |
+|--------------------------------------------------------+-------+------------------|
+| mtime floor asserted as the attention clock             |     7 | obsolete         |
+| bucket list / section count predating =untracked=       |    10 | obsolete         |
+| R90 mark-corpus row counts (precondition only)          |     4 | obsolete         |
+| cache version literal                                   |     4 | design-changed   |
+| inspector live-stat (the drift itself)                  |     2 | design-changed   |
+| *Total*                                                 | *27*  | *0 real defects* |
+
+* Mutation evidence — and where the suite is BLIND
+
+Each mutation applied to the source, the whole suite run, the source
+restored and re-verified byte-identical (=cmp= against a pre-mutation
+copy: all four files identical afterwards).  The delta below is against
+this round's own 27-failure baseline.
+
+| # | Mutation                                                     | Reddens                                                                                          |
+|---+--------------------------------------------------------------+--------------------------------------------------------------------------------------------------|
+| 1 | =--sort-by-date= ignores BUCKET (revert FIX-1)               | *NOTHING*                                                                                        |
+| 2 | the =untracked= bucket arm disabled                          | =layout-mockup-{80,120,160,heights,thresholds}=, =r13-board-only-byte-mockup=, =r49-5-batch-placement-blind= |
+| 3 | the file floor put back into =org-air-classify-updated=      | the same 7 (the Untracked set empties)                                                            |
+| 4 | =--plan-stamp-p= guard removed (revert FIX-2)                | *NOTHING*                                                                                        |
+| 5 | =--quoted-stamp-p= guard removed (revert FIX-3)              | *NOTHING*                                                                                        |
+| 6 | the inspector back to a live stat (revert FIX-4)             | *NOTHING*                                                                                        |
+
+*Reported plainly because it is the round's weakest point:* four of six
+mutations are invisible to the current suite, and this seat may not edit
+tests.  The board-level change (the new bucket and the removal of the
+floor from the clock) is genuinely fenced by seven goldens; the four
+correctness fixes are fenced only by the probes recorded above.  Every
+one of them is reproducible in three lines of corpus — see the handover.
+
+* Handover to the test seat
+
+Ordered by what a regression would cost.
+
+1. *The mixed-slot Overdue shape.*  Add to =r93-19= / =r93-21= a heading
+   carrying BOTH slots with only the SCHEDULED one past
+   (=SCHEDULED: <2026-05-06 Wed>= + =DEADLINE: <2026-06-20 Sat>= against
+   the frozen now).  Assert the painted order is worst-first by the
+   printed number.  Mutation 1 must redden it.  This is the shape the
+   law has always claimed and never contained.
+2. *The two recency guards.*  A corpus with =DEADLINE: [2026-06-14 Sun]=,
+   =SCHEDULED: [2026-06-14 Sun]=,
+   =CLOSED: [2026-06-01 …] DEADLINE: [2026-06-14 …]= and
+   =- Rescheduled from "[2026-06-14 Sun]" on [2026-06-01 …]=.  Expected
+   ages: UNKNOWN, UNKNOWN, 14, 14.  Mutations 4 and 5 must redden.
+3. *The inspector no-drift property.*  Scan, edit the file on disk
+   WITHOUT rescanning, assert the rail's =~file= number equals the
+   bucket's.  Mutation 6 must redden.  (=r74-5= / =r74-10= are the
+   natural hosts once their =set-file-times= moves before the scan.)
+4. *The Untracked predicate and section*, at the boundaries: dated ⇒ not
+   untracked, one stamp ⇒ not untracked, one date ⇒ not untracked, both
+   absent ⇒ untracked; =is:untracked= ⇔ the section over a scanned
+   corpus (the R72 law); the section hidden when empty; the =~Nd quiet= /
+   =no history= cell; the =--sort-by-floor= order.
+5. *The coverage theorem*, as a sweep: over a corpus covering the
+   plan × record matrix, every board-active non-deferred item is in at
+   least one bucket unless its only date is beyond the Upcoming horizon.
+6. *The 27 re-blesses* above, in their five classes.
+
+* Reported for the test seat (not fixable here)
+
+- =tests/org-air-test-helpers.el:107= still documents the thresholds as
+  "=#A= 0, =#B= 7, =#C= 14, everything else 30".  R93 FIX-3 moved =#A= to
+  *3*; the comment has been wrong since that round and R94 does not
+  change it.  Comment-only, in a file this seat may not edit.  The same
+  block's next sentence ("with the source file's mtime as the coarse
+  floor for a heading that carries no history at all") is now also stale:
+  R94 removed that fallback from the attention clock.
+
+* Files changed
+
+- =org-air-query.el= — the two recency guards and their wiring.
+- =org-air-classify.el= — the measured/floor split, the provenance
+  helper, =--untracked-p=, the bucket arm.
+- =org-air-view.el= — the Untracked descriptor/summary/limit/label/sort,
+  =--overdue-time= and the Overdue sort key, the quiet tie-break, the
+  =is:untracked= token, the inspector lines, cache v8.
+- =org-air-layout.el= — the =◌= glyph.
+- =README.org= — the amplifiers named, the measured-only clock, the new
+  Untracked section, the filter vocabulary, the section list.
+- 25 board goldens — additive only.
+- =air/v0.1/org-air-round94-design.org= — this document.
+
+No test, fixture corpus or known-failures file was touched.
+
+* Implementation history
+
+- 2026-07-29 — *R94.*  Designed and implemented in one round, branched
+  from =main= (=rqvllzqvouxq=, R93 RETEST-2).  The R93 review's primary
+  finding answered structurally: the file mtime leaves the Needs-attention
+  clock, a new =untracked= bucket/section/token gives homeless work a
+  permanent non-accusing row, and the floor survives as a marked lower
+  bound ranking that section.  Follow-ups 1, 2, 3, 5 and 7 taken (7 is
+  reported, being test-side).  1300 tests, 27 failures, all classified
+  obsolete or design-changed above; lint clean; 11 modules compile; 25
+  goldens regenerated, additive-only.  Four of six mutations are
+  currently uncovered — reported, with the corpora the test seat needs.

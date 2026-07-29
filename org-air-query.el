@@ -568,6 +568,55 @@ The future-stamp guard of the `updated' probe reads it instead of
 calling `format-time-string' once per heading; nil (outside a scan)
 makes the probe compute it itself.")
 
+(defconst org-air-query--planning-keyword-regexp
+  "\\(SCHEDULED\\|DEADLINE\\|CLOSED\\):"
+  "The three Org planning keywords, for the R94 plan-stamp exclusion.
+Only the NEAREST one to the left of a stamp decides whose value that
+stamp is, so a mixed planning line (`CLOSED: [x] DEADLINE: [y]') is
+resolved keyword by keyword rather than line by line.")
+
+(defun org-air-query--plan-stamp-p (pos)
+  "Non-nil when the stamp starting at POS is a SCHEDULED:/DEADLINE: value (R94).
+Org accepts a PLANNING date written as an INACTIVE stamp
+\(`DEADLINE: [2026-06-14 Sun]'), which `org-ts-regexp-inactive' matches
+just like a log stamp.  R93 claimed the plan/update exclusion was
+mechanical — \"a SCHEDULED, a DEADLINE or a bare plan date can never move
+this clock\" — but that was only true of the `<…>' spelling: the bracket
+spelling read as BOTH a deadline (the row went to Overdue) and an update
+\(age 1).  One stamp, two meanings.
+
+The nearest planning keyword to the LEFT of POS on the same line decides:
+`SCHEDULED:'/`DEADLINE:' own the stamp (a plan — skip it), `CLOSED:' owns
+it (a completion — keep it, it is the one planning stamp that records
+something that HAPPENED), and no keyword at all means an ordinary body or
+LOGBOOK stamp (keep it).  Match data is preserved for the caller's walk."
+  (save-excursion
+    (save-match-data
+      (goto-char pos)
+      (let ((bol (line-beginning-position)))
+        (and (re-search-backward org-air-query--planning-keyword-regexp bol t)
+             (member (match-string-no-properties 1) '("SCHEDULED" "DEADLINE"))
+             t)))))
+
+(defun org-air-query--quoted-stamp-p (beg end)
+  "Non-nil when the stamp spanning [BEG, END) is wrapped in double quotes (R94).
+Org's default `org-log-note-headings' quote the OLD value of whatever
+changed (`%S'):
+
+  - Rescheduled from \"[2026-06-14 Sun]\" on [2026-06-01 Mon 08:00]
+  - New deadline from \"[2026-06-13 Sat]\" on [2026-05-01 Fri 08:00]
+
+The quoted date is the PLAN that was abandoned, not the moment the note
+was written, and it is NEWER than the log's own stamp whenever a task is
+moved earlier — so the naive newest-wins walk read the reschedule above
+as age 1 instead of 14.  A quoted stamp is therefore never this clock's
+witness; the unquoted `%t' stamp on the same line is.  (`%s'/`%S' are
+quoted in every default heading, so the rule is format-independent: it
+asks the punctuation, not the wording.)"
+  (and (> beg (point-min))
+       (eq (char-before beg) ?\")
+       (eq (char-after end) ?\")))
+
 (defun org-air-query--newest-inactive-stamp (start bound)
   "Return the newest non-future inactive stamp epoch in [START, BOUND) (R93).
 ONE bounded `org-ts-regexp-inactive' pass over the region the R61
@@ -578,6 +627,22 @@ region: LOGBOOK `- State \"X\" … [TS]' / `- Note taken on [TS]' lines,
 `:CREATED:' property, plus any stamp the user typed in the body.  Active
 `<timestamps>' are NOT matched by the regexp — a plan is not an update
 \(the R93 recency ruling).
+
+R94 closes the two holes in that ruling, both measured by the R93 review
+and both in the \"looks fresher than it is\" direction:
+
+  `org-air-query--plan-stamp-p'    an INACTIVE `SCHEDULED:'/`DEADLINE:'
+                                   value is a plan, not an update
+                                   \(`CLOSED:' still counts);
+  `org-air-query--quoted-stamp-p'  the QUOTED old date inside a
+                                   `Rescheduled from \"[…]\" on […]' log
+                                   line is the abandoned plan, not the
+                                   log's own moment.
+
+Both are constant-cost per match (one bounded backward search on the
+current line, two `char-after'/`char-before' reads) and neither adds a
+pass or a file read.  The exclusion is now genuinely mechanical, which
+is what the R93 design and README already claimed.
 
 Stamps are compared as STRINGS, which is exact for Org's own
 `YYYY-MM-DD Dow HH:MM' shape (the date sorts first and a given date
@@ -594,8 +659,15 @@ Returns an INTEGER epoch, or nil when the region holds no usable stamp."
         ;; Group 0 deliberately: whether `org-ts-regexp-inactive' group 1
         ;; includes the brackets has differed across Org versions, and
         ;; group 0 is the whole "[YYYY-MM-DD …]" in every one of them.
-        (let ((raw (match-string-no-properties 0)))
-          (when (> (length raw) 11)
+        ;; The bounds are copied out BEFORE either R94 guard runs — both
+        ;; search, and `save-match-data' protects the walk, but the walk's
+        ;; own strings must be taken first (the R61 clobber rule).
+        (let ((raw (match-string-no-properties 0))
+              (mbeg (match-beginning 0))
+              (mend (match-end 0)))
+          (when (and (> (length raw) 11)
+                     (not (org-air-query--quoted-stamp-p mbeg mend))
+                     (not (org-air-query--plan-stamp-p mbeg)))
             (let ((inner (substring raw 1 -1)))
               ;; A stamp dated after today is a note ABOUT the future.
               (unless (string< today (substring inner 0 10))

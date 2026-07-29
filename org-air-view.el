@@ -1207,6 +1207,22 @@ not, so keeping both would have shown the same fact twice.  Overdue was
 split OUT of Needs attention for the same reason in reverse: a missed
 date and a quiet item are different problems and want different rows.")
 
+(defconst org-air-view--untracked-descriptor
+  '(untracked "Untracked" "Nothing untracked.")
+  "The conditional Untracked section descriptor (R94).
+Rendered ONLY when some visible item classifies into the `untracked'
+bucket — no plan and no recorded history
+\(`org-air-classify--untracked-p') — so a board whose headings all carry
+a date or a stamp renders exactly the R93 five sections, byte for byte.
+
+It sits LAST of the task sections, directly under Needs attention, and
+the order continues the sentence the R93 table reads as: process
+\(Inbox), repair (Overdue), plan (Upcoming), choose (High priority),
+sweep (Needs attention) — and then, quietly, \"and here is the work I
+cannot rank at all\".  Its `◌' icon comes from `org-air-glyphs' and its
+count is NEVER painted with the attention badge face: the section is a
+statement about org-air's knowledge, not an accusation about the user's.")
+
 (defconst org-air-view--notes-descriptor
   '(notes "Notes" "No notes.")
   "The bounded Notes section descriptor (R53 P3).
@@ -1251,13 +1267,20 @@ emission, TAB and width measurement."
 
 (defun org-air-view--section-descriptors (items)
   "Return the section descriptors to render for ITEMS (R53 P3, R83).
-The fixed task sections, then the single collapsed Notes section when any
-visible item is a `kind' `file' note and `org-air-show-notes-section' is
-on, and finally the Backlog section when any visible item defers into the
-`backlog' bucket and `org-air-show-backlog-section' is on.  Both trailing
-sections are conditional-and-empty-suppressed, so a board with neither
-renders byte-identically to the fixed five."
+The fixed task sections, then the R94 Untracked section when any visible
+item has neither a plan nor a recorded history, then the single collapsed
+Notes section when any visible item is a `kind' `file' note and
+`org-air-show-notes-section' is on, and finally the Backlog section when
+any visible item defers into the `backlog' bucket and
+`org-air-show-backlog-section' is on.  All three trailing sections are
+conditional-and-empty-suppressed, so a board with none of them renders
+byte-identically to the fixed five."
   (let ((descriptors org-air-view--sections))
+    ;; R94: Untracked goes FIRST of the conditional tail, so it stays with
+    ;; the task sections it belongs to and above the Notes/Backlog lenses.
+    (when (org-air-view--items-for-bucket 'untracked items)
+      (setq descriptors
+            (append descriptors (list org-air-view--untracked-descriptor))))
     (when (and org-air-show-notes-section
                (org-air-view--items-for-bucket 'notes items))
       (setq descriptors
@@ -2867,7 +2890,16 @@ section is a nudge, not an alarm (Overdue is the alarm).  With an
 unknown age the bare word \"quiet\" is used — the cell is never blank
 and org-air never invents a number.  The two public classify helpers are
 the SAME ones the bucket and the inspector read, so label, section
-membership and explanation cannot drift."
+membership and explanation cannot drift.
+
+R94: the number here is now always MEASURED —
+`org-air-classify-quiet-days' reads the heading's own history and nothing
+else — so this cell can no longer print a file's mtime dressed as a
+heading's age.  The R93 review found 52 % of this section's members, and
+83 % of the rows visible under its cap, were file-derived guesses wearing
+exactly the same clothes as facts.  The `~' spelling for a file-level
+bound now lives where a file-level bound is the honest answer: the
+Untracked section (`org-air-view--untracked-reason')."
   (let ((threshold (org-air-classify-attention-threshold item))
         (age (org-air-classify-quiet-days item now)))
     (cons (cond ((<= threshold 0) "always")
@@ -2875,11 +2907,63 @@ membership and explanation cannot drift."
                 (t "quiet"))
           'org-air-face-date)))
 
+(defun org-air-view--untracked-reason (item now)
+  "Return the (LABEL . FACE) cell for an Untracked row for ITEM as of NOW.
+R94.  The section holds headings with no plan and no recorded history, so
+there is no heading-level number to print.  What there IS, sometimes, is
+the FILE-level lower bound (`org-air-classify-quiet-floor-days'): every
+edit to the heading is an edit to its file, so \"this file has not changed
+in N days\" means \"this heading has been quiet for at LEAST N days\".
+
+  \"~210d quiet\"  the file-level bound, N > 0.  The leading `~' is the
+                  provenance mark and it is load-bearing: this number is
+                  about the FILE, and the real age can only be larger.
+                  The same `~' idiom the rail inspector already uses for
+                  its `~file' Updated line.
+  \"no history\"   the bound is 0 or unknown — the file changed today, or
+                  the item was built outside the scan.  A bound of zero
+                  says nothing at all, so org-air prints the fact it does
+                  have instead of a number that means nothing.
+
+Quiet `org-air-face-date' in both cases: a missing record is not an
+alarm.  The number printed here is exactly the section's sort key
+\(`org-air-view--sort-by-floor'), so the FIX-2 law — each section ordered
+worst-first by the very number its own rows print — holds here too."
+  (let ((floor-days (org-air-classify-quiet-floor-days item now)))
+    (cons (if (and floor-days (> floor-days 0))
+              (format "~%dd quiet" floor-days)
+            "no history")
+          'org-air-face-date)))
+
+(defun org-air-view--overdue-time (item now)
+  "Return the timestamp an OVERDUE row PRINTS for ITEM as of NOW, or nil (R94).
+Deadline first when it is past, else scheduled when it is past — the
+exact arm order `org-air-view--date-label' uses to compose
+\"OVERDUE Nd\", hoisted so the label and the Overdue section's sort can
+read it from ONE place.
+
+Why it exists: `org-air-view--item-sort-time' keys on
+\(or deadline scheduled) unconditionally, so a heading overdue by its
+SCHEDULE while its DEADLINE is still in the future printed a big number
+and sorted by a future date — last.  Reproduced through the real renderer
+by the R93 review: printed order 30d, 20d, 4d, 2d, 40d, i.e. the worst
+row of the alarm section at the BOTTOM, where the 6-row cap can hide it
+behind \"and N more\".  That is the same defect R93 FIX-2 fixed, in a
+shape its corpus did not contain.  Keying the sort on this function makes
+the law (\"ordered worst-first by the very number its own rows print\")
+true by construction rather than by coincidence of slot order."
+  (let ((deadline (org-air-view--timestamp-time (org-air-item-deadline item)))
+        (scheduled (org-air-view--timestamp-time (org-air-item-scheduled item))))
+    (cond
+     ((and deadline (> (org-air-view--days-between deadline now) 0)) deadline)
+     ((and scheduled (> (org-air-view--days-between scheduled now) 0)) scheduled))))
+
 (defun org-air-view--date-label (item bucket)
   "Return (LABEL . FACE) date metadata for ITEM in BUCKET."
   (let* ((now (current-time))
          (scheduled (org-air-view--timestamp-time (org-air-item-scheduled item)))
-         (deadline (org-air-view--timestamp-time (org-air-item-deadline item))))
+         (deadline (org-air-view--timestamp-time (org-air-item-deadline item)))
+         (overdue (org-air-view--overdue-time item now)))
     (cond
      ;; R93: in Needs attention the date cell carries the REASON, ahead of
      ;; every date arm.  A row is in that section because it went QUIET,
@@ -2887,11 +2971,15 @@ membership and explanation cannot drift."
      ;; overdue or upcoming item has its own section row showing them, and
      ;; the inspector always lists both.
      ((eq bucket 'attention) (org-air-view--attention-reason item now))
-     ((and deadline (> (org-air-view--days-between deadline now) 0))
-      (cons (format "OVERDUE %dd" (abs (org-air-view--days-between deadline now)))
-            'org-air-face-overdue))
-     ((and scheduled (> (org-air-view--days-between scheduled now) 0))
-      (cons (format "OVERDUE %dd" (abs (org-air-view--days-between scheduled now)))
+     ;; R94: the same arm, for the same reason — an Untracked row is there
+     ;; because org-air has no record of it, not because of a date.
+     ((eq bucket 'untracked) (org-air-view--untracked-reason item now))
+     ;; R94: the two OVERDUE arms collapsed onto `--overdue-time', the ONE
+     ;; definition of "the slot this row is late by", which the Overdue
+     ;; section's sort now keys on as well.
+     (overdue
+      (cons (format "OVERDUE %dd"
+                    (abs (org-air-view--days-between overdue now)))
             'org-air-face-overdue))
      (deadline
       (cons (org-air-view--human-date deadline now)
@@ -2993,12 +3081,18 @@ bare substring token."
    ((stringp org-air-view--tag-filter) (list org-air-view--tag-filter))))
 
 (defconst org-air-view--filter-is-values
-  '("overdue" "upcoming" "attention" "nodate" "hipri" "backlog")
+  '("overdue" "upcoming" "attention" "untracked" "nodate" "hipri" "backlog")
   "The closed value set of the R72 `is:' status-token family.
 R83: `backlog' is the bucket-exact twin of the raw-tag `#backlog' — it
 selects exactly the `backlog' bucket (board-active ∧ task-routed ∧
 tagged), a strict subset of `#backlog' (which also hits done / archived /
 note-typed carriers of the tag).
+R94: `untracked' joins as the Untracked section's own token
+\(`org-air-classify--untracked-p': no plan and no recorded history), so
+the one place org-air admits it cannot rank something is reachable by
+name.  It is deliberately NOT a synonym for `nodate': `is:nodate' is the
+date negation alone, and an undated heading with a LOGBOOK trail answers
+`is:nodate' but not `is:untracked'.
 R93: `attention' joins the family as the Needs-attention section's own
 token (the aging predicate), and `stale' LEAVES it — the Stale bucket is
 retired.  `is:stale' still PARSES, as a deprecated alias
@@ -3020,7 +3114,8 @@ vocabulary org-air teaches is always the current one.")
 (defun org-air-view--filter-token-parse (token)
   "Parse TOKEN as an R72 date/status filter token, or return nil.
 The closed `qualifier:value' grammar (case-insensitive throughout):
-  is:overdue / is:upcoming / is:attention / is:nodate / is:hipri
+  is:overdue / is:upcoming / is:attention / is:untracked / is:nodate /
+  is:hipri
   \(plus the retired `is:stale', aliased to `attention' — R93)
     => (is . SYMBOL)
   due:Nd / due:Nw (and the scheduled:/deadline: slot twins; the unit is
@@ -3191,6 +3286,11 @@ agreement law through the routing layer."
          ;; selects EXACTLY the section's rows.  `is:stale' parses to
          ;; this same symbol (the deprecated alias).
          (`(is . attention) (org-air-classify--attention-p item now))
+         ;; R94: the Untracked section's OWN predicate — one definition
+         ;; shared by bucket and token, so `is:untracked' selects EXACTLY
+         ;; the section's rows.  Date-free and clock-free: it asks what
+         ;; org-air KNOWS, not what the calendar says.
+         (`(is . untracked) (org-air-classify--untracked-p item))
          (`(is . nodate)
           ;; Deliberately the R54-1 date NEGATION, not "has no plan":
           ;; an item whose only date is a body <ts> is dated (it feeds
@@ -3501,6 +3601,10 @@ whole call so every item classifies against a single instant."
     ('overdue 6)
     ('attention 6)
     ('upcoming 5)
+    ;; R94: Untracked is a standing statement, not a queue to work down,
+    ;; so it claims the smallest budget of any task section; the fold row
+    ;; carries the true count and TAB expands it like any other.
+    ('untracked 4)
     ('notes org-air-notes-preview-limit)
     (_ org-air-section-max)))
 
@@ -4996,25 +5100,36 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
   (or (org-air-view--timestamp-time (org-air-item-deadline item))
       (org-air-view--timestamp-time (org-air-item-scheduled item))))
 
-(defun org-air-view--sort-by-date (items)
+(defun org-air-view--sort-by-date (items &optional bucket)
   "Return ITEMS ordered by effective date, undated items last.
-The order is stable so items sharing a date keep their incoming order."
-  (let ((indexed (let ((i 0))
+The order is stable so items sharing a date keep their incoming order.
+
+BUCKET `overdue' keys on `org-air-view--overdue-time' instead — the slot
+the row's own \"OVERDUE Nd\" label chose — so the alarm section is
+worst-first by the number it prints even when the two slots disagree (R94
+follow-up 1: overdue by SCHEDULE with a FUTURE deadline).  Any other
+bucket keeps `org-air-view--item-sort-time' verbatim."
+  (let ((now (current-time))
+        (indexed (let ((i 0))
                    (mapcar (lambda (item) (prog1 (cons i item) (setq i (1+ i))))
                            items))))
-    (mapcar #'cdr
-            (sort indexed
-                  (lambda (a b)
-                    (let ((ta (org-air-view--item-sort-time (cdr a)))
-                          (tb (org-air-view--item-sort-time (cdr b))))
-                      (cond
-                       ((and ta tb)
-                        (if (time-equal-p ta tb)
-                            (< (car a) (car b))
-                          (time-less-p ta tb)))
-                       (ta t)
-                       (tb nil)
-                       (t (< (car a) (car b))))))))))
+    (cl-flet ((key (item)
+                (or (and (eq bucket 'overdue)
+                         (org-air-view--overdue-time item now))
+                    (org-air-view--item-sort-time item))))
+      (mapcar #'cdr
+              (sort indexed
+                    (lambda (a b)
+                      (let ((ta (key (cdr a)))
+                            (tb (key (cdr b))))
+                        (cond
+                         ((and ta tb)
+                          (if (time-equal-p ta tb)
+                              (< (car a) (car b))
+                            (time-less-p ta tb)))
+                         (ta t)
+                         (tb nil)
+                         (t (< (car a) (car b)))))))))))
 
 (defun org-air-view--sort-by-quiet (items)
   "Return ITEMS most-quiet-first, unknown-age items last (R93 FIX-2).
@@ -5032,6 +5147,16 @@ An UNKNOWN age (label \"quiet\") sorts LAST, mirroring how
 `org-air-view--sort-by-date' trails undated items: org-air never invents
 a number and never lets an unknown outrank a measured one.
 
+R94 — PROVENANCE BREAKS TIES.  Two rows printing the same number are
+ordered MEASURED first (`org-air-classify-updated-source'), so a heading
+org-air actually watched happen never sits below a number derived from
+something else.  Under the defaults this arm is dormant on the board,
+because R94 also took the file floor out of the attention clock: every
+age this section sorts on is already a measured heading fact.  It is kept
+because the ordering law must not depend on that — a caller handing this
+function a mixed list must still get \"a fact outranks a bound\" rather
+than whatever the incoming order happened to be.
+
 One classify call per item (the age is precomputed into the sort key,
 not recomputed per comparison), and the order is stable so equal ages
 keep their incoming order."
@@ -5039,7 +5164,48 @@ keep their incoming order."
          (i 0)
          (indexed (mapcar
                    (lambda (item)
-                     (prog1 (list i (org-air-classify-quiet-days item now) item)
+                     (prog1 (list i (org-air-classify-quiet-days item now) item
+                                  (if (eq (org-air-classify-updated-source item)
+                                          'measured)
+                                      0 1))
+                       (setq i (1+ i))))
+                   items)))
+    (mapcar (lambda (e) (nth 2 e))
+            (sort indexed
+                  (lambda (a b)
+                    (let ((qa (nth 1 a)) (qb (nth 1 b)))
+                      (cond
+                       ((and qa qb)
+                        (cond ((/= qa qb) (> qa qb))
+                              ((/= (nth 3 a) (nth 3 b))
+                               (< (nth 3 a) (nth 3 b)))
+                              (t (< (nth 0 a) (nth 0 b)))))
+                       (qa t)
+                       (qb nil)
+                       (t (< (nth 0 a) (nth 0 b))))))))))
+
+(defun org-air-view--sort-by-floor (items)
+  "Return ITEMS ordered by their FILE-level quiet bound, longest first (R94).
+The Untracked section's order.  The key is
+`org-air-classify-quiet-floor-days' — the same number
+`org-air-view--untracked-reason' prints as \"~210d quiet\" — so the
+section obeys the FIX-2 law (each section ordered worst-first by the very
+number its own rows print) exactly like every other one.
+
+A bound of 0 or nil prints \"no history\" rather than a number, and those
+rows sort LAST in stable incoming (query) order: a file that changed
+today says nothing at all about a heading that has no history in it, and
+org-air ranks nothing on a fact it does not have.
+
+One classify call per item, precomputed into the key; no file access (the
+bound is a hash lookup on the scan's file-meta table), so the R53
+render-purity fence is untouched."
+  (let* ((now (current-time))
+         (i 0)
+         (indexed (mapcar
+                   (lambda (item)
+                     (prog1 (let ((d (org-air-classify-quiet-floor-days item now)))
+                              (list i (and d (> d 0) d) item))
                        (setq i (1+ i))))
                    items)))
     (mapcar (lambda (e) (nth 2 e))
@@ -5179,10 +5345,14 @@ The default key `date' does NOT mean \"every section by date\" — it means
 EACH SECTION BY ITS OWN PLANNING NUMBER, WORST FIRST, i.e. by the very
 number that section's rows print in the date cell (R93 FIX-2):
 
-  overdue    `--sort-by-date'   earliest deadline first  = MOST overdue
+  overdue    `--sort-by-date'   earliest LATE SLOT first = MOST overdue
                                 first (\"OVERDUE 7d\" above \"OVERDUE 3d\").
                                 The alarm section leads with the worst
-                                promise.
+                                promise.  R94: the key is
+                                `--overdue-time' — the slot the row's own
+                                label chose — not (or deadline scheduled);
+                                see that function for the mixed-slot shape
+                                that broke this law.
   upcoming   `--sort-by-date'   earliest date first = soonest first; the
                                 cap then shows the NEXT N, which is the
                                 only cap that means anything.
@@ -5193,6 +5363,13 @@ number that section's rows print in the date cell (R93 FIX-2):
                                 the two sections above already rank
                                 commitments by date, so ranking them
                                 again here would add nothing.
+  untracked  `--sort-by-floor'  longest FILE-level bound first (\"~210d
+                                quiet\"), rows printing \"no history\" last
+                                in query order (R94).  The only place a
+                                file mtime ranks anything, and only
+                                because there it is a sound LOWER bound,
+                                marked `~', rather than a stand-in for a
+                                heading's own clock.
   inbox / high-priority / backlog / notes
                                 QUERY (file) order — they have no
                                 per-row number to be worst-first BY:
@@ -5220,8 +5397,10 @@ half into SCAN order, shipping \"225d quiet\" ABOVE \"273d quiet\".  Hence
        ;; Per-section planning order (see the docstring table); the rest
        ;; keep query order.  `O' reverses the within-bucket order.
        (let ((sorted (pcase bucket
-                       ((or 'overdue 'upcoming) (org-air-view--sort-by-date items))
+                       ((or 'overdue 'upcoming)
+                        (org-air-view--sort-by-date items bucket))
                        ('attention (org-air-view--sort-by-quiet items))
+                       ('untracked (org-air-view--sort-by-floor items))
                        (_ items))))
          (if desc (reverse sorted) sorted)))
       ('priority
@@ -5563,16 +5742,23 @@ to the line+spacing so the rule stays solid even with row spacing (D-P3)."
               " "))))
 
 (defun org-air-view--summary-buckets (items)
-  "Return the Summary section descriptors for visible ITEMS (R83).
-The fixed five task/inbox sections, plus the conditional Backlog
-descriptor when any visible item defers into the `backlog' bucket — so a
-backlog-free board keeps the exact five Summary rows (byte-identical),
-while a board with deferred items grows ONE `Backlog N' row.  Notes stay
-OUT of the Summary, as before."
-  (if (and (org-air-view--backlog-section-enabled-p)
-           (org-air-view--items-for-bucket 'backlog items))
-      (append org-air-view--sections (list org-air-view--backlog-descriptor))
-    org-air-view--sections))
+  "Return the Summary section descriptors for visible ITEMS (R83, R94).
+The fixed five task/inbox sections, plus the conditional Untracked
+descriptor when any visible item has neither a plan nor a record (R94),
+plus the conditional Backlog descriptor when any visible item defers into
+the `backlog' bucket — so a board with neither keeps the exact five
+Summary rows (byte-identical), while a board with untracked or deferred
+items grows one row each.  Notes stay OUT of the Summary, as before.
+
+Untracked earns a Summary row for the same reason it earns a section: it
+is the one count that tells a user their board is being ranked on
+history org-air does not have."
+  (append org-air-view--sections
+          (when (org-air-view--items-for-bucket 'untracked items)
+            (list org-air-view--untracked-descriptor))
+          (when (and (org-air-view--backlog-section-enabled-p)
+                     (org-air-view--items-for-bucket 'backlog items))
+            (list org-air-view--backlog-descriptor))))
 
 (defun org-air-view--section-counts (items)
   "Return bucket count alist for visible ITEMS.
@@ -5587,10 +5773,12 @@ under the other buckets.  R83: the conditional `backlog' tally rides the
 
 (defun org-air-view--bucket-title (bucket)
   "Return display title for BUCKET.
-R83: `backlog' resolves to the conditional Backlog descriptor's title."
-  (cadr (if (eq bucket 'backlog)
-            org-air-view--backlog-descriptor
-          (assq bucket org-air-view--sections))))
+R83: `backlog' resolves to the conditional Backlog descriptor's title.
+R94: so does `untracked'."
+  (cadr (pcase bucket
+          ('backlog org-air-view--backlog-descriptor)
+          ('untracked org-air-view--untracked-descriptor)
+          (_ (assq bucket org-air-view--sections)))))
 
 (defun org-air-view--rail-inset (width)
   "Return the D5b content-spine inset for a rail of content WIDTH.
@@ -6009,7 +6197,11 @@ nil means the board default `org-air-view--first-actionable-item'.")
 Mirrors `org-air-view--goto-first-item': the first item of the first
 non-empty section (D-P7)."
   (catch 'found
-    (dolist (descriptor org-air-view--sections)
+    ;; R94: Untracked is appended LAST, so this only ever reaches it when
+    ;; every fixed section is empty — a board that is nothing but
+    ;; untracked work still lands the inspector on a real row.
+    (dolist (descriptor (append org-air-view--sections
+                                (list org-air-view--untracked-descriptor)))
       (let ((bucket-items (org-air-view--items-for-bucket (car descriptor) items)))
         (when bucket-items (throw 'found (car bucket-items)))))
     nil))
@@ -6142,11 +6334,23 @@ marked `~file' — the same coarse floor classify uses)."
 (defun org-air-view--item-updated-line (item inset now)
   "Return the inspector Updated KV line for ITEM at INSET, or nil (R74).
 Slot path first: `org-air-view--item-updated' (pure, zero I/O) supplies
-the epoch and the class label.  When ALL three R61 slots are empty (no
-LOGBOOK, no closed clock, no `:CREATED:' — including items built
-outside the scan), ONE bounded `file-attributes' stat on the item's
-file supplies a last-modified time labelled \"~file\" (file-level, not
-heading-precise — one uniform rule, `kind' `file' items included).
+the epoch and the class label.  When ALL the slots are empty (no LOGBOOK,
+no closed clock, no `:CREATED:', no body stamp — including items built
+outside the scan), a last-modified time labelled \"~file\" takes over
+\(file-level, not heading-precise — one uniform rule, `kind' `file' items
+included).
+
+R94 — THE SCAN'S mtime, NOT A LIVE STAT.  That fallback now reads
+`org-air-classify-updated-floor' (the scan-time `:mtime' in
+`org-air-query-file-meta') and only falls back to ONE bounded
+`file-attributes' call when the item has no entry there at all — an item
+built outside the scan.  Before R94 this line stat'ed the file live while
+classify read the SCAN mtime, so after an on-disk edit with no rescan the
+rail said \"1d ago\" about the same heading the board had bucketed at
+165d.  Decision 13 says the number the inspector shows and the number the
+bucket used cannot drift; it now holds for the file path too, not just
+the slot path.  Both numbers move together on the next rescan, which is
+the only moment either of them learns anything.
 Always-on and FUTURE-CLAMPED: a fallback mtime AFTER the render clock
 NOW renders NOTHING (clock skew, NFS drift, a restored backup — an
 untrustworthy signal; the clamp is also exactly what keeps the
@@ -6163,12 +6367,16 @@ per debounced render, never in the classify/paint loop."
                   ('clock "clock") ('created "created")
                   ('stamp "stamp"))))
     (unless slot
-      ;; Decision 3: ONE bounded live stat, marked, future-clamped.
+      ;; Decision 3 + R94: the SCAN's mtime first (the same hash lookup
+      ;; classify makes), then ONE bounded live stat for an item the scan
+      ;; never saw.  Marked `~file', future-clamped, either way.
       (let* ((file (org-air-item-file item))
-             (mtime (and (stringp file)
-                         (ignore-errors
-                           (file-attribute-modification-time
-                            (file-attributes file))))))
+             (mtime (or (when-let* ((epoch (org-air-classify-updated-floor item)))
+                          (seconds-to-time epoch))
+                        (and (stringp file)
+                             (ignore-errors
+                               (file-attribute-modification-time
+                                (file-attributes file)))))))
         (when (and mtime (not (time-less-p now mtime)))
           (setq time mtime
                 label "~file"))))
@@ -6190,6 +6398,7 @@ per debounced render, never in the classify/paint loop."
   (pcase bucket
     ('inbox "Inbox") ('attention "Attention") ('upcoming "Upcoming")
     ('high-priority "High-priority") ('overdue "Overdue")
+    ('untracked "Untracked")
     (_ (capitalize (symbol-name bucket)))))
 
 (defun org-air-view--inspector-bucket-line (item inset now)
@@ -6215,8 +6424,18 @@ The classification is computed against NOW (D-P7)."
                       "always surfaces"
                     (format "quiet %s / %dd"
                             (if age (format "%dd" age) "?") threshold)))))
+             ;; R94: the Untracked reason in words — what org-air does not
+             ;; have, and the file-level bound it does, marked `~' exactly
+             ;; as the row cell marks it.  Same public helper as the row,
+             ;; so the two cannot drift.
+             (untracked-reason
+              (when (memq 'untracked buckets)
+                (let ((floor-days (org-air-classify-quiet-floor-days item now)))
+                  (if (and floor-days (> floor-days 0))
+                      (format "no plan, no record · file quiet ~%dd" floor-days)
+                    "no plan, no record"))))
              (text (string-join (delq nil (list (unless (string-empty-p names) names)
-                                                reason))
+                                                reason untracked-reason))
                                 " · ")))
         (unless (string-empty-p text)
           (org-air-view--inspector-kv
@@ -10169,7 +10388,7 @@ interrupt, but the guard is cheap and harmless."
 ;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
-(defconst org-air-view--cache-version 7
+(defconst org-air-view--cache-version 8
   "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
 v2 (R53): `org-air-item' gained the scan-time slots
 \(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
@@ -10208,7 +10427,18 @@ miss for a v6 cache: skeleton + the R56 paced rescan, never a hang.  The
 bump is REQUIRED and not merely defensive: a v6 record would hydrate with
 no `updated' at all, and every historyless heading would then age off the
 file mtime — a whole board of wrong reasons rather than an honest
-refill.")
+refill.
+v8 (R94): NO new slot — the RECORD SHAPE is identical to v7 and this bump
+is about MEANING.  R94 narrowed what `updated' may contain: an inactive
+`SCHEDULED:'/`DEADLINE:' value and a QUOTED old plan date inside a
+reschedule log line are no longer updates
+\(`org-air-query--plan-stamp-p', `org-air-query--quoted-stamp-p').  A v7
+record is well-formed but was harvested under the OLD rule, so hydrating
+it would keep a heading looking fresher than it is — and, now that
+`org-air-classify--untracked-p' reads the same slot, would also keep it
+out of the Untracked section it belongs in.  Wrong answers that look
+right are worse than a cold miss, so v7 is discarded: skeleton + the R56
+paced rescan, never a hang.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.

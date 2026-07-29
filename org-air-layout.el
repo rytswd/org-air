@@ -40,6 +40,13 @@
     ;; an absence, not an alarm).  No new glyph was invented.
     (overdue . ("▲" . "!"))
     (attention . ("○" . "~"))
+    ;; R94: the Untracked section icon — ◌, attention's ○ with its outline
+    ;; broken, which is exactly the relation between the two sections: one
+    ;; has a clock that ran out, the other has no clock at all.  Quiet by
+    ;; construction (it is a statement, never an alarm).  No SAFE middle
+    ;; tier, like every other section icon (▲ ○ ◆ ★ ≡ ▽): it degrades
+    ;; straight to ASCII when the frame's font cannot draw it.
+    (untracked . ("◌" . "."))
     (upcoming . ("◆" . ">"))
     (high-priority . ("★" . "*"))
     (notes . ("≣" . "="))

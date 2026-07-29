@@ -23,12 +23,13 @@
       TODO  ■ Ship quarterly report     Wed           #projects   #work … │    8   Upcoming
       TODO  ■ Fix production outage r…  OVERDUE 5d    #projects   #work … │    3   High priority
       TODO  ■ Prep client presentation  Tomorrow      #work   #client     │    2   Needs attention
-                                                                          │  ────
-  ○ Needs attention 2                                                     │   23   total
-      TODO    Learn lute                273d quiet    #someday   #hobby   │
-      TODO    Dust off old archive pr…  225d quiet    #projects   #archi… │ ▌ Inspector
-                                                                          │
-                                                                          │ ▌ Actions
-                                                                          │  c capture  / filter
-                                                                          │  s source   g r refresh
+                                                                          │    3   Untracked
+  ○ Needs attention 2                                                     │  ────
+      TODO    Learn lute                273d quiet    #someday   #hobby   │   23   total
+      TODO    Dust off old archive pr…  225d quiet    #projects   #archi… │
+                                                                          │ ▌ Inspector
+  ◌ Untracked 3                                                           │
+              Call plumber              no history    #inbox              │ ▌ Actions
+      TODO    Untracked idea with no …  no history    #projects   #somed… │  c capture  / filter
+      TODO    Read Structure and Inte…  no history    #someday   #readin… │  s source   g r refresh
                                                                           │  TAB expand ? help

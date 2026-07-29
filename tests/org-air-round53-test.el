@@ -71,6 +71,7 @@
 (require 'subr-x)
 (require 'org)
 (require 'org-air-test-helpers)
+(require 'org-air-viewport-helpers)
 
 (when (locate-library "org-air")
   (require 'org-air))
@@ -327,7 +328,24 @@ classifies done (never attention) and a note classifies to exactly
 The ONE design-blessed exception is pinned separately: the rail
 INSPECTOR may hydrate the single SELECTED item's file (NOWARN, bounded,
 per spec `inspector CREATED hydrates its ONE file with NOWARN' — the
-design's measured `exactly 1 buffer touched') — never one per item."
+design's measured `exactly 1 buffer touched') — never one per item.
+
+R93 FIX-2 HARNESS REPAIR (the purity assertions are UNTOUCHED).  The
+final \"the board really painted\" witness used to name one incidental
+row, `Prepare standup notes', under the machine's REAL clock.  That was
+always date-dependent — under the real clock every fixture date is
+months past, so the whole corpus piles into Overdue — and once R93
+FIX-2 made Overdue worst-first the 6-row cap stopped happening to
+include that row.  The witness, not the subject, was broken.
+
+Repaired at the ROOT: the render + witness region now runs under the
+FROZEN clock every other board test uses (`org-air-test-now'), so the
+board this test paints no longer depends on the day the suite runs, and
+the witness is a STRUCTURAL one — the rendered row count, the four task
+sections, and rows drawn from sections that are BELOW their cap and so
+cannot be permuted out of view.  The `find-file-noselect' fences, the
+buffer-list fences and the classification ground truth below are
+byte-identical to before."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     (let ((note1 (expand-file-name "zz-note-alpha.org" org-air-test--dir))
@@ -362,7 +380,8 @@ design's measured `exactly 1 buffer touched') — never one per item."
                                    (null (org-air-item-deadline it))))
                             items))
           (should (org-air-test-find-item "R53 alpha note" items))
-          (org-air-r53--with-board
+          (org-air-viewport-test--with-frozen-now
+           (org-air-r53--with-board
             (setq org-air-view--items items
                   org-air-view--items-key (list org-air-files
                                                 org-air-inbox-file)
@@ -405,17 +424,37 @@ design's measured `exactly 1 buffer touched') — never one per item."
                 (should (<= (length (delete-dups (mapcar #'car opened))) 1))
                 (pcase-dolist (`(,_file . ,nowarn) opened)
                   (should nowarn))))
-            ;; the board really painted: rows + the bounded Notes section.
-            (let ((text (substring-no-properties (buffer-string))))
-              (should (string-match-p "Prepare standup notes" text))
-              (should (string-match-p "Notes 2" text)))
+            ;; The board really painted — witnessed STRUCTURALLY, so no
+            ;; within-section ordering or cap can silently empty it.
+            (let ((text (substring-no-properties (buffer-string)))
+                  (rows (let ((pos (point-min)) (n 0))
+                          (while (setq pos (text-property-not-all
+                                            pos (point-max)
+                                            'org-air-item nil))
+                            (setq n (1+ n)
+                                  pos (or (next-single-property-change
+                                           pos 'org-air-item)
+                                          (point-max))))
+                          n)))
+              ;; every task section heading, plus the bounded Notes lens
+              (dolist (heading '("Inbox" "Overdue" "Upcoming"
+                                 "High priority" "Needs attention"))
+                (should (string-match-p (regexp-quote heading) text)))
+              (should (string-match-p "Notes 2" text))
+              ;; real item rows were painted, not just chrome
+              (should (> rows 10))
+              ;; …and named rows from sections that are BELOW their cap,
+              ;; so they are present for a structural reason rather than
+              ;; by happening to survive a within-section sort.
+              (should (string-match-p "Learn lute" text))
+              (should (string-match-p "Chase missing invoice" text)))
             ;; slot-driven classification ground truth (donep/kind).
             (let ((done (org-air-test-find-item "Pay invoices" items))
                   (note (org-air-test-find-item "R53 alpha note" items)))
               (should done)
               (should (org-air-item-donep done))
               (should-not (memq 'attention (org-air-classify-item done)))
-              (should (equal (org-air-classify-item note) '(notes))))))))))
+              (should (equal (org-air-classify-item note) '(notes)))))))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; R53-4 — bounded file-items for headingless notes (P3, seam 1)

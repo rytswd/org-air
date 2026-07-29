@@ -26,6 +26,15 @@ user actually asked for:
 
 Design and implementation landed together, on 2026-07-29.
 
+*Implementation History entries, in order:* the round itself, then
+[[*R93 FIX-2 — the Overdue sort regression, and the per-section sort table][R93 FIX-2]] (Overdue worst-first again + the per-section sort table),
+[[*R93 FIX-3 — the =#A= threshold moves off 0][R93 FIX-3]] (the =#A= default 0 → 3) and
+[[*R93 RETEST-2 — the fix chain re-blessed, the tripwire inverted, worst-first fenced][R93 RETEST-2]] (the chain re-blessed: the audit tripwire
+=org-air-r93-16= INVERTED into a permanent worst-first assertion, the
+eleven obsolete-default failures re-encoded, and five new ERTs fencing
+the =#A= boundary, the unknown-age ruling, the per-section sort, the
+worst-N cap and the visible sort key).
+
 *Parentage note (the brief was stale here).*  The brief said "main is
 R91; R92 is under audit and NOT yet on main".  In the actual repository
 =main= already pointed at =uwuoxlnlnpnq= ("R92 FIX: one landing rule for
@@ -1444,3 +1453,240 @@ Parent =owonktxmlvpm= (R93 FIX-2).  Source + Air only:
   earned.  Every one of those tests can keep its threshold-0 leg by
   binding =org-air-attention-days= locally, which is also the cheapest
   way to keep the unconditional mechanism covered.
+
+* R93 RETEST-2 — the fix chain re-blessed, the tripwire inverted, worst-first fenced
+
+- 2026-07-29 — *R93 RETEST-2 (test seat).*  Fifth Implementation-History
+  entry (the list above points here).
+
+Parent =zqkrsqoqkwzt= (R93 FIX-3).  *Tests + this document only.*  Every
+production =.el= and =README.org= is byte-identical to the parent
+(SHA-256 recorded in §6); no fixture byte moved; no probe file entered
+the repo; =.deps= untouched.
+
+Files changed: =tests/org-air-round93-test.el=,
+=tests/org-air-classify-test.el=, =tests/org-air-round47-test.el=,
+=tests/org-air-round53-test.el=, =tests/org-air-round59-test.el=,
+=tests/org-air-round72-test.el=, =tests/org-air-round85-test.el=, and
+this file.
+
+** 1. The two carried failures, closed
+
+*** =org-air-r93-16= — the tripwire, INVERTED (not deleted)
+
+  It was born red on purpose: the audit found that splitting =overdue=
+  out of =attention= had left the new bucket off the =date= arm of
+  =org-air-view--sort-items=, so the *alarm* section rendered
+  least-urgent-first and 28 regenerated goldens had already shipped that
+  order as though it were the design.  FIX-2 added the arm, so the
+  tripwire is now correctly failing — it asserts the defect.
+
+  It is *inverted in place*, on the same corpus, against the same
+  measured rows, and renamed to say what it now asserts:
+
+  : org-air-r93-16-overdue-worst-first-attention-longest-silent-first
+
+  | corpus row             | parent (R92) | R93 (defect) | now (FIX-2) |
+  |------------------------+--------------+--------------+-------------|
+  | Chase missing invoice  | 1st (7d)     | 3rd          | 1st (7d)    |
+  | Fix production runbook | 2nd (5d)     | 2nd          | 2nd (5d)    |
+  | Book dentist           | 3rd (3d)     | 1st (3d)     | 3rd (3d)    |
+
+  The docstring keeps the full history table above, so a later reader
+  meets the defect *and* its repair in one place.  The *equivalent
+  assertion for Needs attention* — FIX-2's second finding, the same
+  class one section down — is pinned beside it: =Learn lute= (273d
+  quiet) above =Dust off old archive project= (225d quiet), which is
+  the order the goldens had shipped *inverted*.
+
+  Both halves are stated ANTI-TAUTOLOGICALLY: the scan order is
+  captured and asserted to DIFFER from the rendered order, so a sort
+  that silently stopped running cannot pass by accident.  A third
+  clause pins that the two sections use *different keys*: the dateless
+  attention rows come back in scan order under the date key, so
+  ordering that section by date is provably not the same thing.
+
+*** =org-air-r53-3-render-data-pure= — repaired at the ROOT
+
+  Its subject (render purity) never broke.  It died on the final "the
+  board really painted" witness, =(string-match-p "Prepare standup
+  notes" text)= — one incidental row, under the machine's *real* clock.
+  That was always date-dependent: under the real clock every fixture
+  date is months past, so the whole corpus piles into Overdue, and once
+  FIX-2 made Overdue worst-first the 6-row cap stopped happening to
+  include that row.  The witness was broken, not the subject.
+
+  Repaired *both* ways the brief allowed, because the root cause is the
+  clock:
+
+  1. the render + witness region now runs under
+     =org-air-viewport-test--with-frozen-now= (=org-air-test-now=), the
+     same freeze every other board test uses, so what this test paints
+     no longer depends on the day the suite runs;
+  2. the witness is now STRUCTURAL — all five task section headings,
+     the bounded =Notes 2= lens, a painted-row count > 10 — plus two
+     named rows drawn from sections that are *below their cap* and
+     therefore cannot be permuted out of view.
+
+  *Not weakened:* the =find-file-noselect= = 0 fences (cold and warm
+  render), the "no buffer visits any source file" fence, the
+  visible-buffer-list equality fence, the =<= 1 NOWARN inspector
+  hydrate fence and the slot-driven classification ground truth are
+  byte-identical to before.  Verified: mutation M1 (revert the Overdue
+  arm) leaves r53-3 GREEN — it no longer tracks a sort at all.
+
+** 2. The 11 obsolete-default failures, re-blessed honestly
+
+  Each was re-derived from the corpus and the rule *before* it was
+  touched; none was made to pass.  Nine encode the new default or the
+  new ruling, one is a stale-vocabulary + hardcoded-floor repair, and
+  one is a bucket-table re-measure.  *Nothing was mis-classified: all 11
+  are genuinely obsolete-default; zero real defects found.*
+
+  | Test                                          | What it pinned                                  | What it pins now                                                                                                        |
+  |-----------------------------------------------+-------------------------------------------------+-------------------------------------------------------------------------------------------------------------------------|
+  | =r93-1-threshold-table=                       | =(?A . 0)=                                      | =(?A . 3)= *and the table's SHAPE*: patience never shrinks as priority drops, every default is POSITIVE, =#A= strictly sharpest |
+  | =r93-3-hipri-always-unknown-age-never=        | =#A= surfaces at any/no age                     | NO default threshold surfaces an undatable item; the undatable =#A= is =(high-priority)= exactly; =(?A . 0)= opt-in re-exercised |
+  | =r93-14-reason-labels=                        | an undatable =#A= cell reads =always=           | it reads =quiet= and is *not in the section*; =always= pinned under the =(?A . 0)= opt-in; rail line asserted for all four shapes |
+  | =r93-15-attention-is-a-superset…=             | Needs attention ⊇ High priority                 | *INVERTED + renamed* =…-attention-overlap-is-earned-not-granted=: disjoint at defaults (3 / 2), strict non-containment BOTH ways, overlap EARNED at 3d, and =(?A . 0)= restores the old superset exactly |
+  | =org-air-classify-overdue-is-its-own-bucket=  | overdue =#A= ∈ attention "on threshold 0"       | =(overdue high-priority)= exactly — the point is now *stronger*: lateness grants no attention row for ANY cookie          |
+  | =r59-12-capture-and-at-point=                 | an at-point =#A= (unknown age) ∈ attention      | =(high-priority)= only; =(?A . 0)= restores it; a MEASURED 3-day age earns it honestly                                    |
+  | =r72-3-filter-bucket-agreement=               | attention = ={stale-active, hipri-dateless}=    | ={stale-active}=, *plus* the whole per-item agreement re-run under =(?A . 0)= — the token tracks the KNOB, not a literal  |
+  | =r72-10-hoist-is-neutral=                     | =hipri-dateless ⇒ (high-priority attention)=    | ⇒ =(high-priority)=, *plus the entire 13-row bucket table re-asserted at* =(?A . 0)= — the hoist is neutral under both     |
+  | =r72-13-overdue-agrees-with-attention=        | the same attention set                          | ={stale-active}= — independence is now *unqualified*: no =#A= overlap left to excuse                                      |
+  | =r85-8-non-emitting-neutral-arms=             | the same undatable =#A= reads =always=          | three arms, all neutral: =Nd quiet=, =quiet= (now also the =#A= answer), =always= under the opt-in                        |
+  | =r47-2-hover-run-is-single-title-band=        | =(> (length rows) 20)=, a hardcoded floor       | floor DERIVED from the paint (=hover rows = painted item rows=, > 15); *and* the expanded-section list, which still named the retired =stale= and had never gained =overdue= |
+
+  Two notes on the two that are not pure default swaps:
+
+  - *=r47-2= was a real (small) test-side rot, caught by this exercise.*
+    Its =org-air-r47--with-gui-board= expanded
+    ='(inbox attention upcoming high-priority stale)= — the *pre-R93*
+    vocabulary: it named a bucket that no longer exists and, since R93
+    split Overdue out, had silently stopped expanding the alarm section.
+    Corrected to the current seven.  The invariant it guards never
+    failed (19 hover rows, 0 violations); only its hardcoded
+    anti-tautology floor did, which is why the floor is now measured off
+    the render.
+  - *=r72-3= / =r72-10= gained coverage rather than losing it.*  Both now
+    assert their table under =(?A . 3)= *and* =(?A . 0)=, which is a
+    stronger statement than either alone: it shows the agreement law and
+    the hoist neutrality are properties of the code, not of a number.
+
+** 3. New permanent coverage — five ERTs
+
+  | ERT                                                      | Fences                                                                                                                     |
+  |----------------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------|
+  | =r93-17-hipri-three-day-boundary-and-zero-opt-in=        | day 2 / *3* / 4 (and 0, 1, 400) on the predicate, the bucket and the ROW CELL; the row is on the board on BOTH sides (High priority has no clock); =#A= is the only priority 3 days surfaces; =(?A . 0)= restores unconditional surfacing incl. UNKNOWN age and the =always= label, with =#B= proven untouched |
+  | =r93-18-no-positive-threshold-surfaces-an-undatable-item= | SWEPT: 6 priorities × 10 thresholds (1 … 10000) × an undatable item ⇒ never attention; the SIGN of the threshold is what decides (0 always surfaces); the unknown AGE is what is refused (a measured age surfaces); and High priority shows the undatable =#A= at every threshold in the sweep |
+  | =r93-19-per-section-sort-table=                          | the FIX-2 table executed: Overdue worst-first (deadline *and* scheduled slots), Upcoming soonest-first with undated LAST, attention longest-silent-first with UNKNOWN LAST and a STABLE tiebreak (asserted from two different incoming orders), a threshold-0 row ranked by its REAL age, inbox/high-priority/backlog untouched, =O= reverses |
+  | =r93-20-capped-sections-show-the-worst-n=                | END-TO-END through the real renderer on a corpus written in exactly the WRONG order (mildest heading first, in all three capped sections): Overdue shows the 6 WORST of 9, attention the 6 longest-silent of 9, Upcoming the 5 soonest of 8 — asserted three ways (rows shown, rows DROPPED, and every dropped row strictly milder than every shown row), with the fold counts and the count badges |
+  | =r93-21-the-sort-key-is-the-number-the-row-prints=        | THE anti-regression law: every number is read back out of the PAINTED row on the real fixture board, and re-sorting those rows by their OWN printed number must reproduce the painted order; the printed number equals the PUBLIC classify helper's number; and no row on a DEFAULT board prints the threshold-0 excuse =always= |
+
+  =r93-21= is the direct countermeasure to how FIX-2's defect hid: an
+  assertion that *re-derives* the key can agree with a sort keyed on
+  something the user never sees.  Reading the key back out of the paint
+  cannot.
+
+  New shared scaffolding in =tests/org-air-round93-test.el= (test seat
+  only): =org-air-r93--stamp= / =--date= (frozen-clock corpus writers),
+  =--render-board= (frozen clock + anti-tautology render guards),
+  =--cell-number= (the number a PAINTED row shows), =--rendered-sections=
+  (property-driven section → rows walk) and =--fold-counts=.
+
+** 4. Regression check across the chain
+
+  All green in the single gate run (0 unexpected), and re-run in
+  isolation for the record:
+
+  | Suite                          | Result                             |
+  |--------------------------------+------------------------------------|
+  | R90 (marks / history)          | 102 tests, 102 as expected, 0 unexpected |
+  | R91 (scroll stability)         | 31 tests, 31 as expected, 0 unexpected   |
+  | R92 (landing / echo)           | 19 tests, 19 as expected, 0 unexpected   |
+  | R93 (the model, incl. 5 new)   | 21 tests, 21 as expected, 0 unexpected   |
+
+  Each runs on a corpus suited to the current rules (the R93 recency
+  helpers added in the original round); none needed a corpus change for
+  FIX-2 or FIX-3.
+
+** 5. Golden verification — 25 + 25, no smuggled content
+
+  Both regenerations were re-derived independently from the committed
+  trees (=xuwznppxwxpp= → =owonktxmlvpm= → =zqkrsqoqkwzt=), splitting
+  every golden line at the rail fence =│= so a two-pane permutation is
+  measurable at all:
+
+  - *FIX-2 (25 files): PERMUTATION-ONLY, 25/25.*  For every golden the
+    BOARD pane's multiset of lines is *identical* before and after and
+    the RAIL pane's line SEQUENCE is byte-identical.  Every one of the
+    25 really moved (none was a no-op commit).  Nothing was added,
+    removed or edited — rows changed places, full stop.
+  - *FIX-3 (25 files): COUNT-ONLY.*  The complete aggregated delta over
+    all 25 goldens is: −75 =always= rows (the three =#A= items ×
+    25 goldens, at each width's truncation), =○ Needs attention 5= →
+    =… 2= (25 headers), the rail =Summary= =5 Needs attention= →
+    =2 …= (18 files) and its merged-pane twin (3 files), +54 blank
+    lines where rows left, and 7 short goldens losing exactly 3 lines
+    each.  *Zero added or edited content lines.*  The word =always= now
+    appears in *no* golden.
+  - Composed (=xuwznppxwxpp= → =zqkrsqoqkwzt=) the board delta is
+    exactly the FIX-3 delta on top of a permutation — i.e. the two
+    regenerations together carry *no* content change.
+  - =make regen-mockups= against this tree: *byte no-op* (md5 over all
+    36 fixture files, before == after).
+
+** 6. Mutation evidence
+
+  Each mutation applied to the *restored* tree, run, then reverted; the
+  production files were re-hashed afterwards.
+
+  | # | Mutation                                                                | Reddens                                                                   |
+  |---+-------------------------------------------------------------------------+---------------------------------------------------------------------------|
+  | 1 | revert the Overdue date arm (=(or 'overdue 'upcoming)= → ='upcoming=)   | r93-16, r93-19, r93-20, r93-21  (r53-3 stays GREEN — proof it no longer tracks a sort) |
+  | 2 | revert =--sort-by-quiet= (attention back to =--sort-by-date=)           | r93-16, r93-19, r93-20, r93-21                                            |
+  | 3 | =(?A . 3)= → =(?A . 0)=                                                 | r93-1, r93-3, r93-14, r93-15, r93-17, r93-21, r72-10, =org-air-classify-overdue-is-its-own-bucket= |
+  | 4 | remove the unknown-age guard (unknown age surfaces at any threshold)    | r93-3, r93-14, r93-18, r72-3, r72-10, r59-12                              |
+  | 5 | capped section takes the FIRST N (cap before sort) instead of the WORST N | *r93-20* (and only r93-20 — the standard fixture's sections are all below their caps, which is exactly why r93-20 exists) |
+
+  After all five reverts the eleven production files and =README.org=
+  are *byte-identical* to =zqkrsqoqkwzt=:
+
+  #+begin_example
+  80d7520577792299b231b48365fb9eb0b4bc003c62332969dc6c682d00556118  org-air-calendar.el
+  e8231b46c931dd70067ca93f26d4cc9bf14343b0f1a9de5ccbfe8f3b960fe12f  org-air-classify.el
+  caba7dac6e9f2d2e98754c2b9672b58724689e4bdfcc8f247bb311e3ad9c4e80  org-air.el
+  74cb76d9f162a50519b963d201d32545ac264f474b5687f72d8d1f7f5f444c2f  org-air-faces.el
+  b7cd5162ea8e141d86e1bc9b0ccbd27ef20565fc71dac2b8e339c32cf37a0777  org-air-inbox.el
+  0e7e0746511a62ac63dcd3853745deb317f20bdcf9952cdf02c2b9713f1a4bdd  org-air-layout.el
+  53a44c0f3c2e0b71945e1f5ede0506080e9f06869cb73fb28bb0f233c4bf0672  org-air-project.el
+  1d1c7f10949b8dbd8564a37bd849d35713645d7748474f34ba631d4194da643b  org-air-query.el
+  e2562b0e065e4f5dd299a1ffd2852ec548636deb126d4df275a6fa01fb871810  org-air-review.el
+  2bd6aeac8067864ffc186de9f5309fc308cc7768a8aebbe7643acae5314d1f0c  org-air-revisit.el
+  abfbf160822fa4f150d340d4aff5bfbffd7d6281b40adc364db592cdb37e6639  org-air-view.el
+  b818f99fa2c372cc21efaa24ffce3f1174aace161e8abf7e5479ca968e4e8985  README.org
+  #+end_example
+
+** 7. Gate
+
+  - =rm -f *.elc tests/*.elc=; *11 modules byte-compile*; the only
+    warning is the pre-existing =org-air-project.el:946= docstring
+    width, present on =main= and untouched.
+  - =make clean && make check= → *1300 tests, 1292 as expected, 0
+    unexpected, 8 skipped* (the 8 GUI skips).  1295 → 1300: five new
+    permanent ERTs, no test deleted (r93-16 was renamed, not removed).
+  - =make lint= → =lint: ok (0 findings, all baselined)=.
+  - Known-failures manifest: *active length 0* (unchanged, still empty).
+  - =make regen-mockups= → *byte no-op*.
+  - Production =.el= and =README.org= byte-identical to =zqkrsqoqkwzt=
+    (§6); no probe files in the repo; =.deps= kept.
+
+** 8. Verdict
+
+  *The R93 fix chain is regression-free and honestly fenced.*  The
+  tripwire that guarded the Overdue sort is now a permanent worst-first
+  assertion with a longest-silent-first twin; the sort key is fenced as
+  *the number the row prints*; the =#A= = 3 decision and the unknown-age
+  ruling are pinned at their boundaries and swept; and the capped
+  sections are proven to show the worst rows rather than the first ones.
+  No production byte moved.

@@ -259,10 +259,19 @@ section's meaning.  Pre-R93 a Needs-attention row was there for having
 no date, so the cell read the fixed literal \"no date\"; R93 makes it a
 quiet-age rule, so the cell carries the REASON the row surfaced:
 \"Nd quiet\" (the age that crossed the threshold) or \"always\" (a
-threshold-0 `#A').  Both are still fixed, still neutral
+threshold-0 row).  Both are still fixed, still neutral
 `org-air-face-date', and the retired \"Nd quiet\" chip of the Stale arm
 is where the first of them came from.  Accidentally routing either
-through the day face FAILS."
+through the day face FAILS.
+
+R93 FIX-3 re-bless: the \"always\" arm still exists, is still neutral and
+is still covered -- it is simply nobody's DEFAULT any more, so it is
+asked for by name.  The row that used to reach it (a `#A' with an
+UNKNOWN age, back when `#A' sat on threshold 0) now takes the third
+arm, the bare word \"quiet\", which was already covered below; since
+that arm is now also what a `#A' reads, it is asserted for one
+explicitly.  All three arms stay non-emitting and neutral, which is
+this seam's whole subject."
   (skip-unless (and (locate-library "org-air")
                     (fboundp 'org-air-view--date-label)))
   (org-air-r85--frozen
@@ -273,15 +282,21 @@ through the day face FAILS."
       (should (equal "30d quiet" label))
       (should-not (member label '("Today" "Tomorrow")))
       (should (eq face 'org-air-face-date)))
-    ;; attention, threshold 0 (`#A'): the fixed literal, same face.
+    ;; attention, threshold 0 (the opt-in): the fixed literal, same face.
+    (let ((org-air-attention-days '((?A . 0) (nil . 30))))
+      (should (equal (org-air-view--date-label
+                      (org-air-r85--note :priority (org-get-priority "[#A]"))
+                      'attention)
+                     (cons "always" 'org-air-face-date))))
+    ;; attention with an UNKNOWN age: the cell is never blank and org-air
+    ;; never invents a number -- and at the DEFAULTS this is what a `#A'
+    ;; with no history reads too (R93 FIX-3 moved `#A' to three days).
+    (should (equal (org-air-view--date-label
+                    (org-air-r85--note) 'attention)
+                   (cons "quiet" 'org-air-face-date)))
     (should (equal (org-air-view--date-label
                     (org-air-r85--note :priority (org-get-priority "[#A]"))
                     'attention)
-                   (cons "always" 'org-air-face-date)))
-    ;; attention with an UNKNOWN age: the cell is never blank and org-air
-    ;; never invents a number.
-    (should (equal (org-air-view--date-label
-                    (org-air-r85--note) 'attention)
                    (cons "quiet" 'org-air-face-date)))))
 
 ;;;; -------------------------------------------------------------------

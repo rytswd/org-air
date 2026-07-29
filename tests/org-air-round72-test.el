@@ -204,7 +204,17 @@ successor `is:attention' <=> 'attention takes its seat.  `is:overdue'
 <=> 'overdue joins as a fourth leg for free, because Overdue is a
 bucket of its own now.  The retired spelling `is:stale' must select the
 SAME set as `is:attention' (it parses to that predicate), which is what
-makes the alias honest rather than a silent no-op."
+makes the alias honest rather than a silent no-op.
+
+R93 FIX-3 re-bless: the MEMBERS of the attention set moved, the theorem
+did not.  `hipri-dateless' is a `#A' with an UNKNOWN age; at the old
+`(?A . 0)' it surfaced unconditionally, at the new `(?A . 3)' it does
+not — a positive threshold is a claim about elapsed time org-air never
+measured.  The agreement LAW is what this test asserts, and it is
+asserted per item over the whole fixture, so it holds either way; the
+pinned set is re-measured, and the OLD set is pinned too, under the
+`(?A . 0)' opt-in, so the equivalence is shown to track the knob rather
+than a literal."
   (let* ((fixture (org-air-r72--fixture))
          (org-air-upcoming-days 7)
          (due7 (org-air-r72--pass-keys fixture '("due:7d")))
@@ -231,11 +241,24 @@ makes the alias honest rather than a silent no-op."
     (should-not (memq 'd8 due7))         ; day 8 OUT
     (should-not (memq 'past-sched due7)) ; past OUT of every window
     (should-not (memq 'past-dl due7))
-    ;; The quiet dated item and the `#A' (threshold 0) are the whole
-    ;; attention set; nothing is nagged for merely lacking a date.
-    (should (equal '(stale-active hipri-dateless) attention))
+    ;; The quiet DATED item is the whole attention set: nothing is
+    ;; nagged for merely lacking a date, and (FIX-3) nothing is nagged
+    ;; for carrying a cookie either — the `#A' here has an unknown age.
+    (should (equal '(stale-active) attention))
     (should (equal '(past-sched past-dl) overdue))
-    (should (equal '(hipri-dateless) hipri))))
+    (should (equal '(hipri-dateless) hipri))
+    ;; The token tracks the KNOB, not a literal: point `#A' back at the
+    ;; unconditional threshold and `is:attention' picks the `#A' up
+    ;; again — filter and bucket still agreeing, item for item.
+    (let ((org-air-attention-days '((?A . 0) (?B . 7) (?C . 14)
+                                    (?D . 30) (?E . 30) (nil . 30))))
+      (let ((attention-0 (org-air-r72--pass-keys fixture '("is:attention"))))
+        (should (equal '(stale-active hipri-dateless) attention-0))
+        (pcase-dolist (`(,key . ,item) fixture)
+          (should (eq (not (null (memq key attention-0)))
+                      (not (null (memq 'attention
+                                       (org-air-classify-item
+                                        item org-air-test-now)))))))))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; r72-4 — windows and slot scoping.
@@ -471,8 +494,15 @@ byte-equal to the pre-hoist answers; `--board-active-p' <=> the old
     ;;                         item of unknown age is NOT nagged.
     ;;   stale-active          quiet 30 days => attention (Stale's rule,
     ;;                         subsumed).
-    ;;   hipri-dateless        `#A' surfaces unconditionally -- with an
-    ;;                         UNKNOWN age, and in BOTH sections.
+    ;;   hipri-dateless        R93 FIX-3 re-bless: a `#A' whose age is
+    ;;                         UNKNOWN is High priority ONLY.  At the old
+    ;;                         `(?A . 0)' it was in both sections; a
+    ;;                         POSITIVE threshold is a claim about
+    ;;                         elapsed time org-air never measured, so
+    ;;                         the aging section declines while the
+    ;;                         section with no clock still shows the row.
+    ;;                         The `(?A . 0)' answers are pinned below,
+    ;;                         so the hoist is neutral under BOTH.
     (dolist (expected '((past-sched . (overdue))
                         (past-dl . (overdue))
                         (today . (upcoming))
@@ -484,11 +514,33 @@ byte-equal to the pre-hoist answers; `--board-active-p' <=> the old
                         (stale-active . (attention))
                         (done-past . ())
                         (archived-past . ())
-                        (hipri-dateless . (high-priority attention))
+                        (hipri-dateless . (high-priority))
                         (tagged-overdue . (upcoming))))
       (should (equal (cdr expected)
                      (org-air-classify-item (cdr (assq (car expected) fixture))
                                             org-air-test-now))))
+    ;; The hoist is neutral under the OTHER setting of the one default
+    ;; FIX-3 moved, too: the whole table re-asserted at `(?A . 0)',
+    ;; where the only row that differs is the `#A' with the unknown age.
+    (let ((org-air-attention-days '((?A . 0) (?B . 7) (?C . 14)
+                                    (?D . 30) (?E . 30) (nil . 30))))
+      (dolist (expected '((past-sched . (overdue))
+                          (past-dl . (overdue))
+                          (today . (upcoming))
+                          (dl3 . (upcoming))
+                          (d7 . (upcoming))
+                          (d8 . ())
+                          (d10 . ())
+                          (dateless . ())
+                          (stale-active . (attention))
+                          (done-past . ())
+                          (archived-past . ())
+                          (hipri-dateless . (high-priority attention))
+                          (tagged-overdue . (upcoming))))
+        (should (equal (cdr expected)
+                       (org-air-classify-item
+                        (cdr (assq (car expected) fixture))
+                        org-air-test-now)))))
     ;; --board-active-p <=> the old unless gate.
     (pcase-dolist (`(,_key . ,item) fixture)
       (should (eq (org-air-classify--board-active-p item)
@@ -624,7 +676,13 @@ statement is now an EXACT equivalence with no remainder to explain:
 `is:overdue' <=> 'overdue, member for member.  The two sections are
 independent — a freshly-touched overdue item is in Overdue and NOT in
 Needs attention, and a quiet item with no date is the reverse — which
-is the whole point of the split, so both directions are pinned."
+is the whole point of the split, so both directions are pinned.
+
+R93 FIX-3 re-bless: the attention MEMBER list below drops
+`hipri-dateless' (a `#A' with an unknown age — no longer surfaced by a
+cookie alone), which makes the independence claim STRONGER, not weaker:
+the two sets are disjoint here with no `#A' overlap left to excuse.  The
+`is:overdue' <=> 'overdue equivalence this test owns is untouched."
   (let* ((fixture (org-air-r72--fixture))
          (org-air-upcoming-days 7)
          (overdue (org-air-r72--pass-keys fixture '("is:overdue")))
@@ -647,7 +705,7 @@ is the whole point of the split, so both directions are pinned."
           (should (memq 'overdue buckets)))))
     ;; The two sections are INDEPENDENT: neither contains the other.
     (should (equal '(past-sched past-dl) overdue))
-    (should (equal '(stale-active hipri-dateless) attention))
+    (should (equal '(stale-active) attention))
     (should-not (seq-intersection overdue attention))
     ;; Overdue and freshly touched => Overdue only.  That is the R93
     ;; ruling in one row: being LATE is not the same as having gone

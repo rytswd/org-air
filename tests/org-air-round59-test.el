@@ -711,15 +711,36 @@ doubt, render."
       (should (org-air-classify--board-active-p item))
       ;; R93: an item built OUTSIDE the scan has neither an `updated' slot
       ;; nor a file in the scan's meta table, so its age is UNKNOWN --
-      ;; and org-air refuses to nag about something it cannot date.  It
-      ;; is not "fresh" either: raise its priority to `#A' (threshold 0)
-      ;; and it surfaces unconditionally, unknown age and all.
+      ;; and org-air refuses to nag about something it cannot date.
+      ;;
+      ;; R93 FIX-3 RE-BLESS: this used to continue "raise its priority to
+      ;; `#A' (threshold 0) and it surfaces unconditionally, unknown age
+      ;; and all".  The `#A' default is 3 now, so an undatable `#A' is
+      ;; NOT nagged either -- deliberately, and by the SAME rule: a
+      ;; positive threshold is a claim about elapsed time, and org-air
+      ;; will not assert elapsed time it never measured.  Nothing is
+      ;; lost: the `#A' is shown by High priority, which has no clock at
+      ;; all.  The threshold-0 mechanism is unchanged and still means
+      ;; unconditional -- it is simply nobody's default now, so it is
+      ;; asked for by name here.
       (should-not (org-air-classify-updated item))
       (should-not (org-air-classify-quiet-days item org-air-test-now))
       (should-not (memq 'attention
                         (org-air-classify-item item org-air-test-now)))
       (setf (org-air-item-priority item)
             (* 1000 (- org-priority-lowest ?A)))
+      ;; the undatable `#A': High priority yes, Needs attention no.
+      (should (equal '(high-priority)
+                     (org-air-classify-item item org-air-test-now)))
+      ;; the opt-in restores the old answer exactly.
+      (let ((org-air-attention-days '((?A . 0) (nil . 30))))
+        (should (memq 'attention
+                      (org-air-classify-item item org-air-test-now))))
+      ;; and a MEASURED age past the threshold earns the row honestly.
+      (setf (org-air-item-updated item)
+            (floor (float-time (time-subtract org-air-test-now
+                                              (days-to-time 3)))))
+      (should (= 3 (org-air-classify-quiet-days item org-air-test-now)))
       (should (memq 'attention
                     (org-air-classify-item item org-air-test-now))))))
 

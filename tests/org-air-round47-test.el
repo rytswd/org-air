@@ -72,14 +72,37 @@
   "Render the fully-EXPANDED fixture dashboard with svg pills; run BODY.
 `display-graphic-p' is stubbed t (R24-3) so `org-air-view--svg-pillify'
 emits real `display' images headless; every section is expanded so the
-board carries the full fixture row population (>20 hover rows — the
-design's anti-tautology floor)."
+board carries the full fixture row population — the anti-tautology
+floor, which is DERIVED from the painted board rather than hardcoded
+\(see `org-air-r47-2-hover-run-is-single-title-band').
+
+R93 RE-BLESS: the expanded list carried the PRE-R93 section vocabulary
+— it named the retired `stale' bucket and, once R93 split Overdue out
+of Needs attention, it no longer named `overdue' at all.  Both are
+corrected here so the list means what it says: EVERY board section
+expanded."
   (declare (indent 0) (debug t))
   `(org-air-viewport-test-as-gui
      (let ((org-air-view--expanded-sections
-            '(inbox attention upcoming high-priority stale)))
+            '(inbox overdue upcoming high-priority attention notes backlog)))
        (org-air-viewport-test-with-dashboard '(120 . 80)
          ,@body))))
+
+(defun org-air-r47--item-row-count ()
+  "Return the number of ITEM rows the board in this buffer actually painted.
+The anti-tautology floor for the hover-run invariant, measured off the
+render instead of hardcoded: a board that painted nothing would make
+every \"no violation\" assertion vacuous, and a hardcoded floor goes
+stale whenever a legitimate product change moves the row population
+\(R93 FIX-3 removed three duplicated `#A' rows from Needs attention and
+broke the old literal `> 20')."
+  (let ((pos (point-min)) (n 0))
+    (while (setq pos (text-property-not-all pos (point-max)
+                                            'org-air-item nil))
+      (setq n (1+ n)
+            pos (or (next-single-property-change pos 'org-air-item)
+                    (point-max))))
+    n))
 
 (defun org-air-r47--image-at-p (pos)
   "Non-nil when POS carries an image `display' spec."
@@ -193,8 +216,22 @@ under the hover highlight.  REVERT-FAILS: trunk measured 17 overlaps."
 the prefix badges are outside), EMBEDS NO newline (the R32-1 no-fusion
 invariant carried forward), never reaches EOL past the cluster fence, and
 contains no image `display'.  Anti-tautology: the expanded board yields
->20 hover rows.  REVERT-FAILS: the pre-R47 whole-row span starts at BOL
-and covers the pill images."
+one hover row per painted ITEM row, and the board really is a populated
+one.  REVERT-FAILS: the pre-R47 whole-row span starts at BOL and covers
+the pill images.
+
+R93 RE-BLESS (collateral, and a floor made honest).  The floor was the
+literal `(> (length rows) 20)', evaluated BEFORE the invariant it
+guards.  R93 FIX-3 removed three rows from the board — the `#A' items
+that Needs attention used to restate from High priority — leaving 19,
+so the floor failed while the invariant it protects held perfectly (19
+hover rows, 0 violations, measured).  A literal row count was never the
+thing being asserted: it is a witness that the board painted.  It is
+now DERIVED from the render — every painted item row contributes
+exactly one hover row — with a loose populated-board floor underneath,
+so a legitimate product change to the row population can never again
+read as a hover-invariant failure, while an EMPTY board (the only
+tautology this guard exists to catch) still fails it."
   (skip-unless (locate-library "org-air"))
   (cl-flet
       ((check-rows (rows label)
@@ -249,10 +286,15 @@ and covers the pill images."
                        (setq cluster-rows (1+ cluster-rows))
                        (should (>= first-img (cdr run)))))))))
            cluster-rows)))
-    ;; the board (expanded — the >20 hover-row anti-tautology floor).
+    ;; the board (expanded — the anti-tautology floor, DERIVED).
     (org-air-r47--with-gui-board
-      (let ((rows (org-air-r47--hover-rows 'org-air-item)))
-        (should (> (length rows) 20))
+      (let ((rows (org-air-r47--hover-rows 'org-air-item))
+            (painted (org-air-r47--item-row-count)))
+        ;; every painted item row contributes exactly one hover row…
+        (should (= (length rows) painted))
+        ;; …and the board really is populated (all five task sections
+        ;; expanded and non-empty on this fixture).
+        (should (> painted 15))
         ;; at least SOME rows carry a pill cluster after the band (the
         ;; "ends before the cluster" clause is genuinely exercised).
         (should (> (check-rows rows "board") 0))))

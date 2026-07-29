@@ -466,11 +466,25 @@ keyword-less inbox LEAVES too FAILS here.
 
 R94 RE-BLESS: the leaf's bucket LIST gained `untracked' (it has no date
 and no recorded history), which is the standing overlap rule, not a
-change to the bypass.  The T7 subject — the leaf reaches `inbox' while
-its container sibling reaches `container' ALONE — is pinned exactly as
-before, and the Inbox BADGE (2) is the strongest evidence the bypass is
-untouched: the Untracked section is a separate section with its own
-count, so an inbox badge that moved would mean the bypass had moved."
+change to the bypass.
+
+R95 RE-BLESS: and lost it again, deliberately.  R95 excludes inbox
+dwellers from Untracked — for an unprocessed capture `no plan, no
+record' is a tautology, so the two rows said ONE thing and only Inbox
+has a verb for it.  The exclusion lives INSIDE
+`org-air-classify--untracked-p', it moves no heading off the board (the
+`inbox' push is unconditional for the same heading), and it does not
+touch the bypass this test is about.
+
+The T7 subject — the leaf reaches `inbox' while its container sibling
+reaches `container' ALONE — is pinned exactly as before, and the Inbox
+BADGE (2) is still the strongest evidence the bypass is untouched.  What
+R95 adds is the leg that makes the re-bless discriminating rather than
+merely smaller: a bare `TODO' in an ordinary file of the SAME corpus
+still classifies `(untracked)', so the bucket is alive here and it is
+INBOX MEMBERSHIP, not emptiness, that the new clause turns on.  A
+reverted clause reddens the leaf leg; a reverted BUCKET reddens the
+outside leg."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       '(("inbox.org" .
@@ -479,13 +493,20 @@ count, so an inbox badge that moved would mean the bypass had moved."
 Just a note-to-self to triage later.\n\
 * New\n\
 Grouping only.\n\
-** TODO Grouped child :inbox:\n"))
+** TODO Grouped child :inbox:\n")
+        ("desk.org" .
+         "* TODO Bare elsewhere\nNo plan, no record.\n"))
     (let* ((items (org-air-query-items))
            (leaf (org-air-r59--item "Random thought" items)))
       (should-not (org-air-item-childp leaf))
       (should-not (org-air-query-container-item-p leaf))
       (should (equal (org-air-classify-item leaf org-air-test-now)
-                     '(untracked inbox)))
+                     '(inbox)))
+      ;; R95: the same emptiness OUTSIDE the queue is still `untracked',
+      ;; so the bucket is live in this corpus and the clause is about
+      ;; inbox membership.
+      (should (equal (org-air-r59--buckets "Bare elsewhere" items)
+                     '(untracked)))
       ;; The container sibling still routes to `container' ALONE — the
       ;; non-task routes never see the R94 bucket.
       (should (equal (org-air-r59--buckets "New" items) '(container))))
@@ -493,6 +514,7 @@ Grouping only.\n\
       (let ((titles (org-air-r59--board-titles)))
         (should (member "Random thought" titles))
         (should (member "Grouped child" titles))
+        (should (member "Bare elsewhere" titles))
         (should-not (member "New" titles)))
       (should (equal (org-air-r59--badge 'inbox) 2)))))
 

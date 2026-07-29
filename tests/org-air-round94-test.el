@@ -119,7 +119,12 @@ the R94 definition of a number org-air simply does not have.")
   "Build a cache-hydrated-shape `org-air-item' for the R94 rules.
 PRIORITY is a priority LETTER; UPDATED / SCHEDULED / DEADLINE /
 ACTIVE-TS are day offsets from the frozen now.  FILE defaults to
-`org-air-r94--outside-file' (see its docstring)."
+`org-air-r94--outside-file' (see its docstring).
+
+R95: ACTIVE-TS fills BOTH the subtree `active-ts' slot and the heading's
+OWN `own-active-ts', which is the shape a real scan produces for a bare
+`<timestamp>' written in a heading's own body — the plan SPELLING the
+R94 generator had no cell for."
   (org-air-item-create
    :title title
    :tags tags
@@ -132,6 +137,9 @@ ACTIVE-TS are day offsets from the frozen now.  FILE defaults to
    :active-ts (and active-ts
                    (float-time (time-add org-air-test-now
                                          (days-to-time active-ts))))
+   :own-active-ts (and active-ts
+                       (float-time (time-add org-air-test-now
+                                             (days-to-time active-ts))))
    :scheduled (and scheduled (org-air-r94--timestamp scheduled))
    :deadline (and deadline (org-air-r94--timestamp deadline))))
 
@@ -881,21 +889,41 @@ equality above is an invariance and not an artefact of nothing moving."
 ;;;; -------------------------------------------------------------------
 
 (defconst org-air-r94--plan-shapes
-  '((none        nil  nil)
-    (sched-past   -5  nil)
-    (sched-today   0  nil)
-    (sched-soon    3  nil)
-    (sched-far    30  nil)
-    (dl-past     nil   -5)
-    (dl-today    nil    0)
-    (dl-soon     nil    3)
-    (dl-far      nil   30)
-    (both-mixed  -40    5)
-    (both-far     30   45))
-  "Every PLAN a heading can carry: (NAME SCHEDULED-OFFSET DEADLINE-OFFSET).
-Offsets are days from the frozen now.  The `far' rows are the theorem's
-only exemption — a plan beyond the Upcoming horizon — and they are in
-the corpus precisely so the exemption is exercised rather than assumed.")
+  '((none         nil  nil  nil)
+    (sched-past    -5  nil  nil)
+    (sched-today    0  nil  nil)
+    (sched-soon     3  nil  nil)
+    (sched-far     30  nil  nil)
+    (dl-past      nil   -5  nil)
+    (dl-today     nil    0  nil)
+    (dl-soon      nil    3  nil)
+    (dl-far       nil   30  nil)
+    (both-mixed   -40    5  nil)
+    (both-far      30   45  nil)
+    (body-ts-past nil  nil   -5)
+    (body-ts-soon nil  nil    1)
+    (body-ts-far  nil  nil   92))
+  "Every PLAN a heading can carry, by SPELLING and by DISTANCE.
+Each row is (NAME SCHEDULED-OFFSET DEADLINE-OFFSET ACTIVE-TS-OFFSET);
+offsets are days from the frozen now.  The `far' rows are the theorem's
+plan exemption — a plan beyond the Upcoming horizon — and they are in
+the corpus precisely so the exemption is exercised rather than assumed.
+
+R95 ADDED THE THIRD SPELLING, and it is the reason a sound property
+passed over an unsound space.  The R94 generator built every heading
+from `:scheduled' and `:deadline' ONLY, so the matrix had no cell for a
+plan written as a bare active `<timestamp>' in the body — the exact
+shape that had no row anywhere at any file age.  99 headings could not
+see it.  With the axis added the matrix is plan-SPELLING x plan-DISTANCE
+x record x priority, and the `body-ts-*' rows are the cell R94 got
+wrong: they are DATED, they are NOT PLANNED, and the catch-all must take
+them.
+
+Note which column those rows leave EMPTY.  A body `<ts>' is not a plan
+any date section reads, so `org-air-r94--coverage-corpus' reports NO
+plan for them and the theorem must cover them under `no plan, no
+record' — which is the whole of FU1, stated in the generator rather than
+in an assertion.")
 
 (defconst org-air-r94--record-shapes
   '((no-record  nil)
@@ -904,24 +932,81 @@ the corpus precisely so the exemption is exercised rather than assumed.")
   "Every RECORD a heading can carry: (NAME UPDATED-OFFSET).")
 
 (defun org-air-r94--coverage-corpus ()
-  "Return (ITEM NAME PLAN-OFFSETS RECORD-OFFSET) over plan x record x priority.
+  "Return (ITEM NAME PLAN-OFFSETS RECORD-OFFSET HOME) over the whole matrix.
 PLAN-OFFSETS and RECORD-OFFSET are the GENERATOR's own numbers, so the
 coverage property can decide its exemptions without ever asking the
-classifier — which is what keeps the disjunction from being circular."
+classifier — which is what keeps the disjunction from being circular.
+HOME is the bucket that MUST cover a heading with no plan and no record:
+`untracked' for ordinary work, `inbox' for a queue dweller.
+
+PLAN-OFFSETS deliberately excludes the `:active-ts' axis: a body
+`<timestamp>' is not read by `org-air-classify--overdue-p' or
+`org-air-classify--due-within-p', so it can never earn the theorem's
+plan exemption and the catch-all is what must hold it (R95 FU1).
+
+TWO CELLS THE MATRIX CANNOT REACH ON ITS OWN are appended:
+
+  * an INBOX DWELLER — FU6's clause is invisible to a generator that
+    never puts a heading in the queue, and its catch-all is `inbox';
+  * a `#A' inbox dweller, so the overlap rule is exercised on the same
+    axis (High priority AND Inbox, never Untracked)."
   (let (out)
-    (pcase-dolist (`(,plan ,sched ,dl) org-air-r94--plan-shapes)
+    (pcase-dolist (`(,plan ,sched ,dl ,ts) org-air-r94--plan-shapes)
       (pcase-dolist (`(,record ,updated) org-air-r94--record-shapes)
         (dolist (priority '(nil ?A ?C))
           (let ((name (format "%s/%s/%s" plan record
                               (if priority (string priority) "none"))))
             (push (list (org-air-r94--item :title name :priority priority
                                            :updated updated
-                                           :scheduled sched :deadline dl)
+                                           :scheduled sched :deadline dl
+                                           :active-ts ts)
                         name
                         (delq nil (list sched dl))
-                        updated)
+                        updated
+                        'untracked)
                   out)))))
+    ;; R95: the queue axis.  An inbox dweller's catch-all is `inbox', and
+    ;; it is pushed UNCONDITIONALLY, which is why FU6 cannot strand one.
+    (pcase-dolist (`(,record ,updated) org-air-r94--record-shapes)
+      (dolist (priority '(nil ?A))
+        (let ((name (format "inbox/%s/%s" record
+                            (if priority (string priority) "none"))))
+          (push (list (org-air-r94--item :title name :priority priority
+                                         :updated updated :tags '("inbox"))
+                      name nil updated 'inbox)
+                out))))
     (nreverse out)))
+
+(defconst org-air-r94--scanned-coverage-shapes
+  '(("Body stamp only" "* TODO Body stamp only\nSeen ACTIVE-PAST in the body.\n"
+     nil nil untracked)
+    ("Body stamp tomorrow" "* TODO Body stamp tomorrow\nDrinks ACTIVE-SOON.\n"
+     nil nil untracked)
+    ("Last deadline property"
+     "* TODO Last deadline property\n:PROPERTIES:\n:LAST_DEADLINE: STAMP-14\n:END:\n"
+     nil -14 untracked)
+    ("Orig scheduled property"
+     "* TODO Orig scheduled property\n:PROPERTIES:\n:ORIG_SCHEDULED: STAMP-14\n:END:\n"
+     nil -14 untracked)
+    ("Plan beyond the horizon"
+     "* TODO Plan beyond the horizon\nSCHEDULED: ACTIVE-FAR\n" (30) nil untracked)
+    ("Bare and homeless" "* TODO Bare and homeless\nNothing at all.\n"
+     nil nil untracked))
+  "Shapes only a real SCAN can produce: (TITLE ORG-TEXT PLAN RECORD HOME).
+PLAN and RECORD are again the GENERATOR's own numbers.  These widen the
+coverage space past what `org-air-r94--item' can express — in particular
+the two PROPERTY spellings, whose stamps R94's unanchored planning
+regexp swallowed (R95 FU3), so a heading with a perfectly good 14-day
+record read as having none.")
+
+(defun org-air-r94--scanned-coverage-text (text)
+  "Expand the date placeholders in a `org-air-r94--scanned-coverage-shapes' TEXT."
+  (let ((out text))
+    (setq out (replace-regexp-in-string "ACTIVE-PAST" (org-air-r94--date -5) out t t))
+    (setq out (replace-regexp-in-string "ACTIVE-SOON" (org-air-r94--date 1) out t t))
+    (setq out (replace-regexp-in-string "ACTIVE-FAR" (org-air-r94--date 30) out t t))
+    (setq out (replace-regexp-in-string "STAMP-14" (org-air-r94--stamp -14) out t t))
+    out))
 
 (ert-deftest org-air-r94-8-coverage-theorem-holds-over-the-whole-matrix ()
   "Every board-active non-deferred task has a row, unless IT SAID OTHERWISE.
@@ -950,14 +1035,31 @@ encoded with BOTH clauses, and clause (b) gets its own promise leg, so
 the test states the model rather than the sentence.
 
 Stated as a PROPERTY over a generated corpus rather than as an example,
-because the theorem is about the SHAPE of the plan x record space and an
-example can only ever witness one cell of it.  The corpus is the full
-cross product of eleven plans (none / scheduled / deadline / both; past,
-today, inside the horizon and beyond it), three records (none, fresh,
-quiet) and three priorities — 99 headings, every combination a heading
-can carry.
+because the theorem is about the SHAPE of the space and an example can
+only ever witness one cell of it.
 
-Five legs:
+R95 WIDENED THE SPACE, AND THAT IS THE POINT OF THIS RE-BLESS.  The R94
+version generated every heading from `:scheduled' and `:deadline' only.
+The property it asserted was sound; the SPACE it asserted it over was
+one axis short, and the missing axis held a real defect — a `TODO' whose
+only date is a bare active `<timestamp>' in its body was excused from
+the catch-all (it is `--dated-p') and read by no date section (they
+consult the two PLAN SLOTS), so it had NO ROW ANYWHERE, at any file age,
+with the stamp yesterday or tomorrow.  99 headings could not see it.
+The corpus is now:
+
+  plan SPELLING   none / SCHEDULED / DEADLINE / both / BODY `<ts>'
+  plan DISTANCE   past / today / inside the horizon / beyond it
+  record          none / fresh / quiet
+  priority        none / #A / #C
+  queue           ordinary file / INBOX DWELLER (R95 FU6)
+
+— 14 plans x 3 records x 3 priorities = 126 generated headings, plus 6
+inbox-dwelling cells, plus 6 SCANNED shapes that no in-memory builder
+can express (the two `:LAST_DEADLINE:'/`:ORIG_SCHEDULED:' property
+spellings among them, whose stamps R94's unanchored regexp swallowed).
+
+Seven legs:
 
   1. THE THEOREM.  Every generated heading holds a bucket, or is
      exempted by (a) or by (b) — computed from the GENERATOR's own
@@ -968,67 +1070,144 @@ Five legs:
      holds a bucket.
   3. (b) IS A PROMISE.  Every record-exempted heading, re-classified at
      a clock advanced past its own threshold, holds a bucket.
-  4. NO THIRD CASE, and it is R94's: every heading with NO plan and NO
-     record holds a bucket — unconditionally, at every priority.  This
-     is the cell R93 left empty and the reason `untracked' exists.
-  5. ANTI-VACUITY.  Both exempted sets are non-empty and their union is
-     a STRICT subset of the corpus.
+  4. NO THIRD CASE: every heading with NO plan and NO record holds a
+     bucket — unconditionally, at every priority, in every plan
+     spelling, in or out of the queue — and it is the RIGHT bucket
+     (`untracked' for ordinary work, `inbox' for a dweller).  Counted
+     explicitly, and the count of third cases is asserted to be ZERO.
+  5. THE NEW AXIS IS REAL: every `body-ts-*' heading is DATED and NOT
+     PLANNED, so it is exactly the cell R94 lost, and it is now covered.
+  6. THE SCANNED SHAPES: the same theorem re-proved over headings a real
+     scan produced, including the two property spellings.
+  7. ANTI-VACUITY.  Both exempted sets are non-empty, their union is a
+     STRICT subset of the corpus, and the corpus is the size claimed.
 
-Reverting the R94 bucket arm reddens legs 1 and 4 on the
-no-plan/no-record rows."
+Reverting the `untracked' bucket arm reddens legs 1 and 4.  Reverting
+`--untracked-p' to `--dated-p' reddens legs 1, 4 and 5 on the 27
+`body-ts-*' rows — which under R94 it could not, because those rows did
+not exist.  Dropping the FU6 clause reddens leg 4's bucket identity."
   (skip-unless (locate-library "org-air"))
   (let ((org-air-upcoming-days 7)
         (org-priority-lowest ?E)
         (plan-exempt 0)
         (record-exempt 0)
         (homeless 0)
+        (body-ts 0)
+        (queued 0)
+        (third-case 0)
         (total 0))
-    (pcase-dolist (`(,item ,name ,plan ,record) (org-air-r94--coverage-corpus))
-      (cl-incf total)
-      (let* ((buckets (org-air-classify-item item org-air-test-now))
-             (threshold (org-air-classify-attention-threshold item))
-             ;; (a) and (b), computed from the OFFSETS the generator used.
-             (beyond (and plan (cl-every (lambda (d)
-                                           (> d org-air-upcoming-days))
-                                         plan)))
-             (recent (and record (< (- record) threshold))))
-        (ert-info ((format "%s plan=%S record=%S thr=%d => %S"
-                           name plan record threshold buckets))
-          ;; the corpus really is board-active, non-deferred task material
-          (should (org-air-classify--board-active-p item))
-          (should-not (memq 'backlog buckets))
-          ;; 1. THE THEOREM
-          (should (or buckets beyond recent))
-          ;; 4. NO THIRD CASE: no plan AND no record is ALWAYS covered.
-          (when (and (null plan) (null record))
-            (cl-incf homeless)
-            (should buckets)
-            (should (memq 'untracked buckets)))
-          (when (null buckets)
-            (when beyond
-              (cl-incf plan-exempt)
-              ;; 2. the plan exemption is a PROMISE: advance the clock to
-              ;; the edge of the horizon around its own date.
-              (let* ((soonest (apply #'min plan))
-                     (later (time-add org-air-test-now
-                                      (days-to-time
-                                       (- soonest org-air-upcoming-days)))))
-                (should (org-air-classify-item item later))))
-            (when (and recent (not beyond))
-              (cl-incf record-exempt)
-              ;; 3. the record exemption is a PROMISE: advance the clock
-              ;; past its own threshold and it surfaces.
-              (let ((later (time-add org-air-test-now
-                                     (days-to-time (+ threshold record 1)))))
-                (should (memq 'attention
-                              (org-air-classify-item item later)))))))))
-    ;; 5. ANTI-VACUITY: both exemptions fired, the covered cell is real,
-    ;; and together they are strictly smaller than the corpus.
+    (cl-flet
+        ((check
+           (item name plan record home)
+           (let* ((buckets (org-air-classify-item item org-air-test-now))
+                  (threshold (org-air-classify-attention-threshold item))
+                  ;; (a) and (b), computed from the OFFSETS the generator
+                  ;; used — never from the classifier.
+                  (beyond (and plan (cl-every (lambda (d)
+                                                (> d org-air-upcoming-days))
+                                              plan)))
+                  (recent (and record (< (- record) threshold))))
+             (ert-info ((format "%s plan=%S record=%S thr=%d home=%S => %S"
+                                name plan record threshold home buckets))
+               ;; the corpus really is board-active, non-deferred material
+               (should (org-air-classify--board-active-p item))
+               (should-not (memq 'backlog buckets))
+               ;; 1. THE THEOREM
+               (should (or buckets beyond recent))
+               ;; ...counted, so leg 4 can assert the count is zero
+               (unless (or buckets beyond recent) (cl-incf third-case))
+               ;; 4. NO THIRD CASE: no plan AND no record is ALWAYS
+               ;; covered, and by the RIGHT bucket.
+               (when (and (null plan) (null record))
+                 (cl-incf homeless)
+                 (should buckets)
+                 (should (memq home buckets))
+                 (when (eq home 'inbox)
+                   (cl-incf queued)
+                   ;; FU6: the dweller left Untracked and lost nothing.
+                   (should-not (memq 'untracked buckets))))
+               (when (null buckets)
+                 (when beyond
+                   (cl-incf plan-exempt)
+                   ;; 2. the plan exemption is a PROMISE: advance the
+                   ;; clock to the edge of the horizon around its date.
+                   (let* ((soonest (apply #'min plan))
+                          (later (time-add
+                                  org-air-test-now
+                                  (days-to-time
+                                   (- soonest org-air-upcoming-days)))))
+                     (should (org-air-classify-item item later))))
+                 (when (and recent (not beyond))
+                   (cl-incf record-exempt)
+                   ;; 3. the record exemption is a PROMISE: advance the
+                   ;; clock past its own threshold and it surfaces.
+                   (let ((later (time-add
+                                 org-air-test-now
+                                 (days-to-time (+ threshold record 1)))))
+                     (should (memq 'attention
+                                   (org-air-classify-item item later))))))
+               buckets))))
+      ;; ---- the GENERATED matrix -------------------------------------
+      (pcase-dolist (`(,item ,name ,plan ,record ,home)
+                     (org-air-r94--coverage-corpus))
+        (cl-incf total)
+        (let ((buckets (check item name plan record home)))
+          ;; 5. THE NEW AXIS IS REAL: a body `<ts>' is DATED, is NOT
+          ;; PLANNED, and the catch-all holds it.
+          (when (string-prefix-p "body-ts" name)
+            (cl-incf body-ts)
+            (ert-info ((format "body-ts cell %s => %S" name buckets))
+              (should (org-air-classify--dated-p item))
+              (should-not (org-air-classify--planned-p item))
+              (should (null plan))
+              (when (null record)
+                (should (memq 'untracked buckets)))))))
+      ;; ---- the SCANNED shapes ---------------------------------------
+      ;; 6.  Shapes an in-memory builder cannot express: the two PROPERTY
+      ;; spellings whose stamps R94's unanchored regexp swallowed, plus a
+      ;; real body stamp and a real inbox dweller.
+      (let ((scanned 0))
+        (org-air-r94--with-corpus
+            (append
+             (mapcar (lambda (shape)
+                       (cons (format "%s.org"
+                                     (replace-regexp-in-string
+                                      " " "-" (downcase (nth 0 shape))))
+                             (org-air-r94--scanned-coverage-text (nth 1 shape))))
+                     org-air-r94--scanned-coverage-shapes)
+             (list (cons "inbox.org"
+                         "#+title: inbox\n\n* TODO Queued and homeless\nNothing.\n")))
+          (let ((items (org-air-query-items)))
+            (pcase-dolist (`(,title ,_text ,plan ,record ,home)
+                           org-air-r94--scanned-coverage-shapes)
+              (cl-incf scanned)
+              (cl-incf total)
+              (check (org-air-r94--scanned title items) title plan record home))
+            ;; the queue dweller, scanned rather than tagged
+            (cl-incf scanned)
+            (cl-incf total)
+            (check (org-air-r94--scanned "Queued and homeless" items)
+                   "Queued and homeless" nil nil 'inbox)
+            ;; the two PROPERTY shapes really did keep their stamps (FU3),
+            ;; which is what makes their `record' column honest above.
+            (dolist (title '("Last deadline property" "Orig scheduled property"))
+              (let ((item (org-air-r94--scanned title items)))
+                (should (org-air-classify-updated item))
+                (should (= 14 (org-air-classify-quiet-days
+                               item org-air-test-now)))))))
+        (should (= 7 scanned))))
+    ;; 7. ANTI-VACUITY: every exemption fired, every new axis is
+    ;; populated, and the exemptions are a STRICT subset of the corpus.
     (should (> plan-exempt 0))
     (should (> record-exempt 0))
     (should (> homeless 0))
+    (should (= 27 body-ts))
+    (should (> queued 0))
     (should (< (+ plan-exempt record-exempt) total))
-    (should (= 99 total))))
+    (should (= 126 (* 14 3 3)))
+    (should (= 139 total))
+    ;; ...AND NO THIRD CASE, as a COUNT rather than as a hope.
+    (should (= 0 third-case))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r94-9 — the `untracked' predicate at its boundaries
@@ -1042,14 +1221,36 @@ looser.  Asserted over a REAL scanned corpus — one heading per way Org
 can carry a plan, one per shape Org writes when something happens, and
 the one heading that carries neither:
 
-  a plan     SCHEDULED, DEADLINE, or a bare active `<ts>' in the body
-             \(the `org-air-classify--dated-p' axis)
+  a plan     SCHEDULED or DEADLINE — the `org-air-classify--planned-p'
+             axis, which is exactly what Overdue and Upcoming read
   a record   a LOGBOOK state change or note, a clock-out, `CLOSED:',
              `:CREATED:', or any inactive body stamp
 
-Also pinned: the bucket is TOTAL, with no carve-outs (an inbox dweller
-and a `#A' show in their own sections AND here), and a `:backlog:'
-heading routes OUT of it with all the others."
+Also pinned: a `#A' shows in its own section AND here (the standing
+overlap rule), and a `:backlog:' heading routes OUT of this bucket with
+all the others.
+
+R95 RE-BLESS, TWO LEGS, BOTH BEHAVIOUR CHANGES THIS ROUND MADE ON
+PURPOSE.
+
+1. THE PLAN AXIS IS NARROWER, AND THE TEST NOW SAYS WHICH.  R94 looped
+   `SCHEDULED / DEADLINE / a bare active <ts>' through one `should-not'
+   and called the result \"any plan\".  It was not: `--dated-p' counts a
+   body `<ts>' that NO DATE SECTION READS, so a heading whose only date
+   was a body stamp was excused from the catch-all and admitted by
+   nothing else — no row anywhere, at any file age (the R94 review's
+   §3).  R95 asks `--planned-p' instead, so `Has an active stamp' leaves
+   the loop and is asserted POSITIVELY as the discriminating triple:
+   DATED, NOT PLANNED, and therefore UNTRACKED.  That cell is the whole
+   of FU1, and it is worth more here than one more `should-not'.
+
+2. AN INBOX DWELLER IS NOT UNTRACKED.  \"No plan, no record\" is a
+   tautology about an unprocessed capture, and Inbox already holds it
+   — UNCONDITIONALLY, which is why the exclusion cannot strand anything.
+   The R94 leg asserted the overlap; the R95 leg asserts the exclusion
+   AND the reason it is safe: the same heading still has a row, one
+   section up, and the bare `#A' twin in an ordinary file still shows
+   the overlap rule alive."
   (skip-unless (locate-library "org-air"))
   (org-air-r94--with-corpus
       (list
@@ -1085,14 +1286,31 @@ heading routes OUT of it with all the others."
         (should (org-air-classify--untracked-p bare))
         (should (equal '(untracked)
                        (org-air-classify-item bare org-air-test-now))))
-      ;; ANY plan takes it out...
-      (dolist (title '("Has a schedule" "Has a deadline" "Has an active stamp"))
+      ;; ANY PLAN takes it out — and "plan" means the two slots the date
+      ;; sections read (R95 `--planned-p'), not the broader `--dated-p'.
+      (dolist (title '("Has a schedule" "Has a deadline"))
         (let ((item (org-air-r94--scanned title items)))
           (ert-info ((format "plan: %s" title))
             (should (org-air-classify--dated-p item))
+            (should (org-air-classify--planned-p item))
             (should-not (org-air-classify--untracked-p item))
             (should-not (memq 'untracked (org-air-classify-item
                                           item org-air-test-now))))))
+      ;; ...and a body `<ts>' is NOT one of them: DATED, NOT PLANNED, and
+      ;; therefore UNTRACKED.  R94 excused this heading from the
+      ;; catch-all and no date section ever read its stamp, so it had no
+      ;; row at all — the coverage hole FU1 closed.
+      (let ((active (org-air-r94--scanned "Has an active stamp" items)))
+        (should (org-air-classify--dated-p active))
+        (should-not (org-air-classify--planned-p active))
+        (should-not (org-air-classify-updated active))
+        (should (org-air-classify--untracked-p active))
+        (should (memq 'untracked (org-air-classify-item
+                                  active org-air-test-now)))
+        ;; and it really was invisible before: the date sections still
+        ;; do not read that stamp, so `untracked' is its ONLY row.
+        (should (equal '(untracked)
+                       (org-air-classify-item active org-air-test-now))))
       ;; ...and so does ANY record, whichever shape Org wrote it in.
       (dolist (title '("Has a logbook state" "Has a logbook note"
                        "Has a clock" "Has a created property"
@@ -1105,14 +1323,23 @@ heading routes OUT of it with all the others."
             ;; the discriminating pair: undated, yet NOT untracked.
             (should-not (memq 'untracked (org-air-classify-item
                                           item org-air-test-now))))))
-      ;; TOTAL, no carve-outs: the overlap rule applies here like anywhere.
+      ;; The overlap rule applies wherever the two rows say DIFFERENT
+      ;; things: an untracked `#A' is in High priority AND here.
       (let ((hipri (org-air-r94--scanned "Top and untracked" items)))
         (should (equal '(high-priority untracked)
                        (org-air-classify-item hipri org-air-test-now))))
+      ;; R95: for an unprocessed CAPTURE the two rows say the SAME thing,
+      ;; so only the one with a verb is kept — and nothing is stranded,
+      ;; because the `inbox' push is unconditional for that heading.
       (let ((capture (org-air-r94--scanned "Captured and untracked" items)))
+        (should-not (org-air-classify--planned-p capture))
+        (should-not (org-air-classify-updated capture))
+        (should-not (org-air-classify--untracked-p capture))
+        (should-not (memq 'untracked (org-air-classify-item
+                                      capture org-air-test-now)))
         (should (memq 'inbox (org-air-classify-item capture org-air-test-now)))
-        (should (memq 'untracked (org-air-classify-item
-                                  capture org-air-test-now))))
+        ;; it still HAS a row, which is the reason the exclusion is safe
+        (should (org-air-classify-item capture org-air-test-now)))
       ;; ...except the ONE documented exception every sibling bucket
       ;; shares: a deferred heading routes to `backlog' ALONE.
       (let ((deferred (org-air-r94--scanned "Deferred and untracked" items)))
@@ -1136,9 +1363,20 @@ Three further legs:
   * the token PARSES (case-insensitively) to the bucket symbol and is
     OFFERED by completion, so the vocabulary org-air teaches includes
     the one place it admits it cannot rank something;
-  * `is:untracked' is a STRICT SUBSET of `is:nodate' — the corpus
+  * `is:untracked' and `is:nodate' are INDEPENDENT — the corpus
     contains an undated heading WITH a record, which answers `is:nodate'
-    and not `is:untracked'.  They are deliberately not synonyms;
+    and not `is:untracked', AND a heading whose only date is a body
+    `<ts>', which answers `is:untracked' and not `is:nodate'.
+
+    R95 RE-BLESS ON THIS LEG.  Under R94 the relation was a STRICT
+    SUBSET, and this test said so.  FU1 changed the plan clause from
+    `--dated-p' to `--planned-p' — the two slots the date sections
+    actually read — and the two sets became genuinely INDEPENDENT:
+    neither contains the other, and the separating heading in the new
+    direction is exactly the coverage hole R95 closed.  Both separating
+    rows are now IN THE CORPUS, so the relation is discriminated rather
+    than asserted, and a revert to `--dated-p' reddens this leg as well
+    as the per-item law above;
   * the pre-existing `:backlog:' exception is unchanged and shared with
     every sibling token (a deferred heading answers the raw token on its
     own merits while classifying to `(backlog)' alone)."
@@ -1153,7 +1391,11 @@ Three further legs:
               "* TODO Dated and historyless\nSCHEDULED: "
               (org-air-r94--date 30) "\n"
               "* TODO Overdue and fresh\nDEADLINE: " (org-air-r94--date -3)
-              "\n[2026-06-15 Mon 09:00]\n"))
+              "\n[2026-06-15 Mon 09:00]\n"
+              ;; R95: the OTHER separating row — dated by a body `<ts>',
+              ;; so `is:untracked' takes it and `is:nodate' refuses it.
+              "* TODO Body stamp and homeless\nSeen " (org-air-r94--date -3)
+              " in the body.\n"))
        (cons "inbox.org" "#+title: inbox\n"))
     (let ((items (org-air-query-items)))
       ;; THE LAW, per item.
@@ -1170,10 +1412,11 @@ Three further legs:
                           (and (memq 'untracked buckets) t)))))))
       ;; anti-vacuity: the token really selected some rows and rejected
       ;; some others.
-      (should (equal '("Also bare" "Bare and homeless")
+      (should (equal '("Also bare" "Bare and homeless"
+                       "Body stamp and homeless")
                      (org-air-r94--members 'untracked items)))
-      (should (= 5 (length items)))
-      ;; STRICT SUBSET of `is:nodate' — the separating row is present.
+      (should (= 6 (length items)))
+      ;; INDEPENDENT of `is:nodate' — BOTH separating rows are present.
       (let ((nodate nil) (untracked nil))
         (dolist (item items)
           (let ((org-air-view--tag-filter '("is:nodate"))
@@ -1185,9 +1428,17 @@ Three further legs:
               (push (org-air-item-title item) nodate)))
           (when (org-air-classify--untracked-p item)
             (push (org-air-item-title item) untracked)))
-        (dolist (title untracked) (should (member title nodate)))
+        ;; nodate-not-untracked: a record silences the catch-all
         (should (member "Undated but logged" nodate))
         (should-not (member "Undated but logged" untracked))
+        ;; untracked-not-nodate: a body `<ts>' IS a date and is NOT a plan
+        (should (member "Body stamp and homeless" untracked))
+        (should-not (member "Body stamp and homeless" nodate))
+        ;; ...so NEITHER set contains the other, and they still overlap.
+        (should-not (cl-subsetp untracked nodate :test #'equal))
+        (should-not (cl-subsetp nodate untracked :test #'equal))
+        (should (member "Bare and homeless" nodate))
+        (should (member "Bare and homeless" untracked))
         (should-not (equal (sort nodate #'string<)
                            (sort untracked #'string<)))))
     ;; the token parses and is TAUGHT.

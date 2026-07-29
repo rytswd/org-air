@@ -286,8 +286,35 @@ heading has NO age at all.  That is a STRONGER witness for this test's
 subject: under R93 an active stamp was invisible to the clock but a
 number still appeared, which meant the leg could pass with the probe
 broken and the mtime supplying 0 either way.  Now the absence is the
-assertion, and the row's home (`untracked' -- an active `<ts>' does make
-it DATED, so in fact NOT untracked) is pinned beside it."
+assertion, and the row's home is pinned beside it.
+
+R95 RE-BLESS -- THE HOME WAS NOWHERE, AND THIS TEST SAID SO.  The R94
+version of the sentence above ended: \"the row's home (`untracked' -- an
+active `<ts>' does make it DATED, so in fact NOT untracked)\".  Read it
+again: it names a heading EXCLUDED from the catch-all, and the three
+legs below pinned that exclusion as correct.  It was not.  `Practice
+lute for real' had NO ROW ANYWHERE -- not Untracked (excluded for being
+dated), not Overdue or Upcoming (they read only the SCHEDULED and
+DEADLINE slots and never see a body stamp), not Needs attention (no
+measured clock), and it answered no `is:' token at all.  The R94 review
+found the same hole independently through the real renderer; this test
+had already written the defect down in its own comment and blessed it.
+
+R95's `org-air-classify--planned-p' closes it: the catch-all now negates
+exactly what the date sections read.  The three flipped legs are the
+same facts with the wrong one corrected --
+
+  DATED yes       unchanged: R54-1 still owns `is:nodate' and an active
+                  `<ts>' still marks a day on the calendar;
+  PLANNED no      new, and the whole point: a body stamp is neither a
+                  SCHEDULED nor a DEADLINE, so no date section reads it;
+  UNTRACKED yes   so the heading has a row, at last;
+  MEASURED no     unchanged -- a plan can neither start nor stop the
+                  recency clock, which is this test's actual subject.
+
+That subject -- INACTIVE stamps are the clock, ACTIVE ones never are --
+is untouched, and is now asserted against a heading that is ON the board
+rather than one that had quietly fallen off it."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     ;; A recent INACTIVE stamp is the heading's clock: two days quiet.
@@ -322,11 +349,19 @@ it DATED, so in fact NOT untracked) is pinned beside it."
       (should-not (org-air-classify-updated practice))
       (should-not (org-air-classify-quiet-days practice org-air-test-now))
       (should-not (memq 'attention buckets))
-      ;; The active `<ts>' is still a DATE (the `is:nodate' axis), so this
-      ;; row is NOT untracked either: it has a plan, just no record.
+      ;; The active `<ts>' is still a DATE (the `is:nodate' axis) -- R95
+      ;; left `--dated-p' alone.  But it is NOT a PLAN: no date section
+      ;; reads a body stamp, so the catch-all must take this row, and
+      ;; since R95 it does.
       (should (org-air-classify--dated-p practice))
-      (should-not (org-air-classify--untracked-p practice))
-      (should-not (memq 'untracked buckets))
+      (should-not (org-air-classify--planned-p practice))
+      (should (org-air-classify--untracked-p practice))
+      (should (memq 'untracked buckets))
+      ;; ...and it really is the ONLY row it gets: no date section ever
+      ;; saw that stamp, which is what made the hole invisible.
+      (should-not (memq 'overdue buckets))
+      (should-not (memq 'upcoming buckets))
+      (should (equal '(untracked) buckets))
       ;; ...and the clock is not merely broken: one INACTIVE stamp of the
       ;; same age surfaces the identical heading.
       (let ((stamped (copy-sequence practice)))

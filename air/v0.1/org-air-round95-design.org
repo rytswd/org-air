@@ -530,3 +530,142 @@ convert each into a named test:
   added, no section list change, no cache bump.  One real defect found
   and fixed mid-round by running the suite INTERPRETED (=r90-50='s
   linearity fence cannot see a =memq= in byte-compiled source).
+
+- 2026-07-29 — *R95 tests.*  Re-blessed, fenced and the compiled-only
+  fence gap CLOSED.  Branched from =xxkovznrlzzr= (= =main=, R95 model).
+  Tests and this history entry only; production =.el= and =README.org=
+  byte-identical to the parent (SHA-256 verified after every mutation).
+
+  *Gate:* =make clean && make check= → *1342 tests, 1334 as expected, 0
+  unexpected, 8 GUI skips*; the SAME suite run INTERPRETED (no =.elc=
+  present) → *1342 / 0 unexpected / 8 skipped*.  lint 0 findings,
+  manifest empty, =make regen-mockups= a byte no-op over all 49 fixture
+  files.  Per family: R90 102 · R91 31 · R92 19 · R93 21 · R94 22 · *R95
+  20* · R72 16 · R74 12 · viewport 16, zero failures in BOTH modes.
+
+  *The four failures re-blessed (5 legs), all confirmed OBSOLETE.*
+  =r54-2h= and =r59-7= (FU6: the capture's bucket list loses
+  =untracked=), =r94-9= (FU1's plan loop + FU6's capture leg), and
+  =ux-bare-timestamp-recency-is-inactive-only= (FU1 — the test whose own
+  R94 comment had NAMED the hole and blessed it).  Every one is a
+  strengthening: no test was deleted or renamed, and each gained the leg
+  that DISCRIMINATES rather than merely shrinking.  One deviation from
+  the design's prescribed shape, reported: for =r54-2h= the suggested
+  "the SAME heading OUTSIDE the inbox classifies =(untracked)=" is not
+  available — =* Half-formed capture= is keyword-less, so outside the
+  inbox R54 routes it to =knowledge= and it never reaches a task bucket
+  at all (which is what the bypass exists to prevent).  The =:inbox:=
+  TAG pair (=Bare admin task= → =(untracked)=, =Queued by tag :inbox:= →
+  =(inbox)=, same file, one tag apart) states the same law without the
+  confound.  Two currently-GREEN tests were also corrected for drift:
+  =r94-10='s "STRICT SUBSET of =is:nodate=" leg is now the INDEPENDENCE
+  leg with both separating rows in its corpus.
+
+  *The =r94-8= generator widened, and the theorem re-proved.*
+  =org-air-r94--plan-shapes= gained the =:active-ts= axis
+  (=body-ts-past= / =-soon= / =-far=) with =org-air-r94--item= filling
+  BOTH =active-ts= and =own-active-ts=, so the matrix is now
+  plan-SPELLING × plan-DISTANCE × record × priority = *126 generated
+  headings*, plus *6 inbox-dwelling cells* (FU6 is invisible to a
+  generator that never puts a heading in the queue) and *7 SCANNED
+  shapes* an in-memory builder cannot express — including the
+  =:LAST_DEADLINE:= and =:ORIG_SCHEDULED:= property rows (FU3), each
+  asserted to carry a measured 14-day clock.  *139 headings, and the
+  count of THIRD CASES is asserted to be 0* rather than merely hoped
+  for; the corpus entries now carry the HOME bucket that must cover a
+  no-plan/no-record heading, so FU6's exclusion is proved safe by
+  construction inside the theorem itself.
+
+  *The nine unfenced elements are fenced, by ELEVEN mutations.*  Each
+  was applied to the real source, the FULL suite run COMPILED, and the
+  source restored and SHA-256-verified byte-identical:
+
+  | mutation | reddens |
+  |----------+---------|
+  | M1 =--planned-p= → =--dated-p= | 7: r95-1/2/3, r94-8, r94-9, r94-10, ux-bare-timestamp |
+  | M2 inbox clause dropped | 12: r95-13, r54-2h, r59-7, r94-8, r94-9, 5 goldens, r49-5 |
+  | M3 quota 2 → 4 (the cap) | 3: r95-4, r95-5, r95-8 |
+  | M4 slack fill dropped | 4: r95-6, r95-2, r94-12, r94-15 |
+  | M5 window in PICK order | 1: r95-5 |
+  | M6 TAB landing back to the cap INDEX | 1: r95-8 |
+  | M7 =--item-activity= → =--last-activity= | 3: r95-10, r95-11, r95-12 |
+  | M8 day clamp raised out of reach | 4: r95-14, r95-15, r95-16, r95-18 |
+  | M9 planning regexp unanchored | 2: r95-9, r94-8 |
+  | M10 window membership =eq= hash → =memq= | *2: r95-18, r95-19 — IN THE COMPILED GATE* |
+  | M11 TAB landing membership → =memq= | *1: r95-19 — IN THE COMPILED GATE* |
+
+  M1 reddening =r94-8= is the round's proof that the generator axis
+  landed: under the R94 corpus that same revert changed nothing there.
+
+  *THE COMPILED-ONLY FENCE GAP — CLOSED, and the blindness written down.*
+  Measured first, on this repo: =memq=, =assq= and =member= are byte
+  OPCODES, so a compiled caller never consults the function cell a
+  =cl-letf= shim replaces; =assoc=/=rassq=/=delq=/=remq= are ordinary
+  calls and stay visible.  With M10 applied the evidence is exact —
+  COMPILED: =r90-50= *PASSES* while =r95-19= fails; INTERPRETED:
+  =r90-50= fails at =(= 5020 0)=, the very number this round's design
+  reported.  A real linearity defect walks straight through the mode we
+  gate on.
+
+  The repair does not try to make a compiled =memq= visible (it cannot
+  be).  =org-air-r95--with-interpreted-source= re-evaluates every
+  top-level =defun= of the six repaint modules (view, classify, query,
+  layout, calendar, faces — *647 functions*) from the SAME source =load=
+  reads, =macroexpand-all='d first so compiler macros (struct accessors
+  above all) expand exactly as they do under the interpreted gate while
+  =memq= stays an ordinary call a shim can see.  Only =defun=/=cl-defun=
+  forms are touched, so no =defvar=, =defconst=, keymap or mode
+  definition is re-run and no state moves; every replaced cell is
+  restored and asserted =eq= afterwards.  Cost: ~0.05 s to install,
+  ~1.3 s for the whole fence.
+
+  Four named tests carry it: *r95-17* asserts the GAP itself as a fact
+  (per primitive: interpreted counted, compiled not, and only the
+  opcodes hide) so it can never be forgotten again; *r95-18* proves the
+  harness genuinely interprets, is functionally identical to the shipped
+  code, SEES the exact =memq= shape R95 shipped by accident, does NOT
+  see its byte-compiled twin, and restores exactly; *r95-19* is the
+  fence — a 1200-item repaint (render, filter, mark, TAB) does ZERO
+  item-wise linear scans, with the pre-R95 =memq= quota spliced in as
+  the in-test anti-vacuity proof (1520 violations at 300 rows, 6020 at
+  1200 — it SCALES, which is what makes it a linearity fence); *r95-20*
+  states the NET as data, so widening the repaint path forces a decision
+  instead of leaving a hole.  =r90-50= is untouched and still green in
+  both modes: this round ADDS a mode to the law, it does not replace a
+  test.
+
+  *The 25 golden regenerations verified independently*, pane-split at
+  the rail fence, multiset per pane over all 25 files:
+
+  : BOARD  +25 '◌ Untracked 2'   +3 merged-pane '2   Untracked'   +18 <blank>
+  : BOARD  -25 '◌ Untracked 3'   -3 merged-pane '3   Untracked'
+  : BOARD  -25 the 'Call plumber … no history #inbox' row, in SIX distinct
+  :            width truncations (10+3+3+3+3+3), one per file
+  : RAIL   +12 '│    2   Untracked'  +6 '│      2   Untracked'
+  : RAIL   -12 '│    3   Untracked'  -6 '│      3   Untracked'
+
+  Exactly the design's claimed breakdown.  *CONTENT* is two kinds and no
+  more (the count 3 → 2, and one removed row); *PERMUTATION* is the rest
+  — the rail multiset differs by NOTHING but that one summary line, and
+  the board's 18 added blanks are the pane band shifting up where the
+  tier has a fixed height (the other 7 files are simply one line
+  shorter); *COUNT* is unchanged — =23   total=, =□ Inbox 3=,
+  =▲ Overdue 3=, =◆ Upcoming 8=, =★ High priority 3= and
+  =○ Needs attention 2= are all present before and after in 25/25 files.
+  =Call plumber= is still on every board (25/25) with exactly one
+  occurrence removed (25/25): the row moved sections, it did not
+  disappear.
+
+  *Handover.*  (1) The =r95-17=..=r95-20= instrument is general — any
+  future law measured with a =cl-letf= shim over =memq=/=assq=/=member=/
+  =nth=/=elt=/=length= is blind in the compiled gate and should adopt
+  =org-air-r95--with-interpreted-source=.  (2) Found while building it,
+  reported not fixed (production is out of scope this round):
+  =org-air-view.el= defines an interactive command =org-air-item-deadline=
+  that SHADOWS the =cl-defstruct= accessor of the same name.  Both gate
+  modes survive it only because compiler-macro inlining reaches every
+  call site — but any code that reaches the accessor through the
+  FUNCTION CELL (a =funcall=, an =apply=, =mapcar #'org-air-item-deadline=,
+  or a freshly =eval='d form) calls the command instead and signals
+  "No org-air item at point".  It is a latent name collision that
+  compilation papers over; the honest fix is to rename the command.

@@ -480,21 +480,47 @@ bucket (not knowledge) — capture flows unchanged.
 
 R94 RE-BLESS.  The bypass is unchanged; the capture's bucket LIST grew
 by one symbol, because `* Half-formed capture' has no date and no
-recorded history and is therefore also `untracked'.  That is the
-standing overlap rule (R93 decision 3) doing its job, and it is the
-round's product point on this very row: an unfiled capture shows in
-Inbox (\"this is unfiled\") AND in Untracked (\"org-air cannot rank
-this\"), and the two rows say different things.  The membership this
-test exists to pin — `inbox', never `knowledge' — is asserted exactly
-as before, and the NEW symbol is pinned as a fact of its own rather
-than absorbed into a looser `memq': a knowledge/journal row must still
-classify to its bucket ALONE, so the two `equal' pins above stay
-verbatim."
+recorded history and was therefore also `untracked'.
+
+R95 RE-BLESS — THE SYMBOL IS GONE AGAIN, AND THIS TIME ON PURPOSE.  An
+unprocessed capture has no plan and no record BY DEFINITION, so its
+Untracked row repeated what its Inbox row two sections above already
+said, while consuming one of that section's four slots (1 of the 3 rows
+on the shipped demo board).  R95 excludes inbox dwellers from Untracked
+inside `org-air-classify--untracked-p' itself.  This is NOT the R93
+inbox carve-out returning — that one was about AGING and it HID work;
+this one can hide nothing, because `org-air-classify--heading-buckets'
+pushes `inbox' UNCONDITIONALLY for the very same heading.
+
+The subject of this test — the BYPASS: `inbox', never `knowledge' — is
+asserted exactly as before and is untouched by any of it.  The R94 leg
+that followed (one body stamp on the capture yields `(inbox)') now says
+the same thing twice, so R95 replaces it with the pair that actually
+DISCRIMINATES, using two headings added to `board.org':
+
+  * TODO Bare admin task            -> (untracked)   task-routed, no queue
+  * TODO Queued by tag  :inbox:     -> (inbox)       same file, one tag apart
+
+That pair pins the clause on the axis it really turns on — inbox
+MEMBERSHIP, not the file and not the heading's own emptiness — and it
+keeps a live `untracked' witness in this corpus, so a reverted bucket
+would still redden here.
+
+(The R95 design's suggested re-bless was \"the SAME heading outside the
+inbox classifies (untracked)\".  That is not available for THIS heading:
+`* Half-formed capture' is keyword-less, so outside the inbox it is
+routed to `knowledge' by R54 and never reaches a task bucket at all —
+which is precisely what the bypass exists to prevent.  The `:inbox:' tag
+pair states the same law without that confound, and the stamped-capture
+leg is kept as well, because \"a capture stays Inbox whatever its
+history\" is still a fact worth pinning.)"
   (skip-unless (locate-library "org-air"))
   (org-air-r54--with-corpus
       '(("board.org" .
          "* TODO Real board task\nSCHEDULED: <2026-06-16 Tue>\n\
-* Evergreen pruning wisdom :garden:\nProse notes on pruning.\n")
+* Evergreen pruning wisdom :garden:\nProse notes on pruning.\n\
+* TODO Bare admin task\nNo dates, no history.\n\
+* TODO Queued by tag :inbox:\nNo dates, no history.\n")
         ("2026-06-14.org" . "* Yesterday journal entry\nDear diary.\n")
         ("inbox.org" . "#+title: inbox\n\n* Half-formed capture\nNo dates.\n"))
     (let ((items (org-air-query-items)))
@@ -504,21 +530,35 @@ verbatim."
       (should (equal (org-air-r54--buckets "Yesterday journal entry" items)
                      '(journal)))
       ;; Inbox bypass: the schedule-less capture is an unfiled task-to-be
-      ;; — `inbox' and never `knowledge'.  R94: it is ALSO `untracked'
-      ;; (no date, no record), the standing overlap rule.
+      ;; — `inbox' and never `knowledge'.  R95: and `inbox' ALONE, because
+      ;; "no plan, no record" is a tautology about an unfiled capture.
       (should (equal (org-air-r54--buckets "Half-formed capture" items)
-                     '(untracked inbox)))
+                     '(inbox)))
       (should-not (memq 'knowledge
                         (org-air-r54--buckets "Half-formed capture" items)))
-      ;; ...and the untracked half is EARNED: one body stamp removes it
-      ;; while the inbox bypass is untouched.
+      (should-not (memq 'untracked
+                        (org-air-r54--buckets "Half-formed capture" items)))
+      ;; R95 THE DISCRIMINATING PAIR — same file, same emptiness, one tag
+      ;; apart.  The exclusion is about the QUEUE, not about the heading.
+      (should (equal (org-air-r54--buckets "Bare admin task" items)
+                     '(untracked)))
+      (should (equal (org-air-r54--buckets "Queued by tag" items)
+                     '(inbox)))
+      ;; ...and a capture keeps its Inbox row whatever its history: one
+      ;; body stamp changes nothing here, while the SAME stamp takes the
+      ;; bare admin task off the board entirely.
       (let ((stamped (copy-sequence
-                      (org-air-r54--item "Half-formed capture" items))))
-        (setf (org-air-item-updated stamped)
-              (floor (float-time (time-subtract org-air-test-now
-                                                (days-to-time 1)))))
+                      (org-air-r54--item "Half-formed capture" items)))
+            (stamped-task (copy-sequence
+                           (org-air-r54--item "Bare admin task" items)))
+            (yesterday (floor (float-time
+                               (time-subtract org-air-test-now
+                                              (days-to-time 1))))))
+        (setf (org-air-item-updated stamped) yesterday)
+        (setf (org-air-item-updated stamped-task) yesterday)
         (should (equal (org-air-classify-item stamped org-air-test-now)
-                       '(inbox))))
+                       '(inbox)))
+        (should-not (org-air-classify-item stamped-task org-air-test-now)))
       ;; The task keeps the full treatment.
       (should (memq 'upcoming (org-air-r54--buckets "Real board task" items))))
     ;; Board layer: the rendered GTD board shows TASKS (+ inbox) only.

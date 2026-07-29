@@ -1321,12 +1321,17 @@ in-place)."
                   "deadline"
                   (or (org-air-inbox--form-get :deadline-label)
                       (let ((item (org-air-inbox--form-get :item)))
-                        ;; a STATIC `org-air-item-deadline' accessor
-                        ;; call — safe: cl-defstruct's compiler macro
-                        ;; inlines the slot access at expansion time,
-                        ;; so the view.el COMMAND of the same name
-                        ;; (the documented R67 Decision-4 collision)
-                        ;; is never consulted.  Keep it static.
+                        ;; `org-air-item-deadline' is the struct
+                        ;; accessor, full stop.  Until R96 view.el ALSO
+                        ;; defined an interactive command of that name
+                        ;; (the R67 Decision-4 collision), so this call
+                        ;; had to stay STATIC — only cl-defstruct's
+                        ;; compiler macro kept it reading the slot.  R96
+                        ;; renamed the command to
+                        ;; `org-air-item-set-deadline': the function
+                        ;; cell now holds the accessor, so a `funcall'
+                        ;; here would be correct too.  Static anyway —
+                        ;; it is also the faster form.
                         (and item
                              (stringp (org-air-item-deadline item))
                              (org-air-item-deadline item))))))

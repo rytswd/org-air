@@ -1,0 +1,405 @@
+#+title: org-air R96 — the accessor/command collision closed, and the lint rule that makes the class impossible
+#+air_state: work-in-progress
+#+air_tags: org-air impl hygiene lint struct naming
+
+* Context
+
+R95's test seat found, and the supervisor confirmed, a *compilation-masked*
+defect: =org-air-query.el:223= declares
+
+#+begin_src emacs-lisp
+(cl-defstruct (org-air-item (:constructor org-air-item-create) (:copier nil))
+  title tags file marker todo priority scheduled deadline group closed …)
+#+end_src
+
+so =org-air-item-deadline= is a *struct accessor*.  =org-air-view.el:13956=
+then defined
+
+#+begin_src emacs-lisp
+;;;###autoload
+(defun org-air-item-deadline (&optional date)   ; interactive command, key `d'
+  (interactive) …)
+#+end_src
+
+Same symbol.  One function cell.  The COMMAND won it:
+=(commandp 'org-air-item-deadline)= was =t=.
+
+Why neither gate mode saw it: =cl-defstruct= installs a *compiler macro*
+for every accessor, and a compiler macro fires during macroexpansion —
+which happens in the interpreter too.  Every static call site
+=(org-air-item-deadline item)= in the tree was therefore rewritten to an
+=aref= before the function cell was ever consulted.  1342 tests passed
+COMPILED and INTERPRETED on top of a symbol whose function cell held the
+wrong thing.
+
+Measured on the pre-fix tree (=main=, R95):
+
+| reach                                    | pre-fix result                     |
+|------------------------------------------+------------------------------------|
+| =(org-air-item-deadline it)= static call | =1234.0= — the slot (inlined)      |
+| =(funcall 'org-air-item-deadline it)=    | =user-error "No org-air item at point"= |
+| =(mapcar #'org-air-item-deadline (list it))= | same =user-error=              |
+| =(eval '(org-air-item-deadline it) env)= | same =user-error=                  |
+| =(commandp 'org-air-item-deadline)=      | =t=                                |
+
+A landmine, not yet a live bug: no current call site reaches the function
+cell.  The next one written naturally would have.  R67 Decision 4
+documented the hazard and deferred it; R68 renamed the *other* instance
+(=org-air-item-todo= → =org-air-item-cycle-todo=) for exactly this reason
+and left this one.  This is the second compilation-masked defect in two
+rounds, so the RULE matters more than the fix.
+
+* Decision 1 — the fix: rename the COMMAND, never the slot
+
+The slot/accessor is load-bearing across the cache format (=org-air-item=
+is serialised into the v7 cache; the accessor name appears at 20 call
+sites in classify/calendar/view/query/inbox).  So the command moves.
+
+*=org-air-item-deadline= (command) → =org-air-item-set-deadline=.*
+
+Rationale for the shape: it keeps the =org-air-item-= prefix, so =M-x
+org-air-item-= completion still lists it next to =org-air-item-schedule=,
+and it inserts a verb the same way R68's =org-air-item-cycle-todo= did.
+
+Preserved *exactly*:
+
+- the =d= key on =org-air-view-mode-map= (=org-air-view.el:1766=);
+- the =?= help entry — =("Triage" … (org-air-item-set-deadline . "set
+  deadline"))= — same group, same position, same description string;
+- the guided inbox walk's =[d]eadline= prompt and its
+  =(?d (call-interactively #'org-air-item-set-deadline))= arm;
+- the =;;;###autoload= cookie, the arglist =(&optional date)=, the
+  =org-air-view--single-mutation-guard= call and the whole body.
+
+*No =defalias=.*  Deliberate, and the reason is the whole point of the
+round: a =(defalias 'org-air-item-deadline #'org-air-item-set-deadline)=
+would re-take the same function cell and restore the bug *verbatim* —
+=funcall=-reaching the accessor would then land in the command again.
+Probe (a) in Decision 3 proves the new lint rule catches exactly that
+attempt.  The old symbol is now, and can only be, the accessor.
+
+** Verification after the rename
+
+#+begin_example
+commandp org-air-item-deadline = nil
+inlined accessor  = 1234.0
+funcall accessor  = 1234.0
+mapcar accessor   = (1234.0)
+fresh eval        = 1234.0
+function-cell audit: 39 generated struct functions checked, 0 bad
+#+end_example
+
+The audit walks all three structs and, for every accessor, compares
+=(funcall ACC obj)= against =(cl-struct-slot-value STRUCT SLOT obj)=;
+it also checks each constructor / predicate / copier is =functionp= and
+NOT =commandp=.  39/39 clean.
+
+** User-visible consequence — stated plainly
+
+The only change a user can observe is *=M-x= completion*: the deadline
+verb is now offered as =org-air-item-set-deadline=; =org-air-item-deadline=
+no longer appears in =M-x= at all (it is a plain function, not a command).
+Anyone who wrote =(define-key … #'org-air-item-deadline)= or
+=(global-set-key … #'org-air-item-deadline)= by hand — a shape README's
+"A subset" example invites — must update the symbol.  README gained one
+sentence saying so under that example.  Nothing else moves: same key,
+same help text, same behaviour, same paint (=make regen-mockups= is a
+byte no-op over all 49 fixtures — the command name only reaches the paint
+in the degraded =M-x command-name= help cell used when a command has no
+live key, and =d= always does).
+
+* Decision 2 — the full sweep
+
+Enumerated *every* =cl-defstruct= accessor and *every*
+=defun= / =defmacro= / =defsubst= / =cl-defun= / =cl-defmacro= /
+=define-inline= / =defalias= / =define-minor-mode= / =define-derived-mode=
+in the 11-module package, including forms nested inside
+=eval-and-compile= / =when= / =progn=.  1483 definition records.
+
+*Structs in the package: three.*
+
+| struct                          | file:line              | accessors |
+|---------------------------------+------------------------+-----------|
+| =org-air-item=                  | org-air-query.el:223   |        24 |
+| =org-air-doc=                   | org-air-project.el:262 |         7 |
+| =org-air-view--history-token=   | org-air-view.el:12228  |         1 |
+|---------------------------------+------------------------+-----------|
+|                                 | total                  |    *32*   |
+
+Plus 7 more generated functions (3 constructors, 3 predicates, 1 copier)
+= 39 function-namespace names owned by =cl-defstruct=.
+
+*Collisions found in the function namespace: exactly ONE.*
+
+: dupdef: `org-air-item-deadline' has 2 function-namespace definitions
+:         — one is a cl-defstruct ACCESSOR whose function cell is
+:         therefore NOT the accessor
+:         (struct-accessor at org-air-query.el:221, defun at org-air-view.el:13953)
+
+That is the whole set.  Notes on near-misses, since the brief asked:
+
+- *=org-air-item-file-group= is NOT an instance.*  The supervisor's
+  initial second claim was wrong and is retracted here.  The accessors
+  are =org-air-item-file= and =org-air-item-group=; the command is
+  =org-air-item-file-group=, a *different symbol*.  Verified directly:
+  it is not in the 32.
+- =org-air-item-schedule= (command) vs =org-air-item-scheduled=
+  (accessor) — different symbols, no collision.
+- =org-air-item-cycle-todo= vs =org-air-item-todo= — already separated
+  by R68, still clean.
+- =org-air-query--work-buffer= is BOTH a =defvar= and a =defun=.  That is
+  *legal and intentional* — Emacs Lisp has separate value and function
+  cells and the package uses the pair deliberately (the variable caches
+  the buffer, the function creates-or-returns it).  Namespaces are kept
+  separate by the rule for exactly this reason.
+- 16 symbols look duplicated in the variable namespace; every one is a
+  bare forward =(defvar SYM)= declaration paired with the real
+  =defcustom= / =defconst= elsewhere (e.g. =org-air-inbox-file= declared
+  in five modules, defined once in =org-air.el=).  The rule filters
+  value-less =defvar= out; a bare declaration is not a definition.
+- =org-air-classify--stale-eligible-p= is a =defalias= — the only one in
+  the package, and it aliases a name nothing else defines.
+
+*Accessors whose function cell was not the accessor: 1 before the fix
+(=org-air-item-deadline=), 0 after.*
+
+* Decision 3 — the lint rule that makes the class impossible
+
+Added to =tests/org-air-lint.el= (lint infrastructure, not ERT; no
+=tests/*-test.el= was touched this round):
+=org-air-lint--collect-duplicate-definitions=, a *package-wide* pass that
+runs once over all 11 files after the per-file checkdoc / package-lint
+passes, and feeds the same baseline machinery — so a new =dupdef= finding
+FAILS the binary gate exactly like a new checkdoc finding.
+
+What it does:
+
+1. Reads every top-level form of every =org-air*.el= and *recurses into
+   bodies* (=eval-and-compile=, =when=, =progn=, a sharp-quoted lambda),
+   stopping at =quote= / backquote so quoted DATA that merely looks like a
+   definition is never counted.
+2. Records =(SYMBOL NAMESPACE KIND FILE LINE)= for:
+   - *function* namespace: =defun=, =defmacro=, =defsubst=, =cl-defun=,
+     =cl-defmacro=, =cl-defgeneric=, =define-inline=, =define-minor-mode=,
+     =define-derived-mode=, =define-globalized-minor-mode=, quoted
+     =defalias=, and — the point of the round — everything a
+     =cl-defstruct= generates: accessors (=:conc-name= honoured, =nil=
+     conc-name handled), predicate, copier, every constructor (a named
+     =:constructor= suppresses the default =make-NAME=; an explicit =nil=
+     option means "not generated" and is skipped).
+   - *variable* namespace: =defvar= *with a value*, =defvar-local=,
+     =defconst=, =defcustom=.
+3. Fails on any =(SYMBOL . NAMESPACE)= with more than one record, naming
+   every site, and calls out by name the case where one of them is a
+   struct accessor — because that is the invisible one.
+
+Deliberate exclusions, each load-bearing:
+
+- =cl-defmethod= is *not* counted: many methods per generic is the point.
+- The two namespaces are separate: a =defvar= and a =defun= of the same
+  name is legal Elisp and the package uses it once
+  (=org-air-query--work-buffer=).
+- Bare =(defvar SYM)= is a declaration, not a definition — the package
+  has dozens and they are correct.
+
+** Proof: FAILS pre-fix, PASSES post-fix
+
+Ran the rule against a tree materialised from =main= (R95, pre-fix) and
+against the working tree:
+
+#+begin_example
+  FINDING: dupdef org-air-query.el: `org-air-item-deadline' has 2
+  function-namespace definitions — one is a cl-defstruct ACCESSOR whose
+  function cell is therefore NOT the accessor
+  (struct-accessor at org-air-query.el:221, defun at org-air-view.el:13953)
+PRE-FIX  (main, R95): 11 files, 1 dupdef findings => rule FAILS
+POST-FIX (worktree):  11 files, 0 dupdef findings => rule PASSES
+#+end_example
+
+** Proof: it catches the class, not just the instance
+
+Eight synthetic injections against the real =org-air-query.el= /
+=org-air-project.el=:
+
+| # | injection                                                     | findings |
+|---+---------------------------------------------------------------+----------|
+| a | =(defalias 'org-air-item-deadline #'ignore)= — the tempting alias | *1* ✓ |
+| b | the same =defun= name twice in one file                       |    *1* ✓ |
+| c | =defsubst= shadowing the struct CONSTRUCTOR =org-air-item-create= | *1* ✓ |
+| d | duplicate =defcustom= (variable namespace)                    |    *1* ✓ |
+| e | NEGATIVE: bare forward =defvar= of an existing =defcustom=     |      0 ✓ |
+| f | NEGATIVE: quoted DATA shaped like a =defun= / =defvar=         |      0 ✓ |
+| g | NEGATIVE: two =cl-defmethod= on one =cl-defgeneric=            |      0 ✓ |
+| h | =defun= colliding with the OTHER struct's accessor (=org-air-doc-state=) | *1* ✓ |
+
+Probe (a) is the direct evidence for Decision 1's "no alias" ruling.
+Probe (h) proves the rule is not hard-wired to =org-air-item=.
+
+=make lint= with the rule active: *0 findings, baseline unchanged* (no
+=dupdef= entry was added to =tests/org-air-lint-baseline.el= — the rule
+must stay at zero, permanently).
+
+* Decision 4 — the sibling class: where does correctness rest on inlining?
+
+Question asked: is there anywhere else the package needs a compiler macro
+to fire for *correctness* rather than speed — i.e. would =funcall=-reaching
+an inlined helper misbehave?
+
+*Answer: nowhere, now.*  Audited:
+
+- =grep -n "defsubst\|define-inline\|define-compiler-macro" org-air*.el=
+  → *zero hits*.  The package defines no inline functions and no hand-written
+  compiler macros of its own.
+- The ONLY compiler macros in play are the 32 generated by =cl-defstruct=.
+  Before R96 exactly one of them (=org-air-item-deadline=) was
+  correctness-critical: the inlining was the only thing keeping the tree
+  right.  After R96, all 39 generated struct functions agree with their
+  function cells (audit above), so inlining is now purely a *speed*
+  optimisation everywhere — dropping it would cost cycles, not answers.
+- =setf= on struct slots (=(setf (org-air-item-x it) v)=) goes through
+  =gv=, not the function cell, and was never exposed either way.
+- One SOURCE COMMENT encoded the old constraint and is now stale:
+  =org-air-inbox.el:1324= told future readers "a STATIC accessor call —
+  safe: cl-defstruct's compiler macro inlines … so the view.el COMMAND of
+  the same name is never consulted.  *Keep it static.*"  That instruction
+  was load-bearing under the collision and is misleading without it.
+  Rewritten to record the history and say plainly that the call is static
+  for speed now, not for correctness.  (No code change at that site.)
+- One TEST encodes the same stale constraint —
+  =org-air-r68-14=, which calls the command through =(funcall
+  (symbol-function 'org-air-item-deadline) …)= precisely *because* of the
+  collision, and says so in its own docstring.  See the re-bless shapes.
+
+* Gate
+
+Stale =.elc= deleted; all 11 modules byte-compiled (one pre-existing
+warning, =org-air-project.el:946: docstring wider than 80 characters=,
+untouched and unrelated).
+
+| mode                                          | result                                             |
+|-----------------------------------------------+----------------------------------------------------|
+| =make clean && make check= (COMPILED, 11 .elc) | 1342 tests, 1328 as expected, *6 unexpected*, 8 skipped |
+| same suite, no =.elc= present (INTERPRETED)    | 1342 tests, 1328 as expected, *6 unexpected*, 8 skipped |
+| =make lint= (new rule active)                  | *0 findings*, baseline clean, both modes           |
+| =make regen-mockups=                           | byte no-op over all fixtures                       |
+
+The two modes are *identical* — the 6 are name pins, deterministic, not
+mode-sensitive.
+
+** The 6 failing tests — classified, NOT edited
+
+All six fail for one reason: they pin the OLD command name.  None is a
+behaviour regression; the =d= key, the guard, the prompts, the written
+bytes and the paint are unchanged.  Re-bless shapes for the test seat:
+
+*** 1–3. =org-air-invariant-landing-test.el= — one row, one token
+
+- =org-air-landing-invariant-table-is-complete= —
+  =(equal nil ("org-air-item-set-deadline"))=: the =d= command is bound in
+  =org-air-view-mode-map= but has no row in the landing table.
+- =org-air-landing-invariant-table-has-no-dead-rows= —
+  =(equal nil ("org-air-item-deadline"))=: the table's row names a symbol
+  that is bound nowhere any more (it is now purely the accessor).
+- =org-air-landing-invariant-board-commands-land-on-a-row= — the runner
+  =(should entry)= on every bound command; the =d= command has no entry.
+
+*Shape:* one token, at =tests/org-air-invariant-landing-test.el:92= —
+
+: -    (org-air-item-deadline            stable  row)
+: +    (org-air-item-set-deadline        stable  row)
+
+Class (=stable=) and park (=row=) are unchanged and still correct: the
+command repaints and leaves the cursor on its row.  All three go green
+together.
+
+*** 4. =org-air-r68-14-redeadline-knob-and-legacy-set-schedule=
+
+Fails with =(wrong-type-argument org-air-item "2026-08-15")= — line 689
+does =(funcall (symbol-function 'org-air-item-deadline) "2026-08-15")=,
+which now correctly funcalls the ACCESSOR with a string.
+
+This test is the round's best witness: its own docstring explains it uses
+=symbol-function= "because eager macroexpansion inlines the struct
+accessor of the same name over direct calls".  R96 removes the reason.
+
+*Shape:* the workaround becomes an honest direct call —
+
+: -      (funcall (symbol-function 'org-air-item-deadline) "2026-08-15"))
+: +      (org-air-item-set-deadline "2026-08-15"))
+
+…and the docstring parenthetical "(the COMMAND; called through
+=symbol-function= because eager macroexpansion inlines the struct
+accessor of the same name over direct calls)" should be deleted, since it
+now documents a hazard that no longer exists.  This is a
+*strengthening*: the test stops routing around a defect and exercises the
+command the way a user does.  Its two behavioural legs (the
+=lognoteredeadline= downgrade, the saved =- New deadline from= record)
+are untouched and still discriminate.
+
+*** 5. =org-air-r90-9-unsupported-mutations-guard-before-prompts-writes=
+
+Fails with =(wrong-type-argument commandp org-air-item-deadline)= —
+=call-interactively= on what is now a plain accessor.  Note the failure
+mode is itself the proof that the fix landed.
+
+*Shape:* one token in the command list at
+=tests/org-air-round90-test.el:933= —
+
+: -        (dolist (command '(org-air-item-cycle-todo org-air-item-deadline
+: +        (dolist (command '(org-air-item-cycle-todo org-air-item-set-deadline
+
+*** 6. =org-air-triage-keymap-dispositions=
+
+Fails with =(eq org-air-item-set-deadline org-air-item-deadline)= = nil —
+the keymap pin at =tests/org-air-triage-test.el:47=.
+
+*Shape:* one token —
+
+: -                 '(("d" . org-air-item-deadline)
+: +                 '(("d" . org-air-item-set-deadline)
+
+The =d= key itself is *unchanged*; only the symbol it names moved.
+=air/v0.1/org-air-triage.org='s key table (line 64) carries the same old
+name and should be re-blessed with it.
+
+** Suggested NEW pin for the test seat (not written here — no ERT edits)
+
+The lint rule is static.  A one-test dynamic twin would close the loop:
+for every slot of every =cl-defstruct= in the package, assert
+=(not (commandp ACC))= and
+=(equal (funcall ACC obj) (cl-struct-slot-value STRUCT SLOT obj))=.
+That reddens on a re-collision even if someone adds a definition the
+static scanner cannot see (a =fset= at runtime, a macro-built name).
+Both halves already exist as throwaway probes in this round's transcript
+and pass 39/39.
+
+* Implementation History
+
+** R96 (2026-07-29) — DONE
+
+Branched from =main= (R95, =cb7b6348=).
+
+*Source (3 files):*
+
+- =org-air-view.el= — the command =org-air-item-deadline= renamed to
+  =org-air-item-set-deadline= at its =defun= (:13956) and at its three
+  references: the =d= binding (:1766), the guided-walk
+  =call-interactively= arm (:15273), and the =?= help alist (:15543).
+  Docstring gained the rename record, including why no =defalias= exists.
+- =org-air-inbox.el= — the stale "keep it static, the command would win"
+  comment at :1324 rewritten (comment only; the call is unchanged).
+- =README.org= — one sentence under the "A subset" =define-key= example
+  naming the rename, for users who bound the old symbol by hand.
+
+*Lint infrastructure (1 file):* =tests/org-air-lint.el= gained the
+package-wide duplicate-definition rule (Decision 3) and now advertises it
+in its own commentary.  =tests/org-air-lint-baseline.el= is untouched:
+the rule is at zero and must stay there.
+
+*Not touched:* any =tests/*-test.el=, the model, the cache version, the
+fixtures.
+
+*Gate:* COMPILED 1342 / 1328 as expected / 6 unexpected / 8 skipped;
+INTERPRETED identical.  =make lint= 0 findings with the new rule.
+=make regen-mockups= byte no-op.  All 6 failures are the old-name pins
+listed above, each with a one-token re-bless shape.

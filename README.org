@@ -440,6 +440,8 @@ The org-air keymaps still *exist* and keep their ~special-mode~ parent, so ~q~ (
   (define-key org-air-view-mode-map (kbd "C-c r") #'org-air-refresh))
 #+end_src
 
+If you bind command symbols by hand, note one rename: the deadline verb on ~d~ is ~org-air-item-set-deadline~ (it used to be ~org-air-item-deadline~, which is also the name of an internal data accessor — sharing the name meant any indirect call reached the wrong one). Keys, help text and behaviour are unchanged; only ~M-x~ completion and an explicit ~define-key~ / ~global-set-key~ on the old symbol need the new name. No alias is provided, deliberately — an alias would re-create the clash.
+
 The global entry-point keys you bind yourself (e.g. ~C-c a~ → ~org-air~) are *your* bindings, not defaults, so they are unaffected by this switch.
 
 *** The two views

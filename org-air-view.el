@@ -2852,12 +2852,15 @@ it is kept in the row's EXISTING date cell — no new column, no new
 chrome, no alignment change (the cell is measured board-wide like every
 other date label):
 
-  \"always\"     ITEM's threshold is 0 (`#A' under the defaults) — it
-                 surfaces unconditionally, and the row's own priority
-                 cookie says which priority did that.
   \"Nd quiet\"   ITEM has gone N calendar days with no update, which has
                  reached its priority's `org-air-attention-days'
-                 threshold.
+                 threshold.  Under the defaults this is EVERY row in the
+                 section (R93 FIX-3 moved `#A' off threshold 0), so the
+                 cell carries a real number the user can act on.
+  \"always\"     ITEM's threshold is 0 — it surfaces unconditionally, and
+                 the row's own priority cookie says which priority did
+                 that.  No default produces this any more; it appears
+                 only for a user who sets a 0 threshold deliberately.
 
 Both read in the quiet `org-air-face-date', never a heat colour: this
 section is a nudge, not an alarm (Overdue is the alarm).  With an
@@ -5020,10 +5023,11 @@ The key is `org-air-classify-quiet-days' — the SAME clock
 cell (\"273d quiet\"), so the order IS the number the rows show and is
 verifiable by eye.
 
-A threshold-0 row (label \"always\", `#A' under the defaults) is sorted
-by its REAL age too, not parked: an `#A' silent for 200 days needs
-attention more than a `#C' silent for 20, and the label suppresses the
-number only because the threshold — not the age — is why it surfaced.
+A threshold-0 row (label \"always\"; no longer a default — R93 FIX-3 —
+but still reachable by setting one) is sorted by its REAL age too, not
+parked: an item silent for 200 days needs attention more than one
+silent for 20, and the label suppresses the number only because the
+threshold — not the age — is why it surfaced.
 An UNKNOWN age (label \"quiet\") sorts LAST, mirroring how
 `org-air-view--sort-by-date' trails undated items: org-air never invents
 a number and never lets an unknown outrank a measured one.
@@ -6200,6 +6204,9 @@ The classification is computed against NOW (D-P7)."
              ;; reached, so the row's terse "12d quiet" is explainable
              ;; without opening the manual.  Reads the SAME two public
              ;; classify helpers the row label uses, so they cannot drift.
+             ;; FIX-3: the threshold-0 arm below is kept (a user may set a
+             ;; 0 threshold deliberately) but no DEFAULT reaches it any
+             ;; more, so the line normally reads "quiet 12d / 7d".
              (reason
               (when (memq 'attention buckets)
                 (let ((age (org-air-classify-quiet-days item now))

@@ -129,8 +129,10 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
   ;; Classification horizons.
   (org-air-upcoming-days 7)
   ;; Needs attention: days of NO UPDATE per priority before an item surfaces.
-  ;; #A is 0 — it always surfaces; the nil key is "no priority cookie".
-  (org-air-attention-days '((?A . 0) (?B . 7) (?C . 14)
+  ;; #A gets 3 days' grace (High priority already shows it every repaint);
+  ;; the nil key is "no priority cookie".  Set a letter to 0 to surface it
+  ;; unconditionally.
+  (org-air-attention-days '((?A . 3) (?B . 7) (?C . 14)
                             (?D . 30) (?E . 30) (nil . 30)))
   ;; Board columns (defaults shown): filename OFF, dates + tags ON.
   (org-air-show-origin nil)
@@ -211,7 +213,7 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | ~org-air-exclude-regexps~           | ~nil~                                        | Regexps (abs path) of files/dirs to skip; matching directories are pruned. |
 | ~org-air-inbox-file~                | =~/.emacs.d/org-air-inbox.org=               | Where ~c~ / ~org-air-capture~ stores items.                               |
 | ~org-air-upcoming-days~             | ~7~                                          | Horizon (days) for the Upcoming bucket.                                   |
-| ~org-air-attention-days~            | ~((?A . 0) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30))~ | Days with no update, per priority letter, before Needs attention surfaces an item; the ~nil~ key is "no priority cookie". |
+| ~org-air-attention-days~            | ~((?A . 3) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30))~ | Days with no update, per priority letter, before Needs attention surfaces an item; the ~nil~ key is "no priority cookie"; a threshold of ~0~ surfaces that priority unconditionally. |
 | ~org-air-attention-default-days~    | ~30~                                         | Fallback quiet period for a priority missing from ~org-air-attention-days~. |
 | ~org-air-show-origin~               | ~nil~                                        | Show the board filename (origin) column.                                  |
 | ~org-air-show-dates~                | ~t~                                          | Show the board date/schedule column.                                      |
@@ -300,7 +302,7 @@ One case needs a stricter rule. Two headings in the /same file/ that share a tit
 
 | Priority        | Surfaces after     |
 |-----------------+--------------------|
-| ~[#A]~          | always (0 days)    |
+| ~[#A]~          | 3 days of no update  |
 | ~[#B]~          | 7 days of no update  |
 | ~[#C]~          | 14 days of no update |
 | ~[#D]~ / ~[#E]~ | 30 days of no update |
@@ -312,9 +314,9 @@ The table is the ~org-air-attention-days~ defcustom (an alist from the priority 
 
 *What does not count.* ~SCHEDULED~, ~DEADLINE~ and active ~<timestamps>~ are /plans/, not updates — they neither start nor stop this clock. So *nothing has to be scheduled to stay off this section, and scheduling something buys it no exemption*: a task planned for next month that nobody has touched in sixty days still surfaces, and a brand-new dateless capture does not.
 
-*The coarse floor.* A heading with no history at all — no LOGBOOK, no CLOSED, no CREATED, no body stamp — falls back to its /file's/ modification time. That is deliberately coarse: one edit anywhere in the file resets the clock for every historyless heading in it. org-air would rather admit it does not know than invent a per-heading date. As soon as such a heading gains one real stamp it gets its own clock.
+*The coarse floor.* A heading with no history at all — no LOGBOOK, no CLOSED, no CREATED, no body stamp — falls back to its /file's/ modification time. That is deliberately coarse: one edit anywhere in the file resets the clock for every historyless heading in it. org-air would rather admit it does not know than invent a per-heading date. As soon as such a heading gains one real stamp it gets its own clock. And when even that floor is missing — an age org-air genuinely cannot compute — the item does *not* surface here, whatever its priority: a threshold is a claim about elapsed time, and org-air will not claim time it never measured. An ~[#A]~ in that state is still on the board, in High priority. (A threshold of ~0~ is the deliberate exception: it surfaces regardless, because at ~0~ there is nothing to measure.)
 
-*Why the row is legible.* In this section the date cell carries the /reason/, not a date: ~12d quiet~ (the age that crossed the threshold) or ~always~ (an item whose threshold is 0 — its ~[#A]~ cookie is right there in the same row). The rail inspector spells it out as ~quiet 12d / 7d~ (age over threshold) next to an ~Updated~ line naming the stamp it read.
+*Why the row is legible.* In this section the date cell carries the /reason/, not a date: ~12d quiet~ — the age that crossed the threshold. Under the defaults every row carries a real number. The rail inspector spells it out as ~quiet 12d / 7d~ (age over threshold) next to an ~Updated~ line naming the stamp it read. (Set a priority's threshold to ~0~ and its rows read ~always~ instead: they surface unconditionally, so there is no age to report.)
 
 *Overdue is a separate section*, above Upcoming: a missed date is a different problem from a quiet item and gets its own rows, its own ~▲~ badge and its own ~is:overdue~ filter. Sections *overlap by design* — an overdue ~[#A]~ that has been quiet a month appears in Overdue, High priority /and/ Needs attention, once in each.
 

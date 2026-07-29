@@ -21,16 +21,30 @@
 (defvar org-air-inbox-file)
 
 (defcustom org-air-attention-days
-  '((?A . 0) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30))
+  '((?A . 3) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30))
   "Days of NO UPDATE before a board item needs attention, by priority (R93).
 An alist mapping a priority CHARACTER (the letter inside `[#A]') to the
 number of calendar days the item may stay quiet before it surfaces in
 the Needs-attention section; the NIL key is the threshold for a
 heading carrying NO priority cookie.
 
-The defaults implement the user's ruling: `#A' surfaces ALWAYS
-\(threshold 0 — it never has to earn its place), `#B' after a week,
-`#C' after a fortnight, and `#D' / `#E' / no-priority after a month.
+The defaults give each priority its own patience: `#A' after three days,
+`#B' after a week, `#C' after a fortnight, and `#D' / `#E' /
+no-priority after a month.
+
+R93 FIX-3 raised the `#A' default from 0 to 3 (user ruling).  At 0,
+High priority — which IS the `#A' set — was a permanent SUBSET of
+Needs attention: every `#A' row was printed twice on every board, and
+the reason cell had to print the word `always' instead of a number.
+Each section now owns one job: High priority means \"always visible\",
+Needs attention means \"has gone quiet\".  An `#A' is still seen the
+instant it exists (High priority), and it ADDITIONALLY surfaces in
+Needs attention once it has genuinely been ignored for three days.
+
+A threshold of 0 is still fully supported and still means UNCONDITIONAL
+\(`org-air-classify--attention-p'): set `(?A . 0)' back deliberately and
+every `#A' surfaces the moment it exists, unknown age included.  Only
+the DEFAULT moved; the mechanism did not.
 
 The clock is the item's `updated' fact (`org-air-item-updated' — the
 newest INACTIVE Org timestamp in the heading's own body: LOGBOOK state
@@ -306,7 +320,8 @@ is the `org-air-attention-days' NIL key."
 `org-air-attention-days' keyed by ITEM's priority letter, falling back
 to that alist's NIL (no-priority) entry and then to
 `org-air-attention-default-days'.  Never negative: 0 means \"always
-surfaces\" (the `#A' ruling).  Public because the row/inspector
+surfaces\" — no longer a default anywhere (R93 FIX-3 moved `#A' to 3),
+but an opt-in a user can still set.  Public because the row/inspector
 reason labels must show the SAME number the bucket applied."
   (let* ((char (org-air-classify--priority-char item))
          (cell (or (assq char org-air-attention-days)
@@ -352,10 +367,19 @@ section and token agree by construction.
 
 ITEM needs attention when its quiet period (`org-air-classify-quiet-days')
 has reached its priority threshold (`org-air-classify-attention-threshold').
-A threshold of 0 — `#A' under the defaults — surfaces UNCONDITIONALLY,
-including when the age is unknown: the highest priority never has to
-earn its row.  An UNKNOWN age at any other threshold does NOT surface:
-org-air refuses to nag about something it cannot date.
+A threshold of 0 surfaces UNCONDITIONALLY, including when the age is
+unknown: at 0 the user has said \"never make this earn its row\", so
+there is nothing left to measure.  An UNKNOWN age at any POSITIVE
+threshold does NOT surface: org-air refuses to nag about something it
+cannot date.
+
+R93 FIX-3 note — since the `#A' default is now 3, not 0, an `#A' whose
+age is UNKNOWN no longer surfaces here.  That is DELIBERATE and follows
+from the same rule, not from an accident of the default: a positive
+threshold is a claim about elapsed time, and org-air will not assert
+elapsed time it never measured.  Such an item is not lost — it is a
+`#A', so High priority shows it on every repaint.  Setting `(?A . 0)'
+back restores the unconditional behaviour, unknown ages included.
 
 What this rule deliberately does NOT do (the R93 problem statement): it
 never asks whether the item is scheduled.  The pre-R93 bucket surfaced

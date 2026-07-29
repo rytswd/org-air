@@ -13,8 +13,11 @@ deletes that disjunct outright and rebuilds the surface around what the
 user actually asked for:
 
 - *Needs attention* = board-active AND (days since last update) >=
-  threshold(priority).  =#A= threshold 0, so it always surfaces.  No date
-  is required, and no date grants an exemption.
+  threshold(priority).  No date is required, and no date grants an
+  exemption.  (=#A= shipped on threshold 0 — "always surfaces"; *FIX-3
+  raised that default to 3 days* on the user's decision, see [[*R93 FIX-3 — the =#A= threshold moves off 0][R93 FIX-3]].
+  The threshold-0 *mechanism* is unchanged and still means
+  unconditional.)
 - *Overdue* is its own bucket and its own section.
 - *Stale* is retired; its "dated but quiet" rule is subsumed.
 - Section order is now *Inbox, Overdue, Upcoming, High priority, Needs
@@ -184,8 +187,14 @@ attention model per-heading accurate, and the README says so.
 
 Nil at both levels (no slot *and* no file meta — an item built outside
 the scan, e.g. in a capture buffer) means *unknown*, never "fresh": a
-=#A= still surfaces (threshold 0 is unconditional), everything else does
-not.  org-air refuses to nag about something it cannot date.
+threshold-0 item still surfaces (0 is unconditional), everything else
+does not.  org-air refuses to nag about something it cannot date.
+
+*FIX-3 changes which side of that line =#A= sits on*, deliberately: with
+the default now 3 (a POSITIVE threshold), an =#A= of unknown age no
+longer surfaces here.  The rule did not change — the default did — and
+the item is not lost, because High priority shows every =#A= on every
+repaint.  See [[*R93 FIX-3 — the =#A= threshold moves off 0][R93 FIX-3]] §2.
 
 ** Cost: one pass, no extra reads, no timers
 
@@ -232,6 +241,8 @@ function rather than each re-deriving it.
 ** The thresholds
 
 #+begin_src elisp
+;; as shipped by R93; FIX-3 changed the ?A entry to 3 — see the FIX-3
+;; section.  Nothing else in this subsection changed.
 (defcustom org-air-attention-days
   '((?A . 0) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30)) …)
 (defcustom org-air-attention-default-days 30 …)
@@ -285,7 +296,9 @@ Frozen at the render clock, over a real scanned file:
 | =TODO Historyless heading=       | (file mtime) | 0 |  30 | =nil=                        |
 
 Row 2 is the user's complaint fixed.  Row 5 is "a date grants no
-exemption".  Row 4 is "Overdue is its own thing".  Row 3 is "=#A= always".
+exemption".  Row 4 is "Overdue is its own thing".  Row 3 is "=#A=
+always" — *the one row FIX-3 changes*: with =(?A . 3)= that item (age 0,
+threshold 3) is =(high-priority)= only, and joins =attention= on day 3.
 
 * Sections, order and presentation
 
@@ -335,9 +348,13 @@ column that breaks alignment."
 Needs-attention rows only (the arm sits first in
 =org-air-view--date-label=, ahead of every date arm):
 
-- =12d quiet= — the age that crossed the threshold.
+- =12d quiet= — the age that crossed the threshold.  *Since FIX-3 this
+  is every row under the defaults*: the cell always carries a real
+  number.
 - =always= — a threshold-0 item; the =[#A]= cookie in the same row's
-  prefix says which priority did it.
+  prefix says which priority did it.  Still implemented, no longer
+  produced by any default (FIX-3); it appears only for a user who sets a
+  0 threshold deliberately.
 
 No new column, no new glyph, no alignment change: the cell is measured
 board-wide by the existing =--compute-meta-widths= pass exactly like a
@@ -674,7 +691,9 @@ untouched, so the coarse-fallback path is still covered.
   inspector bucket/updated lines, cache v7, memo key.
 - =org-air-layout.el= — the two section icons.
 - =README.org= — the new model, thresholds table, retirement note,
-  section order, defcustom table rows.
+  section order, defcustom table rows.  (FIX-3 revised the threshold
+  table, the config sample, the defcustom row, the reason-cell prose and
+  the unknown-age paragraph.)
 - =air/v0.1/org-air-round93-design.org= — this document.
 
 No test, fixture, golden or known-failures file was touched.
@@ -704,6 +723,17 @@ No test, fixture, golden or known-failures file was touched.
   sort is now stated and justified in one table, 25 goldens moved
   permutation-only, and two tests are left failing on instruction /
   handover.
+
+- 2026-07-29 — *R93 FIX-3 (the =#A= attention threshold, 0 → 3).*
+  Fourth history entry; written up in its own top-level section at the
+  END of this document ("R93 FIX-3 — the =#A= threshold moves off 0").
+  In short: the user took the audit's §9 recommendation, so the DEFAULT
+  =org-air-attention-days= entry for =?A= moves from 0 to 3.  The
+  threshold-0 mechanism is untouched and still means unconditional; an
+  =#A= of unknown age deliberately stops surfacing in Needs attention
+  (High priority still shows it); 25 goldens moved (three duplicate rows
+  and one Summary count leave every board); 13 tests fail, 11 pinning
+  the old default and 2 carried forward from FIX-2.
 
 ** 1. Independent classification of the 197 — CONFIRMED, with one caveat
 
@@ -1225,3 +1255,192 @@ document.  =README.org= and every =tests/*.el= byte-pristine.
        a test with product behaviour.  This seat may not edit tests, so
        it is handed over: r53-3 needs a stable witness row (or a frozen
        clock), which is the same repair the r93-16 inversion needs.
+
+* R93 FIX-3 — the =#A= threshold moves off 0
+
+- 2026-07-29 — *R93 FIX-3.*  Fourth Implementation-History entry (the
+  list above points here).
+
+Parent =owonktxmlvpm= (R93 FIX-2).  Source + Air only:
+=org-air-classify.el=, =org-air-view.el= (docstrings/comments),
+=README.org=, 25 regenerated board goldens and this document.  Every
+=tests/*.el= byte-pristine.
+
+** 1. The decision, and the evidence behind it
+
+  The audit's §9 PRODUCT JUDGMENT measured the overlap and recommended
+  raising =#A= above 0; the user has now taken that option.  The measured
+  case, restated:
+
+  - High priority *is* the =#A= set, and =#A= had threshold 0, so every
+    High-priority row was permanently *also* a Needs-attention row —
+    Needs attention was a superset of High priority by construction,
+    forever.
+  - Cost: *17–60 % of the visible Needs-attention budget* re-showing rows
+    already on screen a few lines above (standard fixture: 3 of 5 rows,
+    60 %; the 66-task corpus: 7 of 27 expanded, 26 %), with the section's
+    6-row cap spent on the duplicates.
+  - The label had to *make an excuse* for those rows: =always= is the
+    section admitting the row is not there for having gone quiet.
+
+  #+begin_src elisp
+  ;; before                                    ;; after (FIX-3)
+  '((?A . 0) (?B . 7) (?C . 14)                '((?A . 3) (?B . 7) (?C . 14)
+    (?D . 30) (?E . 30) (nil . 30))              (?D . 30) (?E . 30) (nil . 30))
+  #+end_src
+
+  *One default value.  No mechanism, no predicate, no law.*  Each section
+  now owns exactly one job: High priority means "always visible", Needs
+  attention means "has gone quiet".  An =#A= is still seen the instant it
+  exists, and it *additionally* surfaces in Needs attention once it has
+  genuinely been ignored for three days — which is information, where a
+  permanent duplicate was not.
+
+  The rejected alternative is still rejected: *excluding what a section
+  above already showed* would break the R72 law that each section body IS
+  its =is:= token's predicate (=is:attention= would stop equalling the
+  Needs-attention section) and would make a row's membership depend on
+  what else is on the board.  Nothing here touches that law — the bucket
+  body, the predicate and the token are byte-identical; only the number
+  they read is different.
+
+** 2. The threshold-0 mechanism is kept — and what that means for an UNKNOWN age
+
+  The brief required the mechanism to survive its default, because a user
+  may still set 0 deliberately.  All three sites are unchanged and now
+  say so in their docstrings:
+
+  | Site                                     | Behaviour at threshold 0 | Status                 |
+  |------------------------------------------+--------------------------+------------------------|
+  | =org-air-classify--attention-p=          | =(<= threshold 0)= ⇒ surfaces unconditionally, unknown age included | unchanged, documented |
+  | =org-air-view--attention-reason=         | row date cell reads =always=                                        | unchanged, documented |
+  | =org-air-view--inspector-bucket-line=    | rail reads =Attention · always surfaces=                            | unchanged, documented |
+  | =org-air-classify-attention-threshold=   | =max 0= floor: a negative entry still means 0                       | unchanged             |
+
+  Set =(?A . 0)= back and the pre-FIX-3 behaviour returns exactly,
+  including the unknown-age case, on the next repaint (the alist is a
+  render memo input, never a scan input).
+
+  *The consequence the brief asked to be decided rather than discovered:*
+  an =#A= whose age is UNKNOWN (no =updated= slot and no file in the
+  scan's meta table — an item built outside the scan, e.g. the at-point
+  constructor in a capture buffer) *no longer surfaces in Needs
+  attention*.
+
+  *That is correct, and it is deliberate.*  It follows from the rule the
+  round already stated for every other priority, not from an accident of
+  the new number:
+
+  1. A *positive* threshold is a claim about elapsed time.  org-air will
+     not assert elapsed time it never measured — the same reason
+     =#B=…=#E= and no-cookie items refuse an unknown age.  The
+     alternative readings are both worse and were both rejected in the
+     original round: treating unknown as "fresh" hides real work
+     (the user's original complaint), treating it as "infinitely old"
+     nags on day one of every fresh corpus.
+  2. *Nothing is lost.*  The item is an =#A=: High priority shows it on
+     every repaint, unconditionally, with no clock involved. The one
+     section that never needed a date still has it.
+  3. *Threshold 0 remains the escape hatch*, and it is the honest one:
+     0 means "do not make this earn its row", so there is nothing left to
+     measure and the unknown age is irrelevant. A user who wants the old
+     behaviour asks for it by name.
+
+  So the =(<= threshold 0)= arm did not become dead code by accident — it
+  became the *opt-in* branch, and it is exercised by =r93-3='s own last
+  clause (retune =#B= to 0 ⇒ it surfaces on an unknown age), which still
+  passes.
+
+** 3. What the board actually looks like now
+
+  Standard fixture at width 120, frozen clock — the golden diff, in full:
+
+  #+begin_example
+  before                                          after
+  ~ Needs attention 5                             ~ Needs attention 2
+      Learn lute                 273d quiet           Learn lute            273d quiet
+      Dust off old archive proj  225d quiet           Dust off old archive  225d quiet
+      Ship quarterly report      always
+      Fix production runbook     always
+      Prep client presentation   always
+  #+end_example
+
+  Three rows of restated High priority are gone; *every remaining row
+  carries a real number*; the rail Summary reads =2 Needs attention=
+  instead of =5=; the word =always= no longer appears on a default board.
+  The three =#A= items are still on screen — in High priority, where they
+  were already.
+
+  Under the REAL clock (the aged fixture, everything ~40–50 days quiet)
+  the same three =#A= items DO appear in Needs attention, because they
+  have genuinely gone quiet.  That is the change working: membership is
+  now earned by silence, not granted by the cookie.
+
+** 4. Fixture churn
+
+  =make regen-mockups= → *25 of 41 fixture files moved* (the same 25
+  board goldens FIX-2 touched: =layout-mockup-{70,80,90,96,100,104,110,120,160}=
+  and their =x24= / =x50= variants).  The delta is exactly §3: three rows
+  and one Summary count per width.  The 16 non-board fixtures
+  (project/entry/denote/review/empty-board and the =.org= corpora) are
+  byte-identical.
+
+** 5. Gate
+
+  - =rm -f *.elc=; 11 modules byte-compile; the only warning is the
+    pre-existing =org-air-project.el:946= docstring width.
+  - =make clean && make check= → *1295 tests, 1274 as expected, 13
+    unexpected, 8 skipped* (the 8 GUI skips).
+  - =make regen-mockups= → *byte no-op* after the 25 intended golden
+    updates (md5 over the whole fixture set, before == after).
+  - =make lint= → =lint: ok (0 findings, all baselined)=.
+  - Known-failures manifest: *active length 0*.
+  - Changed: =org-air-classify.el=, =org-air-view.el=, =README.org=, 25
+    goldens, this document.  Every =tests/*.el= byte-pristine; no probe
+    files; =.deps= kept.
+
+*** The 13 failures, classified
+
+  *11 are OBSOLETE-DEFAULT* — each pins the literal =(?A . 0)= or a
+  consequence of it, and each is a fact this round was instructed to
+  change.  None asserts a rule that is still true.  *2 are the
+  pre-existing failures carried forward from FIX-2.*  Zero real defects.
+
+  | Test                                              | Pins                                                                 | Class            |
+  |---------------------------------------------------+----------------------------------------------------------------------+------------------|
+  | =org-air-r93-1-threshold-table-is-the-user-ruling= | the alist literally: =(should (equal 0 (cdr (assq ?A …))))=          | obsolete-default |
+  | =org-air-r93-3-hipri-always-unknown-age-never=     | =#A= surfaces at age 0/1 and at UNKNOWN age                          | obsolete-default |
+  | =org-air-r93-14-reason-labels-cannot-drift…=       | an unknown-age =#A= row's cell reads =always= (now =quiet=)          | obsolete-default |
+  | =org-air-r93-15-attention-is-a-superset-of-high-priority= | the overlap invariant — *this fix's entire subject*            | obsolete-default |
+  | =org-air-classify-overdue-is-its-own-bucket=       | a freshly-touched overdue =#A= is in =attention= "on the priority rule alone (threshold 0)" | obsolete-default |
+  | =org-air-r59-12-capture-and-at-point-unaffected=   | an at-point =#A= (unknown age) is in =attention=                     | obsolete-default |
+  | =org-air-r72-3-filter-bucket-agreement=            | =is:attention= = ={stale-active, hipri-dateless}=                    | obsolete-default |
+  | =org-air-r72-10-hoist-is-neutral=                  | the pinned bucket table: =hipri-dateless ⇒ (high-priority attention)= | obsolete-default |
+  | =org-air-r72-13-overdue-agrees-with-attention-members= | the same pinned attention set                                    | obsolete-default |
+  | =org-air-r85-8-non-emitting-neutral-arms-untouched=| the same unknown-age =#A= cell reads =always=                        | obsolete-default |
+  | =org-air-r47-2-hover-run-is-single-title-band=     | an *anti-tautology floor*, =(> (length rows) 20)=; the board now has 19 item rows because 3 duplicate rows left the board | obsolete-default (collateral) |
+  | =org-air-r93-16-audit-overdue-section-lost-its-date-sort= | FIX-2's deliberate tripwire, still un-inverted                 | *pre-existing*   |
+  | =org-air-r53-3-render-data-pure=                   | FIX-2's collateral: incidental witness row under the real clock      | *pre-existing*   |
+
+  Two notes the test seat will want:
+
+  - *r47-2 is not a coverage loss.*  Its floor is evaluated BEFORE the
+    invariant it exists to test.  Measured directly against the new
+    board: *19 hover rows, 0 violations* — one maximal =mouse-face= run
+    per row, beginning at the title mark, embedding no newline, carrying
+    no image.  The floor wants a smaller number (or a count derived from
+    the rendered board), nothing else.
+  - *r53-3 and r93-16 are unchanged in nature* by this fix. r53-3 still
+    dies on =(string-match-p "Prepare standup notes" text)= for the same
+    Overdue-cap reason, and r93-16 still fails on its first assertion
+    (query order ≠ rendered order), which is the tripwire firing
+    correctly.  Neither is touched or worked around here.
+
+  Re-blessing shape, for whoever owns it: eleven of the twelve
+  =(?A . 0)=-shaped assertions become =(?A . 3)= plus an aged item; the
+  twelfth (=r93-15=) is the invariant that must be *inverted* — Needs
+  attention is no longer a superset of High priority, and pinning the
+  *absence* of that overlap for a fresh =#A= is the assertion this round
+  earned.  Every one of those tests can keep its threshold-0 leg by
+  binding =org-air-attention-days= locally, which is also the cheapest
+  way to keep the unconditional mechanism covered.

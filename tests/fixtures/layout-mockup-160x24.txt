@@ -22,12 +22,12 @@
   ★ High priority 3                                                                                                 │      3   Overdue
       TODO  ■ Ship quarterly report                                             Wed           #projects   #work  …  │      8   Upcoming
       TODO  ■ Fix production outage runbook                                     OVERDUE 5d    #projects   #work  …  │      3   High priority
-      TODO  ■ Prep client presentation                                          Tomorrow      #work   #client       │      5   Needs attention
+      TODO  ■ Prep client presentation                                          Tomorrow      #work   #client       │      2   Needs attention
                                                                                                                     │    ────
-  ○ Needs attention 5                                                                                               │     23   total
+  ○ Needs attention 2                                                                                               │     23   total
       TODO    Learn lute                                                        273d quiet    #someday   #hobby     │
       TODO    Dust off old archive project                                      225d quiet    #projects   #archive  │ ▌ Inspector
-      TODO  ■ Ship quarterly report                                             always        #projects   #work  …  │
-      TODO  ■ Fix production outage runbook                                     always        #projects   #work  …  │ ▌ Actions
-      TODO  ■ Prep client presentation                                          always        #work   #client       │    c capture      / filter      s source
+                                                                                                                    │
+                                                                                                                    │ ▌ Actions
+                                                                                                                    │    c capture      / filter      s source
                                                                                                                     │    g r refresh    TAB expand    ? help

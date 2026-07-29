@@ -650,7 +650,13 @@ example) while project's and revisit's do NOT."
                 ((symbol-function 'org-air-review--render-current) #'ignore)
                 ((symbol-function 'org-air-project-refresh) #'ignore)
                 ((symbol-function 'org-air-revisit--render-current) #'ignore))
+        ;; R97 re-bless: `/' is a SURFACE-scoped verb — each reader is
+        ;; entered from its own view (the mode first, so the derived-mode
+        ;; `kill-all-local-variables' cannot drop the items we plant).
+        ;; Before R97 these ran from a bare temp buffer, which is exactly
+        ;; the out-of-context invocation the funnel guard now refuses.
         (with-temp-buffer
+          (org-air-view-mode)
           (setq-local org-air-view--items (org-air-r72--items fixture))
           (call-interactively #'org-air-filter)
           (should (member "is:overdue" captured))
@@ -660,15 +666,18 @@ example) while project's and revisit's do NOT."
           (should (member "deadline:12d" captured))
           (should-not (member "due:7d" captured)))
         (with-temp-buffer
+          (org-air-review-mode)
           (setq-local org-air-review--items (org-air-r72--items fixture))
           (call-interactively #'org-air-review-filter)
           (should (member "is:overdue" captured))
           (should (member "due:12d" captured)))
         (with-temp-buffer
+          (org-air-project-mode)
           (call-interactively #'org-air-project-filter)
           (should-not (member "is:overdue" captured))
           (should-not (member "due:12d" captured)))
         (with-temp-buffer
+          (org-air-revisit-mode)
           (call-interactively #'org-air-revisit-filter)
           (should-not (member "is:overdue" captured))
           (should-not (member "due:12d" captured)))))))

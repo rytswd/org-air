@@ -229,5 +229,65 @@ step in `abbreviate-file-name', so the result never depends on $HOME."
                 directory-abbrev-alist)))
      ,@body))
 
+;;;; --------------------------------------------------------------------
+;;;; R97 INSTRUMENT B-2 — the interactive/asynchronous axis
+;;;; --------------------------------------------------------------------
+;;
+;; `noninteractive' is t in 100% of the batch gate.  The package has 69
+;; `noninteractive' branch points, 40 of them `(unless noninteractive …)'
+;; guards — code that runs ONLY when a human is driving and therefore
+;; NEVER in any of the 1345 tests: 6 `run-with-idle-timer' sites, the
+;; chunked slice scanner, the token-bump cancellation, the loading
+;; skeleton, the adaptive wall-clock pacer, the rail lifecycle and the
+;; pane follow debounce.
+;;
+;;   "In a real GUI Emacs, `M-x org-air' first paints `Loading your
+;;    board… (scanning 0/7)' and only later swaps to the finished
+;;    board.  No test has ever seen that intermediate state."
+;;                                       — REPORT-r96.md, §R-2
+;;
+;; These two helpers make that state assertable in plain `--batch'.  The
+;; trick is that `sleep-for' RUNS DUE TIMERS (it enters
+;; `wait_reading_process_output'), so with `noninteractive' bound to nil
+;; the pacer arms itself, fires, re-arms, and finishes — for real, on the
+;; real timer queue, with the real gaps — while the test simply waits.
+;; No timer is simulated and no callback is invoked by hand.
+
+(defun org-air-test-cancel-org-air-timers ()
+  "Cancel every pending timer whose callback is an org-air function.
+The teardown half of `org-air-test-with-async-scan': an interactive-path
+body may leave a paced slice, a watchdog, an inspector debounce or a pane
+follow armed, and none of it may survive into the next test."
+  (dolist (tm (append timer-list timer-idle-list))
+    (let ((fn (timer--function tm)))
+      (when (and (symbolp fn) (string-prefix-p "org-air" (symbol-name fn)))
+        (ignore-errors (cancel-timer tm))))))
+
+(defmacro org-air-test-with-async-scan (&rest body)
+  "Run BODY on the INTERACTIVE code path: `noninteractive' bound to nil.
+Everything behind an `(unless noninteractive …)' guard — the deferred
+first paint, the adaptive chain, the watchdog, the loading skeleton's
+lifetime — is live inside BODY, which is the only way those 40 guards are
+reachable from a batch test at all.  Every org-air timer is cancelled on
+the way out, success or failure, so the interactive path can never leak
+into the next test."
+  (declare (indent 0) (debug t))
+  `(let ((noninteractive nil)
+         (inhibit-message t))
+     (unwind-protect (progn ,@body)
+       (org-air-test-cancel-org-air-timers))))
+
+(defun org-air-test-pump-timers (predicate &optional seconds)
+  "Let the real timer queue run until PREDICATE holds or SECONDS elapse.
+Returns the final value of PREDICATE, so a caller can `should' it and get
+a clean failure rather than a hang.  SECONDS defaults to 20.
+
+Must be called inside `org-air-test-with-async-scan': under
+`noninteractive' the pacer never arms and this would just sleep."
+  (let ((deadline (+ (float-time) (or seconds 20))))
+    (while (and (not (funcall predicate)) (< (float-time) deadline))
+      (sleep-for 0.01))
+    (funcall predicate)))
+
 (provide 'org-air-test-helpers)
 ;;; org-air-test-helpers.el ends here

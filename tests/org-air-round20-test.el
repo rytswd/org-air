@@ -207,8 +207,12 @@ stashed indirect is killed (no ` *org-air-pane:*' survives), the host's
                 (org-air-view-pane--render ctx))
               (should (buffer-live-p org-air-view--pane-indirect)))
             (should (org-air-r20--live-pane-indirects))
-            ;; quit from within the pane -> full teardown
-            (org-air-view-pane-quit)
+            ;; quit from within the pane -> full teardown.  R97 re-bless:
+            ;; the call is now made where the comment always said it was
+            ;; (the host board), not from the ambient ERT buffer — the
+            ;; verb is pane-surface scoped and refuses anywhere else.
+            (with-current-buffer host
+              (org-air-view-pane-quit))
             (should-not (org-air-r20--live-pane-indirects))
             (with-current-buffer host
               (should-not org-air-view--pane-indirect))

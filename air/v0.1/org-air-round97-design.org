@@ -600,3 +600,210 @@ but it *did* catch four wrong guards within minutes.
   configuration table updated.  Gate: 1345 / 1333 as expected / 4
   unexpected / 8 skipped, identical COMPILED and INTERPRETED; lint 0;
   goldens a byte no-op.
+
+** R97 tests (2026-07-29) — DONE
+
+Test seat on top of the R97 implementation (=pylluumsmrrk=).  Tests, test
+infrastructure and this Air history only: all 11 production =.el= files,
+=README.org= and every fixture/golden are **byte-identical** to the
+parent (verified by SHA-256 before and after the mutation matrix;
+=cat org-air*.el | sha256sum= =
+=519455c3920a93568a45a8af99e41b2e2692c47b6c77a9398273844712d42f14=).
+
+*** The four re-blessed — each still defends its original invariant
+
+The round's own §Gate predicted all four and their shapes.  Each drives a
+surface-scoped verb from a buffer that is not an org-air surface, which
+is exactly what R97 makes impossible; in every case the *invariant* is
+unchanged and only *which refusal fires first* moved.
+
+| test | edit | invariant, re-verified |
+|------+------+------------------------|
+| =org-air-r20-3-pane-quit-tears-down-and-selects-board= | the one call wrapped in =(with-current-buffer host …)= | the test now does what its own comment always claimed ("quit from within the pane"); the teardown asserts — stashed indirect killed, =--pane-indirect= cleared, board window selected — are untouched and all still run |
+| =org-air-r72-11-inheritance-edges= | =(org-air-view-mode)= added to its =with-temp-buffer= (and the matching mode to the review/project/revisit ones), *before* the =setq-local= so the derived-mode =kill-all-local-variables= cannot drop the planted items | the vocabulary assertions are byte-identical: board+review OFFER =is:overdue= / =due:12d= (tracking a let-bound =org-air-upcoming-days=), project+revisit do NOT |
+| =org-air-r73-14-empty-ring-and-dead-push= | =--with-corpus= → =--with-board= | the rings are GLOBAL, so ="Nothing to undo"=, the untouched =inbox.org= bytes and the dead-buffer push guard assert exactly as before — only the buffer point stands in changed |
+| =org-air-r75-8-empty-redo-gentle= | =--with-corpus= → =--with-board= | ditto for ="Nothing to redo"= |
+
+*** INSTRUMENT B-1 — the foreign-buffer sweep (reviewer's highest-value item)
+
+=tests/org-air-foreign-buffer-sweep.el= (the machinery, reusable as a
+probe) + =tests/org-air-round97-test.el= (the assertions).  Table-driven
+over EVERY =commandp= org-air symbol discovered at runtime (132 today, so
+next round's command is swept without an edit), =call-interactively= —
+not =funcall=, so the =interactive= form runs and the hoisted
+preconditions are exercised — in a fresh =org-mode= FILE buffer and again
+in a =fundamental-mode= one, =noninteractive= bound to nil, every reader
+stubbed to count-and-signal, the foreign buffer re-measured **by object**
+afterwards along with its bytes on disk and its directory listing.
+
+Asserted for every command: text unchanged, buffer not killed,
+=buffer-modified-p= nil, no disk write, no new file; any signal a
+=user-error=, never a bare =error= or =wrong-type-argument=.  Asserted
+for the 117 surface-scoped ones additionally: ZERO readers reached before
+the refusal, and the refusal actually happens (never a silent no-op).
+
+**Measured RED on the pre-R97 tree.**  =main= (R96) materialised into
+=/tmp= with these very test files copied over it; all four B-1 tests fail
+there and name their offenders with byte counts:
+
+#+begin_example
+org-air-refresh    destroys  bytes=30->476 MODIFIED
+#+end_example
+
+| class              | pre-R97 org | pre-R97 fund | R97 (both) |
+|--------------------+-------------+--------------+------------|
+| destroys           |           8 |            8 |          0 |
+| raw error          |           4 |            7 |          0 |
+| prompts-then-fails |          18 |           18 |          2 |
+| refuses            |          24 |           24 |        117 |
+| silent no-op       |          78 |           75 |         13 |
+| total              |         132 |          132 |        132 |
+
+destroys = 8 reproduces the reviewer's set exactly.  The raw/prompt
+columns read 4/18 rather than this doc's 3/19 because the sweep is
+*stricter* than the original probe in two ways, both recorded in the
+instrument's header: it gives every command a FRESH transient refile-form
+state (so =org-air-refile-form-category= reaches its
+=wrong-type-argument= instead of a reader — four raw-error forms is
+exactly the set REPORT-r96.md §D5 names), and it counts =end-of-file= as
+a prompt (a C-level =interactive= *string* spec reaching the minibuffer;
+=callint.c= calls =Fread_string= directly, so no Lisp =fset= can
+intercept it — the reason R97 rewrote org-air's two string specs).
+=fundamental-mode= is strictly more damning than =org-mode=: three more
+commands reach a =wrong-type-argument= in a buffer that derives from
+nothing, which is why both are swept.
+
+**The declared allow-list.**  =org-air-r97-anywhere-commands= — 15
+exemptions, each with a written reason, asserted exhaustive and non-stale
+in BOTH directions: every declared symbol must still be a live
+=commandp=, must still behave as claimed, and the exempt set must equal
+the measured set of commands that do not refuse.  =org-air-capture= is
+listed *with a reason for not being exempt*, so the next reader cannot
+"obviously" add it, and its D2 refusal-before-the-prompt is pinned
+separately.  A command added next round is therefore CLASSIFIED
+deliberately (the R92 landing-table discipline), never exempted by
+accident.
+
+**Two more B-1 tests the sweep alone cannot express:**
+
+- =org-air-r97-b1-6-the-render-funnel-refuses= — the three erasing
+  funnels called *directly*, plus **the ninth command**: a brand-new
+  command defined inside the test that reaches
+  =org-air-view--render-current= with no guard of its own, exactly as the
+  eight destroyers did.  It must be refused by the funnel it never heard
+  of.  This is the test that makes R97's design bet ("guard the funnel,
+  not the eight commands") falsifiable.
+- =org-air-r97-b1-5-interactive-forms-are-mode-scoped= — 118 scoped / 14
+  globally offered, the offered set pinned BY NAME (not by count), every
+  declared mode an org-air mode, and the effect measured through
+  =command-completion-default-include-p=, the very predicate =M-x= uses:
+  in a plain =org-mode= buffer exactly those 14 are offered; inside a
+  board =org-air-refresh= and =org-air-filter= are and
+  =org-air-project-refresh= is not.
+
+*** INSTRUMENT B-2 — the interactive/asynchronous axis
+
+**=make check-gui= — the third gate mode.**
+=tests/org-air-gui-runner.el= + a Makefile target.  It heeds the
+reviewer's warning: nothing runs at load time.  The file ARMS a
+=run-with-timer= one-shot and returns, so =-l= finishes, Emacs reaches
+its command loop with a real mapped frame and live idle timers, and only
+then does ERT start; a second timer is a hard watchdog so the target can
+never hang a job.  Because =message= outside =--batch= goes to the echo
+area, it is wrapped for the run and mirrored to
+=external-debugging-output= and a transcript file.  Which tests run is
+DISCOVERED — a static scan of =tests/*-test.el= for =ert-deftest= forms
+whose =skip-unless= mentions =display-graphic-p=, read as sexps so
+=(skip-unless (and (locate-library "org-air") (display-graphic-p)))=
+counts and a batch-safe =cl-letf= simulation does not.  Override with
+=GUI_SELECTOR='.*'= to run the whole suite under X.  Exit codes: 0 pass,
+1 ERT failure, 2 no graphic display (it refuses to report a green run
+that proves nothing), 3 watchdog.  All three verified.
+
+Deliberately NOT in =make check=: a gate that cannot run everywhere is a
+gate people learn to ignore.
+
+**First execution, ever** (Emacs 30.2, X, =DISPLAY=:1=, frame 80x58):
+7 display-gated tests found, **7 PASSED**, 0 unexpected, 0.68s.  What
+they assert, now that they have finally been run:
+
+| test | what it actually asserts |
+|------+--------------------------|
+| =r16-d3-pane-window-is-board-split-and-reachable= | the pane SPLITS the board window (=display-buffer-below-selected=) instead of becoming a frame-level side window (=window-side= nil) — which is what stops it shortening the rail; it carries the =org-air-pane= parameter, is dedicated, and stays =other-window=-reachable |
+| =r16-d3-pane-survives-delete-other-windows= | =C-x 1= does not kill the pane (=no-delete-other-windows=) |
+| =r16-d3-pane-coexists-with-rail-side-window= | bottom pane and right rail coexist on one frame |
+| =r19-3-pane-splits-board-rail-height-intact= | opening the pane leaves the rail its FULL frame-body height — the reported "pane disturbs the rail" bug, pinned cured |
+| =r34-1-real-frame-body-width-bound= | on a real frame with fringes + right scroll bar at =window-body-width= 191 (and other widths), header and EVERY row have =string-width= ≤ body and =org-air-layout--usable-columns= ≤ body — the assertion that failed when =window-max-chars-per-line= returned body+1 on a font whose average advance is under the canonical cell |
+| =r37-1-right-scrollbar-window-usable-is-body-1= | with a RIGHT scroll bar, =--usable-columns= returns body−1: the last body column is reserved, not claimed |
+| =r38-1-banner-row-pixel-fits-gui= | the banner row's MEASURED =window-text-pixel-size= does not exceed the window's text-area pixel width — real pixels, real font, real frame |
+
+Five of the seven are window-MANAGEMENT assertions and two are PIXEL
+assertions; neither class can be simulated in batch, and both sit on the
+R91-R92 viewport axis that has already produced two real defects.  The
+8th historically-skipped test, =org-air-r20-6-warm-rerender-under-ceiling=,
+is not display-gated at all — it is a bench behind =ORG_AIR_BENCH= — and
+correctly stays skipped.
+
+**=org-air-test-with-async-scan= + =org-air-test-pump-timers=**
+(=tests/org-air-test-helpers.el=).  The macro binds =noninteractive= to
+nil — unlocking the 40 =(unless noninteractive …)= guards, the 6 idle
+timers, the loading skeleton and the adaptive wall-clock pacer — and
+cancels every org-air timer on the way out, success or failure.  The
+helper lets the REAL timer queue run (=sleep-for= runs due timers in
+batch, which is what makes any of this observable) until a predicate
+holds or a deadline passes, returning the predicate so a caller gets a
+clean failure instead of a hang.  No timer is simulated and no callback
+is invoked by hand.
+
+=org-air-r97-b2-1-cold-open-paints-skeleton-then-swaps= pins the sequence
+the user sees 100% of the time and no test had ever seen: after the
+command body, =org-air-view--loading= is t, =--items= is EMPTY, the
+buffer reads "Loading your board… (scanning 0/6)" with a live
+=scanning 0/6…= banner segment, and the pacer is ARMED **and pending in
+=timer-list=** (=org-air-view--refresh-chain-live-p=, the R56 P2a
+liveness definition, not merely =timerp=).  Then the queue runs to the
+single swap: =--loading= clears, all 6 items land, the skeleton text is
+gone.  A control leg runs the identical open under =noninteractive= t and
+asserts it is synchronous — no skeleton, no timer.  That difference IS
+the blind spot.  =org-air-r97-b2-2= pins that the harness leaks no timer
+even when the body exits mid-scan.
+
+*** Mutation evidence — four independent reverts, each reddening a NAMED test
+
+Applied to scratch copies in =/tmp=; the working tree was never mutated.
+
+| revert | named test that reddens |
+|--------+-------------------------|
+| the FUNNEL guard — all three =org-air-view--require-board= calls removed from =--render=, =--render-loading=, =--render-current= | =org-air-r97-b1-6-the-render-funnel-refuses= (the failure output shows the 469-byte faced board painted into the foreign buffer).  The sweep stays green here, which is the honest finding: each of the 8 commands also carries its own guard, so only the funnel test — and its ninth command — can see this |
+| the INTERACTIVE SCOPING — all 114 =(interactive SPEC MODE…)= MODE arguments stripped, sexp-accurately | =org-air-r97-b1-5-interactive-forms-are-mode-scoped= (the =M-x=-offered set in a plain =org-mode= buffer explodes from 14 back to 132) |
+| the HOISTING — =org-air-filter='s precondition moved back out of its =interactive= form into the body, where it was before R97 | =org-air-r97-b1-1=, =-b1-2=, =-b1-3=, =-b1-4= (=org-air-filter= becomes =prompts-then-fails prompts=1=: the question precedes the refusal again) |
+| the CAPTURE refusal (D2) — =org-air-inbox--require-coherent-inbox= removed from =org-air-capture='s interactive form | =org-air-r97-b1-1=, =-b1-2=, =-b1-3= (=org-air-capture= prompts for a title before discovering it has nowhere to put the note) |
+
+Restored byte-identical afterwards; per-file SHA-256 diff empty.
+
+*** Gate
+
+| gate | result |
+|------+--------|
+| =make clean && make check= (COMPILED, 11 =.elc=) | =Ran 1351 tests, 1343 results as expected, 0 unexpected, 8 skipped= |
+| same suite, no =.elc= present (INTERPRETED) | =Ran 1351 tests, 1343 results as expected, 0 unexpected, 8 skipped= |
+| =make lint= (checkdoc + package-lint + R96 =dupdef=), both modes | =lint: ok (0 findings, all baselined)= |
+| known-failures manifest | =()= — 0 entries, nothing masked |
+| =make regen-mockups= | byte no-op — =jj status= clean of fixtures afterwards |
+| =make check-gui= (X, =DISPLAY=:1=) | =Ran 7 tests, 7 results as expected, 0 unexpected= |
+| production sources | byte-identical to =pylluumsmrrk= |
+
++6 tests over the parent: 4 B-1, 1 funnel/ninth-command, 1 scoping, 2
+B-2 — and zero of them in the =with-board= idiom the reviewer told us to
+stop deepening.
+
+*** Follow-ups this seat did NOT take
+
+1. B-3 hostile-corpus fixture test (unreadable file, =.org.gpg=, 6 MiB,
+   malformed timestamps, latin-1, symlink loop) — the sweep's directory
+   leg is the machinery it would reuse.
+2. B-4 clock-boundary monotonicity (midnight, DST, Dec 31, Feb 29).
+3. Porting a second existing board test onto
+   =org-air-test-with-async-scan= — the progressive STREAM paint and the
+   token-bump cancellation are the obvious next two pins.
+4. Wiring =make check-gui= into CI once CI exists (reviewer §2.2).

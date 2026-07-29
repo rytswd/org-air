@@ -618,7 +618,10 @@ independent second layer under the ring clear)."
   "Fresh state ⇒ `U' is a gentle `user-error' \"Nothing to redo\",
 zero bytes moved anywhere."
   (skip-unless (locate-library "org-air"))
-  (org-air-r75--with-corpus nil
+  ;; R97 re-bless: `U' is a board-scoped verb, so the refusal assert runs
+  ;; INSIDE a board — the surface precondition is now the earlier one.
+  ;; The redo ring is global; the assertion itself is unchanged.
+  (org-air-r75--with-board nil
     (should (null org-air-view--edit-redo-ring))
     (let ((before (org-air-r75--text "inbox.org"))
           (err (should-error (org-air-edit-redo) :type 'user-error)))

@@ -868,7 +868,12 @@ alias too; and `org-air-view--edit-ring-push' with a KILLED buffer
 records nothing and never signals (the push-side dead-buffer guard —
 r73-10 covers the POP side, where the buffer dies after the record)."
   (skip-unless (locate-library "org-air"))
-  (org-air-r73--with-corpus nil
+  ;; R97 re-bless: `u'/`U' are board-scoped verbs, so the refusal asserts
+  ;; run INSIDE a board — otherwise the (earlier, stricter) surface
+  ;; precondition fires first and the empty-ring message is never
+  ;; reached.  The rings are global, so every assertion below is
+  ;; unchanged; only the buffer point stands in is.
+  (org-air-r73--with-board nil
     ;; empty ring: user-error, nothing consumed, no stray undo anywhere.
     (should (null org-air-view--edit-ring))
     (let ((before (org-air-r73--text "inbox.org"))

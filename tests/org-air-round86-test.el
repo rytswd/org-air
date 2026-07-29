@@ -762,10 +762,18 @@ seam uses the live corpus, not the synthetic-item helper.)"
 (ert-deftest org-air-r86-18-path-adds-no-cache-coherence-input ()
   "`path:' adds no scan-key element or path-driven schema bump (r86-18).
 The feature reads the already-cached `org-air-item-file' slot plus the
-already-keyed `org-air-files' knob.  The current serialisation version is v7 after R93
-added the `updated' recency slot to the struct; `path:' still
-adds no version transition of its own.  Thus (a) the version is the
-shipped one; (b)
+already-keyed `org-air-files' knob.  Other rounds move the serialisation
+version for their own reasons (R93 added the `updated' recency slot; R94
+narrowed what that slot may contain); `path:' still adds no version
+transition of its own.
+
+R94 re-bless: leg (a) stops naming a NUMBER, because the number was
+never this test's subject — the INVARIANCE was.  It is restated as the
+thing `path:' could actually break: taking a version reading, exercising
+the whole `path:' surface, and requiring the reading not to have moved.
+A `path:'-driven bump now fails here even if some other round has bumped
+the version in the same release, which the literal could not
+distinguish.  Thus (a) `path:' moves no version; (b)
 `org-air-view--cache-key' stays a SEVEN-element
 list (the R77 element count — R86 added none); (c) the key is INDEPENDENT
 of `org-air-view--tag-filter' AND `org-air-filter-match' — setting or
@@ -774,9 +782,13 @@ flip repaints, it never invalidates the scan cache).  A path-driven version
 or key perturbation fails; the closing check confirms
 the key is NOT inert (a real source change DOES move it)."
   (skip-unless (locate-library "org-air"))
-  ;; (a) current version, with no path-specific transition.
-  (should (= 7 org-air-view--cache-version))
-  (let ((org-air-files '("/home/u/org"))
+  ;; (a) the version is a shipped positive integer, and NOTHING `path:'
+  ;; does moves it (asserted against a reading taken before the surface
+  ;; below is exercised, so the invariance is the assertion).
+  (should (integerp org-air-view--cache-version))
+  (should (> org-air-view--cache-version 0))
+  (let ((version-before org-air-view--cache-version)
+        (org-air-files '("/home/u/org"))
         (org-air-inbox-file "/home/u/org/inbox.org"))
     ;; (b) still a SEVEN-element key (no path element added).
     (should (= 7 (length (org-air-view--cache-key))))
@@ -792,7 +804,11 @@ the key is NOT inert (a real source change DOES move it)."
       ;; the key — so the equalities above are a real invariance, not a
       ;; constant-key artefact.
       (let ((org-air-files '("/home/u/org" "/home/u/other")))
-        (should-not (equal base (org-air-view--cache-key)))))))
+        (should-not (equal base (org-air-view--cache-key)))))
+    ;; (a, closed) nothing above touched the schema version.
+    (let ((org-air-view--tag-filter '("path:tasks/re" "#work"))
+          (org-air-filter-match 'any))
+      (should (= version-before org-air-view--cache-version)))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r86-19 (AUDIT gap) — edge cases: leading/trailing slash, the org root

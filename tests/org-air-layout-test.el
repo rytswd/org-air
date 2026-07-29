@@ -202,14 +202,24 @@ dataset count (R22-4 wording), and the calendar grid all render."
 
 (ert-deftest org-air-layout-summary-counts-match-sections ()
   "Summary rows mirror the per-section count badges; the total equals
-the banner's visible-item count.  Spec §4.2/§9.4."
+the banner's visible-item count.  Spec §4.2/§9.4.
+R94 re-bless: the canonical board renders the fixed five PLUS the
+conditional `Untracked' section, so the expected list is the two
+spec-frozen tables appended — and the test now pins the section
+SEQUENCE, not just the count, so a conditional section appearing in the
+wrong place (or a fixed one going missing) fails here as well."
   (skip-unless (locate-library "org-air"))
   (org-air-viewport-test-with-dashboard 120
-    (let ((text (buffer-string))
-          (counts (org-air-viewport-test-section-counts)))
-      (should (= (length counts) 5))
+    (let* ((text (buffer-string))
+           (counts (org-air-viewport-test-section-counts))
+           (titles (append org-air-viewport-test-section-titles
+                           org-air-viewport-test-conditional-section-titles)))
+      (should (= (length counts) 6))
+      ;; the rendered sections ARE the expected sections, in order.
+      (should (equal (mapcar #'car counts) (mapcar #'car titles)))
       (pcase-dolist (`(,bucket . ,count) counts)
-        (let ((title (cdr (assq bucket org-air-viewport-test-section-titles))))
+        (let ((title (cdr (assq bucket titles))))
+          (should title)
           ;; Summary row: right-aligned NUMBER then the bucket label.
           (should (string-match-p (format "%d\\s-+%s" count title) text))))
       ;; In-buffer header band (spec rev §2): total mirrors "N items".

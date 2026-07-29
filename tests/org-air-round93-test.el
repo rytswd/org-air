@@ -402,11 +402,20 @@ age included) for whichever priority a user points it at."
           (should-not (org-air-classify--attention-p item org-air-test-now))
           (should-not (memq 'attention
                             (org-air-classify-item item org-air-test-now))))))
-    ;; The undatable `#A' is NOT lost: High priority still shows it, and
-    ;; that is the whole of its bucket list.
-    (should (equal '(high-priority)
+    ;; The undatable `#A' is NOT lost.  High priority still shows it —
+    ;; and R94 closed the other half of "not lost": having no record AND
+    ;; no plan, it also has an Untracked row, which is the section that
+    ;; says "org-air cannot rank this" instead of "you are neglecting
+    ;; this".  Both, and nothing else.
+    (should (equal '(high-priority untracked)
                    (org-air-classify-item (org-air-r93--item :priority ?A)
                                           org-air-test-now)))
+    ;; ...and it is the MISSING RECORD that puts it there, not the
+    ;; missing age: the same `#A' with a plan is High priority alone.
+    (should (equal '(high-priority)
+                   (org-air-classify-item
+                    (org-air-r93--item :priority ?A :deadline 90)
+                    org-air-test-now)))
     ;; Give that same `#A' a MEASURED age at its threshold and it earns
     ;; the second row: membership is earned by silence, never granted by
     ;; the cookie.
@@ -616,17 +625,42 @@ The parent's own body, last touched in April.
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r93-8-mtime-floor-is-a-last-resort-and-self-heals ()
-  "The file mtime is the floor for a HISTORYLESS heading only, and it self-heals.
-Three properties, each of which the design commits to out loud:
+  "The file mtime is a BOUND, never the clock \u2014 sound when it accuses only.
+R94 RE-BLESS.  This test was born pinning the R93 rule that the round
+under test deleted, so it is restated in the terms that replaced it \u2014
+not relaxed.  The R93 sentence was \"a historyless heading ages off its
+file's mtime\".  The R93 review measured what that cost (a `tasks.org'
+edited today hid 15 of its 20 headings; the shipped demo board lost 2 of
+23) and named the reason:
 
-  1. A heading with no stamp at all ages off its FILE's scan-time mtime
-     (deliberately coarse: one edit anywhere refreshes every historyless
-     heading in that file).
-  2. A heading WITH a stamp never consults the floor \u2014 in either
+  the file mtime is SOUND WHEN IT ACCUSES (\"this file has not changed in
+  90 days, so this heading has been quiet at LEAST that long\") and
+  UNSOUND WHEN IT EXCUSES (\"this file changed today, so this heading is
+  fresh\").  R93 used it for both.
+
+R94 keeps the accusation and deletes the excuse, so the properties this
+test owns become:
+
+  1. A heading with no stamp at all has NO measured age
+     (`org-air-classify-updated' / `org-air-classify-quiet-days' are nil)
+     and is therefore in NO clock-driven section, whatever its file's
+     mtime says \u2014 old file or new.  It is not lost: it is exactly
+     `untracked'.
+  2. The floor SURVIVES, as a bound with its own name and its own
+     public reader: `org-air-classify-updated-floor' /
+     `org-air-classify-quiet-floor-days' still answer 90 for the old
+     file, still floor at 0 for a future mtime, and
+     `org-air-classify-updated-source' says which of the two facts
+     answered.
+  3. A heading WITH a stamp never consults the floor \u2014 in either
      direction, so an old file cannot age a fresh heading and a fresh
-     file cannot rejuvenate a quiet one.
-  3. Classify makes NO file access: the floor is a hash lookup on the
-     table the cache hydrates, never a `file-attributes' call."
+     file cannot rejuvenate a quiet one.  (Unchanged from R93, and now
+     true by construction rather than by precedence.)
+  4. Classify still makes NO file access: the floor is a hash lookup on
+     the table the cache hydrates, never a `file-attributes' call.
+  5. Self-healing, restated: one real stamp moves a heading OUT of
+     Untracked and gives it a measured clock \u2014 the exit the section
+     promises."
   (skip-unless (locate-library "org-air"))
   (org-air-r93--with-corpus
       '(("old.org" . "\
@@ -653,32 +687,57 @@ Three properties, each of which the design commits to out loud:
       (cl-letf* ((orig (symbol-function 'file-attributes))
                  ((symbol-function 'file-attributes)
                   (lambda (&rest args) (cl-incf stats) (apply orig args))))
-        ;; 1. historyless => the file's clock.
+        ;; 1 + 2. historyless => NO measured clock, in an old file or a
+        ;; new one, and the file answers only as a marked BOUND.
         (let ((item (org-air-r93--scanned "Historyless in an old file" items)))
           (should-not (org-air-item-updated item))
-          (should (= 90 (org-air-classify-quiet-days item org-air-test-now)))
-          (should (memq 'attention
+          (should-not (org-air-classify-updated item))
+          (should-not (org-air-classify-quiet-days item org-air-test-now))
+          ;; the accusation half survives, named and public...
+          (should (= 90 (org-air-classify-quiet-floor-days
+                         item org-air-test-now)))
+          (should (eq 'file (org-air-classify-updated-source item)))
+          ;; ...and it decides NOTHING about the attention section.  The
+          ;; heading is not lost for it: it is Untracked.
+          (should-not (memq 'attention
+                            (org-air-classify-item item org-air-test-now)))
+          (should (org-air-classify--untracked-p item))
+          (should (memq 'untracked
                         (org-air-classify-item item org-air-test-now))))
         (let ((item (org-air-r93--scanned "Historyless in a new file" items)))
           (should-not (org-air-item-updated item))
+          (should-not (org-air-classify-quiet-days item org-air-test-now))
           ;; floored at 0: a clock skew can never read as negative age.
-          (should (= 0 (org-air-classify-quiet-days item org-air-test-now)))
+          (should (= 0 (org-air-classify-quiet-floor-days
+                        item org-air-test-now)))
           (should-not (memq 'attention
-                            (org-air-classify-item item org-air-test-now))))
-        ;; 2. a stamp WINS the floor, both ways round.
+                            (org-air-classify-item item org-air-test-now)))
+          ;; SAME answer as the 90-day file, which is the round's point:
+          ;; the file clock moves attention membership by NOTHING.
+          (should (memq 'untracked
+                        (org-air-classify-item item org-air-test-now))))
+        ;; 3. a stamp WINS the floor, both ways round.
         (let ((item (org-air-r93--scanned "Fresh heading in an old file" items)))
           (should (org-air-item-updated item))
           (should (= 1 (org-air-classify-quiet-days item org-air-test-now)))
+          (should (eq 'measured (org-air-classify-updated-source item)))
+          ;; the 90-day file is still readable as a bound beside it, and
+          ;; it still loses: `updated' is the answer, the floor is not.
+          (should (= 90 (org-air-classify-quiet-floor-days
+                         item org-air-test-now)))
           (should-not (memq 'attention
-                            (org-air-classify-item item org-air-test-now))))
+                            (org-air-classify-item item org-air-test-now)))
+          (should-not (org-air-classify--untracked-p item)))
         (let ((item (org-air-r93--scanned "Quiet heading in a new file" items)))
           (should (= 60 (org-air-classify-quiet-days item org-air-test-now)))
+          (should (eq 'measured (org-air-classify-updated-source item)))
           (should (memq 'attention
-                        (org-air-classify-item item org-air-test-now))))
-        ;; 3. none of that opened, stat'ed or read anything.
+                        (org-air-classify-item item org-air-test-now)))
+          (should-not (org-air-classify--untracked-p item)))
+        ;; 4. none of that opened, stat'ed or read anything.
         (should (= 0 stats))))
-    ;; 4. self-healing: give the historyless heading one state change and
-    ;; rescan \u2014 it stops answering to the file and gets its own clock.
+    ;; 5. self-healing: give the historyless heading one state change and
+    ;; rescan \u2014 it leaves Untracked and gets its own clock.
     (with-temp-buffer
       (insert-file-contents (org-air-r93--path "old.org"))
       (goto-char (point-min))
@@ -693,7 +752,12 @@ Three properties, each of which the design commits to out loud:
     (let ((healed (org-air-r93--scanned "Historyless in an old file")))
       (should (equal '(2026 6 14) (org-air-r93--updated-day healed)))
       (should (= 1 (org-air-classify-quiet-days healed org-air-test-now)))
+      (should (eq 'measured (org-air-classify-updated-source healed)))
       (should-not (memq 'attention
+                        (org-air-classify-item healed org-air-test-now)))
+      ;; the promised exit: one stamp, and the row is no longer Untracked.
+      (should-not (org-air-classify--untracked-p healed))
+      (should-not (memq 'untracked
                         (org-air-classify-item healed org-air-test-now))))))
 
 ;;;; -------------------------------------------------------------------
@@ -920,9 +984,20 @@ EVERY heading would then age off the coarse file mtime: a whole board of
 wrong reasons, silently, instead of one honest refill.  This test writes
 a GENUINE v6 record \u2014 the current serialisation with the trailing
 recency slot removed \u2014 and proves the version guard catches it before
-the record shape ever matters."
+the record shape ever matters.
+
+R94 re-bless \u2014 the SUBJECT is unchanged and the fence is wider.  R93's
+literal `(= 7 ...)' is replaced by the property that literal was standing
+in for: the SHIPPED version round-trips and every version below it is
+refused.  The v6 leg is kept verbatim, because a short record is the
+sharpest possible witness that the guard fires BEFORE the shape matters;
+R94's own retirement of v7 (same shape, narrower meaning) is a different
+witness and lives with its round, in
+`org-air-r94-22-cache-v8-and-v7-clean-cold-miss', which is the one place
+that names a number."
   (skip-unless (locate-library "org-air"))
-  (should (= 7 org-air-view--cache-version))
+  (should (integerp org-air-view--cache-version))
+  (should (>= org-air-view--cache-version 7))
   (org-air-r93--with-corpus
       '(("tasks.org" . "\
 * TODO Quiet task
@@ -932,26 +1007,30 @@ the record shape ever matters."
     (let* ((files (org-air-query-files))
            (items (org-air-query-items))
            (mtimes (org-air-view--mtimes-snapshot files))
-           (v7 (mapcar #'org-air-view--item-serialise items)))
+           (current (mapcar #'org-air-view--item-serialise items)))
       ;; The slot really is the LAST one, and it really is populated.
       (should (org-air-item-updated (car items)))
       (should (equal (org-air-item-updated (car items))
-                     (aref (car v7) (1- (length (car v7))))))
-      ;; A real v7 cache round-trips with the recency intact.
+                     (aref (car current) (1- (length (car current))))))
+      ;; A cache at the SHIPPED version round-trips with the recency
+      ;; intact — the anti-vacuous half of the cold-miss law below.
       (org-air-view--cache-write items mtimes)
-      (let ((hydrated (plist-get (org-air-view--cache-read) :items)))
-        (should hydrated)
-        (should (equal (org-air-item-updated (car items))
-                       (org-air-item-updated (car hydrated)))))
+      (let ((data (org-air-view--cache-read)))
+        (should data)
+        (should (= org-air-view--cache-version (plist-get data :version)))
+        (let ((hydrated (plist-get data :items)))
+          (should hydrated)
+          (should (equal (org-air-item-updated (car items))
+                         (org-air-item-updated (car hydrated))))))
       ;; A genuine v6 record: the same payload, one slot shorter.
       (let ((v6 (mapcar (lambda (rec)
                           (apply #'record
                                  (butlast
                                   (cl-loop for i from 0 below (length rec)
                                            collect (aref rec i)))))
-                        v7))
+                        current))
             (print-length nil) (print-level nil) (print-circle t))
-        (should (= (1- (length (car v7))) (length (car v6))))
+        (should (= (1- (length (car current))) (length (car v6))))
         (write-region
          (prin1-to-string (list :version 6 :key (org-air-view--cache-key)
                                 :mtimes mtimes :file-meta nil :visits nil
@@ -1054,7 +1133,27 @@ that the round earned is pinned here instead:
 Three things are pinned so this cannot be mistaken for a weakening:
 the fixture board's measured numbers, the strict NON-containment in
 both directions, and the fact that `(?A . 0)' restores the old superset
-EXACTLY — proving FIX-3 changed one default and no mechanism."
+EXACTLY — proving FIX-3 changed one default and no mechanism.
+
+R94 RE-BLESS.  R93 justified the absence of the High-priority rows from
+Needs attention with \"every one of them is genuinely FRESH\", reading
+`org-air-classify-quiet-days'.  That number was never a fact about those
+headings — none carries a stamp; it was their FILE's mtime, which for a
+fixture checked out today reads 0, i.e. the excuse direction of the
+floor that R94 deleted.  The claim is restated as what R94 actually
+guarantees, which is the SAME claim without the borrowed premise:
+
+  a High-priority row is outside Needs attention because it is not QUIET
+  PAST ITS THRESHOLD — either its own measured age is below it, or
+  org-air has no measured age at all and refuses to assert elapsed time
+  it never measured.
+
+And because \"refuses\" must never be mistaken for \"cannot\", the
+re-bless adds the earned direction per row: give any of these `#A' rows a
+measured age at its threshold and it joins Needs attention immediately.
+The distribution itself is pinned too (this fixture's High-priority rows
+are ALL unmeasured), so a future corpus change that quietly reintroduces
+a file-derived age here cannot slip past."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     (cl-flet ((split ()
@@ -1076,12 +1175,33 @@ EXACTLY — proving FIX-3 changed one default and no mechanism."
         ;; directions, so a future "superset" cannot creep back either way
         (dolist (item hipri) (should-not (memq item attention)))
         (dolist (item attention) (should-not (memq item hipri)))
-        ;; every High-priority row here is genuinely FRESH: it is absent
-        ;; from Needs attention because it was touched, not by fiat.
+        ;; every High-priority row here is absent from Needs attention
+        ;; on the AGING RULE, never by fiat: either it has a measured age
+        ;; below its threshold, or it has no measured age at all and
+        ;; org-air will not assert elapsed time it never measured.
         (dolist (item hipri)
-          (let ((age (org-air-classify-quiet-days item org-air-test-now)))
-            (should age)
-            (should (< age (org-air-classify-attention-threshold item))))))
+          (let ((age (org-air-classify-quiet-days item org-air-test-now))
+                (threshold (org-air-classify-attention-threshold item)))
+            (ert-info ((format "%s: age=%S threshold=%d"
+                               (org-air-item-title item) age threshold))
+              (should (> threshold 0))
+              (should (or (null age) (< age threshold)))
+              ;; R94, pinned: NONE of these rows has a measured age, and
+              ;; none borrows one from its file either — the source is
+              ;; `file' (a bound) or nil, never `measured'.
+              (should (null age))
+              (should-not (eq 'measured (org-air-classify-updated-source item)))
+              ;; ...and the absence is EARNED, not granted: one measured
+              ;; age at the threshold puts the very same row in.
+              (let ((quiet (copy-sequence item)))
+                (setf (org-air-item-updated quiet)
+                      (floor (float-time
+                              (time-subtract org-air-test-now
+                                             (days-to-time threshold)))))
+                (should (= threshold (org-air-classify-quiet-days
+                                      quiet org-air-test-now)))
+                (should (memq 'attention (org-air-classify-item
+                                          quiet org-air-test-now))))))))
       ;; The overlap is EARNED: the same `#A' shape, silent past its
       ;; three days, is in BOTH sections.
       (should (equal '(high-priority attention)
@@ -1211,7 +1331,17 @@ silence surfaces an `#A' and no other priority.
 And the mechanism outlives its default: `(?A . 0)' restores
 unconditional surfacing — day 0, day 1000 and the UNKNOWN age — and the
 row cell goes back to the fixed literal `always'.  Only ONE number
-moved in FIX-3; this is the test that proves it."
+moved in FIX-3; this is the test that proves it.
+
+R94 RE-BLESS: an `#A' with an UNKNOWN age also has no plan, so under the
+`(?A . 0)' opt-in its bucket list is `(high-priority attention
+untracked)'.  The pin moves from a hard-coded list to the two facts the
+list is made of — the two sections this test is about are asserted
+exactly as before, and the third symbol is asserted as the R94 covering
+reaching this row rather than allowed to slip in unnamed.  The DATED
+legs of the same loop keep the exact two-element list, which is what
+keeps the assertion honest: `untracked' appears if and ONLY if the row
+has neither a plan nor a record."
   (skip-unless (locate-library "org-air"))
   (let ((org-priority-lowest ?E))
     ;; ---- the boundary, day by day -------------------------------------
@@ -1247,8 +1377,15 @@ moved in FIX-3; this is the test that proves it."
           (ert-info ((format "(?A . 0) updated=%S" updated))
             (should (= 0 (org-air-classify-attention-threshold item)))
             (should (org-air-classify--attention-p item org-air-test-now))
-            (should (equal '(high-priority attention)
+            ;; R94: the UNKNOWN-age row has no record either, so it is
+            ;; also `untracked' — exactly when, and only when, that is
+            ;; true.  The dated rows keep the two-element list verbatim.
+            (should (equal (if updated
+                               '(high-priority attention)
+                             '(high-priority attention untracked))
                            (org-air-classify-item item org-air-test-now)))
+            (should (eq (null updated)
+                        (org-air-classify--untracked-p item)))
             (org-air-viewport-test--with-frozen-now
               (should (equal "always"
                              (car (org-air-view--date-label

@@ -275,7 +275,19 @@ exactly the opposite: every shape Org writes when something happened is
 an INACTIVE stamp (LOGBOOK state changes and notes, clock-outs, CLOSED,
 CREATED), while an ACTIVE <ts> is a PLAN, and a plan is not an update.
 `org-ts-regexp-inactive' does not match an active stamp at all, which is
-the mechanical guarantee behind the ruling."
+the mechanical guarantee behind the ruling.
+
+R94 RE-BLESS.  The seam is unchanged; the CONSEQUENCE the last leg
+asserted is not.  R93 finished \"...so the heading has no history of its
+own and falls back to the file's (fresh) mtime floor\", pinning age 0.
+R94 deleted that fallback -- a file fact may not answer a heading
+question -- so the honest statement of the very same seam is that the
+heading has NO age at all.  That is a STRONGER witness for this test's
+subject: under R93 an active stamp was invisible to the clock but a
+number still appeared, which meant the leg could pass with the probe
+broken and the mtime supplying 0 either way.  Now the absence is the
+assertion, and the row's home (`untracked' -- an active `<ts>' does make
+it DATED, so in fact NOT untracked) is pinned beside it."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     ;; A recent INACTIVE stamp is the heading's clock: two days quiet.
@@ -289,8 +301,8 @@ the mechanical guarantee behind the ruling."
     (should (memq 'attention (org-air-ux-test--classify "Learn lute")))
     ;; The same age as a bare ACTIVE <ts> and nothing else: the stamp is
     ;; invisible to the recency probe, so the heading has NO history of
-    ;; its own and falls back to the file's (fresh) mtime floor.  A plan
-    ;; can neither start nor stop this clock.
+    ;; its own -- and R94 gives it no age at all rather than borrowing
+    ;; the file's.  A plan can neither start nor stop this clock.
     (let ((scratch (expand-file-name
                     "someday.org" (file-name-directory org-air-inbox-file))))
       (with-temp-buffer
@@ -301,13 +313,28 @@ the mechanical guarantee behind the ruling."
       ;; `org-air-test-fixture-mtime'): the floor must not depend on the
       ;; machine's real clock.
       (set-file-times scratch org-air-test-fixture-mtime))
-    (let ((practice (org-air-test-find-item "Practice lute for real"
-                                            (org-air-query-items))))
+    (let* ((practice (org-air-test-find-item "Practice lute for real"
+                                             (org-air-query-items)))
+           (buckets (org-air-classify-item practice org-air-test-now)))
       (should (org-air-item-active-ts practice))
       (should-not (org-air-item-updated practice))
-      (should (= 0 (org-air-classify-quiet-days practice org-air-test-now)))
-      (should-not (memq 'attention
-                        (org-air-classify-item practice org-air-test-now))))))
+      ;; R94: no measured age, and no invented one.
+      (should-not (org-air-classify-updated practice))
+      (should-not (org-air-classify-quiet-days practice org-air-test-now))
+      (should-not (memq 'attention buckets))
+      ;; The active `<ts>' is still a DATE (the `is:nodate' axis), so this
+      ;; row is NOT untracked either: it has a plan, just no record.
+      (should (org-air-classify--dated-p practice))
+      (should-not (org-air-classify--untracked-p practice))
+      (should-not (memq 'untracked buckets))
+      ;; ...and the clock is not merely broken: one INACTIVE stamp of the
+      ;; same age surfaces the identical heading.
+      (let ((stamped (copy-sequence practice)))
+        (setf (org-air-item-updated stamped)
+              (floor (float-time (time-subtract org-air-test-now
+                                                (days-to-time 273)))))
+        (should (memq 'attention
+                      (org-air-classify-item stamped org-air-test-now)))))))
 
 (ert-deftest org-air-ux-done-items-have-no-buckets ()
   "DONE items classify into no bucket at all."

@@ -99,22 +99,31 @@ scratch files are killed afterwards and the directory removed."
        (delete-directory org-air-test--dir t))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R93 — corpus recency helpers.
+;;;; R93/R94 — corpus recency helpers.
 ;;;;
 ;;;; R93 replaced the pre-R93 "a dateless board item needs attention"
 ;;;; default with an AGING rule: a board item surfaces in Needs attention
 ;;;; only once it has been QUIET for its priority's threshold
-;;;; (`org-air-attention-days'; `#A' 0, `#B' 7, `#C' 14, everything else
-;;;; 30).  Recency is the newest non-future INACTIVE timestamp in the
-;;;; heading's own body, with the source file's mtime as the coarse floor
-;;;; for a heading that carries no history at all.
+;;;; (`org-air-attention-days'; `#A' 3 -- R93 FIX-3 raised it from 0 --
+;;;; `#B' 7, `#C' 14, everything else 30).  Recency is the newest
+;;;; non-future INACTIVE timestamp in the heading's OWN BODY, and since
+;;;; R94 that is the WHOLE rule: the source file's mtime is no longer a
+;;;; fallback clock for a heading carrying no history at all.  A heading
+;;;; with no record has no age; if it also has no date it belongs to the
+;;;; R94 `untracked' bucket instead, which never accuses anybody.
 ;;;;
-;;;; A corpus written by a test is therefore BRAND NEW: every historyless
-;;;; heading ages off a just-written file and is (correctly) invisible.
-;;;; Suites whose subject is NOT the attention rule -- marks, history,
-;;;; scroll stability, landing, echo, bookmarks -- need a corpus that
-;;;; looks like a real user's files instead, so they get one here rather
-;;;; than weakening their assertions.
+;;;; The corpus consequence is UNCHANGED in shape and stronger in force.
+;;;; Before R94 a corpus a test just wrote was BRAND NEW, so every
+;;;; historyless heading aged off a fresh file and was invisible; after
+;;;; R94 a historyless heading is invisible to the aging rule at ANY file
+;;;; age, because the file no longer speaks for it.  Suites whose subject
+;;;; is NOT the attention rule -- marks, history, scroll stability,
+;;;; landing, echo, bookmarks -- therefore need per-heading stamps
+;;;; (`org-air-test-quiet-stamp' / `org-air-test-stamp-org-text') rather
+;;;; than an old file, and get them here rather than weakening their
+;;;; assertions.  `org-air-test-age-file' survives for what the mtime
+;;;; still legitimately answers: the R94 Untracked section's `~Nd quiet'
+;;;; LOWER BOUND (`org-air-classify-quiet-floor-days').
 
 (defconst org-air-test-quiet-days 60
   "Corpus age in days used by the R93 recency helpers below.
@@ -136,9 +145,12 @@ unambiguously old under either clock, and never dated in the future."
 
 (defun org-air-test-age-file (path &optional days)
   "Backdate PATH's modification time by DAYS (default `org-air-test-quiet-days').
-The R93 coarse floor: a heading with no history at all ages off its
-file's scan-time mtime, so an old FILE is the cheapest honest way to say
-\"this corpus is not brand new\" without touching a byte of its text."
+R94: this sets the FILE-level LOWER BOUND and nothing else.  It no
+longer gives a historyless heading an attention clock -- that fallback
+left `org-air-classify-updated' in R94 -- so an aged file now only moves
+`org-air-classify-quiet-floor-days', i.e. the `~Nd quiet' number the
+Untracked section ranks and prints.  To age a heading for the ATTENTION
+rule, give it its own stamp (`org-air-test-quiet-stamp')."
   (set-file-times path (org-air-test-quiet-time days)))
 
 (defun org-air-test-age-directory (dir &optional days)
@@ -149,8 +161,9 @@ file's scan-time mtime, so an old FILE is the cheapest honest way to say
 (defun org-air-test-quiet-stamp (&optional days)
   "Return an INACTIVE Org timestamp DAYS ago (default `org-air-test-quiet-days').
 The per-heading twin of `org-air-test-age-file': dropped in a heading's
-OWN body it gives that heading its own R93 recency clock, which survives
-later writes to the file (an mtime floor does not)."
+OWN body it gives that heading its own R93 recency clock -- which since
+R94 is the ONLY thing that can give it one at all, and which survives
+later writes to the file (an mtime floor never did)."
   (format-time-string "[%Y-%m-%d %a %H:%M]" (org-air-test-quiet-time days)))
 
 (defun org-air-test-stamp-org-text (text &optional days)

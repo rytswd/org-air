@@ -98,6 +98,10 @@ date, at every threshold except `#A''s 0."
    (cons 'd8 (org-air-r72--item "Quarterly planning" :scheduled 8))
    (cons 'd10 (org-air-r72--item "Renew certificate" :scheduled 10))
    (cons 'dateless (org-air-r72--item "Untracked idea"))
+   ;; R94: undated, but org-air HAS a record of it — the row that keeps
+   ;; `is:untracked' from collapsing into `is:nodate'.
+   (cons 'dateless-stamped (org-air-r72--item "Dateless but logged"
+                                              :updated -1))
    ;; R93: quiet for 30 days by its OWN recency stamp (the aging rule's
    ;; clock), on top of the dated-ness that used to be the Stale gate.
    (cons 'stale-active (org-air-r72--item "Quiet dated task"
@@ -294,19 +298,35 @@ than a literal."
 ;;;; ---------------------------------------------------------------------
 
 (ert-deftest org-air-r72-5-is-nodate ()
-  "R72-5: `is:nodate' passes the dateless + hipri-dateless items ONLY.
+  "R72-5: `is:nodate' is the DATE negation, and only that.
 The active-ts-only item is OUT (dated under R54-1 — it feeds the stale
 clock); equivalence with (not `org-air-classify--stale-eligible-p') ∧ the
-gate pinned over the whole fixture."
+gate pinned over the whole fixture.
+
+R94: the fixture gained `dateless-stamped' (undated, but org-air HAS a
+record of it), which `is:nodate' selects like any other undated row —
+and which `is:untracked' does NOT.  The contrast is asserted here, at
+the token that could most easily be mistaken for the new one: they agree
+on every row except the one that separates them, and the separating row
+is in the corpus."
   (let* ((fixture (org-air-r72--fixture))
-         (nodate (org-air-r72--pass-keys fixture '("is:nodate"))))
-    (should (equal '(dateless hipri-dateless) nodate))
+         (nodate (org-air-r72--pass-keys fixture '("is:nodate")))
+         (untracked (org-air-r72--pass-keys fixture '("is:untracked"))))
+    (should (equal '(dateless dateless-stamped hipri-dateless) nodate))
     (should-not (memq 'stale-active nodate))
     (pcase-dolist (`(,key . ,item) fixture)
       (should (eq (not (null (memq key nodate)))
                   (not (null (and (org-air-classify--board-active-p item)
                                   (not (org-air-classify--stale-eligible-p
-                                        item))))))))))
+                                        item))))))))
+    ;; R94: `is:untracked' is a STRICT SUBSET of `is:nodate' — the date
+    ;; negation AND the record negation — and the corpus proves the
+    ;; inclusion is strict.
+    (should (equal '(dateless hipri-dateless) untracked))
+    (dolist (key untracked) (should (memq key nodate)))
+    (should-not (equal nodate untracked))
+    (should (memq 'dateless-stamped nodate))
+    (should-not (memq 'dateless-stamped untracked))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; r72-6 — composition: one more predicate under the untouched fold.
@@ -475,7 +495,32 @@ horizon."
 `--future-or-today-p' with no DAYS keeps the knob-window boundary table;
 the FULL fixture's `org-air-classify-item' bucket lists are pinned
 byte-equal to the pre-hoist answers; `--board-active-p' <=> the old
-`unless' gate."
+`unless' gate.
+
+R94 RE-BLESS, and the table is where the round is most legible, so it
+is STRENGTHENED rather than merely updated.  Two rows moved:
+
+  dateless        `()' -> `(untracked)'.  Under R93 this row was the
+                  round's own cost: no plan, no record, and — once the
+                  file mtime stopped excusing it — no row ANYWHERE.
+                  R94 gives it one.
+  hipri-dateless  `(high-priority)' -> `(high-priority untracked)'.
+                  Same reason; High priority is unchanged.
+
+And two rows deliberately do NOT move, which is the discrimination the
+new bucket is worth having:
+
+  stale-active    has a record (an `updated' stamp), so it is
+                  `(attention)' and NOT untracked — `is:untracked' is
+                  not a synonym for `is:nodate'.
+  past-sched      has a plan, so it is `(overdue)' and NOT untracked.
+
+A third row is added to the fixture for exactly that discrimination:
+`dateless-stamped' — undated but WITH a record — which the pre-R93 \"no
+date means attention\" rule and the R94 bucket answer differently.  The
+`(?A . 0)' half of the table re-asserts every one of these, so the hoist
+stays proven neutral under BOTH settings of the one default FIX-3
+moved."
   (let ((org-air-upcoming-days 7)
         (fixture (org-air-r72--fixture)))
     ;; The no-DAYS boundary table (the pre-R72 signature's answers).
@@ -503,6 +548,11 @@ byte-equal to the pre-hoist answers; `--board-active-p' <=> the old
     ;;                         section with no clock still shows the row.
     ;;                         The `(?A . 0)' answers are pinned below,
     ;;                         so the hoist is neutral under BOTH.
+    ;;   dateless-stamped      R94: undated but WITH a record. It is NOT
+    ;;                         untracked (the bucket is a conjunction, not
+    ;;                         the date negation) and it is not aged out
+    ;;                         yet either — the row that separates
+    ;;                         `is:untracked' from `is:nodate'.
     (dolist (expected '((past-sched . (overdue))
                         (past-dl . (overdue))
                         (today . (upcoming))
@@ -510,15 +560,26 @@ byte-equal to the pre-hoist answers; `--board-active-p' <=> the old
                         (d7 . (upcoming))
                         (d8 . ())
                         (d10 . ())
-                        (dateless . ())
+                        (dateless . (untracked))
+                        (dateless-stamped . ())
                         (stale-active . (attention))
                         (done-past . ())
                         (archived-past . ())
-                        (hipri-dateless . (high-priority))
+                        (hipri-dateless . (high-priority untracked))
                         (tagged-overdue . (upcoming))))
       (should (equal (cdr expected)
                      (org-air-classify-item (cdr (assq (car expected) fixture))
                                             org-air-test-now))))
+    ;; The two discriminations the new bucket earns, stated directly on
+    ;; the same fixture: a RECORD keeps a dateless row out of it, and a
+    ;; PLAN keeps a recordless row out of it.
+    (should-not (org-air-classify--untracked-p
+                 (cdr (assq 'dateless-stamped fixture))))
+    (should-not (org-air-classify--untracked-p
+                 (cdr (assq 'stale-active fixture))))
+    (should-not (org-air-classify--untracked-p
+                 (cdr (assq 'past-sched fixture))))
+    (should (org-air-classify--untracked-p (cdr (assq 'dateless fixture))))
     ;; The hoist is neutral under the OTHER setting of the one default
     ;; FIX-3 moved, too: the whole table re-asserted at `(?A . 0)',
     ;; where the only row that differs is the `#A' with the unknown age.
@@ -531,11 +592,12 @@ byte-equal to the pre-hoist answers; `--board-active-p' <=> the old
                           (d7 . (upcoming))
                           (d8 . ())
                           (d10 . ())
-                          (dateless . ())
+                          (dateless . (untracked))
+                          (dateless-stamped . ())
                           (stale-active . (attention))
                           (done-past . ())
                           (archived-past . ())
-                          (hipri-dateless . (high-priority attention))
+                          (hipri-dateless . (high-priority attention untracked))
                           (tagged-overdue . (upcoming))))
         (should (equal (cdr expected)
                        (org-air-classify-item

@@ -124,16 +124,25 @@ touching file CONTENT (the pre-R54 stale-flood path)."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r54-1a-dateless-prose-never-stale ()
-  "A dateless prose heading carries no date and no Stale bucket (R54-1/R93).
+  "A dateless prose heading carries no date and no Stale bucket (R54-1/R93/R94).
 Scanned with the LEGACY `org-air-plain-heading-type' 'task so the plain
 heading still types task and routes through the task buckets.  R93
 re-bless: the Stale bucket the seam was built against is RETIRED, so
 what survives here is the surviving half -- the item is not DATED
 \(`org-air-classify--dated-p', the R54-1 predicate under its honest
-name, still the `is:nodate' axis) -- plus the R93 rule that replaced it:
-a 60-day-old file with no per-heading history ages off the COARSE mtime
-floor and surfaces in Needs attention on the clock alone, with no date
-anywhere in the entry."
+name, still the `is:nodate' axis).
+
+R94 RE-BLESS -- the ROUTING moved, the seam did not.  R93 finished this
+test with \"a 60-day-old file with no per-heading history ages off the
+COARSE mtime floor and surfaces in Needs attention\".  R94 severed that:
+a file fact may not answer a heading question, so this heading has NO
+age, is in NO clock-driven section, and lands instead in the bucket built
+for exactly it -- `untracked', no plan and no record.  Both halves are
+pinned, because together they ARE the round: the file is still 60 days
+old, `org-air-classify-quiet-floor-days' still reads 60 (the bound
+survives, and it is what the Untracked row prints as `~60d quiet'), and
+the attention clock is nil regardless.  The R54-1 subject -- undated,
+never `stale' -- is untouched."
   (skip-unless (locate-library "org-air"))
   (org-air-r54--with-corpus
       '(("notes.org" . "* Evergreen prose note\nNo dates anywhere.\n")
@@ -145,34 +154,74 @@ anywhere in the entry."
            (buckets (org-air-classify-item item org-air-test-now)))
       ;; The legacy knob typed it a task (so it DID reach the buckets)...
       (should (eq (org-air-item-ntype item) 'task))
-      ;; ...it has NO per-heading history, so the R93 clock is the file...
+      ;; ...it has NO per-heading history, so R94 gives it NO clock...
       (should-not (org-air-item-updated item))
-      (should (>= (org-air-classify-quiet-days item org-air-test-now)
-                  (org-air-classify-attention-threshold item)))
+      (should-not (org-air-classify-updated item))
+      (should-not (org-air-classify-quiet-days item org-air-test-now))
+      ;; ...while the FILE fact survives as a marked LOWER BOUND, which
+      ;; is the only thing an mtime was ever entitled to say.
+      (should (= 60 (org-air-classify-quiet-floor-days item org-air-test-now)))
+      (should (eq 'file (org-air-classify-updated-source item)))
       ;; ...it carries no date at all (the R54-1 predicate, renamed)...
       (should-not (org-air-classify--dated-p item))
       (should-not (org-air-classify--stale-eligible-p item)) ; kept alias
-      ;; ...`stale' is retired, and the quiet clock alone surfaces it.
+      ;; ...`stale' is retired, the aging rule does NOT claim it, and the
+      ;; home it does have is the non-accusing one.
       (should-not (memq 'stale buckets))
-      (should (memq 'attention buckets)))))
+      (should-not (memq 'attention buckets))
+      (should (org-air-classify--untracked-p item))
+      (should (memq 'untracked buckets))
+      ;; The exit is one stamp: a measured age past the threshold moves
+      ;; the very same heading out of Untracked and into Needs attention.
+      (let ((stamped (copy-sequence item)))
+        (setf (org-air-item-updated stamped)
+              (floor (float-time (time-subtract org-air-test-now
+                                                (days-to-time 60)))))
+        (let ((moved (org-air-classify-item stamped org-air-test-now)))
+          (should (memq 'attention moved))
+          (should-not (memq 'untracked moved)))))))
 
 (ert-deftest org-air-r54-1b-dateless-todo-attention-never-stale ()
-  "A dateless TODO surfaces via Attention only, never Stale (seam 1a/6).
-Attention is where \"this needs a decision/date\" lives; reverting the
-eligibility gate re-adds 'stale (the item's mtime activity is 60 days
-old) and fails."
+  "A dateless TODO surfaces WITHOUT a date and never as Stale (seam 1a/6).
+The seam: a dateless `TODO' must have a home on the board that is not
+`stale' -- reverting the eligibility gate re-adds `stale' (the item's
+mtime activity is 60 days old) and fails.
+
+R93 named that home `attention' (via the mtime floor).  R94 RE-BLESS:
+the home is `untracked', because a file's age is not a heading's age and
+this heading has no history of its own.  The seam is unchanged and the
+test is now stated as a COVERING -- the heading has a home, it is not
+`stale', and it is not silently homeless -- which is exactly what the
+seam was protecting.  The same heading WITH a stamp is asserted into
+Needs attention right beside it, so `untracked' can never be read as a
+downgrade of the aging rule."
   (skip-unless (locate-library "org-air"))
   (org-air-r54--with-corpus
       '(("tasks.org" . "* TODO Decide on the venue\nNo dates yet.\n")
+        ("tasks-stamped.org" .
+         "* TODO Decide on the caterer\nNo dates yet.\n[2026-04-16 Thu 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (org-air-r54--age "tasks.org" 60)
+    (org-air-r54--age "tasks-stamped.org" 60)
     (let* ((items (org-air-query-items))
            (item (org-air-r54--item "Decide on the venue" items))
            (buckets (org-air-classify-item item org-air-test-now)))
       (should (eq (org-air-item-ntype item) 'task)) ; TODO keyword => task
-      (should (memq 'attention buckets))
+      ;; It HAS a home, and it is neither the retired bucket nor a nag.
+      (should buckets)
+      (should (memq 'untracked buckets))
+      (should-not (memq 'attention buckets))
       (should-not (org-air-classify--stale-eligible-p item))
-      (should-not (memq 'stale buckets)))))
+      (should-not (memq 'stale buckets))
+      ;; The aging rule still works, on a heading that gives it something
+      ;; to measure: same shape, same file age, one body stamp.
+      (let* ((stamped (org-air-r54--item "Decide on the caterer" items))
+             (sb (org-air-classify-item stamped org-air-test-now)))
+        (should (eq (org-air-item-ntype stamped) 'task))
+        (should (org-air-classify-quiet-days stamped org-air-test-now))
+        (should (memq 'attention sb))
+        (should-not (memq 'untracked sb))
+        (should-not (memq 'stale sb))))))
 
 (ert-deftest org-air-r54-1c-dated-quiet-is-stale ()
   "SCHEDULED-quiet, DEADLINE-quiet and active-<ts>-quiet surface (1b/1c, R93).
@@ -254,30 +303,64 @@ two halves both have R93 successors that are worth more:
      never consulted while classifying, for either item.  Wiring the
      attention clock to that chain (the obvious cheap implementation)
      would make a PLAN silence the nag, which is the exact inversion R93
-     exists to remove; the call count pins it at zero."
+     exists to remove; the call count pins it at zero.
+
+R94 RE-BLESS, and the seam gets SHARPER rather than looser.  R93 could
+only show half of point 2: it proved the chain was not CALLED, while the
+`dated' row still reached Needs attention -- through the mtime floor,
+which is the OTHER file-level signal that was answering a heading
+question.  R94 removed it, so both rows can now be stated positively and
+the chain's irrelevance is visible in the ANSWERS as well as the call
+count:
+
+  * `Quiet scheduled chore' has a 60-day-old PLAN and a 60-day-old FILE.
+    `org-air-classify--last-activity' happily reports 60 days for it.
+    Needs attention does not want it, because neither of those is a
+    record of anything HAPPENING to the heading.
+  * `Dateless dawdler' has a 60-day-old FILE and the same answer.
+  * A third row, identical but for ONE body stamp, IS in Needs
+    attention -- so the two refusals above are the rule discriminating,
+    not the rule broken.
+
+The call-count pin (zero, for every row) is kept verbatim."
   (skip-unless (locate-library "org-air"))
   (should (fboundp 'org-air-classify--stale-eligible-p))
   (org-air-r54--with-corpus
       '(("tasks.org" .
          "* TODO Dateless dawdler\nNo dates.\n\
-* TODO Quiet scheduled chore\nSCHEDULED: <2026-04-16 Thu>\n")
+* TODO Quiet scheduled chore\nSCHEDULED: <2026-04-16 Thu>\n\
+* TODO Quiet stamped chore\nSCHEDULED: <2026-04-16 Thu>\n\
+[2026-04-16 Thu 09:00]\n")
         ("inbox.org" . "#+title: inbox\n"))
     (org-air-r54--age "tasks.org" 60)
     (let* ((items (org-air-query-items))
            (dateless (org-air-r54--item "Dateless dawdler" items))
            (dated (org-air-r54--item "Quiet scheduled chore" items))
+           (stamped (org-air-r54--item "Quiet stamped chore" items))
            (orig (symbol-function 'org-air-classify--last-activity))
            (calls 0))
       (should-not (org-air-classify--stale-eligible-p dateless))
       (should-not (org-air-classify--dated-p dateless))
       (should (org-air-classify--stale-eligible-p dated))
       (should (org-air-classify--dated-p dated))
+      ;; R94: the chain WOULD answer 60 days for the dated row (its plan
+      ;; and its file are both that old); the aging rule measures neither.
+      (should-not (org-air-classify-quiet-days dated org-air-test-now))
+      (should-not (org-air-classify-quiet-days dateless org-air-test-now))
+      (should (= 60 (org-air-classify-quiet-days stamped org-air-test-now)))
       (cl-letf (((symbol-function 'org-air-classify--last-activity)
                  (lambda (item) (cl-incf calls) (funcall orig item))))
-        ;; Neither item's classification consults the R22 activity chain.
+        ;; No item's classification consults the R22 activity chain...
         (org-air-classify-item dateless org-air-test-now)
         (should (= calls 0))
-        (should (memq 'attention (org-air-classify-item dated org-air-test-now)))
+        ;; ...a 60-day-old PLAN does not buy a Needs-attention row...
+        (should-not (memq 'attention
+                          (org-air-classify-item dated org-air-test-now)))
+        (should (memq 'overdue (org-air-classify-item dated org-air-test-now)))
+        (should (= calls 0))
+        ;; ...while ONE body stamp on the identical shape does.
+        (should (memq 'attention
+                      (org-air-classify-item stamped org-air-test-now)))
         (should (= calls 0)))
       ;; And the chain itself is unchanged: it still answers the 60-day
       ;; mtime for the dateless item (it never learned to say no; it is
@@ -393,7 +476,20 @@ attention, no stale (reverting the routing layer fails: pre-R54 it was
 attention); a journal entry to exactly (journal); the rendered GTD
 board carries NEITHER title while the task and the inbox capture render.
 The inbox BYPASS keeps a schedule-less prose capture in the `inbox'
-bucket exactly (not knowledge) — capture flows unchanged."
+bucket (not knowledge) — capture flows unchanged.
+
+R94 RE-BLESS.  The bypass is unchanged; the capture's bucket LIST grew
+by one symbol, because `* Half-formed capture' has no date and no
+recorded history and is therefore also `untracked'.  That is the
+standing overlap rule (R93 decision 3) doing its job, and it is the
+round's product point on this very row: an unfiled capture shows in
+Inbox (\"this is unfiled\") AND in Untracked (\"org-air cannot rank
+this\"), and the two rows say different things.  The membership this
+test exists to pin — `inbox', never `knowledge' — is asserted exactly
+as before, and the NEW symbol is pinned as a fact of its own rather
+than absorbed into a looser `memq': a knowledge/journal row must still
+classify to its bucket ALONE, so the two `equal' pins above stay
+verbatim."
   (skip-unless (locate-library "org-air"))
   (org-air-r54--with-corpus
       '(("board.org" .
@@ -407,9 +503,22 @@ bucket exactly (not knowledge) — capture flows unchanged."
                      '(knowledge)))
       (should (equal (org-air-r54--buckets "Yesterday journal entry" items)
                      '(journal)))
-      ;; Inbox bypass: the schedule-less capture is an unfiled task-to-be.
+      ;; Inbox bypass: the schedule-less capture is an unfiled task-to-be
+      ;; — `inbox' and never `knowledge'.  R94: it is ALSO `untracked'
+      ;; (no date, no record), the standing overlap rule.
       (should (equal (org-air-r54--buckets "Half-formed capture" items)
-                     '(inbox)))
+                     '(untracked inbox)))
+      (should-not (memq 'knowledge
+                        (org-air-r54--buckets "Half-formed capture" items)))
+      ;; ...and the untracked half is EARNED: one body stamp removes it
+      ;; while the inbox bypass is untouched.
+      (let ((stamped (copy-sequence
+                      (org-air-r54--item "Half-formed capture" items))))
+        (setf (org-air-item-updated stamped)
+              (floor (float-time (time-subtract org-air-test-now
+                                                (days-to-time 1)))))
+        (should (equal (org-air-classify-item stamped org-air-test-now)
+                       '(inbox))))
       ;; The task keeps the full treatment.
       (should (memq 'upcoming (org-air-r54--buckets "Real board task" items))))
     ;; Board layer: the rendered GTD board shows TASKS (+ inbox) only.

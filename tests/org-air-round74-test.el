@@ -305,13 +305,43 @@ date) and the value carries the faded face."
 ;;;; -------------------------------------------------------------------
 
 (ert-deftest org-air-r74-5-fallback-one-bounded-stat ()
-  "A slotless heading (no LOGBOOK, no clock, no `:CREATED:') falls back
-to ONE `file-attributes' stat on its file: mtime 2026-06-10 renders
-\"Updated 2026-06-10  (5d ago · ~file)\"; exactly ONE stat from the
-line helper, zero scans, zero `find-file-noselect'."
+  "A slotless heading falls back to the file mtime, marked \"~file\".
+mtime 2026-06-10 renders \"Updated 2026-06-10  (5d ago · ~file)\", zero
+scans, zero `find-file-noselect'.
+
+R94 RE-BLESS — the rule the round CHANGED, encoded; not the assertion
+relaxed.  R74 read the mtime with ONE bounded LIVE `file-attributes'
+call.  Classify, meanwhile, reads the SCAN-time `:mtime' out of
+`org-air-query-file-meta'.  Those are two different numbers the moment
+the file changes without a rescan, and the R93 review measured the
+drift: the rail said \"1d ago\" about the same heading the board had
+bucketed at 165d.  Decision 13 — the number the inspector shows and the
+number the bucket used cannot drift — held for the slot path and not for
+this one.
+
+So the ORDER of the setup moved, which is the whole point: the mtime is
+now set BEFORE the scan, where a real user's file age lives, and the
+assertions are strictly MORE than R74 made:
+
+  1. the same rendered string, from the scan's own knowledge;
+  2. ZERO live stats for a scanned item — the fallback is the same hash
+     lookup classify makes, so the rail cannot cost I/O the bucket did
+     not;
+  3. NO DRIFT: the number the rail prints EQUALS
+     `org-air-classify-quiet-floor-days', the number the Untracked
+     bucket ranks and prints, and an on-disk edit with NO rescan moves
+     NEITHER (they only ever learn together, on the next scan);
+  4. the R74 bounded-stat rule survives exactly where it is still the
+     only answer: an item the scan never saw (built outside it) still
+     costs EXACTLY ONE `file-attributes' call."
   (skip-unless (locate-library "org-air"))
   (org-air-r74--with-corpus
       '(("inbox.org" . "#+title: inbox\n\n* Bare heading :inbox:\n  just text\n"))
+    ;; R94: the file is already 5 days old when the scan runs — the
+    ;; ordering a real corpus has, and the ordering that lets the rail
+    ;; and the bucket read ONE fact.
+    (set-file-times (org-air-r74--file "inbox.org")
+                    (encode-time (list 0 0 12 10 6 2026 nil -1 nil)))
     (let* ((items (org-air-query-items))
            (item (org-air-r74--item "Bare heading" items))
            (counts (vector 0 0 0)))
@@ -319,17 +349,56 @@ line helper, zero scans, zero `find-file-noselect'."
       (should (null (org-air-item-logs item)))
       (should (null (org-air-item-clocks item)))
       (should (null (org-air-item-created item)))
-      (set-file-times (org-air-r74--file "inbox.org")
-                      (encode-time (list 0 0 12 10 6 2026 nil -1 nil)))
+      ;; ...and R94: no measured recency either, so this really is the
+      ;; file path and not the slot path wearing its clothes.
+      (should (null (org-air-classify-updated item)))
+      (should (eq 'file (org-air-classify-updated-source item)))
       (let (line)
         (org-air-r74--spied counts
           (setq line (org-air-view--item-updated-line
                       item "" org-air-test-now)))
         (should (equal "Updated 2026-06-10  (5d ago · ~file)"
                        (substring-no-properties line)))
-        (should (= 1 (aref counts 0)))   ; exactly ONE stat
+        (should (= 0 (aref counts 0)))   ; R94: ZERO live stats
         (should (= 0 (aref counts 1)))   ; zero scans
-        (should (= 0 (aref counts 2))))))) ; zero find-file-noselect
+        (should (= 0 (aref counts 2))))  ; zero find-file-noselect
+      ;; 3. the rail's number IS the bucket's number.
+      (should (= 5 (org-air-classify-quiet-floor-days item org-air-test-now)))
+      ;; ...and an on-disk edit with NO rescan moves neither of them.
+      (set-file-times (org-air-r74--file "inbox.org")
+                      (time-subtract org-air-test-now (days-to-time 1)))
+      (should (= 5 (org-air-classify-quiet-floor-days item org-air-test-now)))
+      (let ((counts2 (vector 0 0 0)) line2)
+        (org-air-r74--spied counts2
+          (setq line2 (org-air-view--item-updated-line
+                       item "" org-air-test-now)))
+        (should (equal "Updated 2026-06-10  (5d ago · ~file)"
+                       (substring-no-properties line2)))
+        (should (= 0 (aref counts2 0))))
+      ;; 4. the R74 rule survives where it is still the only answer: an
+      ;; item the scan never saw pays EXACTLY ONE bounded stat.
+      (let* ((outsider (org-air-item-create
+                        :title "Outside the scan"
+                        :file (org-air-r74--file "inbox.org")
+                        :marker (cons (org-air-r74--file "inbox.org") 1)
+                        :kind 'heading :todo "TODO"))
+             (counts3 (vector 0 0 0))
+             line3)
+        ;; no scan entry at all: the floor cannot answer for it.
+        (org-air-query-teardown)
+        (clrhash org-air-query--file-meta)
+        (should (null (org-air-classify-updated-floor outsider)))
+        (should (null (org-air-classify-updated-source outsider)))
+        (set-file-times (org-air-r74--file "inbox.org")
+                        (encode-time (list 0 0 12 10 6 2026 nil -1 nil)))
+        (org-air-r74--spied counts3
+          (setq line3 (org-air-view--item-updated-line
+                       outsider "" org-air-test-now)))
+        (should (equal "Updated 2026-06-10  (5d ago · ~file)"
+                       (substring-no-properties line3)))
+        (should (= 1 (aref counts3 0)))   ; exactly ONE stat
+        (should (= 0 (aref counts3 1)))
+        (should (= 0 (aref counts3 2)))))))
 
 ;;;; -------------------------------------------------------------------
 ;;;; r74-6 — the future clamp: the golden-determinism lemma
@@ -482,11 +551,23 @@ a stationary cursor — merge-order-proof either way."
   "A `kind' `file' item (nil review slots) renders the fallback line
 with the ~file marker (the mtime is item-precise there; the rule stays
 uniform — no special case); a slotless item whose file is DELETED
-renders no line and signals nothing."
+renders no line and signals nothing.
+
+R94 RE-BLESS, same shape as `org-air-r74-5-fallback-one-bounded-stat':
+the mtime is set BEFORE the scan, because the fallback now reads the
+SCAN's `:mtime' (`org-air-classify-updated-floor') rather than stat'ing
+the file live.  The uniformity claim is what this test is FOR, so it is
+now asserted where it bites hardest: a `kind' `file' blob — the one item
+kind whose mtime really is item-precise — obeys the SAME no-drift rule
+as a heading.  Its rail number equals `org-air-classify-quiet-floor-days'
+and an on-disk edit with no rescan moves neither.  No special case, in
+either direction."
   (skip-unless (locate-library "org-air"))
   (org-air-r74--with-corpus
       '(("inbox.org" . "#+title: inbox\n\n* TODO Anchor :inbox:\n  body\n")
         ("note.org" . "#+title: Loose note\nSome text, no heading.\n"))
+    (set-file-times (org-air-r74--file "note.org")
+                    (encode-time (list 0 0 12 10 6 2026 nil -1 nil)))
     (let* ((items (org-air-query-items))
            (blob (seq-find (lambda (it) (eq (org-air-item-kind it) 'file))
                            items)))
@@ -494,8 +575,16 @@ renders no line and signals nothing."
       (should (null (org-air-item-logs blob)))
       (should (null (org-air-item-clocks blob)))
       (should (null (org-air-item-created blob)))
+      (should (equal "Updated 2026-06-10  (5d ago · ~file)"
+                     (org-air-r74--line blob)))
+      ;; R94 uniformity: the rail's number IS the bucket's bound, for a
+      ;; `kind' `file' item exactly as for a heading...
+      (should (eq 'file (org-air-classify-updated-source blob)))
+      (should (= 5 (org-air-classify-quiet-floor-days blob org-air-test-now)))
+      ;; ...and an on-disk edit with NO rescan moves neither number.
       (set-file-times (org-air-r74--file "note.org")
-                      (encode-time (list 0 0 12 10 6 2026 nil -1 nil)))
+                      (time-subtract org-air-test-now (days-to-time 1)))
+      (should (= 5 (org-air-classify-quiet-floor-days blob org-air-test-now)))
       (should (equal "Updated 2026-06-10  (5d ago · ~file)"
                      (org-air-r74--line blob)))
       ;; DELETED file: no line, no signal (the R53 degrade register).

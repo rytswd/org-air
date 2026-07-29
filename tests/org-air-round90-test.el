@@ -162,6 +162,24 @@
   (when-let* ((item (org-air-view--row-property 'org-air-item)))
     (org-air-item-title item)))
 
+(defun org-air-r90--rendered-row-keys (title)
+  "Return the DISTINCT source keys of the rendered rows named TITLE.
+R94.  A heading may legitimately render in SEVERAL sections at once (the
+standing overlap rule), so the number of ROWS carrying a title is a fact
+about the board's section list, not about the corpus.  What a mark test
+needs to know before it starts is how many DISTINCT HEADINGS share that
+title — that is the collision it is about to create — and
+`org-air-view--item-source-key' is the identity the mark set itself uses,
+so this counts exactly the thing under test."
+  (let (keys)
+    (save-excursion
+      (dolist (pos (org-air-r90--rendered-rows title))
+        (goto-char pos)
+        (when-let* ((item (org-air-view--row-property 'org-air-item))
+                    (key (org-air-view--item-source-key item)))
+          (cl-pushnew key keys :test #'equal))))
+    (nreverse keys)))
+
 (defun org-air-r90--rendered-rows (title)
   "Return beginning positions of every rendered row named TITLE."
   (save-excursion
@@ -2382,7 +2400,13 @@ slot), so the round's subject swaps sides — the CURRENT version is what
 round-trips, and the RETIRED v6 is what must miss cleanly.  The name is
 kept so the R90 record stays traceable; the law is version-agnostic and
 now reads the constant instead of a literal, so the next bump cannot
-leave this test asserting a version nobody ships."
+leave this test asserting a version nobody ships.
+R94 re-bless: the ONE literal R93 left behind (`(= 7 ...)') is gone for
+exactly the reason its own docstring gave, and the foreign-version sweep
+is derived from the constant instead of listing one retired number: EVERY
+version below the shipped one, plus one above it, must cold-miss with the
+current key.  R94's own retirement (v7) is therefore covered here without
+naming it, and so is every future one."
   (skip-unless (locate-library "org-air"))
   (org-air-r90--with-corpus
       '(("tasks.org" . "#+title: tasks\n\n* TODO Native task :shared_tag:\n* TODO Literal hyphen :shared-tag:\n* TODO Literal slash :not/a/tag:\n")
@@ -2393,7 +2417,8 @@ leave this test asserting a version nobody ships."
            (hyphen (org-air-r90--item "Literal hyphen" items))
            (slash (org-air-r90--item "Literal slash" items))
            (mtimes (org-air-view--mtimes-snapshot files)))
-      (should (= 7 org-air-view--cache-version))
+      (should (integerp org-air-view--cache-version))
+      (should (>= org-air-view--cache-version 7))
       (should (equal "Native task" (org-air-item-title native)))
       (should (equal '("shared_tag") (org-air-item-tags native)))
       ;; Org does not parse these suffixes as tags; they are literal titles.
@@ -2416,10 +2441,13 @@ leave this test asserting a version nobody ships."
         (should (equal "Literal slash :not/a/tag:"
                        (org-air-item-title
                         (org-air-r90--item "Literal slash" hydrated)))))
-      ;; Any version that is not the shipped one is a clean cold miss: the
-      ;; retired v6 (R93 left it behind when `updated' joined the struct)
-      ;; and the discarded experimental broad projection alike.
-      (dolist (foreign (list 6 (1+ org-air-view--cache-version)))
+      ;; Any version that is not the shipped one is a clean cold miss:
+      ;; every retired schema below it (v6, left behind by R93 when
+      ;; `updated' joined the struct; v7, retired by R94 when the meaning
+      ;; of that slot narrowed) and anything above it alike.  Derived from
+      ;; the constant, so the sweep can never fall behind a bump.
+      (dolist (foreign (append (number-sequence 2 (1- org-air-view--cache-version))
+                               (list (1+ org-air-view--cache-version))))
         (ert-info ((format "foreign cache version %d" foreign))
           (let ((print-length nil) (print-level nil) (print-circle t))
             (write-region
@@ -3093,7 +3121,16 @@ leave this test asserting a version nobody ships."
       (should-not org-air-view--marked-keys))))
 
 (ert-deftest org-air-r90-42-remhash-failure-poisons-whole-classify-cache ()
-  "A hostile mandatory remhash drops the whole memo and recomputes truthfully."
+  "A hostile mandatory remhash drops the whole memo and recomputes truthfully.
+R94 re-bless: the corpus's two bare `TODO's have no date and no record,
+so the truthful recomputation for the UNMARKED row now reads
+`(attention untracked)' — `attention' because this harness pins
+`org-air-attention-days' to `((nil . 0))', `untracked' because R94 gives
+no-plan-no-record work a home.  The subject is untouched and the pin is
+stated more sharply than a literal list could: the recomputed answer for
+each row must equal what the UNMEMOISED classifier says about it, so a
+future bucket change cannot make this test stale and a memo that lies
+cannot make it pass."
   (skip-unless (locate-library "org-air"))
   (org-air-r90--with-board
       '(("tasks.org" . "#+title: tasks\n\n* TODO Alpha\n* TODO Beta\n")
@@ -3118,10 +3155,22 @@ leave this test asserting a version nobody ships."
       (should warnings)
       (should (eq old-items org-air-view--items))
       (should-not (eq old-cache org-air-view--classify-cache))
+      ;; The marked row really was written and really is re-read as
+      ;; deferred — the memo did not serve its pre-write answer.
       (should (equal '(backlog)
                      (org-air-view--classify-cached alpha org-air-test-now)))
-      (should (equal '(attention)
-                     (org-air-view--classify-cached beta org-air-test-now)))
+      ;; ...and every row's memoised answer equals the classifier's own,
+      ;; computed fresh with the memo bypassed (the anti-staleness form
+      ;; of the old `(attention)' literal).
+      (dolist (item (list alpha beta))
+        (should (equal (org-air-classify-item item org-air-test-now)
+                       (org-air-view--classify-cached item org-air-test-now))))
+      ;; Anti-vacuous: the unmarked row's answer is non-empty and is NOT
+      ;; the marked row's, so the sweep above is comparing real buckets.
+      (let ((beta-buckets (org-air-view--classify-cached beta org-air-test-now)))
+        (should beta-buckets)
+        (should (memq 'attention beta-buckets))
+        (should-not (memq 'backlog beta-buckets)))
       (should (org-air-r90--disk-has-tag-p
                "tasks.org" "Alpha" "backlog")))))
 
@@ -7616,8 +7665,20 @@ file before the write, so the only route into t.org is the mark itself."
         (list (cons "t.org" before)
               (cons "park.org" "#+title: park\n\n* TODO Park row\n")
               (cons "inbox.org" "#+title: inbox\n"))
+      ;; PRECONDITION (R94 re-bless): the collision is about DISTINCT
+      ;; HEADINGS sharing a title, not about how many rows the board
+      ;; happens to paint for them.  These `Sync' siblings have no date
+      ;; and no recorded history, so since R94 each renders in Untracked
+      ;; as well as in Needs attention (the harness pins
+      ;; `org-air-attention-days' to `((nil . 0))'), i.e. twice.  Counting
+      ;; source keys states the precondition the test actually needs and
+      ;; is immune to the board's section list.
       (should (= (if deletep 3 2)
-                 (length (org-air-r90--rendered-rows "Sync"))))
+                 (length (org-air-r90--rendered-row-keys "Sync"))))
+      ;; anti-vacuous: they really are rendered, and really do share a
+      ;; rendered title.
+      (should (>= (length (org-air-r90--rendered-rows "Sync"))
+                  (if deletep 3 2)))
       (let ((position (org-air-r90--dup-heading-position "t.org" marked)))
         (org-air-r90--mark-source-position "t.org" position)
         (org-air-r90--rewrite-source "t.org" after)
@@ -7843,7 +7904,15 @@ buffer open and its tracked locator live."
         (list (cons "t.org" org-air-r90--recurring-pair)
               (cons "park.org" "#+title: park\n\n* TODO Park row\n")
               (cons "inbox.org" "#+title: inbox\n"))
-      (should (= 2 (length (org-air-r90--rendered-rows "Standup"))))
+      ;; PRECONDITION (R94 re-bless, as in
+      ;; `org-air-r90--assert-dup-sibling-never-retargets'): TWO DISTINCT
+      ;; HEADINGS share the title `Standup'.  Row count is a fact about
+      ;; the section list — these dateless, historyless siblings each
+      ;; render in Untracked as well as Needs attention since R94 — so
+      ;; the precondition counts source keys, the identity the mark set
+      ;; itself uses.
+      (should (= 2 (length (org-air-r90--rendered-row-keys "Standup"))))
+      (should (>= (length (org-air-r90--rendered-rows "Standup")) 2))
       (let ((position (org-air-r90--dup-heading-position "t.org" marked)))
         (org-air-r90--mark-source-position "t.org" position)
         (org-air-r90--rearrange-recurring-pair shape position)

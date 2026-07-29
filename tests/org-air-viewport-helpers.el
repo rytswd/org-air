@@ -306,7 +306,22 @@ order reads process (Inbox), repair (Overdue), plan (Upcoming), choose
 (High priority), sweep (Needs attention).  The order matters: callers
 compare this list against `org-air-view--sections' position by position,
 so a table listing the right five titles in the wrong order is a
-failure, not a detail.")
+failure, not a detail.
+R94: this stays the FIXED five.  `untracked' is a CONDITIONAL section
+(rendered only when some visible item has neither a plan nor a record),
+so it lives in `org-air-viewport-test-conditional-section-titles'
+below — an empty board must still render exactly these five.")
+
+(defconst org-air-viewport-test-conditional-section-titles
+  '((untracked . "Untracked"))
+  "Spec-frozen titles of the CONDITIONAL task sections, in DISPLAY ORDER.
+R94: `Untracked' renders directly under `Needs attention' — last of the
+task sections — and ONLY when some visible item classifies into the
+`untracked' bucket.  Kept apart from
+`org-air-viewport-test-section-titles' on purpose: a board with no
+untracked work must render the fixed five byte-identically, so a test
+that needs the full expected list appends this one rather than growing
+that one.")
 
 (defun org-air-viewport-test-divider-positions ()
   "Return (LINENO . COLUMN) for each line containing a pane divider.

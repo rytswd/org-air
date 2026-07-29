@@ -64,7 +64,19 @@ and earns the second one only by going quiet.  The point the test was
 always making -- that LATENESS never grants a Needs-attention row -- is
 now stated MORE sharply, because the `#A' row proves it too instead of
 being the exception: both overdue fixture rows are freshly touched, and
-NEITHER is in Needs attention, whatever cookie it carries."
+NEITHER is in Needs attention, whatever cookie it carries.
+
+R94 RE-BLESS — the same conclusion, from an honest premise.  \"Freshly
+touched\" was never a fact about these two headings: neither carries a
+stamp of its own, and R93 was reading their FILE's mtime, which for a
+fixture checked out today reads 0.  R94 deleted that excuse, so the
+premise is restated as what is actually true — org-air has NO record of
+either heading (`org-air-classify-quiet-days' is nil), and a positive
+threshold is a claim about elapsed time org-air will not assert without
+measuring it.  The conclusion is unchanged and the test is stronger,
+because it now also proves the OTHER direction on the same row: give the
+overdue `#A' a measured age past its three days and it IS in Needs
+attention — earned by silence, never by lateness."
   (skip-unless (locate-library "org-air"))
   (org-air-test-with-fixtures
     (let ((runbook (org-air-classify-test--buckets
@@ -79,14 +91,34 @@ NEITHER is in Needs attention, whatever cookie it carries."
       ;; priority row, and NOTHING from the aging rule.
       (should (equal '(overdue high-priority) runbook))
       (should-not (memq 'attention runbook))
-      ;; …because it is FRESH, not because it is a `#A': the same
-      ;; overdue `#A' silent past its three days is in Needs attention
-      ;; too, and its lateness still plays no part in that.
+      ;; …because org-air cannot DATE it, not because it is a `#A' and
+      ;; not because it is late.  R94: a heading with no recorded history
+      ;; has no age at all — the file it lives in no longer answers for
+      ;; it — and a positive threshold is a claim about elapsed time.
       (let* ((item (org-air-test-find-item "Fix production outage runbook"
                                            (org-air-query-items)))
-             (age (org-air-classify-quiet-days item org-air-test-now)))
-        (should age)
-        (should (< age (org-air-classify-attention-threshold item)))))))
+             (threshold (org-air-classify-attention-threshold item)))
+        (should-not (org-air-classify-updated item))
+        (should-not (org-air-classify-quiet-days item org-air-test-now))
+        (should (= 3 threshold))
+        ;; ...and the other direction, on the SAME row: a MEASURED age
+        ;; past those three days earns the Needs-attention row, while the
+        ;; deadline it has already missed contributes nothing to it.
+        (let ((quiet (copy-sequence item)))
+          (setf (org-air-item-updated quiet)
+                (floor (float-time (time-subtract org-air-test-now
+                                                  (days-to-time 2)))))
+          (should (= 2 (org-air-classify-quiet-days quiet org-air-test-now)))
+          (should-not (memq 'attention
+                            (org-air-classify-item quiet org-air-test-now)))
+          (setf (org-air-item-updated quiet)
+                (floor (float-time (time-subtract org-air-test-now
+                                                  (days-to-time 3)))))
+          (should (= 3 (org-air-classify-quiet-days quiet org-air-test-now)))
+          (should (memq 'attention
+                        (org-air-classify-item quiet org-air-test-now)))
+          (should (memq 'overdue
+                        (org-air-classify-item quiet org-air-test-now))))))))
 
 (ert-deftest org-air-classify-no-schedule-is-not-attention-until-quiet ()
   "A dateless item needs attention when it goes QUIET, never for being dateless.

@@ -171,9 +171,25 @@ EMPTY-P is whether an `org-air-face-empty' line is present."
     found))
 
 (defun org-air-s4--assert-consistent ()
-  "Assert the S4 invariant for every rendered section."
-  (let ((sections (org-air-s4--sections)))
-    (should (= (length sections) 5))
+  "Assert the S4 invariant for every rendered section.
+R94: the section COUNT is no longer a literal.  `untracked' is a
+conditional section, so the number of rendered sections legitimately
+differs between the canonical board (which has untracked work) and a
+filtered lens that hides all of it.  The anti-vacuity floor the literal
+provided is kept and made explicit instead: the FIXED five are always
+present, in order, and every extra section is a known conditional one.
+The invariant itself — badge = rows + remainder, empty state iff badge
+is 0 — runs over whatever was rendered, which is what it always meant."
+  (let* ((sections (org-air-s4--sections))
+         (buckets (mapcar #'car sections))
+         (fixed (mapcar #'car org-air-viewport-test-section-titles))
+         (conditional
+          (mapcar #'car org-air-viewport-test-conditional-section-titles)))
+    ;; The fixed five, in order, always — a conditional section may be
+    ;; added but never displace or hide one of them.
+    (should (equal fixed (seq-take buckets (length fixed))))
+    (dolist (extra (nthcdr (length fixed) buckets))
+      (should (memq extra conditional)))
     (pcase-dolist (`(,bucket ,badge ,rows ,more ,emptyp) sections)
       (ert-info ((format "section %s: badge=%d rows=%d more=%d empty=%s"
                          bucket badge rows more emptyp))

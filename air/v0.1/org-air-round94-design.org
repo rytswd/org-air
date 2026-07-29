@@ -763,6 +763,109 @@ No test, fixture corpus or known-failures file was touched.
 
 * Implementation history
 
+- 2026-07-29 — *R94 TEST SEAT (retest 1).*  Branched from
+  =qonpqtrylrtz=.  Tests, fixtures-free, and this history entry only —
+  every production =.el= and =README.org= byte verified identical to the
+  parent by SHA-256, before and after the mutation sweep.
+
+  *The 27, independently confirmed.*  All five classes reproduce exactly
+  as the design lists them, per test, from the failure condition: 7
+  mtime-floor-as-clock (=quiet-days= now nil, or the attention bucket
+  gone where the floor used to grant it), 10 bucket/section lists (+1
+  symbol, or 5 -> 6 sections), 4 R90 mark-corpus preconditions, 4 cache
+  literals, 2 inspector-drift.  *No mis-classification; no defect hiding
+  behind a re-bless.*  For G3 the never-writes-the-wrong-sibling law was
+  checked structurally as well as by result: the diff inside both
+  =--assert-*-never-retargets= helpers touches ONLY the leading row-count
+  precondition; assertions 1-4 (the law, the no-other-heading-moves
+  clause, the echo clause and the never-trust-a-stale-mark clause) are
+  byte-untouched in both.
+
+  *Re-blessed 27, encoding the new rule.*  Highlights: =r93-8= restated
+  as "the mtime is a BOUND, sound only when it accuses" (measured clock
+  nil at BOTH file ages, the bound still 90, provenance =file=, the row
+  in =untracked=, one stamp as the exit); the G1 tests that leaned on a
+  fixture's file mtime for "freshness" now say what is true (no measured
+  age) AND prove the other direction on the same row (one measured age at
+  the threshold earns the row); the four cache tests stop naming a number
+  and assert the COLD-MISS LAW over the whole retired range derived from
+  the constant (strictly wider than the old =(4 6)= pair), with the one
+  literal seat moved to =r94-22=; =r74-5=/=r74-10= set the mtime BEFORE
+  the scan and now also pin the no-drift property and the zero-live-stat
+  cost; =r72-10='s bucket table gained a =dateless-stamped= row so
+  =is:untracked= vs =is:nodate= is discriminated in the corpus, not just
+  asserted.  No test deleted, no test renamed, no assertion lost: every
+  changed file is flat or up, net *+286* assertions.
+
+  *The four invisible mutations, fenced.*  =r94-1= / =r94-2= (mixed-slot
+  Overdue, unit and painted board), =r94-3= (inactive plan stamps),
+  =r94-4= (quoted stamps), =r94-5= (rail/bucket agreement on the floor
+  path).  Mutation 1 now reddens two named tests; 4, 5 and 6 each reddens
+  named tests.  *Corpus finding while building =r94-2=:* Org parses only
+  the planning line DIRECTLY under a heading, so a =DEADLINE:= written on
+  a second line is inert — the first draft of the mixed-slot corpus
+  silently lost the very shape it existed for and passed under mutation
+  1.  Both slots are now on one planning line and the test asserts the
+  scanned item really carries both.  (Same fact applies to
+  =tests/fixtures/projects.org=, whose =Review design doc= comment claims
+  "has both a schedule and a deadline" while its =DEADLINE:= is on a
+  second line and is not parsed — pre-existing, fixture-side, reported
+  not fixed, since touching it would move goldens.)
+
+  *New permanent coverage,* =tests/org-air-round94-test.el=, 22 ERTs:
+  measured-only under org-air's own =t= / =b= / archive writes (full
+  bucket map of every untouched row identical across a real write + a
+  real rescan, with the mtime jump asserted so the amplifier is armed);
+  the three time-series corpora giving identical maps, counts and
+  attention ORDER while the floor genuinely differs (31/5/0); the
+  coverage theorem as a property over a 99-heading generated matrix;
+  =untracked= membership, cap 4, conditional rendering, =is:untracked=
+  ⇔ the section per item (R72), never attention-coloured, the =◌= glyph;
+  =~= provenance in both arms; Needs attention printing NO estimates as a
+  property; =--sort-by-floor=; the dormant =--sort-by-quiet= tie-break;
+  zero-I/O classify; cache v8 with a same-shape v7 refused.
+
+  *A correction to the theorem's one-line statement (reported, not a
+  defect).*  The generated matrix immediately produced a counterexample
+  to the summary sentence: =none/fresh/none= — no plan, touched
+  yesterday, no cookie — holds NO bucket, and correctly so.  The
+  design's own proof-by-exhaustion table already carries the missing
+  clause ("Needs attention, ONCE IT CROSSES ITS PRIORITY'S THRESHOLD"),
+  so the omission is in the one-line summary, not in the model.  =r94-8=
+  encodes the theorem with BOTH clauses — (a) a plan beyond the Upcoming
+  horizon, (b) a MEASURED record newer than the threshold — gives each
+  its own "promise, not a hiding place" leg, and pins that there is NO
+  THIRD CASE: no-plan-and-no-record is covered unconditionally, at every
+  priority.  Worth one sentence in the README/design summary.
+
+  *Goldens.*  All 25 re-verified mechanically, pane-split at the rail
+  fence: every existing CONTENT line survives verbatim in both panes.
+  The only movements are (i) the merged-pane summary COLUMN at the three
+  90-col tiers shifting down one row to admit =3   Untracked= (left
+  column byte-identical; =────= and =23   total= preserved), and (ii) one
+  trailing rail blank consumed on the x50 tiers.  =23   total= is
+  unchanged and =Needs attention 2= is unchanged — nothing left the
+  board.  =make regen-mockups= is a byte no-op over all 49 fixture files.
+
+  *Regression sweep, 0 failures:* R90 marks/history 102, R91 scroll 31,
+  R92 landing 19, echo 18, landing invariants 7, R72 filter law 16, R74
+  inspector 12, R93 model 21, R94 22.
+
+  *Handover item 7 done:* =tests/org-air-test-helpers.el:107= now
+  documents =#A= as 3 (stale since R93 FIX-3) and states the R94 rule —
+  the mtime is no longer a fallback clock, so `org-air-test-age-file'
+  moves only the Untracked bound and per-heading stamps are what age a
+  heading.
+
+  *Gate:* 11 modules compile (only the pre-existing
+  =org-air-project.el:946= docstring-width warning); =make lint= 0
+  findings; =make clean && make check= *1322 tests, 1314 as expected, 0
+  unexpected, 8 GUI skips*; known-failures manifest empty.  Mutation
+  sweep: 6/6 reverted elements each redden NAMED tests (M1 -> r94-1,
+  r94-2; M2 -> 33 incl. 7 goldens; M3 -> 38; M4 -> r94-3, r94-22; M5 ->
+  r94-4, r94-22; M6 -> r74-5, r74-10, r94-5), sources restored
+  byte-identical.
+
 - 2026-07-29 — *R94.*  Designed and implemented in one round, branched
   from =main= (=rqvllzqvouxq=, R93 RETEST-2).  The R93 review's primary
   finding answered structurally: the file mtime leaves the Needs-attention

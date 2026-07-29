@@ -57,10 +57,20 @@
 \(the untouched-file identity probe), and a refile target.")
 
 (defconst org-air-r73--graduate-specs
-  '(("inbox.org" . "#+title: inbox\n\n* TODO Alpha task :inbox:\n  alpha body\n* TODO Beta task :inbox:\n  beta body\n")
+  '(("inbox.org" . "#+title: inbox\n\n* TODO Alpha task :inbox:\n[2026-06-14 Sun 09:00]\n  alpha body\n* TODO Beta task :inbox:\n[2026-06-14 Sun 09:00]\n  beta body\n")
     ("other.org" . "#+title: other\n\n* TODO Gamma chore\nSCHEDULED: <2026-01-05 Mon>\n[2026-01-05 Mon 09:00]\n  gamma body\n* TODO Delta chore\nSCHEDULED: <2026-02-05 Thu>\n  delta body\n")
-    ("target.org" . "#+title: target\n\n* Existing\n"))
+    ("target.org" . "#+title: target\n\n* Existing\n[2026-06-14 Sun 09:00]\n"))
   "r73-15's corpus: a two-section item whose SECOND section it empties.
+R94 corpus repair (the Minor-1 leg's PRECONDITION, not its subject):
+the three headings that carried neither a date nor a recorded history
+\(`Alpha task', `Beta task', `* Existing') acquired an Untracked row
+under R94, and the extra rows filled the board's height so that `M->'
+landed ON a row instead of in the PAD TAIL the leg needs.  Each is given
+one body stamp a day old — well inside every threshold — so it is
+neither untracked nor quiet and renders in exactly the sections it did
+before.  Gamma and Delta are DATED and were never untracked, so the
+graduation seam itself is byte-for-byte the shape it was.  Nothing about
+the seam, the graduation or the Decision 2 degrade is touched.
 The shape this seam needs, restated for R93.  Gamma is overdue AND
 quiet, so it renders twice: in Overdue (with Delta below it) and alone
 in Needs attention.  Point starts on its FIRST row, so DONE empties the
@@ -944,7 +954,12 @@ the nil placeholder (revert-RED against the bare `(null ctx)' gate)."
       ;; pad tail (`M->').  ctx is nil, but the board still has items:
       ;; the resync must keep the pane OPEN (no hide) and skip the
       ;; inspector nudge (keep-last), never the empty degrade.
+      ;; R94: the corpus really does end in a pad tail (see
+      ;; `org-air-r73--graduate-specs') — asserted, so a future board
+      ;; that grows a section under the last row cannot make this leg
+      ;; silently test something else.
       (goto-char (point-max))
+      (should-not (get-text-property (point) 'org-air-item))
       (should-not (get-text-property (point)
                                      org-air-view--inspector-property))
       (should-not (org-air-view-pane--context-at-point))

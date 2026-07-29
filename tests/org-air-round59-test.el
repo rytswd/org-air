@@ -462,7 +462,15 @@ Body.\n"))
 bare captured note into 'inbox exactly as before, and it renders as an
 Inbox row — while a sibling container in the SAME file skips (badge 2:
 the leaf + the container's TODO child).  An implementation that skips
-keyword-less inbox LEAVES too FAILS here."
+keyword-less inbox LEAVES too FAILS here.
+
+R94 RE-BLESS: the leaf's bucket LIST gained `untracked' (it has no date
+and no recorded history), which is the standing overlap rule, not a
+change to the bypass.  The T7 subject — the leaf reaches `inbox' while
+its container sibling reaches `container' ALONE — is pinned exactly as
+before, and the Inbox BADGE (2) is the strongest evidence the bypass is
+untouched: the Untracked section is a separate section with its own
+count, so an inbox badge that moved would mean the bypass had moved."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       '(("inbox.org" .
@@ -477,7 +485,9 @@ Grouping only.\n\
       (should-not (org-air-item-childp leaf))
       (should-not (org-air-query-container-item-p leaf))
       (should (equal (org-air-classify-item leaf org-air-test-now)
-                     '(inbox)))
+                     '(untracked inbox)))
+      ;; The container sibling still routes to `container' ALONE — the
+      ;; non-task routes never see the R94 bucket.
       (should (equal (org-air-r59--buckets "New" items) '(container))))
     (org-air-r59--render-board
       (let ((titles (org-air-r59--board-titles)))
@@ -681,7 +691,14 @@ a TODO keyword, always a leaf — so the captured item classifies 'inbox
 and renders exactly as before.  An item built OUTSIDE the scan (the
 at-point constructor, nil signal slots) is NOT a container even when
 its real heading HAS children — the conservative default: when in
-doubt, render."
+doubt, render.
+
+R94 RE-BLESS: the at-point item is undatable AND has no plan, so its
+bucket list gained `untracked'.  That is precisely the R94 covering
+reaching the hardest case in the suite — an item the scan never saw —
+and it is asserted as such: no measured age, no file bound either
+\(`org-air-classify-updated-source' is nil), and still a home.  The T12
+subject (never a container, full task treatment) is untouched."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       '(("inbox.org" . "#+title: org-air inbox\n"))
@@ -727,10 +744,19 @@ doubt, render."
       (should-not (org-air-classify-quiet-days item org-air-test-now))
       (should-not (memq 'attention
                         (org-air-classify-item item org-air-test-now)))
+      ;; R94: not even a file BOUND answers for it (no scan entry at
+      ;; all), so the provenance helper says "nothing" rather than
+      ;; guessing — and the covering still gives it a row.
+      (should-not (org-air-classify-updated-floor item))
+      (should-not (org-air-classify-updated-source item))
+      (should (org-air-classify--untracked-p item))
+      (should (equal '(untracked)
+                     (org-air-classify-item item org-air-test-now)))
       (setf (org-air-item-priority item)
             (* 1000 (- org-priority-lowest ?A)))
-      ;; the undatable `#A': High priority yes, Needs attention no.
-      (should (equal '(high-priority)
+      ;; the undatable `#A': High priority yes, Needs attention no,
+      ;; Untracked yes (it still has no plan and no record).
+      (should (equal '(high-priority untracked)
                      (org-air-classify-item item org-air-test-now)))
       ;; the opt-in restores the old answer exactly.
       (let ((org-air-attention-days '((?A . 0) (nil . 30))))
@@ -801,7 +827,19 @@ clean cold miss below.  The KEY is untouched at seven elements: no
 threshold changes what a file MEANS, so `org-air-attention-days' is a
 render-time (classify-memo) input, never a scan-cache one — pinned by
 its own conjunct here so a future round cannot quietly promote it and
-force a rescan on every retune."
+force a rescan on every retune.
+R94 re-bless (honest — no conjunct weakened, one STRENGTHENED): the
+version is 8 and this test stops naming a number at all.  Pinning a
+literal here fenced nothing — it only guaranteed that every future bump
+would have to edit a test whose subject is the KEY, and a round that
+edits a version assertion is a round that could edit it wrongly.  What
+this test actually owes the cache is the COLD-MISS law, so that is what
+it now asserts, version-agnostically and over the WHOLE retired range:
+EVERY version below the shipped one is refused with the current key.
+That is strictly stronger than the old `(4 6)' pair (it now includes 7,
+R94's own retirement, and every future one for free) and it can never go
+stale.  The single seat that pins the literal 8 is R94's own
+`org-air-r94-22-cache-v8-and-v7-clean-cold-miss'."
   (skip-unless (locate-library "org-air"))
   (org-air-r59--with-corpus
       (append org-air-r59--inbox-specs
@@ -814,7 +852,14 @@ Body.\n")))
     ;; element; R61: `org-air-log-cap' is the SIXTH; R77:
     ;; `org-air-task-requires-todo' is the SEVENTH; this corpus runs at
     ;; the nil-exclude / default-cap / nil-knob baseline).
-    (should (= org-air-view--cache-version 7))
+    ;;
+    ;; R94: the version is read as a MONOTONE FACT, never as a literal.
+    ;; It is a positive integer, it is what `org-air-view--cache-write'
+    ;; stamps into the file, and it is at least the R93 value it has
+    ;; already passed — so a bump is free and a REGRESSION (a round
+    ;; quietly lowering it to serve a stale schema) still fails here.
+    (should (integerp org-air-view--cache-version))
+    (should (>= org-air-view--cache-version 7))
     (let ((key (org-air-view--cache-key)))
       (should (= (length key) 7))
       (should (eq (nth 3 key) t))
@@ -908,10 +953,14 @@ Body.\n")))
         (should-not (org-air-view--cache-load)))
       ;; …while the original (nil) knob still hydrates.
       (should (org-air-view--cache-read))
-      ;; A v4 cache (the pre-R59 struct shape) and a v6 one (the pre-R93
-      ;; shape, one `updated' slot short) are clean cold misses even with
-      ;; the CURRENT key: no hydration, no error, no hang.
-      (dolist (retired '(4 6))
+      ;; EVERY retired version is a clean cold miss even with the CURRENT
+      ;; key: no hydration, no error, no hang.  R94 derives the range from
+      ;; the constant instead of listing `(4 6)', so v7 (retired by R94's
+      ;; narrowed `updated' meaning) and every future retirement are
+      ;; covered the moment the bump lands, and the version stamped in the
+      ;; file — not a literal in this test — is what decides.
+      (should (> org-air-view--cache-version 2))
+      (dolist (retired (number-sequence 2 (1- org-air-view--cache-version)))
         (ert-info ((format "retired cache version %d" retired))
           (let ((print-length nil) (print-level nil))
             (write-region

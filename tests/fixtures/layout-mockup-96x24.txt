@@ -7,9 +7,9 @@
       TODO    Triage me later                         #inbox      │      7  8● 9 10◆11 12◆13
                                                                   │     14 15◆16◆17◆18●19◆20●
   ▲ Overdue 3                                                     │     21 22 23 24 25 26 27
-      TODO    Book dentist appointment  OVERDUE 3d    #personal … │     28 29 30
+      TODO    Chase missing invoice     OVERDUE 7d    #projects … │     28 29 30
       TODO  ■ Fix production outage r…  OVERDUE 5d    #projects … │
-      TODO    Chase missing invoice     OVERDUE 7d    #projects … │     ◆ due    ● sched
+      TODO    Book dentist appointment  OVERDUE 3d    #personal … │     ◆ due    ● sched
                                                                   │
   ◆ Upcoming 8                                                    │ ▌ Filter
       TODO    Renew library card        Today         #personal … │  none
@@ -25,10 +25,10 @@
       TODO  ■ Prep client presentation  Tomorrow      #work   #c… │    5   Needs attention
                                                                   │  ────
   ○ Needs attention 5                                             │   23   total
-      TODO  ■ Fix production outage r…  always        #projects … │
-      TODO  ■ Prep client presentation  always        #work   #c… │ ▌ Inspector
+      TODO    Learn lute                273d quiet    #someday  … │
+      TODO    Dust off old archive pr…  225d quiet    #projects … │ ▌ Inspector
       TODO  ■ Ship quarterly report     always        #projects … │
-      TODO    Dust off old archive pr…  225d quiet    #projects … │ ▌ Actions
-      TODO    Learn lute                273d quiet    #someday  … │  c capture  / filter
+      TODO  ■ Fix production outage r…  always        #projects … │ ▌ Actions
+      TODO  ■ Prep client presentation  always        #work   #c… │  c capture  / filter
                                                                   │  s source   g r refresh
                                                                   │  TAB expand ? help

@@ -5013,6 +5013,42 @@ The order is stable so items sharing a date keep their incoming order."
                        (tb nil)
                        (t (< (car a) (car b))))))))))
 
+(defun org-air-view--sort-by-quiet (items)
+  "Return ITEMS most-quiet-first, unknown-age items last (R93 FIX-2).
+The key is `org-air-classify-quiet-days' — the SAME clock
+`org-air-view--attention-reason' prints in a Needs-attention row's date
+cell (\"273d quiet\"), so the order IS the number the rows show and is
+verifiable by eye.
+
+A threshold-0 row (label \"always\", `#A' under the defaults) is sorted
+by its REAL age too, not parked: an `#A' silent for 200 days needs
+attention more than a `#C' silent for 20, and the label suppresses the
+number only because the threshold — not the age — is why it surfaced.
+An UNKNOWN age (label \"quiet\") sorts LAST, mirroring how
+`org-air-view--sort-by-date' trails undated items: org-air never invents
+a number and never lets an unknown outrank a measured one.
+
+One classify call per item (the age is precomputed into the sort key,
+not recomputed per comparison), and the order is stable so equal ages
+keep their incoming order."
+  (let* ((now (current-time))
+         (i 0)
+         (indexed (mapcar
+                   (lambda (item)
+                     (prog1 (list i (org-air-classify-quiet-days item now) item)
+                       (setq i (1+ i))))
+                   items)))
+    (mapcar (lambda (e) (nth 2 e))
+            (sort indexed
+                  (lambda (a b)
+                    (let ((qa (nth 1 a)) (qb (nth 1 b)))
+                      (cond
+                       ((and qa qb)
+                        (if (= qa qb) (< (nth 0 a) (nth 0 b)) (> qa qb)))
+                       (qa t)
+                       (qb nil)
+                       (t (< (nth 0 a) (nth 0 b))))))))))
+
 ;;;; ---------------------------------------------------------------------
 ;;;; Shared sort core (R22-3) — one cycle/reverse pair + indicator for BOTH
 ;;;; the board and the project; per-mode the SPEC (key list + refresh fn) is
@@ -5133,19 +5169,56 @@ DESC reverses the whole resulting order."
 
 (defun org-air-view--sort-items (items bucket)
   "Order ITEMS within BUCKET by the active board sort key/direction (R22-3).
-Buckets are NEVER reordered, only the items inside each.  The default key
-`date' reproduces the historical within-bucket order EXACTLY (only the
-attention/upcoming buckets were date-sorted; the rest kept query order),
-so the board byte goldens are byte-identical by default."
+Buckets are NEVER reordered, only the items inside each.
+
+The default key `date' does NOT mean \"every section by date\" — it means
+EACH SECTION BY ITS OWN PLANNING NUMBER, WORST FIRST, i.e. by the very
+number that section's rows print in the date cell (R93 FIX-2):
+
+  overdue    `--sort-by-date'   earliest deadline first  = MOST overdue
+                                first (\"OVERDUE 7d\" above \"OVERDUE 3d\").
+                                The alarm section leads with the worst
+                                promise.
+  upcoming   `--sort-by-date'   earliest date first = soonest first; the
+                                cap then shows the NEXT N, which is the
+                                only cap that means anything.
+  attention  `--sort-by-quiet'  longest SILENT first (\"273d quiet\" above
+                                \"225d quiet\"), unknown age last.  The
+                                neglect the section is about and prints,
+                                never a plan date it does not print — and
+                                the two sections above already rank
+                                commitments by date, so ranking them
+                                again here would add nothing.
+  inbox / high-priority / backlog / notes
+                                QUERY (file) order — they have no
+                                per-row number to be worst-first BY:
+                                Inbox is a processing queue (capture
+                                order), High priority is one priority by
+                                construction, Backlog is deliberately
+                                unranked.  (Notes never reaches here; it
+                                takes `--notes-by-recency'.)
+
+`O' reverses whatever the section produced.
+
+HISTORY: before R93 the overdue rows lived INSIDE `attention', so the
+one `(attention upcoming)' date list gave the alarm rows worst-first for
+free.  R93 split them into `overdue' and left that list alone, so the
+alarm section silently fell back to query order (least-overdue first) —
+the defect this arm now fixes.  The same split turned `attention' into a
+pure AGING rule: it kept a date sort it no longer had a use for (its
+date cell now prints the REASON, never a date) and dropped its dateless
+half into SCAN order, shipping \"225d quiet\" ABOVE \"273d quiet\".  Hence
+`--sort-by-quiet'."
   (let ((key  (org-air-view--sort-active-key))
         (desc (eq (org-air-view--sort-active-direction) 'descending)))
     (pcase key
       ('date
-       ;; EXACTLY today's behaviour: only attention/upcoming sort by date,
-       ;; the rest keep query order.  `O' reverses the within-bucket order.
-       (let ((sorted (if (memq bucket '(attention upcoming))
-                         (org-air-view--sort-by-date items)
-                       items)))
+       ;; Per-section planning order (see the docstring table); the rest
+       ;; keep query order.  `O' reverses the within-bucket order.
+       (let ((sorted (pcase bucket
+                       ((or 'overdue 'upcoming) (org-air-view--sort-by-date items))
+                       ('attention (org-air-view--sort-by-quiet items))
+                       (_ items))))
          (if desc (reverse sorted) sorted)))
       ('priority
        (org-air-view--sort-by items #'> #'org-air-view--item-priority-rank desc))

@@ -694,6 +694,17 @@ No test, fixture, golden or known-failures file was touched.
   =.el= and =README.org= verified byte-identical to =tmslvlpkkkso=
   (=jj diff= over =org-air*.el= + =README.org= = 0 files changed).
 
+- 2026-07-29 — *R93 FIX-2 (the Overdue sort regression).*  Third and
+  latest history entry; written up in its own top-level section at the
+  END of this document ("R93 FIX-2 — the Overdue sort regression, and
+  the per-section sort table") rather than inline, because the numbered
+  subsections below belong to the audit entry above.  In short: the
+  audit's §2 finding is fixed (Overdue is worst-first again), Needs
+  attention is fixed with it as the same class of defect, every section's
+  sort is now stated and justified in one table, 25 goldens moved
+  permutation-only, and two tests are left failing on instruction /
+  handover.
+
 ** 1. Independent classification of the 197 — CONFIRMED, with one caveat
 
   Reproduced exactly: *1279 tests, 197 unexpected, 8 skipped, 0 errors*.
@@ -1040,3 +1051,177 @@ No test, fixture, golden or known-failures file was touched.
     updates (md5 over the whole fixture set, before == after).
   - Production =.el= and =README.org= byte-identical to =tmslvlpkkkso=;
     no probe files in the repo; =.deps= untouched.
+
+* R93 FIX-2 — the Overdue sort regression, and the per-section sort table
+
+- 2026-07-29 — *R93 FIX-2.*  Third Implementation-History entry (the
+  list above points here).
+
+Parent =xuwznppxwxpp= (R93 TEST, the audit).  Source +
+Air only: =org-air-view.el=, 25 regenerated board goldens and this
+document.  =README.org= and every =tests/*.el= byte-pristine.
+
+** 1. The defect the audit found (§2 above), restated
+
+  =org-air-view--sort-items= date-sorted only ='(attention upcoming)=.
+  Pre-R93 the overdue rows lived INSIDE =attention=, so that ONE list
+  gave the alarm rows worst-first for free.  R93 split them into the new
+  ='overdue= bucket and did not extend the list, so the alarm section
+  fell back to file/query order.  Measured at width 120 on the standard
+  fixture:
+
+  | parent (R92 FIX)                  | R93 (the regression)              | R93 FIX-2 (restored)              |
+  |-----------------------------------+-----------------------------------+-----------------------------------|
+  | Chase missing invoice  OVERDUE 7d | Book dentist          OVERDUE 3d  | Chase missing invoice  OVERDUE 7d |
+  | Fix production runbook OVERDUE 5d | Fix production runbook OVERDUE 5d | Fix production runbook OVERDUE 5d |
+  | Book dentist          OVERDUE 3d  | Chase missing invoice  OVERDUE 7d | Book dentist          OVERDUE 3d  |
+
+  Not cosmetic: the section that exists to shout was led by its least
+  urgent row, and the section CAP (6) then chose the six LEAST overdue
+  rows to show — the regression hid rows, not just reordered them.
+
+** 2. The fix, and the principle it is stated under
+
+  The =date= key never meant "every section by date".  It now says so,
+  in the =--sort-items= docstring, as one rule:
+
+  #+begin_quote
+  Each section is ordered WORST FIRST by the very number its own rows
+  print in the date cell.
+  #+end_quote
+
+  A section whose rows print no number has nothing to be worst-first BY
+  and keeps query order — deliberately, not by omission.
+
+*** The per-section sort table (the deliverable)
+
+| Section        | Sorted by                                        | The number its rows print | Why that is the right planning order                                                                                             |
+|----------------+--------------------------------------------------+---------------------------+----------------------------------------------------------------------------------------------------------------------------------|
+| Inbox          | QUERY (capture/scan) order                       | none                      | A processing queue.  Inbox zero is worked in the order things arrived; ranking it would invent a priority the user never gave.     |
+| Overdue        | =--sort-by-date= asc (earliest deadline first)   | =OVERDUE Nd=              | *FIXED HERE.*  Worst-first: the most-broken promise leads, and the 6-row cap then shows the six WORST rather than six arbitrary ones. |
+| Upcoming       | =--sort-by-date= asc (soonest first)             | =Today=/=Tomorrow=/=Wed=  | Unchanged.  Worst-first for a future clock IS soonest-first, and the 5-row cap then means "the next five", the only cap that reads. |
+| High priority  | QUERY order                                      | a date, incidentally      | Every member is =#A= by construction — one priority, so there is nothing to rank.  Its dates are shown by Overdue/Upcoming above.   |
+| Needs attention| =--sort-by-quiet= desc (longest silent first)    | =Nd quiet= / =always=     | *CHANGED HERE* — see §3.                                                                                                          |
+| Notes          | =--notes-by-recency= (newest activity first)     | none                      | A lens, not a queue: the note you touched last is the one you are still thinking about.  Never reaches =--sort-items=.              |
+| Backlog        | QUERY order                                      | none                      | Deliberately unranked (R83): the whole point of deferring is that these are OFF the attention surfaces.                            |
+
+  =O= (=org-air-view-sort-reverse=) reverses whatever the section
+  produced; the =priority=/=title=/=recency= keys are untouched and
+  still apply uniformly to every bucket.
+
+** 3. The second section of the same class — Needs attention
+
+  The audit filed this as a "related presentational note, not a defect".
+  Re-examined against the rule in §2 it IS the same class, caused by the
+  same split, and it is fixed here.
+
+  - *What changed under it.*  R93 moved every overdue row OUT and made
+    the section a pure AGING rule.  Its date sort survived the move with
+    nothing left to do: R93 also made the date cell of an attention row
+    print the REASON (=273d quiet= / =always=), never a date
+    (=org-air-view--date-label=, the =attention= arm sits ahead of every
+    date arm).  So the section was ordered by a fact it does not show,
+    and its now-large dateless half fell to the tail in SCAN order.
+  - *The visible symptom, shipped in the R93 goldens.*  At width 120:
+    =225d quiet= rendered ABOVE =273d quiet=.  Two rows, both printing a
+    number, in the wrong order — the identical failure mode as Overdue,
+    one section lower.
+  - *The fix.*  =org-air-view--sort-by-quiet=: key
+    =org-air-classify-quiet-days= (the SAME public helper the row label
+    and the rail inspector quote, so order/label/bucket cannot drift),
+    descending, unknown age last, stable.  One classify call per item —
+    the age is precomputed into the sort key, not recomputed per
+    comparison — and no file access, so the R53 data-purity fence is
+    untouched (verified: =find-file-noselect= count still 0 across both
+    renders in =org-air-r53-3=).
+  - *Why "longest silent first" and not "keep the dates first".*  A
+    committed row's date is already ranked, twice, by the two sections
+    directly above (Overdue and Upcoming).  Ranking commitments a THIRD
+    time here adds nothing and costs the one thing no other section
+    shows: how long something has been ignored.
+  - *The =always= rows.*  A threshold-0 (=#A=) row sorts by its REAL
+    age, not parked at either end: an =#A= silent 200 days needs
+    attention more than a =#C= silent 20, and the label suppresses the
+    number only because the threshold — not the age — is why it
+    surfaced.  A freshly touched =#A= therefore sinks to the bottom of
+    this section, which is honest (it is not neglected) and costs no
+    visibility (it is in High priority, immediately above).
+  - *Considered and rejected:* a hybrid ("committed rows by date first,
+    then the rest by silence").  Implemented and measured — it produces
+    the identical test outcome, so it was not chosen for safety; it was
+    rejected because it orders half a section by an invisible key and
+    needs two sentences to explain instead of one.
+
+** 4. Fixture churn — 25 files, permutation-only
+
+  =make regen-mockups= → *25 of 41 fixture files moved* (R93 itself moved
+  28; the 16 unmoved ones — =layout-mockup-empty-120x50=, the
+  =denote-origin-*=, =project-view-*=, =entry-view*=,
+  =review-mockup-170= — contain neither section).
+
+  Proved to be reordering ONLY, mechanically, not by eye:
+
+  - for every moved file, the multiset of BOARD-column lines (left of
+    the =│= rule) is byte-identical before/after — no row gained, lost
+    or re-rendered;
+  - the RAIL column (right of the rule) is byte-identical line for line
+    — counts, summary, calendar, inspector all unchanged;
+  - exactly *6 board lines move per file*: 2 in Overdue (the 7d/3d swap)
+    and 4 in Needs attention (the two =Nd quiet= rows rising over the
+    three =always= rows).
+
+  Same 6 lines at every width and height, which is itself the evidence
+  that this is one ordering change and not a layout change.
+
+** 5. Gate
+
+  - =rm -f *.elc=; 11 modules byte-compile; the only warning is the
+    pre-existing =org-air-project.el:946= docstring width.
+  - =make clean && make check= → *1295 tests, 1285 as expected, 2
+    unexpected, 8 skipped* (the 8 GUI skips).
+  - =make lint= → =lint: ok (0 findings, all baselined)=.
+  - Known-failures manifest: *active length 0*.
+  - Changed: =org-air-view.el=, 25 goldens, this document.  =README.org=
+    and every =tests/*.el= byte-pristine; no probe files; =.deps= kept.
+
+*** The two failures, both owned by the test seat
+
+  1. =org-air-r93-16-audit-overdue-section-lost-its-date-sort= —
+     *EXPECTED AND DEMANDED.*  The audit's tripwire pins the WRONG order
+     and its docstring says it "must be deleted or inverted by the round
+     that fixes it".  It now fails on its first assertion — query order
+     is no longer the rendered order — which is the tripwire firing
+     correctly.  Left failing on instruction; the test seat owns the
+     inversion.
+
+  2. =org-air-r53-3-render-data-pure= — *NOT FORESEEN BY THE BRIEF, and
+     unavoidable without editing a test.*  Reported, not worked around.
+
+     - *It is caused by the mandated Overdue fix ALONE.*  Measured: with
+       the Overdue fix in and Needs attention left exactly as R93 shipped
+       it, r53-3 still fails; with all three attention-ordering variants
+       tried (date / quiet / hybrid) the failure set is identical.  The
+       attention change in §3 neither causes nor worsens it.
+     - *What it asserts.*  Its subject — "a cache-hydrated render opens
+       ZERO files" — still PASSES (both =find-file-noselect= fences, the
+       no-visiting-buffer check and the =<= 1 inspector hydrate all
+       pass).  It then dies on an incidental "the board really painted"
+       witness: =(should (string-match-p "Prepare standup notes" text))=.
+     - *Why the witness vanished.*  That test renders under the REAL
+       clock (=Wed 29 Jul=), where the whole fixture is overdue: Overdue
+       holds 12 rows under a cap of 6.  In query order the first six
+       happened to include "Prepare standup notes".  Worst-first, the six
+       are 51d, 49d, 47d, 44d, 44d, 43d and "Prepare standup notes" (43d,
+       losing the stable tiebreak to "Prep client presentation") falls
+       under =...and 6 more=.  It is not in the top 6 of Needs attention
+       either, under ANY of the three orderings.
+     - *So the test is coupled to the defect*: it was green only because
+       the alarm section was in scan order.  That is exactly the class
+       the audit warned about ("tests that keep passing while asserting a
+       dead rule") — it simply was not in the 197, and the audit did not
+       catch it because it is not an assertion ABOUT ordering.
+     - *No production-side fix exists that is not a cheat.*  Raising the
+       Overdue cap, or tiebreaking to favour that title, would be gaming
+       a test with product behaviour.  This seat may not edit tests, so
+       it is handed over: r53-3 needs a stable witness row (or a frozen
+       clock), which is the same repair the r93-16 inversion needs.

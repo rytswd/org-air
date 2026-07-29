@@ -639,9 +639,7 @@ callers should fall back to the behavioural assertions)."
 (ert-deftest org-air-r68-14-redeadline-knob-and-legacy-set-schedule ()
   "AUDIT hardening for the two discipline lines r68-7 leaves unpinned:
 \(a) `org-log-redeadline' let-bound to \\='note (the `lognoteredeadline'
-user) — `org-air-item-deadline' (the COMMAND; called through
-`symbol-function' because eager macroexpansion inlines the struct
-accessor of the same name over direct calls) lands the new stamp,
+user) — `org-air-item-set-deadline' (the COMMAND) lands the new stamp,
 leaves the hook clear, and the downgraded TIMESTAMPED `- New deadline
 from' record is in the saved bytes; (b) the legacy unbound
 `org-air-set-schedule' — converted this round from a hand-copy of the
@@ -686,7 +684,7 @@ incremental run showed)."
     ;; (a) deadline under lognoteredeadline
     (org-air-r68--goto-row "Deadlined thing")
     (let ((org-log-redeadline 'note))
-      (funcall (symbol-function 'org-air-item-deadline) "2026-08-15"))
+      (org-air-item-set-deadline "2026-08-15"))
     (should-not (org-air-r68--log-pending-p))
     (should-not (get-buffer "*Org Note*"))
     (let ((new (org-air-r68--text "dead.org")))

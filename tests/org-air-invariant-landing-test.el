@@ -89,7 +89,7 @@
     (org-air-item-archive             stable  row)
     (org-air-item-kill                stable  row)
     (org-air-set-tag                  stable  row)
-    (org-air-item-deadline            stable  row)
+    (org-air-item-set-deadline        stable  row)
     (org-air-item-file-group          stable  row)
     (org-air-edit-undo                stable  row)
     (org-air-edit-redo                stable  row)

@@ -1,5 +1,5 @@
 #+title: org-air R96 — the accessor/command collision closed, and the lint rule that makes the class impossible
-#+air_state: work-in-progress
+#+air_state: complete
 #+air_tags: org-air impl hygiene lint struct naming
 
 * Context
@@ -362,7 +362,7 @@ The =d= key itself is *unchanged*; only the symbol it names moved.
 =air/v0.1/org-air-triage.org='s key table (line 64) carries the same old
 name and should be re-blessed with it.
 
-** Suggested NEW pin for the test seat (not written here — no ERT edits)
+** NEW pin for the test seat — LANDED (see R96 tests, below)
 
 The lint rule is static.  A one-test dynamic twin would close the loop:
 for every slot of every =cl-defstruct= in the package, assert
@@ -403,3 +403,149 @@ fixtures.
 INTERPRETED identical.  =make lint= 0 findings with the new rule.
 =make regen-mockups= byte no-op.  All 6 failures are the old-name pins
 listed above, each with a one-token re-bless shape.
+
+** R96 tests (2026-07-29) — DONE
+
+Test seat on top of the R96 implementation (=xpklqmlkolku=).  Tests and
+Air history only: the 11 production =.el= files, =tests/org-air-lint.el=,
+=tests/org-air-lint-baseline.el=, README and every fixture/golden are
+byte-identical to the parent.
+
+*** The six re-blessed — each a one-token old-name pin, verified as such
+
+Before touching anything, the parent gate was reproduced exactly: 1342
+tests / 6 unexpected / 8 skipped, COMPILED and INTERPRETED, identical.
+The R96 diff was read first to confirm the six are name pins and not
+behaviour regressions: =org-air-view.el= moves the =defun= name and its
+three references (=d= binding :1766, guided-walk =call-interactively=
+arm, =?= help alist) and changes *nothing else* — same arglist, same
+=org-air-view--single-mutation-guard=, same body, same help string,
+same key.
+
+| # | pin                                                     | file:line                          | change                     |
+|---+---------------------------------------------------------+------------------------------------+----------------------------|
+| 1 | landing table row (fixes 3 tests at once)               | org-air-invariant-landing-test.el:92 | symbol only; =stable row= kept |
+| 2 | =org-air-r68-14= call + docstring                        | org-air-round68-test.el:642,689    | workaround → direct call   |
+| 3 | =org-air-r90-9= command list                             | org-air-round90-test.el:933        | symbol only                |
+| 4 | =org-air-triage-keymap-dispositions=                     | org-air-triage-test.el:47          | symbol only; =d= key kept  |
+
+Row 1 is one token: =(org-air-item-set-deadline stable row)=.  Class and
+park are unchanged and still true — the command repaints and leaves the
+cursor on its row — and the single edit turns all three landing
+invariants green together (table-is-complete, table-has-no-dead-rows,
+board-commands-land-on-a-row).
+
+Row 2 is a *strengthening*, not a re-bless.  =org-air-r68-14= called the
+command as =(funcall (symbol-function 'org-air-item-deadline) …)= — it
+was routing around the very defect R96 fixed — and its docstring said
+so.  The call is now the honest =(org-air-item-set-deadline "2026-08-15")=
+and the parenthetical "(the COMMAND; called through =symbol-function=
+because eager macroexpansion inlines the struct accessor of the same
+name over direct calls)" is DELETED: it documented a hazard that no
+longer exists.  Both behavioural legs still discriminate — the
+=lognoteredeadline= downgrade (no pending note, no =*Org Note*= buffer)
+and the saved =- New deadline from "[2026-07-30 Thu]" on [= record are
+untouched and still assert on the written bytes.
+
+Row 3's pre-fix failure — =(wrong-type-argument commandp
+org-air-item-deadline)= — is itself the proof the fix landed: the old
+name is now a plain accessor and =call-interactively= rightly refuses it.
+
+Row 4 moves the SYMBOL only; the =d= key is unchanged, which the same
+test still asserts through =lookup-key=.
+
+=air/v0.1/org-air-triage.org= line 64 re-blessed to =org-air-item-set-deadline=
+in its key table.
+
+*** The dynamic twin — tests/org-air-round96-test.el (3 tests, +3 → 1345)
+
+The design's suggested pin, written as the RUNTIME half of the static
+=dupdef= rule.  Struct discovery is from SOURCE (every =cl-defstruct=
+form in every =org-air*.el=, =:conc-name= / =:predicate= / =:copier= /
+=:constructor= options honoured, =nil= = not generated), so a struct
+added in a later round is covered with no edit here; every ASSERTION is
+made against the LOADED image, so a collision introduced by any means at
+all reddens it.
+
+- =org-air-r96-1-struct-accessor-function-cells-are-the-accessors= — for
+  every slot of every struct: =fboundp=, =(not (commandp ACC))=,
+  =(not (interactive-form ACC))=, and =(equal (funcall ACC obj)
+  (cl-struct-slot-value TYPE SLOT obj))= via THREE distinct function-cell
+  reaches (=funcall=, =apply=, =mapcar=).  Static calls are deliberately
+  never used: those are the ones =cl-defstruct='s compiler macro inlines,
+  compiled AND interpreted, which is exactly what hid the defect.  The
+  probe object is built with =record=, not the constructor, so a broken
+  constructor cannot mask a broken accessor.  Anti-vacuity: ≥3 structs
+  found, all three known types present, the parsed slot list must =equal=
+  the LOADED =cl-struct-slot-info=, and ≥32 accessors actually checked
+  (24 + 7 + 1 = 32 today).
+- =org-air-r96-2-struct-constructors-predicates-copiers-are-clean= — the
+  other 7 generated names: no constructor / predicate / copier may be
+  =commandp=; each predicate accepts its own instance and rejects =nil=
+  and a string; the copier returns =equal= but not =eq=; each
+  constructor (keyword form for =org-air-item-create= /
+  =org-air-doc-create=, BOA arglist for
+  =org-air-view--history-token-create=) builds an instance whose named
+  arguments landed in the matching slots.  32 + 7 = the full 39.
+- =org-air-r96-3-deadline-accessor-and-command-are-distinct-symbols= —
+  the instance, named: =org-air-item-deadline= is the slot and is not a
+  command, =org-air-item-set-deadline= is the command, their
+  =indirect-function=\s are NOT =eq= (the "no =defalias=" ruling of
+  Decision 1, pinned), and =d= still looks up the command.
+
+*RED on the pre-fix tree, verified not assumed.*  =main= (R95,
+=cb7b6348=) was materialised outside the repo and the three tests were
+run against it in BOTH modes:
+
+#+begin_example
+PRE-FIX interpreted : Ran 3 tests, 0 as expected, 3 unexpected
+PRE-FIX compiled    : Ran 3 tests, 0 as expected, 3 unexpected
+  r96-1: Info: struct org-air-item (org-air-query.el:221)
+         Info: accessor org-air-item-deadline
+         ((should-not (commandp acc)) :form (commandp org-air-item-deadline) :value t)
+  r96-2: (user-error "No org-air item at point")   ; funcalling the "constructor" path
+  r96-3: ((should-not (commandp 'org-air-item-deadline)) … :value t)
+HERE    (both modes)  : 3/3 pass
+#+end_example
+
+*** Regression sweep
+
+| gate                                        | result                                              |
+|---------------------------------------------+-----------------------------------------------------|
+| =make clean && make check= COMPILED (11 .elc) | 1345 tests, 1337 as expected, *0 unexpected*, 8 skipped |
+| same suite, no =.elc= (INTERPRETED)          | 1345 / 1337 / *0 unexpected* / 8 skipped — identical |
+| =make lint=                                  | *0 findings*, all baselined                          |
+| =tests/org-air-lint-baseline.el=             | untouched; *0 =dupdef= entries* — the rule stays at zero |
+| =tests/org-air-known-failures.el=            | *0 entries* (manifest empty)                         |
+| =make regen-mockups=                         | byte no-op over all fixtures (md5 verified)          |
+
+Family selectors, compiled: R90 102/102, R91 31/31, R92 19/19, R93
+21/21, R94 22/22, R95 20/20 — all 0 unexpected.  The only byte-compile
+warning is the pre-existing =org-air-project.el:946: docstring wider
+than 80 characters=.
+
+*** Mutation evidence
+
+| # | mutation                                                        | dynamic twin | lint rule |
+|---+-----------------------------------------------------------------+--------------+-----------|
+| A | =(defalias 'org-air-item-deadline #'org-air-item-set-deadline)=  | 3/3 FAIL     | FAIL (1 new) |
+| B | interactive =defun= re-added under the accessor's name (the original bug) | 3/3 FAIL | FAIL (1 new) |
+| C | runtime =(fset (intern (concat "org-air-item-" "deadline")) …)=  | 3/3 FAIL     | *0 findings* |
+| D | the command renamed BACK, no =defalias=                          | —            | —         |
+
+Mutation A is the exact temptation Decision 1 refused, and both halves
+catch it.  *Mutation C is why the twin is not redundant with the lint
+rule*: a function cell replaced at runtime, under a name assembled with
+=intern=, is invisible to any static scanner and the twin still reddens.
+Mutation D re-runs the six re-blessed pins against a reverse-renamed
+=org-air-view.el=: all six FAIL (=Ran 10 tests, 4 as expected, 6
+unexpected= — the four other landing/triage tests in the selector stay
+green), proving each pin is load-bearing and not decorative.
+
+All mutations reverted; =org-air-view.el= and =org-air-query.el= restored
+byte-identical:
+
+: 951ae4b0768ebe4b398e23cd76460835060cfb2bbdcc5a546c368dc74acc3a20  org-air-view.el
+: e88271408c4def8899fd045e719b9c1761d645cc922d15134d97a1c6dadf988a  org-air-query.el
+: 3e38b02f3ae0b34bef820e47b2ac38a05d7b59212b821544e5c2b2c1a3347dab  tests/org-air-lint.el
+: 2f25f86651c5d30783b7930b33784352a8f18c1281a656cf29c4bab7c5706dab  README.org

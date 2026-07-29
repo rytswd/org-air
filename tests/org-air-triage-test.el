@@ -44,7 +44,7 @@ moved into the process-inbox guided flow) and `k' is now a motion key
 their keys."
   (skip-unless (locate-library "org-air"))
   (pcase-dolist (`(,key . ,command)
-                 '(("d" . org-air-item-deadline)
+                 '(("d" . org-air-item-set-deadline)
                    ("e" . org-air-refile-item)
                    ("f" . org-air-item-file-group)
                    ("t" . org-air-set-tag)

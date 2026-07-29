@@ -930,7 +930,7 @@ and every other callback rooted in org-air must remain fully synchronous."
                  (lambda (&rest _) (cl-incf prompts) t))
                 ((symbol-function 'save-buffer)
                  (lambda (&rest _) (cl-incf writes) (error "write"))))
-        (dolist (command '(org-air-item-cycle-todo org-air-item-deadline
+        (dolist (command '(org-air-item-cycle-todo org-air-item-set-deadline
                            org-air-refile-item org-air-item-file-group
                            org-air-item-archive org-air-item-done
                            org-air-item-kill org-air-item-schedule

@@ -61,7 +61,7 @@ are free.  Additions to the v0.1 map (existing: =r= refile, =t= tag,
 | Key | Command                  | Action                                   | Files out of Inbox?              |
 |-----+--------------------------+------------------------------------------+----------------------------------|
 | =s=   | =org-air-item-schedule=    | set =SCHEDULED= (quick-date sub-prompt)    | no — adds to Upcoming, stays      |
-| =d=   | =org-air-item-deadline=    | set =DEADLINE= (quick-date sub-prompt)     | no — adds to Upcoming/attn, stays |
+| =d=   | =org-air-item-set-deadline= | set =DEADLINE= (quick-date sub-prompt)     | no — adds to Upcoming/attn, stays |
 | =r=   | =org-air-refile-item=      | refile subtree to file/heading           | yes                              |
 | =f=   | =org-air-item-file-group=  | fast refile under a category/group (=@…=)  | yes                              |
 | =t=   | =org-air-set-tag=          | add/remove tags (=#…=)                      | no — refine, stays                |

@@ -222,6 +222,31 @@ which is kept as a deprecated alias below."
 The predicate is unchanged — only Stale, the bucket it used to gate, is
 retired.  Kept so existing callers keep working rather than signalling.")
 
+(defun org-air-classify--planned-p (item)
+  "Non-nil when ITEM carries a PLAN: a SCHEDULED or a DEADLINE (R95).
+The ONE definition of \"has a plan\" that the DATE SECTIONS actually
+consume — `org-air-classify--overdue-p' and
+`org-air-classify--due-within-p' read exactly these two slots and nothing
+else — hoisted so `org-air-classify--untracked-p' can ask the same
+question they answer.
+
+WHY IT IS NOT `org-air-classify--dated-p'.  That predicate is BROADER: it
+also counts an active `<timestamp>' anywhere in the subtree, because it
+answers the calendar's question (\"does this heading put a mark on a
+day?\") behind the `is:nodate' token.  R94 built Untracked on the broad
+notion and the R94 review measured the gap between the two: a `TODO'
+whose ONLY date is a bare active stamp in its BODY was excluded from
+Untracked for being dated, while Overdue and Upcoming never looked at
+that stamp — so it had NO ROW ANYWHERE, at any file age, even with the
+stamp yesterday or tomorrow.  Untracked is the catch-all for the date
+sections, so it must be the negation of what the date sections read.
+
+The two notions stay separate on purpose: `is:nodate' is still the
+`--dated-p' negation (R54-1), so `is:untracked' is no longer a subset of
+it in either direction — they answer different questions."
+  (or (org-air-item-scheduled item)
+      (org-air-item-deadline item)))
+
 (defvar org-air-classify--truename-cache (make-hash-table :test #'equal)
   "Memo FILE -> truename for the inbox-membership test (R53 P2).
 Bounded by the configured file count; avoids a `file-truename' component
@@ -477,11 +502,41 @@ costs no penalty."
 The Untracked bucket's body AND the `is:untracked' filter predicate — ONE
 definition, so section and token agree by construction.
 
-  no plan    `org-air-classify--dated-p' is nil: no SCHEDULED, no
-             DEADLINE, no active timestamp anywhere in the subtree;
+  no plan    `org-air-classify--planned-p' is nil: no SCHEDULED and no
+             DEADLINE — the two slots Overdue and Upcoming read, so this
+             is exactly the negation of \"some date section can show it\";
   no record  `org-air-classify-updated' is nil: no LOGBOOK state change
              or note, no clock-out, no `CLOSED:', no `:CREATED:', no body
-             stamp — nothing Org writes when something happens.
+             stamp — nothing Org writes when something happens;
+  no queue   the heading is not an inbox dweller
+             \(`org-air-classify--inbox-dweller-p'): Inbox already holds
+             it, and holds it unconditionally.
+
+R95 CHANGED TWO THINGS HERE, both of them coverage.
+
+1. THE PLAN CLAUSE IS NOW THE ONE THE DATE SECTIONS READ.  R94 asked
+   `org-air-classify--dated-p', which also counts an active `<timestamp>'
+   anywhere in the subtree — a broader notion of \"planned\" than Overdue
+   and Upcoming consume.  Every heading in the gap fell out of the
+   catch-all without ever reaching a date section: a `TODO' whose only
+   date is a bare `<2026-06-14 Sun>' in its body had NO ROW ANYWHERE and
+   answered no `is:' token at all (`is:nodate' refused it — it IS
+   dated).  Measured by the R94 review through the real renderer, with
+   the stamp yesterday, tomorrow and three months out, at both file
+   ages.  Asking `org-air-classify--planned-p' closes it: the catch-all
+   is now the exact negation of the sections it backstops.
+
+2. AN INBOX DWELLER IS NOT UNTRACKED.  An unprocessed capture has no
+   plan and no record BY DEFINITION, so the Untracked row said nothing
+   the Inbox row had not already said, in a section capped at four rows
+   \(1 of the 3 rows on the shipped demo board; 2 of 21 on the review's
+   corpus).  This is NOT the R93 inbox carve-out coming back — that one
+   was about AGING and it HID work.  This one hides nothing and cannot:
+   `org-air-classify--heading-buckets' gives every board-active,
+   non-deferred inbox dweller the `inbox' bucket UNCONDITIONALLY, so the
+   coverage theorem holds by construction.  Inbox is the section that
+   already names what to do with an undated, unrecorded heading —
+   process it — and Untracked is for work that has no such home.
 
 WHY THE SECTION EXISTS.  R93 replaced \"a dateless item needs attention\"
 with an aging rule, which was right, and R94 took the file mtime out of
@@ -500,12 +555,17 @@ a heading out of it permanently.  The pre-R93 rule did the opposite: it
 put undated work in the ALARM lane, ranked above real overdue work, with
 no exit except inventing a date or tagging `:backlog:'.
 
-TOTAL, no carve-outs (R93 decision 3, the standing overlap rule): a
-heading that is also an inbox dweller or a `#A' shows in both places, and
-the two rows say different things.  A `:backlog:' heading routes out of
-this bucket with all the others (`org-air-classify--heading-buckets')."
-  (and (null (org-air-classify--dated-p item))
+THE OVERLAP RULE STILL STANDS (R93 decision 3) wherever the two rows say
+different things: an untracked `#A' shows in High priority AND here, and
+both statements are true and distinct (\"this matters\" / \"org-air cannot
+rank it\").  The R95 inbox clause is not an exception to that rule but an
+application of it — for an unprocessed capture the two rows say the SAME
+thing, so only the one with a verb is kept.  A `:backlog:' heading routes
+out of this bucket with all the others
+\(`org-air-classify--heading-buckets')."
+  (and (null (org-air-classify--planned-p item))
        (null (org-air-classify-updated item))
+       (not (org-air-classify--inbox-dweller-p item))
        t))
 
 (defun org-air-classify--hipri-p (item)
@@ -606,10 +666,23 @@ R93: Overdue is its own bucket; Needs attention is the AGING rule
 NON-EXCLUSIVE, exactly as before: an item may hold several at once (an
 overdue `#A' that has been quiet a month is in Overdue, High priority
 AND Needs attention), and each section shows it.
-R94: `untracked' (`org-air-classify--untracked-p') closes the covering —
-every board-active, non-deferred task heading now has a row somewhere
-UNLESS its own plan puts it in the future beyond the Upcoming horizon,
-which is a promise org-air keeps rather than a hiding place."
+R94: `untracked' (`org-air-classify--untracked-p') closes the covering.
+R95 states the covering as it is actually true — THE COVERAGE THEOREM:
+
+  Every board-active, non-deferred task heading has a row somewhere,
+  UNLESS its own facts defer it, which happens in exactly two ways:
+    (a) its PLAN (SCHEDULED/DEADLINE) puts it beyond the Upcoming
+        horizon; or
+    (b) org-air MEASURED activity on it more recently than its
+        priority's threshold.
+  There is no third case.
+
+Both exemptions are promises rather than hiding places: (a) resurfaces on
+its own date, (b) resurfaces when the heading goes quiet.  R94 shipped
+the sentence with clause (a) alone and with a third case it did not know
+about (a plan written as a body `<timestamp>' reached neither Untracked
+nor a date section); R95's `org-air-classify--planned-p' closes that case
+and the sentence above is now true without an asterisk."
   (let* ((now (or now (current-time)))
          (buckets nil)
          (inbox-p (org-air-classify--inbox-dweller-p item)))
@@ -644,7 +717,12 @@ which is a promise org-air keeps rather than a hiding place."
         ;; recorded history has no clock to age off and no date to be due
         ;; on, so before R94 it had no row anywhere once the file-mtime
         ;; floor stopped excusing it.  It gets one here — a statement, not
-        ;; an accusation.
+        ;; an accusation.  R95: "plan" here is the SCHEDULED/DEADLINE pair
+        ;; the date sections read (`org-air-classify--planned-p'), so the
+        ;; catch-all is the exact negation of the sections it backstops;
+        ;; and an inbox dweller is excluded, because the `inbox' push
+        ;; below is UNCONDITIONAL for exactly the same heading — the two
+        ;; rows would have said the same thing.
         (when (org-air-classify--untracked-p item)
           (push 'untracked buckets))
         (when inbox-p

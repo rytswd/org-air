@@ -1,0 +1,532 @@
+#+title: org-air Round 95 — coverage closure: the theorem made true, the sweep section made fair
+#+state: complete
+#+tags: board classify planning untracked coverage recency sort presentation
+
+* Summary
+
+R94's review ruled the planning MODEL *stable* and scoped exactly one
+more round: *coverage closure, not model change*.  This is that round.
+No bucket was added, no section list changed, no cache version bumped,
+no knob added.  Six one-idea fixes, each of which makes an existing
+promise true rather than making a new one:
+
+1. *FU1 — the coverage theorem was FALSE; it is now true without an
+   asterisk.*  =--untracked-p= asked =NOT --dated-p=, and =--dated-p=
+   counts an active =<timestamp>= anywhere in the subtree — a broader
+   notion of "planned" than Overdue and Upcoming consume.  A =TODO=
+   whose only date was a bare =<ts>= in its BODY therefore fell out of
+   the catch-all *and* was never read by a date section: no row
+   anywhere, no =is:= token, at any file age, with the stamp yesterday
+   or tomorrow.  Untracked now negates =--planned-p= (SCHEDULED /
+   DEADLINE), which is exactly what the date sections read.
+2. *FU2 — the Untracked ordering reproduced the pathology it was created
+   to solve.*  Its rank key is a FILE fact shared by every heading in a
+   file, so one cold =someday.org= owned the capped section (4 of 4
+   visible rows measured by the review) while the bare admin =TODO=s in
+   the file the user edits daily sat at ranks 16-20.  A per-file
+   diversity quota (2 rows while collapsed) fixes it *without* touching
+   the order law.
+3. *FU3* — =org-air-query--planning-keyword-regexp= is anchored, so
+   =:LAST_DEADLINE:= / =:ORIG_SCHEDULED:= stop swallowing their own
+   stamps.
+4. *FU4* — the =recency= sort key is the MEASURED clock
+   (=org-air-classify-updated=).  It could rank a Needs-attention row by
+   a FUTURE =SCHEDULED= date; it was the last place the plan/record
+   conflation R94 abolished still decided an order a user reads.
+5. *FU6* — an unprocessed inbox capture leaves Untracked.  "No plan, no
+   record" is a tautology about it and Inbox already has the verb.
+6. *FU7* — absurd day counts render as =10y+= instead of =739781d=.
+   Presentation only; the fact and every sort key keep the true number.
+
+Plus the nine README lines the review's §9(c) filed, and the behaviour
+changes FU1/FU2/FU6 make user-visible.
+
+Parent =rkoroxkyywkl= (= =main=, R94 tests).  Source + README + goldens +
+this document only.  *No =tests/*.el= byte was touched.*
+
+* FU1 — the coverage theorem
+
+** The hole, in one picture
+
+: * TODO Meeting follow-ups from the January offsite
+: We agreed on this at the offsite <2026-01-01 Thu 14:00>.
+
+Before R95, at BOTH file ages:
+
+: dated=y  planned=y(broad)  measured=-   =>  buckets: NIL
+: is:nodate -> ()   is:untracked -> ()   is:attention -> ()   is:overdue -> ()
+
+=--dated-p= (scheduled ∨ deadline ∨ subtree active =<ts>=) excused it
+from Untracked; =--overdue-p= / =--due-within-p= read only the
+=scheduled= / =deadline= SLOTS, so neither date section ever saw the
+stamp.  The plan could be 166 days in the *past* and the heading still
+had no row.  =is:nodate= refused it too — it IS dated, and correctly so:
+that stamp marks a day on the calendar.
+
+** The fix: the catch-all must negate what the sections read
+
+A new hoisted predicate states the notion the date sections consume:
+
+#+begin_src elisp
+(defun org-air-classify--planned-p (item)
+  (or (org-air-item-scheduled item)
+      (org-air-item-deadline item)))
+#+end_src
+
+and =--untracked-p= becomes "no =--planned-p=, no
+=org-air-classify-updated=" (plus the FU6 clause).  =--dated-p= is
+untouched and still answers =is:nodate= alone (R54-1's ruling).
+
+*The two notions were nested and are now independent*, which is the one
+user-visible consequence to state plainly:
+
+| set                                  | =is:nodate= | =is:untracked= |
+|--------------------------------------+-------------+----------------|
+| bare =TODO=                          | yes         | yes            |
+| undated + LOGBOOK trail              | yes         | no             |
+| only date is a body =<ts>=, no trail | *no*        | *yes*          |
+| =SCHEDULED:= far future, no trail    | no          | no             |
+
+The alternative (teach Overdue/Upcoming about body timestamps, as
+=org-agenda= does) is *bigger and arguably more correct*, and it is
+deliberately NOT taken here: it would move headings into the two
+sections a user reads as commitments, which is a model change, and this
+round is a closure round.  Filed for a future round in the handover.
+
+** THE THEOREM, restated and now true
+
+#+begin_quote
+Every board-active, non-deferred task heading has a row somewhere —
+unless (a) its own PLAN (=SCHEDULED= / =DEADLINE=) puts it beyond the
+Upcoming horizon, or (b) org-air MEASURED activity on it more recently
+than its priority's threshold.  *There is no third case.*
+#+end_quote
+
+Both exemptions are promises rather than hiding places: (a) resurfaces
+on its own date, (b) resurfaces when the heading goes quiet.  The
+sentence now lives in three places that cannot drift apart: the README's
+Untracked section, =org-air-classify--heading-buckets=, and (as of the
+test seat's next round) =r94-8=.
+
+*Swept, not asserted.*  A 9-plan × 3-record × 3-priority corpus (the
+plan axis now including =body-ts-past= / =body-ts-soon= / =body-ts-far=)
+at two file ages, 162 board-active headings:
+
+: plan-exempted (a): 16   record-exempted (b): 16
+: no-plan/no-record headings, all with a row: 24
+: THIRD CASE (no row, no exemption): NONE
+
+** The generator axis the test seat must add
+
+=org-air-r94--plan-shapes= builds its 99 headings from =:scheduled= and
+=:deadline= day-offsets ONLY.  There is no cell for a plan expressed as
+a body timestamp, which is why a sound property passed over an unsound
+space.  The seat needs:
+
+#+begin_src elisp
+;; org-air-r94--plan-shapes gains an :active-ts axis
+(body-ts-past  nil nil -5)   ; (NAME SCHEDULED DEADLINE ACTIVE-TS)
+(body-ts-soon  nil nil  1)
+(body-ts-far   nil nil 92)
+#+end_src
+
+with =org-air-r94--item= setting =:active-ts= (and =:own-active-ts=), so
+the matrix becomes plan-SPELLING × plan-DISTANCE × record × priority.
+Two further cells are worth the same treatment: an *inbox-dwelling* row
+(FU6's clause is invisible to a generator that never sets a file) and a
+=:LAST_DEADLINE:= property row (FU3).
+
+* FU2 — the Untracked ordering
+
+** The finding
+
+=--sort-by-floor= ranks by =org-air-classify-quiet-floor-days=, which is
+the FILE's mtime bound — *identical for every heading in a file*.  So the
+capped section is won by whichever file is coldest, not by which work is
+most stranded.  Measured by the review on a 21-member corpus: 4 of 4
+visible rows from one =someday.org=; the canonical member the README
+itself names (=* TODO Cancel the unused SaaS seats=) at rank 16 of 21.
+
+That is R93's Needs-attention pathology rebuilt one section lower, and it
+sits badly with the section's own claim: a section that says "org-air
+cannot rank this work" must not then let one file's mtime pick its four
+rows.
+
+** The options, weighed
+
+| option                      | visible four become                | verdict |
+|-----------------------------+------------------------------------+---------|
+| (a) leave it                | 4 someday rows                     | no      |
+| (b) reverse (freshest file) | the work.org admin rows            | loses the genuinely-stranded work |
+| (c) query (file) order      | arbitrary; no rank at all          | throws away a real fact |
+| *(d) per-file quota of 2*   | 2 someday + shed door + Q2 expenses | *TAKEN* |
+
+(d) is the review's recommendation and the only one that keeps the
+information the bound carries while removing the failure mode it causes.
+It is a DISPLAY rule like the section cap itself, so the badge, the
+Summary count, =is:untracked= and the "…and N more" arithmetic are all
+untouched (they count MEMBERS).
+
+** How the two rules compose — the part that matters
+
+FIX-2's law ("a capped section shows its rows worst-first by the very
+number those rows print") is an *ORDER* law.  The quota is a *SELECTION*
+rule.  R95 keeps them apart and states both:
+
+- *ORDER (unchanged).*  =--sort-by-floor= still ranks every member
+  worst-first, "no history" last.  =TAB= shows exactly that list.
+- *SELECTION (new, Untracked only).*  The collapsed window walks that
+  order and takes a row only while its file has fewer than two rows
+  already taken; if the cap is still not full — a single-file user's
+  normal state — the slack is filled from the rows just skipped, still
+  worst-first.
+- *COMPOSITION.*  The window is returned as a SUBSEQUENCE of the sorted
+  list, so what the user reads is still monotone worst-first by the
+  number in the cells.  FIX-2 is therefore true of every set of rows the
+  board paints; the quota only decides WHICH members that set contains.
+
+Measured on the review's corpus shape (19 members, cap 4):
+
+: VISIBLE  Start a woodworking habit     ~210d quiet   someday.org
+: VISIBLE  Digitise the family photos    ~210d quiet   someday.org
+: VISIBLE  Fix the shed door             ~40d quiet    personal.org
+: VISIBLE  File the Q2 expenses          no history    work.org
+: file mix: someday 2 / personal 1 / work 1     (was: someday 4)
+: window is a SUBSEQUENCE of the worst-first order: yes
+: single-file corpus still fills the cap: 4 rows
+
+The cap stays at *4*: the review's own conclusion was that 4 is right
+once the sample is representative, and it now is.
+
+** The R90 linearity law caught a real defect here
+
+The first implementation used =(memq item chosen)= and
+=(seq-filter (lambda (it) (memq it chosen)) sorted)=.  The compiled gate
+passed — and =r90-50= ("current repaints do zero source work", which
+counts =memq=/=assq= calls whose object is an =org-air-item=) passed with
+it, because *byte-compiled =memq= is an opcode and never reaches the
+=cl-letf= shim*.  Run the same suite INTERPRETED and it reddens
+immediately: =(should (= forbidden 0))= → =(= 5020 0)= at the 5k corpus.
+
+The membership set is now an =eq= hash table (both in
+=--collapsed-window= and in the =TAB= landing's first-hidden lookup), so
+the law holds in letter and in spirit.  *Handover:* the R90 linearity
+fence is only enforced against interpreted source; a compiled gate
+cannot see a violation.  Worth a note in the seat, or a deliberate
+uncompiled leg.
+
+* FU3 — the unanchored planning keyword
+
+=org-air-query--planning-keyword-regexp= matched the TAIL of a longer
+word, so a property whose NAME merely ends in a planning keyword had its
+own stamp read as a plan and discarded:
+
+| line                                     | R94                  | R95              |
+|------------------------------------------+----------------------+------------------|
+| =:LAST_DEADLINE:  [2026-06-01 Mon 08:00]= | UNKNOWN → Untracked  | *measured 14d*   |
+| =:ORIG_SCHEDULED: [2026-06-01 Mon 08:00]= | UNKNOWN → Untracked  | *measured 14d*   |
+| =DEADLINE: [2026-06-01 Mon]= (real plan)  | UNKNOWN, overdue     | unchanged        |
+| =CLOSED: [x] DEADLINE: [y]= (mixed line)  | closed counts        | unchanged        |
+
+One character class: =\\(?:^\\|[ \t]\\)\\(SCHEDULED\\|DEADLINE\\|CLOSED\\):=.
+The group stays group 1 (shy outer group), and the mixed planning line
+still resolves keyword by keyword — the space before =DEADLINE:=
+satisfies the anchor.
+
+* FU4 — the =recency= sort key now means recency
+
+=org-air-view--item-activity= was =org-air-classify--last-activity=:
+=closed ‖ scheduled ‖ deadline ‖ first subtree stamp ‖ FILE MTIME=.
+R93 defended that as "what has this item got going on lately", where a
+plan legitimately counts.  Measured through the real renderer, the
+defence does not survive: pressing the sort key in Needs attention put
+=Renegotiate the CDN contract= FIRST because its activity was its
+=SCHEDULED: <2026-07-01>= — a key labelled *recency* ranking a row by a
+date in the FUTURE, and the section ceasing to match the numbers its own
+rows print the moment the user touches the key.
+
+R95 points it at =org-air-classify-updated= — the same measured stamps
+Needs attention reads — and adds =--sort-by-recency=:
+
+- least-recently-updated first under the default ascending direction, the
+  same worst-first convention every other board order follows;
+- *a heading with no measured clock ranks LAST*, in title-then-query
+  order.  The rule is VISIBLE, not silent: those rows already print
+  =quiet= or =no history= in their own date cell.  The file mtime is not
+  re-introduced as a stand-in — it is a fact about a file, and this is an
+  order over headings;
+- =O= reverses the whole result, exactly as it always has.
+
+Measured after:
+
+: Learn the lute                 274d   (activity slot 2025-09-14)
+: Renegotiate the CDN contract    87d   (activity slot 2026-07-01 <- ignored now)
+: Renew the passport              40d
+: Write the incident postmortem    7d
+: Never measured at all       UNKNOWN   <- last
+: recency order == measured-quiet order?  YES
+
+* FU6 — an unprocessed capture is not Untracked
+
+An inbox dweller has no plan and no record *by definition*, so the
+Untracked row repeated what the Inbox row two sections above already
+said — while consuming a scarce cap slot (1 of 3 rows on the shipped
+demo board, 2 of 21 on the review's corpus).
+
+*Decision: exclude, and the argument is not "it is noisy" but "it cannot
+hide anything".*
+
+- =org-air-classify--heading-buckets= pushes =inbox= UNCONDITIONALLY for
+  every board-active, non-deferred inbox dweller.  The exclusion
+  therefore cannot strand a heading, and *the coverage theorem is
+  preserved by construction* rather than by inspection.
+- This is not the R93 inbox carve-out returning.  That one was about
+  AGING and it HID work (a capture that had sat for months could not
+  surface).  This one moves no heading off the board.
+- The overlap rule (R93 decision 3) is not weakened: it says overlapping
+  rows are fine *when they say different things*.  An untracked =#A=
+  still shows in both places, because "this matters" and "org-air cannot
+  rank it" are two facts.  For a capture the two rows are one fact, and
+  Inbox is the one with a verb.
+- It affects hand-written captures only: org-air's own =c= writes a
+  =:CREATED:= stamp (=org-air-inbox.el=), so anything captured through
+  org-air was never in Untracked anyway.
+
+The clause lives INSIDE =--untracked-p=, not in the bucket pass, so the
+R72 filter⇔bucket law survives untouched: =is:untracked= drops exactly
+the rows the section drops.
+
+*Cost:* the demo board's Untracked goes 3 → 2 rows.  That is the whole of
+this round's golden content churn.
+
+* FU7 — absurd numbers
+
+=[0001-01-01]= (a typo, a zeroed mtime, a bad restore) rendered verbatim:
+=~739781d quiet=, an eight-character number in a narrow cell.  One shared
+formatter, =org-air-view--days-text=, prints =%dd= up to ten years and
+=10y+= beyond it, and is used by every day count the board prints: the
+attention reason, the untracked reason, the =OVERDUE Nd= label and the
+rail's =in Nd= / =Nd ago=.
+
+*The fact is not clamped, only its presentation.*  =--sort-by-quiet=,
+=--sort-by-floor=, the thresholds and every =is:= predicate keep reading
+the true number, so a corrupt date still ranks exactly where it belongs.
+=10y+= is TRUE of every value it replaces, which is the test a clamp must
+pass to be honest.
+
+: days-text 1 / 365 / 3650 / 3651 / 739781  ->  1d / 365d / 3650d / 10y+ / 10y+
+: a 1900 mtime:  floor-days=46186  row cell="~10y+ quiet"
+
+* Implementation
+
+** =org-air-classify.el=
+
+- NEW =org-air-classify--planned-p= — SCHEDULED ∨ DEADLINE, the ONE
+  definition the date sections consume, with the gap to =--dated-p=
+  documented where a future reader will hit it.
+- =--untracked-p= — three clauses now (no plan / no record / not an inbox
+  dweller), each named, plus the two R95 rationales.
+- =--heading-buckets= — the theorem restated in full in the docstring,
+  and a comment at the =untracked= push pointing at the unconditional
+  =inbox= push below it.
+
+** =org-air-query.el=
+
+- =--planning-keyword-regexp= anchored to line-start-or-whitespace.
+
+** =org-air-view.el=
+
+- NEW =org-air-view--days-text= + =--days-text-max= (3650); used by
+  =--attention-reason=, =--untracked-reason=, the =OVERDUE= arm of
+  =--date-label=, =--inspector-relative= and the two inspector reason
+  lines.
+- NEW =org-air-view--untracked-per-file-max= (2) and
+  =org-air-view--collapsed-window=; =--displayed-items-for-bucket-1=
+  calls it instead of =seq-take=, and the =TAB=/fold-row branch derives
+  its first-hidden landing from it (an =eq= hash, never =memq=).
+- =--item-activity= → the measured clock; NEW =--sort-by-recency=;
+  the =recency= arm of =--sort-items= calls it.
+- Docstrings: =--sort-by-floor= and the =--sort-items= per-section table
+  now state where the order law ends and the selection rule begins;
+  =--filter-is-values= states the new =is:nodate= / =is:untracked=
+  independence.
+
+* Cache — NO version bump, deliberately
+
+FU3 changes what the scan harvests into the =updated= slot for one narrow
+shape (a property whose name ends in a planning keyword), so a v8 record
+written before R95 can carry =nil= where R95 would harvest a stamp.  The
+bump is nevertheless refused, and the brief agrees:
+
+- the drift is *bounded* to headings carrying =:LAST_DEADLINE:= /
+  =:ORIG_SCHEDULED:=-style properties;
+- its direction is *visible, not hidden*: a stale record leaves such a
+  heading in Untracked, which is a row on the board, not an omission;
+- it *self-heals* on the next edit to the file (per-file mtime
+  invalidation), with no user action;
+- a bump would discard every user's whole cache to correct a rare
+  slot — the cost is not proportionate.
+
+FU1/FU2/FU4/FU6/FU7 touch no scanned slot at all: they are classify-,
+order- and presentation-layer changes over the same v8 data.
+
+* Filter / bucket agreement
+
+Unchanged and re-verified by construction: every changed predicate lives
+in ONE function that both the bucket pass and the =is:= token call.
+
+- =is:untracked= ⇔ the Untracked section body (FU1 and FU6 clauses
+  included) — the token gains the body-timestamp set and loses the inbox
+  dwellers at the same instant the section does.
+- =is:nodate= is untouched (=--dated-p= negation).
+- The =:backlog:= exception is the pre-existing one every token shares.
+
+* Gate
+
+- 11 modules byte-compile; the only warning is the pre-existing
+  =org-air-project.el:946= docstring width.
+- =make lint= → =ok (0 findings, all baselined)=.
+- =make clean && make check= → *1322 tests, 1310 as expected, 4
+  unexpected, 8 GUI skips*.  All four are classified below; every one is
+  a test asserting the behaviour this round deliberately changed.
+- =make regen-mockups= after the regeneration is a *byte no-op* over all
+  34 fixture files.
+- Known-failures manifest: empty.
+
+** Golden churn — 25 files, one content fact
+
+Pane-split at the rail fence, multiset per pane over all 25 changed
+files (=layout-mockup-empty-120x50.txt= is unchanged):
+
+: === ADDED ===
+:   +25  BOARD  '  ◌ Untracked 2'
+:   +12  RAIL   '│    2   Untracked'      +6 RAIL '│      2   Untracked'
+:    +3  BOARD  merged-pane summary line with '2   Untracked'
+: === REMOVED ===
+:   -25  BOARD  '  ◌ Untracked 3'
+:   -18  RAIL   the same two summary spellings with 3
+:    -3  BOARD  the merged-pane spelling with 3
+:   -25  BOARD  the 'Call plumber ... no history #inbox' row, at each
+:               width's own truncation
+
+*Breakdown: CONTENT 2 kinds, PERMUTATION the rest, COUNT unchanged.*
+
+- *content* — the badge/summary count 3 → 2 (FU6), and the removal of
+  one row (=Call plumber=, which now appears only in Inbox).  Nothing
+  else was added or removed in either pane, at any tier.
+- *permutation* — every other differing line is the rail band shifting up
+  exactly one row because the board pane lost a line; the rail multiset
+  is byte-identical before and after.
+- *count* — =23   total= is unchanged, =□ Inbox 3= is unchanged (the row
+  is still there, one section up), =○ Needs attention 2= is unchanged.
+
+** Failing tests — 4, all OBSOLETE, none a real defect
+
+Verified: applying the five re-blessings below to a scratch copy of the
+suite (never to this repo) yields *1322 tests, 1314 as expected, 0
+unexpected, 8 skipped*.
+
+*** T1 =org-air-r54-2h-board-shows-tasks-only= — OBSOLETE (FU6)
+
+: (should (equal (org-air-r54--buckets "Half-formed capture" items)
+:                '(untracked inbox)))          ; R94
+: => '(inbox)                                   ; R95
+
+The test's own subject (the inbox bypass keeps a keyword-less capture out
+of =knowledge=) is untouched, and its next leg — one body stamp yields
+=(inbox)= — now states the same thing twice, so the re-bless should
+replace it with the discriminating pair: the SAME heading OUTSIDE the
+inbox classifies =(untracked)=.
+
+*** T2 =org-air-r59-7-inbox-leaf-surfaces= — OBSOLETE (FU6)
+
+: (should (equal (org-air-classify-item leaf org-air-test-now)
+:                '(untracked inbox)))  =>  '(inbox)
+
+The Inbox badge assertion (=2=) and the container-sibling leg are
+unaffected; the R94-era comment about "the Untracked section is a
+separate section with its own count" wants rewording to the R95 rule.
+
+*** T3 =org-air-r94-9-untracked-is-no-plan-and-no-record= — OBSOLETE (FU1 + FU6), two legs
+
+: ;; leg 1: the plan loop
+: (dolist (title '("Has a schedule" "Has a deadline" "Has an active stamp"))
+:   (should-not (org-air-classify--untracked-p item)))
+: => drop "Has an active stamp" from the loop, and assert it POSITIVELY:
+:      (should (org-air-classify--dated-p active))
+:      (should-not (org-air-classify--planned-p active))
+:      (should (org-air-classify--untracked-p active))
+:      (should (memq 'untracked (org-air-classify-item active now)))
+:
+: ;; leg 2: the inbox capture
+: (should (memq 'untracked (org-air-classify-item capture now)))
+: => (should-not (org-air-classify--untracked-p capture))
+:    (should-not (memq 'untracked (org-air-classify-item capture now)))
+:    (should (memq 'inbox (org-air-classify-item capture now)))
+
+*** T4 =org-air-ux-bare-timestamp-recency-is-inactive-only= — OBSOLETE (FU1), three legs
+
+This is the coverage hole, pinned as correct by an earlier round's
+re-bless — the most valuable of the four to fix, because the test's own
+comment names the defect ("an active =<ts>= does make it DATED, so in
+fact NOT untracked"):
+
+: (should (org-air-classify--dated-p practice))       ; KEEP — the is:nodate axis
+: (should-not (org-air-classify--untracked-p practice))
+: (should-not (memq 'untracked buckets))
+: =>
+: (should (org-air-classify--dated-p practice))       ; still dated
+: (should-not (org-air-classify--planned-p practice)) ; but not PLANNED
+: (should (org-air-classify--untracked-p practice))
+: (should (memq 'untracked buckets))
+
+** Coverage the seat still owes (nothing in this round is fenced by a named test)
+
+Every fix here is currently invisible to the suite except through the
+four tests it reddened.  Mutation-checked by hand; the seat should
+convert each into a named test:
+
+| element                                            | mutation that must redden something |
+|----------------------------------------------------+-------------------------------------|
+| =--planned-p= as the Untracked plan clause          | revert to =--dated-p= (T4 reddens; a NAMED r95 test should too) |
+| the =:active-ts= generator axis in =r94-8=          | revert =--planned-p= — currently 99 headings see nothing |
+| the inbox clause                                    | drop it (T1/T2/T3 redden) |
+| =--collapsed-window= quota                          | quota 2 → 4, or skip the slack fill — *nothing reddens* |
+| the window is a subsequence of the sorted order     | return the quota list unsorted — *nothing reddens* |
+| =--sort-by-recency= key + unmeasured-last           | revert to =--last-activity= — *nothing reddens* |
+| =--days-text= clamp                                 | raise the max — *nothing reddens* |
+| the anchored planning regexp                        | unanchor it — *nothing reddens* |
+| the =eq=-hash membership (R90 linearity)            | =memq= — reddens =r90-50= *only when interpreted* |
+
+* Migration and honest degradation
+
+- *A user's board can only gain rows from FU1* (headings that had none),
+  and loses exactly the inbox rows FU6 removes — which are still on the
+  board, one section up.  No heading becomes invisible in either
+  direction.
+- *A saved =is:untracked= bookmark* selects a slightly different set: it
+  gains body-timestamp headings and drops inbox dwellers.  It still
+  renders, and it still equals the section it names.
+- *A saved =recency= sort* orders differently and now agrees with the
+  numbers the rows print.
+- *No cache invalidation, no rescan, no config change* is required by
+  any of this.
+
+* Implementation History
+
+- 2026-07-29 — *R95.*  Coverage closure per the R94 review's §11 scope.
+  Designed and implemented in one round, branched from =main=
+  (=rkoroxkyywkl=, R94 tests).  FU1 (=--planned-p=; the theorem is true
+  without an asterisk), FU2 (per-file quota of 2 with the order/selection
+  laws separated), FU3 (anchored planning regexp), FU4 (recency = the
+  measured clock, unmeasured last), FU6 (inbox dwellers excluded, with
+  coverage preserved by construction), FU7 (=10y+= presentation clamp).
+  README: the nine §9(c) lines plus the FU1/FU2/FU6 behaviour.  *Gate:*
+  11 modules compile (one pre-existing warning), lint 0 findings, 1322
+  tests / 4 unexpected — all four classified OBSOLETE above with their
+  re-bless shapes, verified green (1314/0) on a scratch copy.  25 goldens
+  regenerated: content churn is exactly one count (3 → 2) and one removed
+  row; everything else is the rail band shifting one line.  No bucket
+  added, no section list change, no cache bump.  One real defect found
+  and fixed mid-round by running the suite INTERPRETED (=r90-50='s
+  linearity fence cannot see a =memq= in byte-compiled source).

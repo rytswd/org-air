@@ -2868,6 +2868,31 @@ position degrades to nil, never a crash."
                  (org-timestamp-from-string
                   (match-string-no-properties 0)))))))))))
 
+(defconst org-air-view--days-text-max 3650
+  "Largest day count org-air prints as a NUMBER — ten years (R95).
+Beyond it every label degrades to `10y+' (`org-air-view--days-text').")
+
+(defun org-air-view--days-text (days)
+  "Return the printable text for a DAYS count, clamped for legibility (R95).
+`\"%dd\"' up to `org-air-view--days-text-max', `\"10y+\"' above it.
+
+WHY.  Every day count on the board is derived by subtraction from a date
+somebody typed, and Org accepts anything: a mis-typed `[0001-01-01]', a
+filesystem that reports a zero mtime, an epoch a restore wrote wrong.
+The R94 review found `~739781d quiet' rendering verbatim in an Untracked
+row — an eight-character number in a narrow cell that is, at best, noise.
+
+THE FACT IS NOT CLAMPED, only its presentation: the sort keys
+\(`org-air-view--sort-by-quiet', `org-air-view--sort-by-floor'), the
+classifier's thresholds and every `is:' predicate keep reading the true
+number, so a corrupt date still ranks exactly where it belongs — it
+simply stops shouting a meaningless integer.  `10y+' is TRUE for every
+value it replaces (it reads \"more than ten years\"), which is the test a
+clamp has to pass to be honest."
+  (if (> days org-air-view--days-text-max)
+      "10y+"
+    (format "%dd" days)))
+
 (defun org-air-view--attention-reason (item now)
   "Return the (LABEL . FACE) REASON ITEM surfaced in Needs attention as of NOW.
 R93.  The section's promise is that the user can see WHY a row is there, and
@@ -2903,7 +2928,7 @@ Untracked section (`org-air-view--untracked-reason')."
   (let ((threshold (org-air-classify-attention-threshold item))
         (age (org-air-classify-quiet-days item now)))
     (cons (cond ((<= threshold 0) "always")
-                (age (format "%dd quiet" age))
+                (age (format "%s quiet" (org-air-view--days-text age)))
                 (t "quiet"))
           'org-air-face-date)))
 
@@ -2931,7 +2956,7 @@ alarm.  The number printed here is exactly the section's sort key
 worst-first by the very number its own rows print — holds here too."
   (let ((floor-days (org-air-classify-quiet-floor-days item now)))
     (cons (if (and floor-days (> floor-days 0))
-              (format "~%dd quiet" floor-days)
+              (format "~%s quiet" (org-air-view--days-text floor-days))
             "no history")
           'org-air-face-date)))
 
@@ -2978,8 +3003,9 @@ true by construction rather than by coincidence of slot order."
      ;; definition of "the slot this row is late by", which the Overdue
      ;; section's sort now keys on as well.
      (overdue
-      (cons (format "OVERDUE %dd"
-                    (abs (org-air-view--days-between overdue now)))
+      (cons (format "OVERDUE %s"
+                    (org-air-view--days-text
+                     (abs (org-air-view--days-between overdue now))))
             'org-air-face-overdue))
      (deadline
       (cons (org-air-view--human-date deadline now)
@@ -3090,9 +3116,14 @@ note-typed carriers of the tag).
 R94: `untracked' joins as the Untracked section's own token
 \(`org-air-classify--untracked-p': no plan and no recorded history), so
 the one place org-air admits it cannot rank something is reachable by
-name.  It is deliberately NOT a synonym for `nodate': `is:nodate' is the
-date negation alone, and an undated heading with a LOGBOOK trail answers
-`is:nodate' but not `is:untracked'.
+name.  It is deliberately NOT a synonym for `nodate', and R95 made the
+two genuinely INDEPENDENT rather than nested: `is:nodate' is the date
+negation alone (`--dated-p'), while `is:untracked' negates the SCHEDULED
+and DEADLINE slots the date sections read (`--planned-p') plus the
+record.  So an undated heading with a LOGBOOK trail answers `is:nodate'
+and not `is:untracked', AND a heading whose only date is a body
+`<timestamp>' answers `is:untracked' and not `is:nodate' — which is the
+R94 coverage hole, now reachable by name.
 R93: `attention' joins the family as the Needs-attention section's own
 token (the aging predicate), and `stale' LEAVES it — the Stale bucket is
 retired.  `is:stale' still PARSES, as a deprecated alias
@@ -3289,7 +3320,10 @@ agreement law through the routing layer."
          ;; R94: the Untracked section's OWN predicate — one definition
          ;; shared by bucket and token, so `is:untracked' selects EXACTLY
          ;; the section's rows.  Date-free and clock-free: it asks what
-         ;; org-air KNOWS, not what the calendar says.
+         ;; org-air KNOWS, not what the calendar says.  R95: the inbox
+         ;; clause lives INSIDE that predicate, so the agreement law
+         ;; survives the change — the token drops the inbox dwellers the
+         ;; section drops, by construction rather than by a second rule.
          (`(is . untracked) (org-air-classify--untracked-p item))
          (`(is . nodate)
           ;; Deliberately the R54-1 date NEGATION, not "has no plan":
@@ -3608,6 +3642,79 @@ whole call so every item classifies against a single instant."
     ('notes org-air-notes-preview-limit)
     (_ org-air-section-max)))
 
+(defconst org-air-view--untracked-per-file-max 2
+  "Most Untracked rows ONE file may claim in the collapsed window (R95).
+See `org-air-view--collapsed-window'.")
+
+(defun org-air-view--collapsed-window (bucket sorted)
+  "Return BUCKET's COLLAPSED row window over its SORTED members (R95).
+SORTED is the section's own order (`org-air-view--sort-items'), so the
+plain answer is its first `org-air-view--section-limit' rows — and for
+every bucket but `untracked' that is exactly what this returns.
+
+UNTRACKED GETS A PER-FILE DIVERSITY RULE (R95).  Its rank key is
+`org-air-classify-quiet-floor-days', a fact about the heading's FILE, and
+every heading in one file shares it.  So one cold `someday.org' took the
+whole capped section: the R94 review measured 4 of 4 visible rows from a
+single file, with the five bare admin `TODO's in the file the user edits
+every day at ranks 16-20 of 21, behind the fold — the exact pathology R93
+found in Needs attention, rebuilt one section lower.  A section whose
+whole claim is \"org-air cannot rank this work\" must not then let one
+file's mtime decide which four rows the user sees.
+
+THE RULE.  Walk SORTED worst-first and take a row only while its file has
+fewer than `org-air-view--untracked-per-file-max' rows already taken;
+then, if the cap is still not full (one file is all there is, which is a
+single-file user's normal state), fill the slack from the rows just
+skipped, still worst-first.  So the section NEVER shows fewer rows than
+it used to, and no file may crowd out another file's row.
+
+HOW IT COMPOSES WITH THE FIX-2 LAW.  FIX-2 (\"a capped section shows its
+rows worst-first by the very number those rows print\") is an ORDER law;
+this is a SELECTION rule, and the two are kept apart:
+
+  * SELECTION picks WHICH rows the collapsed window holds — worst-first,
+    with a per-file quota;
+  * ORDER is unchanged: the window is returned as a SUBSEQUENCE of
+    SORTED, so what the user reads is still monotone worst-first by the
+    number in the cells.
+
+The two only ever differ for Untracked, and there the honest statement is
+the one the README makes: `\"the worst rows your files can offer, at most
+two from any one file\"'.  Nothing else moves: the badge, the Summary
+count, `is:untracked' and the `…and N more' arithmetic all count MEMBERS,
+not visible rows, and TAB expands to the full worst-first list.
+
+COST: two linear passes and O(1) membership through an `eq' hash — never
+`memq'/`assq' over items, which is the R90 linearity law (`r90-50'): at
+5k rows a list membership test per item is the shape that turns a repaint
+quadratic.  No file access; the per-file key is the item's own `file'
+slot."
+  (let ((limit (org-air-view--section-limit bucket)))
+    (if (not (eq bucket 'untracked))
+        (seq-take sorted limit)
+      (let ((per-file (max 1 org-air-view--untracked-per-file-max))
+            (seen (make-hash-table :test #'equal))
+            (chosen (make-hash-table :test #'eq))
+            (n 0))
+        (dolist (item sorted)
+          (when (< n limit)
+            (let* ((key (or (org-air-item-file item) ""))
+                   (taken (gethash key seen 0)))
+              (when (< taken per-file)
+                (puthash key (1+ taken) seen)
+                (puthash item t chosen)
+                (setq n (1+ n))))))
+        ;; Slack fill: a quota may leave the window short of the cap when
+        ;; there is nothing to diversify WITH.  Never show fewer rows.
+        (when (< n limit)
+          (dolist (item sorted)
+            (when (and (< n limit) (not (gethash item chosen)))
+              (puthash item t chosen)
+              (setq n (1+ n)))))
+        ;; Back into the section's own worst-first order (FIX-2).
+        (seq-filter (lambda (it) (gethash it chosen)) sorted)))))
+
 (defun org-air-view--notes-by-recency (notes)
   "Return NOTES sorted most-recent-first by scan-time activity (R53 P3).
 A top-K selection over precomputed floats — milliseconds at 4k notes."
@@ -3638,7 +3745,9 @@ shows every currently visible member in the active sort order."
            (bucket-items (org-air-view--sort-items bucket-items bucket)))
       (if (org-air-view--section-expanded-p bucket)
           bucket-items
-        (seq-take bucket-items (org-air-view--section-limit bucket)))))))
+        ;; R95: the collapsed window is the section cap PLUS, for
+        ;; Untracked, a per-file quota (`org-air-view--collapsed-window').
+        (org-air-view--collapsed-window bucket bucket-items))))))
 
 (defun org-air-view--displayed-items-for-bucket (bucket items)
   "Return the BUCKET rows of ITEMS a section actually renders (R20-6).
@@ -5197,6 +5306,15 @@ rows sort LAST in stable incoming (query) order: a file that changed
 today says nothing at all about a heading that has no history in it, and
 org-air ranks nothing on a fact it does not have.
 
+R95 — THE ORDER IS NOT THE VISIBLE WINDOW.  This key is a FILE fact,
+shared by every heading in one file, so ranking alone let one cold file
+own the whole capped section (4 of 4 visible rows, measured by the R94
+review).  The ORDER here is unchanged and still worst-first; WHICH of
+these rows a collapsed section shows is decided by
+`org-air-view--collapsed-window', which takes at most two per file and
+then fills any slack from this same list.  Order law and selection rule,
+deliberately kept apart — see that function.
+
 One classify call per item, precomputed into the key; no file access (the
 bound is a hash lookup on the scan's file-meta table), so the R53
 render-purity fence is untouched."
@@ -5304,15 +5422,64 @@ rank, so it is ordered last."
   (or (org-air-item-priority item) most-negative-fixnum))
 
 (defun org-air-view--item-activity (item)
-  "Return ITEM's last-activity time for the `recency' sort (R22-3).
-Reuses `org-air-classify--last-activity' — the broad activity signal
-\(closed ‖ scheduled ‖ deadline ‖ first subtree stamp ‖ file mtime).
-R93 note: this is DELIBERATELY not `org-air-classify-updated', the
-Needs-attention clock.  Sorting by \"recency\" answers \"what has this
-item got going on lately\", where a plan legitimately counts; the
-attention clock answers \"when did something HAPPEN to it\", where a
-plan must not.  A missing signal is treated as the oldest (epoch)."
-  (or (org-air-classify--last-activity item) '(0 0)))
+  "Return ITEM's MEASURED recency epoch for the `recency' sort, or nil (R95).
+`org-air-classify-updated' — the newest inactive stamp in the heading's
+OWN body: LOGBOOK state changes and notes, clock-outs, `CLOSED:',
+`:CREATED:', any body `[stamp]'.  A fact about the heading, or nothing.
+
+R95 CHANGED WHAT THIS RETURNS.  It used to be
+`org-air-classify--last-activity' — closed ‖ scheduled ‖ deadline ‖
+first subtree stamp ‖ FILE MTIME — defended (R93) as \"what has this item
+got going on lately\", where a plan legitimately counts.  Measured
+through the real renderer by the R94 review, that defence does not
+survive contact with the board: pressing the sort key in Needs attention
+put `Renegotiate the CDN contract' FIRST because its `activity' was its
+SCHEDULED date in JULY.  A key labelled `recency' ranked a row by a date
+in the FUTURE, and the section stopped matching the `Nd quiet' numbers
+its own rows print the moment the user touched the key.  R94 abolished
+the plan/record conflation everywhere else; this was the last place it
+decided an order a user reads.
+
+NIL IS AN ANSWER, NOT A ZERO.  A heading org-air has never measured
+returns nil and `org-air-view--sort-by-recency' ranks it LAST — org-air
+will not rank what it never measured, the same rule
+`org-air-view--sort-by-quiet' (unknown age last) and
+`org-air-view--sort-by-floor' (`no history' last) already follow.  The
+rule is VISIBLE: those rows print `quiet' or `no history' in their own
+date cell, so the user can see which rows have no clock.  The file mtime
+is NOT used as a stand-in here — it is a fact about a file and this is an
+order over headings."
+  (org-air-classify-updated item))
+
+(defun org-air-view--sort-by-recency (items desc)
+  "Return ITEMS ordered by their MEASURED recency clock (R95).
+The `recency' sort key.  Least-recently-updated FIRST under the default
+ascending direction — the same worst-first convention every other board
+order follows, and the one that makes this key AGREE with the numbers
+Needs-attention rows print instead of contradicting them.  Items with no
+measured clock (`org-air-view--item-activity' nil) sort after every item
+that has one, in title-then-query order.  DESC reverses the whole
+resulting order, exactly as `O' has always done for every key."
+  (let* ((i 0)
+         (indexed (mapcar
+                   (lambda (it)
+                     (prog1 (list i (org-air-view--item-activity it)
+                                  (downcase (or (org-air-item-title it) "")) it)
+                       (setq i (1+ i))))
+                   items))
+         (sorted (sort indexed
+                       (lambda (a b)
+                         (let ((ka (nth 1 a)) (kb (nth 1 b)))
+                           (cond
+                            ((and ka kb (time-less-p ka kb)) t)
+                            ((and ka kb (time-less-p kb ka)) nil)
+                            ((and ka (null kb)) t)
+                            ((and kb (null ka)) nil)
+                            ((string-lessp (nth 2 a) (nth 2 b)) t)
+                            ((string-lessp (nth 2 b) (nth 2 a)) nil)
+                            (t (< (nth 0 a) (nth 0 b))))))))
+         (result (mapcar (lambda (e) (nth 3 e)) sorted)))
+    (if desc (nreverse result) result)))
 
 (defun org-air-view--sort-by (items lessp keyfn &optional desc)
   "Return ITEMS stably ordered by KEYFN under LESSP (R22-3).
@@ -5369,7 +5536,11 @@ number that section's rows print in the date cell (R93 FIX-2):
                                 file mtime ranks anything, and only
                                 because there it is a sound LOWER bound,
                                 marked `~', rather than a stand-in for a
-                                heading's own clock.
+                                heading's own clock.  R95: the collapsed
+                                WINDOW over this order additionally caps
+                                one file at two rows
+                                \(`org-air-view--collapsed-window'), so a
+                                cold someday list cannot own the section.
   inbox / high-priority / backlog / notes
                                 QUERY (file) order — they have no
                                 per-row number to be worst-first BY:
@@ -5410,7 +5581,7 @@ half into SCAN order, shipping \"225d quiet\" ABOVE \"273d quiet\".  Hence
                               (lambda (it) (downcase (or (org-air-item-title it) "")))
                               desc))
       ('recency
-       (org-air-view--sort-by items #'time-less-p #'org-air-view--item-activity desc))
+       (org-air-view--sort-by-recency items desc))
       (_ items))))
 
 ;;;; ---------------------------------------------------------------------
@@ -6242,11 +6413,15 @@ trailing more glyph (the back-compat knob)."
             value)))
 
 (defun org-air-view--inspector-relative (time now)
-  "Return a relative term for TIME vs NOW: `today' / `in Nd' / `Nd ago'."
+  "Return a relative term for TIME vs NOW: `today' / `in Nd' / `Nd ago'.
+R95: the day count goes through `org-air-view--days-text', so an absurd
+date degrades to `in 10y+' / `10y+ ago' instead of printing a
+seven-figure integer in the rail.  Presentation only — the time itself is
+unchanged and still prints in full on the same line."
   (let ((d (org-air-view--days-between now time)))
     (cond ((= d 0) "today")
-          ((> d 0) (format "in %dd" d))
-          (t (format "%dd ago" (- d))))))
+          ((> d 0) (format "in %s" (org-air-view--days-text d)))
+          (t (format "%s ago" (org-air-view--days-text (- d)))))))
 
 (defun org-air-view--inspector-date-line (key timestamp face inset now &optional overdue)
   "Return an inspector date line for KEY/TIMESTAMP in FACE at INSET, or nil.
@@ -6423,7 +6598,8 @@ The classification is computed against NOW (D-P7)."
                   (if (<= threshold 0)
                       "always surfaces"
                     (format "quiet %s / %dd"
-                            (if age (format "%dd" age) "?") threshold)))))
+                            (if age (org-air-view--days-text age) "?")
+                            threshold)))))
              ;; R94: the Untracked reason in words — what org-air does not
              ;; have, and the file-level bound it does, marked `~' exactly
              ;; as the row cell marks it.  Same public helper as the row,
@@ -6432,7 +6608,8 @@ The classification is computed against NOW (D-P7)."
               (when (memq 'untracked buckets)
                 (let ((floor-days (org-air-classify-quiet-floor-days item now)))
                   (if (and floor-days (> floor-days 0))
-                      (format "no plan, no record · file quiet ~%dd" floor-days)
+                      (format "no plan, no record · file quiet ~%s"
+                              (org-air-view--days-text floor-days))
                     "no plan, no record"))))
              (text (string-join (delq nil (list (unless (string-empty-p names) names)
                                                 reason untracked-reason))
@@ -11908,14 +12085,21 @@ explicit jump, and ordinary scrolling is the right answer there."
       (org-air-view--with-scroll-stable
        ;; R51-3: EXPAND the fold row's bucket (the row exists only while
        ;; collapsed, so this branch never collapses).  Remember the first
-       ;; HIDDEN item — index `org-air-view--section-limit' of the bucket's
-       ;; displayed-order list — BEFORE the render so point can land on its
-       ;; revealed row after (never worse than the section header).
+       ;; HIDDEN item — the first member the COLLAPSED WINDOW did not show
+       ;; — BEFORE the render so point can land on its revealed row after
+       ;; (never worse than the section header).  R95: derived from
+       ;; `org-air-view--collapsed-window' rather than from the cap index,
+       ;; so Untracked's per-file quota cannot land point on a row that
+       ;; was visible all along.
        (let* ((sorted (org-air-view--sort-items
                        (org-air-view--items-for-bucket
                         more (or org-air-view--items '()))
                        more))
-              (first-hidden (nth (org-air-view--section-limit more) sorted)))
+              (shown (let ((h (make-hash-table :test #'eq)))
+                       (dolist (it (org-air-view--collapsed-window more sorted) h)
+                         (puthash it t h))))
+              (first-hidden (seq-find (lambda (it) (not (gethash it shown)))
+                                      sorted)))
          (cl-pushnew more org-air-view--expanded-sections)
          ;; The SAME render seam the header branch takes (R18 D-P1b).
          (if (memq org-air-view--orientation '(board-only side-window))

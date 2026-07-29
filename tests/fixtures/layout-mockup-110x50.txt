@@ -23,15 +23,15 @@
       TODO  ■ Ship quarterly report         Wed           #projects   #work  …  │    8   Upcoming
       TODO  ■ Fix production outage runbo…  OVERDUE 5d    #projects   #work  …  │    3   High priority
       TODO  ■ Prep client presentation      Tomorrow      #work   #client       │    2   Needs attention
-                                                                                │    3   Untracked
+                                                                                │    2   Untracked
   ○ Needs attention 2                                                           │  ────
       TODO    Learn lute                    273d quiet    #someday   #hobby     │   23   total
       TODO    Dust off old archive project  225d quiet    #projects   #archive  │
                                                                                 │ ▌ Inspector
-  ◌ Untracked 3                                                                 │  Quick note about org-air
-              Call plumber                  no history    #inbox                │  idea
-      TODO    Untracked idea with no dates  no history    #projects   #someday  │  #inbox
-      TODO    Read Structure and Interpre…  no history    #someday   #reading   │
+  ◌ Untracked 2                                                                 │  Quick note about org-air
+      TODO    Untracked idea with no dates  no history    #projects   #someday  │  idea
+      TODO    Read Structure and Interpre…  no history    #someday   #reading   │  #inbox
+                                                                                │
                                                                                 │  ▤ inbox.org
                                                                                 │  Updated 2026-06-14  (1d ag…
                                                                                 │

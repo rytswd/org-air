@@ -569,11 +569,26 @@ calling `format-time-string' once per heading; nil (outside a scan)
 makes the probe compute it itself.")
 
 (defconst org-air-query--planning-keyword-regexp
-  "\\(SCHEDULED\\|DEADLINE\\|CLOSED\\):"
+  "\\(?:^\\|[ \t]\\)\\(SCHEDULED\\|DEADLINE\\|CLOSED\\):"
   "The three Org planning keywords, for the R94 plan-stamp exclusion.
 Only the NEAREST one to the left of a stamp decides whose value that
 stamp is, so a mixed planning line (`CLOSED: [x] DEADLINE: [y]') is
-resolved keyword by keyword rather than line by line.")
+resolved keyword by keyword rather than line by line.
+
+R95: ANCHORED to a line start or whitespace.  Unanchored, the keyword
+matched the TAIL of a longer word, so a property whose name merely ENDS
+in one of them swallowed its own stamp:
+
+  :LAST_DEADLINE:  [2026-06-01 Mon 08:00]
+  :ORIG_SCHEDULED: [2026-06-01 Mon 08:00]
+
+Both are ordinary property values — records of something that happened,
+written by Org exporters, `org-depend' and hand-rolled repeaters — and
+both were read as plans, wiping the heading's measured clock and pushing
+it into Untracked (found by the R94 review).  The shy group keeps the
+keyword in group 1 for `org-air-query--plan-stamp-p', and the mixed
+planning line still resolves keyword by keyword: the space before
+`DEADLINE:' satisfies the anchor.")
 
 (defun org-air-query--plan-stamp-p (pos)
   "Non-nil when the stamp starting at POS is a SCHEDULED:/DEADLINE: value (R94).

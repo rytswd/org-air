@@ -1,0 +1,602 @@
+#+title: org-air R97 — the buffer you are standing in is not the board
+#+air_state: complete
+#+air_tags: org-air impl defect data-loss command-surface capture scan
+
+* Context
+
+The R96 review probed org-air from *outside* its own test idiom and came
+back with three defects, all in the same place the 1345-test suite does
+not model: **the buffer the user happens to be standing in.**
+
+#+begin_quote
+"Every real defect in this project has come from a place the tests do not
+model — the viewport, the compiler, and now the buffer you happen to be
+standing in."  — REPORT-r96.md, §Summary
+#+end_quote
+
+Reproduced independently on =main= (R96, =qqqvotwp / 11e5c91d=) before
+touching anything, by sweeping all 132 non-mode commands with
+=call-interactively= inside a live =org-mode= file buffer holding
+=* Chapter 1 / Years of writing.=, with =noninteractive= bound to nil and
+every reader stubbed to signal:
+
+| classification (before)                                | count |
+|--------------------------------------------------------+-------|
+| *destroys* — erased the buffer, painted the board, left it modified |     8 |
+| *raw error* — a bare =error= (=wrong-type-argument=)     |     3 |
+| *prompts-then-fails* — asked a question, then refused    |    19 |
+| *refuses* — clean =user-error=, no prompt, no mutation   |    24 |
+| *silent no-op* — did nothing, said nothing               |    78 |
+| total                                                    |   132 |
+
+The 8 destroyers are exactly the reviewer's set: =org-air-refresh=,
+=org-air-refresh-all=, =org-air-calendar-today=, =org-air-calendar-next=,
+=org-air-calendar-prev=, =org-air-filter-clear=,
+=org-air-filter-toggle-match=, =org-air-scope-clear=.  End-to-end
+reproduction: 30 bytes of thesis in, 469–472 bytes of board out,
+=buffer-modified-p= = t, and a subsequent =C-x C-s= writes the board over
+the file.
+
+* D1 — the funnel guard (data loss)
+
+** Root cause
+
+=org-air-view--render-current= erases and repaints *the current buffer*
+and had **no precondition at all**.  Everything that repaints funnels
+through it: the filter, the scope clears, the sort, the lens, the
+calendar month/day nav and the resize repaint.  =org-air-refresh= even
+*had* a mode check —
+
+#+begin_src emacs-lisp
+(if (and (not noninteractive) (eq major-mode 'org-air-view-mode))
+    …refresh machine…
+  …the unguarded synchronous render…)
+#+end_src
+
+— whose **else** arm is the unguarded synchronous render, so failing the
+check made it *more* destructive, not less.
+
+** The fix: guard the funnel, not the eight commands
+
+The reviewer's instruction was explicit and is the one followed here:
+
+#+begin_quote
+"Do not 'fix' D1 by adding a =derived-mode-p= check to each of the 8
+commands.  Patching the 8 known instances leaves the ninth, which will be
+written next round."
+#+end_quote
+
+One base precondition, in =org-air-query.el= (the module every other
+module requires), so the whole command surface shares *one* refusal
+shape:
+
+#+begin_src emacs-lisp
+(defun org-air-surface-p (&rest modes)
+  "Non-nil when the current buffer is one of the org-air surfaces MODES.
+Each element is a MAJOR-mode symbol (via `provided-mode-derived-p') or a
+buffer-local MINOR-mode symbol (`org-air-doc-session-mode',
+`org-air-outline-mode')." …)
+
+(defun org-air-require-surface (surface entry &rest modes)
+  "Refuse unless the current buffer is one of MODES."
+  (unless (apply #'org-air-surface-p modes)
+    (user-error "Not in %s (run `M-x %s')" surface entry)))
+#+end_src
+
+and the **three buffer-erasing funnels** in =org-air-view.el= now state
+the board precondition before doing anything:
+
+| funnel                          | why it is a funnel                                 |
+|---------------------------------+----------------------------------------------------|
+| =org-air-view--render=          | the deepest paint: =erase-buffer= + full rewrite   |
+| =org-air-view--render-loading=  | the other =erase-buffer= (the cold skeleton)       |
+| =org-air-view--render-current=  | the named funnel the 8 destroyers reach            |
+
+=org-air-view--refresh-repaint=, =org-air-view--render-section= and
+=org-air-view--render-calendar= inherit the guard — they all end in one
+of the three.  =org-air-refresh= additionally states it as its own first
+body form, so it refuses *before* the token bump and the re-query rather
+than midway through them.
+
+The guard cannot be reached on any legitimate path: every painting
+caller (=org-air-view--open-core=, the refresh machine's swap, the
+synchronous re-query, the bookmark handler) already runs with the board
+buffer current and the mode already ensured.  That is why the 1345-test
+suite — which renders inside a board every single time — is untouched by
+it except where a test deliberately drove a command from somewhere else
+(§Gate).
+
+** Result
+
+Same sweep, same corpus, after:
+
+#+begin_example
+org-air-refresh                bytes=30->30 modified=no save-would-corrupt=no signal=user-error
+org-air-refresh-all            bytes=30->30 modified=no save-would-corrupt=no signal=user-error
+org-air-calendar-today         bytes=30->30 modified=no save-would-corrupt=no signal=user-error
+org-air-calendar-next          bytes=30->30 modified=no save-would-corrupt=no signal=user-error
+org-air-calendar-prev          bytes=30->30 modified=no save-would-corrupt=no signal=user-error
+org-air-filter-clear           bytes=30->30 modified=no save-would-corrupt=no signal=user-error
+org-air-filter-toggle-match    bytes=30->30 modified=no save-would-corrupt=no signal=user-error
+org-air-scope-clear            bytes=30->30 modified=no save-would-corrupt=no signal=user-error
+
+--- on-disk after C-x C-s following org-air-refresh ---
+thesis.org on disk: "* Chapter 1\nYears of writing.\n"
+#+end_example
+
+8 destroyers → 0.
+
+* D6 — interactive mode scoping across the whole command surface
+
+Emacs 29.1 is the floor, so =(interactive SPEC MODE…)= is available.  It
+is now applied to **118 of the 132** commands; the other 14 are the
+global entry points, which must stay offered everywhere.
+
+** Where the guard goes, and why the placement matters
+
+The rule is *the refusal must precede the prompt*.  Emacs evaluates a
+command's =interactive= form before its body, so:
+
+- =(interactive)= (no spec) → =(interactive nil MODE…)= and the guard as
+  the **first body form**.  Nothing can prompt before it: the body has
+  not started.
+- a *spec-bearing* form (=(interactive (list (read-string …)))=,
+  ="sTag: "=, =(progn (org-air-view--loading-guard) …)=) → the guard is
+  hoisted **inside** the interactive form, ahead of the read:
+  =(interactive (progn (org-air-view--require-board) …) org-air-view-mode)=.
+  The two string specs (="sTag: "=, ="sSchedule (empty clears): "=) were
+  rewritten to the equivalent explicit =read-string= so the guard could
+  be placed before them at all.
+- an *engine* command with a public non-interactive API
+  (=org-air-visit-item=, =org-air-refile-item=) → the guard lives in the
+  =interactive= form **only**, so =(org-air-visit-item ITEM)= from Lisp,
+  the revisit view and the pane stays buffer-agnostic.
+
+** The surface vocabulary
+
+Named wrappers, so a call site reads as one token and the accepted set is
+visible where it is asserted:
+
+| helper                                  | surfaces                                          |
+|-----------------------------------------+---------------------------------------------------|
+| =org-air-view--require-board=           | board                                             |
+| =org-air-view--require-item-view=       | board, review (the shared item verbs)             |
+| =org-air-view--require-view=            | board, project, review, revisit                   |
+| =org-air-view--require-rail-host=       | the four + rail + doc session                     |
+| =org-air-view--require-rail=            | rail                                              |
+| =org-air-view--require-pane-surface=    | entry pane (incl. the =*org-air-pane:*= indirect) + the four hosts |
+| =org-air-project--require-view=         | project tree                                      |
+| =org-air-project--require-doc-session=  | a live project doc session                        |
+| =org-air-review--require-view=          | review                                            |
+| =org-air-revisit--require-view=         | revisit                                           |
+| =org-air-inbox--require-board=          | board (the refile engine's =e=)                   |
+| =org-air-inbox--require-form=           | *state*, not mode: the transient form must hold an item |
+
+Two placements are deliberately *not* mode preconditions:
+
+- =org-air-refile-form-*= (11 transient suffixes, the D5 raw-error set)
+  are guarded on **form state** (=(org-air-inbox--form-get :item)=), not
+  on a mode — transient decides which buffer runs a suffix, so the state
+  is the honest invariant.  They are still mode-*scoped* to the board so
+  =M-x= stops offering them.
+- =org-air-rail-toggle= already had an older, *stricter* precondition of
+  its own (a doc buffer must carry a live session tree).  It gets the
+  scoping and keeps its own refusal; layering a second guard on top would
+  only have changed a message for no gain.
+
+** Measured effect on =M-x=
+
+#+begin_example
+commands: 132 ; with `interactive' MODE scoping: 118      (was 0)
+offered by M-x in a plain org-mode buffer:  14            (was 132)
+offered by M-x in an org-air board:         84
+offered by M-x in the project view:         43
+#+end_example
+
+The 14 still offered in a foreign buffer are exactly the entry points and
+the return verbs: =org-air=, =org-air-view=, =org-air-capture=,
+=org-air-project=, =org-air-review=, =org-air-revisit=, =org-air-goto-date=,
+=org-air-process-inbox=, =org-air-scan-report=, =org-air-help=,
+=org-air-faces-link-nano=, =org-air-return=, =org-air-return-to-dashboard=,
+=org-air-view-day=.
+
+Scoping hides; it does not forbid.  A command typed by full name still
+runs — and then meets the guard.  **The guard is the protection; the
+scoping only keeps the menu honest.**  Every key binding and the =?=
+help table are byte-unchanged (=make regen-mockups= is a byte no-op).
+
+* The 132-command sweep, classified before and after
+
+Method: for each command, a fresh =org-mode= file buffer containing
+=* Chapter 1\nYears of writing.\n=; =noninteractive= bound to nil;
+=read-string=, =read-from-minibuffer=, =completing-read(-multiple)=,
+=read-char(-exclusive)=, =read-event=, =y-or-n-p=, =yes-or-no-p=,
+=read-file-name=, =read-directory-name=, =org-read-date= all stubbed to
+signal; the FOREIGN buffer re-measured afterwards (not whatever the
+command switched to).  Classification: *destroys* (text or modified-flag
+changed) > *prompts-then-fails* (a reader was reached) > *refuses*
+(=user-error=/=quit=) > *raw error* (anything else) > *silent no-op*.
+
+| totals             | before | after |
+|--------------------+--------+-------|
+| destroys           |      8 |   *0* |
+| raw error          |      3 |   *0* |
+| prompts-then-fails |     19 |   *2* |
+| refuses            |     24 |   117 |
+| silent no-op       |     78 |    13 |
+| total              |    132 |   132 |
+
+93 of the 132 changed classification; the 39 that did not were already
+correct.
+
+The 2 remaining *prompts-then-fails* and the 13 *silent no-op* are the
+same 15 commands: global entry points whose prompt or action **is** their
+contract in any buffer — =org-air-goto-date= reads a date and then opens
+the board itself; =org-air-project= reads a project root and then opens
+the tree; =org-air=/=org-air-view=/=org-air-review=/=org-air-revisit=/
+=org-air-process-inbox=/=org-air-help=/=org-air-scan-report= open their
+own buffer and leave yours alone; =org-air-outline-{next,prev,goto-current}-heading=
+and =org-air--repeat-{next,prev}= are *contract*-buffer-local motions for
+=org-air-outline-mode= / a doc session; =org-air-faces-link-nano= is a
+face helper.  (=org-air-capture= moved from *prompts-then-fails* to
+*refuses* because of D2: with nothing configured it now refuses before
+the title prompt.)
+
+Full table — before → after:
+
+| ~org-air~ | silent no-op | silent no-op |
+| ~org-air--repeat-next~ | silent no-op | silent no-op |
+| ~org-air--repeat-prev~ | silent no-op | silent no-op |
+| ~org-air-back-section~ | silent no-op | refuses |
+| ~org-air-calendar-next~ | destroys | refuses |
+| ~org-air-calendar-prev~ | destroys | refuses |
+| ~org-air-calendar-today~ | destroys | refuses |
+| ~org-air-capture~ | prompts-then-fails | refuses |
+| ~org-air-clear-marks~ | silent no-op | refuses |
+| ~org-air-edit-redo~ | refuses | refuses |
+| ~org-air-edit-undo~ | refuses | refuses |
+| ~org-air-faces-link-nano~ | silent no-op | silent no-op |
+| ~org-air-filter~ | prompts-then-fails | refuses |
+| ~org-air-filter-by-tag~ | prompts-then-fails | refuses |
+| ~org-air-filter-clear~ | destroys | refuses |
+| ~org-air-filter-toggle~ | prompts-then-fails | refuses |
+| ~org-air-filter-toggle-match~ | destroys | refuses |
+| ~org-air-forward-section~ | silent no-op | refuses |
+| ~org-air-goto-bottom~ | silent no-op | refuses |
+| ~org-air-goto-date~ | prompts-then-fails | prompts-then-fails |
+| ~org-air-goto-top~ | silent no-op | refuses |
+| ~org-air-help~ | silent no-op | silent no-op |
+| ~org-air-item-archive~ | refuses | refuses |
+| ~org-air-item-backlog~ | refuses | refuses |
+| ~org-air-item-cycle-todo~ | refuses | refuses |
+| ~org-air-item-done~ | refuses | refuses |
+| ~org-air-item-file-group~ | silent no-op | refuses |
+| ~org-air-item-kill~ | refuses | refuses |
+| ~org-air-item-schedule~ | prompts-then-fails | refuses |
+| ~org-air-item-set-deadline~ | prompts-then-fails | refuses |
+| ~org-air-next-item~ | silent no-op | refuses |
+| ~org-air-next-line~ | silent no-op | refuses |
+| ~org-air-next-section~ | silent no-op | refuses |
+| ~org-air-outline-goto-current-heading~ | silent no-op | silent no-op |
+| ~org-air-outline-next-heading~ | silent no-op | silent no-op |
+| ~org-air-outline-prev-heading~ | silent no-op | silent no-op |
+| ~org-air-peek-item~ | refuses | refuses |
+| ~org-air-prev-item~ | silent no-op | refuses |
+| ~org-air-prev-line~ | silent no-op | refuses |
+| ~org-air-prev-section~ | silent no-op | refuses |
+| ~org-air-process-inbox~ | silent no-op | silent no-op |
+| ~org-air-project~ | prompts-then-fails | prompts-then-fails |
+| ~org-air-project-back~ | refuses | refuses |
+| ~org-air-project-filter~ | prompts-then-fails | refuses |
+| ~org-air-project-group-by-directory~ | silent no-op | refuses |
+| ~org-air-project-group-by-state~ | silent no-op | refuses |
+| ~org-air-project-group-by-tag~ | silent no-op | refuses |
+| ~org-air-project-next~ | silent no-op | refuses |
+| ~org-air-project-open~ | refuses | refuses |
+| ~org-air-project-prev~ | silent no-op | refuses |
+| ~org-air-project-quit~ | silent no-op | refuses |
+| ~org-air-project-refresh~ | silent no-op | refuses |
+| ~org-air-project-sort-cycle~ | silent no-op | refuses |
+| ~org-air-project-sort-reverse~ | silent no-op | refuses |
+| ~org-air-project-sort-set~ | prompts-then-fails | refuses |
+| ~org-air-project-toggle-dropped~ | silent no-op | refuses |
+| ~org-air-project-toggle-filenames~ | silent no-op | refuses |
+| ~org-air-project-visit~ | refuses | refuses |
+| ~org-air-quit~ | silent no-op | refuses |
+| ~org-air-rail-popin~ | silent no-op | refuses |
+| ~org-air-rail-popout~ | silent no-op | refuses |
+| ~org-air-rail-quit~ | silent no-op | refuses |
+| ~org-air-rail-return~ | silent no-op | refuses |
+| ~org-air-rail-toggle~ | refuses | refuses |
+| ~org-air-refile-form-category~ | prompts-then-fails | refuses |
+| ~org-air-refile-form-deadline~ | prompts-then-fails | refuses |
+| ~org-air-refile-form-execute~ | silent no-op | refuses |
+| ~org-air-refile-form-file~ | raw error | refuses |
+| ~org-air-refile-form-last~ | silent no-op | refuses |
+| ~org-air-refile-form-note~ | prompts-then-fails | refuses |
+| ~org-air-refile-form-path~ | silent no-op | refuses |
+| ~org-air-refile-form-priority~ | silent no-op | refuses |
+| ~org-air-refile-form-schedule~ | prompts-then-fails | refuses |
+| ~org-air-refile-form-tags~ | raw error | refuses |
+| ~org-air-refile-form-todo~ | raw error | refuses |
+| ~org-air-refile-item~ | silent no-op | refuses |
+| ~org-air-refile-transient~ | silent no-op | refuses |
+| ~org-air-refresh~ | destroys | refuses |
+| ~org-air-refresh-all~ | destroys | refuses |
+| ~org-air-return~ | refuses | refuses |
+| ~org-air-return-to-dashboard~ | refuses | refuses |
+| ~org-air-review~ | silent no-op | silent no-op |
+| ~org-air-review-cycle-range~ | silent no-op | refuses |
+| ~org-air-review-cycle-rollup~ | silent no-op | refuses |
+| ~org-air-review-filter~ | prompts-then-fails | refuses |
+| ~org-air-review-next~ | silent no-op | refuses |
+| ~org-air-review-period-next~ | silent no-op | refuses |
+| ~org-air-review-period-prev~ | silent no-op | refuses |
+| ~org-air-review-period-today~ | silent no-op | refuses |
+| ~org-air-review-prev~ | silent no-op | refuses |
+| ~org-air-review-quit~ | silent no-op | refuses |
+| ~org-air-review-range-narrow~ | silent no-op | refuses |
+| ~org-air-review-range-widen~ | silent no-op | refuses |
+| ~org-air-review-refresh~ | silent no-op | refuses |
+| ~org-air-review-scope~ | prompts-then-fails | refuses |
+| ~org-air-review-scope-clear~ | silent no-op | refuses |
+| ~org-air-review-toggle-kind~ | silent no-op | refuses |
+| ~org-air-review-toggle-section~ | silent no-op | refuses |
+| ~org-air-revisit~ | silent no-op | silent no-op |
+| ~org-air-revisit-cycle-surface~ | silent no-op | refuses |
+| ~org-air-revisit-extend~ | silent no-op | refuses |
+| ~org-air-revisit-filter~ | prompts-then-fails | refuses |
+| ~org-air-revisit-next~ | silent no-op | refuses |
+| ~org-air-revisit-open~ | refuses | refuses |
+| ~org-air-revisit-prev~ | silent no-op | refuses |
+| ~org-air-revisit-quit~ | silent no-op | refuses |
+| ~org-air-revisit-refresh~ | silent no-op | refuses |
+| ~org-air-revisit-toggle-created~ | silent no-op | refuses |
+| ~org-air-revisit-toggle-more~ | silent no-op | refuses |
+| ~org-air-revisit-visit~ | refuses | refuses |
+| ~org-air-scan-report~ | silent no-op | silent no-op |
+| ~org-air-scope~ | prompts-then-fails | refuses |
+| ~org-air-scope-clear~ | destroys | refuses |
+| ~org-air-set-schedule~ | prompts-then-fails | refuses |
+| ~org-air-set-tag~ | refuses | refuses |
+| ~org-air-toggle-dates~ | silent no-op | refuses |
+| ~org-air-toggle-mark~ | refuses | refuses |
+| ~org-air-toggle-origin~ | silent no-op | refuses |
+| ~org-air-toggle-section~ | silent no-op | refuses |
+| ~org-air-toggle-tags~ | silent no-op | refuses |
+| ~org-air-triage-undo~ | refuses | refuses |
+| ~org-air-view~ | silent no-op | silent no-op |
+| ~org-air-view-board~ | silent no-op | refuses |
+| ~org-air-view-day~ | refuses | refuses |
+| ~org-air-view-pane~ | refuses | refuses |
+| ~org-air-view-pane-close~ | silent no-op | refuses |
+| ~org-air-view-pane-quit~ | silent no-op | refuses |
+| ~org-air-view-pane-return~ | refuses | refuses |
+| ~org-air-view-sort-cycle~ | silent no-op | refuses |
+| ~org-air-view-sort-reverse~ | silent no-op | refuses |
+| ~org-air-visit-item~ | refuses | refuses |
+| ~org-air-visit-item-stay~ | refuses | refuses |
+
+* D2 — silent capture loss, and the decision
+
+** The defect
+
+With the README's plain-=require= snippet — =(setq org-air-files '("~/org/"))=
+and nothing else — =org-air-inbox-file= defaulted to
+=(locate-user-emacs-file "org-air-inbox.org")=, i.e.
+=~/.emacs.d/org-air-inbox.org=, which is **not** inside =org-air-files=.
+So =c= wrote the note correctly, said "Captured to …", and the board
+honestly reported *Inbox 0 — Inbox zero — nothing to process*.  Both
+halves right, together a silent loss.
+
+** The decision: do BOTH, and reject the fold-in
+
+The reviewer's preferred fix was (a) "always include =org-air-inbox-file=
+in the scan set".  **That is the one option this round rejects**, and it
+was tried first and reverted:
+
+- Folding the inbox into =org-air-query-files= fixes the *loss* but not
+  the *incoherence*.  =org-air-files= would silently stop being the
+  complete answer to "what does the board read" — the scan set would gain
+  a member the user never listed, and a user who deliberately narrows
+  =org-air-files= could not narrow the inbox out.
+- It also *contradicts an existing contract*, and the suite proved it:
+  =org-air-r60-3-inbox-never-excluded= (c) pins that an entirely-excluded
+  source root yields **nothing**.  The fold-in made it yield the inbox.
+  R60's law — the enumerated set is exactly (=org-air-files= − excludes,
+  with the inbox exempted from the excludes) — is worth more than the
+  convenience.
+
+What ships instead closes the gap from *both ends*, and keeps the scan
+set honest:
+
+1. **The default derives from =org-air-files=.**  =org-air-inbox-file=
+   now defaults to =nil=, and =org-air-inbox-effective-file= resolves it:
+   =inbox.org= inside the first configured directory, or beside the first
+   configured file.  =(setq org-air-files '("~/org/"))= therefore captures
+   to =~/org/inbox.org= — inside the scan set by construction, so the
+   default *cannot* lose a note.
+2. **An explicit inbox outside the scan set is REFUSED**, not warned
+   about.  =org-air-inbox-file-scanned-p= answers containment without
+   running a scan and without requiring the file to exist yet, so
+   =org-air-capture= can refuse *before the title prompt and before the
+   file is created*:
+
+   #+begin_example
+   Inbox /home/u/elsewhere/org-air-inbox.org is outside `org-air-files', so the
+   board would never show this capture; move it inside, add its directory to
+   `org-air-files', or set `org-air-inbox-file' to nil to derive it
+   #+end_example
+
+   With nothing configured at all:
+   =Nothing to capture into: set `org-air-files' first=.
+
+A warning was considered and rejected: the round's own rule is that
+silent loss is unacceptable *in either direction*, and a warning that
+scrolls past is still a lost note.  Refusing costs one =user-error= and
+loses nothing.
+
+Because the default can now be =nil=, every reader of the raw variable
+was routed through the resolver, so a *derived* inbox is recognised
+exactly like a configured one: the exclude-context exemption
+(=org-air-query--exclude-context=), =org-air-query--inbox-file-p=,
+=org-air-classify--inbox-file-p=, the revisit queue's inbox exclusion,
+=org-air-view--cache-key=, the changed-files inbox-first ordering, and
+=org-air--relevant-file-p= (the after-save refresh scope).
+
+Verified end to end (=/tmp= probe, README snippet verbatim):
+
+#+begin_example
+org-air-files            : ("/tmp/…/org/")
+org-air-inbox-file       : nil
+effective inbox          : /tmp/…/org/inbox.org
+inside the scan set?     : t
+board sees inbox item?   : t (of 2 items)
+#+end_example
+
+* D3 — encrypted Org is skipped; now it says so
+
+The skip itself is correct and stays: =org-air-query--scan-file= refuses
+to read an =.org.gpg= with no live buffer, because a background scan must
+never block on pinentry.  (A file already open and decrypted *is* scanned
+in place, as before.)  What was wrong is that the skip was invisible and
+that the README claimed the opposite.
+
+Two changes, neither of which touches the paint (no golden churn):
+
+1. **README:161 corrected.**  The line now reads "directories are scanned
+   recursively for =.org= files", followed by a new subsection —
+   *Encrypted files are listed but not read* — that states the behaviour,
+   the reason, and the workaround (open and decrypt the buffer).
+2. **The scan says so.**  =org-air-query-items= now calls
+   =org-air-query--announce-skips= at the end of a full scan:
+
+   #+begin_example
+   org-air: 1 file(s) in `org-air-files' were NOT read (1 encrypted) — M-x org-air-scan-report
+   #+end_example
+
+   Emitted **at most once per distinct skip set** (=org-air-query--skip-announced=),
+   so a board refreshed all day says it once; governed by the new
+   =org-air-report-skipped-files= (default =t=).  It is a =message=, not
+   paint: zero byte-fixture impact, and it runs in batch too, so it is not
+   another =(unless noninteractive …)= blind spot.
+3. =org-air-scan-report= now explains each structured reason under the
+   list (=org-air-query-skip-reason-explanations=), so a user who notices
+   a file missing learns why in the same place:
+
+   #+begin_example
+   org-air scan report — 1 file(s) skipped
+
+     encrypted    /tmp/…/gpg/vault.org.gpg
+
+   What the reasons mean
+     encrypted    encrypted (.gpg): never decrypted by a background scan — open
+                  and decrypt the file and it is scanned in place
+   #+end_example
+
+The board header was *not* touched.  Adding a "N files skipped" chip
+there is the reviewer's suggestion and is right in spirit, but it repaints
+the banner band and would churn every byte golden; a guard round is the
+wrong place to re-bless the paint.  Recorded as a follow-up.
+
+* Gate
+
+Stale =.elc= deleted first; all 11 modules compile.
+
+| gate                                          | result                                                        |
+|-----------------------------------------------+---------------------------------------------------------------|
+| =make clean && make check= (COMPILED, 11 =.elc=) | =Ran 1345 tests, 1333 results as expected, 4 unexpected, 8 skipped= |
+| =make clean && make lint test= (INTERPRETED, 0 =.elc=) | =Ran 1345 tests, 1333 results as expected, 4 unexpected, 8 skipped= |
+| =make lint= (checkdoc + package-lint + R96 dupdef), both modes | =lint: ok (0 findings, all baselined)=       |
+| =make regen-mockups=                          | byte no-op — no golden churn                                  |
+| known-failures manifest                       | still =()= — nothing masked, the 4 are reported RED           |
+
+Both modes agree exactly.  Compile is clean apart from the one
+pre-existing =org-air-project.el:958= docstring-width warning that
+=main= already carries.
+
+** The 4 failing tests — classified, NOT edited
+
+All four fail for the *same reason and by design*: each drives a
+surface-scoped command from a buffer that is not an org-air surface,
+which is precisely the behaviour this round makes impossible.  None was
+touched; each needs a one-line re-bless in the test seat.
+
+| test | what it does | re-bless shape |
+|------+--------------+----------------|
+| =org-air-r20-3-pane-quit-tears-down-and-selects-board= | its comment says "quit from within the pane", but the call is made from the ambient ERT buffer (measured: =" *temp*"=, =fundamental-mode=); the board is only the *selected window* | wrap the one call: =(with-current-buffer host (org-air-view-pane-quit))= — makes the test do what it already claims |
+| =org-air-r72-11-inheritance-edges= | =call-interactively #'org-air-filter= inside a bare =with-temp-buffer= that sets =org-air-view--items= locally but never enters the mode; it only wants the reader's *vocabulary* | add =(org-air-view-mode)= to the temp buffer (1 line) — the vocabulary assertions are unaffected |
+| =org-air-r73-14-empty-ring-and-dead-push= | asserts =org-air-edit-undo= says ="Nothing to undo"=; the board precondition is now a stricter, *earlier* refusal, so the message differs | run the two refusal asserts inside a board buffer (the ring stays global, so the assertion itself is unchanged) |
+| =org-air-r75-8-empty-redo-gentle= | same shape for =org-air-edit-redo= / ="Nothing to redo"= | same |
+
+All four still signal a =user-error=, still mutate nothing, and still
+prompt for nothing — the *invariants* they were written to defend hold.
+What changed is only *which* refusal fires first.
+
+Seven other tests failed on the first pass and were fixed **in the
+source, not the seat**, because they had found genuine over-restriction
+in the first cut of the guards — they are the round's own regression
+witnesses:
+
+- =org-air-echo-rail-toggle-refuses-outside-an-org-air-buffer= → proved a
+  second guard on =org-air-rail-toggle= was redundant; its own stricter
+  refusal was kept.
+- =org-air-r24-4-ret-{on-doc-row,on-dir-header,at-column-0}= → proved
+  =org-air-view-pane-return= is a *four-view* verb (the project tree's
+  doc rows route through it), not a board/review one.
+- =org-air-r53-4-headingless-note-one-openable-file-item= and
+  =org-air-r54c-3c-visit-ledger-opt-in-persists-bounded= → proved
+  =org-air-visit-item='s guard must be on the interactive path only; the
+  =(org-air-visit-item ITEM)= engine API is called from Lisp.
+- =org-air-r20-3= (first cut) → proved the *editable indirect* pane
+  (=*org-air-pane:TITLE*=, a plain =org-mode= indirect buffer) is an
+  org-air surface even though it derives from no org-air mode; its
+  =C-c C-q= would have been broken by a naive =derived-mode-p= guard.
+
+That is the honest arithmetic: the suite could not see the 8 destroyers,
+but it *did* catch four wrong guards within minutes.
+
+* What was NOT done, and why
+
+- *No planning-model change, no cache bump, no golden churn.*
+  =org-air-view--cache-key= now stores the *effective* inbox instead of
+  the raw variable — a value change, not a shape change, so no
+  =org-air-view--cache-version= bump is warranted (a differing key simply
+  takes the documented cold re-derive).
+- *No board-header "N skipped" chip* (D3) — it repaints the banner and
+  would churn every golden.  Follow-up.
+- *No new ERTs.*  The reviewer's B-1 instrument (one ERT sweeping all 132
+  commands in a foreign buffer) is the highest-value test in the report
+  and *should* exist; this round was scoped source + README + Air doc, and
+  editing the test tree was out of bounds.  The sweep exists as a probe
+  and its before/after tables are recorded above; freezing it as an ERT is
+  the first item of the next round.
+- *No =defalias= for =org-air-item-deadline=* (R96 stands).
+
+* Follow-ups
+
+1. Freeze the 132-command foreign-buffer sweep as an ERT (reviewer B-1);
+   assert text unchanged, =buffer-modified-p= nil, any signal is a
+   =user-error=, and no reader was reached before the refusal.
+2. Re-bless the 4 tests above (4 one-line edits in the test seat).
+3. The board-header skipped-files chip, with the golden re-bless it needs.
+4. The "no files configured" empty state (reviewer §2.2 item 1) — still
+   the highest-value 30-minute fix for a stranger.
+5. =LICENSE=, CI, and the =make check-gui= third gate mode.
+
+* Implementation History
+
+- R97 (this round): =org-air-query.el= gained the shared surface
+  precondition (=org-air-surface-p= / =org-air-require-surface=), the
+  inbox resolver (=org-air-inbox-effective-file= /
+  =org-air-inbox-file-scanned-p=) and the skip announcer;
+  =org-air-view.el= gained the three funnel guards and the per-surface
+  wrappers; =org-air-project.el= / =-review.el= / =-revisit.el= /
+  =-inbox.el= gained their own; 118 of 132 =interactive= forms are
+  mode-scoped and 113 commands state a precondition.  =org-air.el=
+  changed the =org-air-inbox-file= default to =nil=.  README: the
+  =.org.gpg= line corrected plus three new subsections (encrypted files,
+  the inbox/scan-set contract, the command-surface refusal), and the
+  configuration table updated.  Gate: 1345 / 1333 as expected / 4
+  unexpected / 8 skipped, identical COMPILED and INTERPRETED; lint 0;
+  goldens a byte no-op.

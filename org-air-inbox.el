@@ -43,6 +43,24 @@
 (require 'transient)
 (require 'org-air-query)
 
+;; R97 D1/D5 — preconditions for the refile engine and its transient form.
+
+(defun org-air-inbox--require-board ()
+  "Refuse unless the current buffer is an org-air board (R97 D1).
+The refile editor is the board's `e' verb; its non-interactive engine
+API (`org-air-refile-item' with arguments) is unaffected."
+  (org-air-require-surface "an org-air board" "org-air" 'org-air-view-mode))
+
+(defun org-air-inbox--require-form ()
+  "Refuse unless the transient refile editor form is live (R97 D5).
+The `org-air-refile-form-*' suffixes are internals of
+`org-air-refile-transient'; run standalone from \\[execute-extended-command]
+they used to signal a raw `wrong-type-argument' off the empty form
+state.  A state precondition, not a mode one — it holds wherever
+transient decides to run the suffix."
+  (unless (org-air-inbox--form-get :item)
+    (user-error "No org-air refile form open (press `e' on a board item)")))
+
 (defvar org-air-inbox-file)
 (defvar org-air-view-buffer-name)
 (defvar org-air-view--items)
@@ -77,9 +95,29 @@ completion then simply offers no pre-seeded vocabulary."
       (when (fboundp 'org-air-view--cache-read)
         (plist-get (ignore-errors (org-air-view--cache-read)) :items))))
 
+(defun org-air-inbox--require-coherent-inbox ()
+  "Return the capture target, or refuse when the board could not show it.
+R97 D2 (silent capture loss): `org-air-capture' used to write to
+`org-air-inbox-file' whatever it was, so an inbox outside
+`org-air-files' produced a note on disk AND an honest \"Inbox zero\"
+board.  The write is now conditional on the scan being able to see it:
+with nothing configured at all, and with an explicit inbox outside the
+scan set, this signals a `user-error' that names the fix.  Refuses
+BEFORE any file is created and before any prompt (the caller reads the
+title only after this returns)."
+  (let ((file (org-air-inbox-effective-file)))
+    (unless file
+      (user-error "Nothing to capture into: set `org-air-files' first"))
+    (unless (org-air-inbox-file-scanned-p file)
+      (user-error "Inbox %s is outside `org-air-files', so the board would never show this capture; move it inside, add its directory to `org-air-files', or set `org-air-inbox-file' to nil to derive it"
+                  (abbreviate-file-name file)))
+    file))
+
 (defun org-air-inbox--ensure-file ()
-  "Ensure `org-air-inbox-file' exists and return it."
-  (let ((file (expand-file-name org-air-inbox-file)))
+  "Ensure the effective inbox file exists and return it.
+Refuses first (`org-air-inbox--require-coherent-inbox'), so no file is
+ever created outside the scan set."
+  (let ((file (org-air-inbox--require-coherent-inbox)))
     (make-directory (file-name-directory file) t)
     (unless (file-exists-p file)
       (with-temp-file file
@@ -88,8 +126,11 @@ completion then simply offers no pre-seeded vocabulary."
 
 ;;;###autoload
 (defun org-air-capture (&optional title body)
-  "Capture a new inbox item with TITLE and optional BODY."
-  (interactive)
+  "Capture a new inbox item with TITLE and optional BODY.
+The target is `org-air-inbox-effective-file'.  R97 D2: the coherence of
+that target with `org-air-files' is checked BEFORE the title prompt, so
+a misconfigured inbox costs one `user-error' instead of a lost note."
+  (interactive (progn (org-air-inbox--require-coherent-inbox) nil))
   (let* ((title (or title (read-string "Capture title: ")))
          (body (or body
                    (when current-prefix-arg
@@ -681,7 +722,10 @@ gated by `org-air-refile-synthesize-frontmatter' — a brand-new or
 `#+state:' from `org-air-refile-new-file-state', `#+FILETAGS:' from
 the effective tags) before the paste; an already-titled target is left
 byte-for-byte as-is, and a failed refile still creates no file."
-  (interactive (list 'org-air-inbox--form-dispatch))
+  (interactive
+   (progn (org-air-inbox--require-board)
+          (list 'org-air-inbox--form-dispatch))
+   org-air-view-mode)
   ;; R90: the board's `e' is deliberately single-item while a hidden
   ;; source-key selection exists.  Guard before opening the transient or
   ;; touching either source/target file; direct engine API calls are kept.
@@ -1179,7 +1223,8 @@ and this segment render the same label by construction)."
                   "file"
                   (when-let* ((file (org-air-inbox--form-get :file)))
                     (file-name-nondirectory file))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let* ((item (org-air-inbox--form-get :item))
          (file (org-air-inbox--read-target-file item)))
     (unless (equal file (org-air-inbox--form-get :file))
@@ -1196,7 +1241,8 @@ and this segment render the same label by construction)."
                   (when-let* ((olp (org-air-inbox--form-get :olp)))
                     (concat (mapconcat #'identity olp " › ")
                             (or (org-air-inbox--form-creates) "")))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let ((file (org-air-inbox--form-get :file)))
     (if (null file)
         (message "Pick a destination file first (f)")
@@ -1216,7 +1262,8 @@ and this segment render the same label by construction)."
                                  (concat " › "
                                          (mapconcat #'identity (cdr last)
                                                     " › ")))))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (if (null org-air-inbox--refile-last)
       (message "No refile executed this session yet")
     (let ((file (car org-air-inbox--refile-last))
@@ -1237,7 +1284,8 @@ and this segment render the same label by construction)."
                   "tags"
                   (when-let* ((tags (org-air-inbox--form-get :tags)))
                     (concat ":" (mapconcat #'identity tags ":") ":"))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let* ((item (org-air-inbox--form-get :item))
          (probe (org-air-item-create
                  :title (org-air-item-title item)
@@ -1255,7 +1303,8 @@ and this segment render the same label by construction)."
                   (let ((item (org-air-inbox--form-get :item)))
                     (or (org-air-inbox--form-get :category)
                         (and item (org-air-item-group item))))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let* ((item (org-air-inbox--form-get :item))
          (probe (org-air-item-create
                  :title (org-air-item-title item)
@@ -1281,7 +1330,8 @@ and this segment render the same label by construction)."
                         (and item
                              (stringp (org-air-item-scheduled item))
                              (org-air-item-scheduled item))))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let* ((choice (completing-read
                   "Schedule: "
                   (mapcar #'car org-air-inbox--schedule-options) nil t))
@@ -1335,7 +1385,8 @@ in-place)."
                         (and item
                              (stringp (org-air-item-deadline item))
                              (org-air-item-deadline item))))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let* ((choice (completing-read
                   "Deadline: "
                   (mapcar #'car org-air-inbox--deadline-options) nil t))
@@ -1367,7 +1418,8 @@ file the write will land in, so completion and the apply-time
                   (or (org-air-inbox--form-get :todo)
                       (let ((item (org-air-inbox--form-get :item)))
                         (and item (org-air-item-todo item))))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let ((item (org-air-inbox--form-get :item)))
     ;; R68-1: behaviour byte-for-byte through the extracted shared
     ;; reader (the r67-7 vocabulary pin holds) — the board `T' and this
@@ -1399,7 +1451,8 @@ remove).  RET (execute) applies; the field/preview repaint each press."
                                        item))))))
                     (cond ((eq c ?\s) "clear")
                           (c (string c))))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let* ((item    (org-air-inbox--form-get :item))
          (own     (and item (org-air-inbox--item-priority-char item)))
          (pending (org-air-inbox--form-get :priority))
@@ -1636,7 +1689,8 @@ the engine's trailing NOTE parameter."
                   "note"
                   (when-let* ((note (org-air-inbox--form-get :note)))
                     (org-air-inbox--form-note-label note))))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let ((text (read-string "Note (empty clears): "
                            (org-air-inbox--form-get :note))))
     (org-air-inbox--form-put :note (unless (string-empty-p text) text))))
@@ -1656,7 +1710,8 @@ is a gentle no-op message — never an error, never a mutation.  ONE
 RET confirms edit + note together in BOTH legs (R71)."
   :description (lambda ()
                  (if (org-air-inbox--form-get :file) "refile" "edit in place"))
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-form)
   (let* ((item (org-air-inbox--form-get :item))
          (file (org-air-inbox--form-get :file))
          (olp (org-air-inbox--form-get :olp))
@@ -1740,7 +1795,8 @@ the editor, not a separate mode."
   [:description org-air-inbox--form-preview
    ("RET" org-air-refile-form-execute)
    ("q" "quit" transient-quit-one)]
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-inbox--require-board)
   (when noninteractive
     (user-error "The editor form is interactive-only; call `org-air-refile-item' / `org-air-inbox--apply-item-edits' with arguments in batch"))
   (org-air-inbox--form-init (org-air-inbox--interactive-item))

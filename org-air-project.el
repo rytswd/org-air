@@ -30,6 +30,18 @@
 (require 'org-air-view)
 (require 'org-air-calendar)
 
+;; R97 D1 — surface preconditions for this module's commands.
+
+(defun org-air-project--require-view ()
+  "Refuse unless the current buffer is the org-air project tree (R97 D1)."
+  (org-air-require-surface "an org-air project view" "org-air-project"
+                          'org-air-project-mode))
+
+(defun org-air-project--require-doc-session ()
+  "Refuse unless this buffer is a live org-air project DOC session (R97 D1)."
+  (org-air-require-surface "an org-air project doc session" "org-air-project"
+                          'org-air-doc-session-mode))
+
 ;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
 ;; the mode sets it buffer-locally without requiring bookmark at load.
 (defvar bookmark-make-record-function)
@@ -1779,7 +1791,8 @@ between two-pane and board-only."
 
 (defun org-air-project-refresh ()
   "Re-render the current Air project view."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (when org-air-project--root
     (org-air-project--render org-air-project--root)))
 
@@ -1792,19 +1805,22 @@ Non-interactive sibling of `org-air-project-refresh' used by the shared
 
 (defun org-air-project-group-by-state ()
   "Group the project view by state (airctl -a)."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (setq org-air-project-group 'state)
   (org-air-project-refresh))
 
 (defun org-air-project-group-by-directory ()
   "Group the project view by directory (airctl status -Da)."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (setq org-air-project-group 'directory)
   (org-air-project-refresh))
 
 (defun org-air-project-group-by-tag ()
   "Group the project view by tag (airctl -Ta)."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (setq org-air-project-group 'tag)
   (org-air-project-refresh))
 
@@ -1812,28 +1828,34 @@ Non-interactive sibling of `org-air-project-refresh' used by the shared
   "Cycle the project sort key and refresh (R22-3: shared sort core).
 Thin alias of `org-air-view-sort-cycle' (the inherited `o'); the project
 mode seeds the shared spec (name/created/updated + refresh)."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (org-air-view-sort-cycle))
 
 (defun org-air-project-sort-reverse ()
   "Toggle the project sort direction and refresh (R22-3: shared sort core).
 Thin alias of `org-air-view-sort-reverse' (the inherited `O')."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (org-air-view-sort-reverse))
 
 (defun org-air-project-sort-set (key)
   "Set the sort KEY directly (name/created/updated) and refresh (R16 D-P4).
 R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
   (interactive
-   (list (intern (completing-read "Sort by: " '("name" "created" "updated")
-                                  nil t))))
+   (progn
+     (org-air-project--require-view)
+     (list (intern (completing-read "Sort by: " '("name" "created" "updated")
+                                    nil t))))
+   org-air-project-mode)
   (setq-local org-air-view--sort-key key)
   (org-air-project-refresh)
   (message "org-air project: sort by %s" key))
 
 (defun org-air-project-next ()
   "Move point to the next doc row, landing on its title (R21-2)."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (let ((pos (next-single-property-change
               (line-end-position) 'org-air-doc)))
     (when pos
@@ -1842,7 +1864,8 @@ R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
 
 (defun org-air-project-prev ()
   "Move point to the previous doc row, landing on its title (R21-2)."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (let ((pos (previous-single-property-change
               (line-beginning-position) 'org-air-doc)))
     (when pos
@@ -1853,7 +1876,8 @@ R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
 
 (defun org-air-project-visit ()
   "Visit the Air doc on the current row."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (let ((doc (get-text-property (point) 'org-air-doc)))
     (if doc
         (find-file-other-window (org-air-doc-file doc))
@@ -1867,7 +1891,8 @@ swallow (the R26-3b root cause).  The session is stashed (window + point)
 so the back verbs restore the tree exactly; a popped side rail flips to
 the DOC context (outline + meta + legend).  `v' keeps the bottom peek
 pane; S-RET visits in the other window."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   ;; R48-3: the fold-row branch BEFORE the doc check — RET (and <mouse-1>
   ;; via this same command) on the `… N dropped' row dispatches to the
   ;; toggle instead of erroring "No Air document on this line" — and does
@@ -1908,7 +1933,8 @@ thrown away) — only the windows swap.  Bound in the doc buffer via
 `org-air-doc-session-mode-map' (\\<org-air-doc-session-mode-map>\\[org-air-project-back],
 and any `quit-window' remap), and to plain `q' in the read-only
 DOC-context side rail."
-  (interactive)
+  (interactive nil org-air-doc-session-mode)
+  (org-air-project--require-doc-session)
   (let ((docbuf (current-buffer))
         (tree org-air-project--session-tree))
     (unless tree
@@ -2293,7 +2319,8 @@ screen line.  Measured before the fix, 47-line project in a 23-row
 window: `window-start' 3095 -> 1 and the fold row from screen line 4 to
 45 — off-screen, the user's original report character for character.
 Branch 3 is plain motion and is deliberately NOT wrapped (board parity)."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (let* ((fold-key (org-air-view--row-property 'org-air-dropped-fold))
          (doc (and (not fold-key)
                    (org-air-view--row-property 'org-air-doc))))
@@ -2336,7 +2363,8 @@ Branch 3 is plain motion and is deliberately NOT wrapped (board parity)."
 
 (defun org-air-project-toggle-filenames ()
   "Flip project doc rows between doc title and relpath (R26-4).  Key `('."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (setq-local org-air-project--show-filenames
               (not org-air-project--show-filenames))
   (org-air-project-refresh)
@@ -2353,15 +2381,18 @@ R72: the date/status tokens (`is:overdue', `due:7d', …) are board/review
 vocabulary — docs carry no planning slots, so here they are vacuously
 false (loud: `0 of N shown') and the vocabulary is not offered."
   (interactive
-   (list (org-air-view--read-filter
-          (delete-dups
-           (sort (apply #'append
-                        (mapcar #'org-air-doc-tags
-                                (if org-air-project--root
-                                    (org-air-project--collect-docs
-                                     org-air-project--root)
-                                  nil)))
-                 #'string<)))))
+   (progn
+     (org-air-project--require-view)
+     (list (org-air-view--read-filter
+            (delete-dups
+             (sort (apply #'append
+                          (mapcar #'org-air-doc-tags
+                                  (if org-air-project--root
+                                      (org-air-project--collect-docs
+                                       org-air-project--root)
+                                    nil)))
+                   #'string<)))))
+   org-air-project-mode)
   (setq org-air-view--tag-filter (unless (null tags) tags))
   (org-air-project-refresh))
 
@@ -2372,7 +2403,8 @@ press tears down a popped-out rail side window (the buffer-local popped
 flag survives, so a re-entry re-pops per R26-5) and quits the tree — a
 single press can no longer bury the tree while ORPHANING the pane and
 the rail on screen."
-  (interactive)
+  (interactive nil org-air-project-mode)
+  (org-air-project--require-view)
   (unless (org-air-view--quit-close-pane)
     (when (org-air-rail--popped-p)
       (org-air-rail--teardown))

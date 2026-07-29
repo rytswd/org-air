@@ -41,6 +41,13 @@
 (require 'org-air-query)
 (require 'org-air-view)
 
+;; R97 D1 — surface precondition for this module's commands.
+
+(defun org-air-revisit--require-view ()
+  "Refuse unless the current buffer is the org-air revisit view (R97 D1)."
+  (org-air-require-surface "an org-air revisit view" "org-air-revisit"
+                          'org-air-revisit-mode))
+
 (defvar org-air-inbox-file)
 ;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
 ;; the mode sets it buffer-locally without requiring bookmark at load.
@@ -169,14 +176,14 @@ content-derived), mirroring the board's Notes bucket.  The comparison
 rides the MEMOISED `org-air-classify--truename' — a hash lookup per
 entry, never a `file-truename' walk.  File-name order is the
 deterministic base the sorts and the SPACED rotation build on."
-  (let (out)
+  (let ((out nil)
+        (inbox (org-air-inbox-effective-file)))
     (maphash (lambda (file meta)
                (when (and (memq (plist-get meta :ntype) org-air-revisit-types)
-                          (not (and (boundp 'org-air-inbox-file)
-                                    org-air-inbox-file
+                          (not (and inbox
                                     (equal (org-air-classify--truename file)
                                            (org-air-classify--truename
-                                            org-air-inbox-file)))))
+                                            inbox)))))
                  (push (cons file meta) out)))
              org-air-query--file-meta)
     (sort out (lambda (a b) (string-lessp (car a) (car b))))))
@@ -806,7 +813,8 @@ scan synchronously (batch only — deterministic ERT/regen)."
 The single user-initiated open of the data-pure view — the (FILE . POS 1)
 visit path; records the opt-in visit ledger.  On the `…and N more' fold
 row this extends by ONE page instead (the R51-3 actionable contract)."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (if (org-air-view--row-property 'org-air-more-row)
       (org-air-revisit-extend)
     (let ((entry (org-air-revisit--entry-at-point)))
@@ -818,7 +826,8 @@ row this extends by ONE page instead (the R51-3 actionable contract)."
 
 (defun org-air-revisit-visit ()
   "S-RET: open the note at point in the other window."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (let ((entry (org-air-revisit--entry-at-point)))
     (unless entry
       (user-error "No note at point"))
@@ -828,13 +837,15 @@ row this extends by ONE page instead (the R51-3 actionable contract)."
 
 (defun org-air-revisit-extend ()
   "Reveal one more page of notes (the fold-row verb)."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (setq-local org-air-revisit--pages (1+ org-air-revisit--pages))
   (org-air-revisit--render-current))
 
 (defun org-air-revisit-toggle-more ()
   "TAB: on the `…and N more' fold row, reveal one more page."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (if (org-air-view--row-property 'org-air-more-row)
       (org-air-revisit-extend)
     (message "org-air revisit: nothing to expand here")))
@@ -843,7 +854,8 @@ row this extends by ONE page instead (the R51-3 actionable contract)."
   "Cycle the surfacing mode: ALL → ORPHANS → SPACED (R54-3, key `m').
 Each mode is a pure sort/filter over file-meta — same buffer, same
 renderer, same paging (reset to page 1), zero per-row file opens."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (setq-local org-air-revisit--surface
               (pcase org-air-revisit--surface
                 ('all 'orphans)
@@ -861,20 +873,24 @@ vocabulary — file-meta entries carry no planning slots (knowledge notes
 are dateless BY the R54-2 model), so here they are vacuously false and
 the vocabulary is not offered."
   (interactive
-   (list (org-air-view--read-filter
-          (delete-dups
-           (sort (seq-mapcat (lambda (entry)
-                               (copy-sequence
-                                (plist-get (cdr entry) :tags)))
-                             (org-air-revisit--scope-entries))
-                 #'string<)))))
+   (progn
+     (org-air-revisit--require-view)
+     (list (org-air-view--read-filter
+            (delete-dups
+             (sort (seq-mapcat (lambda (entry)
+                                 (copy-sequence
+                                  (plist-get (cdr entry) :tags)))
+                               (org-air-revisit--scope-entries))
+                   #'string<)))))
+   org-air-revisit-mode)
   (setq org-air-view--tag-filter (unless (null tags) tags))
   (setq-local org-air-revisit--pages 1)
   (org-air-revisit--render-current))
 
 (defun org-air-revisit-toggle-created ()
   "Toggle the Created column (denote ID / `#+date').  Key `z c'."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (setq-local org-air-revisit--show-created
               (not org-air-revisit--show-created))
   (org-air-revisit--render-current)
@@ -886,7 +902,8 @@ the vocabulary is not offered."
 NEVER a synchronous scan interactively: the paced cold-fill machinery
 rescans on the budgeted wall-clock slices and repaints progressively; in
 batch (deterministic ERT/regen) the scan runs inline."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (if noninteractive
       (progn (org-air-query-items)
              (org-air-query-link-graph-ensure))
@@ -895,7 +912,8 @@ batch (deterministic ERT/regen) the scan runs inline."
 
 (defun org-air-revisit-next ()
   "Move point to the next note row, landing on its title."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (let ((pos (next-single-property-change (point) 'org-air-revisit
                                           nil (point-max))))
     (while (and pos (not (get-text-property pos 'org-air-revisit))
@@ -908,7 +926,8 @@ batch (deterministic ERT/regen) the scan runs inline."
 
 (defun org-air-revisit-prev ()
   "Move point to the previous note row, landing on its title."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (let ((pos (previous-single-property-change (point) 'org-air-revisit
                                               nil (point-min))))
     (while (and pos
@@ -925,7 +944,8 @@ batch (deterministic ERT/regen) the scan runs inline."
   "Quit the Revisit view progressively — one surface per press (R28-2).
 A live bottom pane closes first; the next press tears down a popped-out
 rail and quits back to the previous view (the shared quit convention)."
-  (interactive)
+  (interactive nil org-air-revisit-mode)
+  (org-air-revisit--require-view)
   (unless (org-air-view--quit-close-pane)
     (when (org-air-rail--popped-p)
       (org-air-rail--teardown))

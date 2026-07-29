@@ -49,6 +49,13 @@
 (require 'org-air-view)
 (require 'org-air-calendar)
 
+;; R97 D1 — surface precondition for this module's commands.
+
+(defun org-air-review--require-view ()
+  "Refuse unless the current buffer is the org-air review view (R97 D1)."
+  (org-air-require-surface "an org-air review view" "org-air-review"
+                          'org-air-review-mode))
+
 ;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
 ;; the mode sets it buffer-locally without requiring bookmark at load.
 (defvar bookmark-make-record-function)
@@ -1439,7 +1446,8 @@ losing the row it just acted on was the worst of the landing defects."
   "Show the previous period (key `<').
 One period back: the anchor normalises to the previous period's START
 epoch.  A pure repaint over cached data — NEVER a rescan (R61-3)."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (setq-local org-air-review--period-anchor
               (car (org-air-review--period-bounds
                     org-air-review--period-kind
@@ -1450,7 +1458,8 @@ epoch.  A pure repaint over cached data — NEVER a rescan (R61-3)."
   "Show the next period (key `>').
 The half-open END epoch IS the next period's start — exact by
 construction.  A pure repaint over cached data — NEVER a rescan."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (setq-local org-air-review--period-anchor
               (cdr (org-air-review--bounds)))
   (org-air-review--render-current))
@@ -1459,7 +1468,8 @@ construction.  A pure repaint over cached data — NEVER a rescan."
   "Return to the CURRENT period (key `.').
 Resets the anchor to nil — the default surface tracks today across
 midnight for free."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (setq-local org-air-review--period-anchor nil)
   (org-air-review--render-current))
 
@@ -1478,7 +1488,8 @@ over cached data — NEVER a rescan (the R61 law)."
 week → fortnight → month → quarter → year over the effective
 `org-air-review-ranges' ladder (R62-3); CLAMPED at the widest rung with
 a bounded message — no wrap, so repeated presses park safely at year."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (let* ((kind org-air-review--period-kind)
          (tail (cdr (memq kind (org-air-review--effective-ranges kind)))))
     (if tail
@@ -1489,7 +1500,8 @@ a bounded message — no wrap, so repeated presses park safely at year."
   "Narrow the range one rung along the ladder (key `-').
 The inverse of `org-air-review-range-widen' (R62-3); CLAMPED at the
 narrowest rung with a bounded message — no wrap."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (let* ((kind org-air-review--period-kind)
          (ladder (org-air-review--effective-ranges kind))
          (pos (seq-position ladder kind)))
@@ -1503,7 +1515,8 @@ week → fortnight → month → quarter → year → week over the effective
 `org-air-review-ranges' ladder.  Generalises the R61 week↔month toggle
 \(one ladder, three verbs: `+'/`-' directional, `m' rotary) — with the
 ladder knob trimmed to (week month) the cycle IS the old toggle."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (let* ((kind org-air-review--period-kind)
          (ladder (org-air-review--effective-ranges kind)))
     (org-air-review--set-range (or (cadr (memq kind ladder))
@@ -1518,7 +1531,8 @@ ladder knob trimmed to (week month) the cycle IS the old toggle."
 The TIME-INVESTED lens (R63-2a): one buffer-local basis re-aggregating
 the Time invested section — the per-item sections stay flat under
 every basis.  A pure repaint, never a rescan (R61-3)."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (setq-local org-air-review--rollup
               (pcase org-air-review--rollup
                 ('day 'tag)
@@ -1532,7 +1546,8 @@ every basis.  A pure repaint, never a rescan (R61-3)."
   "TAB: toggle the fold of the review section at point (board idiom).
 On any other line, move to the next section heading instead — TAB is
 always safe, it never toggles blindly or hangs."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (let ((section (org-air-view--line-section)))
     (if (null section)
         (org-air-next-section)
@@ -1559,13 +1574,16 @@ mini-language — plus the R72 date/status tokens (`is:overdue', `due:7d',
 …), which read the real item snapshots' planning slots; filter applies
 BEFORE the fold, so totals honestly describe what is shown."
   (interactive
-   (list (org-air-view--read-filter
-          (delete-dups
-           (sort (seq-mapcat (lambda (item)
-                               (copy-sequence (org-air-item-tags item)))
-                             org-air-review--items)
-                 #'string<))
-          (org-air-view--filter-vocabulary))))
+   (progn
+     (org-air-review--require-view)
+     (list (org-air-view--read-filter
+            (delete-dups
+             (sort (seq-mapcat (lambda (item)
+                                 (copy-sequence (org-air-item-tags item)))
+                               org-air-review--items)
+                   #'string<))
+            (org-air-view--filter-vocabulary))))
+   org-air-review-mode)
   (setq org-air-view--tag-filter (unless (null tags) tags))
   (org-air-review--render-current))
 
@@ -1575,17 +1593,20 @@ The board's structural lens — all / @group / ⌂ file — over the review
 item snapshot (`org-air-view--passes-scope-p' does the matching); scope
 applies BEFORE the fold."
   (interactive
-   (let* ((items org-air-review--items)
-          (groups (delete-dups (delq nil (mapcar #'org-air-item-group
-                                                 items))))
-          (files (delete-dups (delq nil (mapcar #'org-air-item-file items))))
-          (candidates
-           (append '("all")
-                   (mapcar (lambda (g) (concat "@" g)) groups)
-                   (mapcar (lambda (file)
-                             (concat "⌂ " (file-name-nondirectory file)))
-                           files))))
-     (list (completing-read "Scope: " candidates nil t))))
+   (progn
+     (org-air-review--require-view)
+     (let* ((items org-air-review--items)
+            (groups (delete-dups (delq nil (mapcar #'org-air-item-group
+                                                   items))))
+            (files (delete-dups (delq nil (mapcar #'org-air-item-file items))))
+            (candidates
+             (append '("all")
+                     (mapcar (lambda (g) (concat "@" g)) groups)
+                     (mapcar (lambda (file)
+                               (concat "⌂ " (file-name-nondirectory file)))
+                             files))))
+       (list (completing-read "Scope: " candidates nil t))))
+   org-air-review-mode)
   (setq org-air-view--scope
         (cond
          ((or (null scope) (equal scope "all")) nil)
@@ -1603,7 +1624,8 @@ applies BEFORE the fold."
 
 (defun org-air-review-scope-clear ()
   "Clear the active Review scope (key `S')."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (setq org-air-view--scope nil)
   (org-air-review--render-current))
 
@@ -1613,7 +1635,8 @@ Drops the local snapshot and takes the freshest tier again: NEVER a
 synchronous scan interactively (the paced cold-fill machinery rescans
 on budgeted wall-clock slices, repainting progressively); in batch
 \(deterministic ERT) the scan runs inline."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (if noninteractive
       (setq org-air-review--items (org-air-query-items))
     (setq org-air-review--items nil)
@@ -1622,7 +1645,8 @@ on budgeted wall-clock slices, repainting progressively); in batch
 
 (defun org-air-review-next ()
   "Move point to the next item row, landing on its title."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (let ((pos (next-single-property-change (point) 'org-air-item
                                           nil (point-max))))
     (while (and pos (not (get-text-property pos 'org-air-item))
@@ -1635,7 +1659,8 @@ on budgeted wall-clock slices, repainting progressively); in batch
 
 (defun org-air-review-prev ()
   "Move point to the previous item row, landing on its title."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (let ((pos (previous-single-property-change (point) 'org-air-item
                                               nil (point-min))))
     (while (and pos
@@ -1652,7 +1677,8 @@ on budgeted wall-clock slices, repainting progressively); in batch
   "Quit the Review view progressively — one surface per press (R28-2).
 A live bottom pane closes first; the next press tears down a popped-out
 rail and quits back to the previous view (the shared quit convention)."
-  (interactive)
+  (interactive nil org-air-review-mode)
+  (org-air-review--require-view)
   (unless (org-air-view--quit-close-pane)
     (when (org-air-rail--popped-p)
       (org-air-rail--teardown))

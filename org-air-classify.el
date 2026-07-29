@@ -264,11 +264,11 @@ walk per item at 15k items.")
   "Return non-nil when ITEM lives in `org-air-inbox-file'.
 R53 P2: both truenames are memoised (`org-air-classify--truename-cache'),
 so the per-item cost is a hash lookup, not a filesystem walk."
-  (and (boundp 'org-air-inbox-file)
-       org-air-inbox-file
-       (org-air-item-file item)
-       (equal (org-air-classify--truename (org-air-item-file item))
-              (org-air-classify--truename org-air-inbox-file))))
+  (let ((inbox (org-air-inbox-effective-file)))
+    (and inbox
+         (org-air-item-file item)
+         (equal (org-air-classify--truename (org-air-item-file item))
+                (org-air-classify--truename inbox)))))
 
 (defun org-air-classify--last-activity (item)
   "Return the best available activity time for ITEM.

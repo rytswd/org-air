@@ -124,7 +124,9 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
   :custom
   ;; Where to look — files and/or directories (scanned recursively for .org).
   (org-air-files '("~/org/"))
-  ;; Where `c' / M-x org-air-capture drops new inbox items.
+  ;; Where `c' / M-x org-air-capture drops new inbox items.  Leave it unset
+  ;; (nil) to derive it from `org-air-files' — see "The inbox lives inside
+  ;; the scan set" below.  It must be a file the scan can see.
   (org-air-inbox-file "~/org/inbox.org")
   ;; Classification horizons.
   (org-air-upcoming-days 7)
@@ -156,9 +158,24 @@ orphan and spaced (notes-garden) modes — the reading half of a notes system.
 (require 'org-ql)                       ; from MELPA
 (require 'org-air)                      ; after adding the .el files to load-path
 (setq org-air-files '("~/org/"))        ; files and/or directories to scan
+;; org-air-inbox-file is left nil here on purpose: it then derives to
+;; ~/org/inbox.org — inside the scan set, so captures show on the board.
 #+end_src
 
-~org-air-files~ accepts any mix of files and directories; directories are scanned recursively for ~.org~ (and ~.org.gpg~) files.
+~org-air-files~ accepts any mix of files and directories; directories are scanned recursively for ~.org~ files.
+
+***** Encrypted files are listed but *not* read
+
+~.org.gpg~ files under a scanned directory are *enumerated* and then *skipped*, with the reason ~encrypted~. A background scan must never block on a pinentry prompt, so org-air never decrypts a file on your behalf — which means an encrypted journal contributes *nothing* to the board unless you already have it open and decrypted in a buffer (then it is scanned in place, like any live buffer).
+
+This is deliberate, and it is no longer silent: a scan that skipped anything echoes one line naming the count and the reasons, and ~M-x org-air-scan-report~ lists every skipped file with an explanation. Set ~org-air-report-skipped-files~ to ~nil~ to silence the echo (the report is unaffected).
+
+***** The inbox lives inside the scan set
+
+~c~ / ~M-x org-air-capture~ writes to ~org-air-inbox-file~; the board reads ~org-air-files~. If those two disagree the note is written correctly *and* the board honestly reports Inbox zero — a silent loss. org-air closes that from both ends:
+
+- ~org-air-inbox-file~ defaults to ~nil~, which *derives* the inbox from ~org-air-files~: ~inbox.org~ inside the first configured directory (or beside the first configured file). With ~(setq org-air-files '("~/org/"))~ and nothing else, ~c~ captures to ~~/org/inbox.org~ and the item appears in the Inbox on the next refresh.
+- If you *do* set ~org-air-inbox-file~ and it lands outside ~org-air-files~, ~c~ *refuses* with a ~user-error~ naming the fix, before writing anything. It never creates a file the board cannot see.
 
 To keep whole trees out of the scan, set ~org-air-exclude-regexps~ — a list of regexps matched against each candidate's *absolute path*. A matching *directory* (matched in directory-name form, e.g. ~"/archive/"~ or ~"\\.git/"~) is *pruned* — never even descended — so silencing a big tree costs nothing; a matching file is simply dropped. Exclusion wins over an explicit ~org-air-files~ entry, and your ~org-air-inbox-file~ is never excluded.
 
@@ -195,8 +212,7 @@ python3 examples/demo/generate-large.py /tmp/org-air
 Then point org-air at it and open the dashboard:
 
 #+begin_src emacs-lisp
-(setq org-air-files '("/tmp/org-air/")
-      org-air-inbox-file "/tmp/org-air/inbox.org")
+(setq org-air-files '("/tmp/org-air/"))  ; inbox derives to /tmp/org-air/inbox.org
 (org-air)
 #+end_src
 
@@ -211,7 +227,8 @@ org-air is useful out of the box; everything here is optional. These are the kno
 |-------------------------------------+----------------------------------------------+---------------------------------------------------------------------------|
 | ~org-air-files~                     | ~nil~                                        | Org files/directories to scan.                                            |
 | ~org-air-exclude-regexps~           | ~nil~                                        | Regexps (abs path) of files/dirs to skip; matching directories are pruned. |
-| ~org-air-inbox-file~                | =~/.emacs.d/org-air-inbox.org=               | Where ~c~ / ~org-air-capture~ stores items.                               |
+| ~org-air-inbox-file~                | ~nil~ (derived from ~org-air-files~)         | Where ~c~ / ~org-air-capture~ stores items. ~nil~ derives ~inbox.org~ inside the first ~org-air-files~ entry; an explicit value outside the scan set is refused, not silently lost. |
+| ~org-air-report-skipped-files~      | ~t~                                          | Echo one line when a scan could not read some listed files (e.g. ~.org.gpg~); see ~M-x org-air-scan-report~. |
 | ~org-air-upcoming-days~             | ~7~                                          | Horizon (days) for the Upcoming bucket.                                   |
 | ~org-air-attention-days~            | ~((?A . 3) (?B . 7) (?C . 14) (?D . 30) (?E . 30) (nil . 30))~ | Days with no update, per priority letter, before Needs attention surfaces an item; the ~nil~ key is "no priority cookie"; a threshold of ~0~ surfaces that priority unconditionally. |
 | ~org-air-attention-default-days~    | ~30~                                         | Fallback quiet period for a priority missing from ~org-air-attention-days~. |
@@ -443,6 +460,12 @@ The org-air keymaps still *exist* and keep their ~special-mode~ parent, so ~q~ (
 If you bind command symbols by hand, note one rename: the deadline verb on ~d~ is ~org-air-item-set-deadline~ (it used to be ~org-air-item-deadline~, which is also the name of an internal data accessor — sharing the name meant any indirect call reached the wrong one). Keys, help text and behaviour are unchanged; only ~M-x~ completion and an explicit ~define-key~ / ~global-set-key~ on the old symbol need the new name. No alias is provided, deliberately — an alias would re-create the clash.
 
 The global entry-point keys you bind yourself (e.g. ~C-c a~ → ~org-air~) are *your* bindings, not defaults, so they are unaffected by this switch.
+
+**** org-air commands only act on org-air buffers
+
+Every org-air verb states its surface up front. Run a board verb (~M-x org-air-refresh~, ~M-x org-air-calendar-today~, …) from one of *your* Org files and it declines with a plain message — ~Not in an org-air board (run `M-x org-air')~ — *before* any prompt, and without touching the buffer. The same holds for the project / review / revisit / rail verbs on their own surfaces.
+
+The surface-scoped commands are also hidden from ~M-x~ completion outside their mode (Emacs' ~interactive~ mode scoping), so ~M-x org-air-~ in an ordinary Org buffer offers only the entry points you can actually use: ~org-air~, ~org-air-capture~, ~org-air-project~, ~org-air-review~, ~org-air-revisit~, ~org-air-goto-date~, ~org-air-process-inbox~, ~org-air-scan-report~, ~org-air-help~ and the return verbs. They remain callable by full name if you want them; the refusal is what protects you, the scoping just keeps the menu honest.
 
 *** The two views
 

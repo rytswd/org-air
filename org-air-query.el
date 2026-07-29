@@ -32,6 +32,43 @@
 (defvar org-air-inbox-file)
 (defvar org-air-exclude-regexps)
 
+;;;; ---------------------------------------------------------------------
+;;;; R97 D1/D6 — the SURFACE precondition (the one refusal shape).
+;;;; ---------------------------------------------------------------------
+;;
+;; org-air owns a small set of buffers (the board, the project tree, the
+;; review and revisit views, the rail, the entry pane).  Every command
+;; that acts on one of those surfaces states that precondition FIRST —
+;; before any prompt, any read and any mutation — by calling
+;; `org-air-require-surface'.  Refusing is therefore always the same
+;; shape: a `user-error', no prompt, no buffer touched, no file written.
+;;
+;; This lives in the base module on purpose: every other org-air module
+;; requires `org-air-query', so the whole command surface can share one
+;; refusal instead of 132 hand-written ones.
+
+(defun org-air-surface-p (&rest modes)
+  "Return non-nil when the current buffer is one of the org-air surfaces MODES.
+Each element is either a MAJOR-mode symbol — matched through
+`provided-mode-derived-p', so a mode derived from it counts — or a
+buffer-local MINOR-mode symbol, matched when that minor mode is on in
+this buffer (`org-air-doc-session-mode', `org-air-outline-mode')."
+  (and (seq-some (lambda (mode)
+                   (or (provided-mode-derived-p major-mode mode)
+                       (and (boundp mode) (symbol-value mode) t)))
+                 modes)
+       t))
+
+(defun org-air-require-surface (surface entry &rest modes)
+  "Refuse unless the current buffer is one of the org-air surfaces MODES.
+SURFACE names the surface in the refusal (e.g. \"an org-air board\");
+ENTRY names the command that opens it (e.g. \"org-air\").  Signals a
+`user-error' — never a bare `error' — and touches nothing, so an
+out-of-context \\[execute-extended-command] can neither prompt nor
+modify the buffer the user is standing in (R97 D1)."
+  (unless (apply #'org-air-surface-p modes)
+    (user-error "Not in %s (run `M-x %s')" surface entry)))
+
 (defcustom org-air-todo-keywords
   '(:not-done ("TODO" "NEXT" "STARTED" "READY" "WIP"
                "WAIT" "WAITING" "HOLD" "BLOCKED")
@@ -353,9 +390,7 @@ dropped from the compiled set and warned about once per session via
           (push re org-air-query--exclude-warned)
           (message "org-air: dropping invalid exclude regexp %S" re))))
     (when regexps
-      (let* ((raw (and (boundp 'org-air-inbox-file)
-                       org-air-inbox-file
-                       (expand-file-name org-air-inbox-file)))
+      (let* ((raw (org-air-inbox-effective-file))
              (inbox (and raw (or (ignore-errors (file-truename raw)) raw))))
         (list (nreverse regexps)
               inbox
@@ -425,8 +460,81 @@ over everything."
         (list path)))
      (t nil))))
 
+;;;; ---------------------------------------------------------------------
+;;;; R97 D2 — the inbox must live INSIDE the scan set.
+;;;; ---------------------------------------------------------------------
+;;
+;; `org-air-capture' writes to `org-air-inbox-file'; the board reads
+;; `org-air-files'.  When those two disagree the note is written
+;; correctly and the board honestly reports Inbox zero — silent loss.
+;; The resolver below makes the DEFAULT coherent by construction (nil
+;; derives the inbox from `org-air-files'), and the containment
+;; predicate lets the capture verb REFUSE an explicit inbox the scan
+;; would never read, naming the fix.
+
+(defun org-air-query--source-directory-p (source)
+  "Return non-nil when SOURCE (an `org-air-files' member) names a directory.
+True for an existing directory, for an explicit trailing slash, and for
+any path with no Org file extension — so a not-yet-created root still
+reads as the directory the user meant."
+  (let ((path (expand-file-name source)))
+    (or (file-directory-p path)
+        (directory-name-p source)
+        (not (string-match-p "\\.org\\(\\.gpg\\)?\\'" path)))))
+
+(defun org-air-inbox-effective-file ()
+  "Return the absolute file `org-air-capture' writes to, or nil (R97 D2).
+`org-air-inbox-file' when the user set one.  Otherwise DERIVED from
+`org-air-files' so the default is coherent by construction: `inbox.org'
+inside the first configured directory, or beside the first configured
+file.  With `org-air-files' empty there is nothing to derive from and
+the answer is nil — `org-air-capture' then refuses and says what to
+set, instead of writing a note no board will ever show."
+  (or (and (boundp 'org-air-inbox-file)
+           org-air-inbox-file
+           (expand-file-name org-air-inbox-file))
+      (let ((source (car (seq-filter #'stringp
+                                     (and (boundp 'org-air-files)
+                                          org-air-files)))))
+        (when source
+          (let ((path (expand-file-name source)))
+            (expand-file-name
+             "inbox.org"
+             (if (org-air-query--source-directory-p source)
+                 path
+               (file-name-directory path))))))))
+
+(defun org-air-inbox-file-scanned-p (file)
+  "Return non-nil when FILE lies inside org-air's scan set (R97 D2).
+True when FILE is an `org-air-files' member outright, or lives under a
+directory member of it.  Answers the containment question WITHOUT
+running a scan and without requiring FILE to exist yet, so the capture
+verb can check its target before creating it."
+  (when file
+    (let* ((raw (expand-file-name file))
+           (truename (or (ignore-errors (file-truename raw)) raw)))
+      (and (seq-some
+            (lambda (source)
+              (when (stringp source)
+                (let* ((src (expand-file-name source))
+                       (srctn (or (ignore-errors (file-truename src)) src)))
+                  (if (org-air-query--source-directory-p source)
+                      (or (string-prefix-p (file-name-as-directory srctn)
+                                           truename)
+                          (string-prefix-p (file-name-as-directory src) raw))
+                    (or (equal srctn truename) (equal src raw))))))
+            (and (boundp 'org-air-files) org-air-files))
+           t))))
+
 (defun org-air-query-files ()
   "Return all existing Org files configured in `org-air-files'.
+R97 D2 deliberately does NOT fold the inbox in here: `org-air-files'
+\(minus `org-air-exclude-regexps', plus the inbox exemption) stays the
+complete and honest answer to \"what does the board read\".  Coherence
+is achieved at the other end instead — the inbox DEFAULT is derived
+from `org-air-files' (`org-air-inbox-effective-file') and
+`org-air-capture' refuses an explicit inbox outside the scan set
+\(`org-air-inbox-file-scanned-p').
 R53 P1d: order-preserving hash-table dedupe; `file-truename' is paid ONLY
 for actual symlinks (`file-symlink-p' pre-check) so a 5000-file tree
 enumerates in milliseconds while a symlinked duplicate still dedupes to
@@ -1407,23 +1515,94 @@ Never messages per file — the scan reports ONE summary line itself and
   (push (cons file reason) org-air-query--skip-log)
   nil)
 
+;;;; ---------------------------------------------------------------------
+;;;; R97 D3 — a file the scan could not read must not be silently absent.
+;;;; ---------------------------------------------------------------------
+;;
+;; The board presents itself as the complete answer to "what deserves my
+;; attention".  For an `.org.gpg' journal it quietly was not: the file is
+;; enumerated by `org-air-files' and then skipped `encrypted', because a
+;; background scan must never block on pinentry.  Keeping the skip is
+;; right; keeping it INVISIBLE is not.  The scan now says so once per
+;; distinct skip set, and `org-air-scan-report' spells out what each
+;; reason means.
+
+(defcustom org-air-report-skipped-files t
+  "Whether org-air announces the files its scan could not read (R97 D3).
+When non-nil a completed full scan that skipped any file echoes ONE
+summary line naming the count and the reasons, pointing at
+`org-air-scan-report'.  The line is emitted at most once per distinct
+skip set, so a board refreshed all day says it once.  Set to nil to
+silence it; the skip log and `org-air-scan-report' are unaffected."
+  :type 'boolean
+  :group 'org-air)
+
+(defvar org-air-query--skip-announced nil
+  "The skip set last announced by `org-air-query--announce-skips' (R97 D3).
+A sorted list of file names; an unchanged corpus announces only once.")
+
+(defconst org-air-query-skip-reason-explanations
+  '((encrypted . "encrypted (.gpg): never decrypted by a background scan — \
+open and decrypt the file and it is scanned in place")
+    (unreadable . "unreadable: no read permission, vanished, or a dangling symlink")
+    (too-large . "larger than `org-air-max-file-size'"))
+  "Human explanations of the structured `org-air-query--skip-log' reasons.
+R97 D3: the README lists `.org.gpg' among the scanned extensions; the
+scan LISTS such a file and then declines to read it.  Both statements
+are now made in the same place a user looks.")
+
+(defun org-air-query-skip-summary ()
+  "Return a one-line summary of the last scan's skips, or nil (R97 D3)."
+  (when org-air-query--skip-log
+    (let ((counts nil))
+      (pcase-dolist (`(,_file . ,reason) org-air-query--skip-log)
+        (let* ((key (if (symbolp reason) reason 'error))
+               (cell (assq key counts)))
+          (if cell (setcdr cell (1+ (cdr cell)))
+            (push (cons key 1) counts))))
+      (format "org-air: %d file(s) in `org-air-files' were NOT read (%s) — M-x org-air-scan-report"
+              (length org-air-query--skip-log)
+              (mapconcat (lambda (cell)
+                           (format "%d %s" (cdr cell) (car cell)))
+                         (sort counts (lambda (a b) (string< (symbol-name (car a))
+                                                             (symbol-name (car b)))))
+                         ", ")))))
+
+(defun org-air-query--announce-skips ()
+  "Echo `org-air-query-skip-summary' once per distinct skip set (R97 D3)."
+  (when (and org-air-report-skipped-files org-air-query--skip-log)
+    (let ((key (sort (mapcar #'car org-air-query--skip-log) #'string<)))
+      (unless (equal key org-air-query--skip-announced)
+        (setq org-air-query--skip-announced key)
+        (message "%s" (org-air-query-skip-summary))))))
+
 ;;;###autoload
 (defun org-air-scan-report ()
-  "List the files the last org-air scan skipped, and why (R53 P1b)."
+  "List the files the last org-air scan skipped, and why (R53 P1b).
+R97 D3: each structured reason is spelled out under the list, so a user
+who notices a file missing from the board learns why in one place."
   (interactive)
   (if (null org-air-query--skip-log)
       (message "org-air: the last scan skipped no files")
-    (let ((entries (reverse org-air-query--skip-log)))
+    (let ((entries (reverse org-air-query--skip-log))
+          (reasons nil))
       (with-current-buffer (get-buffer-create "*org-air scan report*")
         (let ((inhibit-read-only t))
           (erase-buffer)
           (insert (format "org-air scan report — %d file(s) skipped\n\n"
                           (length entries)))
           (pcase-dolist (`(,file . ,reason) entries)
+            (when (symbolp reason) (cl-pushnew reason reasons))
             (insert (format "  %-12s %s\n"
                             (if (symbolp reason) (symbol-name reason)
                               (format "%s" reason))
                             file)))
+          (when reasons
+            (insert "\nWhat the reasons mean\n")
+            (dolist (reason (nreverse reasons))
+              (when-let* ((text (alist-get
+                                 reason org-air-query-skip-reason-explanations)))
+                (insert (format "  %-12s %s\n" (symbol-name reason) text)))))
           (goto-char (point-min)))
         (special-mode)
         (pop-to-buffer (current-buffer))))))
@@ -1452,14 +1631,14 @@ of the shared buffer).  Killed by `org-air-query-teardown'.")
   (setq org-air-query--work-buffer nil))
 
 (defun org-air-query--inbox-file-p (file)
-  "Return non-nil when FILE is `org-air-inbox-file' (P3 exclusion)."
-  (and (boundp 'org-air-inbox-file)
-       org-air-inbox-file
-       (equal (or (ignore-errors (file-truename (expand-file-name file)))
-                  (expand-file-name file))
-              (or (ignore-errors
-                    (file-truename (expand-file-name org-air-inbox-file)))
-                  (expand-file-name org-air-inbox-file)))))
+  "Return non-nil when FILE is the effective inbox file (P3 exclusion).
+R97 D2: reads `org-air-inbox-effective-file', so a DERIVED inbox is
+recognised exactly like an explicitly configured one."
+  (let ((inbox (org-air-inbox-effective-file)))
+    (and inbox
+         (equal (or (ignore-errors (file-truename (expand-file-name file)))
+                    (expand-file-name file))
+                (or (ignore-errors (file-truename inbox)) inbox)))))
 
 (defun org-air-query--file-item (file)
   "Return a one-item list for FILE as a headingless note, or nil (R53 P3).
@@ -1654,6 +1833,8 @@ Item order is file order × buffer order, exactly as before."
     (let (items)
       (dolist (file files)
         (setq items (nconc items (org-air-query--scan-file file query))))
+      ;; R97 D3: a file that was listed but not read is announced once.
+      (org-air-query--announce-skips)
       items)))
 
 (defun org-air-query-items-in-files (files &optional query)

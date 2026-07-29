@@ -26,6 +26,65 @@
 (require 'org-air-inbox)
 (require 'org-air-layout)
 
+;;;; ---------------------------------------------------------------------
+;;;; R97 D1 — the surface preconditions for the view module's commands.
+;;;; ---------------------------------------------------------------------
+;;
+;; Thin, named wrappers over `org-air-require-surface' so the ~110
+;; surface-scoped commands state their precondition in one short token,
+;; and so the set of surfaces a verb accepts is readable at the call
+;; site.  The mode symbols are quoted, never required: `derived-mode-p'
+;; only compares symbols, so this creates no load-order dependency on
+;; org-air-project / -review / -revisit.
+
+(defun org-air-view--require-board ()
+  "Refuse unless the current buffer is an org-air board (R97 D1)."
+  (org-air-require-surface "an org-air board" "org-air" 'org-air-view-mode))
+
+(defun org-air-view--require-item-view ()
+  "Refuse unless point is in a view that carries org-air ITEM rows (R97 D1).
+The board and the review view; the item verbs are shared by both."
+  (org-air-require-surface "an org-air board or review view" "org-air"
+                          'org-air-view-mode 'org-air-review-mode))
+
+(defun org-air-view--require-view ()
+  "Refuse unless the current buffer is one of the four org-air views (R97 D1).
+Board, project tree, review, revisit — the surfaces that share the
+filter, sort, pane and motion verbs."
+  (org-air-require-surface "an org-air view" "org-air"
+                          'org-air-view-mode 'org-air-project-mode
+                          'org-air-review-mode 'org-air-revisit-mode))
+
+(defun org-air-view--require-rail-host ()
+  "Refuse unless the current buffer can host the org-air rail (R97 D1).
+The four views, the rail itself, and a live project doc session."
+  (org-air-require-surface "an org-air view" "org-air"
+                          'org-air-view-mode 'org-air-project-mode
+                          'org-air-review-mode 'org-air-revisit-mode
+                          'org-air-rail-mode 'org-air-doc-session-mode))
+
+(defun org-air-view--require-rail ()
+  "Refuse unless the current buffer is the org-air rail (R97 D1)."
+  (org-air-require-surface "the org-air rail" "org-air" 'org-air-rail-mode))
+
+(defun org-air-view--pane-surface-p ()
+  "Return non-nil when point is on an org-air pane, or in the view that hosts it.
+The pane quit verb is reachable from THREE places (R20-3a): the
+read-only snapshot (`org-air-entry-view-mode'), the EDITABLE indirect
+pane — a live `org-mode' indirect buffer named `*org-air-pane:TITLE*',
+which derives from no org-air mode at all — and the host view that owns
+the pane.  All three are org-air's own surfaces; nothing else is."
+  (or (org-air-surface-p 'org-air-entry-view-mode 'org-air-view-mode
+                         'org-air-project-mode 'org-air-review-mode
+                         'org-air-revisit-mode)
+      (let ((name (buffer-name)))
+        (and name (string-match-p "\\` ?\\*org-air-pane:" name) t))))
+
+(defun org-air-view--require-pane-surface ()
+  "Refuse unless point is on an org-air pane or in its host view (R97 D1)."
+  (unless (org-air-view--pane-surface-p)
+    (user-error "Not in an org-air view or entry pane (run `M-x org-air')")))
+
 ;; V3 svg pills are GUI-only and soft-loaded at render time (`require 'svg').
 (declare-function org-air-doc-file "org-air-project")
 (declare-function org-air-doc-name "org-air-project")
@@ -829,7 +888,7 @@ re-derive (skeleton + paced rescan), never a half-reclassified board.
 A pre-R77 6-element key misses on length inequality (no
 `org-air-view--cache-version' bump — no serialisation shape changed).
 Plain printable list data: serialises as-is, compares with `equal'."
-  (list org-air-files org-air-inbox-file
+  (list org-air-files (org-air-inbox-effective-file)
         (org-air-query--scan-todo-keywords)
         org-air-skip-container-headings
         org-air-exclude-regexps
@@ -1602,7 +1661,9 @@ unrelated buffer."
 Bound at the leader `n' (and in `org-air--repeat-pn-map'); it calls the SAME
 context-correct motion primitive (no fork) then arms the transient map so a
 bare `n'/`p' repeats until any other key."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode org-air-outline-mode
+               org-air-doc-session-mode)
   (call-interactively (car (org-air--repeat-pn-commands)))
   (org-air--repeat-pn-arm))
 
@@ -1611,13 +1672,15 @@ bare `n'/`p' repeats until any other key."
 Bound at the leader `p' (and in `org-air--repeat-pn-map'); it calls the SAME
 context-correct motion primitive (no fork) then arms the transient map so a
 bare `n'/`p' repeats until any other key."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode org-air-outline-mode
+               org-air-doc-session-mode)
   (call-interactively (cdr (org-air--repeat-pn-commands)))
   (org-air--repeat-pn-arm))
 
 (defun org-air-outline-next-heading ()
   "Move point to the next Org heading in this buffer (R30-2 leader `n')."
-  (interactive)
+  (interactive nil org-air-outline-mode org-air-doc-session-mode)
   (let ((next (cl-find-if (lambda (p) (> p (point)))
                           (org-air-outline--heading-positions))))
     (if next (goto-char next)
@@ -1625,7 +1688,7 @@ bare `n'/`p' repeats until any other key."
 
 (defun org-air-outline-prev-heading ()
   "Move point to the previous Org heading in this buffer (R30-2 leader `p')."
-  (interactive)
+  (interactive nil org-air-outline-mode org-air-doc-session-mode)
   (let ((prev (cl-find-if (lambda (p) (< p (line-beginning-position)))
                           (reverse (org-air-outline--heading-positions)))))
     (if prev (goto-char prev)
@@ -1635,7 +1698,7 @@ bare `n'/`p' repeats until any other key."
   "Jump to the Org heading enclosing point — the outline anchor (R30-2 `o').
 Reuses the same heading scan as the rail outline: the `jump' verb from
 the editable doc buffer, where `RET' self-inserts."
-  (interactive)
+  (interactive nil org-air-outline-mode org-air-doc-session-mode)
   (let ((cur (cl-find-if (lambda (p) (<= p (point)))
                          (reverse (org-air-outline--heading-positions)))))
     (if cur (goto-char cur)
@@ -1679,17 +1742,20 @@ stays aligned."
 
 (defun org-air-toggle-origin ()
   "Toggle the board FILENAME (origin) column (R30-3).  Key `z f'."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--toggle-column 'org-air-show-origin "origin"))
 
 (defun org-air-toggle-dates ()
   "Toggle the board DATE/SCHEDULE column (R30-3).  Key `z d'."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--toggle-column 'org-air-show-dates "dates"))
 
 (defun org-air-toggle-tags ()
   "Toggle the board TAGS column (R30-3).  Key `z t'."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--toggle-column 'org-air-show-tags "tags"))
 
 (defvar org-air-columns-prefix-map
@@ -5357,7 +5423,9 @@ the project from `org-air-project-sort-key' (name/created/updated).")
 (defun org-air-view-sort-cycle ()
   "Cycle to the next sort key for this view and refresh (R22-3).
 Bound to `o' in BOTH the board and the project via `org-air-view-core-map'."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (let* ((keys org-air-view--sort-keys)
          (cur  (or org-air-view--sort-key (car keys)))
          (next (or (cadr (memq cur keys)) (car keys))))
@@ -5368,7 +5436,9 @@ Bound to `o' in BOTH the board and the project via `org-air-view-core-map'."
 (defun org-air-view-sort-reverse ()
   "Toggle the sort direction for this view and refresh (R22-3).
 Bound to `O' in BOTH views via `org-air-view-core-map'."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (setq-local org-air-view--sort-direction
               (if (eq org-air-view--sort-direction 'descending)
                   'ascending 'descending))
@@ -7801,7 +7871,8 @@ R26-5: when the rail's owner is a doc-session file buffer, `q' is the
 session's back verb (the read-only side window is where a plain `q' is
 legal — the doc FILE buffer stays editable); otherwise the R16 cooperative
 pop-in."
-  (interactive)
+  (interactive nil org-air-rail-mode)
+  (org-air-view--require-rail)
   (let ((owner org-air-rail--board-buffer))
     (if (and (buffer-live-p owner)
              (local-variable-p 'org-air-project--session-tree owner)
@@ -7814,7 +7885,10 @@ pop-in."
   "RET inside the rail: jump the MAIN window to the outline row's heading.
 R26-5: doc-context outline rows carry `org-air-doc-heading-pos'; RET moves
 the session doc's window there and selects it.  A no-op elsewhere."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode org-air-rail-mode
+               org-air-doc-session-mode)
+  (org-air-view--require-rail-host)
   (let ((pos (get-text-property (point) 'org-air-doc-heading-pos))
         (owner org-air-rail--board-buffer))
     (when (and pos (buffer-live-p owner))
@@ -8647,7 +8721,11 @@ popping in restores the inline two-pane rail.  Native window management
 always wins — closing the side window with any native command falls back to
 inline via the reconciler.  The refresh is dispatched per-mode via
 `org-air-view--refresh-current' so the toggle never forks."
-  (interactive)
+  ;; R97 D6: mode-scoped for `M-x'; the refusal below is this command's
+  ;; OWN, older and stricter precondition (a doc buffer must carry a live
+  ;; session tree), so no second guard is layered on top of it.
+  (interactive nil org-air-view-mode org-air-project-mode org-air-review-mode
+               org-air-revisit-mode org-air-doc-session-mode)
   (unless (or (derived-mode-p 'org-air-view-mode 'org-air-project-mode
                               'org-air-revisit-mode 'org-air-review-mode)
               ;; R26-5: the toggle also works from a doc-session buffer
@@ -8677,7 +8755,8 @@ inline via the reconciler.  The refresh is dispatched per-mode via
 
 (defun org-air-rail-popout ()
   "Pop the context rail OUT into the side window if it is inline (R16 D-P1)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (when (and (derived-mode-p 'org-air-view-mode)
              (not (org-air-rail--popped-p)))
     (org-air-rail-toggle)))
@@ -8688,7 +8767,8 @@ Works from the board OR the project OR from inside the rail buffer (`q').
 R24-5: dispatch the re-render per host mode via `org-air-view--refresh-
 current' (the rail back-pointer points at the PROJECT buffer when the
 project popped it) so a project rail falls back to inline like the board's."
-  (interactive)
+  (interactive nil org-air-rail-mode)
+  (org-air-view--require-rail)
   (let ((board (if (derived-mode-p 'org-air-view-mode 'org-air-project-mode)
                    (current-buffer)
                  (or (and (boundp 'org-air-rail--board-buffer)
@@ -9626,7 +9706,9 @@ buffer is killed only when `org-air-view-pane-keep-buffer' is nil."
   "Open OR refresh the bottom `*org-air-view*' source pane for the item at point.
 If the pane is open it is refreshed to the current item; if closed it is
 opened (R16 D-P3).  Key `v'."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (let ((ctx (org-air-view-pane--context-at-point)))
     (unless ctx
       (user-error "No org-air item at point"))
@@ -9651,7 +9733,11 @@ R54-3 (fork F4): on the NOTES section heading — the count row that
 advertises the knowledge corpus — RET opens the Revisit view instead:
 the count row is the doorway to the full resurfacing surface (TAB still
 expands the bounded preview in place)."
-  (interactive)
+  ;; R97 D6: RET is the shared row-opening verb of all four views (the
+  ;; project tree's doc rows route through it too, R24-4).
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (cond
    ((org-air-view--row-property 'org-air-more-row)
     (org-air-toggle-section))
@@ -9674,7 +9760,9 @@ expands the bounded preview in place)."
 
 (defun org-air-view-pane-close ()
   "Close the bottom `*org-air-view*' source pane (R16 D-P3).  Key `V'."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (org-air-view-pane--hide))
 
 (defun org-air-view-pane--board-window ()
@@ -9693,7 +9781,9 @@ plus a `quit-window' remap in the editable indirect pane, so the pane is
 closable while focused without an explicit function call.  Tears the pane
 down cleanly (window deleted, indirect/snapshot killed via the existing
 teardown) and re-selects the board window."
-  (interactive)
+  (interactive nil org-air-entry-view-mode org-air-view-mode
+               org-air-project-mode org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-pane-surface)
   (let* ((board (org-air-view-pane--board-window))
          (host (and board (window-buffer board))))
     ;; Run the teardown in the HOST buffer's context so `--kill-indirect'
@@ -10025,7 +10115,13 @@ then the nearest non-excluded outward item, then section chrome."
   "Render the dashboard for cached ITEMS with TAG-FILTER, filling the window.
 Three bands (S6): a fixed header (banner + rule), a body that fills the
 full `org-air-view--render-height' (two-pane keeps the divider down
-every body row; stacked blank-fills), and a footer pinned to the bottom."
+every body row; stacked blank-fills), and a footer pinned to the bottom.
+R97 D1: the DEEPEST paint funnel — it erases and rewrites the current
+buffer, so the board precondition is stated here as well as at
+`org-air-view--render-current'.  Every path that paints a board (the
+entry core, the refresh machine's swap, the synchronous re-query) runs
+with the board buffer current already; nothing else may."
+  (org-air-view--require-board)
   (let* ((inhibit-read-only t)
          ;; R27-1 S3: latch the reconciler for the FULL render extent so a
          ;; 0s reconcile timer nesting inside this render (org-ql's file IO
@@ -10443,7 +10539,16 @@ screen line.  This is the funnel for the filter (`/'), sort, scope
 \(`s'/`S'), lens, calendar month nav and the resize repaint, so all of
 them inherit it.  The R90 mutation landing is deliberately included: the
 row that REPLACES a done/refiled row is exactly the row that slid into
-the old screen line, so anchoring keeps that landing stationary too."
+the old screen line, so anchoring keeps that landing stationary too.
+R97 D1 (the FUNNEL precondition): this erases and repaints the CURRENT
+buffer, so it states up front that the current buffer must be a board.
+Before R97 it had no such precondition and eight commands funnelling
+through it (`g', `G', the calendar month/day nav, the filter and scope
+clears) painted the board over whatever buffer the user was standing
+in, leaving it modified — a subsequent \\[save-buffer] wrote the board
+over a real Org file.  One precondition here closes the whole class,
+including the ninth command that has not been written yet."
+  (org-air-view--require-board)
   (org-air-view--with-scroll-stable
    (cond
     ((and (eq org-air-view--refresh-state 'refreshing)
@@ -10482,7 +10587,9 @@ body fill the height, so a height change must re-pad too)."
 Reuses the banner + rule + footer bands at `board-only' orientation with a
 single centred \"Loading your board…\" body line.  `org-air-view' paints
 this once and forces it visible with `redisplay' so the frame appears
-within one paint, BEFORE the synchronous query runs."
+within one paint, BEFORE the synchronous query runs.
+R97 D1: the second `erase-buffer' funnel, guarded like the first."
+  (org-air-view--require-board)
   (let* ((inhibit-read-only t)
          (width (org-air-view--render-width))
          (height (org-air-view--render-height))
@@ -10784,7 +10891,7 @@ deterministic.  Never stats a file.  Out of scope (spec P1c): an inbox
 file OUTSIDE the configured roots is not enumerated and therefore not in
 FILES; enumeration semantics are unchanged this round."
   (let* ((mtimes (or mtimes org-air-view--changed-files-mtimes))
-         (inbox (and org-air-inbox-file (expand-file-name org-air-inbox-file)))
+         (inbox (org-air-inbox-effective-file))
          (table (make-hash-table :test #'equal :size (length mtimes)))
          (head nil)
          (rest nil))
@@ -11776,7 +11883,8 @@ R91: the interactive arm repaints through `org-air-view--refresh-repaint'
 \(already scroll-stable); the synchronous arm is the board's SECOND swap
 tail, so it carries the seam itself — closed after the pane resync for
 the same window-geometry reason."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (if (and (not noninteractive) (eq major-mode 'org-air-view-mode))
       (progn
         (setq org-air-view--cache-stale-files nil)
@@ -11811,8 +11919,7 @@ the same window-geometry reason."
   "Return non-nil when FILE is one of the configured org-air files."
   (and file
        (let ((truename (ignore-errors (file-truename file)))
-              (candidates (delq nil (cons (and (boundp 'org-air-inbox-file)
-                                               org-air-inbox-file)
+              (candidates (delq nil (cons (org-air-inbox-effective-file)
                                           (and (boundp 'org-air-files)
                                                org-air-files)))))
          (and truename
@@ -11838,19 +11945,22 @@ filters are preserved by `org-air-refresh'."
 
 (defun org-air-refresh-all ()
   "Clear scope and filters, then refresh."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (setq org-air-view--tag-filter nil
         org-air-view--scope nil)
   (org-air-refresh))
 
 (defun org-air-goto-top ()
   "Move point to the top of the pane (B4): the first actionable item."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--goto-first-item))
 
 (defun org-air-goto-bottom ()
   "Move point to the bottom of the pane (B4): the last item row."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (goto-char (point-max))
   (org-air-prev-item))
 
@@ -11897,11 +12007,13 @@ invocation continues narrowing instead of restarting; edit/extend the
 pre-filled value, or clear it to drop the filter."
   (interactive
    (progn
+     (org-air-view--require-board)
      (org-air-view--loading-guard)
      (list (org-air-view--read-filter
             (delete-dups (sort (seq-mapcat #'org-air-item-tags org-air-view--items)
                                #'string<))
-            (org-air-view--filter-vocabulary)))))
+            (org-air-view--filter-vocabulary))))
+   org-air-view-mode)
   (setq org-air-view--tag-filter (unless (null tags) tags))
   (org-air-view--ensure-explicit-backlog-lens)
   (org-air-view--render-current))
@@ -11909,15 +12021,22 @@ pre-filled value, or clear it to drop the filter."
 (defun org-air-filter-by-tag (tag)
   "Compatibility wrapper: filter dashboard to TAG.
 R18 D-P2: pre-fills with the first active filter tag (empty clears)."
-  (interactive (list (read-string "Tag filter (empty clears): "
-                                  (car (org-air-view--filter-tags)))))
+  (interactive
+   (progn
+     (org-air-view--require-board)
+     (list (read-string "Tag filter (empty clears): "
+                        (car (org-air-view--filter-tags)))))
+   org-air-view-mode)
   (setq org-air-view--tag-filter (unless (string-empty-p tag) (list tag)))
   (org-air-view--ensure-explicit-backlog-lens)
   (org-air-view--render-current))
 
 (defun org-air-filter-toggle (tag)
   "Toggle TAG in the active filter list."
-  (interactive "sTag: ")
+  (interactive
+   (progn (org-air-view--require-board)
+          (list (read-string "Tag: ")))
+   org-air-view-mode)
   (let ((filters (org-air-view--filter-tags)))
     (setq org-air-view--tag-filter
           (if (member tag filters)
@@ -11928,7 +12047,9 @@ R18 D-P2: pre-fills with the first active filter tag (empty clears)."
 
 (defun org-air-filter-clear ()
   "Clear tag filters (shared by the board + project views, R18 D-P3)."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (setq org-air-view--tag-filter nil)
   (org-air-view--rerender-current-view))
 
@@ -11938,7 +12059,9 @@ R18 D-P2: `all' means every active tag must match (narrow); `any' means
 any one matches (widen).  Re-renders the current view (board or project,
 R18 D-P3) and echoes the new mode.  Bound to `M-/' in both maps; the
 banner/rail/project header show the active combinator beside the chips."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (setq org-air-filter-match (if (eq org-air-filter-match 'all) 'any 'all))
   (org-air-view--rerender-current-view)
   (message "Filter match: %s" (if (eq org-air-filter-match 'all) "AND" "OR")))
@@ -11952,6 +12075,7 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
   "Scope dashboard to SCOPE."
   (interactive
    (progn
+     (org-air-view--require-board)
      (org-air-view--loading-guard)
      (let* ((groups (delete-dups (delq nil (mapcar #'org-air-item-group org-air-view--items))))
             (files (delete-dups (mapcar #'org-air-item-file org-air-view--items)))
@@ -11963,7 +12087,8 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
                                 (mapcar (lambda (g) (concat "@" g)) groups)
                                 (mapcar (lambda (file) (concat "⌂ " (file-name-nondirectory file))) files)))
             (choice (completing-read "Scope: " candidates nil t)))
-       (list choice))))
+       (list choice)))
+   org-air-view-mode)
   (setq org-air-view--scope
         (cond
          ((or (null scope) (equal scope "all")) nil)
@@ -11979,25 +12104,31 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
 
 (defun org-air-scope-clear ()
   "Clear active dashboard scope."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (setq org-air-view--scope nil)
   (org-air-view--render-current))
 
 (defun org-air-next-line ()
   "Move point down one line, landing on its title (R3, vim j; R21-2)."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (forward-line 1)
   (org-air-view--goto-row-title))
 
 (defun org-air-prev-line ()
   "Move point up one line, landing on its title (R3, vim k; R21-2)."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-project-mode
+               org-air-review-mode org-air-revisit-mode)
+  (org-air-view--require-view)
   (forward-line -1)
   (org-air-view--goto-row-title))
 
 (defun org-air-next-item ()
   "Move point to the next item row, landing on its title (R21-2)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (let ((pos (next-single-property-change (point) 'org-air-item nil (point-max))))
     (while (and pos (not (get-text-property pos 'org-air-item)) (< pos (point-max)))
       (setq pos (next-single-property-change pos 'org-air-item nil (point-max))))
@@ -12007,7 +12138,8 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
 
 (defun org-air-prev-item ()
   "Move point to the previous item row, landing on its title (R21-2)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (let ((pos (previous-single-property-change (point) 'org-air-item nil (point-min))))
     (while (and pos (not (get-text-property (max (point-min) (1- pos)) 'org-air-item)) (> pos (point-min)))
       (setq pos (previous-single-property-change pos 'org-air-item nil (point-min))))
@@ -12054,7 +12186,8 @@ the scroll seam itself — wrapping the render alone would anchor the
 intermediate landing and leave the final one adrift.  The third branch
 \(plain motion to the next header) is deliberately NOT anchored: it is an
 explicit jump, and ordinary scrolling is the right answer there."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--loading-guard)
   (let* ((bucket (org-air-view--line-section))
          (more (and (not bucket)
@@ -12117,7 +12250,8 @@ explicit jump, and ordinary scrolling is the right answer there."
 
 (defun org-air-next-section ()
   "Move point to the next section heading."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-review-mode)
+  (org-air-view--require-item-view)
   (let ((pos (next-single-property-change (point) 'org-air-section nil (point-max))))
     (when pos
       (goto-char pos)
@@ -12125,7 +12259,8 @@ explicit jump, and ordinary scrolling is the right answer there."
 
 (defun org-air-prev-section ()
   "Move point to the previous section heading."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-review-mode)
+  (org-air-view--require-item-view)
   (let ((pos (previous-single-property-change (point) 'org-air-section nil (point-min))))
     (when pos
       (goto-char (max (point-min) (1- pos)))
@@ -12141,7 +12276,8 @@ repaints, filters, sorts, folds and view changes in this live board.
 The mark records the bounded projection witness of the heading actually
 selected, so a later generation can never re-bind the key to another
 heading (`org-air-view--marked-reconcile')."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (let* ((item (org-air-view--item-at-point))
          (key (or (org-air-view--item-source-key item)
                   (user-error "Item has no source identity")))
@@ -12163,7 +12299,8 @@ heading (`org-air-view--marked-reconcile')."
 
 (defun org-air-clear-marks ()
   "Clear every source-key mark in the live board, repainting once (R90)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (if (null org-air-view--marked-keys)
       (message "No marked items")
     (setq org-air-view--marked-keys nil)
@@ -13947,7 +14084,8 @@ logging discipline."
   "Set SCHEDULED on the item at point via the quick-date sub-prompt.
 DATE may be supplied non-interactively.  A refinement: the item gains
 Upcoming membership and a calendar dot but stays in Inbox until filed."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--single-mutation-guard "Scheduling")
   (org-air-view--apply-date 'scheduled
                             (or date (org-air-view--read-quick-date "Schedule"))))
@@ -13970,7 +14108,8 @@ under the old name would re-take the function cell and restore the bug
 verbatim.  The `d' key binding, the `?' help entry and the inbox walk's
 `[d]eadline' key are unchanged; only `M-x' completion moved, from
 `org-air-item-deadline' to `org-air-item-set-deadline'."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--single-mutation-guard "Setting a deadline")
   (org-air-view--apply-date 'deadline
                             (or date (org-air-view--read-quick-date "Deadline"))))
@@ -13986,7 +14125,10 @@ R68fix: this defun must sit BELOW the `org-air-view--at-item-source'
 defmacro — a use above the definition byte-compiles against whatever
 macro a stale `.elc' happens to carry on an incremental build,
 silently losing the logging discipline (the round-68 Fable blocker)."
-  (interactive "sSchedule (empty clears): ")
+  (interactive
+   (progn (org-air-view--require-board)
+          (list (read-string "Schedule (empty clears): ")))
+   org-air-view-mode)
   (org-air-view--single-mutation-guard "Scheduling")
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item
@@ -14010,7 +14152,8 @@ above the definition byte-compiles against whatever macro a stale
 
 R90: with marks active, prompts once and adds that tag to every eligible
 exact source heading as one compound, file-atomic edit."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (if (org-air-view--marks-active-p)
       ;; Marked targets are durable and may be hidden, so chrome point is
       ;; valid.  Prompt once, then validate before landing/preflight/open.
@@ -14067,7 +14210,8 @@ R90: the ordinary Backlog is header-only until TAB expands it.  A single
 unmarked toggle lands on a local survivor instead of following the moved
 item.  With marks active, set-all semantics apply to every eligible exact
 source heading and one compound `u'/`U' record covers all changed files."
-  (interactive)
+  (interactive nil org-air-view-mode org-air-review-mode)
+  (org-air-view--require-item-view)
   (if (org-air-view--marks-active-p)
       (org-air-view--marked-tag-action 'backlog)
     (let* ((item (org-air-view--item-at-point))
@@ -14116,7 +14260,8 @@ source heading and one compound `u'/`U' record covers all changed files."
 ;;;###autoload
 (defun org-air-item-file-group ()
   "Fast-refile the item at point under a category/group (graduates it)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--single-mutation-guard "Filing")
   (call-interactively #'org-air-refile-item))
 
@@ -14136,7 +14281,8 @@ a gentle \"Todo unchanged\" no-op (no write, no refresh churn).
 Named -cycle-todo (name/binding kept — muscle memory + test pins) to
 avoid colliding with the `org-air-item-todo' struct accessor; the
 triage spec's `T' key maps here."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--single-mutation-guard "Setting TODO state")
   (let* ((item (org-air-view--item-at-point))
          (old (org-air-item-todo item))
@@ -14160,7 +14306,8 @@ R73 Decision 6: the record is `:structural' — `org-archive-subtree'
 writes the archive location too, so a source-side undo would leave the
 archived COPY (the duplicate shape); `u' consumes the record with a
 message naming the archive file instead."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--single-mutation-guard "Archiving")
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item
@@ -14183,7 +14330,8 @@ R68-3: a `COMP(c!)'-style time record — or a `DONE(d@)' note,
 downgraded to its timestamp — is flushed into the same save by the
 `org-air-view--at-item-source' logging discipline instead of pending
 against the undisplayed source buffer."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--single-mutation-guard "Marking DONE")
   (let ((item (org-air-view--item-at-point)))
     (org-air-view--at-item-source item
@@ -14197,7 +14345,8 @@ against the undisplayed source buffer."
   "Delete the item at point's subtree, with confirmation (graduates it).
 R68-3 audit: SAFE — the `yes-or-no-p' confirm runs BEFORE the macro,
 against the displayed board; `org-cut-subtree' is prompt-free."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-view--single-mutation-guard "Killing")
   (let ((item (org-air-view--item-at-point)))
     (when (yes-or-no-p (format "Delete \"%s\"? " (org-air-item-title item)))
@@ -15120,7 +15269,8 @@ structural records are therefore not-redoable BY CONSTRUCTION).
 `?' shows the ring (the Recent edits block); `u' undoes the top.
 Named `org-air-edit-undo' — `u' now covers every board edit, not just
 triage dispositions; `org-air-triage-undo' stays as a defalias."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (unless org-air-view--edit-ring
     (user-error "Nothing to undo"))
   (let* ((rec (car org-air-view--edit-ring))
@@ -15209,7 +15359,8 @@ symmetry with the undo side's Lisp-landed-buffer ruling.
 Bound to `U' — the board's own shift-pair inverse idiom (v/V, s/S,
 o/O); `C-r' was rejected (it shadows `isearch-backward' in a
 read-only board where isearch is a real navigation path)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (unless org-air-view--edit-redo-ring
     (user-error "Nothing to redo"))
   (let* ((rec (car org-air-view--edit-redo-ring))
@@ -15319,7 +15470,8 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
 
 (defun org-air-calendar-prev ()
   "Page to the previous month, or the previous day in the day view (R6)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (if org-air-view--day
       (org-air-view-day (time-subtract org-air-view--day (days-to-time 1)))
     (setq org-air-view--cal-month
@@ -15330,7 +15482,8 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
 
 (defun org-air-calendar-next ()
   "Page to the next month, or the next day in the day view (R6)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (if org-air-view--day
       (org-air-view-day (time-add org-air-view--day (days-to-time 1)))
     (setq org-air-view--cal-month
@@ -15468,7 +15621,8 @@ from the landed date; `q' returns to the full board (R28-2)."
 
 (defun org-air-view-board ()
   "Leave the single-day view and return to the full board (R6)."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (when org-air-view--day
     (setq org-air-view--day nil)
     ;; R79 D4: restore the board sort key vocabulary and coerce back.
@@ -15481,7 +15635,8 @@ Peel order, most-recent surface first: a live bottom pane closes FIRST
 \(board alive, point untouched); the single-day view returns to the full
 board (R6); only then does a press quit org-air itself — rail teardown +
 `quit-window'."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (cond
    ;; R28-2 layer 1: a live pane is the most-recent surface — close it, STOP.
    ((org-air-view--quit-close-pane))
@@ -15497,20 +15652,23 @@ board (R6); only then does a press quit org-air itself — rail teardown +
 
 (defun org-air-calendar-today ()
   "Recenter the persistent org-air calendar on today."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (setq org-air-view--cal-month nil)
   (org-air-view--render-current))
 
 (defun org-air-peek-item ()
   "Preview the source item in another window while keeping dashboard focus."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (let ((dashboard (selected-window)))
     (org-air-visit-item nil 'other-window)
     (select-window dashboard)))
 
 (defun org-air-visit-item-stay ()
   "Visit the source item without moving focus away from dashboard."
-  (interactive)
+  (interactive nil org-air-view-mode)
+  (org-air-view--require-board)
   (org-air-peek-item))
 
 (defconst org-air-help-buffer-name "*org-air-help*"
@@ -15860,7 +16018,11 @@ BUFFER."
   "Visit ITEM's original Org heading.
 When ITEM is nil, use the item at point in an org-air dashboard.  DISPLAY
 controls window choice and defaults to `org-air-visit-display'."
-  (interactive)
+  ;; R97 D1: the precondition is stated on the INTERACTIVE path only —
+  ;; the engine API (`(org-air-visit-item ITEM)') is called from the
+  ;; revisit view, the pane and Lisp, and must stay buffer-agnostic.
+  (interactive (progn (org-air-view--require-item-view) nil)
+               org-air-view-mode org-air-review-mode)
   (let ((item (or item (get-text-property (point) 'org-air-item))))
     (unless item
       (user-error "No org-air item at point"))

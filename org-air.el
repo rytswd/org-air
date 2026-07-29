@@ -42,9 +42,22 @@ To exclude one exact file, anchor a quoted path:
   :type '(repeat regexp)
   :group 'org-air)
 
-(defcustom org-air-inbox-file (locate-user-emacs-file "org-air-inbox.org")
-  "Org file where `org-air-capture' stores new inbox items."
-  :type 'file
+(defcustom org-air-inbox-file nil
+  "Org file where `org-air-capture' stores new inbox items.
+nil (the default) DERIVES the inbox from `org-air-files' — see
+`org-air-inbox-effective-file' — so a capture always lands inside the
+corpus the board scans and always shows up on the board.
+
+R97 D2: before this the default was `org-air-inbox.org' under
+`user-emacs-directory', which is NOT inside `org-air-files' unless the
+user puts it there.  Following the README's plain-`require' snippet
+\(`org-air-files' only) therefore wrote every capture to a file the scan
+never read: the note was on disk and the board reported Inbox zero.  A
+derived default cannot do that, and an explicit value that lies outside
+the scan set is REFUSED by `org-air-capture' rather than silently lost.
+
+Set this explicitly to pin the inbox; it must be inside `org-air-files'."
+  :type '(choice (const :tag "Derive from `org-air-files'" nil) file)
   :group 'org-air)
 
 (require 'org-air-query)

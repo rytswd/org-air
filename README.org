@@ -245,10 +245,13 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | ~org-air-leader-key~                | ~"C-c C-a"~                                  | Main-window action leader prefix.                                         |
 | ~org-air-use-default-keybindings~   | ~t~                                          | Install org-air's default keys; set ~nil~ to install NONE (maps still exist for your own binds). |
 | ~org-air-inspector-max-title-lines~ | ~nil~                                        | Cap on wrapped inspector title lines (~nil~ = wrap fully).                |
+| ~org-air-section-expand-max~        | ~200~                                        | Most rows one ~TAB~ reveals when expanding a board section; the surplus stays behind the ~…and N more~ row and ~TAB~ on that row reveals the next batch. ~nil~ paints the whole section in one press. |
 | *Project*                           |                                              |                                                                           |
 | ~org-air-sources~                   | ~nil~                                        | Where the project viewer finds Air content.                               |
 | ~org-air-project-group~             | ~directory~                                  | Default grouping: ~state~ / ~directory~ / ~tag~.                              |
 | ~org-air-project-state-style~       | ~svg~                                        | State badge: ~svg~ / ~nerd~ / ~text~ / ~emoji~ / ~badge~.                         |
+| ~org-air-project-dropped-states~    | ~("dropped" "canceled" "cancelled" "out" "off")~ | Air doc states that read as *terminal-negative* — the family ~TAB~ folds away per group. ~complete~ is deliberately not a member. |
+| ~org-air-project-collapse-dropped~  | ~t~                                          | Fold that family per group behind a ~… N dropped — TAB to show~ row.        |
 | *Rail*                              |                                              |                                                                           |
 | ~org-air-rail-placement~            | ~side-window~                                | Shared default rail placement — ~side-window~ (popped out) or ~inline~; per-view overrides win. |
 | ~org-air-outline-rail-placement~    | ~nil~                                        | Where ~org-air-outline-mode~ hosts its rail (~nil~ = inherit the shared default). |
@@ -406,7 +409,7 @@ Filter with ~is:backlog~ (exactly the deferred set) or the raw ~#backlog~ tag (i
 | ~S-RET~               | Visit the doc in the other window                               |
 | ~s~ / ~d~ / ~t~       | Group by state / directory / tag                                |
 | ~(~                   | Flip rows between title and relative path                       |
-| ~TAB~                 | Fold / unfold each group's dropped docs                         |
+| ~TAB~                 | Fold / unfold each group's dropped-like docs (see below)        |
 | ~/~                   | Filter docs by tag                                              |
 | ~o~ / ~O~             | Sort: cycle (name/created/updated) / reverse                    |
 | ~v~ / ~V~             | Bottom peek pane open / close                                   |
@@ -480,6 +483,8 @@ The capture → process loop is two steps:
 
 ~I~ walks the whole Inbox one item at a time with single-key dispositions.
 
+~TAB~ on a section header expands it a *batch at a time* (~org-air-section-expand-max~, default 200 rows) rather than painting every member at once, so one press costs the same on a section of 40 and a section of 4000. Whatever is still behind the batch keeps the familiar ~…and N more~ row, which counts it and says which key reveals the next batch — ~TAB~ on the row itself. Nothing becomes unreachable: the section is paged, not truncated, and the count never lies. Set the variable to ~nil~ to go back to one-press-paints-everything.
+
 *org-air-capture vs org-capture.* ~c~ (~M-x org-air-capture~) is a deliberately small, zero-config front door: it appends a fixed ~* TODO … :inbox:~ entry with a ~CREATED~ stamp — exactly the shape the Inbox bucket and triage flow expect — so capture works the moment you install org-air, with no template to write and no capture buffer. It is *not* a replacement for ~org-capture~ and does nothing ~org-capture~ can't; if you already live in ~org-capture~, the equivalent template is:
 
 #+begin_src emacs-lisp
@@ -493,6 +498,16 @@ Anything tagged ~:inbox:~ in ~org-air-inbox-file~ feeds the board's Inbox and th
 **** The Air project viewer — ~M-x org-air-project~
 
 For repositories planned with [[https://github.com/withre/air][Air]], the project viewer renders the planning docs as a state-grouped tree (parity with ~airctl status -Da~), sortable and filterable, with a side-rail inspector. ~RET~ opens a doc in a same-window *session*: you edit the real file, the rail shows a live outline that follows point, and ~C-c C-q~ returns you to the tree. org-air the package has no runtime dependency on Air or ~airctl~.
+
+***** Finished-negative docs: the dropped family
+
+Air's vocabulary for "this is over, and not in a good way" is not one word. ~org-air-project-dropped-states~ names the whole family — ~dropped~, ~canceled~, ~cancelled~, ~out~, ~off~ by default — and *every* dropped-ness decision in the project view reads that one list: the per-group ~TAB~ fold, the greyed title band, the within-group row order (family members sink to the bottom of their group), the fold key, and the per-directory count summary. Add a state to the list and all of those move together; there is no second place to teach.
+
+Membership is about *grouping*, never identity. Each state keeps its own badge, word and colour — =OUT= stays =OUT=, =OFF= stays =OFF=, =DROP= stays =DROP= — and under state grouping each keeps its own section, its own count and its own fold, so ~TAB~ on *Out* folds Out and leaves *Dropped* alone.
+
+~complete~ is deliberately *not* a member: it is the positive terminal state, and folding it away would hide finished work as though it had been abandoned.
+
+A state org-air has never heard of is never folded and never hidden. It gets its own section, an upcased 5-column token (~experimental~ → =EXPER=), a plain (undimmed) row and a letter in the directory rollup — which is exactly how a metadata slip, or a state Air adds next year, should degrade.
 
 *** ~org-air-outline-mode~
 

@@ -100,17 +100,59 @@ rail of Summary + Inspector); below it the view is board-only."
   :group 'org-air)
 
 (defcustom org-air-project-collapse-dropped t
-  "When non-nil (the DEFAULT), fold dropped docs per group (R48-3).
-Docs in the terminal `dropped' state are hidden per group behind a
-compact `… N dropped — TAB to show' fold row; TAB/RET on the row
-reveals them (greyed, `org-air-face-project-dropped'), TAB on a revealed
-dropped row re-collapses the group.  nil: no folding anywhere — dropped
-rows render inline exactly in today's positions (but still greyed;
-R48-2 is unconditional).  A LIVE tag filter suspends folding entirely so
-filter output always shows its matches.  Spelled `collapse' (not
-`show') so the default is the truthy value, matching
+  "When non-nil (the DEFAULT), fold dropped-like docs per group (R48-3).
+Docs in a TERMINAL-NEGATIVE state (`org-air-project-dropped-states' — R98
+turned this from the single keyword `dropped' into a family) are hidden
+per group behind a compact `… N dropped — TAB to show' fold row; TAB/RET
+on the row reveals them (greyed, `org-air-face-project-dropped'), TAB on
+a revealed dropped-like row re-collapses the group.  nil: no folding
+anywhere — those rows render inline exactly in today's positions (but
+still greyed; R48-2 is unconditional).  A LIVE tag filter suspends
+folding entirely so filter output always shows its matches.  Spelled
+`collapse' (not `show') so the default is the truthy value, matching
 `org-air-project-show-inspector'."
   :type 'boolean
+  :group 'org-air)
+
+(defcustom org-air-project-dropped-states
+  '("dropped" "canceled" "cancelled" "out" "off")
+  "Air doc states that read as TERMINAL-NEGATIVE — the dropped FAMILY (R98).
+
+Before R98 every dropped-ness test in the project view was a literal
+`(equal state \"dropped\")', in nine places.  Air's vocabulary had already
+moved on: a doc parked `off', handed `out', or spelled `canceled' /
+`cancelled' (both spellings are in real use) is just as finished as one
+spelled `dropped', but the view treated each of them as a LIVE doc that
+happened to have an odd keyword — or, worse, as an unknown-state metadata
+bug.  This list is the ONE place that vocabulary is stated, and
+`org-air-project--dropped-state-p' is the ONE test that reads it.
+
+WHAT MEMBERSHIP MEANS — GROUPING, NOT IDENTITY:
+  * the per-group fold (`org-air-project-collapse-dropped') hides every
+    member behind one `… N dropped — TAB to show' row, and TAB on a
+    revealed member re-collapses its group;
+  * the row's TITLE band recedes (`org-air-face-project-dropped');
+  * the within-group row order sinks members that have no explicitly
+    registered lifecycle slot to the terminal block, so a `canceled'
+    doc can never outrank a live one
+    (`org-air-project--state-sort-rank').
+
+WHAT MEMBERSHIP DOES NOT DO.  It does not flatten the states together.
+Each member keeps its own badge, word and colour — OUT stays OUT, OFF
+stays OFF, DROP stays DROP, each in its own face — and under `state'
+grouping each keeps its own section, its own count and its own fold key.
+The family decides what is CLOSED, never what a state IS.
+
+`complete' is deliberately NOT a member: it is the POSITIVE terminal
+state, the outcome the whole board is for, and folding it away would hide
+finished work as though it had been abandoned.
+
+A state NOT in this list is never folded and never hidden: an unknown or
+future state renders as a visible row with its upcased token (\"UNKNO\"),
+which is exactly how a metadata slip — or a state org-air has not learnt
+yet — should degrade.  Add it here to have it fold with the rest.
+Compared case-insensitively against the doc's own downcased state."
+  :type '(repeat string)
   :group 'org-air)
 
 (defvar-local org-air-project--expanded-dropped nil
@@ -382,7 +424,13 @@ with the stateless directory-summary bodies."
     ("out" 'org-air-face-air-state-out)     ; R80: first-class, standing out
     ("off" 'org-air-face-air-state-off)     ; R80: first-class, standing out
     ("dropped" 'org-air-face-air-state-dropped)
-    (_ 'org-air-face-faded)))
+    ;; R98: a dropped-FAMILY state org-air has no explicit entry for
+    ;; (`canceled', `cancelled', anything the user adds) reads as terminal-
+    ;; negative, not as an unknown-state metadata bug.  A state outside the
+    ;; family is still faded — that distinction is the whole point.
+    (_ (if (org-air-project--dropped-state-p state)
+           'org-air-face-air-state-dropped
+         'org-air-face-faded))))
 
 (defun org-air-project--state-title (state)
   "Return a human title for STATE (e.g. \"Work In Progress\")."
@@ -657,6 +705,10 @@ Buckets with zero docs are omitted; any state not listed is appended."
                        :title (org-air-project--state-title state)
                        :title-face 'org-air-face-section
                        :docs members
+                       ;; R98: the bucket's RAW state, so the dropped fold
+                       ;; can key each family section on itself instead of
+                       ;; on one hard-coded "dropped".
+                       :state state
                        :attention (member state org-air-project--attention-states)
                        :show-state nil))))
            order))))
@@ -672,32 +724,68 @@ Buckets with zero docs are omitted; any state not listed is appended."
     (and dir (split-string (directory-file-name dir) "/" t))))
 
 (defconst org-air-project--state-sort-order
-  '("ready" "work-in-progress" "complete" "out" "off" "draft")
-  "The R51-2 within-group ROW ordering for the canonical LIVE states.
-R80: out/off rank after complete (parked/inactive), still ABOVE
-unknown/dropped.
-Dropped is deliberately NOT a member: `org-air-project--state-sort-rank'
-pins it to the absolute LAST rank (past unknown) — ready →
-work-in-progress → complete → draft → (unknown) → dropped.  Distinct
-from `org-air-project--state-display-order' (the airctl `-Da' LETTER
-order for the count summaries — a different contract).")
+  '("ready" "work-in-progress" "complete" "draft" "out" "off")
+  "The R51-2 within-group ROW ordering for the states with a REGISTERED slot.
+A state listed here ranks at its position; anything else is ranked by
+`org-air-project--state-sort-rank' (unknown, then the R98 dropped family).
+
+R98 MOVED out/off BELOW draft.  R80 gave the parked pair its own rank
+between `complete' and `draft'; R98 makes them members of the terminal
+family (`org-air-project-dropped-states'), and a family member sitting
+ABOVE a live `draft' row made the fold visibly incoherent: collapsed, the
+`… N dropped' row sat at the group BOTTOM; expanded, the very same rows
+reappeared mid-list above the drafts.  They keep a registered slot (their
+identity survives — out is not off, and neither is dropped), but the slot
+is now at the END of the live block, so revealing a fold puts the rows
+where the fold row was.  Their pinned R80 relations are untouched: both
+still rank after `complete', before unknown, and before `dropped'.
+
+Dropped/canceled/cancelled are deliberately NOT members: they have no
+lifecycle slot to hold, so they take the terminal block past unknown.
+Distinct from `org-air-project--state-display-order' (the airctl `-Da'
+LETTER order for the count summaries — a different contract).")
+
+(defun org-air-project--dropped-state-position (state)
+  "Return STATE's index in `org-air-project-dropped-states', or nil (R98)."
+  (and (stringp state)
+       (seq-position org-air-project-dropped-states (downcase state) #'equal)))
+
+(defun org-air-project--dropped-state-p (state)
+  "Return non-nil when STATE is dropped-like (R98).
+THE ONE dropped-ness test in the project view.  Every fold, face, sort,
+key and count that used to spell `(equal state \"dropped\")' asks this
+instead, so the whole `org-air-project-dropped-states' family moves
+together and a user adding a state to that list changes every surface at
+once.  Case-insensitive; nil/non-string is not dropped-like."
+  (and (org-air-project--dropped-state-position state) t))
 
 (defun org-air-project--state-sort-rank (state)
-  "Return STATE's within-group row rank (R51-2) — dropped LAST.
+  "Return STATE's within-group row rank (R51-2/R98) — the dropped family LAST.
 The ONE rank source BOTH comparators (`org-air-project--state-first-lessp'
 and `org-air-project--doc-compare') call, so the collapsed fold row and
-the expanded/revealed dropped rows share one bottom-of-group ordering
-\(R80 added out/off at ranks 3/4, still above unknown/dropped):
-a member of `org-air-project--state-sort-order' gets its position (0–3);
-\"dropped\" ranks 5 — absolutely last, PAST unknown (an unknown state is
-a metadata bug on a LIVE doc; dropped is deliberately dead — dead sorts
-after broken); anything else (unknown/non-canonical) shares rank 4
-\(ordering among distinct unknown states stays the state-string tiebreak
-in `org-air-project--doc-compare')."
-  (cond
-   ((equal state "dropped") (1+ (length org-air-project--state-sort-order)))
-   ((seq-position org-air-project--state-sort-order state #'equal))
-   (t (length org-air-project--state-sort-order))))
+the expanded/revealed dropped-like rows share one bottom-of-group
+ordering.  Three tiers, in this order:
+
+1. A state with a REGISTERED lifecycle slot (`org-air-project--state-sort-
+   order') gets its position: ready 0, work-in-progress 1, complete 2,
+   draft 3, out 4, off 5.  R98 moved the parked pair to the end of this
+   block so a revealed fold lands where its fold row was.
+2. UNKNOWN — anything org-air does not recognise at all — ranks 6: past
+   every live state, because an unrecognised state is a metadata bug on a
+   doc that is probably still alive, and it must stay VISIBLE.
+3. The R98 dropped FAMILY without a registered slot (`dropped',
+   `canceled', `cancelled', anything the user adds) takes the terminal
+   block, 7 upward, in `org-air-project-dropped-states' order: dead sorts
+   after broken, and two dead states never tie.
+
+Ordering among distinct unknown states stays the state-string tiebreak in
+`org-air-project--doc-compare'."
+  (let ((slot (seq-position org-air-project--state-sort-order state #'equal))
+        (family (org-air-project--dropped-state-position state)))
+    (cond
+     (slot slot)
+     (family (+ 1 (length org-air-project--state-sort-order) family))
+     (t (length org-air-project--state-sort-order)))))
 
 (defun org-air-project--state-first-lessp (a b)
   "Non-nil when doc A precedes B state-first, then by the ACTIVE key (R26-7).
@@ -816,12 +904,19 @@ docs with no directory fold into a leading node with an empty :path."
     ("complete"         . "C")    ; ✅  airctl Complete
     ("out"              . "O")    ; 📤  R80 Out (O for Out)
     ("off"              . "F")    ; ⏸  R80 Off (F, NOT O — no O/O collision)
-    ("dropped"          . "X"))   ; 🗑️  airctl Dropped (token is already [X])
+    ("dropped"          . "X")    ; 🗑️  airctl Dropped (token is already [X])
+    ("canceled"         . "K")    ; R98 dropped family, US spelling
+    ("cancelled"        . "K"))   ; R98 dropped family, UK spelling
   "Canonical per-state single LETTER (R25-4): airctl-aligned + DISTINCT.
 Draft=D and Dropped=X never collide; `work-in-progress'=W is distinct from
 all.  R80: out=O, off=F (F, NOT O, so out/off never collide in the per-dir
-rollup).  The single source for BOTH the per-doc badge glyph and the
-per-dir rollup letter, so the two can never drift.")
+rollup).  R98 registers the two `cancel' spellings on K — NOT on the bare
+initial, which would have collided with Complete=C in the per-dir rollup
+and made a finished doc and an abandoned one read the same.  They SHARE K
+deliberately: `canceled' and `cancelled' are one state spelled two ways,
+so one letter is the honest answer.  The single source for BOTH the
+per-doc badge glyph and the per-dir rollup letter, so the two can never
+drift.")
 
 (defun org-air-project--state-letter (state)
   "Return STATE's DISTINCT single-letter badge glyph (R25-4).
@@ -839,9 +934,28 @@ DIRECT is the dir's OWN per-state counts, DESC its descendants' rollup.
 State as a quiet faded LETTER (not the coloured badge), own count, faded
 `(+M)' nested rollup; states absent from BOTH are omitted; display order =
 `org-air-project--state-display-order'.  Numerically identical to the old
-`--count-badges' / `airctl status -Da' (own N + nested +M)."
+`--count-badges' / `airctl status -Da' (own N + nested +M).
+
+R98: any DROPPED-FAMILY state that the airctl letter order does not know
+\(`canceled', `cancelled', a state the user added to
+`org-air-project-dropped-states') is appended AFTER that order rather
+than omitted — a FOLDED doc must still be COUNTED where its siblings are,
+or the fold would make work disappear from the only per-directory number
+the view prints.  The pinned airctl letter contract for the states airctl
+does know is byte-unchanged: appended cells can only follow it.
+
+An UNRECOGNISED state is deliberately still omitted here, exactly as
+before R98.  That is the pre-R98 R22-6 rollup contract (goldens pin it),
+and the honesty requirement it might seem to breach is met elsewhere and
+more visibly: an unknown state gets its OWN section, its own upcased
+token and an undimmed, unfolded row.  It is never hidden — only its
+letter is absent from the directory annotation."
   (let (cells)
-    (dolist (state org-air-project--state-display-order)
+    (dolist (state (append org-air-project--state-display-order
+                           (seq-remove
+                            (lambda (s)
+                              (member s org-air-project--state-display-order))
+                            org-air-project-dropped-states)))
       (let ((n (or (cdr (assoc state direct)) 0))
             (m (or (cdr (assoc state desc)) 0)))
         (when (or (> n 0) (> m 0))
@@ -860,12 +974,15 @@ State as a quiet faded LETTER (not the coloured badge), own count, faded
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-project--doc-row-face (state)
-  "Return the row face for a doc in STATE (R48-2).
-`org-air-face-project-dropped' (dim; R51-1 de-striked) for \"dropped\",
-else the plain `org-air-face-title' — the one selector `--insert-doc-row' passes
-as the row's `font-lock-face', so a dropped row's title band visibly
-recedes wherever it renders (pre-faced cells keep their own `face')."
-  (if (equal state "dropped")
+  "Return the row face for a doc in STATE (R48-2, R98 family).
+`org-air-face-project-dropped' (dim; R51-1 de-striked) for any
+dropped-like state (`org-air-project--dropped-state-p'), else the plain
+`org-air-face-title' — the one selector `--insert-doc-row' passes as the
+row's `font-lock-face', so a terminal-negative row's title band visibly
+recedes wherever it renders.  The row's own pre-faced cells keep their
+`face', which is how OUT stays OUT-coloured and OFF stays OFF-coloured on
+a receded row: the family dims the TITLE BAND, never the badge."
+  (if (org-air-project--dropped-state-p state)
       'org-air-face-project-dropped
     'org-air-face-title))
 
@@ -884,16 +1001,21 @@ Equivalently, the fold is ACTIVE for KEY iff this returns nil:
 (defun org-air-project--partition-dropped (docs key)
   "Return (VISIBLE . HIDDEN) splitting DOCS on the dropped fold for KEY.
 When the fold is active for KEY (`org-air-project--dropped-expanded-p'
-nil), VISIBLE is DOCS minus the dropped docs and HIDDEN the dropped docs
-in their given (already-sorted) order; otherwise (DOCS . nil).  Callers
-pass ALREADY-sorted lists so expanded dropped rows keep their exact
-current positions (state-first mid-list in the dir tree; the section
-comparator order in state/tag sections)."
+nil), VISIBLE is DOCS minus the dropped-LIKE docs and HIDDEN those docs
+in their given (already-sorted) order; otherwise (DOCS . nil).  R98: the
+split is the whole `org-air-project-dropped-states' family through the
+one `org-air-project--dropped-state-p' test, so a group holding an `out'
+and a `dropped' doc folds ONCE and counts BOTH.  Callers pass
+ALREADY-sorted lists so revealed rows keep their exact current positions."
   (if (org-air-project--dropped-expanded-p key)
       (cons docs nil)
-    (cons (seq-remove (lambda (d) (equal (org-air-doc-state d) "dropped"))
+    (cons (seq-remove (lambda (d)
+                        (org-air-project--dropped-state-p
+                         (org-air-doc-state d)))
                       docs)
-          (seq-filter (lambda (d) (equal (org-air-doc-state d) "dropped"))
+          (seq-filter (lambda (d)
+                        (org-air-project--dropped-state-p
+                         (org-air-doc-state d)))
                       docs))))
 
 (defun org-air-project--tree-gutter (depth rails lastp)
@@ -1381,14 +1503,15 @@ buffer gains the `⇄ files' chip next to the sort indicator."
     ;; R21-5: one board-style row per doc.  The row ALWAYS carries the
     ;; state cell now, so the per-section SHOW-STATE conditional is gone
     ;; (a doc under a state section reads identically to one under a dir).
-    ;; R48-3: partition on the dropped fold — state grouping keys the one
-    ;; `Dropped' section as (state . "dropped") (its heading + COUNT stay
-    ;; for discoverability; the body collapses to the fold row alone), tag
-    ;; sections key on their `#tag' title; the fold row appends after the
-    ;; section's visible rows.
+    ;; R48-3: partition on the dropped fold — state grouping keys EACH
+    ;; terminal-negative section on its OWN state (R98: the family spans
+    ;; Out / Off / Dropped / …, and each folds independently; its heading +
+    ;; COUNT stay for discoverability, the body collapses to the fold row
+    ;; alone), tag sections key on their `#tag' title; the fold row appends
+    ;; after the section's visible rows.
     (let* ((key (if (eq org-air-project-group 'tag)
                     (cons 'tag (plist-get section :title))
-                  (cons 'state "dropped")))
+                  (cons 'state (or (plist-get section :state) "dropped"))))
            (part (org-air-project--partition-dropped
                   (plist-get section :docs) key)))
       (dolist (doc (car part))
@@ -2268,12 +2391,14 @@ The tag grouping's group id for a doc row — its `#tag' section title."
 (defun org-air-project--dropped-key-for (doc)
   "Return DOC's dropped-fold group key under the current grouping (R48-3).
 Directory: (directory . PATH) from DOC's own dir segments (\"\" for a
-root doc); state: (state . \"dropped\") — the one section holding dropped
-docs; tag: (tag . TITLE) from the nearest `org-air-section' above point
-\(the row's `#tag' section)."
+root doc); state: (state . STATE) — R98: DOC's OWN state, because the
+family now spans several sections (Out, Off, Dropped, …) and each holds
+its own fold, so a single hard-coded \"dropped\" key would have made TAB
+on the Out section collapse the Dropped one; tag: (tag . TITLE) from the
+nearest `org-air-section' above point (the row's `#tag' section)."
   (pcase org-air-project-group
     ('tag (cons 'tag (org-air-project--nearest-section-title)))
-    ('state (cons 'state "dropped"))
+    ('state (cons 'state (or (org-air-doc-state doc) "dropped")))
     (_ (cons 'directory
              (string-join (org-air-project--doc-dir-segments doc) "/")))))
 
@@ -2284,11 +2409,14 @@ docs; tag: (tag . TITLE) from the nearest `org-air-section' above point
     (org-air-view--goto-row-title)))
 
 (defun org-air-project--goto-dropped-row (key)
-  "Move point to the first REVEALED dropped doc row of group KEY (R48-3)."
+  "Move point to the first REVEALED dropped-like doc row of group KEY (R48-3).
+R98: any member of `org-air-project-dropped-states', so a group whose
+fold hid an `out' doc still lands on it."
   (let ((pos (point-min)) (found nil))
     (while (and (not found) pos (< pos (point-max)))
       (let ((doc (get-text-property pos 'org-air-doc)))
-        (when (and doc (equal (org-air-doc-state doc) "dropped"))
+        (when (and doc (org-air-project--dropped-state-p
+                        (org-air-doc-state doc)))
           (save-excursion
             (goto-char pos)
             (when (equal (org-air-project--dropped-key-for doc) key)
@@ -2342,7 +2470,7 @@ Branch 3 is plain motion and is deliberately NOT wrapped (board parity)."
                     (org-air-project--goto-dropped-row fold-key)
                   (org-air-project--goto-fold-row fold-key))
             (org-air-view--landing-claimed)))))
-     ((and doc (equal (org-air-doc-state doc) "dropped")
+     ((and doc (org-air-project--dropped-state-p (org-air-doc-state doc))
            org-air-project-collapse-dropped
            (null org-air-view--tag-filter))
       (let ((key (org-air-project--dropped-key-for doc)))

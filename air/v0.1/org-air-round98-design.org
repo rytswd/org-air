@@ -1,0 +1,446 @@
+#+title: org-air R98 — TAB pays for what it shows, and "dropped" is a family
+#+air_state: complete
+#+air_tags: org-air impl performance render project-view state-vocabulary
+
+* Context
+
+Two reports from daily use, neither of them from the test suite:
+
+1. "expanding the hidden items using TAB feels quite slow; make it faster,
+   or at least give some async hint that something is running and how the
+   UI is locked up during that."  The user runs a *wide frame with the
+   inline rail* — the column-composed =two-pane= orientation.
+2. The project view's dropped fold "only knows one keyword."  Air's
+   terminal-negative vocabulary is now a *family*: =off=, =out=,
+   =dropped=, =canceled=, =cancelled=, and possibly more.
+
+The supervisor's starting hypotheses were carried in as claims to *verify
+or refute*, not as findings.  Both were measured first.
+
+* Item 1 — TAB
+
+** What was measured, and how
+
+Corpus: =org-air-r95--scale-items= (the suite's own scale fixture) at 1000
+and 3000 items over 8 files, all *Untracked* — one section holding every
+item, which is the shape the report describes.  Board at 120x40,
+inspector off, frozen clock, =emacs -Q --batch=, byte-compiled sources,
+best-of-3 after a discarded cold sample.  Every measurement ran under an
+explicit =timeout=; nothing was left unbounded.
+
+*Deliberately NOT measured: 10k.*  The round's measurement budget capped
+the corpus at 3000 items and 20 files, and a 10k run is exactly the
+unbounded command that cost the previous seat 23 hours.  The 1k→3k pair
+already separates the two hypotheses (one scales linearly, the fixed one
+does not scale at all), so 10k would have bought a third point on a line
+whose slope is already known.  Recorded honestly as *not measured*.
+
+** The profile, BEFORE optimising
+
+CPU profile of ONE =org-air-toggle-section= on the Untracked header,
+3000 items, =two-pane=, compiled.  679 samples.
+
+Call tree (inclusive):
+
+| frame                                   | incl. |
+|-----------------------------------------+-------|
+| =org-air-toggle-section=                |   67% |
+| ↳ =org-air-view--render= (FULL render)  |   67% |
+| ↳ =org-air-view--two-pane-body=         |   55% |
+| ↳ =org-air-view--render-lines=          |   33% |
+| ↳ =org-air-view--insert-rail=           |   24% |
+| ↳ =org-air-calendar-insert-month=       |   24% |
+| =org-air-view--sort-items= (outer)      |   68% |
+
+Flat self time, same run:
+
+| frame                                | self, two-pane | self, board-only |
+|--------------------------------------+----------------+------------------|
+| =Automatic GC=                       |          32.5% |            34.7% |
+| =string-width=                       |          13.4% |            14.7% |
+| =truncate-string-to-width=           |          13.3% |            10.9% |
+| =string-trim-right=                  |           5.0% |             3.9% |
+| =org-air-view--normalize-buffer-lines= |         4.0% |             3.8% |
+| =expand-file-name=                   |           4.0% |             3.8% |
+| =buffer-string=                      |           2.8% |             2.4% |
+| =split-string=                       |           2.5% |             2.1% |
+| =file-name-nondirectory=             |           2.4% |             2.4% |
+| =org-air-view--insert-row=           |           1.8% |             2.4% |
+
+*** What that says — and what it refutes
+
+- *Confirmed*: the supervisor was right that two-pane fell through to a
+  full =org-air-view--render=; 67% of the toggle is under it, and 24% of
+  the whole toggle is the *calendar month* being recomputed because the
+  rail is recomposed by a render nobody needed.
+- *Confirmed*: collapsed rendering is cheap.  A collapsed full render is
+  0.039s at 3000 items; the same corpus costs 0.555s the moment TAB
+  expands the section.  The cost is expansion, not scanning (R53 holds:
+  neither path re-queries).
+- *The dominant cost is per-row painting, not per-row semantics.*  Over
+  half the self time is =string-width= + =truncate-string-to-width= +
+  =string-trim-right= + GC — i.e. measuring and padding thousands of
+  strings to build rows that a 40-line window will never show.  Faces,
+  badges and sorting are *not* the hot spot.
+- =expand-file-name= + =file-name-nondirectory= (≈6.4%) is the origin
+  breadcrumb, rebuilt per item per repaint even with no filter active.
+- *Refuted for this corpus*: =org-timestamp-to-time= does not appear in
+  the profile at all.  It cannot — the scale fixture is undated.  The
+  timestamp work is real on a dated corpus (measured separately below),
+  but it was never the reported slowness.
+
+** The fixes, in the brief's order of preference
+
+*** (a-1) THE BOUND — the one that actually fixed it
+
+=org-air-section-expand-max= (default 200).  An expanded section paints at
+most that many rows; the surplus stays behind the *same* =…and N more=
+row the board already had.  TAB on that row adds another batch
+(=org-air-view--section-reveal=, a per-buffer alist of accumulated
+budgets), so the section *pages* open.  Collapsing forgets the budget.
+
+The budget is a render input, not a side effect: it is threaded through
+the pane temp buffer, the bookmark/desktop state plist and the repaint
+stamp, exactly like =org-air-view--expanded-sections=.  Pure UI state over
+already-cached items — changing it never re-queries and never opens a
+file (R53 intact).
+
+*** (a-2) EVERY ORIENTATION SPLICES NOW
+
+=org-air-view--render-section= used to build only the board-only body and
+two-pane fell through to a full render with a comment admitting
+"correctness first".  Both paths now call ONE composer,
+=org-air-view--compose-body=, which dispatches on the live orientation, so
+the spliced band is byte-identical to the full render's band *by
+construction* rather than by two code paths agreeing.  Three things had to
+be handled rather than wished away:
+
+- the two-pane fill row carries the pane divider, so it is taken from the
+  composer, not from the stored one;
+- the band's trailing newline is restored to whatever it was (a footer
+  follows it in two-pane, nothing follows it in board-only);
+- two-pane keeps the inspector *inside* the rail, i.e. inside the band
+  just rewritten, so its markers are re-bracketed at the tail — with point
+  on the first item, the same order =--render= uses, or the R18
+  equivalence law would break the moment two-pane started splicing.
+
+The splice path also binds the compute-once dynamics
+(=--render-partition=, =--render-displayed=, the classify cache) that only
+the full render used to bind.  Without them the "fast" path re-derived the
+visible set once per consumer.
+
+*** (a-3) TWO O(n·log n)→O(n) REPAIRS ON THE SHARED RENDER PATH
+
+- =org-air-view--sort-by-date= was the last date sort computing its key
+  *inside* the comparator.  Now decorate/sort/undecorate.  Measured on
+  3000 dated items in the Overdue bucket, memo cold on both sides:
+  0.215s → 0.063s (1000 items: 0.073s → 0.012s), order byte-identical.
+- =org-air-view--timestamp-time= is memoised on the timestamp *object*
+  through a hash table that is =:weakness 'key=.  The key is immutable and
+  scan-owned, so a hit is exact, and the entry cannot outlive the item —
+  no bound, no invalidation hook, no staleness class.
+- =org-air-view--passes-filter-p= short-circuits when no filter is
+  active, so the origin breadcrumb is not composed to hand a string to a
+  matcher that already said yes.  Same answer =--tokens-pass-filter-p=
+  gives for the empty token list; a short circuit, not a second rule.
+
+*** (b) THE FEEDBACK AFFORDANCE — why no new chrome
+
+The brief allowed reusing =--render-loading= / the "scanning N/M" banner
+if a large expansion could not be made fast.  It could: TAB is now
+*constant time in section size* (0.025s at 1000 items, 0.028s at 3000).
+Adding a progress banner to a 28ms operation would be chrome for its own
+sake, and the banner belongs to *scanning*, which TAB deliberately never
+does.
+
+The honest affordance is the fold row itself, which the board already
+owned.  Under an already-expanded but still-capped section it says
+
+: …and 1803 more — press TAB here to reveal 200 more
+
+instead of the collapsed section's byte-frozen
+
+: …and 1803 more — press TAB on the title to expand
+
+because TAB on the *title* would collapse the section, so the row has to
+name itself as the target and say what the next press costs.  No timers
+were added to the synchronous path.
+
+** Measured before/after
+
+=make=-identical environment, compiled, best-of-3, seconds:
+
+| corpus | orientation | R97 render | R98 render | R97 TAB | R98 TAB | speed-up |
+|--------+-------------+------------+------------+---------+---------+----------|
+|   1000 | board-only  |      0.013 |      0.005 |   0.226 |   0.025 |     9.0x |
+|   1000 | two-pane    |      0.013 |      0.005 |   0.214 |   0.025 |     8.6x |
+|   3000 | board-only  |      0.035 |      0.008 |   0.588 |   0.028 |    21.0x |
+|   3000 | two-pane    |      0.039 |      0.008 |   0.555 |   0.028 |    19.8x |
+|  10000 | both        | not measured (corpus cap; see above) | | | | |
+
+TAB no longer grows with the section: 1000→3000 items moves it 0.025s →
+0.028s.  The collapsed full render is 2.6–4.9x faster too, from (a-3)
+alone — that part helps every repaint, not just TAB.
+
+** THE HONEST ATTRIBUTION — which fix bought what
+
+Same build, =org-air-section-expand-max= forced to =nil= (bound OFF, so
+only the splice + (a-3) are active):
+
+| corpus | orientation | R97 TAB | R98 TAB, bound OFF | R98 TAB, bound ON |
+|--------+-------------+---------+--------------------+-------------------|
+|   1000 | board-only  |   0.226 |              0.123 |             0.025 |
+|   1000 | two-pane    |   0.214 |              0.190 |             0.025 |
+|   3000 | board-only  |   0.588 |              0.583 |             0.028 |
+|   3000 | two-pane    |   0.555 |              0.511 |             0.028 |
+
+So: *the bound is what fixed the report.*  The two-pane splice and the
+O(n) repairs are worth 1.1–1.8x, which at 3000 items is 0.51s of frozen
+frame instead of 0.56s — an improvement nobody would feel.  This matches
+the profile exactly: if half the time is measuring and padding strings for
+rows, the only way to win is to not build the rows.  The splice is kept
+because it is what makes each *batch* cost a batch (the header, footer and
+every earlier section stay byte-untouched) and because it removes the
+24%-of-a-toggle calendar recompute; it is not claimed as the fix.
+
+** Laws kept
+
+- *R53, no scan on toggle.* Neither branch queries.  The old =more= branch
+  actually called =(or org-air-view--items (org-air-query-items))=; the new
+  one splices from =org-air-view--items= only.
+- *R91/R92 scroll and landing.* Both toggle branches still move point
+  after rendering, inside =--with-scroll-stable=; the =more= branch's
+  landing target is now derived from =--displayed-items-for-bucket=
+  (the rows the section actually shows) rather than from
+  =--collapsed-window=, so a partly-paged section cannot land point on a
+  row that was visible all along.
+- *R18 equivalence.* One composer for both paths.
+- No new timers.
+
+* Item 2 — the dropped FAMILY
+
+** The predicate and the list
+
+=org-air-project-dropped-states= (defcustom, =:type '(repeat string)=)
+defaults to
+
+: ("dropped" "canceled" "cancelled" "out" "off")
+
+and =org-air-project--dropped-state-p= is the ONE test that reads it
+(case-insensitive; nil/non-string is not dropped-like).
+=org-air-project--dropped-state-position= exposes the index, which the
+sort rank uses so two dead states never tie.
+
+*Why these five.*  =dropped= is airctl's own word.  =canceled= /
+=cancelled= are one state spelled two ways and both are in real use.
+=out= (handed off) and =off= (parked) were promoted in R80 to first-class
+*live-ish* states; the user's report is that in practice they are just as
+finished as =dropped= — nothing further will happen to them — and being
+excluded from the fold made them clutter.
+
+*Why =complete= is NOT a member.*  It is the *positive* terminal state,
+the outcome the whole board exists to produce.  Folding it away would hide
+finished work as though it had been abandoned, and the count that says how
+much got done is the one number a planning view must never bury.
+
+** Every call site now routed through the predicate
+
+The nine hard-coded =(equal state "dropped")= tests named in the brief,
+and what each became:
+
+| what                                  | before                        | after                                     |
+|---------------------------------------+-------------------------------+-------------------------------------------|
+| row title face (=--doc-row-face=)     | =(equal state "dropped")=     | =--dropped-state-p=                       |
+| fold partition (=--partition-dropped=), both arms | 2x =(equal … "dropped")= | =--dropped-state-p=            |
+| fold group key (=--dropped-key-for=)  | =(cons 'state "dropped")=     | =(cons 'state DOC's own state)=           |
+| section fold key (=--insert-section=) | =(cons 'state "dropped")=     | =(cons 'state (plist-get section :state))= |
+| revealed-row landing (=--goto-dropped-row=) | =(equal … "dropped")=   | =--dropped-state-p=                       |
+| TAB dispatch (=org-air-project-toggle=) | =(equal … "dropped")=       | =--dropped-state-p=                       |
+| within-group rank (=--state-sort-rank=) | =(equal state "dropped")=   | three tiers, below                        |
+| state face (=--state-face=) fallback  | =_ → faded=                   | family → =air-state-dropped=, else faded  |
+| dir count rollup (=--dir-count-summary=) | display order only         | + the family, appended after it            |
+
+=org-air-project--sections-by-state= now carries the bucket's raw =:state=
+in the section plist.  That is what makes each family member fold
+*independently*: without it, TAB on *Out* would have collapsed *Dropped*.
+
+** Sort order
+
+=org-air-project--state-sort-order= is now
+=("ready" "work-in-progress" "complete" "draft" "out" "off")= and
+=--state-sort-rank= reads three tiers:
+
+1. a state with a *registered lifecycle slot* takes its position (0–5);
+2. *unknown* — anything org-air does not recognise at all — ranks 6, past
+   every live state, because an unrecognised state is a metadata bug on a
+   doc that is probably still alive and must stay visible;
+3. the *family without a registered slot* (=dropped=, =canceled=,
+   =cancelled=, user additions) takes the terminal block from 7 upward, in
+   list order.  Dead sorts after broken.
+
+R80 had =out=/=off= at ranks 3/4, *above* =draft=.  R98 moves them to the
+end of the live block.  This is not cosmetic: with the fold on, a family
+member ranking above a live =draft= made the fold visibly incoherent —
+collapsed, the =… N dropped= row sat at the group bottom; expanded, the
+very same rows reappeared mid-list above the drafts.  Every pinned R80
+relation survives (=out= and =off= still rank after =complete=, before
+unknown, before =dropped=).  Verified ranks:
+
+: ready 0  work-in-progress 1  complete 2  draft 3  out 4  off 5
+: <unknown> 6  dropped 7  canceled 8  cancelled 9
+
+** Badges — the ruling
+
+*The family is about GROUPING, never identity.*  Nothing about the
+approved badge vocabulary changed:
+
+| state     | token   | letter | badge face                     | row title band |
+|-----------+---------+--------+--------------------------------+----------------|
+| out       | =OUT  = | =O=    | =org-air-face-air-state-out=   | dimmed         |
+| off       | =OFF  = | =F=    | =org-air-face-air-state-off=   | dimmed         |
+| dropped   | =DROP = | =X=    | =org-air-face-air-state-dropped= | dimmed       |
+| canceled  | =CANCE= | =K=    | =org-air-face-air-state-dropped= | dimmed       |
+| cancelled | =CANCE= | =K=    | =org-air-face-air-state-dropped= | dimmed       |
+| complete  | =COMP = | =C=    | =org-air-face-air-state-complete= | NOT dimmed  |
+
+- =OUT=/=OFF=/=DROP= and their colours are byte-unchanged; the family
+  dims the *title band* (=--doc-row-face=), never the badge cell, which is
+  how a receded row still reads =OUT= in OUT's colour.
+- The two =cancel= spellings share =K=, not the bare initial: =C= is
+  already Complete in the per-directory rollup, and a finished doc and an
+  abandoned one must never print the same letter.  They share =K= with each
+  other deliberately — one state, two spellings, one honest letter.
+- A family state with no explicit face entry resolves to
+  =air-state-dropped= rather than the generic faded face, so =canceled=
+  reads as terminal-negative and not as an unknown-state metadata bug.
+  A state *outside* the family is still faded; that distinction is the
+  point.
+
+** Unknown / future states degrade honestly
+
+An unrecognised state (=experimental=, a typo, a state Air adds next year)
+is *never folded and never hidden*:
+
+- =--sections-by-state= appends any unlisted state as its own section;
+- its token is the upcased 5-column truncation (=EXPER=), its face the
+  generic faded one, its row title band *not* dimmed;
+- it ranks 6 — after every live state, before the dead ones.
+
+The one place an unknown state is still absent is the per-*directory*
+count summary, which iterates a fixed letter order (display order, plus —
+new in R98 — the family appended after it, so a =canceled= doc is counted
+where its siblings are instead of disappearing behind the fold).
+Example: =C2 O3 K1 K(+4)=.  Extending that loop to unknown states was
+tried and *reverted*: it changes the pinned R22-6 rollup goldens
+(=org-air-f5-project-view-byte-mockups=,
+=org-air-r22-6-count-summaries-left-anchored=), which is a re-bless this
+round was not authorised to make, and the honesty requirement is already
+met more visibly by the section + row.  Recorded as a follow-up.
+
+** The sibling axis that was deliberately NOT merged
+
+=org-air-review.el= / =org-air-revisit.el= also speak of "dropped", but
+that is a *different axis*: an Org TODO *keyword* (=CANCELLED=, =KILL=, …)
+on a task heading, not an Air doc *state* on a planning doc.  It already
+has its own family list and its own single predicate
+(=org-air-view--dropped-keyword-names= / =--dropped-keyword-p=, R79/R84).
+The two vocabularies are kept separate on purpose: a user's Org keyword
+set has nothing to do with Air's document lifecycle, and collapsing them
+would make customising one silently change the other.
+
+* Gate
+
+| gate                                          | result |
+|-----------------------------------------------+--------|
+| =make clean && make check= (COMPILED, 11 .elc) | =Ran 1353 tests, 1342 results as expected, 3 unexpected, 8 skipped= |
+| same suite with no =.elc= (INTERPRETED)        | =Ran 1353 tests, 1342 results as expected, 3 unexpected, 8 skipped= |
+| =make lint= (checkdoc + package-lint + dupdef) | =lint: ok (0 findings, all baselined)= |
+| =make check-gui=                               | not run — no DISPLAY in this environment |
+| known-failures manifest                        | =()= — nothing masked |
+| goldens / fixtures                             | untouched — no re-bless was needed |
+| probe files                                    | none — every probe lived in =/tmp= |
+
+** The three unexpected results, classified
+
+Tests were NOT edited.
+
+*** 1. =org-air-r95-19-repaint-is-linear-in-both-gate-modes= — OBSOLETE
+
+: (should fold-expanded) :form fold-expanded :value nil
+
+This is *leg 2*, an anti-vacuity probe, and it defines "the fold row
+really expanded" as "no =…and N more= row remains".  R98 deliberately
+replaces that invariant: expanding a 1200-member section paints one
+200-row batch and *keeps* a fold row, now counting the 1000 still behind
+it.  The fence's actual law — leg 1, ZERO item-wise linear scans over a
+full repaint — still holds, as do legs 3, 4 and 5.
+
+Proof that the bound is the only quarrel: the identical test passes
+unmodified with =org-air-section-expand-max= set to =nil=
+(=Ran 1 tests, 1 results as expected, 0 unexpected=).
+
+*Re-bless shape* (one of, for the next seat that may edit tests):
+
+#+begin_src emacs-lisp
+;; minimal — the fence is about linearity, not about paging:
+(let* ((org-air-section-expand-max nil)   ; add to the existing let*
+       (files …))
+  …)
+
+;; or, keeping the bound and re-stating leg 2 as what it means now:
+(setq rows (org-air-r95--rows 'untracked)
+      fold-expanded (> (length rows)
+                       (org-air-view--section-limit 'untracked)))
+#+end_src
+
+The second shape is the better pin: it asserts the probe revealed rows the
+collapsed window had hidden, which is what leg 2 was always for, and it
+stays true under any =org-air-section-expand-max=.
+
+*** 2–3. =org-air-r26-3-legend-on-screen-popped= and =org-air-r49-4-project-inline-legend-first-windowful= — PRE-EXISTING, NOT R98
+
+: (should (<= (1+ …) h)) :form (<= 27 26)
+: (should (<= actions-line height)) :form (<= 31 30)
+
+Both fail *identically on the unmodified parent* (=vzxoxyns / 92215f8f=,
+R97): full suite, no =.elc=, sources restored byte-for-byte →
+=Ran 1353 tests, 1343 results as expected, 2 unexpected, 8 skipped=, and
+those two are the pair.  Bisected further: they also fail with only
+=org-air-project.el= reverted, and with only =org-air-view.el= reverted.
+R98 touches neither the rail's line count nor the Actions block.
+
+Both assert that a *pathological, structurally-probed minimum* side-window
+height (body 26 / 30) still keeps the Actions legend within the fold —
+an off-by-one against =window-body-height= in batch.  They are
+environment-sensitive by construction (the R26-3 docstring says so: "the
+pathological minimum heights bump +2 accordingly, structurally probed"),
+and this seat's Emacs/batch frame lands one line the other side of that
+probe.  Left alone: re-probing them is a test edit, and this round was
+told not to make one.
+
+* Implementation History
+
+- Source: =org-air-view.el= (+428/-108 → the TAB work), =org-air-project.el=
+  (+247/-77 → the dropped family), README =Configuration= table + two new
+  prose blocks, this document.
+- No test file, golden or fixture was touched.
+- All measurement, profiling and probe scripts lived in =/tmp= and are not
+  part of the change.
+
+** Follow-ups this seat did NOT take
+
+1. Re-bless =r95-19= leg 2 (shape given above) — needs a seat allowed to
+   edit tests.
+2. Re-probe the two legend minimum heights so they stop depending on the
+   host's batch frame metrics.
+3. The 10k measurement, under a supervised long-running budget.
+4. =string-width= / =truncate-string-to-width= are still half the cost of
+   painting a row.  A per-row width memo (rows are immutable between
+   repaints) is the next real win, and it would help the *collapsed*
+   render too — but it is a caching design of its own, not an R98
+   footnote.
+5. Let the per-directory rollup print unknown states too (patch written
+   and reverted in this round — it re-blesses two pinned R22-6 goldens).
+   Note that when it lands, an unknown state's letter is its bare initial,
+   so =weird= → =W= collides with work-in-progress; the R25-4 letter map
+   needs a disambiguation rule first.

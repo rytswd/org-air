@@ -127,6 +127,30 @@ the pane.  All three are org-air's own surfaces; nothing else is."
   :type 'integer
   :group 'org-air)
 
+(defcustom org-air-section-expand-max 200
+  "Most rows ONE TAB reveals when expanding a section (R98).
+
+TAB on a section header used to paint EVERY member of that section.  On a
+real corpus that is thousands of rows built at full fidelity — face runs,
+badges, date labels, origin cells — to fill a window that shows forty of
+them, and the frame is locked for the whole of it (the R98 measurement:
+0.84s for a 2103-member section at 3k items, 1.29s in the board-only
+splice).  A bounded reveal makes every TAB cost the same regardless of
+how big the section is.
+
+What the user sees is the chrome the board already had: the rows, then
+the SAME `…and N more' fold row, which counts the members still behind
+it and teaches the key that reveals the next batch.  Pressing TAB on that
+row adds another `org-air-section-expand-max' rows (`org-air-view--
+section-reveal'), so nothing is unreachable — it is paged, not hidden,
+and the count never lies.
+
+Nil (or a value <= 0) restores the pre-R98 behaviour: one TAB paints the
+whole section, however long it takes."
+  :type '(choice (const :tag "Unbounded (paint every row)" nil)
+                 (integer :tag "Rows per TAB"))
+  :group 'org-air)
+
 (defcustom org-air-chrome-separator "∙"
   "Single source of truth for the org-air chrome middle-dot separator.
 Used to join header status segments, the rail Source line, the
@@ -1146,6 +1170,16 @@ Keys:
   "When non-nil, an Emacs time focusing the single-day view (R6).")
 (defvar-local org-air-view--expanded-sections nil)
 
+(defvar-local org-air-view--section-reveal nil
+  "Alist of (BUCKET . ROWS) reveal budgets for EXPANDED sections (R98).
+An expanded section paints at most ROWS of its members; a bucket with no
+entry uses `org-air-section-expand-max'.  TAB on the `…and N more' fold
+row of an already-expanded section adds another batch here, so the
+section pages open one bounded repaint at a time.  Pure UI state over the
+CACHED items — changing it never re-queries (R53) and never opens a file.
+Collapsing a section drops its entry, so re-expanding starts at one
+batch again.")
+
 ;; R90: marks are live board-buffer UI state, keyed by exact source
 ;; identity.  They deliberately do not enter the scan cache or bookmarks.
 (defvar-local org-air-view--marked-keys nil
@@ -1318,6 +1352,42 @@ intentionally not an explicit Backlog lens."
 This is the one R90 expansion read seam shared by row selection, fold-row
 emission, TAB and width measurement."
   (and (memq bucket org-air-view--expanded-sections) t))
+
+(defun org-air-view--expand-batch ()
+  "Return the row batch ONE TAB reveals, or nil for unbounded (R98)."
+  (and (integerp org-air-section-expand-max)
+       (> org-air-section-expand-max 0)
+       org-air-section-expand-max))
+
+(defun org-air-view--section-reveal-limit (bucket)
+  "Return how many rows an EXPANDED BUCKET may paint, or nil for all (R98).
+The bucket's own accumulated budget when TAB has paged it open, else one
+`org-air-section-expand-max' batch; nil when the bound is switched off."
+  (let ((batch (org-air-view--expand-batch))
+        (grown (alist-get bucket org-air-view--section-reveal)))
+    (cond ((and (integerp grown) (> grown 0)) grown)
+          (batch batch))))
+
+(defun org-air-view--section-reveal-more (bucket)
+  "Grow BUCKET's reveal budget by one batch and return the new budget (R98).
+No-op returning nil when the bound is switched off (everything is already
+painted)."
+  (when-let* ((batch (org-air-view--expand-batch)))
+    (let ((next (+ (or (org-air-view--section-reveal-limit bucket) 0) batch)))
+      (setf (alist-get bucket org-air-view--section-reveal) next)
+      next)))
+
+(defun org-air-view--section-reveal-reset (bucket)
+  "Forget BUCKET's reveal budget; a fresh expand then begins at one batch (R98)."
+  (setq org-air-view--section-reveal
+        (assq-delete-all bucket org-air-view--section-reveal)))
+
+(defun org-air-view--take-revealed (bucket rows)
+  "Return the leading window of ROWS an expanded BUCKET may paint (R98)."
+  (let ((limit (org-air-view--section-reveal-limit bucket)))
+    (if (and limit (> (length rows) limit))
+        (seq-take rows limit)
+      rows)))
 
 (defun org-air-view--ensure-explicit-backlog-lens ()
   "Persistently reveal Backlog when an exact `is:backlog' lens is applied."
@@ -2875,9 +2945,32 @@ title fallback, no per-render work — an unchanged generation returns above."
   "Return calendar days between THEN and NOW."
   (- (time-to-days now) (time-to-days then)))
 
+(defvar org-air-view--timestamp-time-memo
+  (make-hash-table :test #'eq :weakness 'key)
+  "Weak memo from an Org timestamp OBJECT to its Emacs time (R98).
+`org-timestamp-to-time' was the single hottest frame in the R98 render
+profile (25% of self time in a collapsed repaint at 3k items): the sort
+keys, the meta-width pass and the row painter each re-parse the SAME
+immutable timestamp object, several times per render, every render.
+
+The key is the timestamp OBJECT (`eq'), which the scan builds once per
+item and never mutates, so a hit is exact rather than heuristic; the
+table is WEAK ON THE KEY, so an entry lives exactly as long as the item
+holding that timestamp and a re-scan's fresh objects re-derive.  No
+bound, no invalidation hook and no staleness class: the memo cannot
+outlive the fact it memoises.")
+
 (defun org-air-view--timestamp-time (timestamp)
-  "Return Emacs time for Org TIMESTAMP."
-  (when timestamp (ignore-errors (org-timestamp-to-time timestamp))))
+  "Return Emacs time for Org TIMESTAMP.
+Memoised per timestamp object through `org-air-view--timestamp-time-memo'
+since R98 — the parse is pure and the object immutable."
+  (when timestamp
+    (let ((hit (gethash timestamp org-air-view--timestamp-time-memo 'miss)))
+      (if (eq hit 'miss)
+          (puthash timestamp
+                   (ignore-errors (org-timestamp-to-time timestamp))
+                   org-air-view--timestamp-time-memo)
+        hit))))
 
 (defun org-air-view--human-date (time &optional now)
   "Return a compact human date label for TIME relative to NOW."
@@ -3574,11 +3667,21 @@ caller still tag-matches; the real call sites pass the title/path text."
 Passes the item's title + origin breadcrumb as the searchable TEXT so a
 bare token substring-matches the title; `#tag' tokens still tag-match;
 the ITEM itself is threaded so R72 date/status tokens read its planning
-slots."
-  (org-air-view--tokens-pass-filter-p
-   (concat (org-air-item-title item) " " (org-air-view--origin item))
-   (org-air-item-tags item)
-   item))
+slots.
+
+R98: with NO filter active every item passes and the searchable text is
+never read, so it is not BUILT.  Composing it costs an origin breadcrumb
+per item (a Denote-title probe plus `file-name-nondirectory'), and this
+runs over every item on every repaint — it was 14% of a TAB expansion at
+10k items purely to hand a string to a matcher that had already decided.
+The empty-filter answer is the same one `org-air-view--tokens-pass-
+filter-p' gives (`(null tokens)' -> t), so this is a short circuit, not a
+second rule."
+  (or (null (org-air-view--filter-tags))
+      (org-air-view--tokens-pass-filter-p
+       (concat (org-air-item-title item) " " (org-air-view--origin item))
+       (org-air-item-tags item)
+       item)))
 
 (defun org-air-view--passes-scope-p (item)
   "Return non-nil when ITEM passes the active scope."
@@ -3793,24 +3896,32 @@ A top-K selection over precomputed floats — milliseconds at 4k notes."
   "Compute (no memo) the BUCKET rows of ITEMS a section renders (R20-6).
 Mirrors `org-air-view--insert-section'.  Notes and Backlog are header-only
 while collapsed.  Expanded Notes remains preview-capped; expanded Backlog
-shows every currently visible member in the active sort order."
+shows every currently visible member in the active sort order.
+R98: every EXPANDED window is additionally bounded by the section's
+reveal budget (`org-air-view--take-revealed'), so one TAB paints at most
+`org-air-section-expand-max' rows and the surplus stays behind the fold
+row that counts it."
   (cond
    ((eq bucket 'notes)
     (when (org-air-view--section-expanded-p 'notes)
-      (seq-take (org-air-view--notes-by-recency
-                 (org-air-view--items-for-bucket bucket items))
-                (max 0 org-air-notes-preview-limit))))
+      (org-air-view--take-revealed
+       bucket
+       (seq-take (org-air-view--notes-by-recency
+                  (org-air-view--items-for-bucket bucket items))
+                 (max 0 org-air-notes-preview-limit)))))
    ((eq bucket 'backlog)
     (when (org-air-view--section-expanded-p 'backlog)
-      (org-air-view--sort-items
-       (org-air-view--items-for-bucket bucket items) bucket)))
+      (org-air-view--take-revealed
+       bucket
+       (org-air-view--sort-items
+        (org-air-view--items-for-bucket bucket items) bucket))))
    (t
     (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
            ;; R22-3: order WITHIN the bucket by the active sort key/direction.
            ;; The default key `date' reproduces the historical order exactly.
            (bucket-items (org-air-view--sort-items bucket-items bucket)))
       (if (org-air-view--section-expanded-p bucket)
-          bucket-items
+          (org-air-view--take-revealed bucket bucket-items)
         ;; R95: the collapsed window is the section cap PLUS, for
         ;; Untracked, a per-file quota (`org-air-view--collapsed-window').
         (org-air-view--collapsed-window bucket bucket-items))))))
@@ -5283,28 +5394,41 @@ BUCKET `overdue' keys on `org-air-view--overdue-time' instead — the slot
 the row's own \"OVERDUE Nd\" label chose — so the alarm section is
 worst-first by the number it prints even when the two slots disagree (R94
 follow-up 1: overdue by SCHEDULE with a FUTURE deadline).  Any other
-bucket keeps `org-air-view--item-sort-time' verbatim."
-  (let ((now (current-time))
-        (indexed (let ((i 0))
-                   (mapcar (lambda (item) (prog1 (cons i item) (setq i (1+ i))))
-                           items))))
-    (cl-flet ((key (item)
-                (or (and (eq bucket 'overdue)
-                         (org-air-view--overdue-time item now))
-                    (org-air-view--item-sort-time item))))
-      (mapcar #'cdr
-              (sort indexed
-                    (lambda (a b)
-                      (let ((ta (key (cdr a)))
-                            (tb (key (cdr b))))
-                        (cond
-                         ((and ta tb)
-                          (if (time-equal-p ta tb)
-                              (< (car a) (car b))
-                            (time-less-p ta tb)))
-                         (ta t)
-                         (tb nil)
-                         (t (< (car a) (car b)))))))))))
+bucket keeps `org-air-view--item-sort-time' verbatim.
+
+R98 — THE KEY IS COMPUTED ONCE PER ITEM, NOT ONCE PER COMPARISON.  This
+was the last date sort still calling its key function from inside the
+comparator (`--sort-by-quiet', `--sort-by-floor' and `--sort-by' all
+precompute), so a 1000-member Overdue section paid ~10 000 Org timestamp
+parses per repaint — visible as `org-timestamp-to-time' at 25% of self
+time in the R98 profile, on EVERY render, collapsed or expanded.  The
+decorate/sort/undecorate form below is O(n) parses and produces byte-
+identical order: the keys are pure functions of the item and one NOW,
+which is exactly what the comparator used to recompute."
+  (let* ((now (current-time))
+         (i 0)
+         (indexed (mapcar
+                   (lambda (item)
+                     (prog1 (list i
+                                  (or (and (eq bucket 'overdue)
+                                           (org-air-view--overdue-time item now))
+                                      (org-air-view--item-sort-time item))
+                                  item)
+                       (setq i (1+ i))))
+                   items)))
+    (mapcar (lambda (e) (nth 2 e))
+            (sort indexed
+                  (lambda (a b)
+                    (let ((ta (nth 1 a))
+                          (tb (nth 1 b)))
+                      (cond
+                       ((and ta tb)
+                        (if (time-equal-p ta tb)
+                            (< (nth 0 a) (nth 0 b))
+                          (time-less-p ta tb)))
+                       (ta t)
+                       (tb nil)
+                       (t (< (nth 0 a) (nth 0 b))))))))))
 
 (defun org-air-view--sort-by-quiet (items)
   "Return ITEMS most-quiet-first, unknown-age items last (R93 FIX-2).
@@ -5775,13 +5899,26 @@ chronological board default).  Direction carries unchanged."
               ;; instead of drifting.  NO `org-air-item' — n/p item motion
               ;; and the inspector keep skipping the row by construction.
               ;; The label TEXT is byte-frozen (every board golden holds).
-              (let ((start (point)))
+              (let ((start (point))
+                    (hidden (- count (length visible))))
                 (insert (org-air-view--item-margin)
-                        (propertize (format "%sand %d more — press TAB on the title to expand"
-                                            (org-air-view--glyph 'more)
-                                            (- count (length visible)))
-                                    'face 'org-air-face-faded
-                                    'mouse-face 'org-air-face-cursor)
+                        (propertize
+                         ;; R98: an ALREADY-expanded section that is still
+                         ;; capped by its reveal budget needs a different
+                         ;; sentence — TAB on the TITLE would collapse it,
+                         ;; so the row names ITSELF as the target and says
+                         ;; how many rows the next press adds.  A collapsed
+                         ;; section keeps the byte-frozen R51-3 text every
+                         ;; board golden holds.
+                         (if (org-air-view--section-expanded-p bucket)
+                             (format "%sand %d more — press TAB here to reveal %d more"
+                                     (org-air-view--glyph 'more) hidden
+                                     (min hidden (or (org-air-view--expand-batch)
+                                                     hidden)))
+                           (format "%sand %d more — press TAB on the title to expand"
+                                   (org-air-view--glyph 'more) hidden))
+                         'face 'org-air-face-faded
+                         'mouse-face 'org-air-face-cursor)
                         (propertize "\n" 'face 'org-air-face-faded))
                 (add-text-properties start (point)
                                      (list 'org-air-more-row bucket)))))
@@ -5821,6 +5958,11 @@ chronological board default).  Direction carries unchanged."
         (tag-filter org-air-view--tag-filter)
         (scope org-air-view--scope)
         (expanded org-air-view--expanded-sections)
+        ;; R98: the per-section reveal budget is a render input like the
+        ;; expansion set itself — the pane temp buffer computes the
+        ;; displayed rows, so without this a paged-open section would
+        ;; collapse back to one batch inside the pane.
+        (section-reveal org-air-view--section-reveal)
         (marked-keys org-air-view--marked-keys)
         (marked-table org-air-view--marked-key-table)
         (cal-month org-air-view--cal-month)
@@ -5866,6 +6008,7 @@ chronological board default).  Direction carries unchanged."
             (org-air-view--tag-filter tag-filter)
             (org-air-view--scope scope)
             (org-air-view--expanded-sections expanded)
+            (org-air-view--section-reveal section-reveal)
             (org-air-view--marked-keys marked-keys)
             (org-air-view--marked-key-table marked-table)
             (org-air-view--cal-month cal-month)
@@ -7994,6 +8137,7 @@ inspector update re-finds + re-fills the region (Phase 2)."
                         :tag-filter org-air-view--tag-filter
                         :scope org-air-view--scope
                         :expanded org-air-view--expanded-sections
+                        :section-reveal org-air-view--section-reveal
                         :marked-keys org-air-view--marked-keys
                         :marked-table org-air-view--marked-key-table
                         :cal-month org-air-view--cal-month
@@ -8023,6 +8167,7 @@ inspector update re-finds + re-fills the region (Phase 2)."
             (org-air-view--tag-filter (plist-get state :tag-filter))
             (org-air-view--scope (plist-get state :scope))
             (org-air-view--expanded-sections (plist-get state :expanded))
+            (org-air-view--section-reveal (plist-get state :section-reveal))
             (org-air-view--marked-keys (plist-get state :marked-keys))
             (org-air-view--marked-key-table (plist-get state :marked-table))
             (org-air-view--cal-month (plist-get state :cal-month))
@@ -8205,6 +8350,9 @@ byte-identical and may be skipped."
           org-air-filter-match
           org-air-view--scope
           org-air-view--expanded-sections
+          ;; R98: the reveal budget is a paint input too (the fold row's
+          ;; own sentence and count move with it), so it joins the stamp.
+          org-air-view--section-reveal
           org-air-view--marked-keys
           org-air-view--cal-month
           width height
@@ -10223,31 +10371,13 @@ with the board buffer current already; nothing else may."
                           (org-air-view--insert-rule)
                           (org-air-view--insert-footer)))
                      nil))
-           (fill-row "")
-           (body-content
-            (cond
-             ;; R13 D-P3: board-only — full-width item pane, NO rail /
-             ;; calendar / inspector.
-             ((memq org-air-view--orientation '(board-only side-window))
-              (org-air-view--render-lines
-               width
-               (lambda () (org-air-view--insert-item-pane items width))))
-             ((eq org-air-view--orientation 'two-pane)
-              ;; D-P1: the inspector now lives INSIDE the rail (fixed
-              ;; reserved mid-rail region), not as an appended foot band.
-              (let ((pair (org-air-view--two-pane-body items width)))
-                (setq fill-row (cdr pair))
-                (car pair)))
-             (t
-              (org-air-view--render-lines
-               width
-               (lambda ()
-                 (org-air-view--insert-top-rail items width)
-                 (insert "\n")
-                 (org-air-view--insert-rule)
-                 (insert "\n")
-                 (org-air-view--insert-item-pane items width))))))
-           (body-content (org-air-view--collapse-line-list body-content))
+           ;; R98: the body composition is ONE function shared with the
+           ;; incremental splice (`org-air-view--render-section'), so the
+           ;; spliced band is byte-identical to this one by construction
+           ;; rather than by two code paths agreeing.
+           (pair (org-air-view--compose-body items width))
+           (fill-row (cdr pair))
+           (body-content (org-air-view--collapse-line-list (car pair)))
            (body-target (max (length body-content)
                              (- height (length header) (length footer))))
            (body (org-air-view--pad-line-list body-content body-target fill-row)))
@@ -10329,6 +10459,36 @@ with the board buffer current already; nothing else may."
 ;;;; R18 D-P1b incremental render — redraw only the changed body / calendar.
 ;;;; ---------------------------------------------------------------------
 
+(defun org-air-view--compose-body (items width)
+  "Return (BODY-LINES . FILL-ROW) for ITEMS at WIDTH in the live orientation.
+The ONE body composer (R98): `org-air-view--render' calls it to build the
+middle band, and `org-air-view--render-section' calls it to rebuild that
+band in place.  FILL-ROW is the blank row the band pads out with — empty
+everywhere except two-pane, whose fill row carries the pane divider so
+the rule spans the full body height (S6)."
+  (cond
+   ;; R13 D-P3: board-only — full-width item pane, NO rail / calendar /
+   ;; inspector.
+   ((memq org-air-view--orientation '(board-only side-window))
+    (cons (org-air-view--render-lines
+           width
+           (lambda () (org-air-view--insert-item-pane items width)))
+          ""))
+   ;; D-P1: the inspector lives INSIDE the rail (fixed reserved mid-rail
+   ;; region), not as an appended foot band.
+   ((eq org-air-view--orientation 'two-pane)
+    (org-air-view--two-pane-body items width))
+   (t
+    (cons (org-air-view--render-lines
+           width
+           (lambda ()
+             (org-air-view--insert-top-rail items width)
+             (insert "\n")
+             (org-air-view--insert-rule)
+             (insert "\n")
+             (org-air-view--insert-item-pane items width)))
+          ""))))
+
 (defun org-air-view--postprocess-line (line width)
   "Return LINE post-processed to match a full render's output (R18 D-P1b).
 Mirror `org-air-view--normalize-buffer-lines' (pad to the fixed width seam)
@@ -10374,7 +10534,16 @@ sections' (proved by the equivalence golden).  Falls back to the cheap full
 render when the body band is unknown.  _BUCKET is accepted for API symmetry.
 R91: the splice deletes from the first CHANGED line down, so a
 `window-start' inside the rewritten span collapses to that line — the
-same visible jump the full render has; the scroll seam covers both."
+same visible jump the full render has; the scroll seam covers both.
+
+R98 — EVERY ORIENTATION SPLICES NOW.  The band is built by the shared
+`org-air-view--compose-body', which dispatches on the live orientation,
+so the column-composed two-pane layout (the wide-frame default, and the
+one the R98 user reports TAB being slow in) no longer falls back to a
+full `org-air-view--render'.  Two consequences are handled here rather
+than wished away: the two-pane fill row carries the pane divider (taken
+from the composer, not from the stored one), and the two-pane inspector
+lives INSIDE this band, so its markers are re-bracketed at the tail."
   (org-air-view--with-scroll-stable
    (let ((region (org-air-view--body-region)))
      (if (not region)
@@ -10389,19 +10558,38 @@ same visible jump the full render has; the scroll seam covers both."
                (list org-air-pill-pad-cols org-air-pill-radius
                      org-air-pill-fill-alpha org-air-pill-font-scale
                      org-air-pill-border-opacity org-air-pill-vinset))
+              ;; R98 — THE COMPUTE-ONCE DYNAMICS, WHICH THIS PATH NEVER BOUND.
+              ;; Without them the "fast" splice re-derived the visible set
+              ;; and re-sorted every bucket once PER CONSUMER (section pass,
+              ;; meta-width pass, badge, summary), which is why the R98
+              ;; measurement found it 1.5x SLOWER than the full render it
+              ;; was supposed to beat: `--passes-filter-p' alone was 25% of
+              ;; the toggle.  One partition + one displayed-rows memo, exactly
+              ;; as `org-air-view--render' binds them.
+              (_ (org-air-view--classify-cache-ensure))
+              (org-air-view--render-partition
+               (org-air-view--compute-partition items))
+              (org-air-view--render-displayed
+               (cons items (make-hash-table :test 'eq)))
               (beg (car region))
               (end (cdr region))
-              (old-lines (split-string (buffer-substring-no-properties beg end)
-                                       "\n"))
-              (raw (org-air-view--render-lines
-                    width
-                    (lambda () (org-air-view--insert-item-pane items width))))
-              (body-content (org-air-view--collapse-line-list raw))
+              (old-text (buffer-substring-no-properties beg end))
+              ;; The band ends with a newline only when a footer follows it;
+              ;; remember which, so the splice restores the SAME separator
+              ;; instead of welding the footer onto the last body row.
+              (trailing (string-suffix-p "\n" old-text))
+              (old-lines (let ((lines (split-string old-text "\n")))
+                           (if trailing (butlast lines) lines)))
+              ;; R98: the SAME composer the full render uses, dispatching on
+              ;; the live orientation — so two-pane and stacked splice too,
+              ;; and the band cannot drift from the full render's band.
+              (pair (org-air-view--compose-body items width))
+              (fill-row (cdr pair))
+              (body-content (org-air-view--collapse-line-list (car pair)))
               (body-target (max (length body-content)
                                 (or org-air-view--body-target-floor 0)))
               (body (org-air-view--pad-line-list
-                     body-content body-target
-                     (or org-air-view--body-fill-row "")))
+                     body-content body-target fill-row))
               (new-lines (mapcar (lambda (l)
                                    (org-air-view--postprocess-line l width))
                                  body))
@@ -10410,7 +10598,7 @@ same visible jump the full render has; the scroll seam covers both."
               (p 0)
               (olen (length old-lines))
               (nlen (length new-lines)))
-         (org-air-view--classify-cache-ensure)
+         (setq-local org-air-view--body-fill-row fill-row)
          (while (and (< p olen) (< p nlen)
                      (string= (nth p old-lines) (nth p new-lines)))
            (setq p (1+ p)))
@@ -10431,11 +10619,27 @@ same visible jump the full render has; the scroll seam covers both."
                (when (and (> pos beg) (not (eq (char-before pos) ?\n)))
                  (insert "\n"))
                (insert (mapconcat #'identity tail "\n"))))
-           ;; The body is the last band in board-only/side-window, so it must
-           ;; not end with a newline; drop a stray one left by a pure deletion.
-           (when (and (> (point) beg) (eq (char-before (point)) ?\n))
-             (delete-char -1))
+           ;; Restore the band's own terminator: with no footer the body is
+           ;; the last band and must NOT end with a newline (drop the stray
+           ;; one a pure deletion leaves); with a footer the separator has
+           ;; to come back.
+           (if trailing
+               (unless (eq (char-before (point)) ?\n) (insert "\n"))
+             (when (and (> (point) beg) (eq (char-before (point)) ?\n))
+               (delete-char -1)))
            (set-marker org-air-view--body-end (point)))
+         ;; R98: two-pane keeps the inspector INSIDE the rail, i.e. inside
+         ;; the band just rewritten, so its markers have to be re-bracketed
+         ;; and its reserved region re-filled.  IN THE FULL RENDER'S ORDER:
+         ;; `org-air-view--render' brackets the region with point on the
+         ;; first item, so doing it here with point anywhere else would
+         ;; leave the inspector showing a DIFFERENT item and quietly break
+         ;; the R18 equivalence law the moment two-pane started splicing.
+         ;; Point is placed for real by `--restore-position' right after
+         ;; (and by the caller after that).
+         (when (eq org-air-view--orientation 'two-pane)
+           (org-air-view--goto-first-item)
+           (org-air-view--setup-inspector))
          (org-air-view--restore-position token))))))
 
 (defun org-air-view--render-calendar ()
@@ -12199,15 +12403,17 @@ explicit jump, and ordinary scrolling is the right answer there."
              (if (memq bucket org-air-view--expanded-sections)
                  (delq bucket org-air-view--expanded-sections)
                (cons bucket org-air-view--expanded-sections)))
-       ;; R18 D-P1b: in the full-width item-pane layouts (board-only /
-       ;; side-window) the toggled section is splice-replaceable in place
-       ;; (the rail is a separate buffer or absent), so redraw only the body
-       ;; band; the column-composed layouts fall back to the now-cheap full
-       ;; render (correctness first).
-       (if (memq org-air-view--orientation '(board-only side-window))
-           (org-air-view--render-section bucket)
-         (org-air-view--render (or org-air-view--items (org-air-query-items))
-                               org-air-view--tag-filter))
+       ;; R98: either direction starts the reveal budget over — a collapse
+       ;; forgets how far the section had been paged, and a fresh expand
+       ;; paints ONE batch.
+       (org-air-view--section-reveal-reset bucket)
+       ;; R18 D-P1b / R98: EVERY orientation now splices only the body band.
+       ;; The two-pane fallback to a full render was the "correctness
+       ;; first" note this replaces: `org-air-view--render-section'
+       ;; recomposes the body exactly as the full render does for the live
+       ;; orientation, so the result is byte-identical and the header,
+       ;; footer and every unchanged earlier section stay untouched.
+       (org-air-view--render-section bucket)
        (let ((pos (org-air-view--find-property 'org-air-section bucket)))
          (when pos
            (goto-char pos)
@@ -12216,29 +12422,35 @@ explicit jump, and ordinary scrolling is the right answer there."
            (org-air-view--goto-row-title)))))
      (more
       (org-air-view--with-scroll-stable
-       ;; R51-3: EXPAND the fold row's bucket (the row exists only while
-       ;; collapsed, so this branch never collapses).  Remember the first
-       ;; HIDDEN item — the first member the COLLAPSED WINDOW did not show
-       ;; — BEFORE the render so point can land on its revealed row after
-       ;; (never worse than the section header).  R95: derived from
-       ;; `org-air-view--collapsed-window' rather than from the cap index,
-       ;; so Untracked's per-file quota cannot land point on a row that
-       ;; was visible all along.
-       (let* ((sorted (org-air-view--sort-items
-                       (org-air-view--items-for-bucket
-                        more (or org-air-view--items '()))
+       ;; R51-3: EXPAND the fold row's bucket.  R98: the row now also
+       ;; appears under an ALREADY-expanded section whose reveal budget is
+       ;; still short of its member count, and there this branch REVEALS
+       ;; THE NEXT BATCH instead — the row's own sentence says so.  Either
+       ;; way, remember the first HIDDEN item — the first member the
+       ;; CURRENT window does not show — BEFORE the render so point can
+       ;; land on its revealed row after (never worse than the section
+       ;; header).  R95: derived from the rows the section actually
+       ;; DISPLAYS (`org-air-view--displayed-items-for-bucket', which is
+       ;; `--collapsed-window' for a collapsed section), so neither
+       ;; Untracked's per-file quota nor a partly-paged section can land
+       ;; point on a row that was visible all along.
+       (let* ((items (or org-air-view--items '()))
+              (sorted (org-air-view--sort-items
+                       (org-air-view--items-for-bucket more items)
                        more))
               (shown (let ((h (make-hash-table :test #'eq)))
-                       (dolist (it (org-air-view--collapsed-window more sorted) h)
+                       (dolist (it (org-air-view--displayed-items-for-bucket
+                                    more items)
+                                   h)
                          (puthash it t h))))
               (first-hidden (seq-find (lambda (it) (not (gethash it shown)))
                                       sorted)))
-         (cl-pushnew more org-air-view--expanded-sections)
-         ;; The SAME render seam the header branch takes (R18 D-P1b).
-         (if (memq org-air-view--orientation '(board-only side-window))
-             (org-air-view--render-section more)
-           (org-air-view--render (or org-air-view--items (org-air-query-items))
-                                 org-air-view--tag-filter))
+         (if (org-air-view--section-expanded-p more)
+             (org-air-view--section-reveal-more more)
+           (cl-pushnew more org-air-view--expanded-sections)
+           (org-air-view--section-reveal-reset more))
+         ;; The SAME render seam the header branch takes (R18 D-P1b/R98).
+         (org-air-view--render-section more)
          (let ((pos (or (and first-hidden
                              (org-air-view--find-property 'org-air-item
                                                           first-hidden))

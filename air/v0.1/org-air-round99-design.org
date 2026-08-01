@@ -1,0 +1,476 @@
+#+title: org-air R99 — TAB was never slow; the collector was, and batch could not see it
+#+air_state: complete
+#+air_tags: org-air impl performance render gui measurement instrument
+
+* Context
+
+The user, again, after R98 shipped:
+
+#+begin_quote
+It still takes about 1 sec for toggling Needs attention set, which has 191
+items at the moment.
+#+end_quote
+
+R98 measured TAB at 0.028–0.054 s and called it fixed.  The supervisor
+reproduced the user's second in a REAL X frame (191 items, two-pane,
+width 120, first expand, ~redisplay t~ inside the measured window):
+
+| tag  | pri    | frame |
+|------+--------+-------|
+| pill | square | 1.000 |
+| pill | badge  | 0.966 |
+| pill | text   | 0.914 |
+| text | square | 0.688 |
+| text | badge  | 0.614 |
+| text | text   | 0.486 |
+
+Same corpus in ~--batch~: *0.054 s*.  R97 and R98 measure IDENTICALLY in
+batch, so R98's headline improvement was invisible in the case the user
+actually reports.
+
+This is the *fourth* blind spot found this way — after the viewport (R91),
+the compiler (R95), and the foreign buffer (R97).  The instrument is
+therefore the deliverable, not the afterthought.
+
+* 1 — THE PROFILE, IN A FRAME
+
+Method: ~emacs -Q~ under ~DISPLAY=:1~, arming through ~run-with-timer~ so the
+command loop is reached and the frame is real (the R97 lesson: loading via
+~-l~ alone never fires timers).  Byte-compiled sources.  Every command run
+under an explicit ~timeout~; nothing left unbounded.  CPU profile of six
+expand/collapse cycles on the reported corpus, sampling interval 200 µs,
+13 140 samples.
+
+** Flat self time — the headline is one line long
+
+| frame                             |  self |
+|-----------------------------------+-------|
+| *Automatic GC*                    | *87.2%* |
+| ~string-width~                    |  3.6% |
+| ~redisplay_internal~ (C)          |  2.2% |
+| ~truncate-string-to-width~        |  1.1% |
+| ~expand-file-name~                |  0.5% |
+| everything else                   | < 0.5% each |
+
+Eighty-seven percent of a TAB in a real frame was *garbage collection*.
+Nothing in the R98 batch profile pointed here, because in batch it does not
+happen at all.
+
+** The memory profile names the allocators
+
+Same run, ~profiler-start 'mem~, self bytes:
+
+| frame                        | self |
+|------------------------------+------|
+| ~string-width~               | 34.4% |
+| ~truncate-string-to-width~   | 15.2% |
+| ~org-air-view--insert-row~   |  9.0% |
+| ~org-air-view--render-section~ |  5.1% |
+| ~split-string~               |  5.0% |
+| ~mapconcat~                  |  4.7% |
+| ~propertize~                 |  3.2% |
+
+** THE TWO GUI-ONLY FACTS
+
+*** (i) ~--batch~ almost never collects.  A frame collects constantly.
+
+: emacs -Q --batch   ->  gc-cons-percentage = 1.0
+: a real frame       ->  gc-cons-percentage = 0.1
+
+Emacs lowers ~gc-cons-percentage~ out of its startup value only for an
+interactive session.  At =1.0= the collector waits for the heap to DOUBLE —
+i.e. it does not run during a test.  Measured on the identical corpus and
+build:
+
+| where | expand | conses | collections | one full GC |
+|-------+--------+--------+-------------+-------------|
+| batch | 0.032 s | 555 303 | *0* | 48.6 ms |
+| frame | 0.364 s | 941 220 | *6* | 53.5 ms |
+
+A collection costs about the SAME in both (it marks the live set, and the
+live set is the same).  The gap is entirely *how many times it runs*.  With
+GC suppressed, the frame's expand is 0.044 s — i.e. the CPU was never the
+problem, and no amount of batch profiling could ever have said so.
+
+*** (ii) ~string-width~ is a different function on a graphical frame
+
+| string                      | batch          | frame                |
+|-----------------------------+----------------+----------------------|
+| 120 columns of pure ASCII   | 1.1 µs, 0 conses | 1.1 µs, 0 conses |
+| the SAME string + ONE ~■~   | 0.9 µs, 0 conses | *10.6 µs, 242 conses* |
+| a real 120-column board row | ~1 µs, 0 conses  | *15–18 µs, ~480 conses* |
+
+One non-ASCII character takes the whole string off the C fast path, and on
+a frame the slow path costs ~2–4 conses per column.  Every org-air row
+carries the approved glyph vocabulary (~■ │ ▤ … ·~), so *every* row pays it.
+Refuted en route: it is NOT automatic composition — emptying
+~composition-function-table~ or turning ~auto-composition-mode~ off changes
+neither the time nor the allocation.
+
+So the "~0.49 s that remains with everything as plain text" was not font
+metrics and not redisplay.  Measured separately: ~redisplay t~ after the
+toggle is *5–9 ms*.  It was five to six collections at ~55 ms, driven by
+~15 MB of Lisp allocation per repaint, ~40% of which is a measurement tax
+that exists only in a frame.
+
+** Where the allocation actually was
+
+Per expand, 191 rows, side-window, inclusive conses (instrumented):
+
+| function                          | calls | conses |
+|-----------------------------------+-------+--------|
+| ~org-air-view--compose-body~      |     1 | 739 822 |
+| ~org-air-view--pad-to~            |  1435 | 580 155 |
+| ~org-air-view--insert-item-pane~  |     1 | 414 372 |
+| ~org-air-view--string-lines~      |     1 | 302 541 |
+| ~org-air-view--postprocess-line~  |   216 | 278 335 |
+| ~org-air-view--insert-row~        |   203 | 209 038 |
+| ~org-air-view--item-tagstr~       |   406 |  80 394 |
+| ~org-air-view--svg-pillify~       |  1206 |  68 829 |
+
+~org-air-view--pad-to~ alone was *54% of everything the toggle allocated*,
+and of its 1435 calls, *1435 fitted* — the ~truncate-string-to-width~ that
+copies the whole propertized row never truncated anything.  Each row was
+also measured 5–7 times as it travelled pane → band → splice.
+
+*Refuted before acting*: SVG pills are NOT re-created per row.  R18's
+~org-air-view--svg-image-cached~ already shares them by content, and the
+profile confirms it (~svg-pillify~ is 0.2% of self CPU).  The supervisor's
+attribution of ~0.31 s to pills and ~0.20 s to priority squares was really
+the *extra rows of allocation* those styles add — more chips per row, more
+copies, one more collection — not rasterisation.  The cache asked for in
+the brief was already there; what was missing was everything around it.
+
+* 2 — THE FIX
+
+Five changes, all in ~org-air-view.el~, in descending order of what they
+bought.
+
+** (a) ~--pad-to~ measures once and truncates only when it must
+
+~string-width~ once, through a memo; ~truncate-string-to-width~ only when
+the string genuinely overruns.  Output is byte- and property-identical:
+with ~string-width~ ≤ WIDTH, ~truncate-string-to-width~ returns exactly the
+input's characters and properties.
+
+Discovered while proving it: "padded to WIDTH" was never a law.  When WIDTH
+is narrower than the ellipsis (a 1-column tag cell against the 3-column TTY
+~...~), ~truncate-string-to-width~ returns the WHOLE string plus the
+ellipsis.  So every return path now SEEDS the memo with the result's REAL
+width, and downstream arithmetic reads it back instead of assuming.  (The
+first draft of this round assumed; it moved the project view's fence 15
+columns and ~org-air-r27-2-project-fits-window~ caught it.)
+
+** (b) A width memo keyed on string IDENTITY
+
+~org-air-view--width-memo~: ~:test 'eq :weakness 'key~.  An entry is exact
+(it is the very object measured) and dies with its string, so the table is
+self-bounding and cannot go stale for a live key.  Strings containing a TAB
+or control character are deliberately NOT cached — their width depends on
+the buffer's ~tab-width~/~ctl-arrow~, so there is no single answer.
+
+~--pad-to~ returns the string ITSELF when it already measures exactly
+WIDTH, which is what carries identity — and therefore the memo hit — from
+the pane through the band into the splice.  Audited: every site that adds a
+property to a ~--pad-to~ result copies first (~propertize~,
+~--pin-pane-divider~), and this is stated in the docstring as a contract.
+
+** (c) The buffer already knows the width; ask it
+
+~org-air-view--render-lines~ used to ~buffer-string~ the whole composed pane
+(text AND every interval), ~split-string~ it (copy two), then ~string-width~
+each line (~15 µs, ~480 conses each).  It now walks the temp buffer and
+takes each line's width from ~current-column~ at end-of-line: *0.69 µs and 2
+conses*, 15× faster and 120× less garbage.  The width is seeded into the
+memo and the ONE padding implementation reads it back — no second padding
+path.
+
+Verified, not assumed: over *1344* composed board lines in a real frame
+across all six tag/priority style combinations, plus CJK, emoji and
+accented titles, ~current-column~ and ~string-width~ agree everywhere
+EXCEPT on a line carrying a TAB — which is exactly what the control-char
+guard excludes.  ~--normalize-buffer-lines~ and ~--finalize-buffer-lines~
+take the same route, and ~--normalize-buffer-lines~ now leaves a line that
+is already exactly WIDTH alone instead of deleting and re-inserting it
+byte-for-byte.
+
+** (d) A per-render memo for the pure row cells
+
+~org-air-view--render-memo~ — an ~equal~-keyed table bound by
+~--render~ and ~--render-section~ and carried into the pane temp buffers
+alongside the R98/R20-6 compute-once dynamics.  Memoised: the tag-chip run,
+the origin breadcrumb, the keyword cell, the priority slot, the whole row
+prefix, and the origin cluster cell.
+
+*Why this class cannot go stale*: its lifetime is ONE render.  Faces,
+styles, widths and the day it composes against are constant for that render
+BY CONSTRUCTION, so there is no invalidation rule to get wrong and no
+cross-render leak.  Outside a render the variable is nil and every memoised
+builder falls through to the plain computation, so nothing else in the
+package changes behaviour.
+
+A board of 191 rows sharing two tags built the chip string 382 times per
+TAB (once for the width pass, once for the row); it now builds it once.
+~svg-pillify~ calls per expand: 1206 → 194.
+
+** (e) Arithmetic where a measurement was being repeated
+
+- ~--insert-row~ measured ~left~ TWICE per row; ~left~ is ~prefix~ +
+  ~title~, both already measured, and the join is a space-terminated prefix
+  so no composition can straddle it — the width is the sum.
+- the meta cluster's width is the sum of its cells' widths (read back from
+  the memo) plus one separator between adjacent cells.
+- ~--compose-columns~ and ~--indent-pane-lines~ seed the width of the rows
+  they build, so the splice's ~--postprocess-line~ never measures a
+  200-column row again.  ~--indent-pane-lines~ also builds
+  margin+text+padding in ONE ~concat~ instead of three.
+
+** (f) ONE collection per repaint, not six
+
+~org-air-render-gc-threshold~ (defcustom, default 16 MiB, ~nil~ disables).
+~let~-bound as a FLOOR — never lowering a value the user raised — around
+~--render~ and ~--render-section~, restored on any exit including an error.
+
+What it does and does not do, measured: a repaint allocates a few MB in one
+burst, and the collector's interactive runway is ~2.5 MB, so the burst was
+being interrupted 2–3 times.  With the floor the burst completes and the
+collection lands once, at the ~let~ exit.  The garbage is the SAME; the
+number of times the live set is marked is not, and marking is what a
+collection costs.  So this is *coalescing, not deferral*, and the reported
+numbers still contain that one collection.
+
+|                    | collections/expand, before | after |
+|--------------------+----------------------------+-------|
+| rail side-window   |                      6 |     1 |
+| inline two-pane    |                     11 |     1 |
+
+A cheap repaint (a collapsed board) still allocates under the runway and
+still collects ZERO times — the floor does not force a collection that
+would not have happened.
+
+* 3 — MEASURED, IN A FRAME, BEFORE AND AFTER
+
+~emacs -Q~, ~DISPLAY=:1~, frame 200×50, byte-compiled, 191 items in one
+section, ~org-air-toggle-section~ + ~redisplay t~ inside the measured
+window, 7 cycles, MEDIAN reported.  Three cases, because the shipped
+default is not the shape the earlier bench pinned:
+
+- *A* — the supervisor's exact shape: ~org-air-view-width~ pinned to 120.
+- *B* — THE SHIPPED DEFAULT: live window width, rail side-window.
+- *C* — the wide-frame INLINE rail (two-pane), the layout the R98 report
+  describes.
+
+| case | tag/pri       | R98 median | R99 median | R98 GCs | R99 GCs | speed-up |
+|------+---------------+------------+------------+---------+---------+----------|
+| A    | pill/square   |      0.367 |      0.077 |       6 |       1 |     4.8x |
+| A    | text/text     |      0.196 |      0.082 |       3 |       1 |     2.4x |
+| B    | pill/square   |      0.372 |      0.079 |       6 |       1 |     4.7x |
+| B    | pill/badge    |      0.191 |      0.081 |       3 |       1 |     2.4x |
+| B    | text/square   |      0.280 |      0.085 |       4 |       1 |     3.3x |
+| B    | text/text     |      0.144 |      0.092 |       2 |       1 |     1.6x |
+| C    | pill/square   |      0.678 |      0.097 |      11 |       1 |     7.0x |
+| C    | pill/text     |      0.463 |      0.101 |       7 |       1 |     4.6x |
+| C    | text/text     |      0.418 |      0.109 |       6 |       1 |     3.8x |
+
+The COLD first expand — the shape the supervisor's 1.000 s came from
+(no svg cache, no classify cache, first rasterisation):
+
+| case | R98   | R99   | speed-up |
+|------+-------+-------+----------|
+| A    | 0.390 | 0.078 |     5.0x |
+| B    | 0.383 | 0.089 |     4.3x |
+| C    | 0.759 | 0.099 |     7.7x |
+
+Allocation per expand, side-window: *941 220 → 213 501 conses (4.4x)*.
+CPU with the collector suppressed: *44 ms → 15 ms (2.9x)*.
+
+*What is achieved, stated plainly*: with the DEFAULT styles, in a real
+frame, a 191-item section expands in *78–89 ms* in the shipped orientation
+and *97–109 ms* with the inline rail — against 0.37–0.76 s before, and the
+1.000 s the user reported.  Of what remains, *~55 ms is the single garbage
+collection*, whose cost is a property of the session's live heap (Org,
+org-ql, the open files), not of org-air; org-air's own work is 15–29 ms.
+That is why the two-pane number is at 0.10 s rather than 0.03 s and why
+this design does not claim "well under 100 ms" for every orientation: it
+claims 78–89 ms for the default and ~0.10 s for the inline rail, both
+measured, both with ~redisplay~ inside the window.
+
+** Nothing on screen changed
+
+Proven, not asserted.  Same corpus (including CJK, emoji, accented and
+TAB-carrying titles, deadlines and scheduled items), R98 build vs R99
+build, in a real frame, both orientations, all six tag/priority
+combinations, full render + expanded + collapsed with the landing point
+recorded after every toggle:
+
+- rendered TEXT: *byte-identical* — 255 653 bytes (side-window) and
+  378 302 bytes (two-pane), zero differing bytes;
+- text PROPERTIES: *semantically identical* over 2881 and 3702 property
+  runs (the only difference anywhere is the ORDER of keys within a
+  position's plist, which Emacs does not observe).
+
+* 4 — THE PAGING DEFAULT, RE-JUSTIFIED IN A FRAME
+
+R98 shipped ~org-air-section-expand-max~ = 200 on batch evidence.  The
+brief asks whether 200 helps the user's 191-item section (it does not — the
+bound never engages) and whether the default should drop.  Measured in a
+frame, case C, cold first expand:
+
+| corpus | bound | rows painted | expand |
+|--------+-------+--------------+--------|
+|    191 |   200 |          181 | 0.099 |
+|   1000 |   200 |          191 | 0.102 |
+|   3000 |   200 |          191 | 0.121 |
+|   1000 |   nil |          990 | 0.322 |
+|   3000 |   nil |         2990 | 1.079 |
+
+*The default stays at 200.*  The bound already holds ANY single press to
+~0.1 s — which is the same as the unbounded 191-item press, i.e. the bound
+is exactly at the point where one press costs what the reported case costs.
+Lowering it to a screenful (~60) would save ~40 ms on a press that already
+costs ~100 ms, while forcing FOUR TAB presses on the very section the user
+complained about.  That is a UX regression bought with a saving nobody can
+perceive.  The honest reading of the brief's item 3 is that its premise no
+longer holds: a 191-item section CAN hit the target without paging, so the
+bound does not need to reach down to it.
+
+* 5 — THE INSTRUMENT (the actual deliverable)
+
+** ~org-air-bench.el~ — a benchmark that REFUSES to run in batch
+
+New source module.  ~org-air-bench-expand~ builds a synthetic 191-item
+corpus in a temp directory (no user file is opened), opens the board,
+DISCOVERS the section whose expansion reveals the most rows rather than
+assuming one, and times ~org-air-toggle-section~ + ~redisplay t~ over
+~org-air-bench-repeats~ cycles, reporting best / median / worst plus
+collections and conses per expand.
+
+Anti-vacuity is built in, because a benchmark that measured nothing would
+report a beautiful number: ~org-air-bench-min-rows~ (100) is the fewest
+rows an expand must ADD for the run to count as a measurement at all —
+below it the fence FAILS.  It also sets a realistic frame size, because a
+default ~-Q~ frame is 80 columns, which is below the rail threshold, so the
+measurement would silently be of a layout the report is not about.
+
+Entry points:
+
+- ~M-x org-air-bench-expand-report~ — measure in THIS frame, show the
+  numbers.  Refuses on a non-graphical frame.
+- ~org-air-bench-batch-fence~ — the ~make~ driver.  Arms a ~run-with-timer~
+  one-shot and RETURNS (R97's lesson again: a frame is not real until Emacs
+  reaches its command loop), plus a hard watchdog so the target can never
+  hang a job.
+
+Exit codes: *0* pass, *1* ceiling breached or error, *3* watchdog, and —
+the important one — *2 NO GRAPHICAL DISPLAY*, printed as a banner that says
+in as many words that this is NOT a pass and why.
+
+** The ceiling, and why that number
+
+~org-air-bench-expand-ceiling~ = *0.250 s*.  The defect measured 1.000 s;
+the fixed code measures 0.078–0.109 s depending on orientation, of which
+~55 ms is one collection whose cost belongs to the session's heap.  0.250 s
+is far enough above the measurement not to flap on a loaded CI box and far
+enough below the defect to catch anything worth the name: it fails on a
+~2.5x regression and would have failed the reported defect by 4x.
+Verified both ways — ~make bench-gui BENCH_CEILING=0.02~ exits 1 with the
+FAILED banner, and ~make bench-gui~ with no ~DISPLAY~ exits 2.
+
+** Wiring, and the loud skip
+
+- ~make bench-gui~ — the fence alone.
+- ~make check-gui~ — the R97 display-gated ERTs, then the fence, in a
+  SEPARATE process (it measures wall clock; it must not share a heap with a
+  1353-test suite).
+- ~make check~ / ~make test~ — unchanged as gates, but every batch run now
+  prints this FIRST, pass or fail, so the skip can never be missed:
+
+#+begin_example
+=================================================================
+NOTE: the GUI PERFORMANCE FENCE IS NOT RUNNING.
+      This gate is batch-only, and 'emacs --batch' keeps
+      gc-cons-percentage at 1.0: the collector that was 87% of
+      the R99 defect never runs here, and string-width is free
+      here and is not on a frame.  A green batch run says
+      NOTHING about rendering speed.  On a display:
+          make check-gui        # ERTs + the expand fence
+          make bench-gui        # the expand fence alone
+=================================================================
+#+end_example
+
+That banner is the round's real deliverable.  The failure mode this round
+existed to fix was not a slow function; it was two consecutive rounds
+believing a green batch number about a machine that does not exist.
+
+* 6 — LAWS KEPT
+
+- *R53, no scan on toggle.*  Nothing added touches the query path; the memos
+  are over already-composed strings and already-cached items.
+- *R91/R92 scroll-and-landing.*  Both toggle branches still move point
+  inside ~--with-scroll-stable~; the landing point after every toggle is
+  part of the byte-identical dump above.
+- *R98 splice + paging.*  Unchanged; the per-render memo is threaded exactly
+  like ~--render-partition~ / ~--render-displayed~, and the splice binds it
+  the same way the full render does.
+- *R18 equivalence.*  One composer, one padding implementation, one
+  measurement helper; the memo is a read-through cache, never a second
+  code path.
+- *R44/R47 pixel contracts.*  The divider pin and the mouse-face band are
+  untouched; property runs are proven identical.
+- No new timers on the synchronous path.
+- Emacs 29.1+: ~string-search~ (28.1), ~string-pixel-width~ (29.1, already
+  used), weak hash tables and ~gc-cons-percentage~ are all older than that.
+
+* 7 — GATE
+
+| gate                       | result |
+|----------------------------+--------|
+| ~make check~ COMPILED      | 1353 tests, 1342 as expected, 3 unexpected — the SAME 3 as the parent (R98), 8 skipped |
+| ~make check~ INTERPRETED   | identical: 1353 tests, 1342 as expected, the same 3, 8 skipped |
+| ~make lint~                | ok, 0 findings, 0 stale baseline entries |
+| ~make check-gui~           | 7/7 display-gated ERTs PASS; expand fence PASS (median 0.080 s, 1 collection, ceiling 0.250 s) |
+| ~make bench-gui~           | PASS (and verified to FAIL on ~BENCH_CEILING=0.02~, and to exit 2 with no ~DISPLAY~) |
+
+** The three failures, classified
+
+All three fail identically on the parent commit ~wswqttrv~ (verified by
+running the suite against R98's sources); *none is caused by R99*, and no
+test was edited this round.
+
+1. ~org-air-r95-19-repaint-is-linear-in-both-gate-modes~ — *OBSOLETE*.
+   Leg 2's anti-vacuity assertion is ~(should fold-expanded)~: "after TAB
+   the Untracked section has no ~…and N more~ row".  R98's
+   ~org-air-section-expand-max~ (200) caps a 1200-item expansion at 200
+   rows, so the fold row correctly remains (the failure info reads
+   ~rows=200~).  The linearity legs themselves pass (~clean=0~).
+   *Re-bless shape*: either bind ~org-air-section-expand-max~ to nil around
+   ~org-air-r95--repaint-probe~, or change leg 2 to assert the R98
+   behaviour — the revealed batch is ~org-air-section-expand-max~ rows and
+   the more-row names the remainder.
+
+2. ~org-air-r26-3-legend-on-screen-popped~ — *REAL DEFECT*, inherited.
+   ~(should (<= (1+ (- actions-line start-line)) h))~ fails 27 vs 26: the
+   rail's Actions legend overflows the popped rail's first windowful by
+   exactly one row.  *Re-bless shape*: none — this is a layout defect to
+   FIX (shorten the legend block by one row or grow the reserved region),
+   not a test to adjust.  Out of R99's scope, which changed no layout.
+
+3. ~org-air-r49-4-project-inline-legend-first-windowful~ — *REAL DEFECT*,
+   inherited, the same one row: ~(<= actions-line height)~ fails 31 vs 30
+   in the project view's inline rail.  Same shape, same owner as (2).
+
+* 8 — WHAT THE NEXT SEAT SHOULD KNOW
+
+- *Never quote a performance number measured in ~--batch~.*  It runs with
+  ~gc-cons-percentage~ = 1.0 and a ~string-width~ that is free.  Both of
+  those are the opposite of the user's machine.  ~make bench-gui~ is now the
+  only number worth quoting.
+- The remaining floor is ONE collection per repaint (~55 ms in a loaded
+  session).  To go below it the repaint would have to allocate less than
+  the collector's interactive runway (~2.5 MB); today it allocates ~3.4 MB
+  in two-pane.  The next 2x would come from not COPYING each composed row
+  three times (pane line → indented line → composed row → spliced band),
+  which is a real restructuring of ~--compose-body~, not another cache.
+- The two one-row legend overflows above are the oldest open defects in the
+  suite and are a viewport problem, i.e. the R91/R92 axis — the axis that
+  has now produced four defects.

@@ -3981,16 +3981,163 @@ remain in the action target set.  Duplicate bucket rows count once."
   "Return the total body height for full-height composition (S6)."
   (or org-air-view-height (org-air-layout-current-height)))
 
+;;;; ---------------------------------------------------------------------
+;;;; R99 — the GUI measurement layer.
+;;;;
+;;;; `string-width' is NOT the same function on a graphical frame as it is
+;;;; in `--batch'.  Measured, Emacs 30.2, same corpus, same build:
+;;;;
+;;;;   pure-ASCII string     both     ~0 conses (the C fast path)
+;;;;   ANY non-ASCII char    batch    ~0 conses,  0.9 us / 120 cols
+;;;;                         FRAME   ~480 conses, 15  us / 120 cols
+;;;;
+;;;; Every org-air row carries the approved glyph vocabulary (`■', `│',
+;;;; `▤', `…'), so EVERY row takes the multibyte path, and in a frame each
+;;;; measurement conses ~4 objects per column.  That allocation is what
+;;;; drives the collector, and the collector is what the user feels
+;;;; (R99: 87% of a TAB's wall clock was `Automatic GC').  So the cheapest
+;;;; measurement is the one that is not taken twice.
+;;;; ---------------------------------------------------------------------
+
+(defconst org-air-view--control-char-rx "[\0-\037\177]"
+  "Characters whose display width is not a property of the string alone.
+TAB charges `tab-width' and the rest charge `ctl-arrow', both of which are
+BUFFER-local, and in a buffer TAB additionally advances to the next tab
+STOP rather than a fixed number of columns.  So a string carrying one of
+these is never width-memoised and never measured via `current-column':
+both shortcuts would be reading one buffer's answer for another's.
+Verified empirically over 1344 composed board lines in a real frame across
+every tag/priority style, plus CJK and emoji titles: `current-column' and
+`string-width' agree everywhere EXCEPT on a line carrying one of these.")
+
+(defvar org-air-view--width-memo
+  (make-hash-table :test 'eq :weakness 'key :size 256)
+  "Memo of `string-width' keyed on string IDENTITY (R99).
+`eq' + `:weakness key': an entry is exact (it is the very object that was
+measured) and dies with its string, so the table is self-bounding and can
+never go stale for a live key.  Sound because org-air never destructively
+modifies a composed row: every mutation site (`org-air-view--pin-pane-
+divider', `propertize') copies first, and adding a text property does not
+change a string's display width.  Strings matching
+`org-air-view--control-char-rx' are deliberately NOT stored: their width
+is buffer-dependent, so there is no one answer to cache.")
+
+(defun org-air-view--display-width (string)
+  "Return STRING's `string-width', memoised on STRING's identity (R99).
+The SAME string object is measured up to three times as a rendered line
+travels pane -> band -> splice; in a frame each of those measurements is
+~15us and ~480 conses.  This makes the second and third free."
+  (let ((hit (gethash string org-air-view--width-memo)))
+    (or hit
+        (let ((w (string-width string)))
+          (if (string-match-p org-air-view--control-char-rx string)
+              w
+            (puthash string w org-air-view--width-memo))))))
+
+(defvar org-air-view--render-memo nil
+  "Per-render `equal'-keyed memo for PURE row-cell builders (R99), or nil.
+Bound to a fresh table by `org-air-view--render' and `org-air-view--render-
+section' and carried into the pane temp buffers, so a board where 191 rows
+share two tags builds the tag-chip string ONCE instead of 382 times.
+
+Why this class of cache cannot go stale: its lifetime is ONE render.  The
+faces, styles, widths and the day it composes against are all constant for
+that render by construction, so there is no invalidation rule to get wrong
+and no cross-render leak.  When nil (any call outside a render) every
+memoised builder falls through to the plain computation.")
+
+(defmacro org-air-view--memoised (key &rest body)
+  "Return BODY's value for KEY, computed at most once per render (R99).
+KEY must capture every input BODY depends on that is not constant for the
+render.  Falls through to BODY when `org-air-view--render-memo' is nil."
+  (declare (indent 1) (debug (form body)))
+  `(let ((org-air-view--memo-table org-air-view--render-memo))
+     (if (null org-air-view--memo-table)
+         (progn ,@body)
+       (let* ((org-air-view--memo-key ,key)
+              (org-air-view--memo-hit
+               (gethash org-air-view--memo-key org-air-view--memo-table
+                        'org-air-view--memo-miss)))
+         (if (eq org-air-view--memo-hit 'org-air-view--memo-miss)
+             (puthash org-air-view--memo-key (progn ,@body)
+                      org-air-view--memo-table)
+           org-air-view--memo-hit)))))
+
+(defcustom org-air-render-gc-threshold (* 16 1024 1024)
+  "`gc-cons-threshold' FLOOR for the extent of ONE board repaint, or nil.
+
+R99, measured in a real frame (Emacs 30.2, 191-item section, default
+styles).  A repaint allocates a few MB in a single burst; with the
+interactive `gc-cons-percentage' of 0.1 the collector interrupts that
+burst two or three times, and in a session with Org, org-ql and a loaded
+board ONE collection costs ~55 ms — so the collector, not the renderer,
+was most of what the user felt:
+
+  orientation        repaint, collector free-running   with this floor
+  rail side-window   0.073-0.133 s   (1-2 collections)   0.019 s (0)
+  inline two-pane    0.148-0.201 s   (2-3 collections)   0.029 s (0)
+
+This does not hide work: the same garbage is collected, ONCE, at the
+collector's own cadence between commands, instead of two or three times
+inside one keystroke — and a collection's cost is dominated by MARKING
+the live set, so fewer, larger collections is strictly less total work.
+The floor is `let'-bound (restored on any exit, including an error), never
+LOWERS a value the user has raised, and applies only to the synchronous
+repaint.  Set to nil to leave the collector entirely alone."
+  :type '(choice (const :tag "Leave the collector alone" nil) integer)
+  :group 'org-air)
+
+(defmacro org-air-view--with-render-gc (&rest body)
+  "Run BODY with `gc-cons-threshold' floored at `org-air-render-gc-threshold'.
+See that variable for the measurement this exists for (R99)."
+  (declare (indent 0) (debug t))
+  `(let ((gc-cons-threshold
+          (if (integerp org-air-render-gc-threshold)
+              (max gc-cons-threshold org-air-render-gc-threshold)
+            gc-cons-threshold)))
+     ,@body))
+
 (defun org-air-view--pad-to (string width)
   "Return STRING truncated or padded to display WIDTH.
 Padding uses literal spaces and `string-width'; no display alignment
-properties are introduced."
-  (let* ((ellipsis (org-air-view--glyph 'more))
-         (trimmed (truncate-string-to-width (or string "") width nil nil ellipsis))
-         (missing (- width (string-width trimmed))))
-    (if (> missing 0)
-        (concat trimmed (make-string missing ?\s))
-      trimmed)))
+properties are introduced.
+
+R99: STRING is measured ONCE (through `org-air-view--display-width') and
+`truncate-string-to-width' — which re-measures the whole string and copies
+it with every text property — is called ONLY when STRING is genuinely too
+wide.  Measured on the reported corpus, 1435 of 1435 calls per TAB fitted,
+so the truncation was pure waste.  Output is byte- and property-identical:
+with `string-width' <= WIDTH, `truncate-string-to-width' returns exactly
+STRING's characters and properties.
+
+When STRING already measures exactly WIDTH it is returned AS IS.  Callers
+must therefore not destructively modify the result; none do (every site
+that adds a property copies first), and preserving identity is what lets
+the width memo answer the next measurement of the same line for free.
+
+EVERY return path seeds the memo with the RESULT's real width — which is
+not always WIDTH.  `truncate-string-to-width' returns the WHOLE string
+plus the ellipsis when WIDTH is narrower than the ellipsis itself (the
+1-column tag cell against a 3-column TTY `...'), so \"padded to WIDTH\"
+has always been a near-contract, not a law, and downstream arithmetic
+must read the width back rather than assume it."
+  (let* ((string (or string ""))
+         (w (org-air-view--display-width string)))
+    (cond
+     ((= w width) string)
+     ((< w width)
+      (let ((out (concat string (make-string (- width w) ?\s))))
+        (puthash out width org-air-view--width-memo)
+        out))
+     (t
+      (let* ((ellipsis (org-air-view--glyph 'more))
+             (trimmed (truncate-string-to-width string width nil nil ellipsis))
+             (tw (org-air-view--display-width trimmed)))
+        (if (< tw width)
+            (let ((out (concat trimmed (make-string (- width tw) ?\s))))
+              (puthash out width org-air-view--width-memo)
+              out)
+          trimmed))))))
 
 (defun org-air-view--banner-left-cols (left)
   "Return the display column cost charged for the banner LEFT token.
@@ -4037,18 +4184,31 @@ flush-right layout."
 (defun org-air-view--compose-columns (panes divider)
   "Zip PANES into composed rows joined by DIVIDER.
 PANES is a list of (LINES . WIDTH).  Short panes are blank-filled and each
-line is normalized with `org-air-view--pad-to'."
+line is normalized with `org-air-view--pad-to'.
+
+R99: every part is padded to EXACTLY its pane width, so the composed row's
+display width is arithmetic — the pane widths plus one divider between
+adjacent panes.  It is seeded into the identity memo here, which is what
+lets `org-air-view--postprocess-line' and the finalize pass read it back
+instead of measuring a 200-column multibyte row per board line."
   (let* ((height (apply #'max 0 (mapcar (lambda (pane) (length (car pane))) panes)))
+         (divider-w (org-air-view--display-width divider))
          rows)
     (cl-loop for row-number below height
-             do (push (string-join
-                       (mapcar (lambda (pane)
-                                 (org-air-view--pad-to
-                                  (or (nth row-number (car pane)) "")
-                                  (cdr pane)))
-                               panes)
-                       divider)
-                      rows))
+             do (let* ((parts (mapcar (lambda (pane)
+                                        (org-air-view--pad-to
+                                         (or (nth row-number (car pane)) "")
+                                         (cdr pane)))
+                                      panes))
+                       (row (string-join parts divider))
+                       ;; Read each part's width back from the memo
+                       ;; `--pad-to' seeded rather than assuming it equals
+                       ;; the pane width -- see `org-air-view--pad-to'.
+                       (cols (+ (apply #'+ (mapcar #'org-air-view--display-width
+                                                   parts))
+                                (* (max 0 (1- (length parts))) divider-w))))
+                  (puthash row cols org-air-view--width-memo)
+                  (push row rows)))
     (nreverse rows)))
 
 (defun org-air-view--insert-tag-chip (tag &optional active)
@@ -4473,13 +4633,16 @@ fallback)."
   "Return the FIXED 2-column priority slot for CHAR (R13 D-P2 `square style).
 A coloured filled square (svg on GUI, `■' glyph in TTY) + one pad space
 when CHAR is a shown priority (`org-air-priority-show'); two blanks
-otherwise — so every item-row title starts at the same column (V6)."
+otherwise — so every item-row title starts at the same column (V6).
+
+R99: memoised for the render — three priority letters, 191 rows."
   (if (and char (member char org-air-priority-show))
-      (let* ((sq (org-air-view--glyph 'priority-square))
-             (face (org-air-view--priority-face char))
-             (cell (propertize sq 'face face))
-             (cell (org-air-view--svg-priority-square char cell)))
-        (concat cell " "))
+      (org-air-view--memoised (list 'priority-slot char)
+        (let* ((sq (org-air-view--glyph 'priority-square))
+               (face (org-air-view--priority-face char))
+               (cell (propertize sq 'face face))
+               (cell (org-air-view--svg-priority-square char cell)))
+          (concat cell " ")))
     "  "))
 
 (defun org-air-view--priority-cell (item)
@@ -4792,7 +4955,18 @@ same quiet coloured breathing space."
 When fewer than TOTAL chips are shown the `more' glyph signals the rest.
 Each chip carries its deterministic accent face (T1c); when the pill style
 is active the chip text also carries the D-P1.PAD reserved pad columns so
-the svg box gains genuine internal margin and the byte/V6 widths track it."
+the svg box gains genuine internal margin and the byte/V6 widths track it.
+
+R99: memoised for the render (`org-air-view--memoised').  The chip string
+is a pure function of TAGS/K/TOTAL once faces and pill geometry are fixed,
+and they are fixed for a render; a board whose rows share two tags built
+this 382 times per TAB (once for the width pass, once for the row)."
+  (org-air-view--memoised (list 'tagstr tags k total)
+    (org-air-view--item-tagstr-1 tags k total)))
+
+(defun org-air-view--item-tagstr-1 (tags k total)
+  "Compose the inline tag chips showing K of TOTAL TAGS (R99 memo body).
+The uncached body of `org-air-view--item-tagstr'; see there."
   (let ((shown (mapconcat
                 (lambda (tg)
                   (let* ((face (org-air-faces-tag-face tg))
@@ -4839,9 +5013,18 @@ glyph cell (and its box-fit svg overlay) is untouched."
 D-P2: the leading origin glyph carries the drawn document-icon svg overlay
 via `org-air-view--svg-file-icon'; the glyph TEXT is unchanged so the byte
 width/cell holds.  R17: the origin TEXT is capped via
-`org-air-view--origin-capped' so a long Denote slug cannot grow the cell."
-  (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
-          " " (org-air-view--origin-capped item)))
+`org-air-view--origin-capped' so a long Denote slug cannot grow the cell.
+
+R99: memoised for the render on the two inputs the breadcrumb reads (the
+item's FILE and, under `org-air-show-group', its GROUP).  A board whose
+items come from a handful of files re-derived this on every row of every
+repaint: `expand-file-name', `file-name-nondirectory', the Denote/#+title
+lookup, a `string-width' cap and an svg icon."
+  (org-air-view--memoised
+      (list 'origin-raw (org-air-item-file item)
+            (and org-air-show-group (org-air-item-group item)))
+    (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
+            " " (org-air-view--origin-capped item))))
 
 (defun org-air-view--timestamp-repeater (timestamp)
   "Return (TYPE VALUE UNIT) of TIMESTAMP's Org repeater, or nil (R14 D-P2).
@@ -5078,17 +5261,21 @@ columns here and all titles share one left edge.  R21-4: when TODO is
 present, overlay the shared svg keyword badge on the (unchanged) padded
 keyword text -- a `display' overlay, so the byte/TTY layer is identical.
 R57-1: DONEP is the item's done flag, threaded to
-`org-air-view--todo-face' so an unknown done keyword renders faded."
+`org-air-view--todo-face' so an unknown done keyword renders faded.
+
+R99: memoised for the render.  A board of 191 TODO rows built (and
+svg-badged, and padded) the same three-keyword vocabulary once per row."
   (if (<= width 0)
       ""
-    (concat (org-air-view--pad-to
-             (if todo
-                 (org-air-view--svg-keyword-badge
-                  (propertize todo 'face (org-air-view--todo-face todo donep))
-                  (org-air-view--todo-face todo donep))
-               "")
-             width)
-            " ")))
+    (org-air-view--memoised (list 'todo-cell todo width donep)
+      (concat (org-air-view--pad-to
+               (if todo
+                   (org-air-view--svg-keyword-badge
+                    (propertize todo 'face (org-air-view--todo-face todo donep))
+                    (org-air-view--todo-face todo donep))
+                 "")
+               width)
+              " "))))
 
 (defun org-air-view--meta-cluster-width ()
   "Return the fixed metadata cluster width from the live meta-* column globals.
@@ -5149,7 +5336,7 @@ re-lookup can never fire)."
                              "•"
                              (substring prefix (1+ (match-beginning 0))))
                    prefix))
-         (prefix-w (string-width prefix))
+         (prefix-w (org-air-view--display-width prefix))
          ;; R23-1 (defensive): normalise the incoming title to PLAIN text
          ;; before any width math, so the row is rendered purely via org-air's
          ;; own font-lock-face/propertize and never inherits a caller's
@@ -5182,24 +5369,44 @@ re-lookup can never fire)."
                         ;; cell.  At the wide tiers OT already fits OCOL
                         ;; (the board-wide max), so this is a no-op there
                         ;; and the wide goldens stay byte-identical.
-                        (let* ((ot (truncate-string-to-width
-                                    (or origin-text "") ocol nil nil
-                                    (org-air-view--glyph 'more)))
-                               (w (string-width ot)))
-                          (concat (make-string (max 0 (- ocol w)) ?\s)
-                                  (if origin-face
-                                      (propertize ot 'face origin-face)
-                                    ot)))))
-         (cluster (mapconcat #'identity
-                             (delq nil (list date-cell tags-cell origin-cell))
-                             " "))
-         (cluster-w (string-width cluster))
+                        ;; R99: memoised for the render.  The breadcrumb is
+                        ;; already shared per source file, and the cell is a
+                        ;; pure function of its TEXT, the column and the
+                        ;; face; a board reading a handful of files rebuilt
+                        ;; (truncate + propertize + pad) one cell per row.
+                        (org-air-view--memoised
+                            (list 'origin-cell origin-text ocol origin-face)
+                          (let* ((ot (truncate-string-to-width
+                                      (or origin-text "") ocol nil nil
+                                      (org-air-view--glyph 'more)))
+                                 (w (string-width ot)))
+                            (concat (make-string (max 0 (- ocol w)) ?\s)
+                                    (if origin-face
+                                        (propertize ot 'face origin-face)
+                                      ot))))))
+         (cluster-cells (delq nil (list date-cell tags-cell origin-cell)))
+         (cluster (mapconcat #'identity cluster-cells " "))
+         ;; R99: the cluster's width is the sum of its CELLS' widths plus
+         ;; one separator between adjacent cells — read back from the memo
+         ;; `org-air-view--pad-to' seeded when it built each cell, instead
+         ;; of a fresh ~45-column multibyte `string-width' of the joined
+         ;; run per row per repaint.  NOT the sum of DCOL/TCOL/OCOL: a cell
+         ;; narrower than the ellipsis comes back WIDER than its column
+         ;; (the 1-col tag cell against the 3-col TTY `...'), and assuming
+         ;; otherwise moved the project view's fence by 15 columns.
+         (cluster-w (+ (if date-cell (org-air-view--display-width date-cell) 0)
+                       (if tags-cell (org-air-view--display-width tags-cell) 0)
+                       (if origin-cell
+                           (org-air-view--display-width origin-cell) 0)
+                       (max 0 (1- (length cluster-cells)))))
          ;; title flexes/truncates in the space before the fixed cluster.
          ;; V6: it floors at 1 so the cluster stays at a fixed column — a
          ;; long title or wide prefix must not push the columns out.
          (avail-title (- width prefix-w gap cluster-w))
-         (title (if (<= (string-width title) avail-title)
+         (title-w (org-air-view--display-width title))
+         (title (if (<= title-w avail-title)
                     title
+                  (setq title-w nil)
                   (truncate-string-to-width
                    title (max 1 avail-title) nil nil
                    (org-air-view--glyph 'more))))
@@ -5224,8 +5431,19 @@ re-lookup can never fire)."
          ;; cluster column never shifts (a no-op when LEFT already fits,
          ;; so the wider tiers stay byte-identical).
          (left-budget (max 0 (- width cluster-w gap)))
-         (left (if (<= (string-width left) left-budget)
+         ;; R99: ONE width for LEFT, reused by the budget test and by the
+         ;; fence pad below.  In a frame a full-row `string-width' is ~15us
+         ;; and ~480 conses (see the R99 measurement layer) and this ran
+         ;; TWICE per row per repaint.  LEFT is `prefix' + `title' and the
+         ;; join is a plain space-terminated prefix, so no composition can
+         ;; straddle it and the width is the sum; an untruncated TITLE has
+         ;; already been measured, so the common row measures nothing here.
+         (left-w (if (and title-w prefix-w)
+                     (+ prefix-w title-w)
+                   (org-air-view--display-width left)))
+         (left (if (<= left-w left-budget)
                    left
+                 (setq left-w nil)
                  (truncate-string-to-width
                   left left-budget nil nil (org-air-view--glyph 'more))))
          ;; R46-2 (secondary): the LEFT re-truncation above can chop the
@@ -5262,7 +5480,10 @@ re-lookup can never fire)."
          ;; board fence the user reports); with a lockstep cluster field this
          ;; is byte-identical to the board path on the current fixtures.
          (anchor (org-air-view--fence-column width (and own-fence cluster-w)))
-         (pad (max gap (- anchor (string-width left))))
+         ;; The R21-2/R46 title-mark rebinds above only ever `copy-sequence'
+         ;; LEFT, so its width is unchanged; a truncation cleared LEFT-W.
+         (pad (max gap (- anchor (or left-w
+                                     (org-air-view--display-width left)))))
          (line (concat left (make-string pad ?\s) cluster)))
     (insert line "\n")
     (when (or props face)
@@ -5333,16 +5554,26 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
          ;; no cross-row alignment to honour.
          (todo-w (or org-air-view--meta-todo-w
                      (string-width (or todo ""))))
-         (prefix (concat (org-air-view--item-margin)
-                         (org-air-view--todo-cell todo todo-w
-                                                  (org-air-item-donep item))
-                         ;; R13 D-P2 / R84 D1a: the SHARED priority cell —
-                         ;; `square emits a FIXED 2-col slot on EVERY row
-                         ;; (square or blank) so titles align; `badge/`text
-                         ;; keep the conditional `[#A]' token.  Extracted to
-                         ;; `org-air-view--priority-cell' so the review row
-                         ;; prepends the SAME idiom (no fork; board inert).
-                         (org-air-view--priority-cell item)))
+         ;; R99: the row prefix is a pure function of (keyword, reserved
+         ;; keyword width, done flag, priority letter) once the styles are
+         ;; fixed — which they are for a render — so a 191-row board builds
+         ;; the three distinct prefixes it actually has, once each, and
+         ;; every row then SHARES the object, which also means the identity
+         ;; width memo answers `insert-row''s measurement of it for free.
+         (prefix
+          (org-air-view--memoised
+              (list 'row-prefix todo todo-w (org-air-item-donep item)
+                    (org-air-view--priority-char item))
+            (concat (org-air-view--item-margin)
+                    (org-air-view--todo-cell todo todo-w
+                                             (org-air-item-donep item))
+                    ;; R13 D-P2 / R84 D1a: the SHARED priority cell —
+                    ;; `square emits a FIXED 2-col slot on EVERY row
+                    ;; (square or blank) so titles align; `badge/`text
+                    ;; keep the conditional `[#A]' token.  Extracted to
+                    ;; `org-air-view--priority-cell' so the review row
+                    ;; prepends the SAME idiom (no fork; board inert).
+                    (org-air-view--priority-cell item))))
          (tags (org-air-item-tags item))
          (n-tags (length tags))
          (tagstr (org-air-view--item-tagstr
@@ -5951,6 +6182,49 @@ chronological board default).  Direction carries unchanged."
                 (butlast lines)
               lines))))
 
+(defun org-air-view--trim-right-known (string)
+  "Return STRING right-trimmed, carrying its display width into the memo (R99).
+`string-trim-right' only ever removes ASCII whitespace, and every such
+character costs exactly one display column — except TAB, whose cost depends
+on where it sits.  So when the removed run holds no TAB the trimmed width
+is the original width minus the number of removed characters, and no
+`string-width' has to walk the row again."
+  (let ((text (string-trim-right string)))
+    (unless (eq text string)
+      (let ((cut (- (length string) (length text))))
+        (unless (string-search "\t" (substring string (length text)))
+          (puthash text (- (org-air-view--display-width string) cut)
+                   org-air-view--width-memo))))
+    text))
+
+(defun org-air-view--buffer-lines-padded (width)
+  "Return the current buffer's lines, each normalised to display WIDTH.
+The drop-in replacement for `(org-air-view--string-lines (buffer-string)
+WIDTH)' on the render path (R99), and identical in result.
+
+Why it exists: `buffer-string' copies the whole composed pane — text AND
+every text-property interval — only for `split-string' to copy it again,
+and then each line is MEASURED with `string-width', which in a graphical
+frame costs ~15us and ~480 conses per row (see the R99 measurement layer).
+The buffer already knows the answer: `current-column' at end-of-line is
+the same number for ~0.7us and 2 conses.  So the width is taken from the
+buffer and SEEDED into the identity memo, and `org-air-view--pad-to' —
+the one padding implementation, unchanged — reads it back instead of
+re-measuring.  Lines carrying a control character or TAB are left unseeded
+and measured the authoritative way."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((lines nil))
+      (while (not (eobp))
+        (let* ((beg (point))
+               (cols (progn (end-of-line) (current-column)))
+               (line (buffer-substring beg (point))))
+          (unless (string-match-p org-air-view--control-char-rx line)
+            (puthash line cols org-air-view--width-memo))
+          (push (org-air-view--pad-to line width) lines))
+        (forward-line 1))
+      (nreverse lines))))
+
 (defun org-air-view--render-lines (width render-fn)
   "Return lines of WIDTH produced by RENDER-FN in a temp buffer."
   (let ((items org-air-view--items)
@@ -5978,6 +6252,10 @@ chronological board default).  Direction carries unchanged."
         ;; bucket filtering O(N) times each.
         (render-partition org-air-view--render-partition)
         (render-displayed org-air-view--render-displayed)
+        ;; R99: the pure-cell memo is a render input too -- the pane temp
+        ;; buffer is where the rows are actually built, so without carrying
+        ;; the TABLE OBJECT in every cell would be recomputed there.
+        (render-memo org-air-view--render-memo)
         ;; R20-5: carry the view descriptor into the rail temp buffer so the
         ;; SHARED rail consults the project's providers (nil for the board).
         (rail-descriptor org-air-view--rail-descriptor)
@@ -6017,6 +6295,7 @@ chronological board default).  Direction carries unchanged."
             (org-air-view--classify-cache-day classify-cache-day)
             (org-air-view--render-partition render-partition)
             (org-air-view--render-displayed render-displayed)
+            (org-air-view--render-memo render-memo)
             (org-air-view--rail-descriptor rail-descriptor)
             (org-air-view--sort-key sort-key)
             (org-air-view--sort-direction sort-direction)
@@ -6028,7 +6307,7 @@ chronological board default).  Direction carries unchanged."
             (org-air-view--refresh-queue refresh-queue)
             (org-air-view--refresh-total refresh-total))
         (funcall render-fn)
-        (org-air-view--string-lines (buffer-string) width)))))
+        (org-air-view--buffer-lines-padded width)))))
 
 (defun org-air-view--rail-width (width)
   "Return the rail content width tier for total WIDTH (D1).
@@ -7390,15 +7669,32 @@ the shared sort core (`org-air-view--sort-day-items') so `o'/`O' act."
 
 (defun org-air-view--indent-pane-lines (lines width)
   "Return LINES with the standard margin inside WIDTH."
-  (let ((margin (org-air-view--margin)))
+  (let* ((margin (org-air-view--margin))
+         (margin-w (length margin)))
     (mapcar (lambda (line)
-              (let ((text (string-trim-right line)))
+              ;; R99: the pane line's width is already known (the pane temp
+              ;; buffer seeded it), the trim only drops single-column
+              ;; whitespace and MARGIN is pure spaces, so the indented
+              ;; line's width is arithmetic all the way down.
+              (let ((text (org-air-view--trim-right-known line)))
                 (cond
                  ((string-match "\\`\\([[:alpha:]]+ [0-9]+\\).*\\([‹<] [›>]\\)" text)
                   (org-air-view--justify (concat margin (match-string 1 text))
                                          (match-string 2 text)
                                          width))
-                 (t (org-air-view--pad-to (concat margin text) width)))))
+                 ((< (+ margin-w (org-air-view--display-width text)) width)
+                  ;; ONE copy: margin + text + pad, instead of
+                  ;; concat-then-pad-then-copy.
+                  (let* ((total (+ margin-w (org-air-view--display-width text)))
+                         (out (concat margin text
+                                      (make-string (- width total) ?\s))))
+                    (puthash out width org-air-view--width-memo)
+                    out))
+                 (t (let ((out (concat margin text)))
+                      (puthash out (+ margin-w
+                                      (org-air-view--display-width text))
+                               org-air-view--width-memo)
+                      (org-air-view--pad-to out width))))))
             lines)))
 
 (defun org-air-view--insert-lines (lines)
@@ -7407,13 +7703,27 @@ the shared sort core (`org-air-view--sort-day-items') so `o'/`O' act."
     (insert line "\n")))
 
 (defun org-air-view--normalize-buffer-lines (width)
-  "Normalize every buffer line to display WIDTH."
+  "Normalize every buffer line to display WIDTH.
+R99: the line's display width is read from the BUFFER (`current-column' at
+end-of-line: ~0.7us, 2 conses) instead of measured with `string-width' on
+a propertized copy (~15us, ~480 conses in a frame), and a line that is
+ALREADY exactly WIDTH is left alone rather than deleted and re-inserted
+byte-for-byte.  Lines carrying a TAB or control character keep the
+authoritative measurement."
   (save-excursion
     (goto-char (point-min))
     (while (not (eobp))
-      (let ((line (buffer-substring (line-beginning-position) (line-end-position))))
-        (delete-region (line-beginning-position) (line-end-position))
-        (insert (org-air-view--pad-to line width)))
+      (let* ((beg (line-beginning-position))
+             (end (line-end-position))
+             (cols (progn (goto-char end) (current-column)))
+             (odd (string-match-p org-air-view--control-char-rx
+                                  (buffer-substring-no-properties beg end))))
+        (unless (and (= cols width) (not odd))
+          (let ((line (buffer-substring beg end)))
+            (unless odd (puthash line cols org-air-view--width-memo))
+            (delete-region beg end)
+            (goto-char beg)
+            (insert (org-air-view--pad-to line width)))))
       (forward-line 1))))
 
 (defun org-air-view--pane-divider-line-p (line col)
@@ -7501,8 +7811,14 @@ DIVIDER-COL nil and are untouched."
     (while (not (eobp))
       (let* ((beg (line-beginning-position))
              (end (line-end-position))
+             ;; R99: take the display width from the BUFFER and seed the
+             ;; identity memo, so the cap test below is a hash read rather
+             ;; than a ~480-cons `string-width' per row in a frame.
+             (cols (progn (goto-char end) (current-column)))
              (line (buffer-substring beg end))
-             (capped (if (> (string-width line) width)
+             (_ (unless (string-match-p org-air-view--control-char-rx line)
+                  (puthash line cols org-air-view--width-memo)))
+             (capped (if (> (org-air-view--display-width line) width)
                          (truncate-string-to-width line width nil nil
                                                    (org-air-view--glyph 'more))
                        line))
@@ -10270,6 +10586,7 @@ buffer, so the board precondition is stated here as well as at
 entry core, the refresh machine's swap, the synchronous re-query) runs
 with the board buffer current already; nothing else may."
   (org-air-view--require-board)
+  (org-air-view--with-render-gc
   (let* ((inhibit-read-only t)
          ;; R27-1 S3: latch the reconciler for the FULL render extent so a
          ;; 0s reconcile timer nesting inside this render (org-ql's file IO
@@ -10316,7 +10633,11 @@ with the board buffer current already; nothing else may."
          ;; R20-6: the per-render displayed-rows memo (shared by the section
          ;; pass + the meta-width pass so they sort+take each bucket once).
          (org-air-view--render-displayed
-          (cons items (make-hash-table :test 'eq))))
+          (cons items (make-hash-table :test 'eq)))
+         ;; R99: the per-render pure-cell memo (tag chips, origin
+         ;; breadcrumb, keyword cell, priority slot).  One render's
+         ;; lifetime, so it has no invalidation rule and cannot leak.
+         (org-air-view--render-memo (make-hash-table :test 'equal :size 128)))
     (erase-buffer)
     ;; R20-2 + R20-6: cache the visible count for the status mode-line :eval
     ;; from the compute-once visible set (redisplay never re-scans all items).
@@ -10453,7 +10774,7 @@ with the board buffer current already; nothing else may."
     ;; R25-6: an INLINE (two-pane/stacked) self-render must also drop a
     ;; stale side rail owned by ANOTHER view (the cross-view sweep).  When
     ;; SELF is popped `--show' already re-owned the window, so this no-ops.
-    (org-air-rail--evict-foreign-rail (current-buffer))))
+    (org-air-rail--evict-foreign-rail (current-buffer)))))
 
 ;;;; ---------------------------------------------------------------------
 ;;;; R18 D-P1b incremental render — redraw only the changed body / calendar.
@@ -10499,7 +10820,9 @@ corresponding full-render line.  The pin keeps the divider straight on the
 inspector-region rows too (they are re-composed here AFTER finalize)."
   (if (integerp org-air-view-width)
       (org-air-view--pad-to line org-air-view-width)
-    (let* ((capped (if (> (string-width line) width)
+    ;; R99: LINE comes straight out of `org-air-view--buffer-lines-padded',
+    ;; which already seeded its width, so this is a memo read.
+    (let* ((capped (if (> (org-air-view--display-width line) width)
                        (truncate-string-to-width
                         line width nil nil (org-air-view--glyph 'more))
                      line))
@@ -10543,7 +10866,13 @@ one the R98 user reports TAB being slow in) no longer falls back to a
 full `org-air-view--render'.  Two consequences are handled here rather
 than wished away: the two-pane fill row carries the pane divider (taken
 from the composer, not from the stored one), and the two-pane inspector
-lives INSIDE this band, so its markers are re-bracketed at the tail."
+lives INSIDE this band, so its markers are re-bracketed at the tail.
+
+R99: the splice runs under `org-air-view--with-render-gc' for the same
+reason the full render does — it is ONE synchronous repaint, and letting
+the collector interrupt it two or three times was two thirds of what TAB
+cost in a real frame."
+  (org-air-view--with-render-gc
   (org-air-view--with-scroll-stable
    (let ((region (org-air-view--body-region)))
      (if (not region)
@@ -10571,6 +10900,12 @@ lives INSIDE this band, so its markers are re-bracketed at the tail."
                (org-air-view--compute-partition items))
               (org-air-view--render-displayed
                (cons items (make-hash-table :test 'eq)))
+              ;; R99: the same per-render pure-cell memo the full render
+              ;; binds -- the splice builds the SAME rows through the SAME
+              ;; composer, so it must get the same one-render cache or the
+              ;; TAB path pays a per-row cost the repaint path does not.
+              (org-air-view--render-memo
+               (make-hash-table :test 'equal :size 128))
               (beg (car region))
               (end (cdr region))
               (old-text (buffer-substring-no-properties beg end))
@@ -10640,7 +10975,7 @@ lives INSIDE this band, so its markers are re-bracketed at the tail."
          (when (eq org-air-view--orientation 'two-pane)
            (org-air-view--goto-first-item)
            (org-air-view--setup-inspector))
-         (org-air-view--restore-position token))))))
+         (org-air-view--restore-position token)))))))
 
 (defun org-air-view--render-calendar ()
   "Re-render ONLY the side-window rail buffer for the new month (R18 D-P1b).

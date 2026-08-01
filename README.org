@@ -246,6 +246,7 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | ~org-air-use-default-keybindings~   | ~t~                                          | Install org-air's default keys; set ~nil~ to install NONE (maps still exist for your own binds). |
 | ~org-air-inspector-max-title-lines~ | ~nil~                                        | Cap on wrapped inspector title lines (~nil~ = wrap fully).                |
 | ~org-air-section-expand-max~        | ~200~                                        | Most rows one ~TAB~ reveals when expanding a board section; the surplus stays behind the ~…and N more~ row and ~TAB~ on that row reveals the next batch. ~nil~ paints the whole section in one press. |
+| ~org-air-render-gc-threshold~       | ~16777216~ (16 MiB)                          | ~gc-cons-threshold~ floor for the extent of ONE board repaint; ~nil~ leaves the collector alone. A repaint allocates a few MB in a burst, and interrupting that burst two or three times was most of what a slow ~TAB~ felt like — see /Why a big section used to feel slow/. Never lowers a value you raised. |
 | *Project*                           |                                              |                                                                           |
 | ~org-air-sources~                   | ~nil~                                        | Where the project viewer finds Air content.                               |
 | ~org-air-project-group~             | ~directory~                                  | Default grouping: ~state~ / ~directory~ / ~tag~.                              |
@@ -260,6 +261,18 @@ org-air is useful out of the box; everything here is optional. These are the kno
 | ~org-air-faces-prefer-nano~         | ~nil~                                        | Link org-air faces to nano-theme's, when available.                       |
 
 All colour lives in ~org-air-faces.el~ — one default face plus six semantic roles (faded, subtle, salient, strong, popout, critical), each with explicit light /and/ dark specs and a TTY fallback. Retint everything by editing ~org-air-palette~.
+
+*** Why a big section used to feel slow
+
+Opening a section with a couple of hundred rows used to take about a second on a graphical frame, and every benchmark org-air had said it took 0.05 s. Both numbers were real; they were measured on different machines.
+
+*Emacs collects garbage on a completely different schedule in ~--batch~.* An interactive session runs with ~gc-cons-percentage~ at ~0.1~; ~emacs --batch~ keeps the startup value ~1.0~, which means "collect once the heap doubles" — i.e. not during a test. The same 191-item expand collected *zero* times in batch and *six* times in a frame, and in a session with Org, org-ql and your files open one collection costs around 55 ms. That single line of configuration was the whole gap.
+
+*And ~string-width~ costs real memory on a frame.* On pure ASCII it is free everywhere; on a string containing any non-ASCII character — and every org-air row carries ~■~, ~│~, ~▤~, ~…~ — measuring 120 columns allocates ~480 objects on a graphical frame and none in batch. Rows were being measured five to seven times each on the way to the screen.
+
+So the fix was not to draw less. Nothing on a row changed — the pills, squares and colours are byte-for-byte what they were. org-air now measures each composed line once (and takes the answer from the buffer, which already knows it), shares the row cells that repeat down a board within a single repaint, and lets one repaint's allocation burst finish before the collector runs. On the reported corpus that is 6–11 collections per ~TAB~ down to *one*, and 0.37–0.76 s down to *0.08–0.11 s*, with the default styles, in a real frame, redisplay included.
+
+If you want the number on *your* machine, ~M-x org-air-bench-expand-report~ measures it in the frame you are sitting in (~(require 'org-air-bench)~ first if you installed by hand rather than through ~package.el~). It builds its own throwaway corpus, never reads your files, and refuses to report anything from a terminal frame — on purpose, since that is the measurement that misled org-air for two rounds.
 
 *** Right-edge glyphs in a fringe-less GUI
 

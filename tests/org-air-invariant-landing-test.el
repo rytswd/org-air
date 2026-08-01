@@ -200,15 +200,42 @@ a key to any org-air mode map without adding it here fails
     org-air-revisit-mode-map org-air-review-mode-map)
   "The four mode maps the table must cover, in full.")
 
+(defun org-air-landing-invariant--pseudo-event-p (key)
+  "Non-nil when KEY is an internal MARKER event, not a key a user presses.
+
+R98 ORDER-DEPENDENCE FIX.  Evil registers its state machinery INSIDE the
+mode map, under symbolic pseudo-events (`override-state',
+`intercept-state', `motion-state', …) whose stored value is an evil STATE
+name or an auxiliary keymap — `[override-state] -> motion' is what
+`evil-mode' + one `org-air-view-mode' buffer leaves in
+`org-air-view-mode-map', permanently, for the rest of the Emacs process.
+
+That made this family ORDER-DEPENDENT: run before the evil suites
+\(alphabetically, `org-air-landing-*' precedes `org-air-r27-*') the maps
+are clean and the table is complete; run after them — in reverse or any
+shuffled order — the walk found the state symbol `motion', demanded a
+landing classification for it, and reddened five tests.  A suite that
+passes only in one running order is not a gate.
+
+Skipping these is not a weakening: they are not reachable keys.  No key
+sequence produces them (they are markers evil looks up by name), and
+`motion' is not even a command.  The law — every command a USER can
+press is classified — is untouched."
+  (and (symbolp key)
+       (string-suffix-p "-state" (symbol-name key))))
+
 (defun org-air-landing-invariant--map-commands (map)
   "Return every COMMAND SYMBOL bound anywhere in MAP (parents included).
 `map-keymap' walks the parent chain, so the shared view-core map and the
 `special-mode-map' inheritance come along — which is exactly right: a
-user pressing a key does not know which map answered."
+user pressing a key does not know which map answered.
+Internal marker events (`org-air-landing-invariant--pseudo-event-p') are
+skipped: they are not keys, so nothing a user can press is lost."
   (let ((acc nil))
     (map-keymap
-     (lambda (_key def)
+     (lambda (key def)
        (cond
+        ((org-air-landing-invariant--pseudo-event-p key) nil)
         ((keymapp def)
          (setq acc (append (org-air-landing-invariant--map-commands def) acc)))
         ((and (symbolp def) def) (push def acc))))

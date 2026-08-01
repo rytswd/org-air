@@ -444,3 +444,201 @@ told not to make one.
    Note that when it lands, an unknown state's letter is its bare initial,
    so =weird= → =W= collides with work-in-progress; the R25-4 letter map
    needs a disambiguation rule first.
+
+* Test round — retest 1 (tests + this history only)
+
+Sources were NOT touched: every =org-air*.el= and =README.org= is
+byte-identical to the implementation commit (SHA-256 re-verified after
+every mutation, table below).  Nine test files changed.
+
+** 1. =r95-19= leg 2 — RE-BLESSED, the stronger shape
+
+Taken as the design predicted, and in the shape it preferred: leg 2 no
+longer means "no fold row remains" (which paging deliberately breaks) but
+"the probe revealed MORE rows than the collapsed window can hold" —
+
+: fold-expanded (> (length rows) (org-air-view--section-limit 'untracked))
+
+plus a standalone =(should (> (length rows) (--section-limit 'untracked)))=
+so the anti-vacuity claim is legible on its own.  True under any
+=org-air-section-expand-max= (bounded or nil), so the fence stops carrying
+an accidental opinion about paging.  =org-air-section-expand-max= was NOT
+bound to nil: the fence now runs with the shipped default, which is the
+configuration users have.
+
+*The fence still reddens.*  With the pre-R95 =memq=/=assq= quota spliced
+back into =org-air-view--collapsed-window=, the re-blessed test fails at
+=clean=6020= violations (and =r90-50= with it) — while the re-blessed leg
+2 is *satisfied* in the same run (=rows=200= against a limit of 4).  So
+the re-bless removed the obsolete clause without removing the law.
+
+** 2. The two legend tests were ORDER-DEPENDENT — root cause found
+
+Not "this seat's batch frame metrics" (the R98 seat's honest guess) and
+not a re-probe: *the rail's top block is the CALENDAR, and it lays out the
+REAL current month.*
+
+- A month needing SIX week rows (a 31-day month starting Fri/Sat — e.g.
+  =2026-08=) pushes every rail block below it down ONE line versus a
+  five-row month (e.g. the suite's own frozen =2026-06=).
+- The Actions legend then crosses the pathological minimum fold by
+  exactly one line: =(<= 27 26)= and =(<= 31 30)= — the two reported
+  failures, to the line.
+- That explains every observation at once: PASS in the supervisor's full
+  =make check= and FAIL minutes later via a selector (the runs straddled
+  midnight into 2026-08-01), FAIL in the worker's PTY (same day), FAIL
+  for this seat alone *and* in the full gate.  It was never the running
+  order as such — it was the DAY, and running order only decided which
+  side of midnight a run landed on.
+
+Fixed by pinning what the assertion needs instead of inheriting it:
+
+| test    | ambient input removed | how |
+|---------+-----------------------+-----|
+| =r26-3= | the clock | wrapped in =org-air-viewport-test--with-frozen-now= (=org-air-test-now=, 2026-06) |
+| =r26-3= | the frame | =org-air-r26--pin-window-body-height= MEASURES and corrects until the side window's body height is EXACTLY 26 / 27, asserts the pin, and the fold arithmetic then states the pinned NUMBER instead of re-reading the host |
+| =r49-4= | the clock | same freeze inside =org-air-r49--with-tall-inline-project= |
+| =r49-4= | the frame | frame pinned around the render (the render height/width were already pinned by the =org-air-view-height= / =-width= seams) |
+
+Nothing asserted was weakened.  Both tests still say "the Actions legend
+is reachable in the first windowful at the pathological minimum height",
+and =r26-3= gained an anti-vacuity leg it never had: the rail content
+really is TALLER than the window, so "within the fold" is a claim about a
+genuine fold.
+
+Verified identical ALONE (ERT selector), in the FULL gate, under a PTY
+(=script -qec 'make check'=), and with the frame started at 200x60 and at
+40x12.
+
+** 3. THE AUDIT — how many, and what class
+
+Four instruments, each run over the whole suite:
+
+1. *running order* — the suite re-run in REVERSE definition order and
+   under three seeded shuffles (12345 / 987654321 / 42);
+2. *global state* — 419 =org-air-*= globals snapshotted between EVERY one
+   of the 1367 tests and diffed;
+3. *ambient geometry / terminal* — the whole suite under frames 200x60
+   and 40x12, under =TERM=dumb=, =COLUMNS=37 LINES=9=, and under a PTY;
+4. *ambient clock* — the whole suite with the host clock deep-shimmed
+   +45 and +180 days.
+
+*Found: 21 order-dependent tests in 4 causes, plus 27 locale-dependent
+tests in 1 cause.  All fixed.*
+
+| # | cause | tests affected | fix (all in tests/) |
+|---+-------+----------------+---------------------|
+| 1 | THE CLOCK (calendar week-row count) | 2 — =r26-3=, =r49-4= | frozen clock + pinned geometry (above) |
+| 2 | EVIL leaks =[override-state] -> motion= into =org-air-view-mode-map= the first time any test opens a board with =evil-mode= on — permanently, process-wide | 5 — =landing-invariant-table-is-complete= and the four =*-commands-land-on-a-row= | the keymap walk skips symbolic MARKER events (=…-state=); they are not keys a user can press and =motion= is not a command, so the law is untouched |
+| 3 | =org-air-project-group= leaked GLOBALLY: the =s/d/t= grouping verbs =setq= the dynamic variable (by design — that is how a grouping survives a refresh), so a test that drove them left the grouping set for the rest of the process, and a project view opened later inherited it | 13 — 12 leakers + =org-air-echo-project-verbs-report-their-new-state=, which then saw a =tag=-grouped view with TWO fold rows and so never reached its "no dropped folds" no-op | ONE binding each in the two shared harnesses (=org-air-project-test--render= / =--render-lines=): the setq now hits the binding, so the grouping still persists across everything the body does and stops at the harness edge.  All 12 leaks gone, verified by re-running the state differ |
+| 4 | =org-air-return-mode-map= is a PROCESS-GLOBAL keymap production mutates on every visit, so =r35-1c-return-key-empty-opt-out-independent= was asserting about the whole preceding run | 1 | the map is bound PRISTINE for the test, plus an anti-vacuity check that it really starts empty |
+| 5 | THE LOCALE.  Emacs picks =load= / =insert-file-contents= coding from =LANG=; under a non-UTF-8 locale the UTF-8 sources and byte goldens decode as latin-1 and the whole glyph vocabulary turns to mojibake | 27 (measured: =LANG=C make check= = 27 unexpected) | =tests/org-air-test-init.el= states the encoding it needs (=prefer-coding-system 'utf-8-unix= + terminal/keyboard/locale coding) before anything loads.  =LANG=C LC_ALL=C= now 0 unexpected; a UTF-8 locale is unaffected — the pin is a no-op there |
+
+*Deliberately NOT "fixed":*
+
+- 18 internal render-scratch globals (=--meta-tags-w=,
+  =--inspector-region-height=, the edit ring, the query work buffer, the
+  skip log, two idle timers, …) do change between tests.  None is a
+  SETTING: every one is recomputed by the next render or is a log, and no
+  test's verdict moves with them.  Chasing them would be churn.
+- The clock probe flags =org-air-r53fix-b1-day-groups-read-subtree-ts=.
+  That is an artefact of the INSTRUMENT: the test compares a file's real
+  MTIME against "today", and a function-cell shim cannot move the
+  filesystem.  A real clock change moves both together.  Confirmed by
+  deepening the shim (=float-time=, =format-time-string=, =decode-time=
+  with no argument): two of the three flagged tests went green and only
+  the mtime one remained.
+
+** 4. NEW COVERAGE — =tests/org-air-round98-test.el= (14 tests)
+
+TAB:
+
+- =r98-1= ONE TAB reveals at most =org-air-section-expand-max= rows; the
+  batch is the KNOB's value (200 and 25 both checked); and it is CONSTANT
+  IN SECTION SIZE — 500 and 2000 members reveal the same 200.
+- =r98-2= the fold row's TWO sentences, mutually exclusive: the collapsed
+  one is the byte-frozen R51-3 text; the R98 one names ITSELF as the
+  target and states the next batch — and is HONEST at the end (=reveal
+  100 more= when 100 remain, never =200=).
+- =r98-3= paging to the end (the fold row disappears — bounded never means
+  truncated), the budget FORGOTTEN on collapse, and keyed per section.
+- =r98-4= the bound OFF (nil, and a non-positive value) restores the
+  pre-R98 unbounded expand.
+- =r98-5= EVERY orientation splices: board-only / stacked / two-pane /
+  side-window each assert ZERO calls to =org-air-view--render= and a
+  buffer =equal-including-properties= to a full render of the same
+  expansion state (R18 equivalence, now owed by all four).
+- =r98-6= R53: header TAB, fold-row TAB and collapse each query ZERO
+  times (=org-air-query-items=, =--items-in-files=, =--scan-file=,
+  =find-file-noselect= all spied), with the spies proved live.
+
+The dropped family:
+
+- =r98-7= one predicate over one list; case-insensitive; nil/non-string
+  no; =complete= excluded; rebinding the option moves the answer.
+- =r98-8= each member folds INDEPENDENTLY — five sections, five own keys,
+  TAB on Out reveals Out and leaves Off/Dropped/Canceled/Cancelled
+  folded, and re-collapsing Out puts only Out's row back.
+- =r98-9= =complete= never folds and never recedes — and opting it in
+  WOULD fold it, so the exclusion is a choice, not an accident.
+- =r98-10= an unknown state gets its own section, renders inline,
+  tokenises =EXPER=, stays FADED (not terminal-negative), is not dimmed,
+  and ranks 6 — after every live state, before every dead one.
+- =r98-11= badges/letters byte-unchanged; =K= for both cancel spellings,
+  never =C=; =K= is the ONLY deliberate duplicate in the letter map.
+- =r98-12= the three-tier ladder (ready 0 … cancelled 9), every R80
+  relation intact, no ties among the dead, and the RENDERED row order
+  obeys it.
+- =r98-13= the per-directory rollup counts the family (=R4 C1 K2=,
+  =K1(+2)=) with the airctl prefix byte-unchanged; an unknown state is
+  still omitted there, by the pre-R98 contract.
+- =r98-14= the family dims the TITLE BAND while the badge cell on the
+  same rendered row keeps its own OUT face.
+
+** 5. MUTATION EVIDENCE
+
+Each revert applied ALONE to pristine sources, then reverted.
+
+| # | reverted | named test that reddens | evidence |
+|---+----------+-------------------------+----------|
+| 1 | the paging bound (=--take-revealed= returns every row) | =org-air-r98-1-expand-is-bounded-by-section-expand-max= | + =r98-2=, =r98-3=, =r98-6= (4 red) |
+| 2 | the two-pane splice (non-board-only falls back to =--render-current=) | =org-air-r98-5-tab-splices-in-every-orientation= | =(= 0 renders)= → =(= 0 1)= at orientation =stacked= |
+| 3 | the dropped-family predicate (back to =(equal state "dropped")=) | =org-air-r98-7-dropped-family-is-one-predicate-over-one-list= | + =r98-8=, =r98-9=, =r98-11=, =r98-14= (5 red) |
+| 4 | the independent-fold =:state= (removed from =--sections-by-state=) | =org-air-r98-8-each-family-member-folds-independently= | + =r98-14= (2 red) |
+| 5 | the =complete= exclusion (=complete= added to the family) | =org-air-r98-9-complete-never-folds-and-never-recedes= | + =r98-7=, =r98-8=, =r98-14= (4 red) |
+| 6 | the R95 hash quota → the pre-R95 =memq=/=assq= one | =org-air-r95-19-repaint-is-linear-in-both-gate-modes= | =clean=6020=; =r90-50= red too; the RE-BLESSED leg 2 still satisfied (=rows=200=) |
+
+Restored byte-identical after every one:
+
+: 1aa92772cd2def469335b45ede970a14ee226345f4c8346dfd1d6aaf3fd5f3ff  org-air-view.el
+: 0e70c644a555d6994bcd5c51d415bf2f2d5e640037e2fcab37ba2a53be5bc8d1  org-air-project.el
+: 680c96603dc6b907adc30381b118fc47f4f70075d2ce5b4c2793de36e7d84e88  README.org
+
+(=sha256sum -c= over all eleven =org-air*.el= plus the README: all OK.)
+
+** 6. GATE
+
+| gate | result |
+|------+--------|
+| =make clean && make check= (COMPILED, 11 =.elc=) | =Ran 1367 tests, 1359 results as expected, 0 unexpected, 8 skipped= |
+| same suite with no =.elc= (INTERPRETED) | =Ran 1367 tests, 1359 results as expected, 0 unexpected, 8 skipped= |
+| =make check= under a PTY (=script -qec=) | =0 unexpected= |
+| REVERSE definition order | =0 unexpected= |
+| shuffled orders, seeds 12345 / 987654321 / 42 | =0 unexpected= each |
+| frame 200x60 / 40x12, =TERM=dumb=, =COLUMNS=37 LINES=9= | =0 unexpected= each |
+| =LANG=C LC_ALL=C= | =0 unexpected= (was 27 before the encoding pin) |
+| ambient clock +45d / +180d | =0 unexpected= besides the mtime instrument artefact above |
+| =make lint= | =lint: ok (0 findings, all baselined)= |
+| known-failures manifest | =()= — nothing masked |
+| =make regen-mockups= | byte NO-OP — zero fixture bytes changed |
+| =make check-gui= | not run — no DISPLAY in this environment |
+| implementation | PRISTINE (SHA-256 above) |
+
+Every long command ran under an explicit =timeout=; nothing was left
+unbounded, and nothing had to be recorded as "not measured".
+
+** 7. Follow-ups still open
+
+The R98 seat's list stands minus items 1 and 2, which this round closed.
+Still open: the 10k measurement (3), the per-row width memo (4), and the
+unknown-state rollup letter with its R25-4 disambiguation rule (5).

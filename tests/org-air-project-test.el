@@ -45,13 +45,25 @@
   "Open the Air-project view over the fixture tree; run BODY in its buffer.
 Binds `org-air-sources' to the single fixture project so the command
 opens it directly, finds the `org-air-project-mode' buffer, and kills it
-afterwards.  Skips cleanly until impl2 provides the command."
+afterwards.  Skips cleanly until impl2 provides the command.
+
+R98 ORDER-DEPENDENCE FIX — `org-air-project-group' IS REBOUND HERE.  The
+`s'/`d'/`t' grouping verbs (`org-air-project-group-by-state' and friends)
+SETQ the dynamic variable, by design: that is how a grouping survives a
+refresh.  Driven from a test they therefore left the grouping set for
+EVERY LATER TEST IN THE PROCESS, and a project view opened afterwards
+inherited it — so `how many dropped fold rows does this view have?'
+depended on which project test ran last.  Rebinding here makes the setq
+hit this binding: the grouping still persists across everything BODY
+does (refresh, resize, sort), which is what those tests assert, and stops
+at the macro's edge, which is what the next test needs."
   (declare (indent 0) (debug t))
   `(progn
      ;; GRIND: fail (not skip) until impl2 provides the command, so the
      ;; punch list shows red.  The render+assertions run once it exists.
      (should (fboundp 'org-air-project))
-     (let ((org-air-sources (list (list :air org-air-project-test-root))))
+     (let ((org-air-sources (list (list :air org-air-project-test-root)))
+           (org-air-project-group org-air-project-group))
        (org-air-test-with-frozen-project-path org-air-project-test-root
         (org-air-project-test--with-frozen-mtime
         (save-window-excursion
@@ -217,6 +229,9 @@ The clock is frozen to `org-air-test-now' (matching the regen tool) so the
 D-P1.B project inspector's relative date terms (created/updated `(Nd ago)')
 are byte-stable, and the file mtime is pinned for the same reason."
   (let ((org-air-sources (list (list :air org-air-project-test-root)))
+        ;; R98: GROUP-FN setqs the dynamic grouping (see
+        ;; `org-air-project-test--render') — contain it to this render.
+        (org-air-project-group org-air-project-group)
         (org-air-project-view-width width))
     (org-air-test-with-frozen-project-path org-air-project-test-root
      (org-air-viewport-test--with-frozen-now
@@ -431,7 +446,14 @@ clear-restores conjuncts assert every NON-dropped title + the fold row
 Delta doc VISIBLE — the R48-3 filter bypass
 (air/v0.5/org-air-round48-design.org §R48-3)."
   (skip-unless (locate-library "org-air"))
-  (let ((org-air-project-view-width 100))
+  ;; R98 ORDER-DEPENDENCE FIX: this test SETQs the shared `org-air-filter-
+  ;; match' user option (to `all', then `any') and used to leave it on
+  ;; `any' for every later test in the process — so any test that filtered
+  ;; afterwards silently got OR semantics, and which tests those were
+  ;; depended entirely on the running order.  Bound here so the setqs hit
+  ;; the binding: identical inside, no residue outside.
+  (let ((org-air-project-view-width 100)
+        (org-air-filter-match org-air-filter-match))
     (org-air-project-test--render
      (when (commandp 'org-air-project-group-by-state)
        (call-interactively 'org-air-project-group-by-state))

@@ -27,6 +27,7 @@
 (require 'subr-x)
 (require 'org)
 (require 'org-air-test-helpers)
+(require 'org-air-viewport-helpers)        ; frozen clock + frozen mtime
 (require 'org-air-project-test)            ; project fixture root + render
 
 (when (locate-library "org-air")
@@ -121,9 +122,47 @@ height so the fold-line assertions are deterministic."
          (progn ,@body)
        (set-frame-size (selected-frame) 80 25))))
 
+(defconst org-air-r26--pin-frame-columns 100
+  "Frame width the rail-geometry pins use.  Never inherited from the host.")
+
+(defun org-air-r26--pin-window-body-height (win target)
+  "Resize WIN's frame until WIN's BODY height is exactly TARGET lines.
+Return non-nil only when the pin succeeded.
+
+R98 DETERMINISM.  A test that asserts a PATHOLOGICAL MINIMUM window
+height must own that height, not inherit it.  The map from a frame's
+text-line count to a side window's body height is decoration arithmetic
+\(mini-window, mode line, and on a graphical frame the tool/tab bars),
+and it is NOT a constant across display types — so a fixed
+`set-frame-size' guess silently lands the assertion one line either side
+of the probe depending on the host.  This measures the real body height
+and corrects the frame until the contract holds, so the caller can state
+the height as a NUMBER and the assertion means the same thing alone, in
+the full suite, under a PTY and without one."
+  (let ((frame (window-frame win))
+        (lines (+ target 2))
+        (tries 0)
+        (ok nil))
+    (while (and (not ok) (< tries 8))
+      (set-frame-size frame org-air-r26--pin-frame-columns lines)
+      (let ((got (window-body-height win)))
+        (if (= got target)
+            (setq ok t)
+          (setq lines (+ lines (- target got))
+                tries (1+ tries)))))
+    ok))
+
 ;;;; =====================================================================
 ;;;; R26-3 — project shortcut legend + RET (driven with the rail POPPED).
 ;;;; =====================================================================
+
+(defconst org-air-r26--legend-header-body-height 26
+  "Pathological MINIMUM side-window body height at which the Actions
+HEADER still lands inside the first windowful (structurally probed).")
+
+(defconst org-air-r26--legend-verb-body-height 27
+  "One line taller than `org-air-r26--legend-header-body-height': the
+Actions header AND the first verb row are both inside the fold.")
 
 (ert-deftest org-air-r26-3-legend-on-screen-popped ()
   "The popped project rail keeps the Actions legend reachable when short.
@@ -140,38 +179,73 @@ body 27).  The guarantee splits: at body height 26 the Actions HEADER is
 still within the fold (the legend never vanishes from a short rail), and
 one line taller (body 27) the header AND the `RET open' first verb row
 are both on screen — the original R26-3 law at the minimum height where
-it is now structurally achievable."
+it is now structurally achievable.
+
+R98 — THE ORDER/AMBIENT DEPENDENCE, REMOVED (what this test asserts is
+unchanged; what it INHERITED is not).  Two ambient inputs used to decide
+the verdict, so the same sources passed or failed depending on the day
+and on the running order:
+
+  1. THE CLOCK.  The rail's top block is the CALENDAR, and
+     `org-air-calendar-insert-month' lays out the REAL current month.
+     A month needing SIX week rows (any 31-day month starting Friday or
+     Saturday, e.g. 2026-08) pushes the whole rail — Actions included —
+     one line further down than a five-row month (e.g. the suite's own
+     2026-06).  So this assertion silently flipped at a month boundary,
+     which is exactly the shape of `passed yesterday, fails today', and
+     also of `passes in the suite, fails alone' whenever the two runs
+     straddle midnight.  The clock is now FROZEN to `org-air-test-now'
+     like every other date-sensitive suite.
+  2. THE FRAME.  `set-frame-size' + `window-body-height' is decoration
+     arithmetic that differs by display type, so a fixed frame-line count
+     is a GUESS at the body height the law is about.  The body height is
+     now PINNED and asserted (`org-air-r26--pin-window-body-height'), and
+     the fold arithmetic states the pinned NUMBER rather than re-reading
+     whatever the host produced.
+
+Anti-vacuity (new, and a strengthening): the rail content really is
+TALLER than the window at these heights, so `within the fold' is a
+claim about a genuine fold and not about a window that shows everything."
   (skip-unless (locate-library "org-air"))
-  ;; body 26: the Actions header itself still lands within the fold.
-  (org-air-r26--with-frame-lines 28      ; side window body-height = 26
-    (org-air-r26--with-live-project
-      (org-air-r26--pop-rail)
-      (let ((side (org-air-rail--side-window)))
-        (should (window-live-p side))
-        (with-current-buffer org-air-rail-buffer-name
-          (goto-char (point-min))
-          (should (search-forward "Actions" nil t))
-          (let ((actions-line (line-number-at-pos (match-beginning 0)))
-                (start-line (line-number-at-pos (window-start side)))
-                (h (window-body-height side)))
-            (should (<= (1+ (- actions-line start-line)) h)))))))
-  ;; body 27 (one taller): header + first verb row inside the fold.
-  (org-air-r26--with-frame-lines 29      ; side window body-height = 27
-    (org-air-r26--with-live-project
-      (org-air-r26--pop-rail)
-      (let ((side (org-air-rail--side-window)))
-        (should (window-live-p side))
-        (with-current-buffer org-air-rail-buffer-name
-          (goto-char (point-min))
-          (should (search-forward "Actions" nil t))
-          (let ((actions-line (line-number-at-pos (match-beginning 0))))
-            (should (search-forward "RET open" nil t))
-            (let ((ret-line (line-number-at-pos (match-beginning 0)))
-                  (start-line (line-number-at-pos (window-start side)))
-                  (h (window-body-height side)))
-              ;; header + first verb row inside the window's fold.
-              (should (<= (1+ (- actions-line start-line)) h))
-              (should (<= (1+ (- ret-line start-line)) h)))))))))
+  (org-air-viewport-test--with-frozen-now
+    ;; body 26: the Actions header itself still lands within the fold.
+    (org-air-r26--with-frame-lines (+ org-air-r26--legend-header-body-height 2)
+      (org-air-r26--with-live-project
+        (org-air-r26--pop-rail)
+        (let ((side (org-air-rail--side-window))
+              (h org-air-r26--legend-header-body-height))
+          (should (window-live-p side))
+          ;; PINNED, not inherited — and the pin is asserted.
+          (should (org-air-r26--pin-window-body-height side h))
+          (should (= h (window-body-height side)))
+          (with-current-buffer org-air-rail-buffer-name
+            ;; anti-vacuity: there really is a fold to be inside of.
+            (should (> (line-number-at-pos (point-max)) h))
+            (goto-char (point-min))
+            (should (search-forward "Actions" nil t))
+            (let ((actions-line (line-number-at-pos (match-beginning 0)))
+                  (start-line (line-number-at-pos (window-start side))))
+              (should (<= (1+ (- actions-line start-line)) h)))))))
+    ;; body 27 (one taller): header + first verb row inside the fold.
+    (org-air-r26--with-frame-lines (+ org-air-r26--legend-verb-body-height 2)
+      (org-air-r26--with-live-project
+        (org-air-r26--pop-rail)
+        (let ((side (org-air-rail--side-window))
+              (h org-air-r26--legend-verb-body-height))
+          (should (window-live-p side))
+          (should (org-air-r26--pin-window-body-height side h))
+          (should (= h (window-body-height side)))
+          (with-current-buffer org-air-rail-buffer-name
+            (should (> (line-number-at-pos (point-max)) h))
+            (goto-char (point-min))
+            (should (search-forward "Actions" nil t))
+            (let ((actions-line (line-number-at-pos (match-beginning 0))))
+              (should (search-forward "RET open" nil t))
+              (let ((ret-line (line-number-at-pos (match-beginning 0)))
+                    (start-line (line-number-at-pos (window-start side))))
+                ;; header + first verb row inside the window's fold.
+                (should (<= (1+ (- actions-line start-line)) h))
+                (should (<= (1+ (- ret-line start-line)) h))))))))))
 
 (ert-deftest org-air-r26-3-legend-truth-table-driven ()
   "Every key named in the Actions legend table resolves via `key-binding'

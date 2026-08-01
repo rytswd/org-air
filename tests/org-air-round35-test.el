@@ -356,10 +356,25 @@ a no-op; a genuine flip runs exactly once; a repeat flip is guarded."
 even with the knob t, `org-air-view--enable-return' installs NO return key
 when `org-air-return-key' is \"\" — no map entry resolves to `org-air-return'
 \(the pre-existing per-key opt-out still wins), and the return minor mode is
-still enabled."
+still enabled.
+
+R98 ORDER-DEPENDENCE FIX.  `org-air-return-mode-map' is a PROCESS-GLOBAL
+keymap that production MUTATES on every visit
+\(`org-air-view--enable-return' installs `org-air-return-key' into it), so
+`nothing in the map resolves to `org-air-return'' was a statement about
+the whole preceding run, not about this call: any earlier test that
+visited an item with the knob on leaves `C-c b' in the shared map, and
+this assertion then reddens.  It passed only because those leakers happen
+to sort AFTER it — in reverse or shuffled order it fails.  The map is now
+PRISTINE for the duration, which is what the test always meant.  Nothing
+asserted is weakened: the same `should-not' runs against the same map,
+built fresh."
   (skip-unless (locate-library "org-air"))
   (org-air-r35--with-knob t
-    (let ((org-air-return-key ""))
+    (let ((org-air-return-key "")
+          (org-air-return-mode-map (make-sparse-keymap)))
+      ;; anti-vacuity: the pin really is an EMPTY map before the call.
+      (should-not (where-is-internal 'org-air-return org-air-return-mode-map))
       (with-temp-buffer
         (org-mode)
         ;; no error, mode enabled, and NO key resolves to org-air-return.

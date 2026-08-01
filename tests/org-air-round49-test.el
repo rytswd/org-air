@@ -272,16 +272,31 @@ to the doc-h foot), not on the placement seed."
                  (org-air-rail-placement '((board . inline)
                                            (project . inline)))
                  (org-air-rail-focus-on-popout nil))
-             (org-air-project-test--with-frozen-mtime
-              (save-window-excursion
-                (org-air-r26--kill-aux-buffers)
-                (let ((noninteractive nil))
-                  (org-air-project))
-                (let ((buf (get-buffer "*org-air-project*")))
-                  (should buf)
-                  (unwind-protect
-                      (with-current-buffer buf ,@body)
-                    (org-air-r26--kill-aux-buffers)))))))
+             ;; R98 DETERMINISM.  The rail's top block is the CALENDAR,
+             ;; and `org-air-calendar-insert-month' lays out the REAL
+             ;; current month: a six-week-row month (any 31-day month
+             ;; starting Fri/Sat) pushes every rail block below it down
+             ;; ONE line relative to a five-week-row month.  Actions then
+             ;; crosses the pinned `org-air-r49--tall-height' fold and
+             ;; this test flips at a month boundary — a verdict that
+             ;; depends on the day, and (across midnight) on the running
+             ;; order.  Frozen like every other date-sensitive suite.
+             ;; The RENDER geometry is pinned explicitly by
+             ;; `org-air-view-height' / `org-air-project-view-width'
+             ;; above, and the frame is pinned too so no `window-body-*'
+             ;; fallback can read the host's terminal instead.
+             (org-air-viewport-test--with-frozen-now
+              (org-air-project-test--with-frozen-mtime
+               (org-air-r26--with-frame-lines (+ org-air-r49--tall-height 2)
+                 (save-window-excursion
+                   (org-air-r26--kill-aux-buffers)
+                   (let ((noninteractive nil))
+                     (org-air-project))
+                   (let ((buf (get-buffer "*org-air-project*")))
+                     (should buf)
+                     (unwind-protect
+                         (with-current-buffer buf ,@body)
+                       (org-air-r26--kill-aux-buffers)))))))))
        (delete-directory root t))))
 
 (ert-deftest org-air-r49-4-project-inline-legend-first-windowful ()

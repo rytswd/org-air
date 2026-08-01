@@ -1878,14 +1878,30 @@ Five legs:
   1. a full repaint over 1200 items across 4 files does ZERO item-wise
      linear scans;
   2. ANTI-VACUITY — the probe really did the work: rows were painted, the
-     quota really ran (at most two rows per file), and the fold row
-     really expanded;
+     quota really ran (at most two rows per file), and TAB on the fold
+     row really REVEALED rows the collapsed window had hidden;
   3. ANTI-VACUITY — the shim really was live: the SAME probe with the
      pre-R95 `memq' quota spliced in counts thousands of violations;
   4. the count in leg 3 scales with the corpus, which is what makes this
      a LINEARITY fence and not a style check;
   5. and it is all restored: the board is killed and the primitives are
-     the ones Emacs shipped."
+     the ones Emacs shipped.
+
+R98 RE-BLESS OF LEG 2 (air/v0.1/org-air-round98-design.org).  Leg 2 used
+to spell `the fold row really expanded' as `no …and N more row
+remains'.  R98 makes that spelling WRONG BY DESIGN: an expanded section
+paints at most `org-air-section-expand-max' rows and the surplus stays
+behind the SAME fold row, which now counts the remainder and invites the
+next batch — so a 1200-member section that expanded perfectly still shows
+a fold row.  The re-bless states what leg 2 was always FOR: the probe
+revealed MORE rows than the collapsed window can hold, i.e. TAB really
+opened the section.  That is true under any `org-air-section-expand-max'
+(bounded, or nil for the unbounded pre-R98 behaviour), so the fence stops
+carrying an accidental opinion about paging.
+
+The fence itself — leg 1's ZERO item-wise linear scans over a full
+repaint — is UNTOUCHED and still reddens under the `memq'/`assq' mutant
+(legs 3 and 4)."
   (skip-unless (locate-library "org-air"))
   (let* ((files (mapcar (lambda (i) (format "/tmp/org-air-r95-scale/f%d.org" i))
                         (number-sequence 1 4)))
@@ -1914,11 +1930,15 @@ Five legs:
               (org-air-r95--counting-linear-scans
                 (org-air-r95--repaint-probe items board)
                 (setq clean org-air-r95--forbidden))
-              ;; 2. the probe really did the work
+              ;; 2. the probe really did the work.  R98 re-bless: TAB
+              ;; PAGES a big section open, so `expanded' is `more rows
+              ;; than the collapsed window could hold', not `no fold row
+              ;; left' — see the docstring.
               (with-current-buffer board
                 (setq rows (org-air-r95--rows 'untracked)
-                      fold-expanded (null (org-air-r95--more-row-position
-                                           'untracked))))
+                      fold-expanded (> (length rows)
+                                       (org-air-view--section-limit
+                                        'untracked))))
               ;; 3 + 4. the shim really was live, and it SCALES
               (dolist (count '(300 1200))
                 (let ((scaled (org-air-r95--scale-items count files)))
@@ -1941,6 +1961,7 @@ Five legs:
       (should (= 0 clean))
       ;; 2
       (should (> (length rows) 0))
+      (should (> (length rows) (org-air-view--section-limit 'untracked)))
       (should fold-expanded)
       ;; 3
       (should (> mutant-small 100))

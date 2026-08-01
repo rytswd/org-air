@@ -68,7 +68,9 @@ so the user continues narrowing instead of restarting."
 (ert-deftest org-air-r18-dp2-toggle-match-flips-and-echoes ()
   "`org-air-filter-toggle-match' flips `all' <-> `any' and re-renders."
   (org-air-viewport-test-with-dashboard 140
-    (setq org-air-filter-match 'all)
+    ;; R98: no global `setq' here — the binding below is the whole state
+    ;; this test needs, and writing the global first only let the test
+    ;; edit the process for whatever ran next.
     (let ((org-air-filter-match 'all))
       (org-air-filter-toggle-match)
       (should (eq org-air-filter-match 'any))
